@@ -32,7 +32,7 @@ pub struct SessionSearchOpts {
 }
 
 pub struct AgentRegistry {
-    providers: RwLock<HashMap<String, Box<dyn AgentProvider>>>,
+    providers: RwLock<HashMap<String, Arc<dyn AgentProvider>>>,
     /// First provider displaced for an id (the native one a JS plugin took
     /// authority over). Kept so a JS plugin can delegate capability methods it
     /// doesn't implement to the native impl. Never overwritten by later
@@ -146,6 +146,7 @@ impl AgentRegistry {
     /// provider can delegate unimplemented capabilities to it. Later
     /// re-registrations (hot-reload) don't disturb the recorded fallback.
     pub fn register_provider(&self, provider: Box<dyn AgentProvider>) {
+        let provider: Arc<dyn AgentProvider> = Arc::from(provider);
         let id = provider.id().to_string();
         log::info!("[agent-registry] registered provider: {}", id);
         let mut guard = self.providers.write();
@@ -159,7 +160,7 @@ impl AgentRegistry {
                 self.native_fallbacks
                     .write()
                     .entry(id.clone())
-                    .or_insert_with(|| Arc::from(prev));
+                    .or_insert(prev);
             }
         }
         guard.insert(id.clone(), provider);
@@ -183,7 +184,7 @@ impl AgentRegistry {
             return false;
         }
         log::info!("[agent-registry] registered provider: {}", id);
-        guard.insert(id.clone(), provider);
+        guard.insert(id.clone(), Arc::from(provider));
         drop(guard);
         self.mark_startup_provider_loaded(&id);
         true
@@ -208,6 +209,19 @@ impl AgentRegistry {
     {
         let guard = self.providers.read();
         guard.get(id).map(|p| f(p.as_ref()))
+    }
+
+    /// Clone the `Arc` for a provider so it can be moved into a background task
+    /// (e.g. live model discovery on the blocking pool) without holding the
+    /// registry lock for the task's duration.
+    pub fn provider_arc(&self, id: &str) -> Option<Arc<dyn AgentProvider>> {
+        self.providers.read().get(id).cloned()
+    }
+
+    /// Clone every registered provider's `Arc`. Used by startup model-catalog
+    /// warming to fan out one discovery task per provider.
+    pub fn all_provider_arcs(&self) -> Vec<Arc<dyn AgentProvider>> {
+        self.providers.read().values().cloned().collect()
     }
 
     /// Get a provider by ID (e.g. "claude").

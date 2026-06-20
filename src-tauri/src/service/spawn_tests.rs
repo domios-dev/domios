@@ -74,6 +74,7 @@ impl ModelProvider {
                     id: (*id).into(),
                     display_name: (*id).into(),
                     description: None,
+                    available: None,
                 })
                 .collect(),
             default_model: model_ids.first().map(|id| (*id).to_string()),
@@ -293,6 +294,7 @@ fn fresh_agent_model_canonicalizes_display_name() {
             id: "gpt-5.5".into(),
             display_name: "GPT-5.5".into(),
             description: None,
+            available: None,
         }],
         default_model: Some("gpt-5.5".into()),
         cli_binary: None,

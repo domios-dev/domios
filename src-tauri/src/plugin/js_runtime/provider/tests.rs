@@ -336,6 +336,7 @@ fn available_models_reads_catalog_snapshot_not_static_manifest() {
             id: "live".into(),
             display_name: "Live".into(),
             description: Some("from catalog".into()),
+            available: None,
         }],
         Some("live".into()),
     );

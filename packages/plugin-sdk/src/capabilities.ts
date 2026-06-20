@@ -204,6 +204,10 @@ export interface ModelInfo {
   // when registering via model_catalog::register.
   displayName: string;
   description?: string;
+  // Whether the account can select this model right now. Omitted (the common
+  // case) means "no info — treat as available"; `false` greys it out in the
+  // picker; `true` is confirmed-available. Live discovery sets this.
+  available?: boolean;
 }
 
 export interface Model extends ModelInfo {

@@ -509,6 +509,10 @@ export interface ModelInfo {
   id: string;
   display_name: string;
   description?: string;
+  // Whether the account can select this model right now. Omitted means "no
+  // info — treat as available"; `false` greys it out in the picker; `true` is
+  // confirmed-available. Set dynamically by live model discovery.
+  available?: boolean | null;
 }
 
 export interface PresetInfo {

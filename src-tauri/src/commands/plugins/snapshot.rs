@@ -608,6 +608,7 @@ mod tests {
                     id: "qwen-2.5".into(),
                     display_name: "Qwen 2.5".into(),
                     description: None,
+                    available: None,
                 }])
             }
         }

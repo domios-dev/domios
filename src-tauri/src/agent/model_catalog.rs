@@ -25,10 +25,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::agent::provider::{AgentProvider, ModelInfo};
 
@@ -40,6 +40,8 @@ struct CatalogModel {
     display_name: String,
     #[serde(default)]
     description: Option<String>,
+    #[serde(default)]
+    available: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,7 +87,10 @@ struct ProviderModels {
     models: Vec<ModelInfo>,
     default: Option<String>,
     source: Source,
-    fetched_at: Option<Instant>,
+    /// Wall-clock time the live snapshot was fetched. Wall-clock (not
+    /// `Instant`) so it can be persisted to / restored from the on-disk cache
+    /// and the TTL survives a restart.
+    fetched_at: Option<SystemTime>,
 }
 
 impl ProviderModels {
@@ -98,7 +103,7 @@ impl ProviderModels {
         }
     }
 
-    fn live(models: Vec<ModelInfo>, default: Option<String>, fetched_at: Instant) -> Self {
+    fn live(models: Vec<ModelInfo>, default: Option<String>, fetched_at: SystemTime) -> Self {
         Self {
             models,
             default,
@@ -130,26 +135,58 @@ pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
         .insert(provider_id.to_string(), ProviderModels::seed(defaults));
 }
 
-/// Publish a live discovery snapshot for `provider_id`.
+/// Default freshness window for live discovery. A snapshot younger than this
+/// is reused; older (or absent) triggers a background refresh.
+pub const DEFAULT_TTL: Duration = Duration::from_secs(6 * 3600);
+
+/// Hard cap on a single `discover_models` probe — it may shell out / hit the
+/// network, so it must never hang the refresh task.
+pub const DISCOVER_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// Publish a live discovery snapshot for `provider_id` and persist it to the
+/// on-disk cache so it survives a restart.
 pub fn put_live(provider_id: &str, models: Vec<ModelInfo>, default: Option<String>) {
-    put_live_at(provider_id, models, default, Instant::now());
+    put_live_at(provider_id, models, default, SystemTime::now());
 }
 
 fn put_live_at(
     provider_id: &str,
     models: Vec<ModelInfo>,
     default: Option<String>,
-    fetched_at: Instant,
+    fetched_at: SystemTime,
 ) {
+    let snapshot = ProviderModels::live(models, default, fetched_at);
+    persist_cache(provider_id, &snapshot);
+    registry().write().insert(provider_id.to_string(), snapshot);
+}
+
+/// Load a previously-persisted live snapshot from disk into the in-memory
+/// registry, WITHOUT replacing a snapshot that is already live (a refresh that
+/// already ran this session wins). No-op when no cache file exists. Call once
+/// per provider at startup so the picker shows the last-known live list
+/// instantly, before the background refresh completes.
+pub fn prime_from_cache(provider_id: &str) {
+    let Some(cached) = read_cache(provider_id) else {
+        return;
+    };
+    let Some(fetched_at) = cached.fetched_at_system() else {
+        return;
+    };
+    {
+        let reg = registry().read();
+        if reg.get(provider_id).map(|s| s.source) == Some(Source::Live) {
+            return;
+        }
+    }
     registry().write().insert(
         provider_id.to_string(),
-        ProviderModels::live(models, default, fetched_at),
+        ProviderModels::live(cached.models, cached.default, fetched_at),
     );
 }
 
 /// Returns true when the provider has no live snapshot or the snapshot is older
 /// than `ttl` at the caller-provided time.
-pub fn is_stale(provider_id: &str, ttl: Duration, now: Instant) -> bool {
+pub fn is_stale(provider_id: &str, ttl: Duration, now: SystemTime) -> bool {
     let registered = registry().read();
     let Some(snapshot) = registered.get(provider_id) else {
         return true;
@@ -160,12 +197,32 @@ pub fn is_stale(provider_id: &str, ttl: Duration, now: Instant) -> bool {
     let Some(fetched_at) = snapshot.fetched_at else {
         return true;
     };
-    now.checked_duration_since(fetched_at)
-        .is_some_and(|age| age >= ttl)
+    now.duration_since(fetched_at).is_ok_and(|age| age >= ttl)
+}
+
+/// TTL-gated entry point: refresh `provider`'s live model list unless a fresh
+/// snapshot already exists (skip), or `force` is set (always refresh). Returns
+/// the new list on a successful refresh, `None` when skipped or the probe
+/// failed (the previous snapshot / seed stays active — never goes empty).
+///
+/// Off the async runtime: the probe runs on the blocking pool inside
+/// `refresh_live`. Safe to call repeatedly (e.g. on every picker open).
+pub async fn refresh_models(
+    provider: Arc<dyn AgentProvider>,
+    force: bool,
+) -> Option<Vec<ModelInfo>> {
+    let provider_id = provider.id().to_string();
+    if !force && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
+        log::debug!("[model_catalog] {provider_id} live cache fresh — skipping refresh");
+        return None;
+    }
+    refresh_live(provider, DISCOVER_TIMEOUT).await
 }
 
 /// Refresh live models without blocking the async runtime. On timeout, provider
 /// opt-out, join failure, or panic, the previous catalog snapshot remains active.
+/// A discovery result that is empty after sanitizing is treated as a failure so
+/// the curated seed stays in place (the list never goes empty).
 pub async fn refresh_live(
     provider: Arc<dyn AgentProvider>,
     timeout_duration: Duration,
@@ -173,18 +230,68 @@ pub async fn refresh_live(
     let provider_id = provider.id().to_string();
     let default = provider.default_model();
     // `discover_models` may run synchronous JS (the JS provider calls `call_json`
-    // under the VM lock), so it must stay off the async runtime. Drive it on the
-    // blocking pool with an independent executor — NOT the tokio runtime's
-    // `Handle::block_on`, which can deadlock when nested inside `spawn_blocking`.
-    let task =
-        tokio::task::spawn_blocking(move || futures_executor::block_on(provider.discover_models()));
-    match tokio::time::timeout(timeout_duration, task).await {
-        Ok(Ok(Some(models))) => {
-            put_live(&provider_id, models.clone(), default);
-            Some(models)
+    // under the VM lock), and the success path writes the cache file. ALL of it
+    // — probe, sanitize, registry update, disk persist — runs on the blocking
+    // pool so the async runtime is never blocked. Drive discovery with an
+    // independent executor, NOT the tokio runtime's `Handle::block_on`, which
+    // can deadlock when nested inside `spawn_blocking`.
+    let task = tokio::task::spawn_blocking(move || {
+        let models = futures_executor::block_on(provider.discover_models())?;
+        let models = sanitize_live(models);
+        if models.is_empty() {
+            log::warn!(
+                "[model_catalog] {provider_id} discovery returned no usable models — keeping seed"
+            );
+            return None;
         }
-        Ok(Ok(None)) | Ok(Err(_)) | Err(_) => None,
+        let default = resolve_live_default(&models, default);
+        put_live(&provider_id, models.clone(), default);
+        Some(models)
+    });
+    match tokio::time::timeout(timeout_duration, task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) | Err(_) => None,
     }
+}
+
+/// Generic, provider-agnostic cleanup of a live discovery list: drop entries
+/// with empty ids, drop obvious non-chat models (embeddings) by id heuristic,
+/// and de-duplicate by id (keeping first occurrence). No provider-id branching
+/// — purely content heuristics so it is safe to apply to every provider's
+/// discovery output.
+fn sanitize_live(models: Vec<ModelInfo>) -> Vec<ModelInfo> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(models.len());
+    for m in models {
+        let id = m.id.trim();
+        if id.is_empty() || is_non_chat_id(id) {
+            continue;
+        }
+        let key = id.to_lowercase();
+        if seen.insert(key) {
+            out.push(m);
+        }
+    }
+    out
+}
+
+/// Heuristic: ids that name an embedding / non-chat model. Conservative — only
+/// well-known non-chat markers, so a real chat model is never dropped.
+fn is_non_chat_id(id: &str) -> bool {
+    let lower = id.to_lowercase();
+    lower.contains("embed") || lower.contains("embedding") || lower.contains("text-moderation")
+}
+
+/// If the seed default still names a model present in the live list, keep it;
+/// otherwise fall back to the first live model so a vanished hardcoded default
+/// doesn't dangle. `None` when the list is empty.
+fn resolve_live_default(models: &[ModelInfo], seed_default: Option<String>) -> Option<String> {
+    if let Some(d) = seed_default {
+        if models.iter().any(|m| m.id.eq_ignore_ascii_case(&d)) {
+            return Some(d);
+        }
+    }
+    models.first().map(|m| m.id.clone())
 }
 
 /// Read-side: returns the resolved model list using these rules —
@@ -314,6 +421,71 @@ fn override_path(provider_id: &str) -> PathBuf {
     models_dir().join(format!("{}.toml", provider_id))
 }
 
+fn cache_path(provider_id: &str) -> PathBuf {
+    models_dir().join(format!("{}.cache.json", provider_id))
+}
+
+/// On-disk persisted live snapshot. `fetched_at_unix` is wall-clock seconds so
+/// the TTL survives a restart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CachedSnapshot {
+    fetched_at_unix: u64,
+    #[serde(default)]
+    default: Option<String>,
+    models: Vec<ModelInfo>,
+}
+
+impl CachedSnapshot {
+    fn fetched_at_system(&self) -> Option<SystemTime> {
+        Some(UNIX_EPOCH + Duration::from_secs(self.fetched_at_unix))
+    }
+}
+
+/// Write a live snapshot to disk (best-effort — a failed write only loses the
+/// next-boot warm start, never the in-memory list).
+fn persist_cache(provider_id: &str, snapshot: &ProviderModels) {
+    let Some(fetched_at) = snapshot.fetched_at else {
+        return;
+    };
+    let Ok(secs) = fetched_at.duration_since(UNIX_EPOCH) else {
+        return;
+    };
+    let payload = CachedSnapshot {
+        fetched_at_unix: secs.as_secs(),
+        default: snapshot.default.clone(),
+        models: snapshot.models.clone(),
+    };
+    let path = cache_path(provider_id);
+    match serde_json::to_string_pretty(&payload) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                log::warn!("[model_catalog] could not write {}: {}", path.display(), e);
+            }
+        }
+        Err(e) => log::warn!(
+            "[model_catalog] could not serialize {} cache: {}",
+            provider_id,
+            e
+        ),
+    }
+}
+
+fn read_cache(provider_id: &str) -> Option<CachedSnapshot> {
+    let path = cache_path(provider_id);
+    let raw = std::fs::read_to_string(&path).ok()?;
+    match serde_json::from_str::<CachedSnapshot>(&raw) {
+        Ok(c) => Some(c),
+        Err(e) => {
+            log::warn!(
+                "[model_catalog] {} parse error — ignoring cache: {}",
+                path.display(),
+                e
+            );
+            None
+        }
+    }
+}
+
 /// In-memory cache of parsed override files, keyed by provider id. Each
 /// entry remembers the file's last-modified time so we re-read only when
 /// the user actually edits the file. Crucial because `resolve_models` is
@@ -391,6 +563,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                             id: m.id,
                             display_name: m.display_name,
                             description: m.description,
+                            available: m.available,
                         })
                         .collect(),
                 })),
@@ -650,6 +823,7 @@ mod tests {
                     id: "m1".into(),
                     display_name: "Model One".into(),
                     description: None,
+                    available: None,
                 }],
                 default: Some("m1".into()),
             },
@@ -675,16 +849,19 @@ mod tests {
                 id: "opus".into(),
                 display_name: "Opus 4.7".into(),
                 description: None,
+                available: None,
             },
             ModelInfo {
                 id: "sonnet".into(),
                 display_name: "Sonnet 4.6".into(),
                 description: None,
+                available: None,
             },
             ModelInfo {
                 id: "haiku".into(),
                 display_name: "Haiku 4.5".into(),
                 description: None,
+                available: None,
             },
         ];
         let overrides = vec![
@@ -692,11 +869,13 @@ mod tests {
                 id: "sonnet".into(),
                 display_name: "My Sonnet".into(),
                 description: None,
+                available: None,
             },
             ModelInfo {
                 id: "my-finetune".into(),
                 display_name: "Mine".into(),
                 description: None,
+                available: None,
             },
         ];
         let merged = merge_models(&builtin, &overrides);
@@ -714,6 +893,7 @@ mod tests {
             id: "a".into(),
             display_name: "A".into(),
             description: None,
+            available: None,
         }];
         let merged = merge_models(&builtin, &[]);
         assert_eq!(merged.len(), 1);
@@ -726,6 +906,7 @@ mod tests {
             id: "x".into(),
             display_name: "X".into(),
             description: None,
+            available: None,
         }];
         let merged = merge_models(&[], &overrides);
         assert_eq!(merged.len(), 1);
@@ -742,6 +923,7 @@ mod tests {
                     id: "a".into(),
                     display_name: "A".into(),
                     description: None,
+                    available: None,
                 }],
                 default: Some("a".into()),
             },
@@ -753,6 +935,7 @@ mod tests {
                     id: "b".into(),
                     display_name: "B".into(),
                     description: None,
+                    available: None,
                 }],
                 default: Some("b".into()),
             },
@@ -773,6 +956,7 @@ mod tests {
                     id: "seed".into(),
                     display_name: "Seed".into(),
                     description: None,
+                    available: None,
                 }],
                 default: Some("seed".into()),
             },
@@ -784,6 +968,7 @@ mod tests {
                 id: "live".into(),
                 display_name: "Live".into(),
                 description: None,
+                available: None,
             }],
             Some("live".into()),
         );
@@ -805,6 +990,7 @@ mod tests {
                     id: "seed".into(),
                     display_name: "Seed".into(),
                     description: None,
+                    available: None,
                 }],
                 default: Some("seed".into()),
             },
@@ -816,6 +1002,7 @@ mod tests {
                 id: "live".into(),
                 display_name: "Live".into(),
                 description: None,
+                available: None,
             }],
             Some("live".into()),
         );
@@ -823,13 +1010,13 @@ mod tests {
 
         assert!(!is_stale(
             id,
-            std::time::Duration::from_secs(60),
-            fetched_at + std::time::Duration::from_secs(59)
+            Duration::from_secs(60),
+            fetched_at + Duration::from_secs(59)
         ));
         assert!(is_stale(
             id,
-            std::time::Duration::from_secs(60),
-            fetched_at + std::time::Duration::from_secs(60)
+            Duration::from_secs(60),
+            fetched_at + Duration::from_secs(60)
         ));
         registry().write().remove(id);
     }
@@ -845,11 +1032,13 @@ mod tests {
                         id: "gpt-5.5".into(),
                         display_name: "GPT-5.5".into(),
                         description: None,
+                        available: None,
                     },
                     ModelInfo {
                         id: "gpt-5.5-mini".into(),
                         display_name: "GPT-5.5 Mini".into(),
                         description: None,
+                        available: None,
                     },
                 ],
                 default: Some("gpt-5.5-mini".into()),
@@ -874,6 +1063,7 @@ mod tests {
                     id: "gpt-5.5".into(),
                     display_name: "GPT-5.5".into(),
                     description: None,
+                    available: None,
                 }],
                 default: Some("gpt-5.5".into()),
             },
@@ -900,11 +1090,13 @@ mod tests {
                         id: "gpt-5.5".into(),
                         display_name: "GPT-5.5".into(),
                         description: None,
+                        available: None,
                     },
                     ModelInfo {
                         id: "gpt-5.5-mini".into(),
                         display_name: "GPT-5.5 Mini".into(),
                         description: None,
+                        available: None,
                     },
                 ],
                 default: Some("gpt-5.5-mini".into()),
@@ -919,11 +1111,266 @@ mod tests {
         registry().write().remove(id);
     }
 
-    fn test_live_fetched_at(provider_id: &str) -> std::time::Instant {
+    fn test_live_fetched_at(provider_id: &str) -> SystemTime {
         registry()
             .read()
             .get(provider_id)
             .and_then(|snapshot| snapshot.fetched_at)
             .expect("live snapshot fetched_at")
+    }
+
+    fn model(id: &str, display: &str) -> ModelInfo {
+        ModelInfo {
+            id: id.into(),
+            display_name: display.into(),
+            description: None,
+            available: None,
+        }
+    }
+
+    /// Minimal provider whose `discover_models` returns a canned result, so the
+    /// refresh path can be driven deterministically (Some = online, None =
+    /// offline/opt-out).
+    struct DiscoverStub {
+        id: String,
+        default: Option<String>,
+        discovery: Option<Vec<ModelInfo>>,
+    }
+
+    #[async_trait::async_trait]
+    impl AgentProvider for DiscoverStub {
+        fn id(&self) -> &str {
+            &self.id
+        }
+        fn display_name(&self) -> &str {
+            &self.id
+        }
+        fn build_launch_command(&self, _: &crate::agent::provider::AgentLaunchParams) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> crate::agent::provider::ReadinessStrategy {
+            crate::agent::provider::ReadinessStrategy::FixedDelay {
+                duration: Duration::ZERO,
+            }
+        }
+        fn task_delivery(&self) -> crate::agent::provider::TaskDelivery {
+            crate::agent::provider::TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _: &str) -> bool {
+            false
+        }
+        fn session_file_path(&self, _: &str, _: &str) -> Option<PathBuf> {
+            None
+        }
+        fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
+            None
+        }
+        fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
+            None
+        }
+        fn default_model(&self) -> Option<String> {
+            self.default.clone()
+        }
+        async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
+            self.discovery.clone()
+        }
+    }
+
+    fn cleanup(id: &str) {
+        registry().write().remove(id);
+        let _ = std::fs::remove_file(cache_path(id));
+    }
+
+    #[test]
+    fn put_live_writes_cache_that_survives_restart() {
+        let id = "test-cache-survives-restart";
+        let _ = std::fs::remove_file(cache_path(id));
+        put_live(id, vec![model("live", "Live One")], Some("live".into()));
+
+        // Cache file written…
+        let cached = read_cache(id).expect("cache file written");
+        assert_eq!(cached.models.len(), 1);
+        assert_eq!(cached.models[0].id, "live");
+        assert_eq!(cached.default.as_deref(), Some("live"));
+
+        // …and survives a "restart": drop the in-memory snapshot, prime from disk.
+        registry().write().remove(id);
+        assert!(resolve_models(id).is_empty(), "snapshot cleared");
+        prime_from_cache(id);
+        let models = resolve_models(id);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "live");
+        assert_eq!(resolve_default(id).as_deref(), Some("live"));
+        cleanup(id);
+    }
+
+    #[test]
+    fn prime_does_not_clobber_a_live_snapshot() {
+        let id = "test-prime-no-clobber";
+        let _ = std::fs::remove_file(cache_path(id));
+        // Persist an OLD cache to disk, then publish a NEWER in-memory snapshot.
+        let payload = CachedSnapshot {
+            fetched_at_unix: 1,
+            default: Some("old".into()),
+            models: vec![model("old", "Old")],
+        };
+        std::fs::write(cache_path(id), serde_json::to_string(&payload).unwrap()).unwrap();
+        put_live(id, vec![model("new", "New")], Some("new".into()));
+        prime_from_cache(id); // must NOT replace the live snapshot with stale disk
+        assert_eq!(resolve_models(id)[0].id, "new");
+        cleanup(id);
+    }
+
+    #[tokio::test]
+    async fn refresh_models_skips_when_fresh_refreshes_when_forced() {
+        let id = "test-refresh-ttl-gate";
+        cleanup(id);
+        register(
+            id,
+            RegisteredDefaults {
+                models: vec![model("seed", "Seed")],
+                default: Some("seed".into()),
+            },
+        );
+        put_live(id, vec![model("old", "Old")], Some("old".into()));
+
+        let stub = Arc::new(DiscoverStub {
+            id: id.into(),
+            default: Some("new".into()),
+            discovery: Some(vec![model("new", "New")]),
+        });
+
+        // Fresh snapshot → refresh skipped, list unchanged.
+        assert!(refresh_models(stub.clone(), false).await.is_none());
+        assert_eq!(resolve_models(id)[0].id, "old");
+
+        // force=true → refreshes regardless of TTL.
+        assert!(refresh_models(stub, true).await.is_some());
+        assert_eq!(resolve_models(id)[0].id, "new");
+        cleanup(id);
+    }
+
+    #[tokio::test]
+    async fn refresh_live_offline_falls_back_to_seed() {
+        let id = "test-refresh-offline-fallback";
+        cleanup(id);
+        register(
+            id,
+            RegisteredDefaults {
+                models: vec![model("seed", "Seed")],
+                default: Some("seed".into()),
+            },
+        );
+        let stub = Arc::new(DiscoverStub {
+            id: id.into(),
+            default: Some("seed".into()),
+            discovery: None, // offline / opt-out
+        });
+        assert!(refresh_live(stub, Duration::from_secs(1)).await.is_none());
+        // Seed remains — list never goes empty.
+        let models = resolve_models(id);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "seed");
+        cleanup(id);
+    }
+
+    #[tokio::test]
+    async fn refresh_live_empty_after_sanitize_keeps_seed() {
+        let id = "test-refresh-empty-keeps-seed";
+        cleanup(id);
+        register(
+            id,
+            RegisteredDefaults {
+                models: vec![model("seed", "Seed")],
+                default: Some("seed".into()),
+            },
+        );
+        // Discovery returns only a non-chat (embedding) model → sanitizes to empty.
+        let stub = Arc::new(DiscoverStub {
+            id: id.into(),
+            default: None,
+            discovery: Some(vec![model("text-embedding-3", "Embedding")]),
+        });
+        assert!(refresh_live(stub, Duration::from_secs(1)).await.is_none());
+        assert_eq!(resolve_models(id)[0].id, "seed");
+        cleanup(id);
+    }
+
+    #[test]
+    fn live_discovery_corrects_stale_seed_label() {
+        let id = "test-live-label-correction";
+        cleanup(id);
+        register(
+            id,
+            RegisteredDefaults {
+                models: vec![model("opus", "Claude Opus 4.7")],
+                default: Some("opus".into()),
+            },
+        );
+        // Live discovery surfaces a fresher label for the same alias id.
+        put_live(
+            id,
+            vec![model("opus", "Claude Opus 4.8")],
+            Some("opus".into()),
+        );
+        assert_eq!(resolve_models(id)[0].display_name, "Claude Opus 4.8");
+        cleanup(id);
+    }
+
+    #[test]
+    fn availability_flag_is_carried_through_resolve() {
+        let id = "test-availability-flag";
+        cleanup(id);
+        register(
+            id,
+            RegisteredDefaults {
+                models: vec![
+                    model("opus", "Opus"),
+                    ModelInfo {
+                        id: "fable".into(),
+                        display_name: "Fable".into(),
+                        description: None,
+                        available: Some(false),
+                    },
+                ],
+                default: Some("opus".into()),
+            },
+        );
+        let fable = resolve_models(id)
+            .into_iter()
+            .find(|m| m.id == "fable")
+            .expect("fable present");
+        assert_eq!(fable.available, Some(false));
+        cleanup(id);
+    }
+
+    #[test]
+    fn sanitize_live_drops_non_chat_and_dedups() {
+        let cleaned = sanitize_live(vec![
+            model("gpt-chat", "Chat"),
+            model("text-embedding-3-large", "Embedding"),
+            model("", "Empty"),
+            model("gpt-chat", "Dup"),
+        ]);
+        assert_eq!(cleaned.len(), 1);
+        assert_eq!(cleaned[0].id, "gpt-chat");
+    }
+
+    #[test]
+    fn resolve_live_default_recovers_when_default_vanished() {
+        let models = vec![model("b", "B"), model("c", "C")];
+        // Hardcoded default "a" gone from live → fall back to first live id.
+        assert_eq!(
+            resolve_live_default(&models, Some("a".into())).as_deref(),
+            Some("b")
+        );
+        // Default still present → kept.
+        assert_eq!(
+            resolve_live_default(&models, Some("c".into())).as_deref(),
+            Some("c")
+        );
     }
 }
