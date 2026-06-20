@@ -17,6 +17,18 @@
 Plus: TWO divergent prompt-detectors (Rust core vs plugin); Layer-2 rich state has
 ZERO UI consumers; opencode/cursor have no classifier; logic mislocated in Rust core.
 
+## Core ↔ plugin contract: REGISTER + CONSUME (data-over-code)
+Core is a GENERALIZED engine + a registry; plugins REGISTER declarations into it and
+CONSUME signals/helpers from it — core never knows a provider.
+- **Plugin REGISTERS (declarative data):** volatile-region hints (spinner/status the
+  semantic clock ignores), busy/promptReady + menu/prompt fingerprints (manifest
+  `paneState`), session-store descriptor (A4.2). Core stores + applies them generically.
+- **Plugin CONSUMES:** `StreamSignals` (input to classify), shared SDK helpers
+  (`defineClassifier` voting, `host.jsonl`/`host.chat`, `host.toolcall.parse`), host APIs.
+- Imperative plugin code only for REAL computation (reset-time parse, menu nav,
+  question extraction). The more expressed as registered DATA, the cleaner — that's how
+  opencode/cursor get a classifier with ZERO JS. Core never matches a vendor string.
+
 ## Architecture — one pipeline, plugin-owned heuristics
 ```
 PTY bytes
