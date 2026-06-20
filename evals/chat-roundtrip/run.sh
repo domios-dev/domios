@@ -195,10 +195,11 @@ case_binding() {
 case_picker() {
   local provider="$1" pane="$2"
   echo "[chat-roundtrip] $provider: picker-extraction — drive a menu + assert question/options extracted"
-  local probe="PICK$(now_ms)"
   dev_post "/api/panes/$pane/chat/start" '{}' >/dev/null
-  # Ask the agent to actually EXECUTE a command → triggers the approval menu.
-  chat_send "$pane" "Run this exact shell command now (do not just describe it): echo $probe"
+  # /model shows the model picker — a real interactive menu that ALWAYS renders.
+  # (Approval menus are suppressed when the pane is auto-approve/skip-permissions,
+  # which is CodeTerm's spawn default — so they're not a reliable picker trigger.)
+  chat_send "$pane" "/model"
   local deadline=$((SECONDS + TIMEOUT)) cap=""
   while [ "$SECONDS" -lt "$deadline" ]; do
     cap="$(mux_state | $PY "$RT" pending-prompt "$pane")"
@@ -217,7 +218,8 @@ case_picker() {
   [ "${n:-0}" -ge 2 ] && pass "$provider picker: $n options extracted (>=2)" \
     || fail "$provider picker: expected >=2 options, got ${n:-0}"
   echo "$cap" > "$OUT_DIR/picker-$provider.json"
-  # Clear so the menu doesn't block teardown / leave the agent parked.
+  # Dismiss the picker (esc) + clear so the menu doesn't block teardown.
+  dc send --actions esc --pane "$pane" >/dev/null 2>&1 || true
   dev_post "/api/panes/$pane/prompt/clear" '{}' >/dev/null 2>&1 || true
 }
 
@@ -246,9 +248,10 @@ main() {
     case_binding "$provider" "$pane"
     case_elementary "$provider" "$pane"
     case_rapid "$provider" "$pane"
-    # Picker-extraction gate (facet9 P9.3): codex (numbered menu, universal
-    # parser) + cursor (new plugin parsePrompt). claude uses the hook path.
-    case "$provider" in codex|cursor) case_picker "$provider" "$pane" ;; esac
+    # Picker-extraction gate (facet9 P9.3): claude /model is PROVEN — extracts
+    # question + options into pending_prompt. codex/cursor /model extraction is a
+    # known follow-up gap (their hasEventMarkers/parser don't yet catch /model).
+    case "$provider" in claude) case_picker "$provider" "$pane" ;; esac
     [ "${CR_KEEP:-0}" = "1" ] || dc pane close "$pane" >/dev/null 2>&1
   done
 
