@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { isMac } from "../../lib/keybindings";
+import { defaultSpawnProviderId, getAgentDescriptor } from "../../lib/agentDescriptorCache";
 
 // Types
 
@@ -459,6 +460,8 @@ interface CommandActions {
 }
 
 export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
+  // Label reflects the capability-resolved default agent, not a hardcoded vendor.
+  const defaultProvider = getAgentDescriptor(defaultSpawnProviderId());
   return [
     {
       id: "new-tab",
@@ -508,7 +511,7 @@ export function buildDefaultCommands(actions: CommandActions): CommandItem[] {
     },
     {
       id: "spawn-claude",
-      label: "Spawn Claude",
+      label: `Spawn ${defaultProvider?.display_name ?? "Agent"}`,
       icon: ICONS.claude,
       section: "Agents",
       action: actions.spawnClaude,
