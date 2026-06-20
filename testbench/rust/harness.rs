@@ -7,6 +7,7 @@ use codeterm_lib::agent::pane_state::{PaneState, PaneStateClassification, PaneSt
 use codeterm_lib::agent::provider::AgentProvider;
 use codeterm_lib::agent::semantic_marker::{SemanticEvent, SemanticMarkerParser};
 use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals, VolatileHint};
+use codeterm_lib::agent::{attributed_screen, attributed_screen::AttributedScreen};
 use codeterm_lib::plugin::js_runtime::{load_one, JsProvider};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -75,6 +76,7 @@ struct LegacyAgentStateExpected {
 enum Unit {
     AgentStateReplay,
     ProviderScreen,
+    ProviderScreenAttr,
 }
 
 #[derive(Debug, Deserialize)]
@@ -184,6 +186,12 @@ pub fn run_case(
                 .entry(expected.provider.clone())
                 .or_insert_with(|| load_provider(&expected.provider));
             run_provider_screen_case(&name, dir, provider, expected)
+        }
+        Unit::ProviderScreenAttr => {
+            let provider = providers
+                .entry(expected.provider.clone())
+                .or_insert_with(|| load_provider(&expected.provider));
+            run_provider_screen_attr_case(&name, dir, provider, expected)
         }
     }
 }
@@ -437,6 +445,36 @@ fn run_provider_screen_case(
     }
 }
 
+fn run_provider_screen_attr_case(
+    name: &str,
+    dir: &Path,
+    provider: &JsProvider,
+    case: SnapshotExpected,
+) -> CaseResult {
+    let cast_path = dir.join("raw.cast");
+    let actual = if cast_path.exists() {
+        provider_screen_attr_actual_from_cast(&parse_cast(&cast_path))
+    } else {
+        Value::Null
+    };
+    let expected = case
+        .expected
+        .unwrap_or_else(|| panic!("{name}: provider_screen_attr expected object missing"));
+    let mut failures = Vec::new();
+    compare_value("", &expected, &actual, &mut failures);
+    CaseResult {
+        name: name.into(),
+        unit: "provider_screen_attr".into(),
+        gating: case.gating,
+        failures,
+        details: json!({
+            "expected": expected,
+            "actual": actual,
+            "textParser": provider_screen_text_details(dir, provider),
+        }),
+    }
+}
+
 pub fn provider_screen_actual(provider: &JsProvider, text: &str) -> Value {
     let prompt = provider.parse_prompt(text);
     let classify = provider.classify_pane_state(&PaneStateSnapshot {
@@ -453,6 +491,37 @@ pub fn provider_screen_actual(provider: &JsProvider, text: &str) -> Value {
         "parsePrompt": prompt,
         "classifyPaneState": classify,
     })
+}
+
+fn provider_screen_attr_actual_from_cast(cast: &Cast) -> Value {
+    let screen = attributed_screen_from_cast(cast);
+    match attributed_screen::detect_picker(&screen) {
+        Some(detection) => json!(detection),
+        None => Value::Null,
+    }
+}
+
+fn attributed_screen_from_cast(cast: &Cast) -> AttributedScreen {
+    let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
+    for ev in &cast.events {
+        match ev {
+            Event::Resize { rows, cols, .. } => extractor.resize(*rows, *cols),
+            Event::Output { bytes, now_ms } => {
+                extractor.step(bytes, *now_ms);
+            }
+        }
+    }
+    extractor.attributed_screen()
+}
+
+fn provider_screen_text_details(dir: &Path, provider: &JsProvider) -> Value {
+    let path = dir.join("screen.txt");
+    if !path.exists() {
+        return Value::Null;
+    }
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("read {}/screen.txt: {e}", dir.display()));
+    provider_screen_actual(provider, &text)
 }
 
 fn analyze_markers(cast: &Cast) -> Value {

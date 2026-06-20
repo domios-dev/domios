@@ -1,6 +1,7 @@
 // SPIKE (throwaway): can we recover picker question/options/SELECTED from raw.cast via the
 // vt100 ATTRIBUTED grid (bgcolor/fgcolor/inverse), where flattened text shows no marker?
 // Proves/disproves the attribute-parsing mechanic on the hardest case (cursor: bg-only selection).
+use codeterm_lib::agent::attributed_screen::{detect_picker, AttributedScreen};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -37,6 +38,7 @@ fn analyze(label: &str, path: &str) {
     let mut parser = vt100::Parser::new(h, w, 0);
     parser.process(&bytes);
     let screen = parser.screen();
+    let attributed = AttributedScreen::from_vt100(screen);
     let (rows, cols) = screen.size();
 
     // dominant bg across the screen (theme background)
@@ -97,6 +99,21 @@ fn analyze(label: &str, path: &str) {
             );
         }
     }
+    let detected = detect_picker(&attributed);
+    println!("  --- fusion detector ---");
+    println!("   {}", serde_json::to_string_pretty(&detected).unwrap());
+    if let Some(expected) = expected_prompt(path) {
+        println!("  --- expected flattened parser oracle ---");
+        println!("   {}", serde_json::to_string_pretty(&expected).unwrap());
+    }
+}
+
+fn expected_prompt(path: &str) -> Option<Value> {
+    let expected_path = std::path::Path::new(path).parent()?.join("expected.json");
+    let json: Value = serde_json::from_str(&std::fs::read_to_string(expected_path).ok()?).ok()?;
+    json.get("expected")
+        .and_then(|expected| expected.get("parsePrompt"))
+        .cloned()
 }
 
 #[test]
