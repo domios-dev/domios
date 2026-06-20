@@ -506,6 +506,13 @@ pub async fn fetch_peer_services_view(
     serde_json::to_value(&view).map_err(|e| e.to_string())
 }
 
+/// Per-address timeout for the direct peer /api/services fetch. A peer with many
+/// services + mesh-signed-token verification can take ~5s to answer (measured
+/// against a 17-service peer); the old 3s cut every such peer off mid-request, so
+/// the Mesh tab showed 0 services for healthy peers. Kept above real-world latency
+/// but bounded so a dead address still fails fast enough for the next address.
+const PEER_SERVICES_FETCH_TIMEOUT_SECS: u64 = 10;
+
 async fn fetch_peer_services(
     addresses: &[crate::mesh::types::PeerAddress],
     port: u16,
@@ -515,7 +522,7 @@ async fn fetch_peer_services(
     use crate::mesh::transport::TryNext;
 
     let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(PEER_SERVICES_FETCH_TIMEOUT_SECS))
         .build()
     {
         Ok(c) => c,
