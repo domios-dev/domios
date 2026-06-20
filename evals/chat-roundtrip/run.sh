@@ -159,6 +159,37 @@ case_rapid() {
   fi
 }
 
+# --- Case: send-order preservation (transcript ordering) ------------
+# Send N distinct messages in order 1..N; assert their user turns appear in the
+# transcript in that SAME relative order. The regression gate for the stable-
+# ordering fix: codex floors timestamps to whole seconds and cursor emits none,
+# so a timestamp-only sort shuffled same-second / timeless turns. The transcript
+# now carries a monotonic source-order `seq` that pins order regardless.
+case_ordering() {
+  local provider="$1" pane="$2" n=5
+  echo "[chat-roundtrip] $provider: ordering — send $n distinct msgs, assert send-order in transcript"
+  dev_post "/api/panes/$pane/chat/start" '{}' >/dev/null
+  local base; base="OR$(now_ms)"
+  local i
+  for i in $(seq 1 "$n"); do
+    chat_send "$pane" "msg $i of $base reply with K$i"
+    sleep 1
+  done
+  local deadline=$((SECONDS + TIMEOUT)) res="missing"
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    res="$(chat_snapshot "$pane" | $PY "$RT" order-check "$base" "$n")"
+    [ "$res" = "ok" ] && break
+    # Keep polling while messages are still landing; a real disorder also resolves
+    # only by deadline, so we report whatever the final state is.
+    sleep 2
+  done
+  case "$res" in
+    ok) pass "$provider ordering: all $n messages in send order" ;;
+    disorder*) fail "$provider ordering: transcript out of send order ($res)" ;;
+    *) fail "$provider ordering: not all $n messages landed within ${TIMEOUT}s ($res)" ;;
+  esac
+}
+
 # --- Case: session-binding gate (CE3) -------------------------------
 # A fresh agent pane MUST bind its session and DELIVER the transcript through the
 # UI seam (chat-raw/start) — never sit on pending:true forever. That perpetual
@@ -248,6 +279,7 @@ main() {
     case_binding "$provider" "$pane"
     case_elementary "$provider" "$pane"
     case_rapid "$provider" "$pane"
+    case_ordering "$provider" "$pane"
     # Picker-extraction gate (facet9 P9.3/P9.4): /model populates pending_prompt.
     case "$provider" in claude|cursor|codex) case_picker "$provider" "$pane" ;; esac
     [ "${CR_KEEP:-0}" = "1" ] || dc pane close "$pane" >/dev/null 2>&1

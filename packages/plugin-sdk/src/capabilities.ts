@@ -190,6 +190,8 @@ export interface NormalizedChatMessage {
   id: string;
   type: string;
   content: string;
+  /** Monotonic source-order ordinal (host-stamped); stable transcript-sort tiebreaker. */
+  seq?: number;
   fromLabel?: string;
   fromPane?: string;
   fromModel?: string;

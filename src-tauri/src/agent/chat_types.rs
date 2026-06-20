@@ -132,6 +132,11 @@ pub struct ChatMsg {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub timestamp: Option<String>,
+    /// Monotonic source-order ordinal (JSONL rich-message index / structured row
+    /// position). The client's stable transcript-sort tiebreaker when timestamps
+    /// are coarse (codex floors to seconds) or absent (cursor emits none).
+    #[serde(default)]
+    pub seq: i64,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_name: Option<String>,
     /// Short, human-readable summary of the tool input (file path, command, …).

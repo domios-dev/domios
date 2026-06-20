@@ -3,6 +3,7 @@ import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
   attachToolResults,
   lastSessionResetIndex,
+  mergeById,
   mergeTimelineMessages,
   matchedOptimisticEchoes,
   trimAfterSessionReset,
@@ -141,15 +142,6 @@ function listenForTestChatReplies(
   };
   window.addEventListener(TEST_CHAT_REPLY_EVENT, handler);
   return () => window.removeEventListener(TEST_CHAT_REPLY_EVENT, handler);
-}
-
-function mergeById(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
-  const map = new Map<string, ChatMessage>();
-  for (const m of prev) map.set(m.id, m);
-  for (const m of incoming) map.set(m.id, m);
-  return Array.from(map.values()).sort(
-    (a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0),
-  );
 }
 
 function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
