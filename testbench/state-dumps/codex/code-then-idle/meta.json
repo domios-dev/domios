@@ -1,0 +1,9 @@
+{
+  "provider": "codex",
+  "scenario": "code-then-idle",
+  "cli_version": "from existing real snapshot fixture",
+  "capturedAtMs": 1781984508064,
+  "source": "testbench/snapshots/codex/agent-state-turn_complete_real/raw.cast",
+  "width": 120,
+  "height": 40
+}

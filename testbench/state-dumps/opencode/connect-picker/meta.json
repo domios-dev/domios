@@ -1,0 +1,9 @@
+{
+  "provider": "opencode",
+  "scenario": "connect-picker",
+  "cli_version": "from existing real snapshot fixture",
+  "capturedAtMs": 1781984508073,
+  "source": "testbench/snapshots/opencode/connect-picker/raw.cast",
+  "width": 120,
+  "height": 40
+}
