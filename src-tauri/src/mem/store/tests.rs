@@ -544,7 +544,7 @@ fn migration_creates_pinned_positions_idempotently() {
 
 #[test]
 fn graph_full_returns_nodes_and_edges() {
-    let (mut conn, blobs) = fresh();
+    let (conn, blobs) = fresh();
     let a = insert(
         &conn,
         &NewMemItem {
@@ -772,7 +772,7 @@ fn history_changed_by_thread_local_defaults_to_user() {
 #[test]
 fn taxonomy_groups_by_area_and_kind() {
     let (conn, blobs) = fresh();
-    let mut mk = |kind: MemKind, title: &str, area: Option<&str>| {
+    let mk = |kind: MemKind, title: &str, area: Option<&str>| {
         insert(
             &conn,
             &NewMemItem {

@@ -5,7 +5,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use tauri::Emitter;
 
 use crate::api::routes::{check_auth, AppState};
 

@@ -75,7 +75,7 @@ fn test_pty_kill() {
 
 #[test]
 fn test_pty_write_invalid_id() {
-    let mut manager = PtyManager::new();
+    let manager = PtyManager::new();
     let result = manager.write("nonexistent", b"hello");
     assert!(result.is_err());
 }

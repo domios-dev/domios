@@ -33,6 +33,7 @@ pub struct UsageRollupQuery {
     pub provider: String,
     pub since: i64,
     #[serde(default)]
+    #[allow(dead_code)] // REST wire-contract field; handler consumption pending
     pub account_id: Option<String>,
 }
 

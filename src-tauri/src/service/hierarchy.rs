@@ -287,7 +287,7 @@ mod tests {
     use super::{resolve_report_target, worker_death_report};
     use crate::agent::reports::ReportStore;
     use crate::multiplexer::state::MultiplexerState;
-    use crate::multiplexer::types::{AgentRole, Orientation};
+    use crate::multiplexer::types::AgentRole;
 
     // Enforce report key symmetry: reporter writes and parent query must use the same key.
     // This avoids "report succeeded" with empty parent results.

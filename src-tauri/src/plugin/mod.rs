@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn dispatch_event_filters_by_hooks() {
         let mgr = PluginManager::new();
-        let mut m_all = manifest("all", PluginTier::Native);
+        let m_all = manifest("all", PluginTier::Native);
         let mut m_filtered = manifest("filtered", PluginTier::Native);
         m_filtered.capabilities.hooks = vec!["pane-title-pinned".into()];
         mgr.register(m_all);

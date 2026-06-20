@@ -299,7 +299,7 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+
     use crate::cron::clock::{Clock, SystemClock};
     use crate::cron::store::{compute_next_run, CronCreateParams, CronStore};
 
