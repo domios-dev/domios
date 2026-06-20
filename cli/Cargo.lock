@@ -207,6 +207,7 @@ dependencies = [
  "chrono",
  "clap",
  "codeterm-mem-store",
+ "codeterm-plugins",
  "deunicode",
  "dirs",
  "ed25519-dalek",
@@ -232,6 +233,19 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+]
+
+[[package]]
+name = "codeterm-plugins"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "dirs",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "uuid",
 ]
 
 [[package]]

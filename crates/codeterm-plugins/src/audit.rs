@@ -96,7 +96,7 @@ pub(super) fn command_failure_fields(
             Some(SYSTEM_CHANNEL_NAME.to_string()),
         ),
         PluginAction::Remove { id, .. } => ("remove-failed".to_string(), Some(id.clone()), None),
-        PluginAction::Channel { command } => match command {
+        PluginAction::Channel(command) => match command {
             PluginChannelAction::Add { name, .. } => {
                 ("channel-add-failed".to_string(), None, name.clone())
             }
