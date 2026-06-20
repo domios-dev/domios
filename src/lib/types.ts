@@ -61,9 +61,19 @@ export interface PromptOption {
   value: string;
 }
 
+export interface PromptSection {
+  label: string;
+  active?: boolean;
+  completed?: boolean;
+}
+
 export interface PendingPrompt {
   question: string;
   options: PromptOption[];
+  sections?: PromptSection[] | null;
+  multi_select?: boolean | null;
+  submit_available?: boolean | null;
+  selected_values?: string[] | null;
 }
 
 /** What backs a pane's I/O — a PTY (terminal) or a plugin chatBackend. Mirrors

@@ -304,7 +304,7 @@ impl AgentRegistry {
         &self,
         agent_type: &str,
         text: &str,
-    ) -> Option<(String, Vec<(String, String)>)> {
+    ) -> Option<crate::multiplexer::types::PendingPrompt> {
         let guard = self.providers.read();
         guard.get(agent_type).and_then(|p| p.parse_prompt(text))
     }

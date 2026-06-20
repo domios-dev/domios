@@ -1,7 +1,7 @@
 // Claude Code provider plugin runtime logic, compiled to QuickJS-compatible
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 // This facade wires PluginModule methods to siblings: ./session, ./models, ./usage, ./classify.
-import type { LaunchParams, PluginModule } from "@codeterm/plugin-sdk";
+import type { LaunchParams, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 import { usageNormalize, usageParseBlock } from "./usage";
 import {
@@ -61,11 +61,215 @@ const TUI_FRAGMENTS = [
 
 const SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
 const SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
+const WIZARD_SUBMIT_VALUE = 9000;
+const WIZARD_MULTI_MASK_BASE = 10000;
 
 function isBrailleSpinner(ch: string): boolean {
   if (!ch) return false;
   const code = ch.charCodeAt(0);
   return (code >= BRAILLE_LO && code <= BRAILLE_HI) || ch === "✳" || ch === "✻";
+}
+
+interface ParsedOptionState {
+  label: string;
+  value: string;
+  highlighted: boolean;
+  selected: boolean;
+}
+
+function parseClaudeWizardPrompt(text: string): ParsedPrompt | null {
+  const raw = String(text || "");
+  if (raw.indexOf("Submit") === -1 || raw.indexOf("Enter to select") === -1) return null;
+  const tabLine = findWizardTabLine(raw);
+  if (!tabLine) return null;
+  const sections = parseWizardSections(tabLine);
+  if (sections.length < 2) return null;
+
+  const body = wizardBody(raw, tabLine);
+  const options = parseWizardOptions(body);
+  if (options.length < 2) return null;
+  const question = parseWizardQuestion(body) || "Choose an option";
+  const multiSelect = options.some((opt) => opt.selected) || /\[[ xX]\]|☐|☑|☒/.test(body);
+
+  return {
+    question,
+    options: options.map((opt) => [opt.label, opt.value]),
+    sections,
+    multiSelect,
+    submitAvailable: tabLine.indexOf("Submit") !== -1,
+    selectedValues: options.filter((opt) => opt.selected).map((opt) => opt.value),
+  };
+}
+
+function findWizardTabLine(text: string): string | null {
+  const lines = String(text || "").split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line.indexOf("Submit") !== -1 && (line.indexOf("☐") !== -1 || line.indexOf("✔") !== -1)) {
+      return line;
+    }
+  }
+  const m = /←[\s\S]{0,160}Submit\s*→/.exec(text);
+  return m ? m[0] : null;
+}
+
+function parseWizardSections(tabLine: string): Array<{ label: string; active?: boolean; completed?: boolean }> {
+  const sections: Array<{ label: string; active?: boolean; completed?: boolean }> = [];
+  const re = /([☐☑☒✔])\s*([^☐☑☒✔←→]+?)(?=[☐☑☒✔]|→|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(tabLine)) !== null) {
+    const label = m[2].trim();
+    if (!label || /^submit$/i.test(label)) continue;
+    sections.push({
+      label,
+      completed: m[1] === "✔" || m[1] === "☑" || m[1] === "☒",
+    });
+  }
+  const active = sections.findIndex((s) => !s.completed);
+  if (active >= 0) sections[active].active = true;
+  return sections;
+}
+
+function wizardBody(text: string, knownTabLine?: string): string {
+  const tabLine = knownTabLine || findWizardTabLine(text);
+  if (!tabLine) return text;
+  return text.slice(text.indexOf(tabLine) + tabLine.length);
+}
+
+function parseWizardQuestion(body: string): string {
+  const beforeOptions = body.split(/(?:❯\s*)?\d+\./)[0] || "";
+  return beforeOptions
+    .replace(/^[\s←→☐☑☒✔A-Za-z]*Submit\s*→?/, "")
+    .replace(/─+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseWizardOptions(body: string): ParsedOptionState[] {
+  const checkbox = parseCheckboxOptions(body);
+  if (checkbox.length >= 2) return checkbox;
+  return parseNumberedOptions(body);
+}
+
+function parseNumberedOptions(text: string): ParsedOptionState[] {
+  const options: ParsedOptionState[] = [];
+  const re = /(?:^|[\s❯>])(\d+)\.\s*([\s\S]*?)(?=(?:[\s❯>]\d+\.\s*)|Enter\s*to\s*select|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const label = cleanOptionLabel(m[2]);
+    if (!label) continue;
+    options.push({
+      label,
+      value: m[1],
+      highlighted: m[0].indexOf("❯") !== -1 || m[0].indexOf(">") !== -1,
+      selected: false,
+    });
+  }
+  return options;
+}
+
+function parseCheckboxOptions(text: string): ParsedOptionState[] {
+  const options: ParsedOptionState[] = [];
+  const re = /(?:^|[\s❯>])((?:\[[ xX]\])|☐|☑|☒|✔)\s*([\s\S]*?)(?=(?:[\s❯>](?:\[[ xX]\]|☐|☑|☒|✔)\s*)|Enter\s*to\s*select|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const label = cleanOptionLabel(m[2]);
+    if (!label) continue;
+    const mark = m[1];
+    options.push({
+      label,
+      value: String(options.length + 1),
+      highlighted: m[0].indexOf("❯") !== -1 || m[0].indexOf(">") !== -1,
+      selected: mark === "☑" || mark === "☒" || mark === "✔" || /\[[xX]\]/.test(mark),
+    });
+  }
+  return options;
+}
+
+function cleanOptionLabel(value: string): string {
+  return String(value || "")
+    .replace(/─+/g, " ")
+    .replace(/\bChat\s*about\s*this\b[\s\S]*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseClaudeNumberedPrompt(text: string): ParsedPrompt | null {
+  const raw = String(text || "");
+  if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
+  const options = parseNumberedOptions(raw);
+  if (options.length < 2) return null;
+  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.\s*/);
+  const before = firstOption >= 0 ? raw.slice(0, firstOption) : raw;
+  const question = findQuestion(before) || "Choose an option";
+  return {
+    question,
+    options: options.map((opt) => [opt.label, opt.value]),
+  };
+}
+
+function findQuestion(text: string): string {
+  const lines = String(text || "").split("\n").map((line) => line.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].endsWith("?")) return lines[i];
+  }
+  return lines.length > 0 ? lines[lines.length - 1] : "";
+}
+
+function buildClaudePromptResponse(optionIndex: number, screen: string): string[] {
+  if (optionIndex === WIZARD_SUBMIT_VALUE - 1) return buildWizardSubmitResponse(screen);
+  if (optionIndex >= WIZARD_MULTI_MASK_BASE - 1) {
+    return buildWizardMultiSelectResponse(optionIndex - (WIZARD_MULTI_MASK_BASE - 1), screen);
+  }
+  const steps = moveToOption(optionIndex, screen);
+  steps.push("DQ==");
+  if (parseClaudeWizardPrompt(screen) && !parseClaudeWizardPrompt(screen)?.multiSelect) steps.push("CQ==");
+  return steps;
+}
+
+function moveToOption(targetIndex: number, screen: string): string[] {
+  const current = currentHighlightedOptionIndex(screen);
+  const delta = targetIndex - current;
+  const steps: string[] = [];
+  const key = delta >= 0 ? "ag==" : "aw==";
+  for (let i = 0; i < Math.abs(delta); i++) steps.push(key);
+  return steps;
+}
+
+function currentHighlightedOptionIndex(screen: string): number {
+  const body = wizardBody(screen);
+  const numbered = parseNumberedOptions(body);
+  const options = numbered.length >= 2 ? numbered : parseWizardOptions(body);
+  const idx = options.findIndex((opt) => opt.highlighted);
+  return idx >= 0 ? idx : 0;
+}
+
+function buildWizardMultiSelectResponse(mask: number, screen: string): string[] {
+  const options = parseWizardOptions(wizardBody(screen));
+  const steps: string[] = [];
+  let current = currentHighlightedOptionIndex(screen);
+  for (let i = 0; i < options.length; i++) {
+    const desired = (mask & (1 << i)) !== 0;
+    if (options[i].selected === desired) continue;
+    const delta = i - current;
+    const key = delta >= 0 ? "ag==" : "aw==";
+    for (let j = 0; j < Math.abs(delta); j++) steps.push(key);
+    steps.push("IA==");
+    current = i;
+  }
+  steps.push("CQ==");
+  return steps;
+}
+
+function buildWizardSubmitResponse(screen: string): string[] {
+  const parsed = parseClaudeWizardPrompt(screen);
+  const steps: string[] = [];
+  const active = parsed?.sections?.findIndex((section: { active?: boolean }) => section.active) ?? -1;
+  const count = parsed?.sections?.length ?? 0;
+  const moves = active >= 0 && count > active ? count - active : 1;
+  for (let i = 0; i < moves; i++) steps.push("G1tD");
+  steps.push("DQ==");
+  return steps;
 }
 
 const plugin: PluginModule = {
@@ -116,6 +320,8 @@ const plugin: PluginModule = {
   hasEventMarkers(chunk: string): boolean {
     const c = String(chunk || "");
     if (c.indexOf("❯") !== -1) return true;
+    if (c.indexOf("Enter to select") !== -1) return true;
+    if (c.indexOf("Submit") !== -1 && (c.indexOf("☐") !== -1 || c.indexOf("✔") !== -1)) return true;
     if (c.indexOf("proceed") !== -1) return true;
     if (c.indexOf("Esc to cancel") !== -1) return true;
     if (c.indexOf("Tab to amend") !== -1) return true;
@@ -139,6 +345,7 @@ const plugin: PluginModule = {
   detectEvents(text: string): string[] {
     const t = String(text || "");
     const events: string[] = [];
+    if (parseClaudeWizardPrompt(t)) events.push("permission_request");
     // PermissionRequest: numbered list + "Esc to cancel" or "❯ N." selector
     const numLines = (t.match(/^\s*\d+\.\s+/gm) || []).length;
     const hasEscFooter = t.indexOf("Esc to cancel") !== -1 || t.indexOf("Tab to amend") !== -1;
@@ -164,12 +371,12 @@ const plugin: PluginModule = {
     return events;
   },
 
-  buildPromptResponse(optionIndex: number): string[] {
-    // Claude TUI uses vim-style single-key navigation.
-    const steps: string[] = [];
-    for (let i = 0; i < optionIndex; i++) steps.push("ag==");
-    steps.push("DQ==");
-    return steps;
+  parsePrompt(text: string): ParsedPrompt | null {
+    return parseClaudeWizardPrompt(text) || parseClaudeNumberedPrompt(text);
+  },
+
+  buildPromptResponse(optionIndex: number, screen?: string): string[] {
+    return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
 
   // Launch command parity for native behavior across OS-specific execution modes.

@@ -825,8 +825,9 @@ pub trait AgentProvider: Send + Sync {
         events
     }
 
-    fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
+    fn parse_prompt(&self, text: &str) -> Option<crate::multiplexer::types::PendingPrompt> {
         crate::agent::detector::parse_permission_prompt(text)
+            .map(|(question, options)| crate::agent::prompt::build_prompt(question, options))
     }
 
     // In-agent control commands — defaults return None/empty.
