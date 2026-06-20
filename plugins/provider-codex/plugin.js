@@ -23,6 +23,233 @@ __export(plugin_exports, {
   default: () => plugin_default
 });
 module.exports = __toCommonJS(plugin_exports);
+
+// plugins/provider-codex/src/prompt.ts
+var DOWN = "G1tC";
+var UP = "G1tB";
+var ENTER = "DQ==";
+var MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+function parseCodexPrompt(screen) {
+  const parsed = parseCodexPromptShape(screen);
+  return parsed ? parsed.prompt : null;
+}
+function responseKeysForIndex(optionIndex, screen) {
+  const parsed = parseCodexPromptShape(screen);
+  if (parsed && !parsed.interactive) {
+    const options2 = parsed.prompt.options || [];
+    const option = options2[optionIndex];
+    const value = Array.isArray(option) ? option[1] : option && option.value;
+    return [base64(String(value || optionIndex + 1) + "\r")];
+  }
+  const options = activeMenuOptions(screen);
+  let highlightIdx = 0;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  const target = optionIndex > 0 ? optionIndex : 0;
+  const delta = target - highlightIdx;
+  const steps = [];
+  if (delta > 0) for (let i = 0; i < delta; i++) steps.push(DOWN);
+  else if (delta < 0) for (let i = 0; i < -delta; i++) steps.push(UP);
+  steps.push(ENTER);
+  return steps;
+}
+function parseMenuOptions(screen) {
+  const lines = String(screen || "").split("\n");
+  const options = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = MENU_OPTION_RE.exec(lines[i]);
+    if (!m) continue;
+    options.push({ highlighted: !!m[1], label: m[3].trim(), value: m[2], line: i });
+  }
+  return options;
+}
+function parseCodexPromptShape(screen) {
+  return parseCodexNumberedMenu(screen) || parseCodexLetteredPrompt(screen) || parseCodexNumberedQuestion(screen);
+}
+function parseCodexNumberedMenu(screen) {
+  const lines = String(screen || "").split("\n");
+  const options = activeMenuOptions(screen);
+  if (options.length < 2) return null;
+  const hasSelector = options.some((o) => o.highlighted);
+  const hasFooter = promptFooterNear(lines, options[options.length - 1].line);
+  if (!hasSelector && !hasFooter) return null;
+  const question = questionForMenu(lines, options[0].line);
+  return {
+    prompt: { question, options: options.map((o) => [o.label, o.value]) },
+    interactive: true
+  };
+}
+function activeMenuOptions(screen) {
+  const all = parseMenuOptions(screen);
+  if (all.length < 2) return [];
+  const cluster = [];
+  let prev = all[all.length - 1].line;
+  for (let i = all.length - 1; i >= 0; i--) {
+    if (prev - all[i].line <= 2 || cluster.length === 0) {
+      cluster.unshift(all[i]);
+      prev = all[i].line;
+    } else {
+      break;
+    }
+  }
+  return cluster.length >= 2 ? cluster : [];
+}
+function promptFooterNear(lines, lastLine) {
+  for (let i = lastLine; i < Math.min(lines.length, lastLine + 5); i++) {
+    const t = lines[i].toLowerCase();
+    if ((t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) && (t.indexOf("confirm") !== -1 || t.indexOf("go back") !== -1 || t.indexOf("cancel") !== -1 || t.indexOf("continue") !== -1)) return true;
+  }
+  return false;
+}
+function questionForMenu(lines, firstLine) {
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 5; i--) {
+    const t = lines[i].trim();
+    if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
+  }
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 3; i--) {
+    const t = lines[i].trim();
+    if (t.length > 3) return t;
+  }
+  return "Permission required";
+}
+function parseCodexLetteredPrompt(text) {
+  const lines = prosePromptLines(text);
+  const starts = [];
+  const optionRe = /^\s*(?:[-*•]\s*)?([A-Z])[.)]\s+(.+?)\s*$/;
+  for (let i = 0; i < lines.length; i++) {
+    const m = optionRe.exec(lines[i]);
+    if (!m || !/[A-C]/.test(m[1])) continue;
+    starts.push({ index: i, letter: m[1], label: m[2] });
+  }
+  if (starts.length < 3) return null;
+  return promptFromOptionStarts(lines, starts, "letter");
+}
+function parseCodexNumberedQuestion(text) {
+  const lines = prosePromptLines(text);
+  const starts = [];
+  const optionRe = /^\s*(?:[-*•]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
+  for (let i = 0; i < lines.length; i++) {
+    const m = optionRe.exec(lines[i]);
+    if (!m) continue;
+    starts.push({ index: i, letter: m[1], label: m[2] });
+  }
+  if (starts.length < 2) return null;
+  return promptFromOptionStarts(lines, starts, "number");
+}
+function promptFromOptionStarts(lines, starts, kind) {
+  const options = [];
+  for (let i = 0; i < starts.length; i++) {
+    const start = starts[i];
+    const end = i + 1 < starts.length ? starts[i + 1].index : lines.length;
+    const parts = [start.label];
+    for (let j = start.index + 1; j < end; j++) {
+      const t = lines[j].trim();
+      if (!t || isCodexFooterLine(t) || /^Step\s+\d+\s+of\s+\d+\b/i.test(t) || t.endsWith("?")) break;
+      parts.push(t);
+    }
+    options.push({ label: cleanPromptText(parts.join(" ")), value: start.letter, highlighted: false });
+  }
+  const groups = groupOptions(lines, starts, kind);
+  if (groups.length === 0) return null;
+  const question = groups.length > 1 ? findCompoundTitle(lines, groups[0].questionIndex) || groups[0].question || "Choose an option" : groups[0].question || findQuestion(lines.slice(0, starts[0].index).join("\n")) || "Choose an option";
+  const sections = groups.length > 1 ? groups.map((group, i) => ({ label: group.title || "Step " + String(i + 1), active: i === 0 })) : void 0;
+  return {
+    prompt: {
+      question,
+      options: options.map((opt) => [opt.label, opt.value]),
+      sections,
+      multiSelect: false,
+      submitAvailable: false
+    },
+    interactive: false
+  };
+}
+function groupOptions(lines, starts, kind) {
+  const firstValue = kind === "letter" ? "A" : "1";
+  const groups = [];
+  for (let i = 0; i < starts.length; i++) {
+    if (starts[i].letter !== firstValue) continue;
+    const questionIndex = nearestQuestionIndex(lines, starts[i].index);
+    groups.push({
+      question: questionIndex >= 0 ? cleanPromptText(lines[questionIndex]) : "",
+      questionIndex,
+      title: nearestSectionTitle(lines, questionIndex)
+    });
+  }
+  return groups;
+}
+function normalizeLines(text) {
+  return String(text || "").replace(/\r\n?/g, "\n").split("\n");
+}
+function prosePromptLines(text) {
+  const lines = normalizeLines(text);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^\s*•\s+.+\?\s*$/.test(lines[i])) return lines.slice(i);
+  }
+  return lines;
+}
+function nearestQuestionIndex(lines, beforeIndex) {
+  const start = Math.max(0, beforeIndex - 8);
+  for (let i = beforeIndex - 1; i >= start; i--) {
+    const t = lines[i].trim();
+    if (t.endsWith("?")) return i;
+  }
+  return -1;
+}
+function nearestSectionTitle(lines, questionIndex) {
+  if (questionIndex < 0) return null;
+  for (let i = questionIndex - 1; i >= Math.max(0, questionIndex - 5); i--) {
+    const t = cleanPromptText(lines[i]);
+    if (!t || t.endsWith("?") || /^[❯>]/.test(t)) continue;
+    const step = /^Step\s+\d+\s+of\s+\d+\s+[—-]\s+(.+)$/i.exec(t);
+    return step && step[1] ? step[1].trim() : t;
+  }
+  return null;
+}
+function findCompoundTitle(lines, beforeQuestionIndex) {
+  if (beforeQuestionIndex < 0) return null;
+  for (let i = beforeQuestionIndex - 1; i >= Math.max(0, beforeQuestionIndex - 8); i--) {
+    const t = cleanPromptText(lines[i]);
+    if (!t || /^Step\s+\d+\s+of\s+\d+\b/i.test(t) || t.endsWith("?") || /^[❯>]/.test(t)) continue;
+    return t;
+  }
+  return null;
+}
+function findQuestion(text) {
+  const lines = normalizeLines(text).map((line) => line.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].endsWith("?")) return cleanPromptText(lines[i]);
+  }
+  return lines.length > 0 ? cleanPromptText(lines[lines.length - 1]) : "";
+}
+function isCodexFooterLine(line) {
+  return line.indexOf("ctrl+c to cancel") !== -1 || line.indexOf("tokens used") !== -1 || line.indexOf("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500") !== -1 || line === "\u276F" || /^›\s*$/.test(line);
+}
+function cleanPromptText(value) {
+  return String(value || "").replace(/^[•⏺]\s*/, "").replace(/─+/g, " ").replace(/\s+/g, " ").trim();
+}
+function base64(value) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const bytes = [];
+  for (let i = 0; i < value.length; i++) bytes.push(value.charCodeAt(i) & 255);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    out += chars[a >> 2];
+    out += chars[(a & 3) << 4 | b >> 4];
+    out += i + 1 < bytes.length ? chars[(b & 15) << 2 | c >> 6] : "=";
+    out += i + 2 < bytes.length ? chars[c & 63] : "=";
+  }
+  return out;
+}
+
+// plugins/provider-codex/src/plugin.ts
 var CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 var TITLE_RE = /codex/i;
 var OUTPUT_FINGERPRINTS = [
@@ -80,7 +307,7 @@ var plugin = {
     return events;
   },
   parsePrompt(text) {
-    return parseCodexNumberedPrompt(String(text || ""));
+    return parseCodexPrompt(String(text || ""));
   },
   buildPromptResponse(optionIndex, screen) {
     return responseKeysForIndex(optionIndex, String(screen || ""));
@@ -441,80 +668,6 @@ var plugin = {
   }
 };
 var CLASSIFY_THRESHOLD = 0.8;
-var MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
-function parseMenuOptions(screen) {
-  const lines = String(screen || "").split("\n");
-  const options = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = MENU_OPTION_RE.exec(lines[i]);
-    if (!m) continue;
-    options.push({ highlighted: !!m[1], label: m[3].trim(), value: m[2], line: i });
-  }
-  return options;
-}
-function activeMenuOptions(screen) {
-  const all = parseMenuOptions(screen);
-  if (all.length < 2) return [];
-  const cluster = [];
-  let prev = all[all.length - 1].line;
-  for (let i = all.length - 1; i >= 0; i--) {
-    if (prev - all[i].line <= 2 || cluster.length === 0) {
-      cluster.unshift(all[i]);
-      prev = all[i].line;
-    } else {
-      break;
-    }
-  }
-  return cluster.length >= 2 ? cluster : [];
-}
-function promptFooterNear(lines, lastLine) {
-  for (let i = lastLine; i < Math.min(lines.length, lastLine + 5); i++) {
-    const t = lines[i].toLowerCase();
-    if ((t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) && (t.indexOf("confirm") !== -1 || t.indexOf("go back") !== -1 || t.indexOf("cancel") !== -1 || t.indexOf("continue") !== -1)) return true;
-  }
-  return false;
-}
-function questionForMenu(lines, firstLine) {
-  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 5; i--) {
-    const t = lines[i].trim();
-    if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
-  }
-  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 3; i--) {
-    const t = lines[i].trim();
-    if (t.length > 3) return t;
-  }
-  return "Permission required";
-}
-function parseCodexNumberedPrompt(screen) {
-  const lines = String(screen || "").split("\n");
-  const options = activeMenuOptions(screen);
-  if (options.length < 2) return null;
-  const hasSelector = options.some((o) => o.highlighted);
-  const hasFooter = promptFooterNear(lines, options[options.length - 1].line);
-  if (!hasSelector && !hasFooter) return null;
-  const question = questionForMenu(lines, options[0].line);
-  return { question, options: options.map((o) => [o.label, o.value]) };
-}
-function responseKeysForIndex(optionIndex, screen) {
-  const DOWN = "G1tC";
-  const UP = "G1tB";
-  const ENTER = "DQ==";
-  const options = activeMenuOptions(screen);
-  let highlightIdx = 0;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  const target = optionIndex > 0 ? optionIndex : 0;
-  const delta = target - highlightIdx;
-  const steps = [];
-  if (delta > 0) for (let i = 0; i < delta; i++) steps.push(DOWN);
-  else if (delta < 0) for (let i = 0; i < -delta; i++) steps.push(UP);
-  steps.push(ENTER);
-  return steps;
-}
 function skipNavigationKeys(options) {
   if (options.length === 0) return null;
   let highlightIdx = -1;

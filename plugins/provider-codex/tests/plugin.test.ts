@@ -171,6 +171,40 @@ console.log("\n--- parsePrompt + buildPromptResponse: /model numbered picker ---
   eq(evp.buildPromptResponse(3, modelScreen), ["G1tC", "G1tC", "DQ=="], "target below current → Down ×2 + Enter");
 }
 
+console.log("\n--- parsePrompt + buildPromptResponse: prose choice prompts ---\n");
+{
+  const evp = loadHostPlugin();
+  const abc = [
+    "• Which release strategy should we use?",
+    "  A) Fast patch release now",
+    "  B) Minor release with bundled fixes",
+    "  C) Delay for more testing",
+  ].join("\n");
+  const parsed = evp.parsePrompt(abc);
+  eq(parsed && parsed.question, "Which release strategy should we use?", "lettered prose question extracts");
+  eq(
+    parsed && parsed.options,
+    [
+      ["Fast patch release now", "A"],
+      ["Minor release with bundled fixes", "B"],
+      ["Delay for more testing", "C"],
+    ],
+    "lettered prose options extract",
+  );
+  eq(evp.buildPromptResponse(1, abc), ["Qg0="], "lettered click sends selected value plus Enter");
+
+  const numbered = [
+    "• Which test strategy should we use?",
+    "",
+    "  1. Unit tests first",
+    "  2. Integration smoke tests",
+    "  3. Full end-to-end suite",
+  ].join("\n");
+  const parsedNumbered = evp.parsePrompt(numbered);
+  eq(parsedNumbered && parsedNumbered.question, "Which test strategy should we use?", "numbered prose question extracts");
+  eq(evp.buildPromptResponse(2, numbered), ["Mw0="], "numbered click sends selected value plus Enter");
+}
+
 console.log("\n--- parseSessionDelta hardening ---\n");
 const hostPlugin = loadHostPlugin();
 const chunk = [

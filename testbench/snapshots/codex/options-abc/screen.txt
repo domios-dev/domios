@@ -1,0 +1,33 @@
+
+
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.141.0)                               │
+│                                                          │
+│ model:       gpt-5.5 medium   /model to change           │
+│ directory:   …0000gp/T/codeterm-codex-snapshot-testbench │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Try the Codex App. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Output this as plain text, preserving these line breaks exactly, and nothing else:
+  Which release strategy should we use?
+  A) Fast patch release now
+  B) Minor release with bundled fixes
+  C) Delay for more testing
+
+
+⚠ MCP startup interrupted. The following servers were not initialized: codex_apps
+
+• Which release strategy should we use?
+  A) Fast patch release now
+  B) Minor release with bundled fixes
+  C) Delay for more testing
+
+
+› Explain this codebase
+
+  gpt-5.5 medium · /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-codex-snapshot-testbench
