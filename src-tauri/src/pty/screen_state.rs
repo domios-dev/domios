@@ -126,6 +126,31 @@ impl ScreenState {
         })
     }
 
+    /// Trimmed per-row screen text plus the tail, derived from the existing
+    /// per-pty vt100 parser — the same view `SignalExtractor` builds, but with no
+    /// second parser. Feeds the live 3-state classifier's text-question /
+    /// ready-prompt fingerprints (`screen_lines`) and picker-subtype fingerprints
+    /// (`tail`). `tail_rows` anchors the tail to the last non-blank row.
+    pub fn lines_and_tail(&self, pty_id: &str, tail_rows: usize) -> Option<(Vec<String>, String)> {
+        let parser = self.parsers.get(pty_id)?;
+        let screen = parser.screen();
+        let (rows, cols) = screen.size();
+        let mut lines = Vec::with_capacity(rows as usize);
+        let mut last_nonblank: Option<usize> = None;
+        for row in 0..rows {
+            let text = screen.contents_between(row, 0, row, cols);
+            let trimmed = text.trim_end().to_string();
+            if !trimmed.is_empty() {
+                last_nonblank = Some(row as usize);
+            }
+            lines.push(trimmed);
+        }
+        let end = last_nonblank.map_or(0, |r| r + 1);
+        let start = end.saturating_sub(tail_rows);
+        let tail = lines[start..end].join("\n");
+        Some((lines, tail))
+    }
+
     /// Returns the last `max_rows` non-blank rows of the screen plus all rows
     /// after them, joined with `\n`. On a fresh PTY where content lives near
     /// the top and bottom rows are blank, this still returns the content.
