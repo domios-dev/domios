@@ -200,9 +200,7 @@ pub struct Pane {
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this pane.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_binding_nonce: Option<String>,
-    /// Per-session shell-integration nonce (VS Code VSCODE_NONCE scheme). OSC2
-    /// generates+injects it; the OSC 633;E command-line guard rejects text whose
-    /// nonce mismatches. `None` until OSC2 wires the injector.
+    /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub shell_integration_nonce: Option<String>,
     /// Orchestration role (orchestrator / worker — 2-level, no middle tier).

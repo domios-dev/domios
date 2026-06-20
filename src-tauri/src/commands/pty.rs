@@ -87,6 +87,11 @@ pub async fn spawn_pty(
             "CODETERM_SESSION_BINDING_NONCE".to_string(),
             svc.ensure_session_binding_nonce(pid),
         );
+        // Per-session shell-integration nonce — the injected shell script stamps it onto OSC 633;E.
+        env_vars.insert(
+            "CODETERM_SHELL_NONCE".to_string(),
+            svc.ensure_shell_integration_nonce(pid),
+        );
         // Pass role/parent info so agents know their place in hierarchy
         let mux = mux_state.read();
         if let Some(pane) = mux.get_pane(pid) {

@@ -16,6 +16,10 @@ impl ServiceContext {
             self.ensure_session_binding_nonce(pane_id),
         );
         env_vars.insert(
+            "CODETERM_SHELL_NONCE".into(),
+            self.ensure_shell_integration_nonce(pane_id),
+        );
+        env_vars.insert(
             "CODETERM_SOCKET_PATH".into(),
             crate::socket::server::socket_display_path(),
         );

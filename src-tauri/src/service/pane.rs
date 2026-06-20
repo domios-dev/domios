@@ -491,6 +491,23 @@ impl ServiceContext {
         }
     }
 
+    /// Per-session shell-integration nonce, generated once and reused. Exported as
+    /// CODETERM_SHELL_NONCE so the injected shell script can stamp it onto OSC 633;E;
+    /// the marker consumer (OSC3) rejects command-line text whose nonce mismatches.
+    pub fn ensure_shell_integration_nonce(&self, pane_id: &str) -> String {
+        let mut mux = self.mux.write();
+        if let Some(pane) = mux.get_pane_mut(pane_id) {
+            if let Some(ref n) = pane.shell_integration_nonce {
+                return n.clone();
+            }
+            let nonce = uuid::Uuid::new_v4().to_string();
+            pane.shell_integration_nonce = Some(nonce.clone());
+            nonce
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        }
+    }
+
     /// Set chat view state on a pane.
     pub fn set_chat_view(&self, pane_id: &str, enabled: bool) {
         if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
