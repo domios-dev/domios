@@ -37,10 +37,16 @@ daemon (`./build.sh dev`).
 
 ## What it asserts (case ladder)
 
-1. **elementary** — send one nonce prompt; assert (a) the user message is in the
+1. **session-binding (CE3, the gate)** — a FRESH pane must bind its session and
+   deliver the transcript through the UI seam (`POST /chat-raw/start`, the
+   `chat_start_core` path the web chat view uses). Send a nonce; poll
+   `chat-raw/start` until `pending:false` AND the user echo is present. A perpetual
+   `pending:true` is the exact bug Andrey saw — "Polo session: -", empty chat while
+   the TUI works — so this case FAILS loudly on it. Per provider.
+2. **elementary** — send one nonce prompt; assert (a) the user message is in the
    parsed transcript, (b) an assistant reply followed. Beats the "sending…"
    bug's backend half: proves the message reached the agent and drew a reply.
-2. **rapid multi-send** — three quick distinct messages; assert all three land
+3. **rapid multi-send** — three quick distinct messages; assert all three land
    in the transcript (each as its own turn, or covered within a combined turn).
 
 The send path is `POST /api/panes/{id}/send {text, enter:true}` →
@@ -79,7 +85,13 @@ Real captures (this harness, macOS):
 | provider | transcript user-echo timestamp | send→echo skew | matcher clears bubble |
 |----------|--------------------------------|----------------|-----------------------|
 | claude   | ISO-8601 UTC (`…Z`)            | +1503 ms       | YES                   |
-| codex    | **null** (plugin emits none)   | n/a            | YES (content match)   |
+| codex    | ISO-8601 UTC (`…Z`) — CE3 fix  | +1515 ms       | YES (by time now)     |
+
+> CE3 update: codex previously emitted a **null** transcript timestamp (the plugin
+> set only `ts` seconds, never the `timestamp` ISO string that flows to
+> `ChatMsg.timestamp`), forcing content-only echo matching. The codex plugin now
+> forwards the raw ISO `timestamp` exactly like claude (parity-gated in
+> `parity_test/codex.rs`), so codex echoes match by time, not content alone.
 
 So the `ECHO_SKEW_MS` time-guard does **not** reject fresh echoes for today's
 providers — the matcher is sound for current data. But the seam is one

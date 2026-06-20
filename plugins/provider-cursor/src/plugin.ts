@@ -371,11 +371,19 @@ function projectsRoot(): string | null {
   return r ? r + pathSep() + "projects" : null;
 }
 
-// ~/.cursor/chats/<md5(cwd)> — cursor keys the chats dir by md5 of the canonical cwd.
+// Cursor hashes the cwd in its OWN native separator (backslash on Windows). The host hands
+// plugins forward-slash paths, so on Windows we must restore backslashes before md5 — else the
+// hash misses cursor's dir and the session never binds (chat stays empty). No-op on Unix.
+function toNativeCwd(cwd: string): string {
+  const s = String(cwd || "");
+  return host.platform() === "windows" ? s.replace(/\//g, "\\") : s;
+}
+
+// ~/.cursor/chats/<md5(native-cwd)> — cursor keys the chats dir by md5 of its native-separator cwd.
 function cursorChatsDir(cwd: string): string | null {
   const root = chatsRoot();
   if (!root) return null;
-  const hash = host.md5(String(cwd || ""));
+  const hash = host.md5(toNativeCwd(cwd));
   if (!hash) return null;
   return root + pathSep() + hash;
 }

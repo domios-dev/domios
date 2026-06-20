@@ -110,10 +110,22 @@ fn parse_session_delta_maps_response_items() {
         m0.blocks[0].data.get("text").and_then(|v| v.as_str()),
         Some("hello codex")
     );
+    // Codex must forward the raw ISO timestamp (parity with claude): RichMessage.timestamp ->
+    // ChatMsg.timestamp is what the optimistic-echo matcher keys on. Emitting only `ts` (seconds)
+    // left codex echoes timeless, forcing content-only dedupe (the CE1 "codex null-ts" finding).
+    assert_eq!(
+        m0.timestamp.as_deref(),
+        Some("2026-05-01T10:00:00Z"),
+        "codex must forward ISO timestamp for echo matching, not null"
+    );
 
     let m1 = &delta.messages[1];
     assert_eq!(m1.role, "assistant");
     assert_eq!(m1.blocks[0].kind, "text");
+    assert_eq!(
+        m1.timestamp, None,
+        "a row with no timestamp stays null (honest)"
+    );
 
     let m2 = &delta.messages[2];
     assert_eq!(m2.blocks[0].kind, "tool_use");
