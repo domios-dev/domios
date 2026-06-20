@@ -1,3 +1,4 @@
+pub mod attributed_screen;
 pub mod chat_types;
 pub mod command_detection;
 pub mod detector;
