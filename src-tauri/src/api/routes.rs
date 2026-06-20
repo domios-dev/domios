@@ -270,6 +270,18 @@ pub fn create_router(state: AppState) -> Router {
             "/api/mesh/peers/{id}/services",
             get(web_routes::peer_services),
         )
+        .route(
+            "/api/mesh/peers/{id}/services/{service_id}",
+            delete(web_routes::peer_service_delete),
+        )
+        .route(
+            "/api/mesh/peers/{id}/crons/{cron_id}/{action}",
+            post(web_routes::peer_cron_action),
+        )
+        .route(
+            "/api/mesh/peers/{id}/crons/{cron_id}/history",
+            get(web_routes::peer_cron_history),
+        )
         .route("/api/events/stream", get(web_routes::events_stream))
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(

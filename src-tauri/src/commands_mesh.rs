@@ -638,9 +638,17 @@ pub async fn mesh_peer_service_delete(
     instance_id: String,
     id: String,
 ) -> Result<serde_json::Value, String> {
+    peer_service_delete_request(mesh.inner(), &instance_id, &id).await
+}
+
+pub async fn peer_service_delete_request(
+    mesh: &crate::MeshStateHandle,
+    instance_id: &str,
+    id: &str,
+) -> Result<serde_json::Value, String> {
     peer_authed_request(
-        mesh.inner(),
-        &instance_id,
+        mesh,
+        instance_id,
         PeerMethod::Delete,
         &format!("/api/services/{}", id),
     )
@@ -654,14 +662,23 @@ pub async fn mesh_peer_cron_action(
     id: String,
     action: String,
 ) -> Result<serde_json::Value, String> {
+    peer_cron_action_request(mesh.inner(), &instance_id, &id, &action).await
+}
+
+pub async fn peer_cron_action_request(
+    mesh: &crate::MeshStateHandle,
+    instance_id: &str,
+    id: &str,
+    action: &str,
+) -> Result<serde_json::Value, String> {
     // Whitelist the cron sub-actions so this can't be turned into an arbitrary
     // POST against the peer's API surface.
-    if !matches!(action.as_str(), "enable" | "disable" | "trigger" | "cancel") {
+    if !matches!(action, "enable" | "disable" | "trigger" | "cancel") {
         return Err(format!("unsupported cron action: {}", action));
     }
     peer_authed_request(
-        mesh.inner(),
-        &instance_id,
+        mesh,
+        instance_id,
         PeerMethod::Post,
         &format!("/api/crons/{}/{}", id, action),
     )
@@ -674,9 +691,17 @@ pub async fn mesh_peer_cron_history(
     instance_id: String,
     id: String,
 ) -> Result<serde_json::Value, String> {
+    peer_cron_history_request(mesh.inner(), &instance_id, &id).await
+}
+
+pub async fn peer_cron_history_request(
+    mesh: &crate::MeshStateHandle,
+    instance_id: &str,
+    id: &str,
+) -> Result<serde_json::Value, String> {
     peer_authed_request(
-        mesh.inner(),
-        &instance_id,
+        mesh,
+        instance_id,
         PeerMethod::Get,
         &format!("/api/crons/{}/history", id),
     )
