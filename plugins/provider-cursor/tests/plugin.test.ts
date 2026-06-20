@@ -472,6 +472,33 @@ console.log("\n--- parsePrompt + hasEventMarkers (interactive menu extraction) -
   eq(p.detectEvents(prose), [], "no event for numbered prose");
 }
 
+console.log("\n--- parsePrompt: /model non-numbered list picker (live fixture) ---\n");
+{
+  const p = loadCursorWithHost(baseHost({}));
+  // Captured live from `cursor-agent` after `/model`: a non-numbered vertical list
+  // with a → selector on the highlight and a "Enter to select / Type to filter" footer.
+  const modelScreen = readFixture("model-picker.txt");
+  const m = p.parsePrompt(modelScreen);
+  assert(m !== null, "cursor /model list picker is parsed (was null before P9.4)");
+  eq(m && m.question, "Available models", "question is the picker title");
+  assert(m && m.options.length >= 2, `>=2 options extracted (got ${m ? m.options.length : 0})`);
+  eq(m && m.options[0], ["Composer 2.5", "1"], "highlighted (→) row is first option, metadata stripped");
+  assert(
+    !!(m && m.options.some((o: [string, string]) => o[0] === "Opus 4.8")),
+    "trailing '300K High' metadata dropped from the label",
+  );
+  assert(
+    !!(m && m.options.every((o: [string, string]) => o[0].indexOf("of 28") === -1 && o[0].indexOf("filter") === -1)),
+    "pagination + footer rows are not mistaken for options",
+  );
+  assert(p.hasEventMarkers("Type to filter • Enter to select • Tab to edit"), "hasEventMarkers fires on the /model footer");
+  assert(p.hasEventMarkers(" →  Composer 2.5"), "hasEventMarkers fires on the → selector row");
+  eq(p.detectEvents(modelScreen), ["permission_request"], "detectEvents surfaces the /model picker");
+  // A bare non-numbered list with no selector and no picker footer must NOT card.
+  const bareList = "Auto\nComposer 2.5\nOpus 4.8\nGPT-5.5\nthat's the lineup.";
+  eq(p.parsePrompt(bareList), null, "non-numbered list without selector/footer → null (no phantom card)");
+}
+
 console.log("\n--- buildPromptResponse (vertical ↓ nav + Enter) ---\n");
 {
   const p = loadCursorWithHost(baseHost({}));

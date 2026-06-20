@@ -67,7 +67,9 @@ var plugin = {
   },
   hasEventMarkers(chunk) {
     const c = String(chunk || "");
-    return c.indexOf("Would you like") !== -1 || c.indexOf("approve") !== -1 || c.indexOf("run the following") !== -1 || c.indexOf("make the following") !== -1 || c.indexOf("grant these permissions") !== -1;
+    return c.indexOf("Would you like") !== -1 || c.indexOf("approve") !== -1 || c.indexOf("run the following") !== -1 || c.indexOf("make the following") !== -1 || c.indexOf("grant these permissions") !== -1 || // Picker/menu screens (/model, /permissions, update) so the host reads the
+    // screen off the auto-approve path; the universal numbered parser then extracts.
+    c.indexOf("to confirm") !== -1 || c.indexOf("esc to go back") !== -1 || c.indexOf("\u203A") !== -1 || c.indexOf("\u276F") !== -1;
   },
   detectEvents(text) {
     const t = String(text || "");
