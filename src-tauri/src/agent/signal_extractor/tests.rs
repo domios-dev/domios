@@ -224,6 +224,115 @@ fn region_model_splits_content_and_volatile_bands() {
 }
 
 #[test]
+fn input_mode_tracks_cursor_hidden() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    let shown = ex.step(b"abc", 0);
+    assert!(!shown.input_mode.cursor_hidden);
+
+    let hidden = ex.step(b"\x1b[?25l", 50);
+    assert!(hidden.input_mode.cursor_hidden);
+
+    let reshown = ex.step(b"\x1b[?25h", 100);
+    assert!(!reshown.input_mode.cursor_hidden);
+}
+
+#[test]
+fn input_mode_tracks_alt_screen() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    assert!(!ex.step(b"shell\r\n", 0).input_mode.alt_screen);
+    assert!(ex.step(b"\x1b[?1049h", 50).input_mode.alt_screen);
+    assert!(!ex.step(b"\x1b[?1049l", 100).input_mode.alt_screen);
+}
+
+#[test]
+fn input_mode_tracks_bracketed_paste() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    assert!(!ex.step(b"x", 0).input_mode.bracketed_paste);
+    assert!(ex.step(b"\x1b[?2004h", 50).input_mode.bracketed_paste);
+    assert!(!ex.step(b"\x1b[?2004l", 100).input_mode.bracketed_paste);
+}
+
+#[test]
+fn private_mode_split_across_chunks_is_reassembled() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    let mid = ex.step(b"\x1b[?2", 0);
+    assert!(
+        !mid.input_mode.cursor_hidden,
+        "incomplete sequence -> no mode change yet"
+    );
+    let done = ex.step(b"5l", 50);
+    assert!(done.input_mode.cursor_hidden, "completed across chunks");
+}
+
+#[test]
+fn picker_active_on_alt_screen() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    let s = ex.step(b"\x1b[?1049h\x1b[2J\x1b[Hmenu", 0);
+    assert!(s.input_mode.alt_screen);
+    assert!(s.picker_active, "alt-screen alone fires (high precision)");
+}
+
+#[test]
+fn picker_active_on_cursor_hidden_and_still() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    // Inline picker hides the cursor and parks on a menu.
+    ex.step(b"Pick one:\r\n> a\r\n  b\x1b[?25l", 0);
+    let parked = ex.step(b"", 500);
+    assert!(parked.input_mode.cursor_hidden);
+    assert_eq!(parked.quiescence.kind, Motion::Still);
+    assert!(!parked.input_mode.bracketed_paste);
+    assert!(parked.picker_active);
+}
+
+#[test]
+fn picker_inactive_while_spinner_churns_cursor_hidden() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    // A spinner also hides the cursor, but it keeps churning -> not Still.
+    ex.step(b"\x1b[?25l| working", 0);
+    let spinning = ex.step(b"\x1b[1;1H/ working", 100);
+    assert!(spinning.input_mode.cursor_hidden);
+    assert_ne!(spinning.quiescence.kind, Motion::Still);
+    assert!(!spinning.picker_active);
+}
+
+#[test]
+fn picker_inactive_for_shell_prompt_bracketed_paste_only() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    // Normal shell line prompt: bracketed-paste on, cursor visible.
+    ex.step(b"\x1b[?2004h$ ", 0);
+    let idle = ex.step(b"", 500);
+    assert!(idle.input_mode.bracketed_paste);
+    assert!(!idle.input_mode.cursor_hidden);
+    assert_eq!(idle.quiescence.kind, Motion::Still);
+    assert!(!idle.picker_active);
+}
+
+#[test]
+fn picker_inactive_when_bracketed_paste_even_if_cursor_hidden_and_still() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    // Bracketed-paste is an ANTI-signal: a shell line editor with the cursor
+    // transiently hidden must NOT read as a picker.
+    ex.step(b"\x1b[?2004h\x1b[?25l$ ", 0);
+    let idle = ex.step(b"", 500);
+    assert!(idle.input_mode.bracketed_paste);
+    assert!(idle.input_mode.cursor_hidden);
+    assert_eq!(idle.quiescence.kind, Motion::Still);
+    assert!(
+        !idle.picker_active,
+        "bracketed-paste excludes the inline branch"
+    );
+}
+
+#[test]
+fn picker_active_clears_when_alt_screen_exits() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    assert!(ex.step(b"\x1b[?1049h\x1b[Hmenu", 0).picker_active);
+    let exited = ex.step(b"\x1b[?1049l", 100);
+    assert!(!exited.input_mode.alt_screen);
+    assert!(!exited.picker_active);
+}
+
+#[test]
 fn signals_round_trip_through_json() {
     let mut ex = SignalExtractor::new(6, 30, VolatileHint { bottom_rows: 1 });
     ex.step(b"first\r\n", 0);
