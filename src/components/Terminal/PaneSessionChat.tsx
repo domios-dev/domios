@@ -7,6 +7,7 @@ import { useMultiplexer } from "../../store/multiplexer";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
+import { PendingPromptCard } from "./PendingPromptCard";
 import { useAttachments } from "./useAttachments";
 import { useChatSession } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
@@ -105,6 +106,34 @@ export function PaneSessionChat({
   } = useChatSession({ paneId, agentSessionId, onError });
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
+  // Optimistically hide the prompt card once answered/cancelled; the backend
+  // clears pane.pending_prompt shortly after on the next state poll.
+  const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
+  const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
+
+  useEffect(() => {
+    if (!pendingPrompt) setAnsweredPromptQuestion(null);
+  }, [pendingPrompt]);
+
+  const handleRespondPrompt = useCallback(
+    (value: string) => {
+      if (pendingPrompt) setAnsweredPromptQuestion(pendingPrompt.question);
+      void invoke("mux_respond_prompt", { paneId, value }).catch((e) =>
+        showComposerError(e instanceof Error ? e.message : String(e)),
+      );
+    },
+    [pendingPrompt, paneId, showComposerError],
+  );
+
+  // Cancel the prompt without choosing: hide the card and send Esc to the agent
+  // through the same PTY input path the composer uses (no-op for chatBackend).
+  const handleCancelPrompt = useCallback(() => {
+    if (pendingPrompt) setAnsweredPromptQuestion(pendingPrompt.question);
+    if (!currentPtyId) return;
+    void invoke("write_pty_string", { ptyId: currentPtyId, data: "\x1b", raw: true }).catch((e) =>
+      showComposerError(e instanceof Error ? e.message : String(e)),
+    );
+  }, [pendingPrompt, currentPtyId, showComposerError]);
 
   // Shell-command decoration: re-run sends the command back through the same PTY
   // input path the composer uses; jump surfaces the live terminal output.
@@ -340,6 +369,11 @@ export function PaneSessionChat({
           );
         })}
       </div>
+      <PendingPromptCard
+        pendingPrompt={activePrompt}
+        onRespond={handleRespondPrompt}
+        onCancel={handleCancelPrompt}
+      />
       <ChatComposer
         paneId={paneId}
         paneProvider={paneProvider}
