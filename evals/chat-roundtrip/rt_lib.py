@@ -107,6 +107,25 @@ def cmd_binding_state(want_raw: str):
     print("bound" if echoed else "empty")
 
 
+def cmd_pending_prompt(pane_id: str):
+    """Read GET /api/mux/state on stdin; print the pane's extracted interactive
+    prompt as JSON {question, options:[label,...]} iff one is pending, else
+    nothing. This is the facet9 P9.3 oracle: did the provider's prompt get
+    extracted (question + ALL options) into the existing pending_prompt pipeline?"""
+    doc = load_stdin()
+    if not doc:
+        return
+    panes = doc.get("panes") or {}
+    pane = panes.get(pane_id)
+    if not pane:
+        return
+    pp = pane.get("pending_prompt")
+    if not pp:
+        return
+    opts = [o.get("label", "") for o in (pp.get("options") or [])]
+    print(json.dumps({"question": pp.get("question", ""), "options": opts}))
+
+
 def cmd_skew(capture_json: str):
     c = json.loads(capture_json)
     ts = c.get("user_echo_timestamp")
@@ -128,6 +147,8 @@ def main():
         cmd_rapid_check(sys.argv[2])
     elif cmd == "binding-state":
         cmd_binding_state(sys.argv[2])
+    elif cmd == "pending-prompt":
+        cmd_pending_prompt(sys.argv[2])
     elif cmd == "skew":
         cmd_skew(sys.argv[2])
     else:
