@@ -19,6 +19,12 @@ use crate::agent::status::PaneStatus;
 static EVENT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
+/// Per-pane throttle for post-launch session-id detection (cursor and any other
+/// hookless, non-injecting provider). Detection is on-disk fs work; once per
+/// second per pane is plenty during the brief window before the id is found.
+static SESSION_DETECT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
+    LazyLock::new(|| StdMutex::new(HashMap::new()));
+
 impl ServiceContext {
     /// Process new PTY output: track status, detect agent events, dispatch notifications.
     /// Returns the previous and current status for the caller to emit status-change events.
@@ -167,6 +173,10 @@ impl ServiceContext {
         };
 
         if let (Some(ref pid), Some(ref at)) = (&pane_id, &agent_type) {
+            // Hookless, non-injecting providers (cursor) can't report their
+            // session id — detect it on disk post-launch and pin it, or the chat
+            // view never binds (chat_start stays pending). No-op once found.
+            self.maybe_detect_agent_session(pid, at);
             if let Ok(raw) = std::str::from_utf8(data) {
                 let chunk_text = crate::pty::ansi::clean_terminal_output(raw);
                 let has_markers = self.agent_registry.has_event_markers(at, &chunk_text);
@@ -211,6 +221,80 @@ impl ServiceContext {
         }
 
         (prev_status, current_status)
+    }
+
+    /// Post-launch session-id detection for providers that report their session
+    /// neither by hook nor by launch injection (cursor). claude/codex hook their
+    /// id in; injecting providers get a pre-generated id at spawn. A pure-detect
+    /// provider's id only exists once the agent writes its on-disk session, so we
+    /// poll the provider's `detect_session_id` here (where the agent is already
+    /// detected from output) until it resolves, then pin it — otherwise
+    /// `chat_start` stays "pending" forever and the chat view renders empty even
+    /// though the TUI works. Bounded: skips once the id is set, throttled to 1/s.
+    fn maybe_detect_agent_session(&self, pane_id: &str, agent_type: &str) {
+        let (cwd, set_at_elapsed) = {
+            let mux = self.mux.read();
+            let Some(pane) = mux.get_pane(pane_id) else {
+                return;
+            };
+            if pane.agent_session_id.is_some() {
+                return;
+            }
+            let cwd = pane.cwd.clone().unwrap_or_default();
+            let elapsed = pane
+                .agent_set_at
+                .map(|t| t.elapsed().as_secs())
+                .unwrap_or(0);
+            (cwd, elapsed)
+        };
+        if cwd.is_empty() {
+            return;
+        }
+        // Only hookless + non-injecting providers need on-disk detection.
+        let needs = self
+            .agent_registry
+            .with_provider(agent_type, |p| {
+                !p.has_hooks()
+                    && matches!(
+                        p.session_id_injection(),
+                        crate::agent::provider::SessionIdInjection::None
+                    )
+            })
+            .unwrap_or(false);
+        if !needs {
+            return;
+        }
+        // Throttle: at most once per second per pane.
+        {
+            let mut cd = SESSION_DETECT_COOLDOWN.lock().unwrap();
+            let now = Instant::now();
+            if let Some(last) = cd.get(pane_id) {
+                if now.duration_since(*last) < std::time::Duration::from_secs(1) {
+                    return;
+                }
+            }
+            cd.insert(pane_id.to_string(), now);
+        }
+        // Window the search to sessions touched since the agent was detected (+30s
+        // slack) so a reused cwd's older sessions can't shadow the fresh one.
+        let exclude = self.mux.read().other_session_ids(pane_id);
+        let max_age = std::time::Duration::from_secs(set_at_elapsed + 30);
+        let found = self
+            .agent_registry
+            .with_provider(agent_type, |p| {
+                p.detect_session_id(&cwd, &exclude, Some(max_age))
+            })
+            .flatten();
+        if let Some(sid) = found {
+            log::info!(
+                "[output] post-launch detected {} session {} for pane {}",
+                agent_type,
+                sid,
+                pane_id
+            );
+            self.set_agent_session_id(pane_id, Some(sid));
+            self.emit_state_changed();
+        }
     }
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {

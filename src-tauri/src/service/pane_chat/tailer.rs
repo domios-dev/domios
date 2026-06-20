@@ -230,11 +230,32 @@ pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> Taile
             let total = bytes.len() as u64;
             if total > from {
                 let slice = &bytes[from as usize..];
-                let last_nl = slice.iter().rposition(|&b| b == b'\n');
-                if let Some(idx) = last_nl {
-                    let consumed = (idx + 1) as u64;
-                    let text = String::from_utf8_lossy(&slice[..consumed as usize]).to_string();
-                    off.store(from + consumed, Ordering::Release);
+                // Bytes through the last newline are unambiguously complete lines.
+                let nl_consumed = slice
+                    .iter()
+                    .rposition(|&b| b == b'\n')
+                    .map(|idx| idx + 1)
+                    .unwrap_or(0);
+                // The segment AFTER the last newline may already be a COMPLETE
+                // JSON object the provider just hasn't newline-terminated yet —
+                // cursor writes a turn's final line (the assistant reply) without
+                // a trailing \n until the next turn begins. Without this the latest
+                // reply is stuck out of the chat until the user sends again. Emit
+                // it too once it parses as JSON, and advance the offset so the
+                // eventual \n can't re-emit it.
+                let tail = &slice[nl_consumed..];
+                let tail_end = tail.iter().rposition(|&b| !b.is_ascii_whitespace());
+                let tail_complete = tail_end
+                    .map(|e| serde_json::from_slice::<serde_json::Value>(&tail[..=e]).is_ok())
+                    .unwrap_or(false);
+                let consumed = if tail_complete {
+                    slice.len()
+                } else {
+                    nl_consumed
+                };
+                if consumed > 0 {
+                    let text = String::from_utf8_lossy(&slice[..consumed]).to_string();
+                    off.store(from + consumed as u64, Ordering::Release);
                     sink.emit(&cfg.pane_id, text);
                 }
             } else if total < from {
