@@ -23,6 +23,8 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+mod prompt_parse;
+
 /// CamelCase mirror of `SessionMetadata` so plugin authors can return
 /// `{ sessionId, projectPath, ... }` instead of snake_case.
 #[derive(Debug, Deserialize)]
@@ -383,28 +385,14 @@ impl AgentProvider for JsProvider {
         out
     }
 
-    fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
+    fn parse_prompt(&self, text: &str) -> Option<crate::multiplexer::types::PendingPrompt> {
         // Plugin returns `{question, options: [[id, label]]}` or null.
         if let Some(v) = self.try_call::<Option<Value>>("parsePrompt", &[json!(text)]) {
-            if let Some(obj) = v {
-                let question = obj.get("question").and_then(|q| q.as_str())?.to_string();
-                let options = obj.get("options").and_then(|o| o.as_array())?;
-                let mut parsed = Vec::new();
-                for opt in options {
-                    let pair = opt.as_array()?;
-                    if pair.len() != 2 {
-                        return None;
-                    }
-                    let id = pair[0].as_str()?.to_string();
-                    let label = pair[1].as_str()?.to_string();
-                    parsed.push((id, label));
-                }
-                return Some((question, parsed));
-            }
-            return None;
+            return v.and_then(prompt_parse::parsed_prompt_from_js);
         }
         // Fallback to universal detector if plugin doesn't implement.
         crate::agent::detector::parse_permission_prompt(text)
+            .map(|(question, options)| crate::agent::prompt::build_prompt(question, options))
     }
 
     fn build_prompt_response(&self, option_index: usize, screen: &str) -> Vec<Vec<u8>> {

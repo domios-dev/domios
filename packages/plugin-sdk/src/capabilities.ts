@@ -68,6 +68,10 @@ export interface LaunchParams {
 export interface ParsedPrompt {
   question: string;
   options: [string, string][];
+  sections?: Array<{ label: string; active?: boolean; completed?: boolean }>;
+  multiSelect?: boolean;
+  submitAvailable?: boolean;
+  selectedValues?: string[];
 }
 
 export interface AgentProvider {

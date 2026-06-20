@@ -213,10 +213,14 @@ fn parse_prompt_decodes_options() {
             };
         "#;
     let p = load(MIN_MANIFEST, js);
-    let (q, opts) = p.parse_prompt("anything").unwrap();
-    assert_eq!(q, "Allow?");
+    let prompt = p.parse_prompt("anything").unwrap();
+    assert_eq!(prompt.question, "Allow?");
     assert_eq!(
-        opts,
+        prompt
+            .options
+            .iter()
+            .map(|o| (o.label.clone(), o.value.clone()))
+            .collect::<Vec<_>>(),
         vec![("y".into(), "Yes".into()), ("n".into(), "No".into())]
     );
 }
@@ -238,10 +242,14 @@ fn real_opencode_plugin_parses_permission_box() {
         "ctrl+f fullscreen  ⇅ select  enter confirm",
     ]
     .join("\n");
-    let (q, opts) = p.parse_prompt(&box_text).expect("permission box parses");
-    assert_eq!(q, "Access external directory /tmp");
+    let prompt = p.parse_prompt(&box_text).expect("permission box parses");
+    assert_eq!(prompt.question, "Access external directory /tmp");
     assert_eq!(
-        opts,
+        prompt
+            .options
+            .iter()
+            .map(|o| (o.label.clone(), o.value.clone()))
+            .collect::<Vec<_>>(),
         vec![
             ("Allow once".into(), "1".into()),
             ("Allow always".into(), "2".into()),
