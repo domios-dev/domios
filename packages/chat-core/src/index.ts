@@ -25,6 +25,7 @@ export {
 } from "./normalize";
 export { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
 export { mergeTimelineMessages } from "./timeline";
+export { mergeById } from "./merge";
 export { attachToolResults, isRenderableChatMessage } from "./toolResults";
 export { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
 export {

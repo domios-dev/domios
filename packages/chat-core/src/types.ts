@@ -47,6 +47,10 @@ export interface NormalizedChatMessage {
   content: string;
   attachments?: ChatAttachment[];
   timestamp?: string;
+  /** Monotonic source-order ordinal supplied by the server (JSONL line/rich-message
+   *  index, structured row position). Stable tiebreaker when timestamps are coarse
+   *  (codex floors to seconds) or absent (cursor emits none) — see `mergeById`. */
+  seq?: number;
   provider?: string;
   subtype?: string;
   tagName?: string;
