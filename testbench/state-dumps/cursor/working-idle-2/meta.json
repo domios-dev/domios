@@ -1,0 +1,11 @@
+{
+  "provider": "cursor",
+  "scenario": "working-idle",
+  "run": 2,
+  "provider_version": "2026.06.19-20-24-33-653a7fb",
+  "cli_version": "2026.06.19-20-24-33-653a7fb",
+  "capturedAtMs": 1781986795877,
+  "source": "state-capture.sh dev-7686",
+  "paneId": "5ecfdd99",
+  "workspaceId": "7d41fa2d"
+}

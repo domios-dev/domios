@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "at_ms": 36,
+      "action": "send coding task",
+      "expect": "working"
+    },
+    {
+      "at_ms": 2436,
+      "action": "quiescence settled",
+      "expect": "idle"
+    }
+  ],
+  "segments": [
+    {
+      "from_ms": 36,
+      "to_ms": 2436,
+      "state": "working"
+    },
+    {
+      "from_ms": 2436,
+      "to_ms": 4566,
+      "state": "idle"
+    }
+  ]
+}

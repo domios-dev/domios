@@ -1,0 +1,36 @@
+{
+  "steps": [
+    {
+      "at_ms": 35,
+      "action": "send failing task",
+      "expect": "working"
+    },
+    {
+      "at_ms": 11038,
+      "action": "error visible",
+      "expect": "error"
+    },
+    {
+      "at_ms": 14502,
+      "action": "quiescence settled after error",
+      "expect": "idle"
+    }
+  ],
+  "segments": [
+    {
+      "from_ms": 35,
+      "to_ms": 11038,
+      "state": "working"
+    },
+    {
+      "from_ms": 11038,
+      "to_ms": 14502,
+      "state": "error"
+    },
+    {
+      "from_ms": 14502,
+      "to_ms": 16676,
+      "state": "idle"
+    }
+  ]
+}
