@@ -216,5 +216,33 @@ console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
   eq(own.detectSessionModel("/cwd", "ses_mine"), "anthropic/claude-own", "this session's own model is returned");
 }
 
+console.log("\n--- parsePrompt (horizontal option row) ---\n");
+{
+  const p = loadOpencodeWithHost(ocHost({}));
+  const screen = [
+    "│ Permission required                       │",
+    "│ Run `rm -rf build`?                        │",
+    "│                                            │",
+    "│   Allow once   Allow always   Reject       │",
+  ].join("\n");
+  const parsed = p.parsePrompt(screen);
+  eq(parsed && parsed.question, "Run `rm -rf build`?", "parsePrompt extracts the question");
+  eq(
+    parsed && parsed.options,
+    [["Allow once", "1"], ["Allow always", "2"], ["Reject", "3"]],
+    "parsePrompt extracts ALL three horizontal options (1-based values)",
+  );
+  eq(p.parsePrompt("just some normal assistant output\nwith no permission box"), null, "non-prompt output → null");
+}
+
+console.log("\n--- buildPromptResponse (horizontal ←/→ nav, NOT down) ---\n");
+{
+  const p = loadOpencodeWithHost(ocHost({}));
+  // value=1 → optionIndex 0 → just Enter (leftmost already highlighted).
+  eq(p.buildPromptResponse(0), ["DQ=="], "index 0 → Enter only");
+  // value=3 → optionIndex 2 → right, right, Enter (NOT down×2).
+  eq(p.buildPromptResponse(2), ["G1tD", "G1tD", "DQ=="], "index 2 → right ×2 + Enter (ESC[C, not ESC[B)");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

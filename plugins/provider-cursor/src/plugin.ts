@@ -1,6 +1,6 @@
 // Cursor (cursor-agent) provider plugin runtime logic, compiled to QuickJS-compatible
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
-import type { LaunchParams, ModelInfo, PluginModule } from "@codeterm/plugin-sdk";
+import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 
 const TITLE_RE = /cursor/i;
 // Structural fingerprints of the cursor-agent TUI — functional UI strings, not vendor-churned marketing copy.
@@ -55,12 +55,37 @@ const plugin: PluginModule = {
     return true;
   },
 
-  hasEventMarkers(_chunk: string): boolean {
-    return false;
+  // Cheap incremental gate: a selector glyph, a keyboard footer, or a
+  // trust/approval keyword means a prompt frame might be on screen → let the
+  // host read the full screen and run parsePrompt (the authoritative gate).
+  hasEventMarkers(chunk: string): boolean {
+    return chunkHasPromptSignal(String(chunk || ""));
   },
 
-  detectEvents(_text: string): string[] {
-    return [];
+  // Surface a waiting state when the full screen parses as an interactive menu.
+  detectEvents(text: string): string[] {
+    return parseCursorPrompt(String(text || "")) ? ["permission_request"] : [];
+  },
+
+  // Read cursor's alt-screen menu (permission / workspace-trust / model picker)
+  // into {question, options}. Returns null on non-menu output so normal chat
+  // never surfaces a phantom card. The host navigates via buildPromptResponse.
+  parsePrompt(text: string): ParsedPrompt | null {
+    return parseCursorPrompt(String(text || ""));
+  },
+
+  // Cursor menus are vertical lists navigated with ↑/↓ + Enter; default
+  // highlight is the top row, so move down `optionIndex` times then Enter.
+  // Esc-cancel is handled by the host's separate cancel path. Base64 byte
+  // steps: down=ESC[B, enter=\r.
+  buildPromptResponse(optionIndex: number): string[] {
+    const DOWN = "G1tC"; // ESC [ B
+    const ENTER = "DQ==";  // \r
+    const steps: string[] = [];
+    const n = optionIndex > 0 ? optionIndex : 0;
+    for (let i = 0; i < n; i++) steps.push(DOWN);
+    steps.push(ENTER);
+    return steps;
   },
 
   // Discover via `cursor-agent --list-models` (host-cached); falls back to the manifest seed when offline.
@@ -481,6 +506,101 @@ function cleanText(raw: string, role: string): string {
   t = t.split("[REDACTED]").join("");
   t = t.replace(/\n{3,}/g, "\n\n");
   return t.trim();
+}
+
+// ── interactive prompt parsing ──
+
+const PROMPT_SELECTORS = "❯›▶➤";
+// Selector-or-numbered option line, optional leading selector glyph: "❯ 1. Yes" / "2) No".
+const PROMPT_NUM_RE = /^[❯›▶➤>\s]*?(\d+)[.)]\s+(.+)$/;
+
+// Strip box-drawing chrome so labels/question stay clean regardless of framing.
+function cleanPromptLine(line: string): string {
+  return String(line)
+    .replace(/[│┃|╎╏┆┊╭╮╯╰]/g, " ")
+    .replace(/[─━═]{2,}/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Quick chunk-level signal that a prompt frame may be present (gates the
+// expensive full-screen parse). Liberal by design — parseCursorPrompt is the
+// real gate, so a false hit only costs one cheap parse that returns null.
+function chunkHasPromptSignal(chunk: string): boolean {
+  for (let i = 0; i < PROMPT_SELECTORS.length; i++) {
+    if (chunk.indexOf(PROMPT_SELECTORS[i]) !== -1) return true;
+  }
+  const lc = chunk.toLowerCase();
+  return (
+    lc.indexOf("workspace trust") !== -1 ||
+    lc.indexOf("run everything") !== -1 ||
+    lc.indexOf("to continue") !== -1 ||
+    lc.indexOf("to cancel") !== -1 ||
+    lc.indexOf("approve") !== -1 ||
+    (lc.indexOf("esc") !== -1 && lc.indexOf("enter") !== -1)
+  );
+}
+
+function findPromptQuestion(lines: string[], firstIdx: number): string {
+  for (let i = firstIdx - 1; i >= 0 && firstIdx - i <= 6; i--) {
+    const t = lines[i];
+    if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
+  }
+  for (let i = firstIdx - 1; i >= 0 && firstIdx - i <= 4; i--) {
+    const t = lines[i];
+    if (t && t.length > 3) return t;
+  }
+  return "Permission required";
+}
+
+// Parse the active vertical menu near the bottom of cursor's screen. Mirrors the
+// host's universal numbered-picker shape (so numbered menus never regress) and
+// requires a selector glyph or keyboard footer near the options so a plain
+// numbered list in prose is not mistaken for a prompt.
+function parseCursorPrompt(text: string): ParsedPrompt | null {
+  const lines = String(text || "").split("\n").map(cleanPromptLine);
+  if (lines.length < 2) return null;
+  const start = Math.max(0, lines.length - 25);
+
+  const collected: { value: string; label: string; idx: number; sel: boolean }[] = [];
+  for (let i = start; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l) continue;
+    const m = PROMPT_NUM_RE.exec(l);
+    if (m && m[2].trim()) {
+      const sel = PROMPT_SELECTORS.indexOf(l.charAt(0)) !== -1 || l.charAt(0) === ">";
+      collected.push({ value: m[1], label: m[2].trim(), idx: i, sel: sel });
+    }
+  }
+  if (collected.length < 2) return null;
+
+  // Last contiguous cluster — the active menu sits at the bottom.
+  const cluster: typeof collected = [];
+  let prev = collected[collected.length - 1].idx;
+  for (let i = collected.length - 1; i >= 0; i--) {
+    if (prev - collected[i].idx <= 2 || cluster.length === 0) {
+      cluster.unshift(collected[i]);
+      prev = collected[i].idx;
+    } else break;
+  }
+  if (cluster.length < 2) return null;
+
+  const lastIdx = cluster[cluster.length - 1].idx;
+  const hasSelector = cluster.some((o) => o.sel);
+  let hasFooter = false;
+  for (let i = lastIdx; i < Math.min(lines.length, lastIdx + 5); i++) {
+    const t = lines[i].toLowerCase();
+    if (
+      (t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) &&
+      (t.indexOf("cancel") !== -1 || t.indexOf("confirm") !== -1 ||
+        t.indexOf("select") !== -1 || t.indexOf("continue") !== -1)
+    ) { hasFooter = true; break; }
+  }
+  if (!hasSelector && !hasFooter) return null;
+
+  const question = findPromptQuestion(lines, cluster[0].idx);
+  const options: [string, string][] = cluster.map((o) => [o.label, o.value]);
+  return { question: question, options: options };
 }
 
 // ── misc helpers ──
