@@ -12,6 +12,7 @@ import { IS_WEB, webJson } from "../../lib/webApi";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
 import { loadDefaultNewAgentPaneChat } from "../../lib/chatUiMode";
+import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -384,8 +385,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshFromBackend]);
 
+  // Default-agent spawn (new-tab affordance). Resolves the provider by capability
+  // from the descriptor registry rather than hardcoding a vendor id.
   const spawnClaudeTab = useCallback(async (workspaceId: string, skipPermissions: boolean, cwd?: string) => {
-    spawnAgentTab(workspaceId, "claude", skipPermissions, cwd);
+    spawnAgentTab(workspaceId, defaultSpawnProviderId(), skipPermissions, cwd);
   }, [spawnAgentTab]);
 
   const closeTab = useCallback(

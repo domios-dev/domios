@@ -11,6 +11,7 @@ import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
+import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
 
 interface Props {
@@ -388,7 +389,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
             subtitle={[logWorker.agent_provider, logWorker.model].filter(Boolean).join(" / ")}
             status={logWorker.status}
             report={logWorker.report}
-            provider={logWorker.agent_provider ?? "claude"}
+            provider={logWorker.agent_provider ?? defaultSpawnProviderId()}
             cwd={logWorker.cwd ?? ""}
             sessionId={logWorker.session_id}
             live={!["done", "error", "orphaned"].includes(logWorker.status)}
