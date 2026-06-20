@@ -202,6 +202,53 @@ fn tag_relay_send_source(
     }
 }
 
+/// Local-origin relay: the web mirror stays pointed at its own daemon and asks
+/// it to proxy a request to a paired peer. Authenticated as a normal local call
+/// (the auth middleware gates it); the daemon then rides the existing signed
+/// mesh relay to the target peer. Keeps the browser's single reachability
+/// assumption (it only ever talks to the daemon that served it).
+#[derive(serde::Deserialize)]
+pub struct PeerRelayCommand {
+    pub target_peer_id: String,
+    #[serde(default = "default_relay_method")]
+    pub method: String,
+    pub path: String,
+    #[serde(default)]
+    pub body: serde_json::Value,
+}
+
+fn default_relay_method() -> String {
+    "GET".to_string()
+}
+
+pub async fn mesh_relay_to_peer(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(req): Json<PeerRelayCommand>,
+) -> Result<Json<crate::mesh::types::RelayResponse>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let client = state
+        .mesh
+        .lock()
+        .client_for(&req.target_peer_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("Peer {} not paired", req.target_peer_id),
+            )
+        })?;
+    let cmd = crate::mesh::types::RelayCommand {
+        method: req.method,
+        path: req.path,
+        body: req.body,
+    };
+    let resp = client
+        .send_relay(&cmd)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(resp))
+}
+
 pub async fn mesh_relay(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
