@@ -1,8 +1,5 @@
-// Codex provider plugin (runtime logic, capability: agentProvider).
-// Authored in TypeScript against @codeterm/plugin-sdk and compiled to a
-// QuickJS-compatible plugin.js by scripts/build-plugin.mjs. Detect/parse/slash
-// commands plus rollout-tree session discovery. The frontend ProviderPlugin
-// contract is the separate src/index.ts artifact the app imports.
+// Codex provider plugin runtime logic, compiled to QuickJS-compatible plugin.js
+// by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ModelInfo, PluginModule } from "@codeterm/plugin-sdk";
 
 const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
@@ -80,8 +77,7 @@ const plugin: PluginModule = {
     return events;
   },
 
-  // Codex CLI has no account-model-list subcommand; its local cache is the only
-  // clean synchronous account-scoped source. Missing or stale cache => seed.
+  // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels(): ModelInfo[] {
     return discoverCodexModelsFromCache() || manifestModels();
   },
@@ -95,7 +91,7 @@ const plugin: PluginModule = {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
     if (p.args && p.args.length > 0) {
-      // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
+      // Quote each caller-supplied arg to prevent shell injection.
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     return parts.join(" ");
@@ -113,9 +109,7 @@ const plugin: PluginModule = {
     return parts.join(" ");
   },
 
-  // Rollout-tree detection: scan `~/.codex/sessions/.../rollout-*.jsonl`
-  // and read only `session_meta` headers on first file match.
-
+  // Rollout-tree detection: scan `~/.codex/sessions/.../rollout-*.jsonl`, reading only `session_meta` headers.
   sessionFilePath(_cwd: string, sessionId: string): string | null {
     const root = codexSessionsRoot();
     if (!root) return null;
@@ -138,11 +132,9 @@ const plugin: PluginModule = {
     return this.sessionFilePath!(cwd, sessionId);
   },
 
-  // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
-  // Parse codex rollout JSONL into RichMessages. Codex schema:
-  //   {type:"response_item", payload:{type:"message"|"function_call"|"function_call_output", ...}}
-  // We read response_item lines only (event_msg duplicates them; reasoning is
-  // encrypted; token_count/turn_context/session_meta are metadata).
+  // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
+  // Parse codex rollout JSONL into RichMessages, reading only `response_item` lines
+  // ({type:"response_item", payload:{type:"message"|"function_call"|"function_call_output"}}).
   parseSessionDelta(chunk: string): unknown {
     const out: unknown[] = [];
     const lines = String(chunk || "").split("\n");
@@ -317,8 +309,7 @@ const plugin: PluginModule = {
     return this.installIntegration!(apiPort);
   },
 
-  // Parse the `/status` TUI screen into a UsageSnapshot-shaped object
-  // (snake_case fields). Gauges report "% left"; snapshot stores "% used".
+  // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText: string, nowMs: number): unknown {
     const raw = String(rawText || "");
     if (!raw.trim()) return null;
@@ -442,27 +433,16 @@ const plugin: PluginModule = {
     return out;
   },
 
-  // AS2 (Case A) — classify a parked codex pane from its rendered screen.
-  // The core reactor (state_reactor.rs) only calls this on the idle/waiting edge
-  // and only auto-acts when confidence >= GLOBAL_THRESHOLD (0.8), the state is
-  // NOT waiting_on_auth, and an action is present. All codex-specific knowledge
-  // (the self-update fingerprint, Skip navigation, auth-guard) lives here; core
-  // stays generic.
-  //
-  // Two guarantees this method enforces:
-  //  1. Auth is sacred — a login/OAuth/API-key screen is classified
-  //     waiting_on_auth with NO keys, so it is surfaced, never auto-pressed.
-  //  2. No false positives — the update verdict is an ENSEMBLE of independent
-  //     structural signals; a single weak match stays below threshold. When it
-  //     does fire, the action navigates to "Skip", never the default
-  //     "Update now" highlight (a blind Enter would update mid-session).
+  // Classify a parked codex pane from its rendered screen. Invariants: auth is
+  // sacred (surfaced, never auto-pressed); the update verdict is an ensemble of
+  // structural signals so a lone weak match stays sub-threshold, and when it
+  // fires it navigates to "Skip", never the default "Update now" highlight.
   classifyPaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
-    // Normalize CRLF/CR → LF: Windows pane output is CRLF, and every structural
-    // pattern below matches on \n boundaries — a trailing \r breaks the matches.
+    // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
     const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
 
-    // Auth first — sacred, and takes precedence over any update-looking menu.
+    // Auth first — sacred, takes precedence over any update-looking menu.
     const authConfidence = scoreAuthPrompt(screen);
     if (authConfidence >= CLASSIFY_THRESHOLD) {
       return {
@@ -482,9 +462,7 @@ const plugin: PluginModule = {
       };
     }
 
-    // Some update signal, but not a confident actionable verdict (below
-    // threshold, or no Skip option to navigate to) → no action, so the reactor
-    // never fires on a partial read.
+    // Some signal but not a confident verdict → no action, so the reactor never fires on a partial read.
     if (upd.confidence > 0) {
       return { state: "unknown", confidence: upd.confidence };
     }
@@ -493,12 +471,9 @@ const plugin: PluginModule = {
   },
 };
 
-// ── AS2 pane-state classification (Case A: codex self-update prompt) ──────────
-//
-// Wire shapes mirror src-tauri/src/agent/pane_state.rs (camelCase JS boundary,
-// snake_case PaneState strings). Declared locally because the published
-// @codeterm/plugin-sdk PluginModule exposes classifyPaneState only via its
-// index signature, not a named type.
+// Pane-state classification (codex self-update prompt). Wire shapes mirror
+// src-tauri/src/agent/pane_state.rs, declared locally because the SDK exposes
+// classifyPaneState only via its index signature.
 
 interface PaneStateSnapshot {
   paneId: string;
@@ -530,15 +505,12 @@ interface PaneStateClassification {
   action?: PaneStateAction;
 }
 
-// Match the core reactor's GLOBAL_THRESHOLD (state_reactor.rs). The plugin only
-// emits an actionable verdict at/above this confidence, so it never recommends
-// a key-press the reactor would itself reject.
+// Must match the core reactor's GLOBAL_THRESHOLD (state_reactor.rs) — below it the reactor would reject the verdict.
 const CLASSIFY_THRESHOLD = 0.8;
 
 interface MenuOption { highlighted: boolean; label: string }
 
-// A line of the form `> 1. Label` / `❯ 2. Label` / `  3. Label`. The leading
-// glyph (when present) marks the currently-highlighted option.
+// A menu line like `> 1. Label`; the leading glyph (if present) marks the highlighted option.
 const MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
 
 function parseMenuOptions(screen: string): MenuOption[] {
@@ -552,9 +524,8 @@ function parseMenuOptions(screen: string): MenuOption[] {
   return options;
 }
 
-// The keys to navigate from the highlighted option to the "Skip" option, then
-// confirm. Returns null when there is no distinct Skip option to land on (so we
-// never blindly press Enter on the default "Update now").
+// Keys to navigate from the highlighted option to "Skip", then confirm. Null when
+// there's no distinct Skip option, so we never blindly Enter on the default "Update now".
 function skipNavigationKeys(options: MenuOption[]): string[] | null {
   if (options.length === 0) return null;
   let highlightIdx = -1;
@@ -578,10 +549,8 @@ function skipNavigationKeys(options: MenuOption[]): string[] | null {
 
 interface UpdateScore { confidence: number; skipKeys: string[] | null }
 
-// Independent structural signals for the codex self-update prompt; their
-// weights sum to 1.0. The actionable core is the numbered menu carrying BOTH an
-// "update" and a "skip" option — the corroborating header/footer lines push a
-// real prompt comfortably over threshold while a lone signal stays well under.
+// Structural signals for the codex self-update prompt (weights sum to 1.0). Core
+// signal is a numbered menu carrying both "update" and "skip"; a lone signal stays sub-threshold.
 function scoreUpdatePrompt(screen: string): UpdateScore {
   const options = parseMenuOptions(screen);
   let hasUpdateOption = false;
@@ -609,9 +578,7 @@ function scoreUpdatePrompt(screen: string): UpdateScore {
   return { confidence: confidence, skipKeys: skipKeys };
 }
 
-// Auth ensemble. Weighted so no single casual mention fires, but a real
-// login/OAuth/API-key screen clears threshold. Auth false positives are the
-// SAFE direction (surface, never auto-act) — so this leans inclusive.
+// Auth ensemble, weighted so no lone casual mention fires. Leans inclusive: a false positive only surfaces, never auto-acts.
 function scoreAuthPrompt(screen: string): number {
   const s = String(screen || "");
   let score = 0;
@@ -626,7 +593,7 @@ function scoreAuthPrompt(screen: string): number {
   return score > 1 ? 1 : score;
 }
 
-// --- types shared by the parsers above ---
+// types shared by the parsers above
 
 interface CodexContentBlock { type?: string; text?: string }
 interface CodexPayload {

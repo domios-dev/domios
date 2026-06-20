@@ -1,16 +1,7 @@
-//! Cursor (cursor-agent) provider parity — JS-only (no native `AgentProvider`).
-//! Each case drives the real `provider-cursor/plugin.js` through `JsProvider`.
-//!
-//! Covered: buildLaunchCommand (+ workspace-trust prefix), buildResumeCommand,
-//! parseSessionDelta, parseSessionMessages, usesStructuredChat,
-//! sessionJsonlPath/sessionFilePath (path shape), sessionExists,
-//! sessionCreatedMs, detectSessionId, detectActiveSession, enumerateSessions.
-//!
-//! The sqlite/meta-backed reads live under `~/.cursor` keyed by `host.homeDir()`
-//! with no env override, so (unlike codex/opencode) they can't be pointed at a
-//! tempdir without mutating HOME — which would race the claude/home-dependent
-//! cases. They are exercised here against a non-existent session so the JS path
-//! is proven to round-trip the honest negative (false / None) into native types.
+//! Cursor provider parity — JS-only, driving the real `provider-cursor/plugin.js`
+//! through `JsProvider`. The `~/.cursor`-backed reads have no env override (can't be
+//! redirected without racing home-dependent cases), so they run against a non-existent
+//! session to prove the honest negative round-trips into native types.
 
 use super::*;
 
@@ -184,16 +175,14 @@ fn detection_and_existence_negatives_round_trip() {
         return;
     }
     let j = cursor();
-    // A cwd with no ~/.cursor/chats/<md5> dir → no candidates → None (never a
-    // sibling guess). detectActiveSession is a deliberate stub → None.
+    // A cwd with no chats dir → None (never a sibling guess); detectActiveSession is a stub → None.
     let bogus_cwd = "/nonexistent/cursor/parity/probe/xyz";
     assert_eq!(j.detect_session_id(bogus_cwd, &[], None), None);
     assert_eq!(j.detect_active_session(bogus_cwd, "current"), None);
     // No meta.json/store.db under a random session dir → exists=false, birth=None.
     assert!(!j.session_exists(bogus_cwd, CURSOR_UUID));
     assert!(j.session_created_at(bogus_cwd, CURSOR_UUID).is_none());
-    // enumerateSessions must yield a well-formed (possibly empty) list — every
-    // entry, if any, is tagged as a cursor session.
+    // enumerateSessions yields a well-formed list, every entry tagged as a cursor session.
     assert!(j
         .enumerate_sessions()
         .iter()

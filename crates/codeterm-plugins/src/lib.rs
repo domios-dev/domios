@@ -1,19 +1,11 @@
-//! Plugin-management logic shared by the `codeterm` CLI and the daemon.
-//!
-//! This crate owns the filesystem-level plugin/channel operations (list,
-//! install, update, channel add/refresh/diff/remove, get/config). Both the CLI
-//! binary and the daemon call [`run`] in-process so the daemon never forks its
-//! own CLI to manage plugins (AGENTS.md: "The daemon NEVER shells out to its
-//! own `codeterm` CLI"). The only plugin path that still needs a socket — the
-//! `plugin <id> <verb>` passthrough — stays in the CLI crate, since it routes
-//! to a running daemon rather than touching the filesystem.
+//! Plugin-management logic (list/install/update/channel/get/config) shared by the
+//! CLI and the daemon, which both call [`run`] in-process so the daemon never forks
+//! its own CLI. The socket-routed `plugin <id> <verb>` passthrough stays in the CLI crate.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
 
-// Shared glob surface for the submodules. They are written against `super::*`,
-// so the crate root must re-export the same names the old `cmd::plugin` facade
-// did (helpers, types, consts) plus the std/sha2 imports they rely on.
+// Shared glob surface for submodules written against `super::*` — re-exports the names the old `cmd::plugin` facade did.
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -44,12 +36,8 @@ use update::*;
 use util::*;
 use version::*;
 
-/// Runtime context for a plugin operation: where plugin data lives and which
-/// CodeTerm version is running. Callers pass this explicitly so the logic does
-/// not depend on a particular process's env layout (the daemon resolves its own
-/// data dir; the CLI resolves dev-vs-prod) while keeping behaviour identical to
-/// the previous subprocess, which received both via `CODETERM_DATA_DIR` /
-/// `CODETERM_VERSION`.
+/// Runtime context (data root + version) passed explicitly so the logic doesn't
+/// depend on a process's env layout — the daemon and CLI resolve these differently.
 #[derive(Clone, Debug)]
 pub struct PluginCtx {
     pub data_root: PathBuf,
@@ -78,10 +66,8 @@ fn enter_ctx(ctx: PluginCtx) -> CtxGuard {
     })
 }
 
-/// Plugin data root. Prefers the active [`PluginCtx`]; falls back to the
-/// `CODETERM_DATA_DIR` env override (must be absolute) and finally to
-/// `~/.codeterm`. The fallback path is exercised only by tests (which set the
-/// env) — real callers always establish a context first.
+/// Plugin data root: the active [`PluginCtx`], else `CODETERM_DATA_DIR` (absolute),
+/// else `~/.codeterm`. The env fallback is only for tests; real callers set a context first.
 pub(crate) fn data_root() -> PathBuf {
     if let Some(root) = CTX.with(|c| c.borrow().as_ref().map(|x| x.data_root.clone())) {
         return root;

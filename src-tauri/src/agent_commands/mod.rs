@@ -1,23 +1,13 @@
-//! `agent_commands` — the inverse seam. A spawned agent runs
-//! `codeterm plugin <id> <verb> [args…]`; the socket dispatch routes
-//! `plugin:<id>.<verb>` to the owning plugin's `onAgentCommand` handler, gated by
-//! the plugin's `agent_commands` grant (plan §1.5 F5 / §1.10).
-//!
-//! There is no native handler — the capability is JS-only, so the acceptance
-//! oracle is a `call_json` contract test (see `plugin::js_runtime::agent_commands`)
-//! plus the routing test in `socket::server::agent_commands`, not `parity_test.rs`.
-//!
-//! Core asks the capability, never the identity — resolution goes through
-//! [`AgentCommandRegistry`] (a
-//! [`CapabilityRegistry`](crate::plugin::capability::CapabilityRegistry)).
+//! `agent_commands` — the inverse seam: a spawned agent's `codeterm plugin <id>
+//! <verb>` is routed to the owning plugin's `onAgentCommand`, gated by its
+//! `agent_commands` grant. JS-only (acceptance oracle is a `call_json` contract
+//! test + the routing test), resolved via [`AgentCommandRegistry`].
 
 use std::sync::Arc;
 
 use crate::plugin::capability::CapabilityRegistry;
 
-/// A plugin that handles agent-issued commands via its exported `onAgentCommand`.
-/// Synchronous because the QuickJS `call_json` bridge is synchronous (the VM is
-/// not `Send`); the socket dispatch calls it on the request thread.
+/// A plugin handling agent-issued commands via `onAgentCommand`. Synchronous (the `call_json` bridge is), called on the request thread.
 pub trait AgentCommandProvider: Send + Sync {
     fn id(&self) -> &str;
 
@@ -25,10 +15,7 @@ pub trait AgentCommandProvider: Send + Sync {
     /// to route to an ungranted plugin even if a handler is registered.
     fn granted(&self) -> bool;
 
-    /// Route one agent-issued command to the plugin. `Ok(result)` becomes the
-    /// plugin's `{ result }`; `Err(msg)` becomes its `{ error }` (or surfaces a
-    /// VM failure). Both are non-fatal at the RPC layer — the call succeeded, the
-    /// plugin reported an outcome.
+    /// Route one agent command to the plugin: `Ok` → `{ result }`, `Err` → `{ error }` (both non-fatal at the RPC layer).
     fn on_agent_command(
         &self,
         session_id: &str,

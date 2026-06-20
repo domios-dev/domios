@@ -1,15 +1,7 @@
-//! Durable per-orchestrator orchestration ledger.
-//!
-//! The in-memory [`ReportStore`](super::reports::ReportStore) is the live
-//! notification stream; it is wiped on daemon restart. This sqlite-backed ledger
-//! is the durable truth: one row per `(orchestrator, worker)` pair, UPSERTed on
-//! every report so the latest status wins. After a restart (or a context
-//! compaction) a recovered orchestrator queries the ledger to see exactly what
-//! it spawned and what each worker last reported.
-//!
-//! Schema follows the same rusqlite pattern as `mem` (WAL, `busy_timeout`,
-//! idempotent `CREATE TABLE IF NOT EXISTS` on open) — no new db harness, no new
-//! dependency.
+//! Durable orchestration ledger — the sqlite truth behind the in-memory
+//! [`ReportStore`](super::reports::ReportStore) (wiped on restart). One row per
+//! `(orchestrator, worker)`, UPSERTed on every report so a recovered orchestrator
+//! can query exactly what it spawned and each worker's last status.
 
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
@@ -19,8 +11,7 @@ use super::reports::ReportStatus;
 
 const CURRENT_LEDGER_SCHEMA_VERSION: u32 = 1;
 
-/// One worker's latest state under an orchestrator. Mirrors the P2 structured
-/// report fields plus the orchestrator/worker identity and `model`.
+/// One worker's latest state under an orchestrator (structured report fields + identity + model).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LedgerRow {
     pub orchestrator_pane_id: String,
@@ -53,9 +44,7 @@ pub struct OrchestrationLedger {
 }
 
 impl OrchestrationLedger {
-    /// Open (or create) the ledger db under `data_dir/orchestration.db`.
-    /// Idempotent: opening an existing db is a no-op beyond pragma setup and
-    /// any pending schema migrations.
+    /// Open (or create) the ledger db under `data_dir/orchestration.db` (idempotent).
     pub fn open(data_dir: &std::path::Path) -> Result<Self, String> {
         std::fs::create_dir_all(data_dir).map_err(|e| format!("create data dir: {}", e))?;
         let db_path = data_dir.join("orchestration.db");
@@ -69,8 +58,7 @@ impl OrchestrationLedger {
         })
     }
 
-    /// Open a file-backed ledger at an explicit path. Used by durability tests
-    /// (write → drop → reopen the same file) and any caller that owns the path.
+    /// Open a file-backed ledger at an explicit path (durability tests + callers that own the path).
     pub fn open_at(db_path: &std::path::Path) -> Result<Self, String> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("create dir: {}", e))?;
@@ -148,9 +136,7 @@ impl OrchestrationLedger {
         })
     }
 
-    /// UPSERT a worker's latest state. The `(orchestrator, worker)` primary key
-    /// means a re-report of the same worker overwrites the prior row — exactly
-    /// one row per worker, latest status wins.
+    /// UPSERT a worker's latest state — the `(orchestrator, worker)` PK keeps exactly one row per worker, latest wins.
     pub fn upsert(&self, row: &LedgerRow) -> Result<(), String> {
         let changed_files_json = row
             .changed_files
@@ -418,8 +404,7 @@ mod tests {
         l1.upsert(&row("orch", "w1", ReportStatus::Done, 1))
             .unwrap();
         drop(l1);
-        // Second open must not error (CREATE TABLE IF NOT EXISTS) and must not
-        // wipe existing rows.
+        // Second open must not error or wipe existing rows.
         let l2 = OrchestrationLedger::open_at(&db).unwrap();
         assert_eq!(l2.list_for_orchestrator("orch").unwrap().len(), 1);
         let conn = l2.conn.lock();

@@ -1,13 +1,7 @@
-//! `JsSecretBackend` — adapts a JS plugin that declares `capabilities.secret_backend`
-//! to the core [`SecretStore`](crate::secrets::SecretStore) trait. Mirrors
-//! `JsProvider`/`JsTranscriber`: wraps the shared `Arc<PluginVm>` and dispatches to
-//! exported plugin functions via the synchronous `call_json` on the caller's thread
-//! (the VM is not `Send`).
-//!
-//! Wire contract: each method returns an envelope `{ ok: <data> }` or
-//! `{ error: { kind, ... } }` (the error shape is `SecretError`). `secretStatus`
-//! returns a bare `StoreStatus`. Optional methods (organizations/collections/sync/
-//! init) fall back to the trait default when the plugin doesn't export them.
+//! `JsSecretBackend` — adapts a JS `capabilities.secret_backend` plugin to the core
+//! [`SecretStore`](crate::secrets::SecretStore) trait via the synchronous `call_json`.
+//! Wire contract: methods return `{ ok }` / `{ error: { kind, ... } }`; `secretStatus`
+//! returns a bare `StoreStatus`; unexported optional methods fall back to the trait default.
 
 use std::sync::Arc;
 

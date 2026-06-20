@@ -1,11 +1,7 @@
-//! Generic, provider-agnostic pane-state classification types (AS1 seam).
-//!
-//! Core defines these types and asks a provider to classify a pane snapshot;
-//! it NEVER branches on a provider id or a literal screen string. All
-//! provider-specific detection (fingerprints, reset-time parsing, per-prompt
-//! navigation) lives in the provider plugin, which returns one of these
-//! generic verdicts. The core reactor (see `state_reactor`) executes the
-//! returned action through existing seams.
+//! Generic, provider-agnostic pane-state classification types (AS1 seam). Core
+//! asks a provider to classify a snapshot and never branches on a provider id or
+//! screen string; all provider-specific detection lives in the plugin, which
+//! returns one of these generic verdicts for the reactor to execute.
 
 use serde::{Deserialize, Serialize};
 

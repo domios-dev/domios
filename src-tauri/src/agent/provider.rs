@@ -108,13 +108,8 @@ pub struct ModelInfo {
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Whether the account can actually select this model right now. `None`
-    /// (the common case) means "no availability info — treat as available".
-    /// `Some(false)` means the model is known-unavailable for this account
-    /// (e.g. an alias the API key can't yet use) and the picker greys it out;
-    /// `Some(true)` is explicitly confirmed-available. Dynamic discovery sets
-    /// this; static manifest seeds usually leave it `None` (or `false` for an
-    /// alias that ships disabled until live discovery enables it).
+    /// Account-can-select-this-now. `None` (common) ⇒ no info, treat as available;
+    /// `Some(false)` greys it out in the picker. Set by live discovery; usually `None` in static seeds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub available: Option<bool>,
 }
@@ -789,13 +784,9 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
-    /// Classify a parked pane's state from a generic snapshot (AS1 seam).
-    ///
-    /// Optional capability: the default returns `None` (no opinion) so most
-    /// providers opt out. A provider that opts in runs its own ensemble of
-    /// matchers and returns a generic [`PaneStateClassification`] — core never
-    /// sees the provider's fingerprints, only the generic verdict + action.
-    /// Called by the core reactor ONLY when the pane is parked (idle/waiting).
+    /// Classify a parked pane from a generic snapshot (AS1 seam). Optional — default
+    /// `None`. An opting-in provider runs its own matchers and returns a generic
+    /// verdict; core sees only that, never the fingerprints. Called only when parked.
     fn classify_pane_state(
         &self,
         _snapshot: &crate::agent::pane_state::PaneStateSnapshot,

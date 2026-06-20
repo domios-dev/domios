@@ -1,10 +1,5 @@
-//! Spawn path for `chatBackend` panes (plan Track B, Appendix B1.3 #6).
-//!
-//! A chatBackend pane is the non-PTY pane: it registers with `pty_id: None` and
-//! `backing: PaneBacking::ChatBackend`, opens a plugin session, and starts NO
-//! backend reader (so `process_pty_output`/`backend_read_loop`/`ScreenState` are
-//! never entered for it — B1.1#3). Inbound messages arrive via the plugin
-//! `poll` → `StructuredSink` path, not a PTY tail.
+//! Spawn path for non-PTY `chatBackend` panes (`pty_id: None`, no backend
+//! reader); inbound transcript arrives via the plugin `poll` → `StructuredSink`.
 
 use std::future::Future;
 
@@ -13,16 +8,11 @@ use super::ServiceContext;
 use crate::agent::chat_types::StructuredChat;
 use crate::multiplexer::types::PaneBacking;
 
-/// Adaptive inbound-poll cadence bounds. While a turn/stream is active (a
-/// non-empty delta arrived on the previous tick) the loop polls at
-/// [`POLL_ACTIVE_MS`] for near-token streaming; when idle it backs off
-/// geometrically up to [`POLL_IDLE_MS`] so an open-but-quiet chat pane costs
-/// almost nothing. The floor prevents a busy-spin.
+/// Adaptive inbound-poll cadence bounds: fast while streaming, geometric
+/// back-off to idle so an open-but-quiet chat pane costs almost nothing.
 const POLL_ACTIVE_MS: u64 = 60;
 const POLL_IDLE_MS: u64 = 750;
 
-/// Next sleep before the following poll. Active (`had_delta`) snaps back to the
-/// fast cadence; idle doubles the current delay, clamped to `[ACTIVE, IDLE]`.
 fn next_poll_delay_ms(had_delta: bool, current_ms: u64) -> u64 {
     if had_delta {
         POLL_ACTIVE_MS
@@ -33,12 +23,8 @@ fn next_poll_delay_ms(had_delta: bool, current_ms: u64) -> u64 {
     }
 }
 
-/// Byte-identity signature of a delta's emitted payload (`delta.messages` — the
-/// exact bytes the sink would ship to the chat UI). A live streaming message
-/// re-returned every tick with no growth (cursor pinned at `liveFrom`) hashes to
-/// the same value, so the loop can suppress the redundant emit. Cheap u64 hash
-/// over the serialized payload keeps per-tick cost O(n) without retaining the
-/// payload between ticks.
+/// Byte-identity signature of a delta's payload, so a streaming message
+/// re-returned unchanged hashes the same and the redundant emit is suppressed.
 fn delta_signature(delta: &StructuredChat) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -48,28 +34,16 @@ fn delta_signature(delta: &StructuredChat) -> u64 {
     h.finish()
 }
 
-/// Per-tick poll-loop decision.
 struct PollTick {
-    /// Cursor to pass on the next poll: whatever the plugin returned, falling
-    /// back to the previous cursor when it returned none.
     cursor: Option<String>,
-    /// Emit the delta to the chat UI only when it carried NEW bytes (non-empty
-    /// AND not byte-identical to the last emitted payload).
     emit: bool,
-    /// Adaptive delay before the next poll.
     delay_ms: u64,
-    /// Signature to remember for the next tick: the new payload's signature when
-    /// a delta arrived, else the prior signature carried forward (so an idle gap
-    /// between two identical deltas still suppresses the second).
     signature: Option<u64>,
 }
 
-/// Pure per-tick planning for the inbound poll loop: advance the cursor, decide
-/// whether to emit, and pick the next adaptive delay. Emit only when the delta
-/// is non-empty AND its payload differs from the last emitted one — a streaming
-/// message re-returned unchanged (cursor pinned at `liveFrom`) is suppressed to
-/// avoid redundant IPC + O(n²) re-transmission. Keeping this pure makes the
-/// loop's contract unit-testable without a live daemon/sink.
+/// Pure per-tick planning for the poll loop. Emit only when the delta is
+/// non-empty AND differs from the last emitted payload — a streaming message
+/// re-returned unchanged is suppressed to avoid redundant IPC + O(n²) bytes.
 fn plan_poll_tick(
     delta: &StructuredChat,
     prev_cursor: Option<String>,
@@ -90,15 +64,8 @@ fn plan_poll_tick(
     }
 }
 
-/// Spawn chatBackend background work on the daemon's main Tokio runtime.
-///
-/// chatBackend panes are spawned from three call sites: the async HTTP route,
-/// the Tauri UI command, and the **synchronous socket RPC** (`spawn_agent_sync`,
-/// which runs on a plain blocking thread with NO ambient Tokio runtime). Bare
-/// `tokio::spawn` needs a runtime in thread-local context and panics ("there is
-/// no reactor running, must be called from the context of a Tokio 1.x runtime")
-/// on that last path. `tauri::async_runtime` holds a global handle to the
-/// daemon's runtime and spawns regardless of the caller's context.
+/// Spawn on the daemon's global tauri runtime. The synchronous socket-RPC spawn
+/// path has no ambient Tokio runtime, where bare `tokio::spawn` would panic.
 fn spawn_bg<F>(fut: F)
 where
     F: Future<Output = ()> + Send + 'static,
@@ -144,13 +111,10 @@ impl ServiceContext {
             result
         };
 
-        // Persisted as the JSONL `_meta` header so a pane restored after a
-        // daemon restart can lazily re-open from the same systemPrompt/preset.
+        // Persisted as the JSONL `_meta` header so a restored pane can re-open from the same config.
         let history_meta = config.clone();
 
-        // Pane shows instantly in a connecting state (empty session id). The
-        // network `openSession` runs on a background task — pane visibility
-        // never waits on it (the old synchronous path blocked the spawn 3-5s).
+        // Pane shows instantly with an empty session id; openSession runs in the background.
         {
             let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(&pane_id) {
@@ -158,7 +122,6 @@ impl ServiceContext {
                     plugin_id: plugin_id.clone(),
                     session_id: String::new(),
                 };
-                // Render as chat (the frontend also branches on `backing`).
                 pane.chat_view = true;
                 if let Some(ref dir) = resolved_cwd {
                     pane.cwd = Some(dir.clone());
@@ -187,11 +150,9 @@ impl ServiceContext {
         })
     }
 
-    /// Background launch for a chatBackend pane: open the plugin session, stamp
-    /// the resolved session id onto the pane backing, publish models, and start
-    /// the inbound poll loop. Runs entirely off the spawn path so the pane is
-    /// visible immediately. On `openSession` failure the just-created tab is torn
-    /// down (a bad config leaves no dangling empty pane) and a warning surfaces.
+    /// Background launch: open the plugin session, stamp its id onto the backing,
+    /// publish models, start the poll loop. On openSession failure the tab is
+    /// torn down so a bad config leaves no dangling empty pane.
     pub(crate) fn chatbackend_launch_async(
         &self,
         plugin_id: String,
@@ -254,9 +215,7 @@ impl ServiceContext {
                 session_id
             );
 
-            // Best-effort: publish the backend's models into the catalog so the
-            // pane model picker can resolve them. listModels may hit a network
-            // backend (e.g. LM Studio) so it runs on a blocking task.
+            // Publish models for the pane picker; listModels may hit a network backend, so spawn_blocking.
             {
                 let svc2 = svc.clone();
                 let plugin2 = plugin_id.clone();
@@ -275,15 +234,13 @@ impl ServiceContext {
                 });
             }
 
-            // Inbound transcript arrives via poll → StructuredSink (no PTY reader).
             svc.spawn_chatbackend_poll_loop(pane_id, plugin_id, session_id, history_meta);
         });
     }
 
-    /// Background loop: poll the plugin for new transcript and emit it on the
-    /// `pane-chat-msg-{id}` event the frontend already consumes. Ends when the
-    /// pane is closed. The poll runs on a blocking thread so a slow plugin
-    /// `poll` can't stall the async runtime (the VM lock is per-plugin).
+    /// Background loop: poll the plugin and emit new transcript on
+    /// `pane-chat-msg-{id}`, ending when the pane closes. Poll runs on a blocking
+    /// thread so a slow plugin can't stall the async runtime.
     pub(crate) fn spawn_chatbackend_poll_loop(
         &self,
         pane_id: String,
@@ -295,9 +252,7 @@ impl ServiceContext {
         let app = self.app_handle.clone();
         spawn_bg(async move {
             let inner = crate::service::pane_chat::structured_sink::make_sink(app);
-            // Durable wrapper: forwards to the UI sink AND persists each delta to
-            // the session JSONL (UPSERT by id — a streaming message rewrites its
-            // own line, never duplicates).
+            // Durable wrapper: forwards to the UI sink and UPSERTs each delta to the session JSONL by id.
             let sink: std::sync::Arc<
                 dyn crate::service::pane_chat::structured_sink::StructuredSink,
             > = std::sync::Arc::new(
@@ -308,15 +263,9 @@ impl ServiceContext {
                     Some(&history_meta),
                 ),
             );
-            // Per-session cursor: the plugin returns only the DELTA after this
-            // bookmark plus the next cursor. None on the first tick ⇒ the plugin
-            // returns the whole transcript and seeds the cursor.
+            // None on the first tick ⇒ the plugin returns the whole transcript and seeds the cursor.
             let mut cursor: Option<String> = None;
-            // Start idle; the first non-empty delta snaps the loop to the fast
-            // cadence (adaptive: near-token streaming while active, ~zero when idle).
             let mut delay_ms = POLL_IDLE_MS;
-            // Signature of the last emitted payload — a re-returned streaming
-            // message with no growth hashes the same and is suppressed.
             let mut last_signature: Option<u64> = None;
             loop {
                 tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
@@ -330,9 +279,7 @@ impl ServiceContext {
                     cursor.clone(),
                 );
                 match tokio::task::spawn_blocking(move || {
-                    // Item 6: advance any async work (NPC agent tickets → replies)
-                    // BEFORE reading the transcript, so a host-driven async
-                    // chatBackend actually progresses on the real daemon.
+                    // Advance async work before reading, so a host-driven async chatBackend progresses.
                     let _ = svc2.chatbackend_pump(&plugin2, &sid2);
                     svc2.chatbackend_poll(&plugin2, &sid2, cur.as_deref())
                 })
@@ -385,7 +332,6 @@ mod tests {
 
     #[test]
     fn cadence_is_fast_while_active() {
-        // A delta arrived this tick ⇒ poll fast next, regardless of prior delay.
         assert_eq!(next_poll_delay_ms(true, POLL_IDLE_MS), POLL_ACTIVE_MS);
         assert_eq!(next_poll_delay_ms(true, POLL_ACTIVE_MS), POLL_ACTIVE_MS);
         const { assert!(POLL_ACTIVE_MS <= 80, "active cadence must be near-token") };
@@ -393,8 +339,6 @@ mod tests {
 
     #[test]
     fn cadence_backs_off_to_idle_when_quiet() {
-        // Sustained idle climbs geometrically and converges to the idle cap,
-        // never below the floor and never above the cap (no busy-spin).
         let mut d = POLL_ACTIVE_MS;
         let mut steps = 0;
         loop {
@@ -408,7 +352,6 @@ mod tests {
             }
             assert!(steps < 20, "must converge to idle cap");
         }
-        // Stays pinned at the idle cap once reached.
         assert_eq!(next_poll_delay_ms(false, POLL_IDLE_MS), POLL_IDLE_MS);
     }
 
@@ -422,8 +365,6 @@ mod tests {
 
     #[test]
     fn tick_idle_does_not_emit_and_keeps_cursor() {
-        // Empty delta with no fresh cursor ⇒ no emit, prior cursor retained,
-        // cadence backs off.
         let tick = plan_poll_tick(&delta(0, None), Some("c1".into()), POLL_ACTIVE_MS, None);
         assert!(!tick.emit, "empty delta must NOT emit");
         assert_eq!(
@@ -436,7 +377,6 @@ mod tests {
 
     #[test]
     fn tick_first_poll_no_cursor_emits_full_transcript() {
-        // First tick: prev cursor None, plugin returns whole transcript + cursor.
         let tick = plan_poll_tick(&delta(3, Some("c0")), None, POLL_IDLE_MS, None);
         assert!(tick.emit);
         assert_eq!(tick.cursor.as_deref(), Some("c0"));
@@ -444,16 +384,11 @@ mod tests {
 
     #[test]
     fn tick_suppresses_byte_identical_delta() {
-        // MED-2: a live streaming message re-returned with no growth (cursor
-        // pinned at liveFrom) hashes identically and must NOT re-emit — redundant
-        // IPC + O(n²) bytes otherwise.
         let d = delta(1, Some("liveFrom"));
         let sig = delta_signature(&d);
-        // First sight: no prior signature → emit, remember the signature.
         let t1 = plan_poll_tick(&d, Some("c0".into()), POLL_ACTIVE_MS, None);
         assert!(t1.emit, "first delta must emit");
         assert_eq!(t1.signature, Some(sig));
-        // Same delta again, prior signature matches → suppressed.
         let t2 = plan_poll_tick(&d, t1.cursor.clone(), t1.delay_ms, t1.signature);
         assert!(!t2.emit, "byte-identical re-returned delta must NOT emit");
         assert_eq!(t2.signature, Some(sig), "signature unchanged");
@@ -462,8 +397,6 @@ mod tests {
 
     #[test]
     fn tick_emits_when_delta_grows() {
-        // A streaming message that GREW (new tokens) changes its signature and
-        // must emit.
         let d1 = delta(1, Some("c1"));
         let t1 = plan_poll_tick(&d1, None, POLL_IDLE_MS, None);
         assert!(t1.emit);
@@ -475,8 +408,7 @@ mod tests {
 
     #[test]
     fn tick_idle_preserves_last_signature_for_later_dedup() {
-        // An idle gap between two identical deltas must still suppress the second:
-        // the prior signature is carried across the empty tick.
+        // The prior signature must survive an empty tick so a later identical delta stays suppressed.
         let d = delta(1, Some("c1"));
         let t1 = plan_poll_tick(&d, None, POLL_ACTIVE_MS, None);
         assert!(t1.emit);
@@ -495,25 +427,17 @@ mod tests {
         );
     }
 
-    /// Repro for the socket-RPC `agent.spawn <chatBackend>` panic. The poll loop
-    /// used `tokio::spawn`, which requires the caller to already be inside a
-    /// Tokio runtime. The synchronous socket RPC runs the spawn on a plain
-    /// blocking thread with NO ambient runtime, so it panicked with "there is no
-    /// reactor running, must be called from the context of a Tokio 1.x runtime".
-    /// `spawn_bg` routes onto the daemon's tauri runtime (global handle), which
-    /// works regardless of caller context. A plain `#[test]` (NOT
-    /// `#[tokio::test]`) reproduces that no-runtime thread.
+    /// Repro for the socket-RPC spawn panic: a plain `#[test]` (no `#[tokio::test]`)
+    /// reproduces the no-ambient-runtime thread where bare `tokio::spawn` panics
+    /// but `spawn_bg` (daemon's global tauri runtime) still runs the future.
     #[test]
     fn poll_loop_spawn_does_not_need_ambient_runtime() {
-        // This thread has no ambient runtime — exactly the socket-RPC situation.
         assert!(
             tokio::runtime::Handle::try_current().is_err(),
             "test must reproduce the no-ambient-runtime context"
         );
 
-        // The bug condition is real on this thread: a bare `tokio::spawn` panics
-        // with "there is no reactor running". Suppress the panic hook so the
-        // catch_unwind doesn't pollute test output.
+        // Suppress the panic hook so the expected catch_unwind panic doesn't pollute output.
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
         let bare = std::panic::catch_unwind(|| {
@@ -525,8 +449,6 @@ mod tests {
             "precondition: tokio::spawn must panic without an ambient runtime"
         );
 
-        // The fix: `spawn_bg` uses the daemon's tauri runtime, so the future runs
-        // even though THIS thread never entered a runtime.
         let (tx, rx) = mpsc::channel();
         super::spawn_bg(async move {
             let _ = tx.send(());

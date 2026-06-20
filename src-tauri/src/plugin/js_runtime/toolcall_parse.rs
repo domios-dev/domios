@@ -56,12 +56,8 @@ static TOOL_FENCE_RE: LazyLock<Regex> =
 static TOOL_KEY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#""tool(_calls)?"\s*:"#).unwrap());
 
-/// Tri-state result of tolerant tool-call extraction.
-///
-/// Callers MUST distinguish `Malformed` (a tool-call-shaped block that survived
-/// neither parse nor repair — retry the model) from `None` (no tool call at all).
-/// The legacy bare-`null` collapsed those two and let weak-model breakage drop
-/// silently with no retry.
+/// Tri-state result. Callers must distinguish `Malformed` (tool-call-shaped but
+/// unparseable — retry the model) from `None` (no tool call); a bare `null` would conflate them.
 enum ParseResult {
     Ok(Value),
     Malformed {
@@ -111,20 +107,15 @@ fn parse(raw_text: &str, schema_json: &str) -> ParseResult {
         }));
     }
 
-    // No schema-valid candidate: tell apart an unparseable tool-call attempt
-    // (retry) from genuinely-no-call prose (silent stop).
+    // No schema-valid candidate: tell an unparseable tool-call attempt (retry) from genuinely-no-call prose.
     match malformed_signal(raw_text) {
         Some((reason, span)) => ParseResult::Malformed { reason, span },
         None => ParseResult::None,
     }
 }
 
-/// Detect a tool-call-shaped block that yielded no valid JSON even after repair.
-///
-/// "Shaped" = a ```codeterm-tool fence OR a boundary-anchored `{...}` object
-/// carrying a top-level `"tool"`/`"tool_calls"` key. A block whose slice DID
-/// parse/repair into valid JSON (it merely failed schema validation — unknown
-/// tool, missing required arg) is NOT malformed; that is an honest `None`.
+/// Detect a tool-call-shaped block (a tool fence or a `{...}` with a top-level `tool`
+/// key) that yielded no valid JSON even after repair. A block that parsed but failed schema is `None`, not malformed.
 fn malformed_signal(raw_text: &str) -> Option<(String, (usize, usize))> {
     for caps in TOOL_FENCE_RE.captures_iter(raw_text) {
         let Some(body) = caps.get(1) else { continue };
@@ -531,15 +522,9 @@ fn repair_json(input: &str) -> Option<String> {
     Some(out)
 }
 
-/// Repair the dominant weak-model breakage: a string value closed one quote
-/// early, leaving dangling tokens before the next structural delimiter — the
-/// `"…\"" --pane X}` shape. The dangling run is absorbed back into the string.
-///
-/// IRON RULE: only when the dangling run is unambiguous (no `"`/`{`/`[`/`:`,
-/// i.e. it cannot be a sibling field or nested structure). Anything ambiguous —
-/// or an unterminated string — returns `None`, aborting the repair so the caller
-/// never guesses a command. The reconstructed JSON is still re-validated against
-/// the schema by the normal candidate path (`schema.validate`).
+/// Repair a string value that closed one quote early, absorbing the dangling run
+/// back into the string. Only when unambiguous (no `"`/`{`/`[`/`:`); anything
+/// ambiguous returns `None` so the caller never guesses. Still re-validated against the schema.
 fn repair_dangling_after_string(input: &str) -> Option<String> {
     let mut out = String::with_capacity(input.len());
     let mut i = 0;

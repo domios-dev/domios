@@ -1,14 +1,6 @@
-// Claude Code provider plugin (runtime logic, capability: agentProvider).
-// Authored in TypeScript against @codeterm/plugin-sdk and compiled to a
-// QuickJS-compatible plugin.js by scripts/build-plugin.mjs. Detection / parsing /
-// slash commands live in plugin logic; host APIs cover side effects like bridge
-// rule install (host.writeFile). The frontend ProviderPlugin contract is the
-// separate src/index.ts artifact the app imports — not built into plugin.js.
-//
-// This file is the provider facade — it wires the PluginModule methods to the
-// concern-specific siblings: session JSONL parsing (./session), model discovery
-// (./models), /usage parsing (./usage), and AS3/AS4 pane-state classification
-// (./classify). esbuild bundles all of them into plugin.js in one pass.
+// Claude Code provider plugin runtime logic, compiled to QuickJS-compatible
+// plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
+// This facade wires PluginModule methods to siblings: ./session, ./models, ./usage, ./classify.
 import type { LaunchParams, PluginModule } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 import { usageNormalize, usageParseBlock } from "./usage";
@@ -204,13 +196,10 @@ const plugin: PluginModule = {
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
     if (p.args && p.args.length > 0) {
-      // Quote each arg — they reach a shell, and `args` is caller-supplied via
-      // the spawn API (a mesh peer with SpawnAgents could inject `; cmd`).
+      // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
-    // Prompt is a positional, last, after `--`: a spawn task can start with the
-    // -=-codeterm:...-=- origin marker, which commander would otherwise reject
-    // as an unknown option.
+    // Prompt is a positional after `--`: a task may start with the -=-codeterm:...-=- marker, which commander would reject as an option.
     if (p.task) {
       const visiblePath = writeTaskTempFile(p.task);
       parts.push("--");
@@ -266,9 +255,7 @@ const plugin: PluginModule = {
     return discoverAnthropicModels() || manifestModels();
   },
 
-  // Parse the `/usage` TUI screen into a UsageSnapshot-shaped object
-  // (snake_case fields, matching the Rust struct). Returns null when nothing
-  // recognizable was found.
+  // Parse the `/usage` TUI screen into a UsageSnapshot; null when nothing recognizable was found.
   parseUsage(rawText: string, nowMs: number): unknown {
     const raw = String(rawText || "");
     if (!raw.trim()) return null;
@@ -346,8 +333,7 @@ const plugin: PluginModule = {
     return out;
   },
 
-  // Rust provides complete lines; plugin parses JSON and builds RichMessage[].
-  // Byte offsets stay in Rust.
+  // Rust provides complete lines; plugin parses JSON into RichMessage[]. Byte offsets stay in Rust.
   parseSessionDelta(chunk: string): unknown {
     const out: unknown[] = [];
     const lines = String(chunk || "").split("\n");
@@ -374,8 +360,7 @@ const plugin: PluginModule = {
       const blocks: Array<{ kind: string; data: Record<string, unknown> }> = [];
       let role: string;
       if (t === "system") {
-        // System rows carry top-level `content` (string/array) + `subtype`.
-        // The host normalizer turns them into system / local_command cards.
+        // System rows carry top-level `content` + `subtype`; the host turns them into system/local_command cards.
         role = "system";
         const sysText = (typeof v.content === "string")
           ? v.content
@@ -409,10 +394,7 @@ const plugin: PluginModule = {
           continue;
         }
       } else if (t === "attachment") {
-        // Input that arrived while the agent was mid-generation is queued by
-        // Claude as a queued_command attachment, not a normal user turn. Surface
-        // it as the inbound user message it is, so a cross-pane send to a busy
-        // pane still shows in chat instead of vanishing.
+        // Input sent while the agent was busy is queued as a queued_command attachment; surface it as the user message it is.
         const att = v.attachment;
         if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
           continue;

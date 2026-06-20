@@ -302,18 +302,13 @@ pub struct PermissionsConfig {
     /// Whether the plugin may use its per-plugin secret bucket (`host.secret*`).
     #[serde(default)]
     pub secrets: bool,
-    /// Whether a spawned agent may route `codeterm plugin <id> <verb>` to this
-    /// plugin's `onAgentCommand` (the inverse seam — plan §1.5 F5). Canonical
-    /// snake_case (the casing grants.yaml / snapshot / frontend all use);
-    /// camelCase accepted as an alias.
+    /// Whether a spawned agent may route `codeterm plugin <id> <verb>` to this plugin's `onAgentCommand` (the inverse seam).
     #[serde(default, rename = "agent_commands", alias = "agentCommands")]
     pub agent_commands: bool,
-    /// Whether the plugin may create/manage workspaces via `host.workspace*`
-    /// (enforced perm — plan §1.10 P3).
+    /// Whether the plugin may create/manage workspaces via `host.workspace*`.
     #[serde(default, rename = "manage_workspaces", alias = "manageWorkspaces")]
     pub manage_workspaces: bool,
-    /// Whether the plugin may spawn/drive our agents via `host.agent*`
-    /// (enforced perm — plan §1.10 P3).
+    /// Whether the plugin may spawn/drive our agents via `host.agent*`.
     #[serde(default, rename = "spawn_agents", alias = "spawnAgents")]
     pub spawn_agents: bool,
 }

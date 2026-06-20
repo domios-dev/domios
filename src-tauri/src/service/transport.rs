@@ -1,16 +1,8 @@
-//! `AgentTransport` — the runtime half of a provider behind a single seam, plus
-//! the one atomic spawn entry the frontend calls.
-//!
-//! Both impls WRAP existing substrates, they do not reimplement them:
-//! - [`PtyTransport`] mirrors `build_agent_launch_command` (the launch command
-//!   the FE terminal delivers; the PTY lifecycle stays FE/terminal-driven).
-//! - [`ChatTransport`] wraps `chatbackend_launch_async` (openSession + poll).
-//!
-//! [`ServiceContext::spawn_pane_atomic`] resolves `registry.transport_of()`,
-//! creates + cwd + agent_type + activates + focuses the pane in one call, kicks
-//! the transport launch onto a background task, and returns the resulting
-//! `MultiplexerSnapshot` so the client applies state exactly once (no refetch,
-//! no blink).
+//! `AgentTransport` — the runtime half of a provider behind one seam, plus the
+//! atomic spawn entry the frontend calls. Both impls wrap existing substrates
+//! ([`PtyTransport`] → the FE-delivered launch command; [`ChatTransport`] →
+//! `chatbackend_launch_async`). [`ServiceContext::spawn_pane_atomic`] builds the
+//! pane and kicks launch async, returning a snapshot the client applies once.
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
@@ -41,10 +33,8 @@ fn default_true() -> bool {
     true
 }
 
-/// Authoritative result the client applies once. `snapshot` carries the
-/// monotonic generation; `launch_command` is `Some` only for PTY (the FE
-/// terminal types it once the shell is ready) — chat opens its session in the
-/// background and reports `None`.
+/// Authoritative result the client applies once. `launch_command` is `Some` only
+/// for PTY (the FE types it when ready); chat opens its session in the background, reporting `None`.
 #[derive(Debug, Clone, Serialize)]
 pub struct AtomicSpawn {
     pub snapshot: MultiplexerSnapshot,
@@ -78,12 +68,8 @@ pub trait AgentTransport {
     ) -> Result<Option<String>, String>;
 }
 
-/// Glue for [`spawn_pane_atomic_with`]: on a launch `Err`, run `rollback` (close
-/// the half-built tab + emit state) and then propagate the error; on `Ok`, pass
-/// the launch command through untouched. Factored out so the launch-failure
-/// unwind is unit-testable without a live `ServiceContext`.
-///
-/// [`spawn_pane_atomic_with`]: ServiceContext::spawn_pane_atomic_with
+/// On a launch `Err`, run `rollback` (close the half-built tab) then propagate;
+/// on `Ok`, pass the command through. Factored out for unit-testing the unwind.
 fn finish_launch<F: FnOnce()>(
     launch: Result<Option<String>, String>,
     rollback: F,
@@ -136,10 +122,7 @@ impl AgentTransport for ChatTransport {
         } else {
             ctx.config.clone()
         };
-        // Stamp the connecting backing synchronously (empty session id) so the
-        // pane renders as chat immediately — without this it would briefly show
-        // a terminal (default `Pty` backing) and spawn a stray shell PTY before
-        // the background openSession lands.
+        // Stamp the connecting backing synchronously so the pane renders as chat at once, not briefly as a terminal with a stray PTY.
         {
             let mut mux = svc.mux.write();
             if let Some(pane) = mux.get_pane_mut(ctx.pane_id) {
@@ -164,9 +147,7 @@ impl AgentTransport for ChatTransport {
 }
 
 impl ServiceContext {
-    /// The one atomic spawn entry. Picks the transport via the unified registry,
-    /// builds the pane synchronously, kicks the launch async, and returns the
-    /// resulting snapshot. Pane visibility never waits on launch.
+    /// The atomic spawn entry: pick the transport, build the pane synchronously, kick launch async, return the snapshot.
     pub fn spawn_pane_atomic(&self, params: AtomicSpawnParams) -> Result<AtomicSpawn, String> {
         let provider = if params.agent_id.trim().is_empty() {
             crate::config::default_agent_provider()
@@ -226,9 +207,8 @@ impl ServiceContext {
         )
     }
 
-    /// Create + cwd + (agent_type) + chat_view + activate + focus, then launch.
-    /// `agent_type` is set only for PTY providers; chat panes carry identity in
-    /// their `backing` instead.
+    /// Create + cwd + chat_view + activate + focus, then launch. `agent_type` is set
+    /// only for PTY providers; chat panes carry identity in their `backing`.
     fn spawn_pane_atomic_with(
         &self,
         provider: &str,
@@ -257,18 +237,13 @@ impl ServiceContext {
         };
 
         if let Some(at) = agent_type {
-            // PTY agent tabs default to Orchestrator (can spawn) — mirrors the
-            // mux_create_tab path the FE used before. Chat panes keep their
-            // created default (identity lives in `backing`).
+            // PTY agent tabs default to Orchestrator (can spawn); chat panes keep their default (identity in `backing`).
             let _ = self.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
             self.set_pane_agent_type(&pane_id, Some(at.to_string()));
         }
         let _ = self.focus_pane(&pane_id);
 
-        // The tab is already created + activated + focused. If launch fails we must
-        // roll it back, else the user is left on a blank focused tab (LOW
-        // spawn-robustness fix). `finish_launch` runs the rollback on Err and then
-        // propagates the launch error.
+        // The tab is already created/activated/focused; roll it back on launch failure so the user isn't left on a blank tab.
         let launch_command = finish_launch(
             transport.launch(
                 self,

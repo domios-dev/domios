@@ -322,10 +322,7 @@ pub fn run() {
 
             // Bootstrap plugin system — agent-claude is a bundled native plugin
             agent::model_catalog::ensure_readme_installed();
-            // One-time: carry a pre-existing native Bitwarden setup (server URL +
-            // saved session/master) into the Bitwarden plugin's namespace, then
-            // persist. Native Bitwarden is retired; the plugin inherits the user's
-            // existing login so they don't have to re-unlock.
+            // Carry a pre-existing native Bitwarden setup into the plugin's namespace (native Bitwarden is retired).
             {
                 let mut cfg = states.config.lock();
                 if crate::secrets::migrate_native_bitwarden_to_plugin(&mut cfg) {
@@ -336,9 +333,7 @@ pub fn run() {
             }
 
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
-            // Capability registries — populated below as JS plugins load, then
-            // handed to ServiceContext. Transcribe is seeded with the built-in
-            // HTTP engine so voice notes work with no plugin (zero-regression).
+            // Capability registries — populated as JS plugins load, then handed to ServiceContext.
             let secret_registry = Arc::new(crate::secrets::SecretRegistry::new());
             let transcribe_registry = Arc::new(crate::transcribe::TranscribeRegistry::new());
             let glance_registry: crate::glance::GlanceRegistryHandle =
@@ -353,9 +348,7 @@ pub fn run() {
                 Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new());
             let agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle =
                 Arc::new(crate::agent_commands::AgentCommandRegistry::new());
-            // One bundle of capability registry handles, shared by the startup
-            // registration loop AND the hot-reload watcher so both go through the
-            // same `register_plugin` path (§1.8 P1 — no drift between them).
+            // One bundle of registry handles, shared by the startup loop and the hot-reload watcher (same register_plugin path, no drift).
             let cap_registries = plugin::js_runtime::CapabilityRegistries {
                 secret: secret_registry.clone(),
                 transcribe: transcribe_registry.clone(),
@@ -366,12 +359,8 @@ pub fn run() {
                 chat_preprocessor: chat_preprocessor_registry.clone(),
                 agent_command: agent_command_registry.clone(),
             };
-            // Plugin VMs collected as they load, so the host `ServiceContext`
-            // can be late-bound into each sandbox once it is built below (the
-            // VMs exist before `ServiceContext` does — plan §1.5 F4 / C0).
+            // VMs collected as they load, so the `ServiceContext` can be late-bound into each sandbox once it's built below.
             let mut plugin_vms: Vec<Arc<plugin::js_runtime::PluginVm>> = Vec::new();
-            // No native transcriber: the bundled `transcriber` plugin registers
-            // itself below (everything-as-plugins). The registry starts empty.
             let mut plugin_manager = plugin::PluginManager::new();
             plugin_manager.set_agent_registry(agent_registry.clone());
             plugin_manager.set_event_broadcaster(states.event_broadcaster.clone());
@@ -413,10 +402,7 @@ pub fn run() {
             // codex + opencode are JS plugins now (no native bundled providers).
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
 
-            // Wire the event bus to plugins: previously `dispatch_event` had no
-            // production caller (dead code). Keep the manager alive in the
-            // subscriber task and fan SystemEvents to active plugins' on_event.
-            // Survives broadcast lag; exits only when the bus closes (shutdown).
+            // Fan SystemEvents to active plugins' on_event; keep the manager alive in the subscriber task. Exits on bus close.
             {
                 let plugin_manager = std::sync::Arc::new(plugin_manager);
                 let pm = plugin_manager.clone();
@@ -504,9 +490,7 @@ pub fn run() {
                     let version = p.manifest().version.clone();
                     let trust = p.trust();
                     let caps = p.manifest().capabilities.clone();
-                    // Hold a VM handle so the ServiceContext can be late-bound
-                    // into its sandbox after service init (C0). `p` itself is
-                    // moved into a registry further down.
+                    // Hold a VM handle so the ServiceContext can be late-bound into its sandbox after service init.
                     plugin_vms.push(p.vm().clone());
                     log::info!(
                         "[js-plugin] {id} trust={:?} caps(agent={} secret={} transcribe={})",
@@ -516,9 +500,7 @@ pub fn run() {
                         caps.transcriber
                     );
 
-                    // Capability adapters share the plugin's VM. A capability-only
-                    // plugin (agent_provider=false) is NOT registered as an agent.
-                    // Single seam shared with the hot-reload watcher (§1.8 P1).
+                    // Same register_plugin seam as the hot-reload watcher; a capability-only plugin is NOT registered as an agent.
                     cap_registries.register_plugin(p.manifest(), p.vm());
                     if !caps.agent_provider {
                         plugin::audit::append_daemon_reloaded(&id, &version);
@@ -535,9 +517,7 @@ pub fn run() {
                             plugin::audit::append_daemon_reloaded(&id, &version);
                         }
                     } else {
-                        // JS takes authority; register_provider preserves the
-                        // displaced native impl as a capability fallback the JS
-                        // provider delegates to for methods it doesn't export.
+                        // JS takes authority; the displaced native impl is preserved as a fallback for unexported methods.
                         p.set_registry(agent_registry.clone());
                         log::info!(
                             "[js-plugin] {id} registered as authoritative \
@@ -556,13 +536,9 @@ pub fn run() {
                     agent_registry.clone(),
                     cap_registries.clone(),
                 );
-                // Seed tracked-state for already-registered plugins (and mark them
-                // activated-at-startup) so the first tick doesn't re-register them
-                // or mis-flag startup `requiresReload` plugins as pending (§1.8).
+                // Seed tracked-state + mark already-registered plugins activated-at-startup, so the first tick doesn't re-register them.
                 watcher.seed();
-                // Track each startup-loaded plugin's live VM so a later
-                // config-only edit re-stamps settings into it instead of
-                // rebuilding (which would wipe in-memory chatBackend sessions).
+                // Track each plugin's live VM so a later config-only edit re-stamps settings in place instead of rebuilding.
                 for vm in &plugin_vms {
                     watcher.register_vm(vm.plugin_id(), vm);
                 }
@@ -577,13 +553,8 @@ pub fn run() {
             // always see the current build's defaults.
             agent::model_catalog::refresh_example_files();
 
-            // Warm the live model catalog. First prime each provider's last-known
-            // live list from disk (instant, cheap) so the picker isn't stuck on
-            // the static seed; then fan out one background refresh per provider.
-            // Discovery may run sync JS / shell out / hit the network, so it goes
-            // off the async runtime (refresh_live → spawn_blocking) and NEVER
-            // gates startup. A successful refresh emits `models-updated` so the
-            // picker re-renders live.
+            // Warm the model catalog: prime each provider's last-known list from disk, then fan out one
+            // background refresh per provider off the async runtime (never gates startup; emits `models-updated`).
             {
                 let providers = agent_registry.all_provider_arcs();
                 for p in &providers {
@@ -705,14 +676,11 @@ pub fn run() {
                 usage_poller: Arc::new(parking_lot::Mutex::new(None)),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
-            // Late-bind the ServiceContext into every loaded plugin's sandbox
-            // (C0). Weak so plugin VMs never keep the service alive past teardown.
+            // Late-bind the ServiceContext into every loaded plugin's sandbox. Weak so VMs never keep the service alive past teardown.
             for vm in &plugin_vms {
                 vm.set_service(Arc::downgrade(&service_state));
             }
-            // Same late-bind for the hot-reload watcher (P4): plugins installed or
-            // reloaded AFTER startup get the service threaded into their VMs too,
-            // so host.mem/worker/agent work without a daemon restart.
+            // Same late-bind for the hot-reload watcher, so plugins reloaded after startup get the service too.
             plugin::js_runtime::set_watcher_service(Arc::downgrade(&service_state));
             app.manage(service_state.clone());
             crate::delayed_send::start_scheduler(service_state.clone());
@@ -813,9 +781,7 @@ pub fn run() {
             }
             startup::build_system_tray(app)?;
 
-            // Catch SIGTERM/SIGINT (./build.sh kill, Ctrl-C): mark shutting down,
-            // run the same graceful cleanup as a Tauri Exit, then exit cleanly.
-            // Windows quit/close is covered by the Tauri exit event above.
+            // Catch SIGTERM/SIGINT: run the same graceful cleanup as a Tauri Exit, then exit cleanly. (Windows is covered above.)
             #[cfg(unix)]
             {
                 let signal_app = app_handle.clone();
@@ -858,8 +824,7 @@ pub fn run() {
 
             service::sync_watcher::start(crate::paths::data_dir(), service_state.agent_registry.clone());
             startup::start_background_tasks(&app_handle, &states);
-            // Generic pane-state reactor (AS1): classify parked panes and
-            // auto-advance via the provider's recommendation.
+            // Pane-state reactor: classify parked panes and auto-advance via the provider's recommendation.
             agent::state_reactor::start(service_state.clone());
 
             // PTY read loops are started by spawn_pty command (initiated by frontend)
@@ -903,9 +868,7 @@ pub fn run() {
                 }
             }
 
-            // Mark shutting down as early as the exit is requested (Cmd+Q, tray
-            // Quit, window close) so the liveness watchdog stops treating the
-            // imminent API-down as a crash.
+            // Mark shutting down the moment exit is requested, so the liveness watchdog doesn't read the imminent API-down as a crash.
             if let tauri::RunEvent::ExitRequested { .. } = _event {
                 crash::shutdown::mark_shutting_down();
             }
@@ -918,10 +881,9 @@ pub fn run() {
         });
 }
 
-/// Shared graceful-exit cleanup, run on every clean shutdown route (Tauri
-/// `RunEvent::Exit` + the Unix SIGTERM/SIGINT handler). Marks the process
-/// shutting down (drops the `.clean_exit` sentinel so no crash toast next
-/// launch), then best-effort persists session + checkpoints the mem WAL.
+/// Shared graceful-exit cleanup for every clean shutdown route. Marks the process
+/// shutting down (drops the `.clean_exit` sentinel so no crash toast next launch),
+/// then best-effort persists session + checkpoints the mem WAL.
 fn graceful_exit_cleanup(app: &tauri::AppHandle) {
     crash::shutdown::mark_shutting_down();
     keepawake::cleanup_active_children_for_exit();

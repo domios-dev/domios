@@ -1,12 +1,6 @@
-//! Per-plugin grant persistence (plan §1.10).
-//!
-//! Today a plugin's effective permissions derive purely from its manifest. The
-//! powerful new grants (`manage_workspaces` / `spawn_agents` / `agent_commands`)
-//! need the *user's* decision to survive — a granted-or-revoked record the host
-//! checks at load. We store it in the per-plugin dir (§1.7 moved grant storage
-//! there) as `grants.yaml`, a `{ permission: bool }` map that OVERRIDES the
-//! manifest value when present (so a user can grant a perm the manifest only
-//! requests, or revoke one it declares).
+//! Per-plugin grant persistence. The powerful grants (`manage_workspaces` /
+//! `spawn_agents` / `agent_commands`) need the user's decision to survive, stored
+//! per-plugin as `grants.yaml` — a `{ permission: bool }` map that overrides the manifest value when present.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

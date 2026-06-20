@@ -1,13 +1,7 @@
 /**
- * Extensions — a VS Code-like plugin manager. Left column: search, filters,
- * plugin list (installed inventory + channel marketplace, with installed/update
- * badges). Right pane: the selected plugin's detail with install/update/uninstall
- * actions, capabilities, settings, and a safe markdown description.
- *
- * The catalog merge/filter logic lives in `pluginCatalog.ts` (pure, unit-tested);
- * this component owns state + side effects (snapshot refresh, config, actions).
- * Backend: `plugin_manager_snapshot` / `plugin_manager_action` (web-mirrored via
- * bridge HTTP_MAP). Pinning is stored in `config.plugins.<id>.pinned`.
+ * Extensions — a VS Code-like plugin manager (list + marketplace on the left, detail
+ * on the right). Catalog merge/filter logic lives in `pluginCatalog.ts` (pure, tested);
+ * this owns state + side effects over `plugin_manager_snapshot` / `plugin_manager_action`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { invoke } from "../../lib/bridge";

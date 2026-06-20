@@ -1,13 +1,7 @@
-//! OpenCode (sst/opencode) provider parity — JS-only (no native `AgentProvider`).
-//! Each case drives the real `provider-opencode/plugin.js` through `JsProvider`.
-//!
-//! Covered: buildLaunchCommand, buildResumeCommand, usesStructuredChat,
-//! readStructuredChat, sessionExists, sessionCreatedMs, detectSessionModel,
-//! detectSessionId, detectActiveSession.
-//!
-//! OpenCode keeps everything in a sqlite db under `$XDG_DATA_HOME/opencode`.
-//! The sqlite-backed cases build a controlled db in a tempdir and point the
-//! plugin at it via `XDG_DATA_HOME` (serialized through `EnvGuard`).
+//! OpenCode provider parity — JS-only, driving the real `provider-opencode/plugin.js`
+//! through `JsProvider`. OpenCode keeps everything in a sqlite db under
+//! `$XDG_DATA_HOME/opencode`; the sqlite cases build a controlled db in a tempdir
+//! and point the plugin at it via `XDG_DATA_HOME` (serialized through `EnvGuard`).
 
 use super::*;
 
@@ -68,8 +62,7 @@ fn detect_session_id_and_active_session_are_null() {
         return;
     }
     let j = opencode();
-    // Binding happens via the installed opencode plugin (session_start hook),
-    // so both file-scan detection hooks return None by design.
+    // Binding happens via the session_start hook, so both file-scan detection hooks return None by design.
     assert_eq!(j.detect_session_id("/work/proj", &[], None), None);
     assert_eq!(j.detect_active_session("/work/proj", "current"), None);
 }
@@ -112,9 +105,8 @@ fn build_opencode_db(path: &std::path::Path) {
     drop(conn);
 }
 
-/// Sqlite-backed capabilities driven through `XDG_DATA_HOME` so the plugin
-/// reads a controlled `opencode.db`. One test owns the env var (serialized via
-/// `EnvGuard`) and shares a single db fixture.
+/// Sqlite-backed capabilities driven through `XDG_DATA_HOME` against a controlled
+/// `opencode.db`; one test owns the env var (serialized via `EnvGuard`).
 #[test]
 fn sqlite_backed_session_capabilities() {
     if require_plugins().is_none() {

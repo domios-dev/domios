@@ -167,9 +167,8 @@ impl ServiceContext {
             .unwrap_or_default()
     }
 
-    /// Durable per-orchestrator ledger rows (survive daemon restart). One row
-    /// per worker, latest status. Unlike [`get_reports`](Self::get_reports),
-    /// which reads the in-memory live stream, this reads the sqlite ledger.
+    /// Durable per-orchestrator ledger rows (survive restart) from the sqlite ledger,
+    /// unlike [`get_reports`](Self::get_reports) which reads the in-memory stream.
     pub fn get_ledger(&self, orchestrator_pane_id: &str) -> Vec<crate::agent::ledger::LedgerRow> {
         self.report_store.lock().ledger_rows(orchestrator_pane_id)
     }
@@ -241,17 +240,10 @@ pub fn resolve_report_target(
     Ok((title, target))
 }
 
-/// Decide whether a dying pane needs a synthetic worker-death report, and to
-/// whom. Mirrors the cron death-fallback for the hierarchy: a worker whose PTY
-/// dies WITHOUT having emitted a report leaves its orchestrator blind, forced
-/// to poll. Returns `(target_pane_id, message)` when the pane is a hierarchy
-/// worker (resolves to a real report target via the same chain as
-/// [`resolve_report_target`]) that has NOT already reported to that target.
-///
-/// Returns `None` for non-hierarchy panes (no parent / report_target / spawner,
-/// so no routing target) and for workers that already emitted at least one
-/// report up the chain — `report_store.has_report_from` is the "already
-/// reported" signal, since there is no separate terminal-report flag.
+/// Whether a dying pane needs a synthetic worker-death report, and to whom — a
+/// worker whose PTY dies without ever reporting leaves its orchestrator blind.
+/// Returns `(target, message)` for a hierarchy worker that hasn't already reported
+/// to that target; `None` for non-hierarchy panes or workers that already reported.
 pub fn worker_death_report(
     mux: &crate::multiplexer::state::MultiplexerState,
     report_store: &crate::agent::reports::ReportStore,
@@ -479,8 +471,7 @@ mod tests {
 
     #[test]
     fn dead_non_hierarchy_pane_gets_no_synthetic() {
-        // Plain pane: no parent, no report_target, no spawner → no routing
-        // target → no synthetic report.
+        // Plain pane: no parent/report_target/spawner → no routing target → no synthetic report.
         let (mut mux, _orch) = MultiplexerState::new();
         let plain = mux.create_pane();
         let store = ReportStore::new(100);
@@ -493,8 +484,7 @@ mod tests {
 
     #[test]
     fn dead_worker_routes_via_spawned_by_when_no_parent() {
-        // Top-level pane spawned by another agent (no role parent) still routes
-        // its death up to whoever spawned it.
+        // A top-level pane spawned by another agent still routes its death to whoever spawned it.
         let (mut mux, _orch) = MultiplexerState::new();
         let spawner = mux.create_pane();
         let worker = mux.create_pane();

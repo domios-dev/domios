@@ -1,37 +1,17 @@
-//! `host` global injected into every plugin VM.
+//! `host` global injected into every plugin VM — the generic FS / sqlite /
+//! shell-quoting / env / logging primitives that let all per-provider logic
+//! live in TS.
 //!
-//! This is the bridge that lets plugins do everything the native
-//! Rust providers used to: filesystem I/O, sqlite reads, OS-aware
-//! shell quoting, env, logging. The whole point of the JS plugin
-//! architecture is that **all per-provider logic lives in TS**;
-//! anything Rust still does has to be a generic primitive that ANY
-//! plugin can call, not provider-specific helpers.
+//! Contract: all functions are synchronous (QuickJS blocks their VM, so nothing
+//! here may block on the hot path); complex data is returned as a JSON string;
+//! errors are signalled by `null` (no exceptions across the FFI boundary).
 //!
-//! All functions are **synchronous** — QuickJS calls block their VM,
-//! so do not call anything here that blocks for noticeable time on
-//! the hot path. File reads of session JSONs (kilobytes) and sqlite
-//! point-queries fit. Network calls do not — they belong elsewhere.
-//!
-//! Return shapes:
-//! * primitives (string / bool / i64) are returned directly
-//! * complex data is returned as a JSON string the plugin parses with
-//!   `JSON.parse(host.readDirJson(...))` — keeps the bridge boring.
-//!
-//! Errors are signalled by `null` returns (no exceptions across the
-//! FFI boundary). If a plugin needs the failure reason, surface it
-//! via a sibling `host.lastError()` accessor later.
-//!
-//! Safety: bundled + in-workspace plugins (ship with the app / dev repo) get
-//! the full surface. A plugin dropped into `~/.codeterm/plugins/` is confined
-//! by a `PluginSandbox` — FS/sqlite scoped to its own dir + declared session
-//! root, `envGet` blocked for secret-looking names. Per-permission grants
-//! (`permissions.fs.read` in `plugin.json`) can refine this later.
+//! Safety: bundled/in-workspace plugins get the full surface; a drop-in under
+//! `~/.codeterm/plugins/` is confined by `PluginSandbox` (FS/sqlite scoped to
+//! its own dir + declared session root, secret-looking env vars blocked).
 
-/// Version of the plugin/host contract this build implements. Third-party
-/// drop-ins must declare a matching `hostApi` in their manifest or they are
-/// skipped at load (`loader::validate_conformance`) instead of being registered
-/// against an interface they don't conform to (#16). Bump on any
-/// breaking change to the host surface or the `AgentProvider` capability set.
+/// Version of the plugin/host contract; a drop-in must declare a matching `hostApi`
+/// or it's skipped at load. Bump on any breaking change to the host or `AgentProvider` surface.
 pub const HOST_API_VERSION: u32 = 2;
 
 use std::path::{Path, PathBuf};
@@ -44,12 +24,9 @@ use super::manifest::PluginManifest;
 use super::vm::VmError;
 use crate::service::ServiceContext;
 
-/// A write-once, weakly-held reference resolved lazily. The plugin VM (and its
-/// `PluginSandbox`) are constructed **before** the host `ServiceContext` exists
-/// (lib.rs ordering — plan §1.5 F4), so the ref can't be a constructor argument:
-/// it is populated after the fact via [`LateRef::set`] and read with
-/// [`LateRef::get`]. `Weak` so a sandbox that outlives daemon teardown can never
-/// pin the service alive.
+/// A write-once, weakly-held ref populated after construction — the VM is built
+/// before the `ServiceContext` exists, so it can't be a constructor argument.
+/// `Weak` so a sandbox outliving teardown can't pin the service alive.
 pub(super) struct LateRef<T>(OnceLock<Weak<T>>);
 
 impl<T> LateRef<T> {
@@ -63,29 +40,20 @@ impl<T> LateRef<T> {
         self.0.set(weak).is_ok()
     }
 
-    /// Resolve to a live `Arc` if the ref was populated and the target is still
-    /// alive; `None` before population or after the target has been dropped.
-    // Read side: consumed by the `host.worker`/`agent`/`workspace`/`mem` handles
-    // in `host_compute`.
+    /// Resolve to a live `Arc`, or `None` before population / after the target is dropped.
     pub(super) fn get(&self) -> Option<Arc<T>> {
         self.0.get().and_then(Weak::upgrade)
     }
 }
 
-/// Filesystem/env policy applied to a plugin's `host.*` calls. Bundled and
-/// in-workspace plugins (ship with the app / the dev repo) are `unrestricted`.
-/// A plugin dropped into the user plugins dir (`~/.codeterm/plugins/`) is
-/// confined: it may only read/walk/sqlite under `read_roots` (its own dir +
-/// the session dir it declares), only write under `write_roots`, and `envGet`
-/// is blocked for secret-looking names — so an untrusted drop-in can't slurp
-/// `~/.ssh`, the API token from config, or cloud-key env vars, nor write
-/// autostart/integration files.
+/// FS/env policy for a plugin's `host.*` calls. Bundled/workspace plugins are
+/// unrestricted; a user drop-in is confined to `read_roots`/`write_roots` with
+/// secret-looking `envGet` names blocked, so it can't slurp `~/.ssh` or the API token.
 pub(super) struct PluginSandbox {
     unrestricted: bool,
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
-    /// Plugin id — used to namespace the per-plugin secret bucket. Always set by
-    /// the loader (even for unrestricted plugins) so `host.secret*` is isolated.
+    /// Plugin id — namespaces the per-plugin secret bucket, so `host.secret*` is isolated.
     plugin_id: String,
     /// `host.exec` binary allowlist (host_api v2). Empty unless declared.
     exec_allow: Vec<String>,
@@ -93,26 +61,16 @@ pub(super) struct PluginSandbox {
     net_allow: Vec<String>,
     /// Whether `host.secret*` is permitted.
     secrets_allowed: bool,
-    /// Whether the plugin holds the `agent_commands` grant — gates routing of a
-    /// spawned agent's `codeterm plugin <id> <verb>` to its `onAgentCommand`.
+    /// `agent_commands` grant — gates routing a spawned agent's `codeterm plugin <id> <verb>` to `onAgentCommand`.
     agent_commands_allowed: bool,
     /// Whether `host.workspace*` is permitted (`manage_workspaces` grant).
     manage_workspaces_allowed: bool,
     /// Whether `host.agent*` is permitted (`spawn_agents` grant).
     spawn_agents_allowed: bool,
-    /// The plugin's own settings blob (`config.yaml` → JSON, falling back to the
-    /// legacy `config.plugins.<id>`). Returned by `host.settingsJson()` so a
-    /// plugin reads its user-configured settings instead of env hacks. Defaults
-    /// to `"null"`. Interior-mutable so a config-only hot-reload can RE-STAMP it
-    /// in place (the watcher mutates the shared sandbox) without rebuilding the
-    /// VM — a rebuild would wipe the plugin's in-memory sessions. The
-    /// `settingsJson` binding reads this lock on each call, so a live VM sees the
-    /// new value on its next read.
+    /// The plugin's settings blob, returned by `host.settingsJson()`. Interior-mutable
+    /// so a config-only hot-reload re-stamps it in place without a VM rebuild (which would wipe in-memory sessions).
     settings_json: parking_lot::Mutex<String>,
-    /// Late-bound handle to the host `ServiceContext`, populated after service
-    /// init (the VM is built before `ServiceContext` exists — plan §1.5 F4).
-    /// Carrier only at this stage: `host.worker`/`agent`/`mem` handles that read
-    /// it land in a later track.
+    /// Late-bound handle to the host `ServiceContext` (the VM is built before it exists).
     svc: LateRef<ServiceContext>,
 }
 
@@ -152,10 +110,8 @@ impl PluginSandbox {
         }
     }
 
-    /// Stamp the plugin identity + its *effective* permissions onto a base
-    /// sandbox. Unrestricted plugins keep full access; restricted ones get
-    /// exactly what `perms` grants — which the loader computes as the manifest
-    /// request OR the user's persisted grants (§1.10 grant persistence).
+    /// Stamp the plugin identity + its effective permissions (manifest request
+    /// merged with the user's persisted grants) onto a base sandbox.
     pub(super) fn with_identity_and_perms(
         mut self,
         plugin_id: &str,
@@ -219,10 +175,7 @@ impl PluginSandbox {
         self
     }
 
-    /// Re-stamp the settings blob in place on a config-only hot-reload (the
-    /// watcher mutates the shared sandbox). `host.settingsJson()` reads this lock
-    /// per call, so a live VM picks up the new value without a rebuild — live
-    /// sessions in the VM's module scope survive.
+    /// Re-stamp the settings blob in place on a config-only hot-reload, so a live VM picks it up without a rebuild.
     pub(super) fn set_settings(&self, settings_json: String) {
         *self.settings_json.lock() = settings_json;
     }
@@ -237,8 +190,6 @@ impl PluginSandbox {
     }
 
     /// Resolve the host `ServiceContext`, or `None` if not yet populated / gone.
-    // Read side consumed by the host.worker/agent/workspace/mem handles in
-    // `host_compute`.
     pub(super) fn service(&self) -> Option<Arc<ServiceContext>> {
         self.svc.get()
     }
@@ -471,9 +422,7 @@ pub(super) fn install(
         super::host_exec::run_with_host_env(&opts_json, &super::host_exec::current_host_env())
     });
 
-    // Async exec (job-id + poll) — same `subprocess.allow` gate as blocking
-    // `exec`, but the command runs on a background thread so the VM lock is held
-    // only for the sub-ms start/poll calls, never the command duration.
+    // Async exec (job-id + poll): same gate as `exec`, but the command runs off-thread so the VM lock is held only per start/poll.
     let sb = sandbox.clone();
     bind!("execStart", move |opts_json: String| -> String {
         let bin = super::host_exec::bin_of(&opts_json).unwrap_or_default();
@@ -546,9 +495,7 @@ pub(super) fn install(
         super::host_secret::delete(sb.plugin_id(), &name)
     });
 
-    // ── host compute base: host.worker / agent / workspace / mem ────
-    // Lives in `host_compute` so this bind table stays a flat surface; the VM
-    // preamble (vm.rs) folds these raw binds into the ergonomic objects.
+    // host compute base (host.worker/agent/workspace/mem) — lives in `host_compute` to keep this bind table flat.
     super::host_compute::install_handles(&host, &sandbox)?;
 
     ctx.globals()
