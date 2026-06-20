@@ -311,12 +311,20 @@ function discoverOpencodeModels() {
   for (let i = 0; i < lines.length; i++) {
     const id = lines[i].trim();
     if (!isModelId(id)) continue;
+    if (isNonChatModel(id)) continue;
     models.push({ id, displayName: displayNameFromId(id) });
   }
   return models.length ? models : null;
 }
 function isModelId(value) {
   return /^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(value);
+}
+var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+function isNonChatModel(id) {
+  const leaf = (id.split("/").pop() || id).toLowerCase();
+  const toks = leaf.split(/[-_.]/);
+  for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
+  return false;
 }
 function manifestModels() {
   try {
@@ -337,12 +345,28 @@ function displayNameFromId(id) {
   const slash = id.split("/");
   const provider = slash.length > 1 ? slash[0] : "";
   const leaf = slash[slash.length - 1] || id;
-  const words = leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
-  if (provider.toLowerCase() === "opencode") return "OpenCode " + words;
+  const words = prettyLeaf(leaf);
+  if (provider.toLowerCase() === "opencode") return "OpenCode Zen " + words;
   return words;
 }
+function prettyLeaf(leaf) {
+  const parts = leaf.split("-").filter(Boolean);
+  const out = [];
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (/^\d+$/.test(p) && out.length && /\d$/.test(out[out.length - 1])) {
+      out[out.length - 1] = out[out.length - 1] + "." + p;
+    } else {
+      out.push(capitalizeToken(p));
+    }
+  }
+  return out.join(" ");
+}
 function capitalizeToken(token) {
-  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
+  if (!token) return token;
+  if (token === "gpt") return "GPT";
+  if (token === "ai") return "AI";
+  return token.charAt(0).toUpperCase() + token.substring(1);
 }
 function partToChatMsg(part, role, id, tsMs) {
   const timestamp = String(tsMs);

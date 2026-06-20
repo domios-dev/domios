@@ -269,6 +269,7 @@ var plugin = {
     return null;
   }
 };
+var CURSOR_UNAVAILABLE_RE = /\s*\((?:unavailable|locked|disabled|coming soon|not available|requires [^)]+|pro only|upgrade required)\)\s*/i;
 function discoverCursorModels() {
   const raw = host.exec(JSON.stringify({
     bin: "cursor-agent",
@@ -283,10 +284,21 @@ function discoverCursorModels() {
     const m = /^([a-z0-9][a-z0-9._-]*)\s+-\s+(.+)$/i.exec(lines[i].trim());
     if (!m) continue;
     const id = m[1];
-    const disp = m[2].replace(/\s*\((?:current|default)\)\s*$/i, "").trim();
-    models.push({ id, displayName: disp || id });
+    if (isNonChatModel(id)) continue;
+    const unavailable = CURSOR_UNAVAILABLE_RE.test(m[2]);
+    const disp = m[2].replace(CURSOR_UNAVAILABLE_RE, " ").replace(/\s*\((?:current|default)\)\s*$/i, "").trim();
+    const info = { id, displayName: disp || id };
+    if (unavailable) info.available = false;
+    models.push(info);
   }
   return models.length ? models : null;
+}
+var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+function isNonChatModel(id) {
+  const leaf = (id.split("/").pop() || id).toLowerCase();
+  const toks = leaf.split(/[-_.]/);
+  for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
+  return false;
 }
 function manifestModels() {
   try {

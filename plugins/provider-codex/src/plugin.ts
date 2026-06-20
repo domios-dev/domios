@@ -610,7 +610,7 @@ interface CodexHookCmd { type?: string; command?: string; commandWindows?: strin
 interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
 interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[] } }
 interface CodexModelCache { models?: CodexCachedModel[] }
-interface CodexCachedModel { slug?: string; display_name?: string; description?: string }
+interface CodexCachedModel { slug?: string; display_name?: string; description?: string; visibility?: string; priority?: number }
 interface CodexManifest { models?: ModelInfo[] }
 
 // Use function declarations for QuickJS strict-mode compatibility with bundler rewrites.
@@ -648,11 +648,21 @@ function discoverCodexModelsFromCache(): ModelInfo[] | null {
   const cache = host.fs.readJson<CodexModelCache>(path);
   const raw = cache && cache.models;
   if (!Array.isArray(raw)) return null;
-  const models: ModelInfo[] = [];
+  const kept: CodexCachedModel[] = [];
   for (let i = 0; i < raw.length; i++) {
     const item = raw[i];
     const id = typeof item.slug === "string" ? item.slug.trim() : "";
     if (!id) continue;
+    if (item.visibility === "hide") continue; // internal/non-selectable (e.g. codex-auto-review)
+    if (isNonChatModel(id)) continue;
+    kept.push(item);
+  }
+  // Codex orders the picker by ascending priority; preserve it so current models surface first.
+  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
+  const models: ModelInfo[] = [];
+  for (let i = 0; i < kept.length; i++) {
+    const item = kept[i];
+    const id = (item.slug as string).trim();
     models.push({
       id: id,
       displayName: typeof item.display_name === "string" && item.display_name.trim()
@@ -663,7 +673,12 @@ function discoverCodexModelsFromCache(): ModelInfo[] | null {
         : undefined,
     });
   }
+  // Codex cache carries no account-plan lockout signal, so availability is left unset (treated as available).
   return models.length ? models : null;
+}
+
+function priorityOf(m: CodexCachedModel): number {
+  return typeof m.priority === "number" ? m.priority : 1e9;
 }
 
 function manifestModels(): ModelInfo[] {
@@ -673,6 +688,16 @@ function manifestModels(): ModelInfo[] {
   } catch (_) {
     return [];
   }
+}
+
+// Duplicated across provider bundles by design (QuickJS, no imports) — drops
+// embedding/tts/moderation/rerank ids so only chat models reach the picker.
+const NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+function isNonChatModel(id: string): boolean {
+  const leaf = (id.split("/").pop() || id).toLowerCase();
+  const toks = leaf.split(/[-_.]/);
+  for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
+  return false;
 }
 
 function displayNameFromId(id: string): string {

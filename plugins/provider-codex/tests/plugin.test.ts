@@ -213,6 +213,30 @@ console.log("\n--- discoverModels ---\n");
   eq(p.discoverModels(), manifestSeed.models, "discoverModels falls back to manifest seed when no Codex cache exists");
 }
 
+// Live cache → clean, current, priority-ordered chat models: hidden + non-chat dropped.
+{
+  const cache = {
+    models: [
+      { slug: "gpt-5.4", display_name: "GPT-5.4", description: "everyday", visibility: "list", priority: 16 },
+      { slug: "codex-auto-review", display_name: "Auto Review", visibility: "hide", priority: 43 },
+      { slug: "text-embedding-3-large", display_name: "Embeds", visibility: "list", priority: 5 },
+      { slug: "gpt-5.5", display_name: "GPT-5.5", description: "frontier", visibility: "list", priority: 9 },
+    ],
+  };
+  const p = loadCodexWithHost(baseHost({
+    fs: {
+      fileExists: (p: string) => p.endsWith("/.codex/models_cache.json"),
+      readFile: () => null,
+      readJson: (p: string) => p.endsWith("/.codex/models_cache.json") ? cache : null,
+      writeJson: () => true,
+      writeFile: () => true,
+    },
+  }));
+  const models = p.discoverModels() as Array<{ id: string; available?: boolean }>;
+  eq(models.map((m) => m.id), ["gpt-5.5", "gpt-5.4"], "visibility:hide + embedding dropped; sorted by ascending priority");
+  assert(models.every((m) => m.available === undefined), "codex has no plan-lockout signal → available unset");
+}
+
 console.log("\n--- binding nonce (install + outdated detection) ---\n");
 
 // Install must emit the X-CodeTerm-Binding-Nonce header so the provider's
