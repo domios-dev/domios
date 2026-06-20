@@ -783,6 +783,17 @@ pub fn run() {
             }
             startup::build_system_tray(app)?;
 
+            // Catch SIGTERM/SIGINT (./build.sh kill, Ctrl-C): mark shutting down,
+            // run the same graceful cleanup as a Tauri Exit, then exit cleanly.
+            // Windows quit/close is covered by the Tauri exit event above.
+            #[cfg(unix)]
+            {
+                let signal_app = app_handle.clone();
+                crash::shutdown::install_unix_signal_handlers(move || {
+                    graceful_exit_cleanup(&signal_app);
+                });
+            }
+
             // After webview is ready, check for crash reports from a previous session and emit an event the frontend can show as a toast. Delay a tick so
             // the React side has time to attach the listener.
             {
@@ -862,19 +873,47 @@ pub fn run() {
                 }
             }
 
+            // Mark shutting down as early as the exit is requested (Cmd+Q, tray
+            // Quit, window close) so the liveness watchdog stops treating the
+            // imminent API-down as a crash.
+            if let tauri::RunEvent::ExitRequested { .. } = _event {
+                crash::shutdown::mark_shutting_down();
+            }
+
             // On any clean process exit (tray-Quit, Cmd+Q after window close, SIGTERM caught by Tauri), checkpoint+truncate the mem WAL so a stale ~4MB
             // log doesn't survive into the next run. The updater's graceful_shutdown already does this on the in-place upgrade path; this catches every other shutdown route.
             if let tauri::RunEvent::Exit = _event {
-                keepawake::cleanup_active_children_for_exit();
-                if let Some(svc) = _app.try_state::<service::ServiceState>() {
-                    match svc.mem.checkpoint_and_close() {
-                        Ok((busy, log_frames, checkpointed)) => log::info!(
-                            "[shutdown] mem WAL checkpointed busy={} log_frames={} checkpointed={}",
-                            busy, log_frames, checkpointed
-                        ),
-                        Err(e) => log::warn!("[shutdown] mem WAL checkpoint failed: {}", e),
-                    }
-                }
+                graceful_exit_cleanup(_app);
             }
         });
+}
+
+/// Shared graceful-exit cleanup, run on every clean shutdown route (Tauri
+/// `RunEvent::Exit` + the Unix SIGTERM/SIGINT handler). Marks the process
+/// shutting down (drops the `.clean_exit` sentinel so no crash toast next
+/// launch), then best-effort persists session + checkpoints the mem WAL.
+fn graceful_exit_cleanup(app: &tauri::AppHandle) {
+    crash::shutdown::mark_shutting_down();
+    keepawake::cleanup_active_children_for_exit();
+
+    if let (Some(mux), Some(session)) =
+        (app.try_state::<MuxState>(), app.try_state::<SessionState>())
+    {
+        let snapshot = mux.write().to_session_snapshot();
+        if let Err(e) = session.lock().save(&snapshot) {
+            log::error!("[shutdown] session save failed: {}", e);
+        }
+    }
+
+    if let Some(svc) = app.try_state::<service::ServiceState>() {
+        match svc.mem.checkpoint_and_close() {
+            Ok((busy, log_frames, checkpointed)) => log::info!(
+                "[shutdown] mem WAL checkpointed busy={} log_frames={} checkpointed={}",
+                busy,
+                log_frames,
+                checkpointed
+            ),
+            Err(e) => log::warn!("[shutdown] mem WAL checkpoint failed: {}", e),
+        }
+    }
 }

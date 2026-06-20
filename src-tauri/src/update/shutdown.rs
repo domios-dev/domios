@@ -30,6 +30,9 @@ fn provider_exit_command(provider_id: &str) -> Option<&'static str> {
 pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
     log::info!("[updater] graceful_shutdown: starting");
 
+    // Stop the liveness watchdog treating the imminent API-down as a crash.
+    crate::crash::shutdown::mark_shutting_down();
+
     let svc = app
         .try_state::<ServiceState>()
         .ok_or_else(|| "ServiceState not registered".to_string())?
