@@ -6,6 +6,7 @@ pub mod keys;
 pub mod ledger;
 pub mod model_catalog;
 pub mod models;
+pub mod native_prompt;
 pub mod offline_state_classifier;
 pub mod pane_state;
 pub mod prompt;

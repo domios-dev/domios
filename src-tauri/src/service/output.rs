@@ -196,22 +196,28 @@ impl ServiceContext {
                 // Read screen text if markers found OR if there's an active prompt (need screen text to detect when user answers prompt in terminal). For
                 // auto_approve panes (GA), always read screen — chunk fragmentation can split markers across reads, so we check full screen every time.
                 let check_screen = has_markers || has_active_prompt || is_auto_approve;
-                let clean_text = if check_screen {
-                    self.screen_state.lock().get_screen_text(pty_id)
-                } else {
-                    None
+                let (native_prompt_input, mut clean_text) = {
+                    let screen_state = self.screen_state.lock();
+                    (
+                        screen_state.native_prompt_input(pty_id),
+                        check_screen
+                            .then(|| screen_state.get_screen_text(pty_id))
+                            .flatten(),
+                    )
                 };
-
-                let parsed = clean_text.as_deref().and_then(|text| {
-                    let agent_type_clone = at.clone();
-                    crate::agent::prompt::parse_prompt_safely(|| {
-                        self.agent_registry.parse_prompt(&agent_type_clone, text)
-                    })
+                let parsed = crate::agent::prompt::parse_prompt_safely(|| {
+                    native_prompt_input
+                        .as_ref()
+                        .and_then(crate::agent::native_prompt::pending_prompt_from_input)
                 });
+                let native_signal = parsed.is_some();
+                if native_signal && clean_text.is_none() {
+                    clean_text = self.screen_state.lock().get_screen_text(pty_id);
+                }
                 let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(
                     pid,
-                    check_screen,
-                    clean_text.is_some(),
+                    check_screen || native_signal,
+                    clean_text.is_some() || native_prompt_input.is_some(),
                     parsed,
                 );
 
@@ -342,7 +348,7 @@ impl ServiceContext {
         }
     }
 
-    fn schedule_prompt_settle_poll(&self, pane_id: String, pty_id: String, agent_type: String) {
+    fn schedule_prompt_settle_poll(&self, pane_id: String, pty_id: String, _agent_type: String) {
         {
             let mut cd = PROMPT_SETTLE_POLL_COOLDOWN.lock().unwrap();
             let now = Instant::now();
@@ -371,7 +377,11 @@ impl ServiceContext {
                     continue;
                 };
                 let parsed = crate::agent::prompt::parse_prompt_safely(|| {
-                    svc.agent_registry.parse_prompt(&agent_type, &screen)
+                    svc.screen_state
+                        .lock()
+                        .native_prompt_input(&pty_id)
+                        .as_ref()
+                        .and_then(crate::agent::native_prompt::pending_prompt_from_input)
                 });
                 if parsed.is_none() {
                     continue;
