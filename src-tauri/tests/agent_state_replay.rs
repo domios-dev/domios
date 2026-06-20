@@ -129,7 +129,11 @@ fn replay(cast: &Cast, provider: &JsProvider) -> Vec<StepResult> {
     let mut steps = Vec::new();
     let mut last_ms = 0u64;
 
-    let output_after = |i: usize| cast.events[i + 1..].iter().any(|e| matches!(e, Event::Output { .. }));
+    let output_after = |i: usize| {
+        cast.events[i + 1..]
+            .iter()
+            .any(|e| matches!(e, Event::Output { .. }))
+    };
 
     for (i, ev) in cast.events.iter().enumerate() {
         // Inject idle ticks across the gap so a mid-stream stall is sampled.
@@ -271,7 +275,10 @@ fn run_fixture(name: &str, dir: &Path, provider: &JsProvider) -> FixtureResult {
         }
         if let Some(c) = &st.classify {
             if classify_negs.contains(&c.state) {
-                failures.push(format!("mid-stream step {i}: forbidden state {:?}", c.state));
+                failures.push(format!(
+                    "mid-stream step {i}: forbidden state {:?}",
+                    c.state
+                ));
             }
         }
         match st.coarse {
@@ -304,8 +311,7 @@ fn run_fixture(name: &str, dir: &Path, provider: &JsProvider) -> FixtureResult {
 // --- discovery + scorecard -------------------------------------------------
 
 fn fixtures_root() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
-        .join("tests/fixtures/agent-state")
+    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).join("tests/fixtures/agent-state")
 }
 
 fn plugin_manifest(provider: &str) -> PathBuf {
@@ -317,14 +323,18 @@ fn plugin_manifest(provider: &str) -> PathBuf {
 fn discover() -> Vec<(String, String, PathBuf)> {
     let mut out = Vec::new();
     let root = fixtures_root();
-    let providers = std::fs::read_dir(&root)
-        .unwrap_or_else(|e| panic!("read fixtures root {root:?}: {e}"));
+    let providers =
+        std::fs::read_dir(&root).unwrap_or_else(|e| panic!("read fixtures root {root:?}: {e}"));
     for prov in providers.flatten() {
         if !prov.path().is_dir() {
             continue;
         }
         let provider = prov.file_name().to_string_lossy().to_string();
-        for state in std::fs::read_dir(prov.path()).into_iter().flatten().flatten() {
+        for state in std::fs::read_dir(prov.path())
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
             let dir = state.path();
             if dir.join("recording.cast").exists() {
                 out.push((
@@ -358,9 +368,9 @@ fn agent_state_replay_eval() {
     let mut results = Vec::new();
 
     for (provider, state, dir) in discover() {
-        let p = providers
-            .entry(provider.clone())
-            .or_insert_with(|| load_one(&plugin_manifest(&provider)).expect("load provider plugin"));
+        let p = providers.entry(provider.clone()).or_insert_with(|| {
+            load_one(&plugin_manifest(&provider)).expect("load provider plugin")
+        });
         results.push(run_fixture(&format!("{provider}/{state}"), &dir, p));
     }
 
@@ -412,7 +422,13 @@ fn print_scorecard(results: &[FixtureResult]) {
         ftc += r.false_turn_complete;
     }
 
-    let ratio = |n: usize, d: usize| if d == 0 { f64::NAN } else { n as f64 / d as f64 };
+    let ratio = |n: usize, d: usize| {
+        if d == 0 {
+            f64::NAN
+        } else {
+            n as f64 / d as f64
+        }
+    };
 
     println!("\n=== agent-state baseline scorecard ===");
     println!("fixtures: {}", results.len());
