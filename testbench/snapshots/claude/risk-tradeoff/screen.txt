@@ -1,0 +1,35 @@
+kandrey@ROC-6W49K3GN codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-9a6b397d-93a3-4cd0-89e8-3bff042c3f00.sh
+╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ Improved auto mode safety: destructive git commands (`git rese… │
+│                        ▘▘ ▝▝                       │ Added a warning when the requested model is deprecated or auto… │
+│                                                    │ Added `attribution.sessionUrl` setting to omit the claude.ai s… │
+│ Opus 4.8 with high effort · Claude Team · 8x8 RD 2 │ /release-notes for more                                         │
+│          /…/T/codeterm-snapshot-testbench          │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Give me a different decision prompt: one question about choosing a deployment strategy, followed by exactly three     
+  options labeled A), B), C), each with a short tradeoff.                                                               
+  
+⏺ Which deployment strategy should we use to roll out the new release to production?
+
+  A) Blue-Green — Stand up a full parallel environment and switch traffic over at once. Tradeoff: Instant rollback and
+  zero-downtime cutover, but doubles infrastructure cost during the overlap.
+
+  B) Canary — Route a small percentage of traffic to the new version, then ramp up as metrics stay healthy. Tradeoff:
+  Limits blast radius and catches issues early with real traffic, but is slower to fully roll out and needs solid
+  monitoring/automation to be safe.
+
+  C) Rolling Update — Replace instances in batches until the whole fleet runs the new version. Tradeoff: Cheap and
+  simple with no extra infrastructure, but rollback is slow and both versions run simultaneously mid-deploy.
+
+✻ Spelunking… (12s · ↓ 306 tokens)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt                                             ● high · /effort

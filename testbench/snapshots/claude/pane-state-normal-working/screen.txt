@@ -1,0 +1,10 @@
+✳ Claude Code
+
+Let me trace how requests flow through the router before I change anything.
+
+I'll read the main entry point and the middleware chain first.
+
+  Reading src/router.ts
+  Reading src/middleware/auth.ts
+
+(esc to interrupt)

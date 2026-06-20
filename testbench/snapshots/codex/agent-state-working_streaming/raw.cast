@@ -1,0 +1,11 @@
+{"version": 2, "width": 80, "height": 24, "title": "codex working_streaming (synthetic seed)"}
+[0.0, "o", "OpenAI Codex\r\ncodex/gpt-5\r\n\r\n"]
+[0.08, "o", "I'll analyze the repository "]
+[0.16, "o", "structure and trace how "]
+[0.20, "r", "100x30"]
+[0.24, "o", "requests flow through the router.\r\n"]
+[0.40, "o", "Reading the main entry point now"]
+[0.48, "o", ".."]
+[0.56, "o", "..\r\n"]
+[0.72, "o", "Found 3 candidate modules to inspect.\r\n\r\n"]
+[0.80, "o", "  ctrl+c to cancel"]

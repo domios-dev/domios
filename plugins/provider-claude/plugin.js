@@ -683,6 +683,101 @@ function parseClaudeNumberedPrompt(text) {
     options: options.map((opt) => [opt.label, opt.value])
   };
 }
+function parseClaudeLetteredPrompt(text) {
+  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const optionStarts = [];
+  const optionRe = /^\s*(?:[-*]\s*)?([A-Z])[.)]\s+(.+?)\s*$/;
+  for (let i = 0; i < lines.length; i++) {
+    const m = optionRe.exec(lines[i]);
+    if (!m || !/[A-C]/.test(m[1])) continue;
+    optionStarts.push({ index: i, letter: m[1], label: m[2] });
+  }
+  if (optionStarts.length < 3) return null;
+  const options = [];
+  for (let i = 0; i < optionStarts.length; i++) {
+    const start = optionStarts[i];
+    const end = i + 1 < optionStarts.length ? optionStarts[i + 1].index : lines.length;
+    const parts = [start.label];
+    for (let j = start.index + 1; j < end; j++) {
+      const t = lines[j].trim();
+      if (!t) break;
+      if (isClaudeFooterLine(t)) break;
+      if (/^Step\s+\d+\s+of\s+\d+\b/i.test(t)) break;
+      if (t.endsWith("?")) break;
+      parts.push(t);
+    }
+    options.push({
+      label: cleanOptionLabel(parts.join(" ")),
+      value: start.letter,
+      highlighted: false,
+      selected: false
+    });
+  }
+  const groups = groupLetteredOptions(lines, optionStarts);
+  const question = groups.length > 1 ? findCompoundTitle(lines, groups[0].questionIndex) || groups[0].question || "Choose an option" : groups[0]?.question || findQuestion(lines.slice(0, optionStarts[0].index).join("\n")) || "Choose an option";
+  const sections = groups.length > 1 ? groups.map((group, i) => ({
+    label: group.title || "Step " + String(i + 1),
+    active: i === 0,
+    completed: false
+  })) : void 0;
+  return {
+    question,
+    options: options.map((opt) => [opt.label, opt.value]),
+    sections,
+    multiSelect: false,
+    submitAvailable: false
+  };
+}
+function isClaudeFooterLine(line) {
+  return line.indexOf("Baked for") !== -1 || line.indexOf("Cogitated for") !== -1 || line.indexOf("Spelunking") !== -1 || line.indexOf("auto mode on") !== -1 || line.indexOf("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500") !== -1 || line === "\u276F";
+}
+function groupLetteredOptions(lines, starts) {
+  const groups = [];
+  for (let i = 0; i < starts.length; i++) {
+    if (starts[i].letter !== "A") continue;
+    const questionIndex = nearestQuestionIndex(lines, starts[i].index);
+    const title = nearestSectionTitle(lines, questionIndex);
+    groups.push({
+      question: questionIndex >= 0 ? cleanClaudeLine(lines[questionIndex]) : "",
+      questionIndex,
+      title
+    });
+  }
+  return groups;
+}
+function nearestQuestionIndex(lines, beforeIndex) {
+  const start = Math.max(0, beforeIndex - 8);
+  for (let i = beforeIndex - 1; i >= start; i--) {
+    const t = lines[i].trim();
+    if (t.endsWith("?")) return i;
+  }
+  return -1;
+}
+function nearestSectionTitle(lines, questionIndex) {
+  if (questionIndex < 0) return null;
+  for (let i = questionIndex - 1; i >= Math.max(0, questionIndex - 5); i--) {
+    const t = cleanClaudeLine(lines[i]);
+    if (!t) continue;
+    const step = /^Step\s+\d+\s+of\s+\d+\s+[—-]\s+(.+)$/i.exec(t);
+    if (step && step[1]) return step[1].trim();
+    if (!t.endsWith("?") && !/^[❯>]/.test(t)) return t;
+  }
+  return null;
+}
+function findCompoundTitle(lines, beforeQuestionIndex) {
+  if (beforeQuestionIndex < 0) return null;
+  for (let i = beforeQuestionIndex - 1; i >= Math.max(0, beforeQuestionIndex - 8); i--) {
+    const t = cleanClaudeLine(lines[i]);
+    if (!t) continue;
+    if (/^Step\s+\d+\s+of\s+\d+\b/i.test(t)) continue;
+    if (t.endsWith("?") || /^[❯>]/.test(t)) continue;
+    return t;
+  }
+  return null;
+}
+function cleanClaudeLine(line) {
+  return String(line || "").trim().replace(/^⏺\s*/, "").trim();
+}
 function findQuestion(text) {
   const lines = String(text || "").split("\n").map((line) => line.trim()).filter(Boolean);
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -826,7 +921,7 @@ var plugin = {
     return events;
   },
   parsePrompt(text) {
-    return parseClaudeWizardPrompt(text) || parseClaudeNumberedPrompt(text);
+    return parseClaudeWizardPrompt(text) || parseClaudeNumberedPrompt(text) || parseClaudeLetteredPrompt(text);
   },
   buildPromptResponse(optionIndex, screen) {
     return buildClaudePromptResponse(optionIndex, String(screen || ""));
