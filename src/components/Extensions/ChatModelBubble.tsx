@@ -1,12 +1,8 @@
 /**
- * Composer-row model bubble for chatBackend SHELL panes (CB-P3).
- *
- * Mirrors the agent model-picker UX, but a shell resolves its identity from the
- * plugin (`backing.plugin_id`), not the agent registry: it shows the live model
- * (CB-P1 `chatbackend_session_info`) and a dropdown of the plugin's switchable
- * models (CB-P1 snapshot). Picking one calls `chatbackend_switch_model` and the
- * bubble reflects the refreshed session info. Generalized — any chatBackend
- * shell with `available_models` gets it; no hardcoded provider id.
+ * Composer-row model picker for chatBackend shell panes. A shell resolves identity
+ * from `backing.plugin_id` (not the agent registry); picking a model calls
+ * `chatbackend_switch_model` and reflects the refreshed session info.
+ * Generalized — any chatBackend shell with `available_models`, no hardcoded id.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronUp } from "lucide-react";
@@ -60,8 +56,7 @@ export function ChatModelBubble({ pluginId, sessionId }: { pluginId: string; ses
     async (model: ModelInfo) => {
       setOpen(false);
       if (model.id === currentModel) return;
-      // Let the plugin decide whether this switch is disruptive enough to confirm
-      // and supply the message. Absent hook / rejection → switch directly.
+      // The plugin decides whether the switch needs confirmation; absent hook / rejection → switch directly.
       let desc = null;
       try {
         desc = (await getChatModelBubbleApi().describeModelSwitch?.(pluginId, sessionId, model.id)) ?? null;

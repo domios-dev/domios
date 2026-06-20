@@ -1,24 +1,13 @@
-//! Voice attachment formatting.
-//!
-//! The transcriber is the reference **compose-time voice stage** of the outbound
-//! pipeline (plan §6): it grabs the `voice` slot and turns an audio attachment
-//! into editable text. This module runs that stage via
+//! Voice attachment formatting. Runs the compose-time voice stage via
 //! [`chatpipeline::run_voice_stage`](crate::chatpipeline::run_voice_stage) and
-//! shapes the shared `-=-codeterm:voice ...-=-` marker — transcript inline on
-//! success, a note otherwise (including an install offer when no transcriber is
-//! active). The stage invocation is centralized in `chatpipeline`; this module
-//! owns only the marker shaping, so the editable result and the Telegram-bridge
-//! reuse (`bridge::manager`) are preserved unchanged.
-//!
-//! The transcription engine lives in the bundled `transcriber` plugin.
+//! shapes the `-=-codeterm:voice ...-=-` marker (transcript inline on success,
+//! else a note/install offer). The engine lives in the bundled `transcriber` plugin.
 
 use std::path::Path;
 
 use crate::transcribe::{TranscribeError, TranscribeRegistry};
 
-/// Build the agent-facing attachment line for a file. Voice attachments are
-/// transcribed via the active transcriber (`active_id` = config
-/// `integrations.voice_transcribe.active`, resolved in `transcribers`).
+/// Build the agent-facing attachment line; voice attachments are transcribed via the active transcriber (`active_id`).
 pub async fn format_attachment_line(
     path: &str,
     kind: &str,
@@ -89,8 +78,6 @@ mod tests {
         }
     }
 
-    // The transcriber recast as a compose-time voice stage still produces the
-    // same marker — transcript inline on success.
     #[tokio::test]
     async fn voice_attachment_inlines_transcript() {
         let reg = TranscribeRegistry::new();

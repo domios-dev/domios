@@ -1,11 +1,6 @@
-//! Transcription as a plugin capability.
-//!
-//! `Transcriber` is the core-owned trait a plugin implements to turn a recorded
-//! audio file into text. The active transcriber is resolved from a
-//! [`TranscribeRegistry`] by id — never by a hardcoded match — so a channel
-//! plugin can supply a local engine, a mesh-delegating engine, or anything else
-//! satisfying the contract. There is no native engine: the bundled `transcriber`
-//! plugin owns the speech-to-text lifecycle (everything-as-plugins migration).
+//! Transcription as a plugin capability. `Transcriber` is a core-owned trait
+//! resolved from [`TranscribeRegistry`] by id (never a hardcoded match); there's
+//! no native engine — the bundled `transcriber` plugin owns the lifecycle.
 
 use std::path::Path;
 
@@ -60,8 +55,7 @@ impl std::fmt::Display for TranscribeError {
 
 impl std::error::Error for TranscribeError {}
 
-/// A transcription backend. Implemented by JS plugins (`JsTranscriber`)
-/// (`JsTranscriber`).
+/// A transcription backend. Implemented by JS plugins (`JsTranscriber`).
 #[async_trait]
 pub trait Transcriber: Send + Sync {
     fn id(&self) -> &str;

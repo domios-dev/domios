@@ -1,21 +1,13 @@
-//! Graceful-shutdown coordination + clean-exit sentinel.
-//!
-//! A clean quit (Cmd+Q, tray Quit, `./build.sh kill` / SIGTERM, Ctrl-C, the
-//! updater's `graceful_shutdown`) takes the local REST API down inside the
-//! shutdown window. The liveness watchdog must not mistake that for a crash.
-//!
-//! `SHUTTING_DOWN` is the single source of truth every graceful-exit route
-//! sets; the watchdog reads it and stops writing reports. The `.clean_exit`
-//! sentinel is the belt-and-suspenders mtime filter for `check_previous_crashes`
-//! that catches any racey report written right at exit.
+//! Graceful-shutdown coordination + clean-exit sentinel, so the liveness watchdog
+//! doesn't read a clean quit (which takes the REST API down) as a crash.
+//! `SHUTTING_DOWN` is the source of truth every exit route sets; the `.clean_exit`
+//! sentinel is the mtime backstop catching a report written racily right at exit.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 
-/// True once any graceful-exit route has run. Real crashes (SIGSEGV/SIGABRT/
-/// native + genuine mid-run panics) happen while this is `false`, so they are
-/// never suppressed.
+/// True once a graceful-exit route has run; real crashes happen while it's `false`, so they're never suppressed.
 pub fn is_shutting_down() -> bool {
     SHUTTING_DOWN.load(Ordering::SeqCst)
 }
@@ -48,13 +40,8 @@ pub(crate) fn clean_exit_timestamp() -> Option<i64> {
         .and_then(|s| s.trim().parse::<i64>().ok())
 }
 
-/// Spawn a dedicated thread that catches SIGTERM + SIGINT (covers
-/// `./build.sh kill` and Ctrl-C), marks the process shutting down, runs the
-/// caller's graceful cleanup, then exits cleanly. SIGKILL can't be caught, but
-/// then the in-process watchdog dies too and writes nothing — also fine.
-///
-/// Windows quit/close is already covered by the Tauri exit event, so this is
-/// Unix-only.
+/// Catch SIGTERM/SIGINT on a dedicated thread: mark shutting down, run cleanup, exit
+/// cleanly. SIGKILL can't be caught, but then the watchdog dies too and writes nothing. Unix-only.
 #[cfg(unix)]
 pub fn install_unix_signal_handlers<F>(cleanup: F)
 where

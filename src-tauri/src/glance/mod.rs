@@ -1,10 +1,6 @@
-//! Glance capability — a plugin's read-only "peek" surface, shown in a popover
-//! when the plugin is pinned (Chrome-extension style). The plugin returns a
-//! [`GlanceView`] (a [`ViewNode`](crate::view::ViewNode) tree) the host renders;
-//! buttons emit action ids back to the plugin via [`GlanceProvider::action`].
-//!
-//! Core asks the capability, never the identity — resolution goes through
-//! [`GlanceRegistry`] (a [`CapabilityRegistry`](crate::plugin::capability::CapabilityRegistry)).
+//! Glance capability — a plugin's read-only popover surface (a [`GlanceView`]
+//! node tree the host renders); buttons emit action ids via [`GlanceProvider::action`].
+//! Core resolves via [`GlanceRegistry`], never an identity.
 
 use std::sync::Arc;
 

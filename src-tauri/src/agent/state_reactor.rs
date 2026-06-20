@@ -1,15 +1,8 @@
-//! Generic, provider-agnostic pane-state reactor (AS1).
-//!
-//! Gated on `PaneStatusTracker`: a pane is classified ONLY when it is parked
-//! (`Idle` / `Waiting`), never while it streams — so the hot path pays nothing.
-//! On that edge core asks the pane's OWN provider to `classify_pane_state`; if
-//! the verdict clears [`GLOBAL_THRESHOLD`], is not [`PaneState::WaitingOnAuth`]
-//! (the auth guard), and carries an action, core executes it through existing
-//! seams: key injection (the `send --actions` path), the T7 delayed-send, and a
-//! user-facing surface (chat card + notification).
-//!
-//! Core branches ONLY on the generic [`PaneState`] / [`PaneStateAction`] — never
-//! on a provider id or a literal screen string.
+//! Generic, provider-agnostic pane-state reactor. A parked pane (`Idle`/`Waiting`)
+//! is classified by its own provider; a verdict that clears [`GLOBAL_THRESHOLD`],
+//! isn't [`PaneState::WaitingOnAuth`], and carries an action is executed via key
+//! injection / delayed-send / a user-facing surface. Core branches only on the
+//! generic [`PaneState`] / [`PaneStateAction`], never a provider id or screen string.
 
 use std::collections::HashSet;
 use std::time::Duration;
@@ -20,8 +13,7 @@ use super::pane_state::{
 use super::status::PaneStatus;
 use crate::service::ServiceState;
 
-/// Minimum confidence an actionable verdict must clear. A single weak signal
-/// (low confidence) yields no action — the no-false-positive gate.
+/// Minimum confidence an actionable verdict must clear — the no-false-positive gate.
 pub const GLOBAL_THRESHOLD: f32 = 0.8;
 
 /// How often the reactor sweeps tracked panes for the parked edge.
@@ -30,22 +22,18 @@ const POLL_INTERVAL: Duration = Duration::from_millis(1000);
 /// Rows of screen tail handed to the classifier.
 const SNAPSHOT_ROWS: usize = 60;
 
-/// What the reactor decided to do with a classification. Pure output of
-/// [`decide`] so the gate + threshold + auth-guard are unit-testable without a
-/// live `ServiceContext`.
+/// What the reactor decided. Pure output of [`decide`] so the gate/threshold/auth-guard are unit-testable.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReactorDecision {
     /// Do nothing (not parked, below threshold, no action, or unknown).
     Ignore,
-    /// Present to the user only — NEVER press a key. Used for the auth guard
-    /// and for surface-only verdicts.
+    /// Present to the user only — never press a key (auth guard + surface-only verdicts).
     Surface(Option<Surface>),
     /// High-confidence, non-auth, actionable verdict — execute it.
     Act(PaneStateAction),
 }
 
-/// Pure decision: gate on parked status, the confidence threshold, and the
-/// auth guard. No side effects, no locks — the heart of the reactor's safety.
+/// Pure decision: gate on parked status, confidence threshold, and the auth guard. No side effects, no locks.
 pub fn decide(
     status: PaneStatus,
     classification: Option<&PaneStateClassification>,
@@ -61,8 +49,7 @@ pub fn decide(
     if c.confidence < GLOBAL_THRESHOLD {
         return ReactorDecision::Ignore;
     }
-    // Auth guard: an auth/login prompt is NEVER auto-advanced — surface only,
-    // even if the provider attached keys.
+    // Auth guard: a login prompt is never auto-advanced — surface only, even if keys were attached.
     if c.state == PaneState::WaitingOnAuth {
         return ReactorDecision::Surface(c.action.as_ref().and_then(|a| a.surface.clone()));
     }
@@ -72,9 +59,7 @@ pub fn decide(
     }
 }
 
-/// Translate an action's `keys` into the ordered PTY byte writes used by the
-/// `send --actions` path. Unknown keys are skipped (a misnamed key never
-/// silently injects the wrong byte).
+/// Translate an action's `keys` into ordered PTY byte writes; unknown keys are skipped (never the wrong byte).
 pub fn action_to_writes(action: &PaneStateAction) -> Vec<Vec<u8>> {
     action
         .keys
@@ -87,18 +72,15 @@ pub fn action_to_writes(action: &PaneStateAction) -> Vec<Vec<u8>> {
         .unwrap_or_default()
 }
 
-/// Start the background reactor loop. Self-contained: reads the status tracker
-/// from `svc`, dedupes per parked episode, and executes verdicts off the async
-/// runtime (its own thread; key writes spawn their own short-lived thread).
+/// Start the background reactor loop on its own thread: sweeps tracked panes,
+/// dedupes per parked episode, and executes verdicts off the async runtime.
 pub fn start(svc: ServiceState) {
     std::thread::spawn(move || {
-        // Panes already reacted-to since they last became parked — prevents
-        // re-firing every tick while a pane sits at the same prompt.
+        // Panes already reacted-to this parked episode — prevents re-firing every tick at the same prompt.
         let mut reacted: HashSet<String> = HashSet::new();
         loop {
             std::thread::sleep(POLL_INTERVAL);
-            // Snapshot ids + statuses under a SINGLE lock acquisition per tick
-            // instead of re-locking agent_tracker once per pane (N+1 acquires).
+            // Snapshot ids + statuses under one lock acquisition per tick (not N+1).
             let snapshot: Vec<(String, PaneStatus)> = {
                 let tracker = svc.agent_tracker.lock();
                 tracker
@@ -127,9 +109,8 @@ pub fn start(svc: ServiceState) {
     });
 }
 
-/// Classify one parked pane and execute the decided action. Acquires locks in
-/// CLAUDE.md order (mux → screen_state → … → pty), each in its own scope, and
-/// never holds a lock across the provider call or a thread spawn.
+/// Classify one parked pane and execute the verdict. Locks in CLAUDE.md order, each
+/// scoped, never held across the provider call or a thread spawn.
 fn react(svc: &ServiceState, pty_id: &str, status: PaneStatus) {
     // mux (1): resolve the pane's OWN identity + provider + session/cwd.
     let (pane_id, agent_type, session_id, cwd) = {
@@ -192,9 +173,7 @@ fn execute_action(svc: &ServiceState, pane_id: &str, action: PaneStateAction) {
     }
 }
 
-/// Inject ordered key bytes into the pane's PTY — the same write path as
-/// `send --actions`. Spawns a short-lived thread so the poll loop never blocks
-/// and so the pty lock is taken outside the loop's cadence.
+/// Inject ordered key bytes into the pane's PTY (the `send --actions` path), off-thread so the poll loop never blocks.
 fn inject_keys(svc: &ServiceState, pane_id: &str, writes: Vec<Vec<u8>>) {
     if svc.inject_raw_keys_async(pane_id, writes).is_err() {
         return;
@@ -202,9 +181,7 @@ fn inject_keys(svc: &ServiceState, pane_id: &str, writes: Vec<Vec<u8>>) {
     log::info!("[state-reactor] injected keys into pane {}", pane_id);
 }
 
-/// Schedule a resume via the T7 delayed-send machinery at the parsed ISO time.
-/// A reset-time we can't parse is dropped (the classifier should have surfaced
-/// instead) rather than fired at a wrong moment.
+/// Schedule a resume via delayed-send at the parsed ISO time; an unparseable time is dropped, never fired at a guessed moment.
 fn schedule_resume(svc: &ServiceState, pane_id: &str, resume: &super::pane_state::DelayedResume) {
     let Some(at_ms) = parse_iso_to_ms(&resume.at) else {
         log::warn!(
@@ -230,9 +207,7 @@ fn schedule_resume(svc: &ServiceState, pane_id: &str, resume: &super::pane_state
     }
 }
 
-/// Surface a verdict to the user: a notification plus a generic chat-card event
-/// the frontend renders. Used for clarifying questions, limit notices, and the
-/// auth guard.
+/// Surface a verdict to the user: a notification + a chat-card event (clarifying questions, limit notices, auth guard).
 fn surface_to_user(svc: &ServiceState, pane_id: &str, surface: Option<Surface>) {
     let (kind, payload) = match &surface {
         Some(s) => (s.kind.clone(), s.payload.clone()),

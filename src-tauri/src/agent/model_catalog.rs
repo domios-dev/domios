@@ -87,9 +87,7 @@ struct ProviderModels {
     models: Vec<ModelInfo>,
     default: Option<String>,
     source: Source,
-    /// Wall-clock time the live snapshot was fetched. Wall-clock (not
-    /// `Instant`) so it can be persisted to / restored from the on-disk cache
-    /// and the TTL survives a restart.
+    /// Wall-clock fetch time (not `Instant`) so the TTL survives a restart via the on-disk cache.
     fetched_at: Option<SystemTime>,
 }
 
@@ -160,11 +158,8 @@ fn put_live_at(
     registry().write().insert(provider_id.to_string(), snapshot);
 }
 
-/// Load a previously-persisted live snapshot from disk into the in-memory
-/// registry, WITHOUT replacing a snapshot that is already live (a refresh that
-/// already ran this session wins). No-op when no cache file exists. Call once
-/// per provider at startup so the picker shows the last-known live list
-/// instantly, before the background refresh completes.
+/// Load a persisted live snapshot into the registry at startup so the picker shows
+/// the last-known list instantly. Won't overwrite an already-live snapshot; no-op without a cache file.
 pub fn prime_from_cache(provider_id: &str) {
     let Some(cached) = read_cache(provider_id) else {
         return;
@@ -200,13 +195,8 @@ pub fn is_stale(provider_id: &str, ttl: Duration, now: SystemTime) -> bool {
     now.duration_since(fetched_at).is_ok_and(|age| age >= ttl)
 }
 
-/// TTL-gated entry point: refresh `provider`'s live model list unless a fresh
-/// snapshot already exists (skip), or `force` is set (always refresh). Returns
-/// the new list on a successful refresh, `None` when skipped or the probe
-/// failed (the previous snapshot / seed stays active — never goes empty).
-///
-/// Off the async runtime: the probe runs on the blocking pool inside
-/// `refresh_live`. Safe to call repeatedly (e.g. on every picker open).
+/// TTL-gated refresh: skip when a fresh snapshot exists unless `force`. Returns the
+/// new list on success, `None` when skipped or failed (the prior snapshot/seed stays active).
 pub async fn refresh_models(
     provider: Arc<dyn AgentProvider>,
     force: bool,
@@ -219,22 +209,16 @@ pub async fn refresh_models(
     refresh_live(provider, DISCOVER_TIMEOUT).await
 }
 
-/// Refresh live models without blocking the async runtime. On timeout, provider
-/// opt-out, join failure, or panic, the previous catalog snapshot remains active.
-/// A discovery result that is empty after sanitizing is treated as a failure so
-/// the curated seed stays in place (the list never goes empty).
+/// Refresh live models off the async runtime. On timeout / opt-out / failure — or an
+/// empty post-sanitize result — the previous snapshot stays active (the list never goes empty).
 pub async fn refresh_live(
     provider: Arc<dyn AgentProvider>,
     timeout_duration: Duration,
 ) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
     let default = provider.default_model();
-    // `discover_models` may run synchronous JS (the JS provider calls `call_json`
-    // under the VM lock), and the success path writes the cache file. ALL of it
-    // — probe, sanitize, registry update, disk persist — runs on the blocking
-    // pool so the async runtime is never blocked. Drive discovery with an
-    // independent executor, NOT the tokio runtime's `Handle::block_on`, which
-    // can deadlock when nested inside `spawn_blocking`.
+    // `discover_models` may run synchronous JS under the VM lock, so run it all on the
+    // blocking pool. Use an independent executor, not `Handle::block_on` (deadlocks nested in spawn_blocking).
     let task = tokio::task::spawn_blocking(move || {
         let models = futures_executor::block_on(provider.discover_models())?;
         let models = sanitize_live(models);
@@ -254,11 +238,8 @@ pub async fn refresh_live(
     }
 }
 
-/// Generic, provider-agnostic cleanup of a live discovery list: drop entries
-/// with empty ids, drop obvious non-chat models (embeddings) by id heuristic,
-/// and de-duplicate by id (keeping first occurrence). No provider-id branching
-/// — purely content heuristics so it is safe to apply to every provider's
-/// discovery output.
+/// Provider-agnostic cleanup of a discovery list: drop empty ids and non-chat
+/// models, dedupe by id. Purely content heuristics, no provider-id branching.
 fn sanitize_live(models: Vec<ModelInfo>) -> Vec<ModelInfo> {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut out = Vec::with_capacity(models.len());

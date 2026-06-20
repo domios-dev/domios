@@ -1,13 +1,7 @@
-//! `JsChatPreprocessor` — adapts a JS plugin that declares
-//! `capabilities.chatPreprocessor` to the core
-//! [`ChatPreprocessorProvider`](crate::chatpreprocessor::ChatPreprocessorProvider)
-//! trait. Mirrors `JsTranscriber`/`JsChatBackend`: wraps the shared
-//! `Arc<PluginVm>` and dispatches `chatPreprocess(ctx)` via the synchronous
-//! `call_json` (the VM is not `Send`, so we call it on the caller's thread).
-//!
-//! Plugin surface: `chatPreprocess(ctx) -> { text } | null`. The host merges the
-//! outbound `text` into `ctx` before the call. `null` (or a throw / bad output)
-//! ⇒ passthrough — a broken preprocessor must never drop the user's message.
+//! `JsChatPreprocessor` — adapts a JS `capabilities.chatPreprocessor` plugin to the
+//! core [`ChatPreprocessorProvider`](crate::chatpreprocessor::ChatPreprocessorProvider)
+//! trait via the synchronous `call_json`. Surface: `chatPreprocess(ctx) -> { text } | null`
+//! (host merges `text` into `ctx`); `null` / throw ⇒ passthrough (never drops the message).
 
 use std::sync::Arc;
 

@@ -1,29 +1,10 @@
-//! Host compute base — the `host.worker` / `host.agent` / `host.workspace` /
-//! `host.mem` handles a plugin calls (plan §1.10, Track C2).
+//! `ServiceContext`-backed `host.worker` / `host.agent` / `host.workspace` /
+//! `host.mem` handles for plugins (plan §1.10, Track C2).
 //!
-//! Split out of `host_api.rs` so the flat bind table there stays a flat table
-//! and this file owns the `ServiceContext`-backed logic.
-//!
-//! ## Sync vs async (the load-bearing distinction)
-//!
-//! The VM is single-threaded and `call_json` holds its mutex for the whole
-//! call (`vm.rs`). So anything that could block for an agent **turn** MUST NOT
-//! run inline — it would serialize every other call into that plugin (e.g. a
-//! chatBackend `poll`). Those handles spawn a hidden agent pane via the worker
-//! pool and return a **job id / ticket** the plugin polls (F4):
-//!
-//! * `host.worker.start` → `{ jobId }`, `host.worker.poll` → `{ done, report?, error? }`
-//! * `host.agent.spawn/resume/get/send` → ids/tickets, `host.agent.poll` → `{ done, reply? }`
-//!
-//! All of these are **synchronous** in the VM preamble (`vm.rs`) — job-id/poll is
-//! sync *per step* (each call returns immediately; the long-running work happens
-//! on the host between calls). They are NOT Promise-wrapped: QuickJS can't drain
-//! a Promise inside a synchronous `call_json` dispatch, so wrapping would break
-//! sync consumers like the chatBackend `pump`/`poll` (Item 6). `await` on a
-//! non-thenable still yields the value, so awaiting plugin code keeps working.
-//!
-//! mem search is likewise sync (`mem/manager_search.rs`), and the
-//! `host.workspace` registry ops are mux operations, not agent turns.
+//! Every bind is synchronous: the VM is single-threaded and `call_json` holds
+//! its mutex for the whole call, and QuickJS can't drain a Promise inside a sync
+//! dispatch. So agent-turn handles return a job id/ticket the plugin polls
+//! rather than blocking inline.
 
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
@@ -40,9 +21,7 @@ use crate::plugin::activity::{emit_plugin_activity, PluginActivity, PluginActivi
 use crate::service::spawn::{AgentSpawnSpec, PaneCommand, PaneVisibility, SpawnPaneSpec};
 use crate::service::ServiceContext;
 
-/// Watchdog ceiling for a plugin-spawned agent turn — mirrors the headless
-/// worker watchdog (`mem/workers.rs`). A turn that never reports is forced
-/// `Orphaned` and its hidden pane closed so it can't leak.
+/// Watchdog ceiling: a turn that never reports is forced `Orphaned` and its pane closed so it can't leak.
 const TURN_WATCHDOG_SECS: u64 = 30 * 60;
 
 static PROGRESS_ACTIVITY_IDS: LazyLock<Mutex<HashMap<String, String>>> =
@@ -50,14 +29,12 @@ static PROGRESS_ACTIVITY_IDS: LazyLock<Mutex<HashMap<String, String>>> =
 
 // ── Pure helpers (unit-tested; no `ServiceContext`) ──────────────────────
 
-/// JSON error envelope. Every sync bind returns a parseable object so the
-/// plugin never sees a bare `null` it can't distinguish from "no result".
+/// JSON error envelope, so a plugin never sees a bare `null` indistinguishable from "no result".
 fn err(msg: impl Into<String>) -> String {
     serde_json::json!({ "error": msg.into() }).to_string()
 }
 
-/// Backend selector shared by `host.worker` / `host.agent` opts. Absent
-/// fields fall back to the default agent provider.
+/// Backend selector shared by `host.worker` / `host.agent` opts.
 #[derive(serde::Deserialize, Default)]
 struct Backend {
     #[serde(default)]
@@ -77,8 +54,7 @@ struct ProgressOpts {
     error: Option<String>,
 }
 
-/// Resolve `(provider, model)` from an optional `Backend`, defaulting the
-/// provider to `claude` and the model to empty (= provider default).
+/// Resolve `(provider, model)`, defaulting provider to `claude` and model to empty (= provider default).
 fn backend_provider_model(backend: &Option<Backend>) -> (String, String) {
     match backend {
         Some(b) => (
@@ -145,8 +121,7 @@ fn worker_poll_json(info: Option<&GraphWorkerInfo>) -> serde_json::Value {
     poll_envelope(info, "report")
 }
 
-/// `host.agent.poll` envelope: `{ done, reply? }` (the reply carries the
-/// agent's reported text). Same job model as the worker poll.
+/// `host.agent.poll` envelope: `{ done, reply? }`.
 fn agent_poll_json(info: Option<&GraphWorkerInfo>) -> serde_json::Value {
     poll_envelope(info, "reply")
 }
@@ -224,9 +199,7 @@ fn workspace_ensure(svc: &Arc<ServiceContext>, opts_json: &str) -> String {
     serde_json::json!({ "workspaceId": ws.id }).to_string()
 }
 
-/// `host.workspace.panes` — synchronous. Missing workspace → empty array so
-/// the SDK's `PaneRef[]` contract holds (a plugin sees "no panes", not an error
-/// object it would have to type-guard).
+/// `host.workspace.panes`. Missing workspace → empty array, so the SDK's `PaneRef[]` contract holds.
 fn workspace_panes(svc: &Arc<ServiceContext>, workspace_id: &str) -> String {
     let panes: Vec<serde_json::Value> = svc
         .list_workspaces()
@@ -242,9 +215,7 @@ fn workspace_panes(svc: &Arc<ServiceContext>, workspace_id: &str) -> String {
     serde_json::Value::Array(panes).to_string()
 }
 
-/// `host.worker.start` — async (one-shot agent compute). Returns `{ jobId }`
-/// synchronously; the agent runs and reports out of band. Reuses the headless
-/// worker spawn (no workspace target, no resume).
+/// `host.worker.start` — returns `{ jobId }` synchronously; the agent runs and reports out of band.
 fn worker_start(svc: &Arc<ServiceContext>, plugin_id: &str, opts_json: &str) -> String {
     #[derive(serde::Deserialize)]
     struct Opts {
@@ -295,10 +266,7 @@ fn progress_raw(svc: &Arc<ServiceContext>, plugin_id: &str, opts_json: &str) -> 
     "{}".to_string()
 }
 
-/// `host.agent.spawn` — async. Starts a FRESH session in `workspace_id` and
-/// returns `{ sessionId }` (the job id the plugin uses for send/poll/reap). The
-/// underlying provider session id is captured out of band; the live round-trip
-/// is exercised at integration (Track F / Track V).
+/// `host.agent.spawn` — start a fresh session in `workspace_id`, returning `{ sessionId }` (the poll/send handle).
 fn agent_spawn(
     svc: &Arc<ServiceContext>,
     plugin_id: &str,
@@ -339,30 +307,23 @@ fn agent_spawn(
     serde_json::json!({ "sessionId": session_id }).to_string()
 }
 
-/// `host.agent.resume` — re-attach a SPECIFIC stored session id. The host keeps
-/// no live session pool (the plugin owns its LRU map per R2), so this echoes the
-/// id back as the handle to use on the next `send`. Real re-attachment lands at
-/// integration.
+/// `host.agent.resume` — the host keeps no session pool (the plugin owns it), so echo the id back as the handle.
 fn agent_resume_json(session_id: &str) -> String {
     serde_json::json!({ "sessionId": session_id }).to_string()
 }
 
-/// `host.agent.get` — the plugin owns its own `key → session` map (R2), so the
-/// host has nothing to look up: always `null`.
+/// `host.agent.get` — the plugin owns the `key → session` map, so the host has nothing to look up: `null`.
 fn agent_get_json() -> String {
     "null".to_string()
 }
 
-/// `host.agent.send` — async. Delivers `text` to the session (resuming its
-/// captured provider session) as a one-shot turn and returns `{ ticket }`; the
-/// plugin polls the ticket for the reply.
+/// `host.agent.send` — deliver `text` as a one-shot turn (resuming the captured session); returns `{ ticket }`.
 fn agent_send(svc: &Arc<ServiceContext>, plugin_id: &str, session_id: &str, text: &str) -> String {
     let (provider, model, resume) = match svc.workers.get(session_id) {
         Some(w) => (
             w.agent_provider.unwrap_or_else(|| "claude".to_string()),
             w.model.unwrap_or_default(),
-            // Resume the captured provider session if known, else treat the
-            // handle itself as the session id (forward-compatible).
+            // Resume the captured provider session if known, else treat the handle as the session id.
             w.session_id.or_else(|| Some(session_id.to_string())),
         ),
         None => (
@@ -403,22 +364,13 @@ fn agent_reap(svc: &Arc<ServiceContext>, session_id: &str) -> String {
     serde_json::json!({ "ok": true }).to_string()
 }
 
-/// `host.agent.usage` — optional read-only stats. Not wired this track; the
-/// SDK types it nullable, so `null` is the honest answer until the
-/// `parseUsage`/`UsageSnapshot` bridge lands (R6).
+/// `host.agent.usage` — not wired yet; the SDK types it nullable, so `null` is the honest answer.
 fn agent_usage_json() -> String {
     "null".to_string()
 }
 
-/// Spawn a hidden agent pane as a tracked worker job and return its id
-/// synchronously. Mirrors `mem/workers.rs::spawn_headless` (worker-pool permit,
-/// `spawn_blocking(spawn_pane(Hidden, Agent{…}))`, watchdog) but carries a
-/// workspace target + optional resume so it backs both `agent.spawn` (fresh)
-/// and `agent.send` (resume). The agent reports via the worker-report path,
-/// which drives `GraphWorkerRegistry::complete` → readable by `poll`.
-///
-/// The job runs OUTSIDE the VM lock: this returns the id immediately and the
-/// spawn happens on the async runtime.
+/// Spawn a hidden agent pane as a tracked worker job, returning its id immediately;
+/// the spawn runs on the async runtime, outside the VM lock.
 #[allow(clippy::too_many_arguments)]
 fn enqueue_agent_turn(
     svc: &Arc<ServiceContext>,
@@ -445,7 +397,6 @@ fn enqueue_agent_turn(
     if !model.is_empty() {
         info.model = Some(model.clone());
     }
-    // C2 MINOR-2: scope the inverse seam to the verbs the plugin declared.
     info.commands = commands;
     svc.workers.register(info.clone());
     let _ = tauri::Emitter::emit(&svc.app_handle, "graph-worker-spawned", &info);
@@ -468,9 +419,7 @@ fn enqueue_agent_turn(
             .workers
             .update_status(&worker_id_task, WorkerStatus::Starting);
 
-        // Plugin agents own their full prompt and act through plugin verbs — do
-        // NOT wrap them in the mem graph-worker preamble (that identity makes the
-        // agent report via `mem worker` and never run the plugin's commands).
+        // Don't wrap plugin agents in the mem graph-worker preamble — they own their prompt and act through plugin verbs.
         let task = crate::prompts::PLUGIN_AGENT_TASK_PREAMBLE.replace("{task}", &task_prompt);
         let svc_blocking = svc_task.clone();
         let worker_id_blocking = worker_id_task.clone();
@@ -548,13 +497,9 @@ fn enqueue_agent_turn(
 
 // ── Bind table ───────────────────────────────────────────────────────────
 
-/// Install the `host.worker*` / `host.agent*` / `host.workspace*` / `host.mem*`
-/// raw binds onto the `host` object. The VM preamble (`vm.rs`) folds these into
-/// the ergonomic `host.worker` / `host.agent` (Promise-wrapped) and
-/// `host.workspace` / `host.mem` (sync) objects.
-///
-/// Every bind resolves the late-bound `ServiceContext` (`sandbox.service()`);
-/// before service init it returns an error envelope rather than panicking.
+/// Install the raw `host.worker*` / `host.agent*` / `host.workspace*` / `host.mem*`
+/// binds; the VM preamble folds them into the ergonomic `host.*` objects. Each
+/// bind resolves the late-bound `ServiceContext`, returning an error envelope before init.
 pub(super) fn install_handles(
     host: &Object<'_>,
     sandbox: &Arc<PluginSandbox>,

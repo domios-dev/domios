@@ -1,11 +1,6 @@
-//! Per-plugin self-documenting YAML config (plan §1.7).
-//!
-//! Each plugin owns a `config.yaml` in its bundle dir whose inline comments are
-//! the agent-facing docs for every field. YAML is the *storage/authoring* format
-//! only: the host parses it to JSON and hands the plugin that JSON via
-//! `host.settingsJson()` (QuickJS plugins still `JSON.parse`). Secret-typed
-//! fields are routed to the secret store, never written plaintext into the YAML,
-//! so what lands here is non-secret.
+//! Per-plugin self-documenting `config.yaml` (inline comments are the agent docs).
+//! YAML is the authoring format only — the host parses it to JSON for
+//! `host.settingsJson()`; secret-typed fields route to the secret store, never written here.
 
 use std::path::{Path, PathBuf};
 
@@ -26,11 +21,8 @@ pub fn yaml_to_json(yaml: &str) -> Result<Value, String> {
     serde_json::to_value(v).map_err(|e| format!("config.yaml → json: {e}"))
 }
 
-/// Resolve the settings JSON the host delivers to the plugin VM.
-///
-/// `config.yaml` in the bundle dir wins (parsed YAML → JSON). When absent, fall
-/// back to the legacy `config.plugins.<id>` JSON bag so nothing regresses while
-/// plugins migrate. Missing/empty → `"null"`.
+/// Resolve the settings JSON delivered to the plugin VM: `config.yaml` wins, else
+/// the legacy `config.plugins.<id>` bag (migration safety), else `"null"`.
 pub fn resolve_settings_json(bundle_dir: &Path, plugin_id: &str) -> String {
     let yaml_text = std::fs::read_to_string(config_yaml_path(bundle_dir)).ok();
     resolve_settings_inner(yaml_text.as_deref(), plugin_id, || {
@@ -41,11 +33,8 @@ pub fn resolve_settings_json(bundle_dir: &Path, plugin_id: &str) -> String {
     })
 }
 
-/// Pure core of [`resolve_settings_json`] — the YAML text and the legacy lookup
-/// are injected so the precedence/fallback logic is unit-testable without a real
-/// `config.toml`. A YAML that parses to `null` (empty or comments-only) is
-/// treated as *absent* so migration-safety holds: we still fall through to the
-/// legacy `config.plugins.<id>` bag instead of clobbering it with `"null"`.
+/// Pure core of [`resolve_settings_json`] (inputs injected for testability). A YAML
+/// parsing to `null` (empty/comments-only) is treated as absent so the legacy bag isn't clobbered.
 fn resolve_settings_inner(
     yaml_text: Option<&str>,
     plugin_id: &str,
@@ -111,8 +100,7 @@ mod tests {
 
     #[test]
     fn comments_only_config_yaml_falls_through_to_legacy() {
-        // Migration-safety: a comments-only / empty config.yaml parses to null
-        // and must NOT clobber the legacy config.plugins.<id> bag.
+        // A comments-only config.yaml parses to null and must not clobber the legacy bag.
         let legacy = || Some(r#"{"engine":"legacy"}"#.to_string());
         let out = resolve_settings_inner(Some("# only a comment\n"), "p", legacy);
         let v: Value = serde_json::from_str(&out).unwrap();

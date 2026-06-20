@@ -1,14 +1,8 @@
-//! ChatBackend capability — a plugin provides a full conversational backend
-//! (e.g. LM Studio, an HTTP LLM) that drives a non-PTY pane. The pane's I/O is
-//! routed here by the [`PaneTransport`](crate::service::pane_transport) seam:
-//! `send` → `sendMessage`, reads → the polled transcript. There is no native
-//! chatBackend — the capability is JS-only (plan §1.10), so the acceptance
-//! oracle is a `call_json` contract test (see `plugin::js_runtime::chatbackend`),
-//! not `parity_test.rs`.
-//!
-//! Core asks the capability, never the identity — resolution goes through
-//! [`ChatBackendRegistry`] (a
-//! [`CapabilityRegistry`](crate::plugin::capability::CapabilityRegistry)).
+//! ChatBackend capability — a plugin drives a non-PTY pane as a full
+//! conversational backend, routed here by the [`PaneTransport`](crate::service::pane_transport)
+//! seam. JS-only (no native impl), so the acceptance oracle is a `call_json`
+//! contract test, not `parity_test.rs`. Core asks the capability via
+//! [`ChatBackendRegistry`], never the identity.
 
 use std::sync::Arc;
 
@@ -27,10 +21,7 @@ pub struct PresetInfo {
     pub description: Option<String>,
 }
 
-/// Live state of an open chatBackend session, surfaced to the pane's tab/bubble.
-/// Currently just the model the session is talking to (a shell has no provider-
-/// side store, so the plugin's own view is the truth). `model: None` ⇒ the
-/// backend does not expose a session model (a bare backend with no `sessionInfo`).
+/// Live state of an open chatBackend session — currently just its model. `model: None` ⇒ the backend exposes no session model.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct ChatSessionInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -64,11 +55,8 @@ pub trait ChatBackendProvider: Send + Sync {
         self.id()
     }
 
-    /// Whether a user may open this backend as a pane from the new-session
-    /// picker. Bare `chatBackend: true` ⇒ false (backend-only, e.g. an NPC
-    /// driven by the host/agent); the manifest `{ spawnable: true }` form opts
-    /// in. Default false (not user-spawnable) — core filters discovery and
-    /// rejects spawn requests for non-spawnable backends on this signal.
+    /// Whether a user may open this backend as a pane. Bare `chatBackend: true` ⇒
+    /// false (backend-only); `{ spawnable: true }` opts in. Core gates discovery/spawn on this.
     fn spawnable(&self) -> bool {
         false
     }
@@ -85,36 +73,22 @@ pub trait ChatBackendProvider: Send + Sync {
         None
     }
 
-    /// Open a session for a pane. `ctx` is the SDK envelope
-    /// `{ paneId, config, systemPrompt?, preset?, model? }` (a plugin may key
-    /// its session on `paneId`, e.g. LM Studio). Returns the plugin-chosen
-    /// session id (echoed back on every later call).
+    /// Open a session for a pane (`ctx` = `{ paneId, config, systemPrompt?, preset?, model? }`); returns the plugin-chosen session id.
     fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError>;
 
     /// Deliver one user turn to the session.
     fn send_message(&self, session_id: &str, text: &str) -> Result<(), ChatBackendError>;
 
-    /// Advance any in-flight async work for the session, called by the host poll
-    /// loop each tick BEFORE [`poll`](Self::poll). An async chatBackend (e.g. the
-    /// dread NPC plugin) does its turn-advance here: check `host.agent` tickets,
-    /// move completed replies into the transcript `poll` then surfaces. Without a
-    /// host-driven pump such a plugin would never advance on the real daemon (the
-    /// mock harness called `pump()` itself; the host never did) — Item 6.
-    ///
-    /// Optional: the default is a no-op, and a plugin with no `pump` export is
-    /// unaffected. Best-effort — a pump error must not kill the poll loop.
+    /// Advance in-flight async work, called by the poll loop each tick before
+    /// [`poll`](Self::poll) so an async chatBackend progresses on the real daemon.
+    /// Optional no-op default; best-effort — a pump error must not kill the loop.
     fn pump(&self, session_id: &str) -> Result<(), ChatBackendError> {
         let _ = session_id;
         Ok(())
     }
 
-    /// Pull transcript after `cursor`. The plugin export is
-    /// `poll(sessionId, cursor) -> { messages, cursor }`: with a cursor it
-    /// returns ONLY the delta since that bookmark plus the next cursor; with
-    /// `None` it returns the whole transcript (and seeds the cursor). Empty
-    /// `messages` ⇒ nothing new (the loop emits nothing and backs off). The
-    /// plugin's `NormalizedChatMessage[]` deserializes directly into
-    /// [`ChatMsg`](crate::agent::chat_types::ChatMsg) (`type` → `kind`).
+    /// Pull transcript after `cursor`: with a cursor, only the delta + next cursor;
+    /// with `None`, the whole transcript (seeding the cursor). Empty `messages` ⇒ nothing new.
     fn poll(
         &self,
         session_id: &str,
@@ -133,17 +107,13 @@ pub trait ChatBackendProvider: Send + Sync {
         Ok(Vec::new())
     }
 
-    /// Current live state of an open session (the model it is talking to).
-    /// Optional: a backend that does not expose a per-session model returns the
-    /// default (`model: None`). The plugin export is `sessionInfo(sessionId)`.
+    /// Current live state of an open session. Optional: a backend with no per-session model returns the default.
     fn session_info(&self, session_id: &str) -> Result<ChatSessionInfo, ChatBackendError> {
         let _ = session_id;
         Ok(ChatSessionInfo::default())
     }
 
-    /// Switch the model an open session uses on its next turn. Optional — a
-    /// backend that cannot switch returns an error (the default), which the
-    /// command surfaces. The plugin export is `setModel(sessionId, model)`.
+    /// Switch the model an open session uses next turn. Optional — a backend that can't switch returns an error (default).
     fn set_model(&self, session_id: &str, model: &str) -> Result<(), ChatBackendError> {
         let _ = (session_id, model);
         Err(ChatBackendError::Call(

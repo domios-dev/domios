@@ -1,10 +1,6 @@
-//! `host.fetch` backend (host_api v2). Performs an allowlisted HTTP request and
-//! returns `{status, headers, body}` as JSON. Host allowlist (`network.allow`)
-//! is enforced by the caller via `PluginSandbox::can_reach`.
-//!
-//! Uses a shared async `reqwest::Client`. Synchronous VM calls run the request
-//! on a dedicated OS thread with a current-thread tokio runtime so the caller
-//! never constructs a blocking HTTP client on a tokio worker.
+//! `host.fetch` backend — an allowlisted HTTP request returning `{status, headers, body}`
+//! (the caller enforces `network.allow` via `PluginSandbox::can_reach`). The sync VM
+//! call runs the request on a dedicated OS thread, never a blocking client on a tokio worker.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
