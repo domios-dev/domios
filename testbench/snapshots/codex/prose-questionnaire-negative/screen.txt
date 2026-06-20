@@ -1,0 +1,7 @@
+╭────────────────────────────────────────╮
+│ >_ OpenAI Codex                         │
+╰────────────────────────────────────────╯
+› Give me a test multi-step A B C picker with several stages, answer in one line.
+• Answer one line such as 1B 2C 3A 4D. Step 1: task type: A bug fix, B new feature, C refactor, D research. Step 2: urgency: A today, B this week, C flexible, D exploratory. Step 3: codebase scope: A single file, B small module, C multiple modules, D unknown. Step 4: output style: A patch only, B patch plus tests, C explanation first, D review findings.
+› Improve documentation in @filename
+  gpt-5.5 medium · /private/tmp/codex-prose-questionnaire

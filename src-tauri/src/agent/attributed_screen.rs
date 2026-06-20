@@ -1,6 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod picker_helpers;
+
+use picker_helpers::{
+    looks_like_path, looks_like_section_tabs, shortcut_token, shortcut_token_and_rest,
+    starts_with_any, strip_side_band, strip_side_preview,
+};
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum AttributedColor {
@@ -42,6 +49,7 @@ pub struct PickerDetection {
 enum MarkerClass {
     Arrow,
     Checkbox,
+    KeyShortcut,
     Bullet,
     Numbered,
     Lettered,
@@ -52,6 +60,7 @@ enum MarkerClass {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OptionKind {
     Checkbox,
+    KeyShortcut,
     Numbered,
     Plain,
 }
@@ -217,7 +226,7 @@ fn analyze_row(screen: &AttributedScreen, row: u16) -> RowFeature {
     let trimmed_end = text.trim_end().to_string();
     let framed = strip_frame(&trimmed_end);
     let side_band = framed.trim_start().starts_with('┃') || framed.trim_start().starts_with('╹');
-    let stripped = strip_side_band(&framed);
+    let stripped = strip_side_preview(&strip_side_band(&framed));
     let clean = clean_option_label(&stripped);
     let indent = stripped.chars().take_while(|c| c.is_whitespace()).count();
     let class = marker_class(stripped.trim_start());
@@ -307,7 +316,7 @@ fn detect_footer_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
     let selected_kind = option_kind(&rows[selected_idx])?;
 
     match selected_kind {
-        OptionKind::Checkbox | OptionKind::Numbered => {
+        OptionKind::Checkbox | OptionKind::KeyShortcut | OptionKind::Numbered => {
             structured_footer_panel(rows, selected_idx, footer_idx, selected_kind)
         }
         OptionKind::Plain => plain_footer_panel(rows, selected_idx, footer_idx),
@@ -440,6 +449,9 @@ fn selected_row_candidate(
     let footer_near = rows[bottom..rows.len().min(bottom + 5)]
         .iter()
         .any(|row| row.footer);
+    if selected_kind == OptionKind::Plain && !footer_near {
+        return None;
+    }
     if !footer_near
         && !rows[top..bottom]
             .iter()
@@ -551,6 +563,13 @@ fn score_block(
     if selected.1 == 0 && !footer_near {
         return None;
     }
+    if block
+        .iter()
+        .all(|row| option_kind(row) == Some(OptionKind::Plain))
+        && !footer_near
+    {
+        return None;
+    }
     if looks_like_banner(rows, top, bottom, footer_near, cursor_near) {
         return None;
     }
@@ -656,7 +675,11 @@ fn is_question_candidate(row: &RowFeature) -> bool {
         return false;
     }
     let lower = row.clean.to_lowercase();
-    lower != "search" && lower != "filter:" && !lower.starts_with("view all ")
+    lower != "search"
+        && lower != "filter:"
+        && !lower.starts_with("view all ")
+        && !looks_like_path(&row.clean)
+        && !looks_like_section_tabs(&row.clean)
 }
 
 fn is_strong_selection(row: &RowFeature) -> bool {
@@ -752,6 +775,7 @@ fn group_option_label(row: &RowFeature, selected_kind: OptionKind) -> Option<Str
     let kind = option_kind(row)?;
     let compatible = match selected_kind {
         OptionKind::Checkbox => kind == OptionKind::Checkbox,
+        OptionKind::KeyShortcut => kind == OptionKind::KeyShortcut,
         OptionKind::Numbered => kind == OptionKind::Numbered,
         OptionKind::Plain => kind == OptionKind::Plain,
     };
@@ -762,6 +786,9 @@ fn option_kind(row: &RowFeature) -> Option<OptionKind> {
     let text = strip_selected_glyph(row.text.trim_start());
     if contains_checkbox(text) {
         return Some(OptionKind::Checkbox);
+    }
+    if shortcut_token(text).is_some() {
+        return Some(OptionKind::KeyShortcut);
     }
     if marker_token(text).is_some_and(|token| token.chars().all(|c| c.is_ascii_digit())) {
         return Some(OptionKind::Numbered);
@@ -824,34 +851,6 @@ fn is_cursor_model_metadata(text: &str) -> bool {
         )
 }
 
-fn strip_side_band(text: &str) -> String {
-    let trimmed = text.trim_end();
-    let mut s = trimmed.trim_start();
-    if let Some(rest) = s.strip_prefix('┃') {
-        s = rest.trim_start();
-        for label in ["Ask", "Buil", "Build"] {
-            if let Some(rest) = s.strip_prefix(label) {
-                if rest.starts_with("  ") {
-                    s = rest.trim_start();
-                    break;
-                }
-            }
-        }
-        return preserve_indent(trimmed, s);
-    }
-    if s.starts_with('╹') {
-        s = s.trim_start_matches(|c| c == '╹' || c == '▀' || c == ' ');
-        let s = s.split("  ▀").next().unwrap_or(s).trim();
-        return preserve_indent(trimmed, s);
-    }
-    trimmed.to_string()
-}
-
-fn preserve_indent(original: &str, text: &str) -> String {
-    let indent = original.chars().take_while(|c| c.is_whitespace()).count();
-    format!("{}{}", " ".repeat(indent), text)
-}
-
 fn strip_selected_glyph(text: &str) -> &str {
     ["❯", "›", ">", "→", "➜", "▸", "▶", "●", "•", "-", "*"]
         .iter()
@@ -867,6 +866,9 @@ fn strip_marker_prefix(text: &str) -> String {
             break;
         }
     }
+    if let Some((_, rest)) = shortcut_token_and_rest(&s) {
+        return rest.trim_start().to_string();
+    }
     if let Some((_, rest)) = marker_token_and_rest(&s) {
         return rest.trim_start().to_string();
     }
@@ -876,6 +878,9 @@ fn strip_marker_prefix(text: &str) -> String {
 fn marker_class(text: &str) -> MarkerClass {
     if contains_checkbox(text) {
         return MarkerClass::Checkbox;
+    }
+    if shortcut_token(text).is_some() {
+        return MarkerClass::KeyShortcut;
     }
     if has_selected_glyph(text) || starts_with_any(text, &[">", "›", "→", "➜", "▸", "▶", "●"])
     {
@@ -986,10 +991,6 @@ fn is_border_char(c: char) -> bool {
 
 fn is_vertical_border(c: char) -> bool {
     matches!(c, '│' | '┃' | '║')
-}
-
-fn starts_with_any(text: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| text.starts_with(needle))
 }
 
 #[cfg(test)]
