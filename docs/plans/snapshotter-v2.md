@@ -199,6 +199,11 @@ Spike (`src-tauri/tests/attr_spike.rs`, vt100 grid over real `raw.cast`):
   via `POST /session/:id/permissions/:id`. Capability-gated (`supports_structured_prompts`), PTY
   stays for display. Proves the Tier-1 handle for the one provider that has it in PTY mode.
 
+W3 result: proven live on opencode `1.17.8` with a dev-spawned fixed-port server. Real
+`question.asked` and `permission.asked` SSE events include request ids, session ids, and option /
+permission payloads; HTTP replies unblocked opencode without scraping the terminal. Full event and
+endpoint shapes: `docs/plans/2026-06-20-opencode-structured-prompt-handle.md`.
+
 ### Execution — Phase 2 (after W1 lands, parallel per-provider)
 Wire the fusion detector into the prod plugin contract (native+JS parity), then per-provider
 parse-until-perfect on re-captured real pickers: cursor (/model + multi-step multi-select wizard),
@@ -208,4 +213,4 @@ banner rejection), codex (model/approval single pickers; multi-section skip). Th
 Orchestrator stays integrator (re-gate + merge each). W1/W2/W3 are file-disjoint enough to run
 concurrently; W1 consumes W2's re-captured snapshots as they land.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
