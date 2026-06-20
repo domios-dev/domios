@@ -1,18 +1,7 @@
-//! `PaneTransport` — the single pane-I/O seam (plan Appendix B1.1#2).
-//!
-//! The handful of *pane-keyed* entry operations (send / read transcript /
-//! resize / kill) dispatch on the pane's [`PaneBacking`] instead of calling
-//! `resolve_pty_id` directly. Two impls:
-//!
-//! * [`PtyTransport`] — today's PTY path, delegating to the existing
-//!   `ServiceContext` methods verbatim (no behaviour change for PTY panes).
-//! * [`ChatBackendTransport`] — routes to the plugin `chatBackend` registry
-//!   (added in B1.3 #3).
-//!
-//! Entry points call `svc.pane_transport(pane_id)?.send(...)`, which collapses
-//! the ~20 scattered backing branches into one dispatch + two impls. The CI
-//! grep guard (B1.1#7) asserts no NEW `resolve_pty_id` call is added outside
-//! this module.
+//! `PaneTransport` — the single pane-I/O seam. Pane-keyed entry ops (send / read
+//! / resize / kill) dispatch on [`PaneBacking`] instead of calling `resolve_pty_id`
+//! directly; [`PtyTransport`] keeps the PTY path verbatim, [`ChatBackendTransport`]
+//! routes to the plugin registry. A CI grep guard keeps new `resolve_pty_id` calls out.
 
 use super::pty_io::SendBatchItem;
 use super::ServiceContext;
@@ -127,10 +116,8 @@ impl PaneTransport for PtyTransport<'_> {
 }
 
 impl ServiceContext {
-    /// If `pane_id` (or its alias) is a chatBackend pane, return its
-    /// `(plugin_id, session_id)`; otherwise `None`. The guard the PTY entry
-    /// methods use to short-circuit to the plugin transport before touching a
-    /// PTY.
+    /// `(plugin_id, session_id)` if `pane_id` is a chatBackend pane, else `None` —
+    /// the guard PTY entry methods use to short-circuit to the plugin transport.
     pub(crate) fn pane_chat_backing(&self, pane_id: &str) -> Option<(String, String)> {
         let mux = self.mux.write();
         let resolved = mux.resolve_pane_id(pane_id)?;
@@ -143,10 +130,8 @@ impl ServiceContext {
         }
     }
 
-    /// Whether `pane_id` (or its alias) is an AGENT pane — it has a detected
-    /// agent provider (`agent_type`). Used to gate the outbound preprocessor to
-    /// agent recipients only (BUG A): a plain shell pane must never receive an
-    /// injected `<context>` block.
+    /// Whether `pane_id` is an agent pane (has `agent_type`), gating the outbound
+    /// preprocessor to agents — a shell pane must never get an injected `<context>` block.
     pub(crate) fn pane_has_agent(&self, pane_id: &str) -> bool {
         let mux = self.mux.write();
         mux.resolve_pane_id(pane_id)
@@ -154,13 +139,8 @@ impl ServiceContext {
             .is_some()
     }
 
-    /// Send-time outbound stage hook (plan Track B↔C contract). Runs the
-    /// registered `chatPreprocessor` text stages over the outbound text before
-    /// dispatching to transport. No stages ⇒ identity (Track B's shipped
-    /// contract). Stages run in id order for determinism; a broken stage fails
-    /// safe to passthrough (see [`JsChatPreprocessor`]).
-    ///
-    /// [`JsChatPreprocessor`]: crate::plugin::js_runtime::JsChatPreprocessor
+    /// Run registered `chatPreprocessor` text stages over the outbound text (id order
+    /// for determinism; no stages ⇒ identity; a broken stage fails safe to passthrough).
     pub fn run_outbound_stages(&self, pane_id: &str, text: String) -> String {
         let mut stages = self.chat_preprocessor_registry.active();
         if stages.is_empty() {
@@ -174,9 +154,7 @@ impl ServiceContext {
         crate::chatpipeline::run_text_stages(&stages, &ctx, text)
     }
 
-    /// Resolve a pane (or alias) to its [`PaneTransport`]. Reads the pane's
-    /// backing once and returns the matching impl. Errors if the pane is
-    /// unknown.
+    /// Resolve a pane to its [`PaneTransport`] by reading its backing once. Errors if unknown.
     pub fn pane_transport(&self, pane_id: &str) -> Result<Box<dyn PaneTransport + '_>, String> {
         let (resolved, backing) = {
             let mux = self.mux.write();

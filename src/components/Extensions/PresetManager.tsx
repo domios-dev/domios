@@ -1,14 +1,8 @@
 /**
- * Preset manager for chatBackend plugins (R5b).
- *
- * Master-detail editor over a backend's user-defined presets
- * ({id, name, systemPrompt, model?, params?}). The list is the source of truth
- * the plugin's `listPresets()` reads back, so every mutation persists to
- * `config.plugins.<id>` through the {@link presetManagerApi} seam. Binding a
- * model (R4) is just `preset.model`; the active selection persists as
- * `activePreset` and — when a live `sessionId` is supplied — switches that
- * session onto the preset's bound model. Generalized: any chatBackend with
- * presets renders this; no hardcoded provider id.
+ * Master-detail editor over a chatBackend's user-defined presets. The list is the
+ * source of truth `listPresets()` reads back; mutations persist via {@link presetManagerApi},
+ * and the active selection (with a live `sessionId`) switches the session onto the preset's model.
+ * Generalized — any chatBackend with presets, no hardcoded provider id.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
@@ -54,8 +48,7 @@ export function PresetManager({
     };
   }, [pluginId]);
 
-  // Single commit path: optimistic local update + persist. Keeps the plugin's
-  // listPresets() in lockstep with what the editor shows.
+  // Single commit path (optimistic update + persist), keeping listPresets() in lockstep with the editor.
   const commit = useCallback(
     (next: PresetState) => {
       setState(next);

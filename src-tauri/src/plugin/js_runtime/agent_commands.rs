@@ -1,11 +1,6 @@
-//! `JsAgentCommandHandler` — adapts a JS plugin that exports `onAgentCommand` to
-//! the core [`AgentCommandProvider`](crate::agent_commands::AgentCommandProvider)
-//! trait. Mirrors `JsChatBackend`/`JsTranscriber`: wraps the shared
-//! `Arc<PluginVm>` and dispatches via the synchronous `call_json` (the VM is not
-//! `Send`, so we call it on the caller's thread).
-//!
-//! Plugin surface (plan §1.10 / SDK `AgentCommandHandler`):
-//! * `onAgentCommand({ sessionId, verb, args }) -> { result } | { error }`
+//! `JsAgentCommandHandler` — adapts a JS `onAgentCommand` export to the core
+//! [`AgentCommandProvider`](crate::agent_commands::AgentCommandProvider) trait via
+//! synchronous `call_json`. Surface: `onAgentCommand({ sessionId, verb, args }) -> { result } | { error }`.
 
 use std::sync::Arc;
 

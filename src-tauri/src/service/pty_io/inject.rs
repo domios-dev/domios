@@ -4,12 +4,8 @@ use super::{build_spawn_dispatch, poll_shell_prompt};
 use crate::service::ServiceContext;
 
 impl ServiceContext {
-    /// Launch a shell-level command in an attached pty (agent spawn, mem worker
-    /// spawn, etc). Bypasses bracketed-paste — see `build_spawn_dispatch` for
-    /// the rationale (bash 3.2 cannot interpret paste markers, the launch
-    /// pipeline must arrive as a normal shell command line). Distinct from the
-    /// interactive TUI input paths (`send_text_*`), which still use bracketed
-    /// paste because Claude / Codex TUIs require it.
+    /// Launch a shell-level command in an attached pty, bypassing bracketed paste
+    /// (see `build_spawn_dispatch` — bash 3.2 can't interpret paste markers).
     pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
         self.await_shell_ready(pty_id);
         let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
@@ -20,19 +16,11 @@ impl ServiceContext {
         Ok(())
     }
 
-    /// Verified text injection. Holds NO ScreenState lock across the helper
-    /// calls; callers must not hold mux / output_buf when invoking this.
-    ///
-    /// **Delivery is always best-effort: if `enter` is true, Enter (`\r`) is
-    /// written to the PTY UNCONDITIONALLY after the bracket-paste payload.**
-    /// Echo and submit verification are reporting fields on `InjectionResult`,
-    /// not gates: a verify-timeout returns `Ok(... echo_observed: false ...)`
-    /// rather than an error, and Enter still fires. This is the design fix for
-    /// the long-standing bug where an echo-verify timeout (e.g. paste-placeholder
-    /// matching, scroll-out, or TUIs that take >3s to render) caused Enter to
-    /// be skipped entirely, leaving the recipient stuck in paste-mode forever.
-    /// Hard errors are reserved for situations that genuinely prevent delivery
-    /// (PTY closed, prompt never became ready when the caller required it).
+    /// Verified text injection. Holds no ScreenState lock across helper calls
+    /// (callers must not hold mux / output_buf). Delivery is best-effort: when
+    /// `enter` is true, Enter fires unconditionally after the paste — echo/submit
+    /// checks are reporting fields, not gates, so a verify timeout never skips
+    /// Enter (the old bug that stranded the recipient in paste-mode).
     pub fn send_text_verified(
         &self,
         pty_id: &str,
@@ -51,8 +39,7 @@ impl ServiceContext {
         };
         let started = std::time::Instant::now();
         let tail_rows: usize = 8;
-        // #22: notify (never block) — an unsafe-prompt detection must not lock
-        // the user out of sending; a stale/resolved menu used to hard-refuse here.
+        // Notify, never block — an unsafe-prompt detection must not lock the user out of sending.
         super::super::inject_safety::notify_if_unsafe_prompt(&self.screen_state, pty_id);
 
         if opts.require_prompt_first {
@@ -68,9 +55,7 @@ impl ServiceContext {
 
         self.feed_input_parser(pty_id, text, enter);
 
-        // Empty text is a bare submit (e.g. `codeterm send --submit` to unstick a
-        // paste already sitting in the composer): skip the bracketed paste so we
-        // don't inject a stray space on Windows — just press Enter below.
+        // Empty text is a bare submit: skip the paste (avoids a stray space on Windows) and just press Enter below.
         let bytes_written = if text.is_empty() {
             0
         } else {
@@ -88,7 +73,7 @@ impl ServiceContext {
             paste.len()
         };
 
-        // Echo verify: informational only. Timeout means we couldn't confirm, not that the paste failed. PtyUnknown is the only real failure here and surfaces as PtyClosed.
+        // Echo verify is informational: a timeout means unconfirmed, not failed. Only PtyUnknown is a real failure.
         let echo_observed = if opts.verify_echo {
             match wait_for_echo(
                 &self.screen_state,
@@ -114,13 +99,8 @@ impl ServiceContext {
             false
         };
 
-        // #155: a TUI composer must finish ingesting the bracketed paste before
-        // the submit Enter — a `\r` sent mid-ingest is swallowed as part of the
-        // paste, leaving a long message typed-but-unsent. When we didn't already
-        // wait on echo, block (bounded, suffix/placeholder-aware) until the paste
-        // appears in the composer so the Enter lands as a real submit. Scoped to
-        // TuiInputDrained providers (codex/claude); shell sends (ShellPrompt) and
-        // bare submits (empty text) are unaffected.
+        // A TUI must finish ingesting the paste before Enter, else the `\r` is swallowed as part of it.
+        // For TuiInputDrained providers without an echo wait, block (bounded) until the paste appears.
         if enter
             && !text.is_empty()
             && !opts.verify_echo
@@ -138,13 +118,9 @@ impl ServiceContext {
             );
         }
 
-        // Enter ALWAYS fires when the caller asked for it. This is the load-bearing line — no early-return above this point can skip it unless the PTY is already gone.
+        // Enter always fires when asked — load-bearing: no early-return above may skip it unless the PTY is gone.
         let submit_observed = if enter {
-            // Escalating Enter attempts: a `\r` is swallowed by a TUI still
-            // ingesting the bracket paste (opencode). On a verify timeout we
-            // re-send \r with a longer settle so the message actually submits.
-            // Capped at 2 — more attempts multiply the per-attempt verify
-            // timeout (codex's 15s drain check) into a minute-long stall.
+            // Escalating retries: a `\r` mid-ingest is swallowed, so re-send with a longer settle. Capped at 2 (avoids minute-long stalls).
             const SETTLE_MS: [u64; 2] = [120, 800];
             let mut observed = false;
             for (attempt, settle_ms) in SETTLE_MS.iter().enumerate() {
@@ -210,14 +186,10 @@ impl ServiceContext {
         })
     }
 
-    /// Shell-level agent launch with submit verification. Uses [`build_spawn_dispatch`]
-    /// (temp script on Unix, bracketed paste on Windows) so bash 3.2 hosts never see
-    /// raw ESC markers. Echo verification is skipped — the screen shows `bash /tmp/...`,
-    /// not the original cmd.
-    ///
-    /// For `TuiInputDrained`: arms an event-driven `agent_signal` condvar that fires on
-    /// the first `screen_has_agent_tui` hit in `ScreenState::process`. No timing race,
-    /// no sleep: we block until actual TUI glyphs appear on screen.
+    /// Shell-level agent launch with submit verification via [`build_spawn_dispatch`]
+    /// (so bash 3.2 never sees raw ESC markers). Echo verify is skipped (the screen
+    /// shows `bash /tmp/...`); for `TuiInputDrained`, an event-driven `agent_signal`
+    /// condvar blocks until real TUI glyphs appear — no timing race, no sleep.
     pub fn send_shell_spawn_verified(
         &self,
         pty_id: &str,
@@ -235,8 +207,7 @@ impl ServiceContext {
 
         let started = std::time::Instant::now();
 
-        // Gate on shell-prompt readiness before writing — see `await_shell_ready`
-        // (Windows ConPTY first-byte race → mangled launch like `c codex`).
+        // Gate on shell-prompt readiness before writing (Windows ConPTY first-byte race) — see `await_shell_ready`.
         self.await_shell_ready(pty_id);
 
         self.feed_input_parser(pty_id, cmd, true);

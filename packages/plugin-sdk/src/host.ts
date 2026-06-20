@@ -1,8 +1,6 @@
-// The `host` global injected into every plugin QuickJS VM.
-// Mirrors the real surface installed by src-tauri/src/plugin/js_runtime:
-// flat bindings from host_api.rs + the convenience layer added by the
-// PLUGIN_PREAMBLE in vm.rs (host.fs / host.shell / host.path / host.manifest).
-// QuickJS is not a browser: no console, no fetch, no timers, no DOM.
+// The `host` global injected into every plugin QuickJS VM — the raw host_api.rs
+// bindings plus the vm.rs preamble convenience layer. QuickJS is not a browser:
+// no console, fetch, timers, or DOM.
 
 export interface ExecOpts {
   bin: string;
@@ -37,8 +35,7 @@ export interface ExecPollResult {
 
 export interface HostExec {
   (optsJson: string): string;
-  // Async exec: start the command, poll until done. The VM lock is held only
-  // for the sub-ms start/poll calls, not the command's whole duration.
+  // Async exec (start + poll), so the VM lock is held only for the sub-ms calls, not the command's duration.
   start(opts: ExecOpts): ExecStartResult;
   poll(jobId: string): ExecPollResult;
   close(jobId: string): void;
@@ -122,15 +119,10 @@ export interface HostPath {
 }
 
 // ── host compute base (host.worker / workspace / agent / mem) ──
-// ALL of these are SYNCHRONOUS (Item 6). worker + agent use a job-id/poll model
-// (F4) for genuinely-async host work, but job-id/poll is sync *per step*: each
-// call returns a ticket/status immediately; the long-running work happens on the
-// host between calls. They are NOT Promise-wrapped — the QuickJS VM has no event
-// loop to drain a Promise inside a synchronous `call_json` dispatch, so wrapping
-// would break sync consumers like a chatBackend `pump`/`poll`. (Plugin code may
-// still `await` these: `await x` on a non-thenable just yields `x`.) mem search
-// and the cheap workspace registry ops are likewise sync. agent/workspace are
-// gated by enforced permissions (`manage_workspaces` / `spawn_agents`).
+// All synchronous: worker/agent use a job-id/poll model that's sync per step (each
+// call returns immediately; the long work happens on the host between calls). Not
+// Promise-wrapped — QuickJS can't drain a Promise inside a sync `call_json` dispatch.
+// agent/workspace are gated by the `manage_workspaces` / `spawn_agents` grants.
 
 export interface Backend {
   provider?: string;
@@ -144,9 +136,7 @@ export interface PaneRef {
   backing?: string;
 }
 
-// Mirrors the host's existing parseUsage output (tokens / cost), read-only —
-// consumed by a plugin to drive its own reminder cadence (R6). Loosely typed
-// because the underlying provider shapes vary.
+// Read-only mirror of the host's parseUsage output (tokens/cost); loosely typed since provider shapes vary.
 export interface UsageSnapshot {
   inputTokens?: number;
   outputTokens?: number;
@@ -155,8 +145,7 @@ export interface UsageSnapshot {
   [key: string]: unknown;
 }
 
-// One-shot agent compute. start() enqueues and returns immediately; poll() reads
-// the GraphWorkerRegistry — the VM is never held for the turn. Sync per step.
+// One-shot agent compute: start() enqueues and returns immediately, poll() reads the result. Sync per step.
 export interface HostWorker {
   start(opts: { backend?: Backend; task: string }): { jobId: string };
   poll(jobId: string): { done: boolean; report?: string; error?: string };
@@ -168,12 +157,8 @@ export interface HostWorkspace {
   panes(workspaceId: string): PaneRef[];
 }
 
-// A team of long-lived agent sessions the PLUGIN owns and reaps (R2). spawn starts
-// a FRESH session; resume re-attaches a SPECIFIC stored session; get looks up the
-// plugin's own key→session map. send/poll is the job-id/poll bridge (F4) — send
-// returns a ticket, the plugin polls for the reply, the VM never blocks. Every
-// method is sync per step (Item 6): the call returns immediately; the agent turn
-// runs on the host between `send` and a later `poll`.
+// Long-lived agent sessions the plugin owns and reaps: spawn (fresh), resume (a stored
+// session), get (the plugin's key→session map). send/poll is the job-id bridge — the VM never blocks.
 export interface HostAgent {
   spawn(
     workspaceId: string,
@@ -187,8 +172,7 @@ export interface HostAgent {
   usage?(sessionId: string): UsageSnapshot | null;
 }
 
-// Synchronous: mem search is sync (mem/manager_search.rs), so a sync stage like
-// chatPreprocess can call it mid-turn and use the hits directly.
+// Synchronous: mem search is sync, so a sync stage like chatPreprocess can use the hits directly mid-turn.
 export interface HostMem {
   search(opts: {
     query: string;
@@ -244,16 +228,9 @@ export interface Host {
   secretGet(name: string): string | null;
   secretSet(name: string, value: string): boolean;
   secretDelete(name: string): boolean;
-  // Robust tolerant tool-call extractor (native Rust). Returns a JSON string
-  // with a tri-state `status` so callers never confuse "no call" with "broken
-  // call" (the latter must be retried, not silently dropped):
-  //   {"status":"ok","tool","args","confidence","span"}  — a valid call
-  //   {"status":"malformed","reason","span"}              — tool-call-shaped but
-  //       survived neither parse nor repair; re-prompt the model
-  //   {"status":"none"}                                   — no tool call present
-  // `schemaJson` describes the plugin's own tool set + arg aliases. Repairs are
-  // re-validated against the schema; an ambiguous repair degrades to malformed
-  // /none rather than guessing a command.
+  // Tolerant tool-call extractor returning a tri-state JSON `status` so "no call"
+  // (`none`) is never confused with "broken call" (`malformed`, must be retried) vs `ok`.
+  // `schemaJson` describes the plugin's tools; repairs are re-validated, degrading to malformed/none rather than guessing.
   toolcallParse(rawText: string, schemaJson: string): string;
 
   // ── Manifest (raw + parsed via preamble) ──

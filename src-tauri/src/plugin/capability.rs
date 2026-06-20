@@ -1,21 +1,14 @@
-//! Generic runtime registry mapping a capability id to its implementation.
-//!
-//! Populated by the [`PluginManager`](super::PluginManager) as plugins activate
-//! and deactivate. Core code always resolves a capability through a registry —
-//! never a hardcoded id list or display-string match. This is the seam that lets
-//! a plugin contribute an agent provider, a secret backend, a transcriber, or a
-//! future capability without core knowing the plugin's identity.
+//! Generic runtime registry mapping a capability id to its implementation,
+//! populated as plugins activate/deactivate. Core always resolves through a
+//! registry, never a hardcoded id list — the seam that lets a plugin contribute
+//! a capability without core knowing its identity.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 
-/// A thread-safe `id -> Arc<dyn Capability>` map.
-///
-/// `T` is a capability trait object (e.g. `dyn Transcriber`). Cloning an entry is
-/// cheap (`Arc`); the lock is held only for the map operation, never across the
-/// returned value's use.
+/// A thread-safe `id -> Arc<dyn Capability>` map; the lock is held only for the map op, never across the entry's use.
 pub struct CapabilityRegistry<T: ?Sized> {
     entries: RwLock<HashMap<String, Arc<T>>>,
 }

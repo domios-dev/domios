@@ -1,13 +1,8 @@
 /**
- * Data seam for the chatBackend preset manager (R5b).
- *
- * Presets are user-owned config, not plugin-baked: they live at
- * `config.plugins.<id>.presets` and the active selection at
- * `config.plugins.<id>.activePreset`. The plugin's `listPresets()` reads the
- * same slot back, so editing here is what the backend sees. Persistence goes
- * through `get_config`/`update_config`; applying a preset to a LIVE session
- * (its bound model) reuses the chatBackend `switch_model` command. Generalized
- * — keyed by `pluginId`, never a hardcoded provider id.
+ * Data seam for the chatBackend preset manager. Presets are user-owned config at
+ * `config.plugins.<id>.presets` (active at `.activePreset`) — the same slot
+ * `listPresets()` reads back. Persists via `get_config`/`update_config`; applying
+ * to a live session reuses `switch_model`. Keyed by `pluginId`, no hardcoded id.
  */
 import { invoke } from "../../lib/bridge";
 

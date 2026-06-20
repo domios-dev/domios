@@ -1,26 +1,8 @@
-//! Outbound message-stage pipeline (plan §6).
-//!
-//! **A message is a message.** Sending a voice note is not a separate code path
-//! — it is an outbound message carrying a property (a voice attachment) some
-//! stage filters on. The outbound path is therefore one ordered pipeline of
-//! stages; each stage declares a [`StageMatch`] slot (what it grabs) and acts
-//! only on matching messages, passing the rest through untouched.
-//!
-//! * **Voice slot (compose-time):** the transcriber — a voice attachment →
-//!   editable text. Run by `bridge::voice_transcribe::format_attachment_line`
-//!   via [`run_voice_stage`] (the result stays editable in the composer, and the
-//!   Telegram bridge reuses the same formatter).
-//! * **Text slot (send-time):** a `chatPreprocessor` — final text → augmented
-//!   text. Run by `ServiceContext::run_outbound_stages` via [`run_text_stages`],
-//!   after the text is final, transparently.
-//!
-//! A voice message chains: the transcriber grabs it first (the preprocessor did
-//! not match — no text yet), emits text, then the preprocessor matches that text.
-//!
-//! **Conflict guard ([`detect_conflicts`]).** Two stages claiming the same slot
-//! would double-process the same message. On registering stages, CodeTerm flags
-//! the overlap. Policy is **warn-and-allow** (plan §6 open decision resolved to
-//! warn): non-overlapping stages (voice + text) chain fine and never collide.
+//! Outbound message-stage pipeline. One ordered pipeline of stages, each
+//! declaring a [`StageMatch`] slot it grabs (voice = compose-time transcriber,
+//! text = send-time `chatPreprocessor`) and passing non-matching messages
+//! through. Two stages on the same slot would double-process; [`detect_conflicts`]
+//! flags the overlap (warn-and-allow).
 
 use std::sync::Arc;
 
@@ -74,10 +56,7 @@ where
     out
 }
 
-/// Build the full slot inventory from the live registries (transcribers grab
-/// the `voice` slot, preprocessors the `text` slot), run [`detect_conflicts`],
-/// and `log::warn!` each overlap. Called at install/registration — the policy is
-/// warn-and-allow, so this only surfaces the collision; it never blocks.
+/// Run [`detect_conflicts`] over the live registries and `log::warn!` each overlap (warn-and-allow; never blocks).
 pub fn warn_stage_conflicts(
     transcribers: &crate::transcribe::TranscribeRegistry,
     preprocessors: &crate::chatpreprocessor::ChatPreprocessorRegistry,
@@ -99,9 +78,7 @@ pub fn warn_stage_conflicts(
     }
 }
 
-/// Run the send-time text stages over `text`, in slice order. Each stage either
-/// replaces the text (`Some`) or passes through (`None`). Returns the final
-/// text. With no stages this is identity — the same contract Track B shipped.
+/// Run the send-time text stages in order; each replaces the text or passes through. Identity with no stages.
 pub fn run_text_stages(
     stages: &[Arc<dyn ChatPreprocessorProvider>],
     ctx: &PreprocessCtx,
@@ -116,22 +93,10 @@ pub fn run_text_stages(
     current
 }
 
-/// Whether a send entering at a user-facing seam (REST `send_text`, the desktop
-/// composer's `chat_send_text`) should run the send-time text stages (F3, P3).
-///
-/// A **user turn** is one that is NOT a service push (`svc_token`) and carries
-/// NO `source_pane` — inter-pane delivery, mesh relay, and hierarchy reports all
-/// set `source_pane`, and orchestrator/restart/GA system sends go through the
-/// synchronous `send_text` (never this seam), so the gate excludes them.
-///
-/// chatBackend panes are excluded here because their transport already runs the
-/// stages (`pane_transport_chat` / the chat branch of `pty_io::send_text`) — a
-/// second run at this seam would double-process the message.
-///
-/// `is_agent_pane` is REQUIRED: the stages only make sense delivering to an AI
-/// agent. A plain SHELL pane must never get a `<context>` block injected — that
-/// garbles `echo X` and broke 23 e2e tests (BUG A regression). Shell panes (no
-/// detected `agent_type`) are therefore excluded.
+/// Whether a send at a user-facing seam should run the send-time text stages.
+/// Excludes service pushes and `source_pane` deliveries (not user turns),
+/// chatBackend panes (their transport already runs the stages — avoid double-run),
+/// and shell panes (a `<context>` block would garble `echo X`).
 pub fn is_user_turn_send(
     is_service_push: bool,
     has_source_pane: bool,
@@ -141,11 +106,8 @@ pub fn is_user_turn_send(
     is_agent_pane && !is_service_push && !has_source_pane && !is_chat_backed
 }
 
-/// Run the compose-time voice stage: resolve the active transcriber and turn an
-/// audio file into editable text. The transcriber is the reference voice stage
-/// (plan §6) — `format_attachment_line` calls this, then shapes the marker, so
-/// the editable result and Telegram-bridge reuse are preserved. No active
-/// transcriber ⇒ [`TranscribeError::NoBackend`].
+/// Compose-time voice stage: resolve the active transcriber and turn an audio file
+/// into editable text. No active transcriber ⇒ [`TranscribeError::NoBackend`].
 pub async fn run_voice_stage(
     transcribers: &crate::transcribe::TranscribeRegistry,
     active_id: &str,

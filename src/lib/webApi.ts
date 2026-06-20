@@ -71,14 +71,9 @@ export interface DaemonApiConfig {
 }
 
 /**
- * Canonical HTTP origin of the daemon to reach for plugin assets, iframes, and
- * any direct fetch — the single source of truth across every access mode.
- *
- * Web: the origin the SPA is actually talking to (`apiHost()`), which already
- * tracks window.location for localhost / LAN-or-Tailscale IP / Tailscale serve
- * (https, no port) and the peer picker. Desktop (Tauri): the local daemon, since
- * the app shell runs off a Vite/`tauri://` origin and only the daemon serves the
- * plugin routes. Never reconstruct from the daemon's bind address (`0.0.0.0`).
+ * Canonical daemon HTTP origin for plugin assets/iframes/fetch across every access
+ * mode: web uses `apiHost()` (tracks window.location), desktop uses the local daemon.
+ * Never reconstruct from the daemon's bind address (`0.0.0.0`).
  */
 export function daemonHttpBase(api?: DaemonApiConfig): string {
   if (IS_WEB) return apiHost();

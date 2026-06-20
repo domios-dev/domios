@@ -1,12 +1,8 @@
 /**
- * Universal "Configure with AI" magic button (design Part D).
- *
- * Core wraps the plugin's raw `configHelp` in a fixed safety envelope BEFORE it
- * reaches any agent, so third-party plugin text is treated as data, not
- * commands. The plugin never sees the envelope and cannot remove it. The button
- * spawns a focused Claude pane with a `plugin_config` marker task — it does NOT
- * execute anything; the agent must ask the user and use the permission-gated
- * `codeterm plugin config` path.
+ * Universal "Configure with AI" button. Core wraps the plugin's `configHelp` in a
+ * fixed safety envelope (so third-party text is data, not commands) and spawns a
+ * Claude pane with a `plugin_config` task — it executes nothing; the agent must ask
+ * the user and use the permission-gated `codeterm plugin config` path.
  */
 import { markPluginConfig } from "@codeterm/chat-core";
 import {
@@ -32,10 +28,8 @@ export function buildConfigureTask(id: string, name: string, help: string): stri
 }
 
 /**
- * Spawn a focused Claude pane preloaded with the wrapped configure task. Mirrors
- * `MeshPanel.spawnSetupChat`: web mode posts via the same-origin web token; the
- * desktop path posts to the local daemon. The API base/token is supplied by the
- * caller (this is a free function — it cannot close over a component's config).
+ * Spawn a focused Claude pane preloaded with the wrapped configure task. The API
+ * base/token is supplied by the caller (a free function, can't close over component config).
  */
 export async function configureWithAI(
   id: string,

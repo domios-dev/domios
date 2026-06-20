@@ -8,11 +8,9 @@ pub(crate) fn snapshot(
     build_snapshot(None, chatbackends)
 }
 
-/// Scan the real plugin roots (workspace `plugins/` in dev + `data_dir/plugins`)
-/// for `plugin.json` manifests, keyed by id. The CLI `plugin list` only reports
-/// *installed* plugins (data_dir + system channel) and leaves their path empty,
-/// so it can't surface capabilities or workspace-loaded capability plugins. This
-/// gives us the on-disk truth the daemon actually loads.
+/// Scan plugin roots for `plugin.json` manifests, keyed by id. The CLI `plugin list`
+/// only reports installed plugins with empty paths, so it can't surface capabilities
+/// or workspace-loaded plugins; this gives the on-disk truth the daemon loads.
 fn scan_plugin_manifests() -> std::collections::HashMap<String, (std::path::PathBuf, Value)> {
     let workspace = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
     let roots = crate::plugin::js_runtime::default_roots(Some(workspace.as_path()));
@@ -54,8 +52,7 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
             .and_then(|v| v.as_bool())
             .unwrap_or(false)
     };
-    // chatPreprocessor and chatBackend may each be a bool OR an object
-    // (`{ match }` / `{ spawnable }`) — either form means enabled.
+    // chatPreprocessor/chatBackend may be a bool OR an object — either form means enabled.
     let cap_present = |key: &str| caps.and_then(|c| c.get(key)).is_some_and(|v| !v.is_null());
     let cap_obj = serde_json::json!({
         "agent_provider": agent_provider,
@@ -67,10 +64,7 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         "chat_backend": cap_bool("chatBackend") || cap_present("chatBackend"),
         "chat_preprocessor": cap_bool("chatPreprocessor") || cap_present("chatPreprocessor"),
     });
-    // Effective grants reflect the user's persisted grants.yaml override (§1.10),
-    // which wins over the manifest request. Keys are canonical snake_case (what
-    // grants.yaml / host_api / the frontend chips all use); accept camelCase as a
-    // fallback for manifests authored that way.
+    // Persisted grants.yaml override wins over the manifest request. Keys are canonical snake_case, camelCase accepted as fallback.
     let grants = crate::plugin::js_runtime::grants::load_grants(dir);
     let mut granted: Vec<&str> = Vec::new();
     if let Some(p) = m.get("permissions") {
@@ -81,8 +75,7 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
                 .map(|a| !a.is_empty())
                 .unwrap_or(false)
         };
-        // A toggleable perm: persisted grant override wins, else manifest
-        // request (snake_case canonical, camelCase fallback).
+        // Toggleable perm: persisted grant override wins, else the manifest request.
         let perm_on = |snake: &str, camel: &str| {
             if let Some(v) = grants.get(snake) {
                 return *v;
@@ -123,9 +116,7 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
     if let Some(obj) = entry.as_object_mut() {
         obj.insert("capabilities".into(), cap_obj);
         obj.insert("granted_permissions".into(), serde_json::json!(granted));
-        // §1.8: a plugin declaring requiresReload can't hot-activate. The static
-        // flag is the manifest value; the live "is it actually waiting on a
-        // reload right now" signal is `pending_reload`, set by build_snapshot.
+        // Static manifest flag; the live "waiting on reload now" signal is `pending_reload`, set by build_snapshot.
         obj.insert(
             "requires_reload".into(),
             serde_json::json!(m
@@ -136,8 +127,7 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
         if let Some(schema) = settings_schema {
             obj.insert("settings_schema".into(), schema);
         }
-        // Real icon from the manifest — the providers already ship SVGs. Carry
-        // icon_svg / icon_color / icon_hint so the UI renders them, not emoji.
+        // Carry the manifest's icon_svg/icon_color/icon_hint so the UI renders SVGs, not emoji.
         for (src, dst) in [
             ("iconSvg", "icon_svg"),
             ("iconColor", "icon_color"),
@@ -157,22 +147,15 @@ fn enrich_from_manifest(entry: &mut Value, dir: &std::path::Path, m: &Value) {
                 obj.insert("version".into(), v.clone());
             }
         }
-        // chatBackend catalog hint: the manifest may declare a default model the
-        // shell opens with. Live `available_models` are joined separately from the
-        // registry (`enrich_chat_backend_models`); this is the static default.
+        // Static default model from the manifest; live `available_models` are joined separately.
         if let Some(default_model) = m.get("defaultModel") {
             obj.insert("default_model".into(), default_model.clone());
         }
-        // Documentation surface for the detail pane. `description`/`homepage` are
-        // plain manifest strings; `readme` is a relative markdown path (default
-        // README.md) loaded into a bounded `readme_markdown` field so the UI can
-        // render docs without a second round-trip.
+        // Doc surface for the detail pane: description/homepage strings + a bounded README markdown blob.
         if let Some(desc) = m.get("description").and_then(|v| v.as_str()) {
             obj.insert("description".into(), serde_json::json!(desc));
         }
-        // Agent-facing help for the universal "Configure with AI" button (Part D).
-        // Manifest `configHelp` is canonical; fall back to `description` so every
-        // plugin yields some text for the safety-wrapped configure task.
+        // Agent-facing help for the "Configure with AI" button; `configHelp` canonical, falls back to `description`.
         if let Some(help) = m
             .get("configHelp")
             .and_then(|v| v.as_str())
@@ -210,8 +193,7 @@ pub(super) fn build_snapshot(
 ) -> Result<Value, String> {
     let mut plugins = run_plugin_cli(&["plugin", "list", "--json"])?;
     let manifests = scan_plugin_manifests();
-    // Plugins installed after daemon start that declared requiresReload and so
-    // are waiting on a reload to activate (§1.8) — read from the live watcher.
+    // Plugins installed post-start that declared requiresReload and are waiting to activate.
     let pending_reload: std::collections::HashSet<String> =
         crate::plugin::js_runtime::pending_reload_ids()
             .into_iter()
@@ -233,18 +215,12 @@ pub(super) fn build_snapshot(
                 }
             }
         }
-        // Surface plugins the daemon loaded from disk but the CLI didn't list
-        // (e.g. workspace capability plugins in dev) so the Extensions view is honest.
+        // Surface plugins the daemon loaded from disk but the CLI didn't list (dev workspace plugins), so the view is honest.
         for (id, (dir, m)) in &manifests {
             if seen.contains(id) {
                 continue;
             }
-            // Loaded from the workspace `plugins/` source tree, not data_dir — the
-            // manager can't `remove` it (it would just reload), so it is not
-            // removable, and it's flagged `dev` so the UI marks it as a
-            // workspace/dev plugin rather than a marketplace install. (In prod
-            // these same plugins come from the CLI list as data_dir installs and
-            // ARE removable.)
+            // From the workspace source tree, not data_dir: not removable (a remove just reloads), flagged `dev`.
             let mut entry = serde_json::json!({
                 "id": id,
                 "state": "active",
@@ -258,9 +234,7 @@ pub(super) fn build_snapshot(
             arr.push(entry);
         }
     }
-    // Best-effort register the default marketplace channel so its plugins
-    // surface as available (register-only — nothing is installed). Offline or
-    // first-run failures are non-fatal; retried on the next snapshot.
+    // Best-effort register the default channel so its plugins surface as available; offline failures retry next snapshot.
     let _ = run_plugin_cli(&["plugin", "channel", "ensure-default", "--json"]);
     let channels = run_plugin_cli(&["plugin", "channel", "list", "--json"])?;
     let diff = run_plugin_cli(&["plugin", "channel", "diff", "--json"]).unwrap_or_else(|e| {
@@ -308,13 +282,9 @@ pub(super) fn build_snapshot(
     }))
 }
 
-/// Build normalized marketplace rows from the channel diff. Each row keeps its
-/// diff fields (`channel`, `id`, versions, `drift`, `compatible`, …), gains an
-/// honest `installed` flag, and is enriched with the channel-cache manifest
-/// metadata (icon, display name, capabilities, description, readme) so the UI can
-/// show useful detail for plugins that aren't installed yet. Channel metadata is
-/// read from the on-disk channel cache (`channels[*].path`), reusing
-/// `enrich_from_manifest` — the single capability-derivation path.
+/// Build marketplace rows from the channel diff: each keeps its diff fields, gains
+/// an honest `installed` flag, and is enriched from the channel-cache manifest via
+/// `enrich_from_manifest` (the single capability-derivation path).
 fn build_marketplace(
     diff: &[Value],
     channels: &[Value],
@@ -342,11 +312,8 @@ fn build_marketplace(
     out
 }
 
-/// Enrich a chatBackend plugin entry with its live `available_models` (from the
-/// registered provider's `list_models()`). Core asks the capability by the
-/// entry's own id — never a hardcoded plugin id. A non-chatBackend entry, an
-/// absent registry, or a plugin not registered in the registry is a no-op, so a
-/// shell with its server offline simply yields no models (the picker falls back).
+/// Enrich a chatBackend entry with its live `available_models`, resolved by the
+/// entry's own id (never a hardcoded plugin id). No-op for non-chatBackend / absent registry / unregistered id.
 fn enrich_chat_backend_models(
     entry: &mut Value,
     chatbackends: Option<&crate::chatbackend::ChatBackendRegistry>,

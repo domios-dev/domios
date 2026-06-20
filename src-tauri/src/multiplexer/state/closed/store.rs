@@ -1,14 +1,6 @@
-//! sqlite-backed "recently closed" history.
-//!
-//! A growing, bounded, append+query history does not belong in the full-state
-//! JSON snapshot (that file is rewritten WHOLE on every state change). It lives
-//! here instead: one `closed_group` row per close action and one `closed_pane`
-//! row per pane, keyed by `workspace_id`. Insert on close, trim oldest, query
-//! newest-N for the UI, reopen by taking (fetch + delete) a pane or a whole
-//! group.
-//!
-//! Schema follows the same rusqlite pattern as `agent::ledger` (WAL,
-//! `busy_timeout`, `PRAGMA user_version` migration ladder) — no new db harness.
+//! sqlite-backed "recently closed" history — kept out of the full-state JSON
+//! snapshot, which is rewritten whole on every state change. One `closed_group`
+//! row per close action, one `closed_pane` row per pane, keyed by `workspace_id`.
 
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
@@ -17,17 +9,13 @@ use crate::multiplexer::types::{ClosedPane, PaneBacking};
 
 const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 1;
 
-/// Per-workspace cap on retained closed panes. Browser-style: oldest panes fall
-/// off once exceeded. A group whose every pane has been trimmed is deleted too.
+/// Per-workspace cap on retained closed panes; oldest fall off once exceeded.
 pub const RECENTLY_CLOSED_CAP: usize = 1000;
 
-/// Global cap on retained groups across all workspaces. Bounds growth from many
-/// created-and-deleted workspaces. Oldest whole groups (and their panes) drop.
+/// Global cap on retained groups across all workspaces.
 pub const CLOSED_GROUP_CAP: usize = 1000;
 
-/// How a set of panes was closed together. A `Single` close is one tab/pane; a
-/// `Cascade` is an orchestrator + its spawned subtree; a `Workspace` is a whole
-/// workspace and its tab list.
+/// How a set of panes was closed: a single tab, an orchestrator subtree, or a whole workspace.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupKind {
     Single,
@@ -59,18 +47,15 @@ pub struct ClosedGroup {
     pub group_id: String,
     pub kind: GroupKind,
     pub label: String,
-    /// Origin workspace id. For a `Workspace` group this is the closed
-    /// workspace's own id (used to recreate it on reopen).
+    /// Origin workspace id; for a `Workspace` group, the closed workspace's own id (recreated on reopen).
     pub workspace_id: String,
     pub workspace_name: String,
-    /// Workspace cwd — only meaningful for a `Workspace` group, lets reopen
-    /// recreate the workspace at the same folder.
+    /// Workspace cwd — only set for a `Workspace` group, so reopen recreates it at the same folder.
     pub workspace_cwd: Option<String>,
     pub closed_at: u64,
 }
 
-/// A pane row joined with its group's id + kind — the shape the snapshot view
-/// builder and reopen paths consume.
+/// A pane row joined with its group's id + kind.
 #[derive(Debug, Clone)]
 pub struct ClosedRow {
     pub group_id: String,
@@ -78,8 +63,7 @@ pub struct ClosedRow {
     pub pane: ClosedPane,
 }
 
-/// sqlite-backed closed-history store. Leaf lock (its own `Mutex<Connection>`),
-/// only ever taken while the mux lock is held; never across an await.
+/// sqlite-backed closed-history store. Leaf lock, only taken under the mux lock, never across an await.
 pub struct ClosedPanesStore {
     conn: Mutex<Connection>,
 }
@@ -91,8 +75,7 @@ impl ClosedPanesStore {
         Self::open_at(&data_dir.join("closed_history.db"))
     }
 
-    /// Open a file-backed store at an explicit path (durability tests + callers
-    /// that own the path).
+    /// Open a file-backed store at an explicit path.
     pub fn open_at(db_path: &std::path::Path) -> Result<Self, String> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("create dir: {}", e))?;
@@ -107,9 +90,7 @@ impl ClosedPanesStore {
         })
     }
 
-    /// In-memory store — the default for `MultiplexerState` constructors and
-    /// tests. Production swaps in a file-backed store at startup. Opening an
-    /// in-memory db effectively never fails; a failure here is unrecoverable.
+    /// In-memory store — the default for constructors and tests; prod swaps in a file-backed store at startup.
     pub fn in_memory() -> Self {
         let conn = Connection::open_in_memory().expect("open in-memory closed_history db");
         Self::init_schema(&conn).expect("init in-memory closed schema");
@@ -193,8 +174,7 @@ impl ClosedPanesStore {
         )
     }
 
-    /// Insert one close action: the group plus its panes, in a single
-    /// transaction, then enforce the per-workspace and global caps.
+    /// Insert one close action (group + panes) in a single transaction, then enforce the caps.
     pub fn insert_group(&self, group: &ClosedGroup, panes: &[ClosedPane]) -> Result<(), String> {
         if panes.is_empty() {
             return Ok(());
@@ -342,8 +322,7 @@ impl ClosedPanesStore {
         .unwrap_or_default()
     }
 
-    /// Newest-first rows across all workspaces (with group id + kind), capped at
-    /// `limit`. Feeds the snapshot view list.
+    /// Newest-first rows across all workspaces (with group id + kind), capped at `limit`.
     pub fn list_recent(&self, limit: usize) -> Vec<ClosedRow> {
         let conn = self.conn.lock();
         let mut stmt = match conn.prepare(
@@ -381,12 +360,8 @@ impl ClosedPanesStore {
         Some(pane)
     }
 
-    /// Fetch (WITHOUT deleting) the `index`-th newest pane in a workspace and
-    /// its sqlite row id. Reopen materializes from this, then calls
-    /// [`delete_pane_row`] only on success, so a failed materialize never loses
-    /// the history entry (MED data-loss fix).
-    ///
-    /// [`delete_pane_row`]: Self::delete_pane_row
+    /// Fetch (without deleting) the `index`-th newest pane + its row id, so reopen
+    /// can delete only after a successful materialize and never lose the entry.
     pub fn peek_in_workspace(&self, workspace_id: &str, index: usize) -> Option<(i64, ClosedPane)> {
         let conn = self.conn.lock();
         conn.query_row(
@@ -404,15 +379,8 @@ impl ClosedPanesStore {
         .ok()
     }
 
-    /// Delete a single pane row by sqlite id, then prune any now-empty group.
-    /// Paired with [`peek_in_workspace`]/[`peek_by_pane_id`] for
-    /// delete-after-success. Returns `Err` if the sqlite delete failed OR removed
-    /// no row (the entry is still in history): the reopen paths must surface this,
-    /// because a "succeeded" reopen whose delete silently failed leaves the entry
-    /// behind and a retry then duplicates the reopened pane (MED data-loss fix).
-    ///
-    /// [`peek_in_workspace`]: Self::peek_in_workspace
-    /// [`peek_by_pane_id`]: Self::peek_by_pane_id
+    /// Delete a single pane row by id, then prune any now-empty group. `Err` if the
+    /// delete removed no row — else a silently-failed reopen-delete duplicates on retry.
     pub fn delete_pane_row(&self, row_id: i64) -> Result<(), String> {
         let conn = self.conn.lock();
         let affected =
@@ -446,11 +414,7 @@ impl ClosedPanesStore {
         Some(pane)
     }
 
-    /// Fetch (WITHOUT deleting) the newest pane with a given original `pane_id`
-    /// and its sqlite row id. Orphaned reopen materializes from this, then
-    /// deletes via [`delete_pane_row`] only on success.
-    ///
-    /// [`delete_pane_row`]: Self::delete_pane_row
+    /// Fetch (without deleting) the newest pane with a given `pane_id` + its row id, for orphaned reopen.
     pub fn peek_by_pane_id(&self, pane_id: &str) -> Option<(i64, ClosedPane)> {
         let conn = self.conn.lock();
         conn.query_row(
@@ -475,13 +439,8 @@ impl ClosedPanesStore {
         Some(res)
     }
 
-    /// Fetch (WITHOUT deleting) a whole group: its meta + every pane,
-    /// newest-first. Group reopen materializes every pane from this and only
-    /// then calls [`delete_group`]; a mid-loop materialize failure thus leaves
-    /// the whole group intact in history instead of dropping it (MED data-loss
-    /// fix — earlier panes materialized but the group can be retried).
-    ///
-    /// [`delete_group`]: Self::delete_group
+    /// Fetch (without deleting) a whole group: meta + every pane, newest-first; so a
+    /// mid-loop materialize failure on reopen leaves the group intact for retry.
     pub fn peek_group(&self, group_id: &str) -> Option<(ClosedGroup, Vec<ClosedPane>)> {
         let conn = self.conn.lock();
         let group = conn
@@ -525,10 +484,7 @@ impl ClosedPanesStore {
         Some((group, panes))
     }
 
-    /// Delete a whole group (its panes + meta) in one transaction. Paired with
-    /// [`peek_group`] for delete-after-success on reopen.
-    ///
-    /// [`peek_group`]: Self::peek_group
+    /// Delete a whole group (panes + meta) in one transaction.
     pub fn delete_group(&self, group_id: &str) -> Result<(), String> {
         let mut conn = self.conn.lock();
         let tx = conn
@@ -714,9 +670,6 @@ mod tests {
 
     #[test]
     fn peek_group_is_non_destructive_until_delete() {
-        // MED data-loss fix: reopen now peeks the group, materializes every
-        // pane, and only THEN deletes. A reopen that fails before delete_group
-        // must leave the whole group in history (nothing lost, retry possible).
         let store = ClosedPanesStore::in_memory();
         let root = pane("root", "w", "Orchestrator", 10);
         let mut child = pane("child", "w", "Worker", 10);
@@ -750,8 +703,6 @@ mod tests {
 
     #[test]
     fn peek_in_workspace_then_delete_row_is_a_split_take() {
-        // The single-pane reopen path peeks (no delete) → materializes → deletes
-        // by row id only on success.
         let store = ClosedPanesStore::in_memory();
         store
             .insert_group(
@@ -775,9 +726,6 @@ mod tests {
 
     #[test]
     fn delete_reports_failure_instead_of_swallowing() {
-        // MED data-loss fix: a delete that removes no row must return Err so the
-        // reopen path can surface it — a silently-swallowed failure leaves the
-        // entry in history and a retry then reopens a duplicate.
         let store = ClosedPanesStore::in_memory();
         store
             .insert_group(

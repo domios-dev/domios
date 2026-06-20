@@ -1,14 +1,8 @@
 /**
- * Composer-row preset bubble for chatBackend chat panes (R5b follow-up).
- *
- * Mirrors {@link ChatModelBubble}: a compact picker in the chat chrome that
- * lists the backend's user-defined presets ({@link presetManagerApi}) and, on
- * pick, persists the choice as `activePreset` (so the plugin's `listPresets()`
- * and its bound system prompt are read back) AND — when a live `sessionId` is
- * supplied — applies the preset's bound model to that session via the shared
- * `switch_model` seam. Without a `sessionId` it only persists (management-only),
- * which is how {@link PresetManager} behaves in the extensions panel.
- * Generalized — any chatBackend with presets gets it; no hardcoded provider id.
+ * Composer-row preset picker for chatBackend panes (mirrors {@link ChatModelBubble}).
+ * Persists the pick as `activePreset` and, with a live `sessionId`, applies the
+ * preset's bound model via the `switch_model` seam (persist-only without one).
+ * Generalized — any chatBackend with presets, no hardcoded provider id.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronUp } from "lucide-react";
@@ -50,7 +44,7 @@ export function ChatPresetBubble({ pluginId, sessionId }: { pluginId: string; se
           await api.applyToSession(pluginId, sessionId, preset.model);
         }
       } catch {
-        // Leave the persisted choice as-is; honest over rolling back a partial apply.
+        // Leave the persisted choice as-is — honest over rolling back a partial apply.
       } finally {
         setBusy(false);
       }

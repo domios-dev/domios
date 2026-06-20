@@ -1,12 +1,6 @@
-//! Browser-style "recently closed" history + reopen, backed by sqlite.
-//!
-//! On every close the multiplexer records a [`ClosedGroup`] plus its
-//! [`ClosedPane`] rows into [`ClosedPanesStore`]. A single tab/pane close is a
-//! `Single` group; closing an orchestrator cascades its subtree into one
-//! `Cascade` group (parent links preserved); closing a whole workspace records
-//! a `Workspace` group with the tab list. Reopen re-materializes panes with the
-//! SAME backing, marking each `restored_from_snapshot` so the existing restore
-//! machinery takes over (PTY agent resume, chatBackend transcript reload).
+//! Browser-style "recently closed" history + reopen, backed by sqlite. Reopen
+//! re-materializes panes with the same backing, marking each
+//! `restored_from_snapshot` so the existing restore machinery takes over.
 
 mod store;
 
@@ -24,9 +18,7 @@ pub use store::{
     ClosedGroup, ClosedPanesStore, ClosedRow, GroupKind, CLOSED_GROUP_CAP, RECENTLY_CLOSED_CAP,
 };
 
-/// Bounded number of newest closed panes surfaced in the in-memory snapshot for
-/// the sidebar. The durable history (sqlite) keeps far more; the hot snapshot
-/// stays lean by carrying only this many.
+/// Cap on newest closed panes carried in the hot snapshot; sqlite keeps far more.
 pub const RECENTLY_CLOSED_VIEW_LIMIT: usize = 100;
 
 fn now_millis() -> u64 {
@@ -40,9 +32,7 @@ fn new_group_id() -> String {
     ulid::Ulid::new().to_string()
 }
 
-/// A closed pane enriched for the sidebar: the per-workspace reopen `index`, an
-/// `orphaned` flag (its workspace no longer exists), and the group it belongs to
-/// (so the richer group UI can render it). Serialized into the snapshot.
+/// A closed pane enriched for the sidebar: per-workspace reopen `index`, `orphaned` flag, and owning group.
 #[derive(Debug, Clone, Serialize)]
 pub struct ClosedPaneView {
     #[serde(flatten)]
@@ -54,17 +44,14 @@ pub struct ClosedPaneView {
 }
 
 impl MultiplexerState {
-    /// Build a closed-pane record from a live pane, overlaying the tab/workspace
-    /// context (the sidebar title/description and owning workspace). Returns
-    /// `None` for unknown, hidden (ephemeral worker), or protected panes — those
-    /// aren't user-closeable tabs and would only pollute the history.
+    /// Build a closed-pane record from a live pane, overlaying tab/workspace
+    /// context. `None` for hidden/protected panes — not user-closeable tabs.
     fn build_closed_pane(&self, pane_id: &str) -> Option<ClosedPane> {
         let pane = self.panes.get(pane_id)?;
         if pane.hidden || pane.protected {
             return None;
         }
-        // The pane-derived fields come from one conversion so a new Pane field
-        // can't silently desync the close path.
+        // One conversion, so a new Pane field can't silently desync the close path.
         let mut record = ClosedPane::from(pane);
         if let Some(ws) = self
             .find_workspace_for_pane(pane_id)
@@ -72,8 +59,7 @@ impl MultiplexerState {
         {
             record.workspace_id = ws.id.clone();
             record.workspace_name = ws.name.clone();
-            // Prefer the tab's title/description — that's what the user sees in
-            // the sidebar; pane.title can lag an OSC title update.
+            // Prefer the tab's title/description; pane.title can lag an OSC title update.
             if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == pane_id) {
                 if !tab.title.is_empty() {
                     record.title = tab.title.clone();
@@ -103,9 +89,8 @@ impl MultiplexerState {
         let _ = self.closed_store.insert_group(&group, &[record]);
     }
 
-    /// Record an orchestrator + its spawned subtree as one group, preserving
-    /// parent links. Falls back to a `Single` group when the pane has no
-    /// children. Built BEFORE the panes are removed from the tree.
+    /// Record an orchestrator + its subtree as one group (parent links preserved).
+    /// Falls back to `Single` with no children. Built before the panes are removed.
     pub(super) fn record_cascade_close(&mut self, root_pane_id: &str) {
         let subtree = self.collect_subtree(root_pane_id);
         let records: Vec<ClosedPane> = subtree
@@ -160,10 +145,7 @@ impl MultiplexerState {
         let _ = self.closed_store.insert_group(&group, &records);
     }
 
-    /// Pre-order list of a pane id followed by all of its descendants. A
-    /// `visited` set bounds the recursion so a corrupted parent/child cycle
-    /// (should never happen, but the tree is mutated from many call-sites)
-    /// can't stack-overflow the close path.
+    /// Pre-order list of a pane id and its descendants; a `visited` set guards against a corrupted parent/child cycle.
     fn collect_subtree(&self, root: &str) -> Vec<String> {
         let mut out = Vec::new();
         let mut visited = HashSet::new();
@@ -186,8 +168,7 @@ impl MultiplexerState {
         }
     }
 
-    /// A workspace's recently-closed panes (newest first). Backs the
-    /// `list_recently_closed` command/REST/socket surface.
+    /// A workspace's recently-closed panes (newest first).
     pub fn list_recently_closed(&self, workspace_id: &str) -> Vec<ClosedPane> {
         self.closed_store.list_for_workspace(workspace_id)
     }
@@ -224,11 +205,9 @@ impl MultiplexerState {
             .collect()
     }
 
-    /// Apply a closed record onto a freshly created tab's pane. Drives the
-    /// existing restore path: PTY → resume-or-fresh, chatBackend → lazy reload.
-    /// `chat_capable` carries the chat-UI-capable provider ids when the
-    /// `default_new_agent_pane_chat` preference is on (empty otherwise) — a
-    /// reopened agent pane re-applies that default, mirroring fresh spawns.
+    /// Apply a closed record onto a fresh tab's pane, driving the restore path.
+    /// `chat_capable` holds chat-UI-capable provider ids when the default-chat
+    /// preference is on, so a reopened agent pane re-applies it like a fresh spawn.
     fn materialize_closed_pane(
         &mut self,
         workspace_id: &str,
@@ -243,17 +222,12 @@ impl MultiplexerState {
             pane.title_level = TitleLevel::User;
             pane.description = record.description.clone();
             pane.agent_type = record.agent_type.clone();
-            // Re-lock identity so output-based re-detection can't flip the
-            // provider before resume kicks in.
+            // Re-lock identity so output-based re-detection can't flip the provider before resume kicks in.
             pane.agent_type_locked = record.agent_type.is_some();
             pane.agent_session_id = record.agent_session_id.clone();
             pane.agent_session_model = record.model.clone();
             pane.restored_from_snapshot = true;
-            // Reopen is a pane-creation path, so it must mirror the spawn paths'
-            // chat_view rule (service/transport.rs, spawn_chatbackend.rs): a
-            // chatBackend pane always renders as chat (its UI is driven by
-            // `backing`, it carries no `agent_type`); a PTY agent pane opens in
-            // chat only when its provider is chat-capable and the preference is on.
+            // Mirror the spawn paths' chat_view rule: chatBackend always chat, PTY agent only if chat-capable + preference on.
             pane.chat_view = matches!(record.backing, PaneBacking::ChatBackend { .. })
                 || record
                     .agent_type
@@ -291,16 +265,14 @@ impl MultiplexerState {
                 idx, count
             ));
         }
-        // Peek (no delete) → materialize → delete only on success, so a failing
-        // create_tab/rename_tab can't drop the entry from history.
+        // Peek → materialize → delete only on success, so a failing create can't drop the entry.
         let (row_id, record) = self
             .closed_store
             .peek_in_workspace(workspace_id, idx)
             .ok_or("No recently closed pane")?;
         let res = self.materialize_closed_pane(workspace_id, &record, chat_capable)?;
         if let Err(e) = self.closed_store.delete_pane_row(row_id) {
-            // Materialize succeeded but the history delete failed: the entry is
-            // still present, so a retry would reopen a duplicate. Surface it.
+            // History delete failed after materialize: a retry would duplicate. Surface it.
             log::warn!(
                 "reopen_closed_pane: reopened pane {} but failed to delete closed entry (row {row_id}): {e}",
                 res.1
@@ -309,11 +281,8 @@ impl MultiplexerState {
         Ok(res)
     }
 
-    /// Resolve the workspace a restore should land in. If a LIVE workspace
-    /// already points at the same folder (`cwd`), reopen into it rather than
-    /// spawning a duplicate — a closed tab from `/foo` returns to the user's
-    /// existing `/foo` workspace. Falls back to a fresh workspace from the
-    /// stored name + cwd when nothing matches.
+    /// Resolve the workspace a restore lands in: reuse a live workspace at the same
+    /// cwd rather than spawning a duplicate, else create one from the stored name + cwd.
     fn restore_target_workspace(&mut self, name: String, cwd: Option<String>) -> String {
         if let Some(path) = cwd.as_deref() {
             if let Some(ws) = self.find_workspace_by_cwd(path) {
@@ -323,16 +292,13 @@ impl MultiplexerState {
         self.create_workspace(name, cwd).id
     }
 
-    /// Reopen a pane whose original workspace was deleted: reuse a live
-    /// workspace at the same path if one exists, else recreate from the stored
-    /// name + cwd, then materialize the pane.
-    /// Returns `(workspace_id, tab_id, pane_id)`.
+    /// Reopen a pane whose original workspace was deleted, into a live or recreated
+    /// workspace at the same path. Returns `(workspace_id, tab_id, pane_id)`.
     pub fn reopen_orphaned_pane(
         &mut self,
         pane_id: &str,
         chat_capable: &HashSet<String>,
     ) -> Result<(String, String, String), String> {
-        // Peek (no delete) → materialize → delete only on success.
         let (row_id, record) = self
             .closed_store
             .peek_by_pane_id(pane_id)
@@ -349,20 +315,14 @@ impl MultiplexerState {
         Ok((workspace_id, tab_id, new_pane_id))
     }
 
-    /// Reopen a whole closed group. A `Workspace` group recreates its workspace
-    /// and every tab; a `Cascade`/`Single` group reopens into its origin
-    /// workspace (recreated if gone). Hierarchy (`parent_pane_id`) is relinked
-    /// across the freshly minted pane ids. Returns `(workspace_id, tab_id,
-    /// first_pane_id)` for the activated tab.
+    /// Reopen a whole closed group, recreating its workspace if gone and relinking
+    /// `parent_pane_id` across the new ids. Returns `(workspace_id, tab_id, pane_id)`.
     pub fn reopen_closed_group(
         &mut self,
         group_id: &str,
         chat_capable: &HashSet<String>,
     ) -> Result<(String, String, String), String> {
-        // Peek (no delete): materialize every pane first and only delete the
-        // whole group from history once they all succeed. A mid-loop
-        // create_tab/rename_tab failure thus leaves the group intact for retry
-        // instead of silently losing the not-yet-materialized panes.
+        // Materialize every pane first; delete the group only once they all succeed, so a mid-loop failure leaves it for retry.
         let (group, panes) = self
             .closed_store
             .peek_group(group_id)
@@ -380,9 +340,7 @@ impl MultiplexerState {
                 if self.workspaces.iter().any(|w| w.id == group.workspace_id) {
                     group.workspace_id.clone()
                 } else {
-                    // Origin workspace is gone: match a live one by path. Fall
-                    // back to the lead pane's cwd when the group never recorded
-                    // a workspace cwd (single/cascade closes).
+                    // Origin workspace gone: match by path, falling back to the lead pane's cwd.
                     let cwd = group
                         .workspace_cwd
                         .clone()
@@ -408,16 +366,15 @@ impl MultiplexerState {
             }
         }
 
-        // Every pane materialized: now it is safe to drop the group from history.
+        // All panes materialized: safe to drop the group from history.
         if let Err(e) = self.closed_store.delete_group(group_id) {
-            // The whole group is still in history after a successful reopen, so a
-            // retry would duplicate every pane. Surface it.
+            // Delete failed: a retry would duplicate every pane. Surface it.
             log::warn!(
                 "reopen_closed_group: reopened group {group_id} but failed to delete it from history: {e}"
             );
         }
 
-        // Relink the subtree: old parent ids -> freshly minted pane ids.
+        // Relink the subtree: old parent ids -> new pane ids.
         for record in &panes {
             let Some(old_parent) = &record.parent_pane_id else {
                 continue;
@@ -431,8 +388,7 @@ impl MultiplexerState {
             }
         }
 
-        // Activate the cascade ROOT (parent_pane_id == None), not whichever leaf
-        // the `closed_at DESC, id DESC` ordering happens to surface first.
+        // Activate the cascade root (parent_pane_id == None), not whichever leaf the ordering surfaces first.
         let (tab_id, pane_id) = panes
             .iter()
             .find(|r| r.parent_pane_id.is_none())

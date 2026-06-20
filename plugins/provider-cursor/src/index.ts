@@ -1,15 +1,7 @@
 /**
- * Cursor (cursor-agent) provider plugin — entry point.
- *
- * cursor-agent is a PTY interactive agent CLI (like codex). Its session
- * store is local sqlite under ~/.cursor/chats; the live chat is xterm.
- * This plugin contributes:
- *   - title detection
- *   - PTY fingerprint detection (structural TUI signals)
- *   - TUI noise patterns
- *   - statusOf that ignores all events (status comes from the PTY parser
- *     on the Rust side)
- *   - Renderer that falls back to raw xterm for non-chat hosts
+ * Cursor (cursor-agent) provider plugin entry point. A PTY interactive agent CLI
+ * (sqlite session store under ~/.cursor/chats); contributes title/fingerprint
+ * detection, TUI noise patterns, an event-ignoring statusOf, and an xterm-fallback renderer.
  */
 
 import type {

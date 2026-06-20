@@ -1,11 +1,5 @@
-//! `ChatBackendTransport` — the non-PTY [`PaneTransport`] impl (plan B1.3 #3).
-//!
-//! Routes pane I/O to the plugin `chatBackend` capability resolved from
-//! `svc.chatbackend_registry`: `send` → `sendMessage`, reads → the polled
-//! transcript. `resize` is a graceful no-op (a chat session has no terminal to
-//! resize); `kill` closes the plugin session (`closeSession`). Pane teardown
-//! (`close_pane`) closes the session too, so a normal pane-close also releases
-//! the plugin's model/context.
+//! `ChatBackendTransport` — the non-PTY [`PaneTransport`] backed by a plugin
+//! `chatBackend` capability (send → `sendMessage`, reads → polled transcript).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,17 +13,8 @@ use crate::agent::chat_types::StructuredChat;
 use crate::agent::provider::ModelInfo;
 use crate::chatbackend::ChatBackendProvider;
 
-/// Serializes the restore→reopen transition per pane. Without it the transition
-/// "read `restored_from_snapshot == true` → `openSession` → set it false" has no
-/// guard and is reachable concurrently from [`ChatBackendTransport::send`],
-/// [`Messenger::deliver`], and [`ServiceContext::chatbackend_pane_send`]: two
-/// callers both observe `true`, each fire `openSession` + a poll loop, and the
-/// one pane ends up with two plugin sessions. The first caller to take a pane's
-/// lock runs the reopen; the others block, then run their critical section only
-/// after it returns — observing the transition already done and reusing the
-/// resulting session id.
-///
-/// [`Messenger::deliver`]: crate::service::messenger::Messenger::deliver
+/// Serializes the restore→reopen transition per pane so concurrent senders
+/// can't each fire `openSession` and leave one pane with two plugin sessions.
 #[derive(Default)]
 pub struct PaneReopenGuards {
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
@@ -44,10 +29,8 @@ impl PaneReopenGuards {
             .clone()
     }
 
-    /// Run `transition` while holding the per-pane lock, so concurrent
-    /// restore→reopen transitions for the SAME pane run one-at-a-time. The outer
-    /// map lock is released before `transition` runs (only the per-pane lock is
-    /// held), so different panes never block each other.
+    /// Runs `transition` under the per-pane lock; the map lock is dropped first
+    /// so different panes never block each other.
     pub fn serialized<T>(&self, pane_id: &str, transition: impl FnOnce() -> T) -> T {
         let lock = self.lock_for(pane_id);
         let _held = lock.lock();
@@ -55,26 +38,14 @@ impl PaneReopenGuards {
     }
 }
 
-/// Whether outbound preprocessor stages (`chatPreprocessor`) should run for a
-/// chatBackend send. Mirrors the PTY gate ([`is_user_turn_send`]): only agent
-/// panes get a `<context>` block injected. A plain shell chatBackend owns its
-/// own prompt, so a registered preprocessor must NOT rewrite every shell send.
-///
-/// [`is_user_turn_send`]: crate::chatpipeline::is_user_turn_send
+/// Gate outbound preprocessor stages on agent-ness, mirroring the PTY
+/// `is_user_turn_send` gate — a plain shell chatBackend owns its own prompt.
 fn chatbackend_should_stage(pane_has_agent: bool) -> bool {
     pane_has_agent
 }
 
-/// Post-`openSession` recheck for the restore→reopen transition (MED race fix).
-///
-/// `openSession` runs WITHOUT the mux lock, so between reading
-/// `restored_from_snapshot == true` and committing the new session the pane may
-/// have been closed or re-backed (a concurrent close / respawn). Only commit the
-/// migrate + poll-loop when the pane STILL exists AND STILL carries the exact
-/// restored `ChatBackend { expected_plugin, expected_old_session }` we opened
-/// against. Anything else — pane gone (`backing == None`), backing swapped, or
-/// the restore flag already cleared — must abort so the freshly-opened session
-/// is closed instead of attaching to (and spawning a poll loop for) a dead pane.
+/// `openSession` runs without the mux lock, so re-verify the pane is still the
+/// same restored chatBackend before committing — else we'd attach to a dead pane.
 fn chatbackend_reopen_still_valid(
     backing: Option<&crate::multiplexer::types::PaneBacking>,
     restored_from_snapshot: bool,
@@ -124,17 +95,12 @@ pub struct ChatBackendTransport<'a> {
 
 impl PaneTransport for ChatBackendTransport<'_> {
     fn send(&self, text: &str, _enter: bool) -> Result<(), String> {
-        // R3 restore-gap: a pane restored after a daemon restart has no live
-        // plugin session. Lazily re-open it (re-seeding from the persisted
-        // systemPrompt/preset) before the first send so the conversation
-        // continues. No-op for a normally-spawned pane.
+        // A pane restored after a daemon restart has no live plugin session; reopen lazily before the first send.
         let session_id = self
             .svc
             .chatbackend_reopen_if_restored(&self.pane_id)
             .unwrap_or(None)
             .unwrap_or_else(|| self.session_id.clone());
-        // Gate the preprocessor on agent-ness, like the PTY path — a plain shell
-        // chatBackend must not get context injected into every send.
         let staged = if chatbackend_should_stage(self.svc.pane_has_agent(&self.pane_id)) {
             self.svc
                 .run_outbound_stages(&self.pane_id, text.to_string())
@@ -179,9 +145,8 @@ impl PaneTransport for ChatBackendTransport<'_> {
 }
 
 impl ChatBackendTransport<'_> {
-    /// Render the plugin transcript as plain text for the CLI/REST text reads.
     fn transcript_text(&self) -> Result<String, String> {
-        // No cursor ⇒ the plugin returns the full transcript for the text read.
+        // No cursor ⇒ the plugin returns the full transcript.
         let msgs = self
             .svc
             .chatbackend_poll(&self.plugin_id, &self.session_id, None)?
@@ -205,9 +170,7 @@ impl ServiceContext {
             .ok_or_else(|| format!("chatBackend plugin '{plugin_id}' not registered"))
     }
 
-    /// Open a plugin session for a pane. Builds the SDK `openSession` ctx
-    /// envelope `{ paneId, config, systemPrompt?, preset?, model? }` and
-    /// returns the plugin-chosen session id.
+    /// Open a plugin session for a pane; returns the plugin-chosen session id.
     pub fn chatbackend_open_session(
         &self,
         plugin_id: &str,
@@ -232,26 +195,15 @@ impl ServiceContext {
         })
     }
 
-    /// Lazily re-open a chatBackend pane's plugin session after a daemon
-    /// restart. A restored pane carries `backing: ChatBackend { .. }` but the
-    /// plugin VM has no live session for the persisted id. On the first send we
-    /// re-open from the persisted openSession config (the JSONL `_meta` header),
-    /// migrate history to the (possibly new) session id so it stays continuous,
-    /// update the pane backing, and start the inbound poll loop.
-    ///
-    /// Returns `Some(effective_session_id)` for a chatBackend pane — the freshly
-    /// re-opened session id when this call performed the reopen, or the
-    /// already-live session id when the pane was live or a concurrent caller
-    /// just reopened it (so a racing sender targets the migrated session, never
-    /// a dead one). `None` for a non-chatBackend pane. Serialized per pane via
-    /// [`PaneReopenGuards`] so only the FIRST caller re-opens. Best-effort: a
-    /// missing meta/plugin is a soft error so a plain shell still sends.
+    /// Lazily re-open a restored chatBackend pane's plugin session on first send:
+    /// re-open from the persisted `_meta` config, migrate history to the new
+    /// session id, swap the backing, start the poll loop. Returns the effective
+    /// session id (or the live one), `None` for a non-chatBackend pane. Serialized
+    /// per pane via [`PaneReopenGuards`] so only the first caller re-opens.
     pub fn chatbackend_reopen_if_restored(&self, pane_id: &str) -> Result<Option<String>, String> {
         use crate::multiplexer::types::PaneBacking;
 
-        // Serialize the whole read-recheck-reopen transition per pane: the lock
-        // is the once-guard, and the `restored_from_snapshot` recheck below is
-        // the compare-and-swap — only the first caller sees `true`.
+        // The lock is the once-guard; the `restored_from_snapshot` recheck is the compare-and-swap.
         self.chatbackend_reopen_guards.serialized(pane_id, || {
             let (plugin_id, old_session) = {
                 let mux = self.mux.write();
@@ -269,9 +221,7 @@ impl ServiceContext {
                         },
                         true,
                     ) => (plugin_id.clone(), session_id.clone()),
-                    // Already-live chatBackend (spawned normally, or a concurrent
-                    // caller already reopened it under this lock): reuse the
-                    // current live session id rather than re-opening again.
+                    // Already live (or a concurrent caller just reopened it): reuse the session id.
                     (PaneBacking::ChatBackend { session_id, .. }, false) => {
                         return Ok(Some(session_id.clone()));
                     }
@@ -288,12 +238,7 @@ impl ServiceContext {
 
             let new_session = self.chatbackend_open_session(&plugin_id, pane_id, config.clone())?;
 
-            // `openSession` ran without the mux lock. Re-acquire it and re-verify
-            // the pane is STILL the same restored chatBackend BEFORE migrating
-            // history or spawning the poll loop — if it was closed or re-backed
-            // meanwhile, committing here would leak a plugin session + a poll loop
-            // onto a dead pane (MED restore-race fix). The mux is held only for the
-            // backing swap (no provider call), so `closeSession` runs after it drops.
+            // openSession ran without the mux lock; re-verify the pane before committing or we'd leak a session+loop onto a dead pane.
             let committed = {
                 let mut mux = self.mux.write();
                 let resolved = mux.resolve_pane_id(pane_id);
@@ -318,8 +263,7 @@ impl ServiceContext {
             };
 
             if !committed {
-                // Pane vanished or changed backing during openSession: drop the
-                // orphan session and bail — no history migrate, no poll loop.
+                // Pane vanished or re-backed during openSession: drop the orphan session.
                 let _ = self.chatbackend_close(&plugin_id, &new_session);
                 return Ok(None);
             }
@@ -352,13 +296,8 @@ impl ServiceContext {
             .map_err(|e| e.to_string())
     }
 
-    /// Deliver one user turn to a chatBackend pane, re-opening a restored
-    /// pane's plugin session first. After a daemon restart a pane carries
-    /// `backing: ChatBackend { .. }` but the plugin VM has no live session and
-    /// no poll loop — so the raw [`chatbackend_send`] would hit a dead session
-    /// and never stream a reply. [`chatbackend_reopen_if_restored`] rewrites the
-    /// backing to the live session id and starts the poll loop; we then read the
-    /// (possibly new) backing and send. A no-op re-open for a live pane.
+    /// Deliver one user turn to a chatBackend pane, re-opening a restored pane's
+    /// dead session first so the raw send doesn't hit a session with no poll loop.
     pub(crate) fn chatbackend_pane_send(&self, pane_id: &str, text: &str) -> Result<(), String> {
         self.chatbackend_reopen_if_restored(pane_id)?;
         let (plugin_id, session_id) = self
@@ -368,16 +307,14 @@ impl ServiceContext {
         self.chatbackend_send(&plugin_id, &session_id, &staged)
     }
 
-    /// Advance an async chatBackend's in-flight work for a session (Item 6).
-    /// Called each poll-loop tick before `chatbackend_poll`; best-effort.
+    /// Advance an async chatBackend's in-flight work; called each poll tick, best-effort.
     pub fn chatbackend_pump(&self, plugin_id: &str, session_id: &str) -> Result<(), String> {
         self.chatbackend_provider(plugin_id)?
             .pump(session_id)
             .map_err(|e| e.to_string())
     }
 
-    /// Pull the transcript delta after `cursor` from a plugin session (no
-    /// cursor ⇒ the full transcript). Returns `{ messages, cursor }`.
+    /// Pull the transcript delta after `cursor` (no cursor ⇒ full transcript).
     pub fn chatbackend_poll(
         &self,
         plugin_id: &str,
@@ -449,14 +386,11 @@ mod tests {
 
     #[test]
     fn reopen_guard_serializes_to_a_single_open() {
-        // MED race fix: with N senders hitting a freshly-restored chatBackend
-        // pane at once, only the FIRST may run `openSession`; the rest must wait
-        // and reuse the resulting (migrated) session id. The per-pane lock is the
-        // once-guard, and the `restored` recheck inside is the compare-and-swap.
+        // N concurrent senders on a restored pane → only the first runs openSession.
         let guards = Arc::new(super::PaneReopenGuards::default());
-        let restored = Arc::new(AtomicBool::new(true)); // pane.restored_from_snapshot
-        let opens = Arc::new(AtomicUsize::new(0)); // count of openSession calls
-        let session = Arc::new(Mutex::new(String::from("old"))); // live session id
+        let restored = Arc::new(AtomicBool::new(true));
+        let opens = Arc::new(AtomicUsize::new(0));
+        let session = Arc::new(Mutex::new(String::from("old")));
 
         let handles: Vec<_> = (0..16)
             .map(|_| {
@@ -469,7 +403,6 @@ mod tests {
                 std::thread::spawn(move || {
                     guards.serialized("pane-1", || {
                         if restored.swap(false, Ordering::SeqCst) {
-                            // First (and only) caller: "re-open" + migrate.
                             opens.fetch_add(1, Ordering::SeqCst);
                             *session.lock() = "migrated".to_string();
                         }
@@ -493,9 +426,7 @@ mod tests {
 
     #[test]
     fn reopen_guard_does_not_block_distinct_panes() {
-        // Different panes take different locks, so a slow reopen on one pane
-        // never serializes another. Both closures run; both observe their own
-        // first-caller transition.
+        // Different panes take different locks, so neither serializes the other.
         let guards = super::PaneReopenGuards::default();
         let a = guards.serialized("pane-a", || "a");
         let b = guards.serialized("pane-b", || "b");
@@ -504,21 +435,18 @@ mod tests {
 
     #[test]
     fn reopen_recheck_rejects_a_pane_changed_during_open_session() {
-        // MED restore-race fix: openSession runs without the mux lock, so the
-        // post-open recheck is the guard. Anything that means "this is no longer
-        // the restored pane we opened against" must NOT commit.
         use crate::multiplexer::types::PaneBacking;
         let chat = |plugin: &str, sess: &str| PaneBacking::ChatBackend {
             plugin_id: plugin.into(),
             session_id: sess.into(),
         };
 
-        // Pane was closed mid-openSession → mux has no backing for it.
+        // Pane closed mid-openSession.
         assert!(
             !super::chatbackend_reopen_still_valid(None, true, "lmstudio", "old"),
             "a vanished pane must not commit the migrate/poll-loop"
         );
-        // Session id changed (respawned) during openSession.
+        // Session id respawned during openSession.
         assert!(
             !super::chatbackend_reopen_still_valid(
                 Some(&chat("lmstudio", "different")),
@@ -528,14 +456,13 @@ mod tests {
             ),
             "a re-backed session id must not commit"
         );
-        // Plugin id changed.
         assert!(!super::chatbackend_reopen_still_valid(
             Some(&chat("other", "old")),
             true,
             "lmstudio",
             "old",
         ));
-        // Restore flag already cleared (a concurrent caller committed).
+        // Restore flag already cleared by a concurrent caller.
         assert!(
             !super::chatbackend_reopen_still_valid(
                 Some(&chat("lmstudio", "old")),
@@ -545,14 +472,13 @@ mod tests {
             ),
             "an already-committed pane must not re-open again"
         );
-        // Backing is now a plain PTY pane.
         assert!(!super::chatbackend_reopen_still_valid(
             Some(&PaneBacking::Pty),
             true,
             "lmstudio",
             "old",
         ));
-        // Unchanged restored pane ⇒ the only case that commits.
+        // Unchanged restored pane: the only case that commits.
         assert!(
             super::chatbackend_reopen_still_valid(
                 Some(&chat("lmstudio", "old")),
@@ -566,17 +492,14 @@ mod tests {
 
     #[test]
     fn reopen_invalid_recheck_closes_session_and_skips_poll_loop() {
-        // Mirrors chatbackend_reopen_if_restored's control flow AFTER openSession:
-        // a failed recheck closes the orphan session and spawns NO poll loop (and
-        // does not migrate history); it returns None for the pane.
+        // A failed recheck closes the orphan session, migrates nothing, spawns no loop.
         let closed = AtomicUsize::new(0);
         let migrated = AtomicUsize::new(0);
         let spawned = AtomicUsize::new(0);
 
-        // pane-closed-during-openSession → recheck invalid (backing == None).
         let committed = super::chatbackend_reopen_still_valid(None, true, "p", "old");
         let result: Option<String> = if !committed {
-            closed.fetch_add(1, Ordering::SeqCst); // closeSession(new_session)
+            closed.fetch_add(1, Ordering::SeqCst);
             None
         } else {
             migrated.fetch_add(1, Ordering::SeqCst);
@@ -600,9 +523,6 @@ mod tests {
 
     #[test]
     fn chatbackend_send_is_gated_on_agent_pane() {
-        // M3: a plain shell chatBackend (no detected agent_type) must NOT run the
-        // outbound preprocessor — shells own their prompt. Only an agent pane gets
-        // context injected, matching the PTY `is_user_turn_send` gate.
         assert!(
             !super::chatbackend_should_stage(false),
             "shell chatBackend send must skip outbound stages"
