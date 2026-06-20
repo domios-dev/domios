@@ -1,4 +1,5 @@
 pub mod chat_types;
+pub mod command_detection;
 pub mod detector;
 pub mod keys;
 pub mod ledger;

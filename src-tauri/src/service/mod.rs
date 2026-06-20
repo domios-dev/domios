@@ -82,6 +82,9 @@ pub struct ServiceContext {
     pub events: Arc<EventBroadcaster>,
     pub app_handle: tauri::AppHandle,
     pub agent_tracker: AgentTrackerState,
+    /// Per-pty shell-integration capability accumulators (OSC 133/633/7 ->
+    /// command list + cwd). Fed from `process_pty_output`; consumed by chat.
+    pub shell_caps: crate::ShellCapabilityState,
     pub report_store: ReportStoreState,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
