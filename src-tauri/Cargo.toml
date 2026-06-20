@@ -73,6 +73,7 @@ fastembed = { version = "5", optional = true }
 ndarray = { version = "0.17", optional = true }
 hnsw_rs = { version = "0.3", optional = true }
 codeterm-mem-store = { path = "../crates/mem-store" }
+codeterm-plugins = { path = "../crates/codeterm-plugins" }
 crash-handler = "0.6"
 crash-context = "0.6"
 minidump-writer = "0.10"

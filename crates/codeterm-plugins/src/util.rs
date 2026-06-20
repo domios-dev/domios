@@ -165,9 +165,7 @@ pub(super) fn default_plugin_channel_url() -> String {
 }
 
 pub(super) fn app_version() -> Option<String> {
-    std::env::var("CODETERM_VERSION")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
+    crate::ctx_version()
 }
 
 pub(super) fn manifest_min_codeterm(dir: &Path) -> Option<String> {
