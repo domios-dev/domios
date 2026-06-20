@@ -69,6 +69,7 @@ impl ChatBackendProvider for FakeBackend {
             id: "m".into(),
             display_name: "M".into(),
             description: None,
+            available: None,
         }])
     }
 }

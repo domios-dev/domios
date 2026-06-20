@@ -35,6 +35,7 @@ impl ChatBackendProvider for Shell {
             id: "qwen".into(),
             display_name: "Qwen".into(),
             description: None,
+            available: None,
         }])
     }
     fn list_presets(&self) -> Result<Vec<PresetInfo>, ChatBackendError> {

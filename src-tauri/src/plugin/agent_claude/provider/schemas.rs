@@ -5,21 +5,34 @@ use crate::agent::provider::{
 };
 
 pub(super) fn builtin_models() -> Vec<ModelInfo> {
+    // Stable alias ids — the CLI resolves them to the latest concrete version.
+    // Version labels here are the offline seed; live discovery (DM4) corrects
+    // them against `/v1/models`. `fable` ships disabled until live discovery
+    // confirms the account can use it, then auto-enables.
     vec![
         ModelInfo {
             id: "opus".into(),
             display_name: "Claude Opus 4.8 (1M context)".into(),
             description: Some("Best for everyday, complex tasks.".into()),
+            available: None,
         },
         ModelInfo {
             id: "sonnet".into(),
             display_name: "Claude Sonnet 4.6".into(),
             description: Some("Efficient for routine tasks.".into()),
+            available: None,
         },
         ModelInfo {
             id: "haiku".into(),
             display_name: "Claude Haiku 4.5".into(),
             description: Some("Fastest for quick answers.".into()),
+            available: None,
+        },
+        ModelInfo {
+            id: "fable".into(),
+            display_name: "Claude Fable 5".into(),
+            description: Some("Newest model — enabled once available for your account.".into()),
+            available: Some(false),
         },
     ]
 }
@@ -177,14 +190,20 @@ mod tests {
     use crate::agent::provider::AgentProvider;
 
     #[test]
-    fn claude_metadata_describes_three_models() {
+    fn claude_metadata_describes_alias_models_with_fable_disabled() {
         let p = super::super::ClaudeProvider::new();
         let models = p.available_models();
-        assert_eq!(models.len(), 3);
         let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
         assert!(ids.contains(&"sonnet"));
         assert!(ids.contains(&"opus"));
         assert!(ids.contains(&"haiku"));
+        // fable ships as a disabled alias — present but not yet selectable until
+        // live discovery confirms the account can use it.
+        let fable = models
+            .iter()
+            .find(|m| m.id == "fable")
+            .expect("fable alias present");
+        assert_eq!(fable.available, Some(false));
         assert_eq!(p.default_model().as_deref(), Some("opus"));
     }
 

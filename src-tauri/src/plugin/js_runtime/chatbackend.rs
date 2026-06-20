@@ -252,6 +252,7 @@ impl ChatBackendProvider for JsChatBackend {
                 display_name: m.display_name.unwrap_or_else(|| m.id.clone()),
                 id: m.id,
                 description: m.description,
+                available: None,
             })
             .collect())
     }

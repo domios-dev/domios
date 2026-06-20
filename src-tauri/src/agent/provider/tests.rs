@@ -34,6 +34,7 @@ fn provider_descriptor_round_trip() {
                 id: "model-1".into(),
                 display_name: "Model One".into(),
                 description: Some("first model".into()),
+                available: None,
             }],
             default_model: Some("model-1".into()),
             settings_schema: vec![

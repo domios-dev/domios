@@ -55,6 +55,12 @@
       "id": "haiku",
       "displayName": "Claude Haiku 4.5",
       "description": "Fastest for quick answers."
+    },
+    {
+      "id": "fable",
+      "displayName": "Claude Fable 5",
+      "description": "Newest model — enabled once available for your account.",
+      "available": false
     }
   ],
   "defaultModel": "sonnet",
