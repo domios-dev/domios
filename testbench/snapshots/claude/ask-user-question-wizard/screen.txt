@@ -1,0 +1,34 @@
+kandrey@ROC-6W49K3GN codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-db18b7da-fd4b-4acb-a763-a73eaeff5ed8.sh
+╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ Improved auto mode safety: destructive git commands (`git rese… │
+│                        ▘▘ ▝▝                       │ Added a warning when the requested model is deprecated or auto… │
+│                                                    │ Added `attribution.sessionUrl` setting to omit the claude.ai s… │
+│ Opus 4.8 with high effort · Claude Team · 8x8 RD 2 │ /release-notes for more                                         │
+│          /…/T/codeterm-snapshot-testbench          │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Use the native AskUserQuestion UI if available. Ask me which deployment strategy to use with exactly three options:
+  Blue/Green, Canary, Rolling. Do not answer yourself; ask the question.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Deploy
+
+Which deployment strategy would you like to use?
+
+❯ 1. Blue/Green
+     Run two identical environments; switch all traffic from the old (blue) to the new (green) at once. Instant rollback
+     by switching back.
+  2. Canary
+     Roll out to a small subset of users/servers first, monitor, then gradually increase to 100%. Limits blast radius of
+     bad releases.
+  3. Rolling
+     Incrementally replace old instances with new ones in batches. No extra environment needed, but rollback is slower.
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
