@@ -52,11 +52,17 @@ pub(crate) fn apply_mesh_local_health(mesh: &crate::MeshStateHandle, healthy: bo
 pub(crate) fn handle_probe_action<F>(
     mesh: &crate::MeshStateHandle,
     action: ProbeAction,
+    shutting_down: bool,
     mut write_report: F,
 ) -> (bool, Option<Result<PathBuf, String>>)
 where
     F: FnMut() -> Result<PathBuf, String>,
 {
+    // A clean quit takes the API down inside the shutdown window. That is
+    // expected, not a crash — never flip mesh health or write a report then.
+    if shutting_down {
+        return (false, None);
+    }
     match action {
         ProbeAction::None => (false, None),
         ProbeAction::MarkHealthy => (apply_mesh_local_health(mesh, true), None),
@@ -214,12 +220,18 @@ pub(crate) fn start_api_liveness_watchdog(
                 let mut state = ProbeState::default();
                 loop {
                     tokio::time::sleep(Duration::from_secs(30)).await;
+                    // Stop probing once a graceful shutdown begins: the API going
+                    // unhealthy from here on is the clean quit, not an outage.
+                    if crate::crash::shutdown::is_shutting_down() {
+                        log::info!("[liveness] shutting down; watchdog stopping");
+                        break;
+                    }
                     let action = state.record(probe_local_health(&client, api_port).await, 3);
                     match action {
                         ProbeAction::None => {}
                         ProbeAction::MarkHealthy => {
                             let (changed, _) =
-                                handle_probe_action(&mesh, action, write_liveness_report);
+                                handle_probe_action(&mesh, action, false, write_liveness_report);
                             if changed {
                                 crate::api::events::emit_everywhere(&app, "mesh-state-changed", serde_json::Value::Null);
                                 let report = crate::mesh::broadcast_announce(&mesh, None).await;
@@ -232,17 +244,28 @@ pub(crate) fn start_api_liveness_watchdog(
                             }
                         }
                         ProbeAction::MarkUnhealthyAndCapture => {
-                            let (changed, report_result) =
-                                handle_probe_action(&mesh, action, write_liveness_report);
+                            // Re-check: shutdown may have begun during the probe
+                            // await, after the loop-top guard.
+                            let (changed, report_result) = handle_probe_action(
+                                &mesh,
+                                action,
+                                crate::crash::shutdown::is_shutting_down(),
+                                write_liveness_report,
+                            );
                             if changed {
                                 crate::api::events::emit_everywhere(&app, "mesh-state-changed", serde_json::Value::Null);
                             }
-                            match report_result.expect("unhealthy action writes a report") {
-                                Ok(path) => log::error!(
+                            match report_result {
+                                Some(Ok(path)) => log::error!(
                                     "[liveness] local API unhealthy; report written to {}",
                                     path.display()
                                 ),
-                                Err(e) => log::error!("[liveness] report write failed: {}", e),
+                                Some(Err(e)) => {
+                                    log::error!("[liveness] report write failed: {}", e)
+                                }
+                                None => log::info!(
+                                    "[liveness] unhealthy probe suppressed (shutting down)"
+                                ),
                             }
                             let report = crate::mesh::broadcast_announce(&mesh, None).await;
                             log::warn!(
@@ -311,7 +334,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
 
         let (changed, report) =
-            handle_probe_action(&mesh, ProbeAction::MarkUnhealthyAndCapture, || {
+            handle_probe_action(&mesh, ProbeAction::MarkUnhealthyAndCapture, false, || {
                 write_liveness_report_with(dir.path(), 42, &[("lsof".into(), "codeterm 42".into())])
             });
 
@@ -323,6 +346,37 @@ mod tests {
         let ann = mesh.lock().build_announce();
         assert!(!ann.online);
         assert!(ann.addresses.is_empty());
+    }
+
+    #[test]
+    fn handle_probe_action_skips_write_when_shutting_down() {
+        let mesh = std::sync::Arc::new(parking_lot::Mutex::new(crate::mesh::MeshManager::new(
+            "test".into(),
+            7685,
+        )));
+        {
+            let mut m = mesh.lock();
+            m.disk_persist = false;
+            m.tailscale_ip = Some("100.64.1.2".into());
+        }
+
+        let mut write_called = false;
+        let (changed, report) = handle_probe_action(
+            &mesh,
+            ProbeAction::MarkUnhealthyAndCapture,
+            true, // shutting down — a clean quit's API-down is not a crash
+            || {
+                write_called = true;
+                Err("write_report must not run during shutdown".into())
+            },
+        );
+
+        assert!(!changed, "mesh health must not flip during shutdown");
+        assert!(report.is_none(), "no report attempted during shutdown");
+        assert!(!write_called, "write_report closure must not be invoked");
+        // Mesh stays online: we never marked it unhealthy.
+        let ann = mesh.lock().build_announce();
+        assert!(ann.online);
     }
 
     #[test]
