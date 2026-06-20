@@ -56,6 +56,12 @@ pub async fn create_shell_pane(
     // plain shell pane.
     let command = match body.chat_backend {
         Some(plugin_id) => {
+            // Validate the id BEFORE building the pane. The old path accepted any
+            // string and 200'd even for unknown / non-spawnable backends; the async
+            // openSession then closed the freshly-opened tab. Mirror
+            // /api/agents/spawn and reject up-front with 400.
+            validate_chat_backend_spawn(&state.svc.provider_registry, &plugin_id)
+                .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
             let mut config = body.config.unwrap_or(serde_json::Value::Null);
             let overrides = crate::service::spawn::chatbackend_spawn_config(
                 body.system_prompt.as_deref(),
@@ -120,6 +126,25 @@ pub async fn create_shell_pane(
 
 fn default_true() -> bool {
     true
+}
+
+/// Validate a `chat_backend` spawn target for POST /api/panes. `Ok(())` ⇒ the id
+/// names a registered, user-spawnable chat backend; `Err(reason)` ⇒ a 400 the
+/// caller surfaces (unknown id vs. registered-but-not-spawnable, distinguished
+/// so the message is actionable).
+fn validate_chat_backend_spawn(
+    reg: &crate::provider::ProviderRegistry,
+    plugin_id: &str,
+) -> Result<(), String> {
+    if reg.is_spawnable_chat_backend(plugin_id) {
+        Ok(())
+    } else if reg.transport_of(plugin_id).is_some() {
+        Err(format!(
+            "chat backend '{plugin_id}' is registered but not user-spawnable"
+        ))
+    } else {
+        Err(format!("unknown chat backend '{plugin_id}'"))
+    }
 }
 
 #[derive(Deserialize)]
@@ -912,3 +937,6 @@ pub async fn get_pane_text(
 
 #[cfg(test)]
 mod tests_send_text_body;
+
+#[cfg(test)]
+mod tests_create_pane;
