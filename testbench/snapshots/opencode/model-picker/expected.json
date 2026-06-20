@@ -1,0 +1,24 @@
+{
+  "provider": "opencode",
+  "unit": "provider_screen",
+  "expected": {
+    "hasEventMarkers": true,
+    "detectEvents": ["PermissionRequest"],
+    "parsePrompt": {
+      "question": "Select model",
+      "options": [
+        { "label": "Big Pickle Free", "value": "1" },
+        { "label": "DeepSeek V4 Flash Free Free", "value": "2" },
+        { "label": "MiMo V2.5 Free Free", "value": "3" },
+        { "label": "Nemotron 3 Ultra Free Free", "value": "4" },
+        { "label": "North Mini Code Free Free", "value": "5" },
+        { "label": "OpenCode Zen (Recommended)", "value": "6" },
+        { "label": "OpenCode Go Low cost subscription for everyone", "value": "7" },
+        { "label": "OpenAI (ChatGPT Plus/Pro or API key)", "value": "8" },
+        { "label": "GitHub Copilot", "value": "9" },
+        { "label": "Anthropic (API key)", "value": "10" },
+        { "label": "Google", "value": "11" }
+      ]
+    }
+  }
+}
