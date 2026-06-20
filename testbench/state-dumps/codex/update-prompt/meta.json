@@ -1,0 +1,9 @@
+{
+  "provider": "codex",
+  "scenario": "update-prompt",
+  "cli_version": "from existing real snapshot fixture",
+  "capturedAtMs": 1781984508069,
+  "source": "testbench/snapshots/codex/agent-state-update_prompt/raw.cast",
+  "width": 80,
+  "height": 24
+}
