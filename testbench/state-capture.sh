@@ -182,7 +182,21 @@ idle_markers=[
     "type your message",
     "ctrl+p commands",
 ]
-print("yes" if any(marker in text for marker in idle_markers) else "no")'
+active_markers=[
+    "composing",
+    "thinking",
+    "globbing",
+    "grepping",
+    "reading",
+    "editing",
+    "running",
+    "building",
+    "tokens",
+    "ctrl+c to stop",
+]
+idle=any(marker in text for marker in idle_markers)
+active=any(marker in text for marker in active_markers)
+print("yes" if idle and not active else "no")'
 }
 
 screen_is_question() {
@@ -221,6 +235,12 @@ wait_idle() {
     sleep 1
   done
   return 1
+}
+
+settle_idle() {
+  local pane="$1"
+  wait_idle "$pane" || true
+  sleep 1
 }
 
 wait_question() {
@@ -415,7 +435,7 @@ EOF
       send_text "$pane" "$prompt"
       add_step "$t0" "send coding task" "working"
       wait_status_seen "$pane" "Working" || true
-      wait_idle "$pane" || true
+      settle_idle "$pane"
       t1="$(rel_ms "$started_at")"
       add_step "$t1" "quiescence settled" "idle"
       add_segment "$t0" "$t1" "working"
@@ -426,7 +446,7 @@ EOF
       send_text "$pane" "$prompt"
       add_step "$t0" "send multi-turn task 1" "working"
       wait_status_seen "$pane" "Working" || true
-      wait_idle "$pane" || true
+      settle_idle "$pane"
       t1="$(rel_ms "$started_at")"
       add_step "$t1" "task 1 quiescence settled" "idle"
       add_segment "$t0" "$t1" "working"
@@ -436,7 +456,7 @@ EOF
       send_text "$pane" "$prompt"
       add_step "$t2" "send multi-turn task 2" "working"
       wait_status_seen "$pane" "Working" || true
-      wait_idle "$pane" || true
+      settle_idle "$pane"
       t3="$(rel_ms "$started_at")"
       add_step "$t3" "task 2 quiescence settled" "idle"
       add_segment "$t1" "$t2" "idle"
@@ -447,7 +467,7 @@ EOF
       send_text "$pane" "$prompt"
       add_step "$t4" "send multi-turn task 3" "working"
       wait_status_seen "$pane" "Working" || true
-      wait_idle "$pane" || true
+      settle_idle "$pane"
       local t5
       t5="$(rel_ms "$started_at")"
       add_step "$t5" "task 3 quiescence settled" "idle"
@@ -472,7 +492,7 @@ EOF
       t2="$(rel_ms "$started_at")"
       add_step "$t2" "answer choice" "working"
       wait_status_seen "$pane" "Working" || true
-      wait_idle "$pane" || true
+      settle_idle "$pane"
       t3="$(rel_ms "$started_at")"
       add_step "$t3" "quiescence settled after answer" "idle"
       add_segment "$t0" "$t1" "working"
@@ -489,7 +509,7 @@ EOF
       send_actions "$pane" "enter"
       t2="$(rel_ms "$started_at")"
       add_step "$t2" "accept model picker default" "idle"
-      wait_idle "$pane" || true
+      settle_idle "$pane"
       t3="$(rel_ms "$started_at")"
       add_step "$t3" "picker closed and idle" "idle"
       add_segment "$t0" "$t1" "idle"
@@ -505,7 +525,7 @@ EOF
       wait_error "$pane" || true
       t1="$(rel_ms "$started_at")"
       add_step "$t1" "error visible" "error"
-      wait_idle "$pane" || true
+      settle_idle "$pane"
       t2="$(rel_ms "$started_at")"
       add_step "$t2" "quiescence settled after error" "idle"
       add_segment "$t0" "$t1" "working"
