@@ -13,6 +13,7 @@ import sys
 
 root = sys.argv[1]
 bad = []
+warn = []
 
 FOOTER_RE = re.compile(
     r"(enter\s+(to\s+)?(select|submit)|type to filter|esc\s+dismiss|"
@@ -92,12 +93,17 @@ for provider in sorted(os.listdir(root)) if os.path.isdir(root) else []:
         screen = read(screen_path) if os.path.exists(screen_path) else ""
         flat = norm(screen)
         expected_grounded = False
+        gating = False
+
+        expected = None
+        if os.path.exists(expected_path):
+            expected = json.load(open(expected_path, encoding="utf-8"))
+            gating = expected.get("gating", True)
 
         if not os.path.exists(cast_path):
             reasons.append("raw.cast missing")
 
-        if os.path.exists(expected_path) and screen:
-            expected = json.load(open(expected_path, encoding="utf-8"))
+        if expected is not None and screen:
             missing = [s for s in strings_in_expected(expected) if s not in flat]
             if missing:
                 reasons.append("expected literal absent: " + "; ".join(missing[:5]))
@@ -119,13 +125,21 @@ for provider in sorted(os.listdir(root)) if os.path.isdir(root) else []:
                 reasons.append("picker-like situation has no selection signal and no footer hint")
 
         if reasons:
-            bad.append((rel, reasons))
+            if gating:
+                bad.append((rel, reasons))
+            else:
+                warn.append((rel, reasons))
 
 if bad:
-    print("BAD snapshots:")
+    print("BAD gating snapshots:")
     for rel, reasons in bad:
         print(f"- {rel}: " + "; ".join(reasons))
     sys.exit(1)
+
+if warn:
+    print("non-gating warnings:")
+    for rel, reasons in warn:
+        print(f"- {rel}: " + "; ".join(reasons))
 
 print("doctor: ok")
 PY

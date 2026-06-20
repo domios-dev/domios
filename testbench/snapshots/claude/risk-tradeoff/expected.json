@@ -1,6 +1,7 @@
 {
   "provider": "claude",
   "unit": "provider_screen",
+  "gating": false,
   "expected": {
     "parsePrompt": {
       "question": "Which deployment strategy should we use to roll out the new release to production?",

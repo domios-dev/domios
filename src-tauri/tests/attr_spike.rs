@@ -100,6 +100,15 @@ fn analyze(label: &str, path: &str) {
         }
     }
     let detected = detect_picker(&attributed);
+    if std::env::var("SPIKE_ROWS").is_ok() {
+        println!("  --- rendered rows ---");
+        for r in 0..rows {
+            let text = attributed.row_text(r).trim_end().to_string();
+            if !text.trim().is_empty() {
+                println!("   row{r:2}: {:?}", text);
+            }
+        }
+    }
     println!("  --- fusion detector ---");
     println!("   {}", serde_json::to_string_pretty(&detected).unwrap());
     if let Some(expected) = expected_prompt(path) {
