@@ -565,10 +565,181 @@ var TUI_FRAGMENTS = [
 ];
 var SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
 var SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
+var WIZARD_SUBMIT_VALUE = 9e3;
+var WIZARD_MULTI_MASK_BASE = 1e4;
 function isBrailleSpinner(ch) {
   if (!ch) return false;
   const code = ch.charCodeAt(0);
   return code >= BRAILLE_LO && code <= BRAILLE_HI || ch === "\u2733" || ch === "\u273B";
+}
+function parseClaudeWizardPrompt(text) {
+  const raw = String(text || "");
+  if (raw.indexOf("Submit") === -1 || raw.indexOf("Enter to select") === -1) return null;
+  const tabLine = findWizardTabLine(raw);
+  if (!tabLine) return null;
+  const sections = parseWizardSections(tabLine);
+  if (sections.length < 2) return null;
+  const body = wizardBody(raw, tabLine);
+  const options = parseWizardOptions(body);
+  if (options.length < 2) return null;
+  const question = parseWizardQuestion(body) || "Choose an option";
+  const multiSelect = options.some((opt) => opt.selected) || /\[[ xX]\]|☐|☑|☒/.test(body);
+  return {
+    question,
+    options: options.map((opt) => [opt.label, opt.value]),
+    sections,
+    multiSelect,
+    submitAvailable: tabLine.indexOf("Submit") !== -1,
+    selectedValues: options.filter((opt) => opt.selected).map((opt) => opt.value)
+  };
+}
+function findWizardTabLine(text) {
+  const lines = String(text || "").split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line.indexOf("Submit") !== -1 && (line.indexOf("\u2610") !== -1 || line.indexOf("\u2714") !== -1)) {
+      return line;
+    }
+  }
+  const m = /←[\s\S]{0,160}Submit\s*→/.exec(text);
+  return m ? m[0] : null;
+}
+function parseWizardSections(tabLine) {
+  const sections = [];
+  const re = /([☐☑☒✔])\s*([^☐☑☒✔←→]+?)(?=[☐☑☒✔]|→|$)/g;
+  let m;
+  while ((m = re.exec(tabLine)) !== null) {
+    const label = m[2].trim();
+    if (!label || /^submit$/i.test(label)) continue;
+    sections.push({
+      label,
+      completed: m[1] === "\u2714" || m[1] === "\u2611" || m[1] === "\u2612"
+    });
+  }
+  const active = sections.findIndex((s) => !s.completed);
+  if (active >= 0) sections[active].active = true;
+  return sections;
+}
+function wizardBody(text, knownTabLine) {
+  const tabLine = knownTabLine || findWizardTabLine(text);
+  if (!tabLine) return text;
+  return text.slice(text.indexOf(tabLine) + tabLine.length);
+}
+function parseWizardQuestion(body) {
+  const beforeOptions = body.split(/(?:❯\s*)?\d+\./)[0] || "";
+  return beforeOptions.replace(/^[\s←→☐☑☒✔A-Za-z]*Submit\s*→?/, "").replace(/─+/g, " ").replace(/\s+/g, " ").trim();
+}
+function parseWizardOptions(body) {
+  const checkbox = parseCheckboxOptions(body);
+  if (checkbox.length >= 2) return checkbox;
+  return parseNumberedOptions(body);
+}
+function parseNumberedOptions(text) {
+  const options = [];
+  const re = /(?:^|[\s❯>])(\d+)\.\s*([\s\S]*?)(?=(?:[\s❯>]\d+\.\s*)|Enter\s*to\s*select|$)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const label = cleanOptionLabel(m[2]);
+    if (!label) continue;
+    options.push({
+      label,
+      value: m[1],
+      highlighted: m[0].indexOf("\u276F") !== -1 || m[0].indexOf(">") !== -1,
+      selected: false
+    });
+  }
+  return options;
+}
+function parseCheckboxOptions(text) {
+  const options = [];
+  const re = /(?:^|[\s❯>])((?:\[[ xX]\])|☐|☑|☒|✔)\s*([\s\S]*?)(?=(?:[\s❯>](?:\[[ xX]\]|☐|☑|☒|✔)\s*)|Enter\s*to\s*select|$)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const label = cleanOptionLabel(m[2]);
+    if (!label) continue;
+    const mark = m[1];
+    options.push({
+      label,
+      value: String(options.length + 1),
+      highlighted: m[0].indexOf("\u276F") !== -1 || m[0].indexOf(">") !== -1,
+      selected: mark === "\u2611" || mark === "\u2612" || mark === "\u2714" || /\[[xX]\]/.test(mark)
+    });
+  }
+  return options;
+}
+function cleanOptionLabel(value) {
+  return String(value || "").replace(/─+/g, " ").replace(/\bChat\s*about\s*this\b[\s\S]*$/i, "").replace(/\s+/g, " ").trim();
+}
+function parseClaudeNumberedPrompt(text) {
+  const raw = String(text || "");
+  if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
+  const options = parseNumberedOptions(raw);
+  if (options.length < 2) return null;
+  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.\s*/);
+  const before = firstOption >= 0 ? raw.slice(0, firstOption) : raw;
+  const question = findQuestion(before) || "Choose an option";
+  return {
+    question,
+    options: options.map((opt) => [opt.label, opt.value])
+  };
+}
+function findQuestion(text) {
+  const lines = String(text || "").split("\n").map((line) => line.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].endsWith("?")) return lines[i];
+  }
+  return lines.length > 0 ? lines[lines.length - 1] : "";
+}
+function buildClaudePromptResponse(optionIndex, screen) {
+  if (optionIndex === WIZARD_SUBMIT_VALUE - 1) return buildWizardSubmitResponse(screen);
+  if (optionIndex >= WIZARD_MULTI_MASK_BASE - 1) {
+    return buildWizardMultiSelectResponse(optionIndex - (WIZARD_MULTI_MASK_BASE - 1), screen);
+  }
+  const steps = moveToOption(optionIndex, screen);
+  steps.push("DQ==");
+  if (parseClaudeWizardPrompt(screen) && !parseClaudeWizardPrompt(screen)?.multiSelect) steps.push("CQ==");
+  return steps;
+}
+function moveToOption(targetIndex, screen) {
+  const current = currentHighlightedOptionIndex(screen);
+  const delta = targetIndex - current;
+  const steps = [];
+  const key = delta >= 0 ? "ag==" : "aw==";
+  for (let i = 0; i < Math.abs(delta); i++) steps.push(key);
+  return steps;
+}
+function currentHighlightedOptionIndex(screen) {
+  const body = wizardBody(screen);
+  const numbered = parseNumberedOptions(body);
+  const options = numbered.length >= 2 ? numbered : parseWizardOptions(body);
+  const idx = options.findIndex((opt) => opt.highlighted);
+  return idx >= 0 ? idx : 0;
+}
+function buildWizardMultiSelectResponse(mask, screen) {
+  const options = parseWizardOptions(wizardBody(screen));
+  const steps = [];
+  let current = currentHighlightedOptionIndex(screen);
+  for (let i = 0; i < options.length; i++) {
+    const desired = (mask & 1 << i) !== 0;
+    if (options[i].selected === desired) continue;
+    const delta = i - current;
+    const key = delta >= 0 ? "ag==" : "aw==";
+    for (let j = 0; j < Math.abs(delta); j++) steps.push(key);
+    steps.push("IA==");
+    current = i;
+  }
+  steps.push("CQ==");
+  return steps;
+}
+function buildWizardSubmitResponse(screen) {
+  const parsed = parseClaudeWizardPrompt(screen);
+  const steps = [];
+  const active = parsed?.sections?.findIndex((section) => section.active) ?? -1;
+  const count = parsed?.sections?.length ?? 0;
+  const moves = active >= 0 && count > active ? count - active : 1;
+  for (let i = 0; i < moves; i++) steps.push("G1tD");
+  steps.push("DQ==");
+  return steps;
 }
 var plugin = {
   detectFromTitle(title) {
@@ -609,6 +780,8 @@ var plugin = {
   hasEventMarkers(chunk) {
     const c = String(chunk || "");
     if (c.indexOf("\u276F") !== -1) return true;
+    if (c.indexOf("Enter to select") !== -1) return true;
+    if (c.indexOf("Submit") !== -1 && (c.indexOf("\u2610") !== -1 || c.indexOf("\u2714") !== -1)) return true;
     if (c.indexOf("proceed") !== -1) return true;
     if (c.indexOf("Esc to cancel") !== -1) return true;
     if (c.indexOf("Tab to amend") !== -1) return true;
@@ -629,6 +802,7 @@ var plugin = {
   detectEvents(text) {
     const t = String(text || "");
     const events = [];
+    if (parseClaudeWizardPrompt(t)) events.push("permission_request");
     const numLines = (t.match(/^\s*\d+\.\s+/gm) || []).length;
     const hasEscFooter = t.indexOf("Esc to cancel") !== -1 || t.indexOf("Tab to amend") !== -1;
     const hasSelector = t.indexOf("\u276F") !== -1;
@@ -651,11 +825,11 @@ var plugin = {
     }
     return events;
   },
-  buildPromptResponse(optionIndex) {
-    const steps = [];
-    for (let i = 0; i < optionIndex; i++) steps.push("ag==");
-    steps.push("DQ==");
-    return steps;
+  parsePrompt(text) {
+    return parseClaudeWizardPrompt(text) || parseClaudeNumberedPrompt(text);
+  },
+  buildPromptResponse(optionIndex, screen) {
+    return buildClaudePromptResponse(optionIndex, String(screen || ""));
   },
   // Launch command parity for native behavior across OS-specific execution modes.
   buildLaunchCommand(params) {
@@ -724,9 +898,7 @@ var plugin = {
   discoverModels() {
     return discoverAnthropicModels() || manifestModels();
   },
-  // Parse the `/usage` TUI screen into a UsageSnapshot-shaped object
-  // (snake_case fields, matching the Rust struct). Returns null when nothing
-  // recognizable was found.
+  // Parse the `/usage` TUI screen into a UsageSnapshot; null when nothing recognizable was found.
   parseUsage(rawText, nowMs) {
     const raw = String(rawText || "");
     if (!raw.trim()) return null;
@@ -802,8 +974,7 @@ var plugin = {
     }
     return out;
   },
-  // Rust provides complete lines; plugin parses JSON and builds RichMessage[].
-  // Byte offsets stay in Rust.
+  // Rust provides complete lines; plugin parses JSON into RichMessage[]. Byte offsets stay in Rust.
   parseSessionDelta(chunk) {
     const out = [];
     const lines = String(chunk || "").split("\n");

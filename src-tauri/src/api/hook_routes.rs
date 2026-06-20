@@ -73,7 +73,14 @@ pub async fn hook_permission(
         if options.is_empty() {
             return None;
         }
-        Some(crate::multiplexer::types::PendingPrompt { question, options })
+        Some(crate::multiplexer::types::PendingPrompt {
+            question,
+            options,
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
+        })
     });
 
     let decision = if let Some(prompt) = explicit_prompt {

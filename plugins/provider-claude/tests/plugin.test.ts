@@ -132,6 +132,50 @@ console.log("\n--- detect delegation ---\n");
 
 assert(plugin.detect({ bytes: "", title: "claude" }), "plugin.detect delegates to detect.ts");
 
+const hostPlugin = loadHostPlugin();
+
+console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
+
+{
+  const wizard = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "wizard-multi-step.txt"),
+    "utf8",
+  );
+  const parsed = hostPlugin.parsePrompt(wizard);
+  eq(parsed?.question, "Which environment should this setup target?", "wizard parsePrompt extracts current question");
+  eq(
+    parsed?.sections?.map((s: { label: string; active?: boolean; completed?: boolean }) => [s.label, !!s.active, !!s.completed]),
+    [
+      ["Environment", true, false],
+      ["Autonomy", false, false],
+      ["Scope", false, false],
+      ["Verbosity", false, false],
+    ],
+    "wizard parsePrompt extracts sections and active step",
+  );
+  eq(parsed?.options?.map((o: [string, string]) => o[1]), ["1", "2", "3", "4"], "wizard options keep 1-based values");
+  eq(parsed?.multiSelect, false, "wizard numbered section is single-select");
+  eq(parsed?.submitAvailable, true, "wizard submit is available");
+  eq(hostPlugin.buildPromptResponse(2, wizard), ["ag==", "ag==", "DQ==", "CQ=="], "wizard option click moves from highlighted row, selects, then advances");
+  eq(hostPlugin.buildPromptResponse(8999, wizard), ["G1tD", "G1tD", "G1tD", "G1tD", "DQ=="], "wizard submit navigates to Submit then enters");
+}
+
+{
+  const multi = [
+    "←  ✔ Environment  ☐ Focus  ✔ Submit →",
+    "Which focus areas should be enabled?",
+    "❯ ☐ Performance",
+    "  ☑ Tests",
+    "  ☐ Docs",
+    "",
+    "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+  ].join("\n");
+  const parsed = hostPlugin.parsePrompt(multi);
+  eq(parsed?.multiSelect, true, "checkbox section is multi-select");
+  eq(parsed?.selectedValues, ["2"], "checkbox parser extracts selected values");
+  eq(hostPlugin.buildPromptResponse(10004, multi), ["IA==", "ag==", "IA==", "ag==", "IA==", "CQ=="], "multi-select confirm toggles desired mask then advances");
+}
+
 console.log("\n--- imageSend strategy ---\n");
 
 eq(plugin.imageSend?.method, "clipboard-paste", "imageSend method is clipboard-paste");
@@ -143,7 +187,6 @@ assert(plugin.titlePattern instanceof RegExp, "titlePattern is a RegExp");
 assert(Array.isArray(plugin.noisePatterns) && plugin.noisePatterns.length > 0, "noisePatterns is non-empty array");
 
 console.log("\n--- parseSessionDelta hardening ---\n");
-const hostPlugin = loadHostPlugin();
 const chunk = [
   JSON.stringify({ type: "assistant", uuid: "ok", message: { content: [{ type: "text", text: "good" }] } }),
   '{"type":"assistant","message":"not-an-array-or-string"}',
