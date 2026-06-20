@@ -1,0 +1,24 @@
+kandrey@ROC-6W49K3GN rt3-capture % bash /tmp/codeterm-spawn-eaf876c2-3fdc-4f2c-89fb-cf4e603b5d4f.sh
+╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ Improved auto mode safety: destructive git commands (`git rese… │
+│                        ▘▘ ▝▝                       │ Added a warning when the requested model is deprecated or auto… │
+│                                                    │ Added `attribution.sessionUrl` setting to omit the claude.ai s… │
+│ Opus 4.8 with high effort · Claude Team · 8x8 RD 2 │ /release-notes for more                                         │
+│              /private/tmp/rt3-capture              │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Reply with exactly: OK
+
+⏺ OK
+
+✻ Cooked for 1s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents                                                 ● high · /effort

@@ -1,0 +1,25 @@
+{
+  "provider": "claude",
+  "unit": "provider_screen",
+  "expected": {
+    "parsePrompt": {
+      "question": "Which deployment strategy should we use to roll out the new release to production?",
+      "options": [
+        {
+          "label": "Blue-Green — Stand up a full parallel environment and switch traffic over at once. Tradeoff: Instant rollback and zero-downtime cutover, but doubles infrastructure cost during the overlap.",
+          "value": "A"
+        },
+        {
+          "label": "Canary — Route a small percentage of traffic to the new version, then ramp up as metrics stay healthy. Tradeoff: Limits blast radius and catches issues early with real traffic, but is slower to fully roll out and needs solid monitoring/automation to be safe.",
+          "value": "B"
+        },
+        {
+          "label": "Rolling Update — Replace instances in batches until the whole fleet runs the new version. Tradeoff: Cheap and simple with no extra infrastructure, but rollback is slow and both versions run simultaneously mid-deploy.",
+          "value": "C"
+        }
+      ],
+      "multi_select": false,
+      "submit_available": false
+    }
+  }
+}

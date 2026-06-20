@@ -1,0 +1,46 @@
+{
+  "provider": "claude",
+  "unit": "provider_screen",
+  "expected": {
+    "parsePrompt": {
+      "question": "Setup Wizard",
+      "options": [
+        {
+          "label": "Express — recommended defaults, fastest setup",
+          "value": "A"
+        },
+        {
+          "label": "Custom — choose components and paths yourself",
+          "value": "B"
+        },
+        {
+          "label": "Minimal — core only, add features later",
+          "value": "C"
+        },
+        {
+          "label": "Local disk — keep everything on this machine",
+          "value": "A"
+        },
+        {
+          "label": "Network share — store on a shared server",
+          "value": "B"
+        },
+        {
+          "label": "Cloud sync — back up to your cloud account",
+          "value": "C"
+        }
+      ],
+      "sections": [
+        {
+          "label": "Installation Type",
+          "active": true
+        },
+        {
+          "label": "Data Location"
+        }
+      ],
+      "multi_select": false,
+      "submit_available": false
+    }
+  }
+}
