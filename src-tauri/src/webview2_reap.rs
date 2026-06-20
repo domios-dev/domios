@@ -77,10 +77,7 @@ fn should_reap(journal: Option<&Webview2Journal>, clean_exit_ts: Option<i64>) ->
     let Some(j) = journal else {
         return false;
     };
-    match clean_exit_ts {
-        Some(ts) if ts >= j.started_at_s => false,
-        _ => true,
-    }
+    !matches!(clean_exit_ts, Some(ts) if ts >= j.started_at_s)
 }
 
 /// Survivors to kill: exact WebView2 image, parented to our journaled owner,
