@@ -20,19 +20,27 @@
   bracketed-paste is an ANTI-signal (shells set it on every line prompt → use to EXCLUDE
   the normal shell); `?1049h` alt-screen is high-precision but full-screen-only. Keys on
   protocol brackets, not vendor menu text — fits "structural fingerprints, never strings."
-- **Structured channels BEAT scraping for the 3 first-class agents** — the highest-leverage
-  finding. Claude `--permission-prompt-tool` / `canUseTool`; Codex `app-server` JSON-RPC;
-  Cursor ACP `session/request_permission`. These hand us the exact question + options + a
-  PROGRAMMATIC answer path — deterministic, no terminal scraping. Use them for known
-  agents; the generic output detector is the FALLBACK for opaque TUIs (aider, open-
-  interpreter, fzf, gh, npm, ssh).
+- **Structured channels beat scraping — but ONLY for the APPROVAL/permission class** (be
+  precise; the earlier framing was too broad). Claude `--permission-prompt-tool` /
+  `canUseTool`; Codex `app-server` JSON-RPC; Cursor ACP `session/request_permission` route
+  *tool/command-approval* requests to a PROGRAM (the host) instead of drawing a TUI yes/no
+  prompt — handing us {tool, input, question} + a programmatic allow/deny path,
+  deterministic, no scraping. This covers the very common "agent wants to run X — approve?"
+  prompts. It does NOT cover `/model` selection, arbitrary menus ("[Demo] 1/2/3"), or
+  free-form clarifying questions — those are not routed through the permission hook and
+  still need the generic DECSET detector, EVEN on known agents. Caveat: CodeTerm runs these
+  agents as interactive PTYs, so using the channel means launching e.g. claude with
+  `--permission-prompt-tool` wired to a CodeTerm-side handler (we already do MCP/settings
+  integration — `hasHooks`, `claude_settings_json`); verify it works in interactive mode,
+  else the approval class also falls back to the generic detector.
 
 ## Architecture — two-tier, general-in-core / specific-in-plugin
 ```
-                         ┌── TIER 1 (preferred, deterministic) ──┐
+                         ┌── TIER 1 (APPROVAL/permission class ONLY, deterministic) ──┐
  agent/CLI ── PTY ──►    PLUGIN structured channel  (claude permission-tool /
                          codex app-server / cursor ACP request_permission)
-                              → { question, options[], answer(choice) }   ─┐
+                              → { tool, input, question, answer(allow/deny) }   ─┐
+                         (model-picker / menus / free-form Qs do NOT use this)   │
    (same stream)                                                          │→ PaneAttentionState
                          ┌── TIER 2 (generic fallback) ──┐               │   { presented_options |
  [CORE] semantic_marker + SignalExtractor:                                │     clarifying_question,
@@ -48,6 +56,23 @@ Core stays generic: it only emits `picker_active` (DECSET+quiescence) + the rend
 grid. The plugin decides what the picker MEANS and how to answer — via its structured
 channel (tier 1) or by declaring how to read/drive the grid (tier 2). register + consume;
 core matches no vendor string.
+
+## Scope clarifications (Andrey Qs)
+- **Folder-trust prompts ("Do you trust the files in this folder?")** are NOT the
+  approval/permission channel — they're a startup TUI prompt. They go through the GENERIC
+  DECSET detector (yes/no/menu + quiescence) → card in chat. Candidate for an explicit
+  auto-trust policy (it's the user's own workspace) but trust is security-sensitive →
+  default surface/ask unless a policy opts in.
+- **Agents differ** (claude: folder-trust + tool-permission; codex: app-server approval;
+  cursor: ACP; opencode: its own). The two-tier design absorbs this: generic detector is
+  the common denominator (catches any prompt); structured channels deterministically cover
+  the approval class where they exist.
+- **Do we need an MCP?** Only for the claude approval channel, and optionally:
+  `--permission-prompt-tool` points claude at an MCP tool we register, so approval requests
+  reach us programmatically. Codex uses app-server JSON-RPC (NOT MCP); cursor uses ACP
+  (its own). The GENERIC detector (folder-trust, `/model`, menus, free-form questions)
+  needs NO MCP — it reads the output + sends keys. So MCP = one optional path for one class
+  on one agent, never a universal requirement.
 
 ## What this unlocks (Andrey's use-cases)
 - `/model` with no arg → model picker rendered as buttons in chat; click sends the choice
@@ -91,5 +116,11 @@ core matches no vendor string.
 - Auto-response is default-deny + hard-deny guards + audit; destructive never auto.
 - Core generic (picker_active + grid); plugin owns meaning/answer/category. No vendor
   strings in core.
+- **Structured channels (tier-1) live ENTIRELY in the plugin** (claude MCP permission-tool,
+  codex app-server, cursor ACP) — core has ZERO MCP/app-server/provider specifics. Their
+  output funnels into the SAME unified `PaneAttentionState` that the generic detector feeds,
+  so the chat + core treat tier-1 and tier-2 identically. If a structured channel works for
+  a provider → great, add it plugin-side; it must still pass through the general case. Cover
+  more providers/cases incrementally — never hardcode one into core.
 
 <!-- revision: 1 -->
