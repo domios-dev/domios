@@ -389,8 +389,11 @@ impl ServiceContext {
                                 let steps = agent_type
                                     .as_deref()
                                     .and_then(|at| {
-                                        self.agent_registry
-                                            .build_prompt_response(at, ack.option_index)
+                                        self.agent_registry.build_prompt_response(
+                                            at,
+                                            ack.option_index,
+                                            screen_text.unwrap_or(""),
+                                        )
                                     })
                                     .unwrap_or_else(|| default_prompt_response(ack.option_index));
                                 write_prompt_steps(self.pty.clone(), pty_id, steps);

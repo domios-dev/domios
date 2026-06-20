@@ -320,11 +320,12 @@ impl AgentRegistry {
         &self,
         agent_type: &str,
         option_index: usize,
+        screen: &str,
     ) -> Option<Vec<Vec<u8>>> {
         let guard = self.providers.read();
         guard
             .get(agent_type)
-            .map(|p| p.build_prompt_response(option_index))
+            .map(|p| p.build_prompt_response(option_index, screen))
     }
 
     /// Check if any providers are registered.

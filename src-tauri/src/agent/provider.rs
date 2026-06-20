@@ -748,10 +748,12 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Build raw bytes to navigate to and confirm a prompt option.
-    /// `option_index` is 0-based (0 = first option, already selected).
-    /// Default: arrow down keys + Enter (standard ANSI).
+    /// `option_index` is 0-based (0 = first option). `screen` is the cleaned
+    /// terminal text the prompt is on — providers whose highlight isn't the top
+    /// row (cursor's /model lands on the CURRENT model) read it to navigate
+    /// relative to the live highlight. Default ignores it: arrow down + Enter.
     /// Providers override for agent-specific navigation (e.g. vim j/k).
-    fn build_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
+    fn build_prompt_response(&self, option_index: usize, _screen: &str) -> Vec<Vec<u8>> {
         let mut steps = Vec::new();
         let arrow_down = b"\x1b[B".to_vec(); // ESC [ B
         for _ in 0..option_index {

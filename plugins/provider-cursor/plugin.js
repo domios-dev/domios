@@ -81,16 +81,23 @@ var plugin = {
   parsePrompt(text) {
     return parseCursorPrompt(String(text || ""));
   },
-  // Cursor menus are vertical lists navigated with ↑/↓ + Enter; default
-  // highlight is the top row, so move down `optionIndex` times then Enter.
-  // Esc-cancel is handled by the host's separate cancel path. Base64 byte
-  // steps: down=ESC[B, enter=\r.
-  buildPromptResponse(optionIndex) {
+  // Cursor menus are vertical lists navigated with ↑/↓ + Enter. The highlight is
+  // NOT the top row — the /model picker lands the → selector on the CURRENT model —
+  // so navigate RELATIVE to the live highlight (delta = target − current), not from
+  // the top. `screen` is the cleaned terminal text the host passes for this reason;
+  // absent it, fall back to top-start. Esc-cancel is the host's separate path.
+  // Base64 byte steps: down=ESC[B, up=ESC[A, enter=\r.
+  buildPromptResponse(optionIndex, screen) {
     const DOWN = "G1tC";
+    const UP = "G1tB";
     const ENTER = "DQ==";
+    const target = optionIndex > 0 ? optionIndex : 0;
+    const current = screen ? cursorHighlightIndex(String(screen)) : -1;
+    const start = current >= 0 ? current : 0;
+    const delta = target - start;
+    const key = delta >= 0 ? DOWN : UP;
     const steps = [];
-    const n = optionIndex > 0 ? optionIndex : 0;
-    for (let i = 0; i < n; i++) steps.push(DOWN);
+    for (let i = 0; i < Math.abs(delta); i++) steps.push(key);
     steps.push(ENTER);
     return steps;
   },
@@ -454,7 +461,7 @@ function findPromptQuestion(lines, firstIdx) {
 function parseCursorPrompt(text) {
   return parseCursorNumberedMenu(text) || parseCursorListMenu(text);
 }
-function parseCursorNumberedMenu(text) {
+function collectCursorNumberedMenu(text) {
   const lines = String(text || "").split("\n").map(cleanPromptLine);
   if (lines.length < 2) return null;
   const start = Math.max(0, lines.length - 25);
@@ -489,11 +496,15 @@ function parseCursorNumberedMenu(text) {
     }
   }
   if (!hasSelector && !hasFooter) return null;
-  const question = findPromptQuestion(lines, cluster[0].idx);
-  const options = cluster.map((o) => [o.label, o.value]);
-  return { question, options };
+  return { question: findPromptQuestion(lines, cluster[0].idx), cluster };
 }
-function parseCursorListMenu(text) {
+function parseCursorNumberedMenu(text) {
+  const c = collectCursorNumberedMenu(text);
+  if (!c) return null;
+  const options = c.cluster.map((o) => [o.label, o.value]);
+  return { question: c.question, options };
+}
+function collectCursorListMenu(text) {
   const raw = String(text || "").split("\n");
   if (raw.length < 3) return null;
   const start = Math.max(0, raw.length - 30);
@@ -534,8 +545,20 @@ function parseCursorListMenu(text) {
   }
   if (rows.length < 2) return null;
   if (!rows.some((r) => r.sel) && question === "Select an option") return null;
-  const options = rows.map((r, i) => [r.label, String(i + 1)]);
-  return { question, options };
+  return { question, rows };
+}
+function parseCursorListMenu(text) {
+  const c = collectCursorListMenu(text);
+  if (!c) return null;
+  const options = c.rows.map((r, i) => [r.label, String(i + 1)]);
+  return { question: c.question, options };
+}
+function cursorHighlightIndex(text) {
+  const n = collectCursorNumberedMenu(text);
+  if (n) return n.cluster.findIndex((o) => o.sel);
+  const l = collectCursorListMenu(text);
+  if (l) return l.rows.findIndex((r) => r.sel);
+  return -1;
 }
 function isPaginationLine(t) {
   return /^\d+\s*-\s*\d+\s+of\s+\d+/i.test(t) || /^\d+\s+of\s+\d+$/i.test(t);

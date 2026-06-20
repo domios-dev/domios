@@ -407,10 +407,10 @@ impl AgentProvider for JsProvider {
         crate::agent::detector::parse_permission_prompt(text)
     }
 
-    fn build_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
-        // Plugin returns a list of base64-encoded byte strings, one per PTY write step. Lets plugins emit vim j/k, arrow keys, escape sequences — whatever the TUI expects.
-        if let Some(steps) =
-            self.try_call::<Vec<String>>("buildPromptResponse", &[json!(option_index)])
+    fn build_prompt_response(&self, option_index: usize, screen: &str) -> Vec<Vec<u8>> {
+        // Plugin returns a list of base64-encoded byte strings, one per PTY write step. Lets plugins emit vim j/k, arrow keys, escape sequences — whatever the TUI expects. `screen` lets a plugin navigate relative to the live highlight (cursor /model).
+        if let Some(steps) = self
+            .try_call::<Vec<String>>("buildPromptResponse", &[json!(option_index), json!(screen)])
         {
             use base64::Engine;
             let engine = base64::engine::general_purpose::STANDARD;
