@@ -12,6 +12,7 @@ export interface RecentPush {
 }
 
 interface PeerLayout {
+  id: string;
   name: string;
   ip: string;
   x: number;
@@ -20,6 +21,9 @@ interface PeerLayout {
   isPaired?: boolean;
   accessLevel?: string;
   isGhost?: boolean;
+  servicesStale?: boolean;
+  servicesError?: string | null;
+  servicesLoaded?: boolean;
 }
 
 interface PushStats {
@@ -76,6 +80,7 @@ export function MeshCanvas({
     const radius = Math.max(minRadius, dynamicRadius);
     const items: PeerLayout[] = [
       {
+        id: "__self__",
         name: thisMachine.name,
         ip: thisMachine.ip,
         x: cx,
@@ -87,16 +92,21 @@ export function MeshCanvas({
       const angle =
         (i / Math.max(peers.length, 1)) * Math.PI * 2 - Math.PI / 2;
       items.push({
+        id: p.instance_id,
         name: p.name,
         ip: p.ip,
         x: cx + Math.cos(angle) * radius,
         y: cy + Math.sin(angle) * radius,
         isPaired: true,
         accessLevel: p.access_level,
+        servicesStale: p.services_stale,
+        servicesError: p.services_error,
+        servicesLoaded: p.services_loaded,
       });
     });
     if (showGhost) {
       items.push({
+        id: "__ghost_add_peer__",
         name: "__ghost_add_peer__",
         ip: "",
         x: cx + radius,
@@ -113,7 +123,7 @@ export function MeshCanvas({
         `${thisMachine.name}@${thisMachine.ip}`,
         showGhost ? "ghost" : "no-ghost",
         peers
-          .map((p) => `${p.name}@${p.ip}:${p.access_level ?? ""}`)
+          .map((p) => `${p.instance_id}:${p.name}@${p.ip}:${p.access_level ?? ""}:${p.services_stale ?? ""}:${p.services_error ?? ""}`)
           .sort()
           .join("|"),
       ].join("::"),
@@ -124,15 +134,15 @@ export function MeshCanvas({
   const remoteLayout = useMemo(() => layout.slice(1), [layout]);
   const serviceByPeer = useMemo(() => {
     const grouped = new Map<string, Service[]>();
-    grouped.set(thisMachine.name, []);
+    grouped.set("__self__", []);
     for (const s of services) {
-      const key = s.source_peer || thisMachine.name;
+      const key = s.source_peer_id || s.source_peer || "__self__";
       const list = grouped.get(key);
       if (list) list.push(s);
       else grouped.set(key, [s]);
     }
     return grouped;
-  }, [services, thisMachine.name]);
+  }, [services]);
   const pushStatsByPeer = useMemo(() => {
     const now = Date.now();
     const stats = new Map<string, PushStats>();
@@ -403,7 +413,7 @@ export function MeshCanvas({
         </svg>
         {layout.map((p, i) => (
           <div
-            key={`${p.name}-${i}`}
+            key={`${p.id}-${i}`}
             data-peer-card
             style={{
               position: "absolute",
@@ -429,10 +439,13 @@ export function MeshCanvas({
                 isThisMachine={p.isThisMachine}
                 isPaired={p.isPaired}
                 accessLevel={p.accessLevel as "full" | "read_only" | "agent_isolated" | undefined}
-                services={serviceByPeer.get(p.name) ?? []}
+                services={serviceByPeer.get(p.id) ?? []}
                 onClick={() => onPeerClick(p.name)}
                 offline={p.isThisMachine && !meshEnabled}
                 onGoOnline={p.isThisMachine ? onGoOnline : undefined}
+                servicesStale={p.servicesStale}
+                servicesError={p.servicesError}
+                servicesLoaded={p.servicesLoaded}
               />
             )}
           </div>
