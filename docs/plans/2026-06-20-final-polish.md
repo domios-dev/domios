@@ -34,7 +34,10 @@ Round 1 = the campaign's breadth pass (4 slices) — already done. This is round
 - **T2.5** extensions addChannel closes the WebView2 page (PW): no reload in app code →
   harness-only by elimination. **Needs a human GUI repro** (Andrey hand-adds a channel in
   dev; ROG watches health/logs) to fully settle app-vs-harness. Blocked on Andrey.
-- **T2.6** lmstudio not installed on ROG dev → 5 ENV PW fails. ROG-side: install it.
+- **T2.6** lmstudio on ROG dev — install FROM the codeterm-plugins repo (now on origin 0e4ec31, no
+  file-push needed): ROG clones/pulls codeterm-plugins, `plugin install --from-dir <repo>/lmstudio` into
+  ~/.codeterm-dev, sets baseUrl=http://192.168.1.126:1234 (Andrey's LM Studio server), refresh dev,
+  re-run 17-open-shell -> the 5 should run live on Windows.
 
 ## Dispatch (this round)
 1. Review-loop Round 2 — 2 Codex reviewers (R-A fixes-focus, R-B full-diff sweep).

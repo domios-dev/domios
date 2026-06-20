@@ -100,3 +100,29 @@ All in areas the campaign did not touch; surfaced as bonus findings. Your call t
 
 Everything else from smoke+golden cleared on the final tip (theme-select = timing flake; live-agent/
 chat-400 = no-auth harness; voice = no mic). test:plugins 31/0 + tsc clean on Windows; cargo total pending.
+
+## ✅ FINAL-POLISH + REVIEW LOOP — COMPLETE (tip 0a119467)
+Track 1 (iterative Codex review LOOP, the converge-until-dry loop Andrey asked for):
+- Round 1 (breadth, 4 slices) -> wave-1/2/3 fixes (earlier campaign).
+- Round 2 (adversarial-on-fixes + full-diff sweep) -> found 1 HIGH (emit_state_changed coalesce
+  dropped fast follow-up mutations) + 4 MED + 3 LOW. ALL FIXED+merged: state-delivery (coalesce-
+  after-window + focused_pane_id carry), cursor (session existence-gate + trust JSON escape),
+  daemon-CLI in-process plugin-mgmt crate (stops daemon shelling its own CLI), W2 restore/spawn
+  (reopen TOCTOU recheck + /api/panes spawnable-gate + launch rollback + closed-store delete-Result).
+- Round 3 (re-review the round-2 fixes) -> ALL CLEAN, zero HIGH/MED; 1 LOW (focus-ghost) fixed.
+- CONVERGED: round 3 surfaced no new HIGH/MED -> loop DRY -> Track 1 closed.
+Track 2 (deferred items): T2.1 web-access selector (fixed; surface-mismatch noted -> ROG), T2.2
+keybinding (renderKbd correct; test-helper fix -> ROG), T2.3 FE claude-defaults->registry (fixed),
+T2.4 daemon-CLI in-process (done), T2.6 lmstudio-on-ROG (WORKS on Windows vs live LM Studio; the 5
+fails were a stale kind==='shell' test -> ROG). T2.5 extensions WebView2 = needs Andrey GUI repro.
+Local final: cargo 1875/0, test:unit green, all 9 check-scripts, pre-push hook green every push.
+
+## OPEN — Windows tab-open/empty-terminal bug (real, under ROG investigation)
+Andrey reports plain terminal tabs open EMPTY (blinking caret, no shell prompt) on Windows; agents
+(claude/opencode/cursor) also affected; lmstudio (chatBackend, no PTY) works. NOT the daemon (clean
+manual shutdown). ROG (peer orchestrator, cleared to fix) is bisecting 41c8e57d..0a119467 + using a
+discriminator: shell-bytes-present-but-FE-empty => state-delivery/coalesce (Dante's area, examined,
+looks correct, revert only with evidence); no-bytes/no-process => ConPTY (ROG owns+fixes). Awaiting
+ROG's runtime evidence. This is the last open item before release-readiness re-confirmation.
+
+<!-- revision: 3 -->

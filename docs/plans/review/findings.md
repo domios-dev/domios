@@ -77,3 +77,7 @@ CLEAN: cli/cmd/plugin.rs split done (remove from allowlist).
 - network-detection web-access (2): possible Windows addr-selection diff but pre-existing (no campaign code touches it); ROG checking vs prod.
 - UI-not-found (5): untouched flows; pre-existing/harness; extensions improves post-wave3 (TTL+force-refresh).
 - DEFINITIVE: ROG re-runs on FINAL tip after wave-3. macOS desktop golden N/A (PW = Windows/WebView2 only).
+
+## ROG Windows env notes (low-prio)
+- build.ps1: a DEV build hard-fails if it can't overwrite the PROD CLI bin (~/.codeterm/bin/codeterm.exe 'Device or resource busy' when a prod CLI call holds it). Windows-only lock. Hardening: dev build shouldn't touch/require the prod CLI bin, or retry/skip on lock.
+- daemon-down (Andrey's empty-terminal report) was a MANUAL shutdown, not a crash (clean log). Real bug = tab-open/empty-terminal vs healthy daemon — ROG bisecting (suspect 04932c1b state-coalesce = Dante's area).
