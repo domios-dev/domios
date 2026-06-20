@@ -1,0 +1,11 @@
+{
+  "provider": "opencode",
+  "scenario": "multi-turn",
+  "run": 1,
+  "provider_version": "1.17.8",
+  "cli_version": "1.17.8",
+  "capturedAtMs": 1781998815141,
+  "source": "state-capture.sh dev-7686",
+  "paneId": "e7d15db8",
+  "workspaceId": "540737e6"
+}
