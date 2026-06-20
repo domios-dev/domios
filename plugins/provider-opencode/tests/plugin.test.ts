@@ -235,13 +235,52 @@ console.log("\n--- parsePrompt (horizontal option row) ---\n");
   eq(p.parsePrompt("just some normal assistant output\nwith no permission box"), null, "non-prompt output → null");
 }
 
+console.log("\n--- parsePrompt (vertical numbered question picker) ---\n");
+{
+  const p = loadOpencodeWithHost(ocHost({}));
+  const fixture = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "question-picker.txt"),
+    "utf8",
+  );
+  const parsed = p.parsePrompt(fixture);
+  eq(parsed && parsed.question, "Выбери, что хочешь увидеть:", "parsePrompt extracts the question picker header");
+  assert(!!parsed && parsed.options.length >= 2, "parsePrompt extracts at least two question picker options");
+  eq(
+    parsed && parsed.options,
+    [
+      ["A — Исследовать код", "1"],
+      ["Б — Подкорректировать файл", "2"],
+      ["В — Запустить тесты/сборку", "3"],
+      ["Г — Поискать в коде", "4"],
+      ["Type your own answer", "5"],
+    ],
+    "parsePrompt extracts numbered question picker options",
+  );
+  assert(p.hasEventMarkers("↑↓ select  enter submit  esc dismiss"), "hasEventMarkers fires on question picker footer");
+  assert(p.hasEventMarkers("2. Б — Подкорректировать файл"), "hasEventMarkers fires on numbered question picker row");
+  eq(p.detectEvents(fixture), ["permission_request"], "detectEvents surfaces question picker as waiting input");
+  eq(p.buildPromptResponse(2, fixture), ["G1tC", "G1tC", "DQ=="], "vertical without visible highlight falls back to top-start");
+
+  const highlighted = fixture.replace("3. В — Запустить тесты/сборку", "❯ 3. В — Запустить тесты/сборку");
+  p.parsePrompt(highlighted);
+  eq(p.buildPromptResponse(4, highlighted), ["G1tC", "G1tC", "DQ=="], "vertical target below highlight → down ×2 + Enter");
+  eq(p.buildPromptResponse(0, highlighted), ["G1tB", "G1tB", "DQ=="], "vertical target above highlight → up ×2 + Enter");
+}
+
 console.log("\n--- buildPromptResponse (horizontal ←/→ nav, NOT down) ---\n");
 {
   const p = loadOpencodeWithHost(ocHost({}));
+  const screen = [
+    "│ Permission required                       │",
+    "│ Run `rm -rf build`?                        │",
+    "│                                            │",
+    "│   Allow once   Allow always   Reject       │",
+  ].join("\n");
+  p.parsePrompt(screen);
   // value=1 → optionIndex 0 → just Enter (leftmost already highlighted).
-  eq(p.buildPromptResponse(0), ["DQ=="], "index 0 → Enter only");
+  eq(p.buildPromptResponse(0, screen), ["DQ=="], "index 0 → Enter only");
   // value=3 → optionIndex 2 → right, right, Enter (NOT down×2).
-  eq(p.buildPromptResponse(2), ["G1tD", "G1tD", "DQ=="], "index 2 → right ×2 + Enter (ESC[C, not ESC[B)");
+  eq(p.buildPromptResponse(2, screen), ["G1tD", "G1tD", "DQ=="], "index 2 → right ×2 + Enter (ESC[C, not ESC[B)");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

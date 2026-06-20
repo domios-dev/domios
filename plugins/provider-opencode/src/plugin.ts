@@ -20,6 +20,9 @@ const OUTPUT_SIGNALS = [
   "╹",
 ];
 const TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
+const QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
+const QUESTION_MENU_SELECTORS = [">", "❯", "▶", "➤", "→"];
+let lastPromptShape: "horizontal" | "vertical" = "horizontal";
 
 const plugin: PluginModule = {
   detectFromTitle(title: string): boolean {
@@ -64,7 +67,13 @@ const plugin: PluginModule = {
 
   hasEventMarkers(chunk: string): boolean {
     const c = String(chunk || "");
-    return c.indexOf("Permission required") !== -1 || c.indexOf("approve") !== -1;
+    const lc = c.toLowerCase();
+    return (
+      c.indexOf("Permission required") !== -1 ||
+      lc.indexOf("approve") !== -1 ||
+      chunkHasQuestionMenuRow(c) ||
+      (lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1)
+    );
   },
 
   detectEvents(text: string): string[] {
@@ -73,7 +82,8 @@ const plugin: PluginModule = {
     if (
       t.indexOf("Permission required") !== -1 ||
       t.indexOf("Allow this tool call") !== -1 ||
-      t.indexOf("Approve this command") !== -1
+      t.indexOf("Approve this command") !== -1 ||
+      parseQuestionMenuPrompt(t)
     ) {
       events.push("permission_request");
     }
@@ -86,63 +96,29 @@ const plugin: PluginModule = {
     return discoverOpencodeModels() || manifestModels();
   },
 
-  // Parse opencode's permission box. Its options are a single horizontal row
-  // ("Allow once  Allow always  Reject") rather than a numbered list, so the
-  // host's universal picker can't read it — the plugin owns its own format.
-  // Returns { question, options: [[label, value]] } with value = 1-based index,
-  // or null. The host navigates to the option via build_prompt_response(index).
+  // Parse opencode prompt boxes into host cards; the plugin remembers the shape
+  // because response bytes depend on horizontal vs vertical navigation.
   parsePrompt(text: string): ParsedPrompt | null {
-    // Strip box borders / decorations so labels and the question stay clean
-    // regardless of how opencode frames the dialog.
-    function clean(line: string): string {
-      return String(line)
-        .replace(/[│┃|╎╏┆┊]/g, " ")
-        .replace(/^[\s←⚠»·]+/, "")
-        .replace(/[\s·»]+$/, "")
-        .trim();
-    }
-    const lines = String(text || "").split("\n").map(clean);
-    let permIdx = -1;
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].indexOf("Permission required") !== -1) { permIdx = i; break; }
-    }
-    if (permIdx < 0) return null;
-
-    // Options row: the line with the action words below the prompt.
-    let optLine: string | null = null;
-    for (let j = permIdx; j < lines.length; j++) {
-      const lc = lines[j].toLowerCase();
-      if (
-        (lc.indexOf("allow") !== -1 || lc.indexOf("reject") !== -1 || lc.indexOf("deny") !== -1) &&
-        lc.indexOf("permission required") === -1
-      ) { optLine = lines[j]; break; }
-    }
-    if (!optLine) return null;
-    const labels = optLine.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean);
-    if (labels.length < 2) return null;
-    const options: [string, string][] = labels.map((label, idx) => [label, String(idx + 1)]);
-
-    // Question: first meaningful line after the prompt, skipping the
-    // "Patterns" label and blank/decoration-only lines.
-    let question = "";
-    for (let k = permIdx + 1; k < lines.length; k++) {
-      const q = lines[k];
-      if (q && q.toLowerCase() !== "patterns") { question = q; break; }
-    }
-    if (!question) question = "Permission required";
-    return { question: question, options: options };
+    return parseQuestionMenuPrompt(String(text || "")) || parsePermissionPrompt(String(text || ""));
   },
 
-  // opencode's permission options are a HORIZONTAL row navigated with ←/→, not a
-  // vertical list — the host default (down × N + Enter) would mis-navigate. The
-  // default highlight is the leftmost option, so move right `optionIndex` times
-  // then Enter. Base64-encoded byte steps: right=ESC[C, enter=\r.
-  buildPromptResponse(optionIndex: number): string[] {
+  // opencode has both horizontal permission rows and vertical question menus.
+  buildPromptResponse(optionIndex: number, screen?: string): string[] {
+    const DOWN = "G1tC";  // ESC [ B
+    const UP = "G1tB";    // ESC [ A
     const RIGHT = "G1tD"; // ESC [ C
     const ENTER = "DQ==";  // \r
     const steps: string[] = [];
-    const n = optionIndex > 0 ? optionIndex : 0;
-    for (let i = 0; i < n; i++) steps.push(RIGHT);
+    const target = optionIndex > 0 ? optionIndex : 0;
+    if (lastPromptShape === "vertical") {
+      const current = screen ? questionMenuHighlightIndex(String(screen)) : -1;
+      const start = current >= 0 ? current : 0;
+      const delta = target - start;
+      const move = delta >= 0 ? DOWN : UP;
+      for (let i = 0; i < Math.abs(delta); i++) steps.push(move);
+    } else {
+      for (let i = 0; i < target; i++) steps.push(RIGHT);
+    }
     steps.push(ENTER);
     return steps;
   },
@@ -347,6 +323,124 @@ interface OpencodePart {
   text?: string;
   tool?: string;
   state?: { input?: unknown; output?: unknown };
+}
+
+function parsePermissionPrompt(text: string): ParsedPrompt | null {
+  const lines = String(text || "").split("\n").map(cleanPromptLine);
+  let permIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].indexOf("Permission required") !== -1) { permIdx = i; break; }
+  }
+  if (permIdx < 0) return null;
+
+  let optLine: string | null = null;
+  for (let j = permIdx; j < lines.length; j++) {
+    const lc = lines[j].toLowerCase();
+    if (
+      (lc.indexOf("allow") !== -1 || lc.indexOf("reject") !== -1 || lc.indexOf("deny") !== -1) &&
+      lc.indexOf("permission required") === -1
+    ) { optLine = lines[j]; break; }
+  }
+  if (!optLine) return null;
+  const labels = optLine.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean);
+  if (labels.length < 2) return null;
+
+  let question = "";
+  for (let k = permIdx + 1; k < lines.length; k++) {
+    const q = lines[k];
+    if (q && q.toLowerCase() !== "patterns") { question = q; break; }
+  }
+  lastPromptShape = "horizontal";
+  return {
+    question: question || "Permission required",
+    options: labels.map((label, idx) => [label, String(idx + 1)]),
+  };
+}
+
+interface QuestionMenuCluster {
+  question: string;
+  cluster: { value: string; label: string; idx: number; sel: boolean }[];
+}
+
+function collectQuestionMenuPrompt(text: string): QuestionMenuCluster | null {
+  const lines = String(text || "").split("\n").map(cleanPromptLine);
+  const start = Math.max(0, lines.length - 30);
+  const rows: { value: string; label: string; idx: number; sel: boolean }[] = [];
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i];
+    const m = QUESTION_MENU_RE.exec(line);
+    if (m && m[2].trim()) {
+      rows.push({ value: m[1], label: m[2].trim(), idx: i, sel: isQuestionMenuSelected(line) });
+    }
+  }
+  if (rows.length < 2) return null;
+
+  const cluster: typeof rows = [];
+  let prev = rows[rows.length - 1].idx;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (prev - rows[i].idx <= 2 || cluster.length === 0) {
+      cluster.unshift(rows[i]);
+      prev = rows[i].idx;
+    } else break;
+  }
+  if (cluster.length < 2 || !hasQuestionMenuFooter(lines, cluster[cluster.length - 1].idx)) return null;
+
+  let question = "";
+  for (let i = cluster[0].idx - 1; i >= start && cluster[0].idx - i <= 6; i--) {
+    const q = lines[i];
+    if (q && q.charAt(0) !== "#" && !isQuestionMenuFooter(q)) { question = q; break; }
+  }
+  return { question: question || "Select an option", cluster: cluster };
+}
+
+function parseQuestionMenuPrompt(text: string): ParsedPrompt | null {
+  const c = collectQuestionMenuPrompt(text);
+  if (!c) return null;
+  lastPromptShape = "vertical";
+  return {
+    question: c.question,
+    options: c.cluster.map((row) => [row.label, row.value]),
+  };
+}
+
+function cleanPromptLine(line: string): string {
+  return String(line)
+    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[│┃|╎╏┆┊╭╮╯╰]/g, " ")
+    .replace(/^[\s←⚠»·]+/, "")
+    .replace(/[\s·»]+$/, "")
+    .trim();
+}
+
+function chunkHasQuestionMenuRow(chunk: string): boolean {
+  const lines = String(chunk || "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (QUESTION_MENU_RE.test(cleanPromptLine(lines[i]))) return true;
+  }
+  return false;
+}
+
+function questionMenuHighlightIndex(text: string): number {
+  const c = collectQuestionMenuPrompt(text);
+  if (!c) return -1;
+  return c.cluster.findIndex((row) => row.sel);
+}
+
+function isQuestionMenuSelected(line: string): boolean {
+  const first = String(line || "").trim().charAt(0);
+  return QUESTION_MENU_SELECTORS.indexOf(first) !== -1;
+}
+
+function hasQuestionMenuFooter(lines: string[], lastOptionIdx: number): boolean {
+  for (let i = lastOptionIdx + 1; i < Math.min(lines.length, lastOptionIdx + 7); i++) {
+    if (isQuestionMenuFooter(lines[i])) return true;
+  }
+  return false;
+}
+
+function isQuestionMenuFooter(line: string): boolean {
+  const lc = String(line || "").toLowerCase();
+  return lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
 }
 
 function discoverOpencodeModels(): ModelInfo[] | null {
