@@ -69,7 +69,7 @@ var plugin = {
     const c = String(chunk || "");
     return c.indexOf("Would you like") !== -1 || c.indexOf("approve") !== -1 || c.indexOf("run the following") !== -1 || c.indexOf("make the following") !== -1 || c.indexOf("grant these permissions") !== -1 || // Picker/menu screens (/model, /permissions, update) so the host reads the
     // screen off the auto-approve path; the universal numbered parser then extracts.
-    c.indexOf("to confirm") !== -1 || c.indexOf("esc to go back") !== -1 || c.indexOf("\u203A") !== -1 || c.indexOf("\u276F") !== -1;
+    c.indexOf("to confirm") !== -1 || c.indexOf("esc to go back") !== -1 || c.indexOf("Select Model") !== -1 || c.indexOf("Select Reasoning") !== -1 || c.indexOf("\u203A") !== -1 || c.indexOf("\u276F") !== -1;
   },
   detectEvents(text) {
     const t = String(text || "");
@@ -78,6 +78,12 @@ var plugin = {
       events.push("permission_request");
     }
     return events;
+  },
+  parsePrompt(text) {
+    return parseCodexNumberedPrompt(String(text || ""));
+  },
+  buildPromptResponse(optionIndex, screen) {
+    return responseKeysForIndex(optionIndex, String(screen || ""));
   },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels() {
@@ -435,16 +441,79 @@ var plugin = {
   }
 };
 var CLASSIFY_THRESHOLD = 0.8;
-var MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+var MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
 function parseMenuOptions(screen) {
   const lines = String(screen || "").split("\n");
   const options = [];
   for (let i = 0; i < lines.length; i++) {
     const m = MENU_OPTION_RE.exec(lines[i]);
     if (!m) continue;
-    options.push({ highlighted: !!m[1], label: m[3] });
+    options.push({ highlighted: !!m[1], label: m[3].trim(), value: m[2], line: i });
   }
   return options;
+}
+function activeMenuOptions(screen) {
+  const all = parseMenuOptions(screen);
+  if (all.length < 2) return [];
+  const cluster = [];
+  let prev = all[all.length - 1].line;
+  for (let i = all.length - 1; i >= 0; i--) {
+    if (prev - all[i].line <= 2 || cluster.length === 0) {
+      cluster.unshift(all[i]);
+      prev = all[i].line;
+    } else {
+      break;
+    }
+  }
+  return cluster.length >= 2 ? cluster : [];
+}
+function promptFooterNear(lines, lastLine) {
+  for (let i = lastLine; i < Math.min(lines.length, lastLine + 5); i++) {
+    const t = lines[i].toLowerCase();
+    if ((t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) && (t.indexOf("confirm") !== -1 || t.indexOf("go back") !== -1 || t.indexOf("cancel") !== -1 || t.indexOf("continue") !== -1)) return true;
+  }
+  return false;
+}
+function questionForMenu(lines, firstLine) {
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 5; i--) {
+    const t = lines[i].trim();
+    if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
+  }
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 3; i--) {
+    const t = lines[i].trim();
+    if (t.length > 3) return t;
+  }
+  return "Permission required";
+}
+function parseCodexNumberedPrompt(screen) {
+  const lines = String(screen || "").split("\n");
+  const options = activeMenuOptions(screen);
+  if (options.length < 2) return null;
+  const hasSelector = options.some((o) => o.highlighted);
+  const hasFooter = promptFooterNear(lines, options[options.length - 1].line);
+  if (!hasSelector && !hasFooter) return null;
+  const question = questionForMenu(lines, options[0].line);
+  return { question, options: options.map((o) => [o.label, o.value]) };
+}
+function responseKeysForIndex(optionIndex, screen) {
+  const DOWN = "G1tC";
+  const UP = "G1tB";
+  const ENTER = "DQ==";
+  const options = activeMenuOptions(screen);
+  let highlightIdx = 0;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  const target = optionIndex > 0 ? optionIndex : 0;
+  const delta = target - highlightIdx;
+  const steps = [];
+  if (delta > 0) for (let i = 0; i < delta; i++) steps.push(DOWN);
+  else if (delta < 0) for (let i = 0; i < -delta; i++) steps.push(UP);
+  steps.push(ENTER);
+  return steps;
 }
 function skipNavigationKeys(options) {
   if (options.length === 0) return null;

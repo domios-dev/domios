@@ -313,6 +313,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_parse_codex_model_picker_fixture_last_cluster() {
+        let text = include_str!("../../../plugins/provider-codex/tests/fixtures/model-picker.txt");
+        let result = parse_interactive_picker(text).expect("codex fixture parses");
+        assert_eq!(result.question, "Select Reasoning Level for gpt-5.5");
+        assert_eq!(result.selected_index, Some(1));
+        assert_eq!(result.options.len(), 4);
+        assert_eq!(result.options[0].1, "1");
+        assert_eq!(result.options[3].1, "4");
+    }
+
     // --- Structural fingerprint edge cases ---
 
     #[test]

@@ -1,6 +1,6 @@
 // Codex provider plugin runtime logic, compiled to QuickJS-compatible plugin.js
 // by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
-import type { LaunchParams, ModelInfo, PluginModule } from "@codeterm/plugin-sdk";
+import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 
 const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 const TITLE_RE = /codex/i;
@@ -64,6 +64,8 @@ const plugin: PluginModule = {
       // screen off the auto-approve path; the universal numbered parser then extracts.
       c.indexOf("to confirm") !== -1 ||
       c.indexOf("esc to go back") !== -1 ||
+      c.indexOf("Select Model") !== -1 ||
+      c.indexOf("Select Reasoning") !== -1 ||
       c.indexOf("›") !== -1 ||
       c.indexOf("❯") !== -1
     );
@@ -81,6 +83,14 @@ const plugin: PluginModule = {
       events.push("permission_request");
     }
     return events;
+  },
+
+  parsePrompt(text: string): ParsedPrompt | null {
+    return parseCodexNumberedPrompt(String(text || ""));
+  },
+
+  buildPromptResponse(optionIndex: number, screen?: string): string[] {
+    return responseKeysForIndex(optionIndex, String(screen || ""));
   },
 
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
@@ -520,10 +530,10 @@ interface PaneStateClassification {
 // Must match the core reactor's GLOBAL_THRESHOLD (state_reactor.rs) — below it the reactor would reject the verdict.
 const CLASSIFY_THRESHOLD = 0.8;
 
-interface MenuOption { highlighted: boolean; label: string }
+interface MenuOption { highlighted: boolean; label: string; value: string; line: number }
 
 // A menu line like `> 1. Label`; the leading glyph (if present) marks the highlighted option.
-const MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+const MENU_OPTION_RE = /^[ \t]*([>❯▶➤›])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
 
 function parseMenuOptions(screen: string): MenuOption[] {
   const lines = String(screen || "").split("\n");
@@ -531,9 +541,78 @@ function parseMenuOptions(screen: string): MenuOption[] {
   for (let i = 0; i < lines.length; i++) {
     const m = MENU_OPTION_RE.exec(lines[i]);
     if (!m) continue;
-    options.push({ highlighted: !!m[1], label: m[3] });
+    options.push({ highlighted: !!m[1], label: m[3].trim(), value: m[2], line: i });
   }
   return options;
+}
+
+function activeMenuOptions(screen: string): MenuOption[] {
+  const all = parseMenuOptions(screen);
+  if (all.length < 2) return [];
+  const cluster: MenuOption[] = [];
+  let prev = all[all.length - 1].line;
+  for (let i = all.length - 1; i >= 0; i--) {
+    if (prev - all[i].line <= 2 || cluster.length === 0) {
+      cluster.unshift(all[i]);
+      prev = all[i].line;
+    } else {
+      break;
+    }
+  }
+  return cluster.length >= 2 ? cluster : [];
+}
+
+function promptFooterNear(lines: string[], lastLine: number): boolean {
+  for (let i = lastLine; i < Math.min(lines.length, lastLine + 5); i++) {
+    const t = lines[i].toLowerCase();
+    if (
+      (t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) &&
+      (t.indexOf("confirm") !== -1 || t.indexOf("go back") !== -1 ||
+        t.indexOf("cancel") !== -1 || t.indexOf("continue") !== -1)
+    ) return true;
+  }
+  return false;
+}
+
+function questionForMenu(lines: string[], firstLine: number): string {
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 5; i--) {
+    const t = lines[i].trim();
+    if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
+  }
+  for (let i = firstLine - 1; i >= 0 && firstLine - i <= 3; i--) {
+    const t = lines[i].trim();
+    if (t.length > 3) return t;
+  }
+  return "Permission required";
+}
+
+function parseCodexNumberedPrompt(screen: string): ParsedPrompt | null {
+  const lines = String(screen || "").split("\n");
+  const options = activeMenuOptions(screen);
+  if (options.length < 2) return null;
+  const hasSelector = options.some((o) => o.highlighted);
+  const hasFooter = promptFooterNear(lines, options[options.length - 1].line);
+  if (!hasSelector && !hasFooter) return null;
+  const question = questionForMenu(lines, options[0].line);
+  return { question: question, options: options.map((o) => [o.label, o.value]) };
+}
+
+function responseKeysForIndex(optionIndex: number, screen: string): string[] {
+  const DOWN = "G1tC";
+  const UP = "G1tB";
+  const ENTER = "DQ==";
+  const options = activeMenuOptions(screen);
+  let highlightIdx = 0;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) { highlightIdx = i; break; }
+  }
+  const target = optionIndex > 0 ? optionIndex : 0;
+  const delta = target - highlightIdx;
+  const steps: string[] = [];
+  if (delta > 0) for (let i = 0; i < delta; i++) steps.push(DOWN);
+  else if (delta < 0) for (let i = 0; i < -delta; i++) steps.push(UP);
+  steps.push(ENTER);
+  return steps;
 }
 
 // Keys to navigate from the highlighted option to "Skip", then confirm. Null when
