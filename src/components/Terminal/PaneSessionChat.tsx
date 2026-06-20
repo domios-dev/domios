@@ -304,7 +304,6 @@ export function PaneSessionChat({
           </div>
         )}
         {enrichedMessages.map(({ msg, origin }) => {
-          const isPending = msg.id.startsWith("opt-");
           let onOriginClick: (() => void) | undefined;
           let originProviderId: string | null | undefined;
           if (origin?.kind === "pane") {
@@ -320,8 +319,6 @@ export function PaneSessionChat({
               key={msg.id}
               data-testid="chat-message"
               data-message-role={msg.type}
-              style={isPending ? { opacity: 0.55 } : undefined}
-              title={isPending ? "sending… (clears when the agent echoes it back)" : undefined}
             >
               <MessageBubble
                 message={msg}
