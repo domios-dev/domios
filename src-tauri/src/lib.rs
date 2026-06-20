@@ -297,6 +297,9 @@ pub fn run() {
             commands_mesh::mesh_scan_peers,
             commands_mesh::mesh_set_access,
             commands_mesh::mesh_peer_services_list,
+            commands_mesh::mesh_peer_service_delete,
+            commands_mesh::mesh_peer_cron_action,
+            commands_mesh::mesh_peer_cron_history,
             // Keep-awake commands
             keepawake::keepawake_start,
             keepawake::keepawake_stop,
