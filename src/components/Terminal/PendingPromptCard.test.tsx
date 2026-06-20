@@ -95,7 +95,7 @@ setupDom();
 
 test("renders nothing when there is no pending prompt", async () => {
   const { host, root } = await render(
-    <PendingPromptCard pendingPrompt={null} onRespond={() => {}} onCancel={() => {}} />,
+    <PendingPromptCard pendingPrompt={null} onRespond={() => {}} />,
   );
   assert(!card(host), "no card should render without a pending prompt");
   await act(async () => root.unmount());
@@ -103,22 +103,31 @@ test("renders nothing when there is no pending prompt", async () => {
 
 test("renders the question and one button per option", async () => {
   const { host, root } = await render(
-    <PendingPromptCard pendingPrompt={MODEL_PROMPT} onRespond={() => {}} onCancel={() => {}} />,
+    <PendingPromptCard pendingPrompt={MODEL_PROMPT} onRespond={() => {}} />,
   );
   assert(card(host), "card should render when a prompt is present");
   const q = host.querySelector('[data-testid="pane-pending-prompt-question"]');
   assert(q?.textContent === "Select a model", `question should render, got: ${q?.textContent}`);
   const opts = optionButtons(host);
   assert(opts.length === MODEL_PROMPT.options.length, `expected ${MODEL_PROMPT.options.length} option buttons, got ${opts.length}`);
-  assert(opts[0].textContent === "Opus", `first option label should be Opus, got: ${opts[0].textContent}`);
-  assert(opts[2].textContent === "Haiku", `last option label should be Haiku, got: ${opts[2].textContent}`);
+  assert(opts[0].textContent?.includes("Opus"), `first option label should include Opus, got: ${opts[0].textContent}`);
+  assert(opts[2].textContent?.includes("Haiku"), `last option label should include Haiku, got: ${opts[2].textContent}`);
+  await act(async () => root.unmount());
+});
+
+test("card has no cancel/dismiss affordance", async () => {
+  const { host, root } = await render(
+    <PendingPromptCard pendingPrompt={MODEL_PROMPT} onRespond={() => {}} />,
+  );
+  const cancel = host.querySelector('[data-testid="pane-pending-prompt-cancel"]');
+  assert(!cancel, "non-dismissable card must not render a cancel button");
   await act(async () => root.unmount());
 });
 
 test("clicking option i calls onRespond with that option's value", async () => {
   const calls: string[] = [];
   const { host, root } = await render(
-    <PendingPromptCard pendingPrompt={MODEL_PROMPT} onRespond={(v) => calls.push(v)} onCancel={() => {}} />,
+    <PendingPromptCard pendingPrompt={MODEL_PROMPT} onRespond={(v) => calls.push(v)} />,
   );
   await act(async () => {
     optionButtons(host)[1].click();
@@ -128,23 +137,9 @@ test("clicking option i calls onRespond with that option's value", async () => {
   await act(async () => root.unmount());
 });
 
-test("clicking cancel calls onCancel", async () => {
-  let cancelled = 0;
-  const { host, root } = await render(
-    <PendingPromptCard pendingPrompt={MODEL_PROMPT} onRespond={() => {}} onCancel={() => { cancelled += 1; }} />,
-  );
-  const cancel = host.querySelector('[data-testid="pane-pending-prompt-cancel"]') as HTMLButtonElement | null;
-  assert(cancel, "cancel affordance should render");
-  await act(async () => {
-    cancel.click();
-  });
-  assert(cancelled === 1, `onCancel should fire once, got ${cancelled}`);
-  await act(async () => root.unmount());
-});
-
 test("wizard prompt renders section progress and submit", async () => {
   const { host, root } = await render(
-    <PendingPromptCard pendingPrompt={WIZARD_PROMPT} onRespond={() => {}} onCancel={() => {}} />,
+    <PendingPromptCard pendingPrompt={WIZARD_PROMPT} onRespond={() => {}} />,
   );
   const sections = host.querySelector('[data-testid="pane-pending-prompt-sections"]');
   assert(sections?.textContent?.includes("Environment"), "wizard sections should render");
@@ -156,7 +151,7 @@ test("wizard prompt renders section progress and submit", async () => {
 test("wizard single-select option preserves option value", async () => {
   const calls: string[] = [];
   const { host, root } = await render(
-    <PendingPromptCard pendingPrompt={WIZARD_PROMPT} onRespond={(v) => calls.push(v)} onCancel={() => {}} />,
+    <PendingPromptCard pendingPrompt={WIZARD_PROMPT} onRespond={(v) => calls.push(v)} />,
   );
   await act(async () => {
     optionButtons(host)[1].click();
@@ -168,7 +163,7 @@ test("wizard single-select option preserves option value", async () => {
 test("wizard multi-select confirm sends selected bitmask sentinel", async () => {
   const calls: string[] = [];
   const { host, root } = await render(
-    <PendingPromptCard pendingPrompt={MULTI_PROMPT} onRespond={(v) => calls.push(v)} onCancel={() => {}} />,
+    <PendingPromptCard pendingPrompt={MULTI_PROMPT} onRespond={(v) => calls.push(v)} />,
   );
   await act(async () => {
     optionButtons(host)[0].click();

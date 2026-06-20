@@ -125,16 +125,6 @@ export function PaneSessionChat({
     [pendingPrompt, paneId, showComposerError],
   );
 
-  // Cancel the prompt without choosing: hide the card and send Esc to the agent
-  // through the same PTY input path the composer uses (no-op for chatBackend).
-  const handleCancelPrompt = useCallback(() => {
-    if (pendingPrompt) setAnsweredPromptQuestion(pendingPrompt.question);
-    if (!currentPtyId) return;
-    void invoke("write_pty_string", { ptyId: currentPtyId, data: "\x1b", raw: true }).catch((e) =>
-      showComposerError(e instanceof Error ? e.message : String(e)),
-    );
-  }, [pendingPrompt, currentPtyId, showComposerError]);
-
   // Shell-command decoration: re-run sends the command back through the same PTY
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useCallback((command: string) => {
@@ -249,7 +239,7 @@ export function PaneSessionChat({
     if (atBottomRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [allMessages]);
+  }, [allMessages, activePrompt?.question]);
 
   if (error) {
     return (
@@ -327,7 +317,7 @@ export function PaneSessionChat({
             </button>
           </div>
         )}
-        {enrichedMessages.length === 0 && (
+        {enrichedMessages.length === 0 && !activePrompt && (
           <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
             No messages yet.
           </div>
@@ -368,12 +358,8 @@ export function PaneSessionChat({
             </div>
           );
         })}
+        <PendingPromptCard pendingPrompt={activePrompt} onRespond={handleRespondPrompt} />
       </div>
-      <PendingPromptCard
-        pendingPrompt={activePrompt}
-        onRespond={handleRespondPrompt}
-        onCancel={handleCancelPrompt}
-      />
       <ChatComposer
         paneId={paneId}
         paneProvider={paneProvider}
