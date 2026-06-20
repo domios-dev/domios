@@ -1,0 +1,41 @@
+dev@workstation codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-a8d75071-f46b-487d-94ec-e12cad7e4853.sh
+╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ Improved auto mode safety: destructive git commands (`git rese… │
+│                        ▘▘ ▝▝                       │ Added a warning when the requested model is deprecated or auto… │
+│                                                    │ Added `attribution.sessionUrl` setting to omit the claude.ai s… │
+│ Opus 4.8 with high effort · Claude Team · Team Org A │ /release-notes for more                                         │
+│          /…/T/codeterm-snapshot-testbench          │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Create a compact multi-step setup wizard example. Include two sections, each with one question and exactly three      
+  choices labeled A), B), C). Use clear section headings.                                                               
+  
+⏺ Setup Wizard
+
+  Step 1 of 2 — Installation Type
+
+  Which installation do you want?
+
+  - A) Express — recommended defaults, fastest setup
+  - B) Custom — choose components and paths yourself
+  - C) Minimal — core only, add features later
+
+  Step 2 of 2 — Data Location
+
+  Where should your data be stored?
+
+  - A) Local disk — keep everything on this machine
+  - B) Network share — store on a shared server
+  - C) Cloud sync — back up to your cloud account
+
+✻ Cogitated for 6s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents                 Bypass permissions mode was disabled by settings

@@ -1,0 +1,49 @@
+│                      ▝▜█████▛▘                     │ Improved auto mode safety: destructive git commands (`git rese… │
+│                        ▘▘ ▝▝                       │ Added a warning when the requested model is deprecated or auto… │
+│                                                    │ Added `attribution.sessionUrl` setting to omit the claude.ai s… │
+│ Opus 4.8 with high effort · Claude Team · Team Org A │ /release-notes for more                                         │
+│              /private/tmp/rt3-capture              │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Write approximately 400 words on the history of Unix pipes. Write it directly in your reply, do not use any tools.
+
+⏺ The History of Unix Pipes
+
+  The pipe is one of computing's most elegant ideas, and like many elegant ideas, it arrived through persistence as much
+  as inspiration. Its conceptual roots trace to Douglas McIlroy, a mathematician and manager at Bell Labs. As early as
+  1964, McIlroy circulated a memo musing about ways to "screw together" programs like garden hoses—coupling the output
+  of one to the input of another. The notion lingered for years as an aspiration without a clean syntax.
+
+  The breakthrough came in 1973. McIlroy, by then leading the Computing Techniques Research Department, kept pushing Ken
+  Thompson and Dennis Ritchie to realize the idea in Unix. According to the well-worn lore, Thompson finally
+  implemented pipes in a single feverish night, retrofitting the system's existing programs to read from standard input
+  and write to standard output. The next morning the team rewrote many commands to fit the new model. McIlroy later
+  recalled the euphoria as the office erupted with people stringing commands together in combinations no one had
+  anticipated.
+
+  The genius lay not just in the mechanism but in the discipline it encouraged. Pipes rewarded small, single-purpose
+  tools that did one thing well and spoke a common language: plain text streams. This became the cornerstone of what
+  would later be called the Unix philosophy, articulated by McIlroy as: write programs that do one thing well, and write
+  programs to work together. A command like who | grep mary | wc -l composed three independent utilities into a new
+  capability without a line of new code.
+
+  The syntax itself evolved. Early experiments used a clumsier notation, but the vertical bar | soon became canonical,
+  debuting in the Version 3 and Version 4 Unix shells. Thompson's shell carried it; later Stephen Bourne's shell and its
+  successors cemented it as universal.
+
+  Pipes also drove deeper architectural choices. They depended on the abstraction that files, devices, and inter-process
+  channels could all be treated uniformly as byte streams—an idea that made Unix remarkably composable. The kernel
+  handled buffering and synchronization between processes transparently, so users experienced seamless data flow.
+
+  The influence proved enormous. Pipes shaped scripting, inspired later constructs like named pipes (FIFOs) and process
+  substitution, and informed everything from shell pipelines to modern stream-processing frameworks. Decades on,
+  McIlroy's garden-hose metaphor still describes how programmers think about chaining computation. Few one-character
+  inventions have reshaped software so profoundly.
+
+✻ Brewed for 16s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents    

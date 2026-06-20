@@ -1,0 +1,25 @@
+{
+  "provider": "claude",
+  "unit": "provider_screen",
+  "expected": {
+    "parsePrompt": {
+      "question": "How should I configure the linter?",
+      "options": [
+        {
+          "label": "Strict — enable the recommended ruleset plus type-aware rules, and fail CI on any warning.",
+          "value": "A"
+        },
+        {
+          "label": "Balanced — recommended ruleset only, warnings allowed locally but errors block CI.",
+          "value": "B"
+        },
+        {
+          "label": "Minimal — just formatting/whitespace rules, no opinionated style enforcement.",
+          "value": "C"
+        }
+      ],
+      "multi_select": false,
+      "submit_available": false
+    }
+  }
+}
