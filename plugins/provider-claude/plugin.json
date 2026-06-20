@@ -43,7 +43,7 @@
   "models": [
     {
       "id": "opus",
-      "displayName": "Claude Opus 4.7 (1M context)",
+      "displayName": "Claude Opus 4.8 (1M context)",
       "description": "Most capable for complex work."
     },
     {
