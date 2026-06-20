@@ -74,16 +74,23 @@ const plugin: PluginModule = {
     return parseCursorPrompt(String(text || ""));
   },
 
-  // Cursor menus are vertical lists navigated with ↑/↓ + Enter; default
-  // highlight is the top row, so move down `optionIndex` times then Enter.
-  // Esc-cancel is handled by the host's separate cancel path. Base64 byte
-  // steps: down=ESC[B, enter=\r.
-  buildPromptResponse(optionIndex: number): string[] {
+  // Cursor menus are vertical lists navigated with ↑/↓ + Enter. The highlight is
+  // NOT the top row — the /model picker lands the → selector on the CURRENT model —
+  // so navigate RELATIVE to the live highlight (delta = target − current), not from
+  // the top. `screen` is the cleaned terminal text the host passes for this reason;
+  // absent it, fall back to top-start. Esc-cancel is the host's separate path.
+  // Base64 byte steps: down=ESC[B, up=ESC[A, enter=\r.
+  buildPromptResponse(optionIndex: number, screen?: string): string[] {
     const DOWN = "G1tC"; // ESC [ B
-    const ENTER = "DQ==";  // \r
+    const UP = "G1tB"; // ESC [ A
+    const ENTER = "DQ=="; // \r
+    const target = optionIndex > 0 ? optionIndex : 0;
+    const current = screen ? cursorHighlightIndex(String(screen)) : -1;
+    const start = current >= 0 ? current : 0;
+    const delta = target - start;
+    const key = delta >= 0 ? DOWN : UP;
     const steps: string[] = [];
-    const n = optionIndex > 0 ? optionIndex : 0;
-    for (let i = 0; i < n; i++) steps.push(DOWN);
+    for (let i = 0; i < Math.abs(delta); i++) steps.push(key);
     steps.push(ENTER);
     return steps;
   },
@@ -566,7 +573,8 @@ function parseCursorPrompt(text: string): ParsedPrompt | null {
 // host's universal numbered-picker shape (so numbered menus never regress) and
 // requires a selector glyph or keyboard footer near the options so a plain
 // numbered list in prose is not mistaken for a prompt.
-function parseCursorNumberedMenu(text: string): ParsedPrompt | null {
+interface NumberedCluster { question: string; cluster: { value: string; label: string; idx: number; sel: boolean }[] }
+function collectCursorNumberedMenu(text: string): NumberedCluster | null {
   const lines = String(text || "").split("\n").map(cleanPromptLine);
   if (lines.length < 2) return null;
   const start = Math.max(0, lines.length - 25);
@@ -607,9 +615,14 @@ function parseCursorNumberedMenu(text: string): ParsedPrompt | null {
   }
   if (!hasSelector && !hasFooter) return null;
 
-  const question = findPromptQuestion(lines, cluster[0].idx);
-  const options: [string, string][] = cluster.map((o) => [o.label, o.value]);
-  return { question: question, options: options };
+  return { question: findPromptQuestion(lines, cluster[0].idx), cluster: cluster };
+}
+
+function parseCursorNumberedMenu(text: string): ParsedPrompt | null {
+  const c = collectCursorNumberedMenu(text);
+  if (!c) return null;
+  const options: [string, string][] = c.cluster.map((o) => [o.label, o.value]);
+  return { question: c.question, options: options };
 }
 
 // Cursor's /model picker is a NON-numbered vertical list: a selector glyph (→)
@@ -617,7 +630,8 @@ function parseCursorNumberedMenu(text: string): ParsedPrompt | null {
 // "Type to filter • Enter to select" footer gates it. The host's numbered reader
 // can't see it. Works on RAW lines (no whitespace collapse) so the 2-space gap that
 // separates a label from its metadata survives. Footer-gated, so prose never cards.
-function parseCursorListMenu(text: string): ParsedPrompt | null {
+interface ListMenu { question: string; rows: { label: string; sel: boolean }[] }
+function collectCursorListMenu(text: string): ListMenu | null {
   const raw = String(text || "").split("\n");
   if (raw.length < 3) return null;
   const start = Math.max(0, raw.length - 30);
@@ -649,9 +663,26 @@ function parseCursorListMenu(text: string): ParsedPrompt | null {
   }
   if (rows.length < 2) return null;
   if (!rows.some((r) => r.sel) && question === "Select an option") return null; // need a highlight or a title
+  return { question: question, rows: rows };
+}
 
-  const options: [string, string][] = rows.map((r, i) => [r.label, String(i + 1)]);
-  return { question: question, options: options };
+function parseCursorListMenu(text: string): ParsedPrompt | null {
+  const c = collectCursorListMenu(text);
+  if (!c) return null;
+  const options: [string, string][] = c.rows.map((r, i) => [r.label, String(i + 1)]);
+  return { question: c.question, options: options };
+}
+
+// 0-based screen-order index of the highlighted (→) row in the active menu, or
+// -1 when none is detectable. Mirrors parseCursorPrompt's numbered-then-list
+// precedence so the index lines up with the option ordering the card received —
+// buildPromptResponse navigates relative to it instead of assuming a top start.
+function cursorHighlightIndex(text: string): number {
+  const n = collectCursorNumberedMenu(text);
+  if (n) return n.cluster.findIndex((o) => o.sel);
+  const l = collectCursorListMenu(text);
+  if (l) return l.rows.findIndex((r) => r.sel);
+  return -1;
 }
 
 // "1-10 of 28" / "3 of 28" pagination row — never an option.

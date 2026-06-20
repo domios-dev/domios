@@ -80,7 +80,7 @@ export interface AgentProvider {
   extractSessionName?(screen: string): string | null;
   buildLaunchCommand?(params: LaunchParams): string;
   buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
-  buildPromptResponse?(optionIndex: number): string[];
+  buildPromptResponse?(optionIndex: number, screen?: string): string[];
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;

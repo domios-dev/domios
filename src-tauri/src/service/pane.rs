@@ -589,7 +589,7 @@ impl ServiceContext {
 
                 let steps = if let Some(ref at) = agent_type {
                     self.agent_registry
-                        .build_prompt_response(at, option_index)
+                        .build_prompt_response(at, option_index, &clean)
                         .unwrap_or_else(|| self.default_prompt_response(option_index))
                 } else {
                     self.default_prompt_response(option_index)
