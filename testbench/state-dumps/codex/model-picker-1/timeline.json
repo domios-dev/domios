@@ -3,12 +3,12 @@
     {
       "at_ms": 1030,
       "action": "send /model",
-      "expect": "question:model_choice"
+      "expect": "question:model_picker"
     },
     {
       "at_ms": 2188,
       "action": "model picker visible",
-      "expect": "question:model_choice"
+      "expect": "question:model_picker"
     },
     {
       "at_ms": 2227,
@@ -31,7 +31,7 @@
       "from_ms": 2188,
       "to_ms": 2227,
       "state": "question",
-      "subtype": "model_choice"
+      "subtype": "model_picker"
     },
     {
       "from_ms": 2227,

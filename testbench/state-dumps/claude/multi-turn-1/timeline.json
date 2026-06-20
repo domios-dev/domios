@@ -6,8 +6,8 @@
       "expect": "working"
     },
     {
-      "at_ms": 15605,
-      "action": "task 1 quiescence settled",
+      "at_ms": 16605,
+      "action": "task 1 settled ready composer",
       "expect": "idle"
     },
     {
@@ -16,8 +16,8 @@
       "expect": "working"
     },
     {
-      "at_ms": 30252,
-      "action": "task 2 quiescence settled",
+      "at_ms": 31252,
+      "action": "task 2 settled ready composer",
       "expect": "idle"
     },
     {
@@ -26,39 +26,39 @@
       "expect": "working"
     },
     {
-      "at_ms": 68687,
-      "action": "task 3 quiescence settled",
+      "at_ms": 69687,
+      "action": "task 3 settled ready composer",
       "expect": "idle"
     }
   ],
   "segments": [
     {
       "from_ms": 1022,
-      "to_ms": 15605,
+      "to_ms": 16605,
       "state": "working"
     },
     {
-      "from_ms": 15605,
+      "from_ms": 16605,
       "to_ms": 18738,
       "state": "idle"
     },
     {
       "from_ms": 18785,
-      "to_ms": 30252,
+      "to_ms": 31252,
       "state": "working"
     },
     {
-      "from_ms": 30252,
+      "from_ms": 31252,
       "to_ms": 33411,
       "state": "idle"
     },
     {
       "from_ms": 33454,
-      "to_ms": 68687,
+      "to_ms": 69687,
       "state": "working"
     },
     {
-      "from_ms": 68687,
+      "from_ms": 69687,
       "to_ms": 71187,
       "state": "idle"
     }

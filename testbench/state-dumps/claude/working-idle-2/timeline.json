@@ -6,19 +6,19 @@
       "expect": "working"
     },
     {
-      "at_ms": 52805,
-      "action": "quiescence settled",
+      "at_ms": 54305,
+      "action": "settled ready composer",
       "expect": "idle"
     }
   ],
   "segments": [
     {
       "from_ms": 1031,
-      "to_ms": 52805,
+      "to_ms": 54305,
       "state": "working"
     },
     {
-      "from_ms": 52805,
+      "from_ms": 54305,
       "to_ms": 54961,
       "state": "idle"
     }
