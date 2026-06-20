@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn send_after_close_returns_error() {
         let collected = Arc::new(Mutex::new(Vec::new()));
-        let writer = MockWriter {
+        let _writer = MockWriter {
             data: collected.clone(),
         };
         let (sender, _receiver) = mpsc::channel::<WriteRequest>();

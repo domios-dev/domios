@@ -208,6 +208,7 @@ fn normalize_plugin_id(plugin_id: &str) -> String {
 
 /// Start an async exec. The caller must run the same `subprocess.allow` gate
 /// (`PluginSandbox::can_exec`) that the blocking `run` callsite applies.
+#[allow(dead_code)] // host-env-less convenience wrapper; kept symmetric with start_with_host_env
 pub(super) fn start(plugin_id: &str, opts_json: &str) -> String {
     start_with_host_env(plugin_id, opts_json, &HashMap::new())
 }

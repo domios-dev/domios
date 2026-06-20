@@ -1,5 +1,5 @@
 use super::*;
-use crate::multiplexer::types::{AgentRole, Orientation, PaneType};
+use crate::multiplexer::types::{AgentRole, PaneType};
 
 #[test]
 fn test_new_state_has_default_workspace() {
@@ -271,7 +271,7 @@ fn test_close_tab() {
 
 #[test]
 fn test_set_focused_pane() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
+    let (mut state, _initial_pane_id) = MultiplexerState::new();
     let new_pane_id = state.create_pane();
 
     assert!(state.set_focused_pane(&new_pane_id).is_ok());
@@ -867,7 +867,7 @@ fn test_protected_workspace_cannot_close() {
 
 #[test]
 fn test_protected_pane_cannot_close() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
+    let (mut state, _initial_pane_id) = MultiplexerState::new();
     let new_pane_id = state.create_pane();
     state.get_pane_mut(&new_pane_id).unwrap().protected = true;
 

@@ -1,5 +1,3 @@
-use tauri::Emitter;
-
 // ── Mesh commands ───────────────────────────────────────────────────
 
 #[tauri::command]
@@ -420,7 +418,6 @@ pub fn mesh_set_access(
     instance_id: String,
     access_level: String,
 ) -> Result<(), String> {
-    use tauri::Emitter;
     let level = match access_level.as_str() {
         "full" => crate::mesh::types::AccessLevel::Full,
         "read_only" => crate::mesh::types::AccessLevel::ReadOnly,

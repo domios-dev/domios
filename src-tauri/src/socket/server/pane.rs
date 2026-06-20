@@ -1,7 +1,7 @@
 //! `pane.*`, `agents.list_providers`, and `browser.open` JSON-RPC handlers.
 
 use serde_json::Value;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
@@ -12,7 +12,7 @@ pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
     mux: &MuxState,
-    app: &AppHandle,
+    _app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {

@@ -8,8 +8,6 @@ use std::fmt::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use tauri::Emitter;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ProbeAction {
     None,

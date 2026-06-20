@@ -221,9 +221,8 @@ impl SignalExtractor {
             None
         };
 
-        if semantic_change {
-            self.last_semantic_ms = Some(now_ms);
-        } else if self.last_semantic_ms.is_none() && last_nonblank.is_some() {
+        // reset on real change; seed the clock the first time any content appears
+        if semantic_change || (self.last_semantic_ms.is_none() && last_nonblank.is_some()) {
             self.last_semantic_ms = Some(now_ms);
         }
 

@@ -119,6 +119,7 @@ struct Baseline {
     dow_n: [u32; 7],
     /// weekend_total / weekday_total — how much quieter weekends are.
     /// Plan-independent (cancels out the tier limit).
+    #[allow(dead_code)] // computed signal; projection consumption pending
     we_to_wd_ratio: f64,
     confidence: Confidence,
     computed_day: i32,
