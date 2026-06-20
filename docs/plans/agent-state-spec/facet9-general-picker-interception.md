@@ -79,6 +79,32 @@ core matches no vendor string.
   done) → context-correct Esc/Ctrl-C, not blind.
 - Any permission/options/question prompt → card in chat; never need the console.
 
+## Per-provider reality (from provider-prompt-rendering.md research)
+- **Detection is COVERED for all three by the alt-screen branch** — codex (ratatui),
+  cursor, opencode (bubbletea) all enter `?1049h`; high-precision, near-zero false
+  positives. The inline `?25l + Motion::Still + NOT ?2004` branch is the generalizer for
+  non-alt-screen prompts. The DECSET tracker itself is GENUINELY UNBUILT (no
+  `?25l`/`?1049`/`?2004` tracking in signal_extractor/semantic_marker yet; today's path is
+  the text heuristic `detector.rs::detect_interactive_prompt` + `prompt.rs`; the
+  `Motion::Still` quiescence clock already exists). → P9.1 builds it.
+- **Gaps are EXTRACTION + SEND-BACK, not detection (per provider):**
+  - **codex** — numbered menu; plugin already parses (`MENU_OPTION_RE`/`parseMenuOptions`)
+    + skip-safe nav (never blind-Enter self-update; auth is sacred, surface never auto). OK.
+  - **opencode** — HORIZONTAL option row ("Allow once  Allow always  Reject"), not a
+    numbered list → generic numbered-reader can't parse it; plugin ships `parsePrompt` for
+    reading BUT the send-back must be **`left`/`right` + Enter**, and the host default
+    (`down×N + Enter`) is WRONG → FIX the response builder. ("Always allow" = multi-step.)
+  - **cursor** — HIGHEST-PRIORITY GAP: no plugin parser at all (`detectEvents→[]`, no
+    `parsePrompt`/`classifyPaneState`), overlay layout unverified, no answer scheme. Needs
+    a cursor `parsePrompt` + `buildPromptResponse`.
+- **Send-back path already exists:** `service/pane.rs::respond_prompt` → plugin
+  `build_prompt_response` (base64 byte steps) or default down+Enter; `state_reactor.rs` +
+  `keys.rs::action_key_bytes` (down/up/enter/esc/tab/ctrl-*/space). P9.4 wires per-provider
+  schemes here (opencode left/right; cursor new).
+- Non-MCP structured bonuses (optional, approval-class only): codex app-server
+  requestApproval; cursor ACP request_permission; opencode local-server plugin events
+  (cheapest — CodeTerm already installs an opencode plugin).
+
 ## Categorize → auto-respond (default-deny, safety-first)
 - **Default-deny:** auto-answer ONLY an explicit allowlist; everything else asks the human.
 - **Auto-allow categories (examples):** `update_prompt` → accept; `rate_limited` → set a
