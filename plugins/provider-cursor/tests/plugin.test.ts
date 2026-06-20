@@ -150,6 +150,22 @@ console.log("\n--- buildLaunchCommand (workspace-trust pre-write + invocation) -
   assert(withModel.indexOf("pwd -P") !== -1, "POSIX trust prefix resolves symlinks via pwd -P");
 }
 
+console.log("\n--- POSIX trustPrefix: JSON-escaped workspacePath ---\n");
+{
+  const p = loadCursorWithHost(baseHost({ platform: () => "linux" }));
+  const cmd = p.buildLaunchCommand({ skipPermissions: true });
+  // The sed JSON-escape step must be present (escapes \ then ").
+  assert(cmd.indexOf("sed 's/") !== -1, "POSIX trust prefix includes sed for JSON-escaping the path");
+  // The printf JSON output must use the escaped variable $__ctdj, not the raw $__ctd.
+  const printfIdx = cmd.indexOf("printf '{");
+  assert(printfIdx !== -1, "printf JSON line is present");
+  const printfPart = cmd.substring(printfIdx);
+  assert(printfPart.indexOf("\"$__ctdj\"") !== -1, "printf JSON uses JSON-escaped $__ctdj");
+  // Raw $__ctd (with closing quote, not $__ctdj) must NOT appear in the JSON printf.
+  // ($__ctdj itself contains $__ctd as a substring so check for the closing quote boundary.)
+  assert(printfPart.indexOf("\"$__ctd\"") === -1, "raw $__ctd not used in printf JSON (would break on quotes/backslashes in path)");
+}
+
 console.log("\n--- buildResumeCommand (trust pre-write GATED behind skipPermissions) ---\n");
 {
   const p = loadCursorWithHost(baseHost({}));
@@ -199,6 +215,38 @@ console.log("\n--- detectSessionId (identity-bound: refuse when ambiguous) ---\n
   // Excluding the sibling collapses the set to one → that unique candidate binds.
   eq(p.detectSessionId("/proj", s2), s1, "with the sibling excluded exactly one candidate → bind it");
   eq(p.detectSessionId("/proj", [s1, s2]), null, "all excluded → no candidate → null");
+}
+
+console.log("\n--- detectSessionId: empty UUID dir alongside real session binds the real one ---\n");
+{
+  const sep = "/";
+  const chatsDir = "/home/u/.cursor/chats/HASH";
+  const s1 = "11111111-1111-4111-8111-111111111111"; // has meta.json → real session
+  const s2 = "22222222-2222-4222-8222-222222222222"; // empty dir (no meta.json, no store.db)
+  const p = loadCursorWithHost(baseHost({
+    homeDir: () => "/home/u",
+    md5: () => "HASH",
+    unixNowMs: () => 1000000,
+    fs: {
+      ...baseHost({}).fs,
+      fileExists: (pth: string) => {
+        if (pth === chatsDir) return true;
+        if (pth === chatsDir + sep + s1 + sep + "meta.json") return true;
+        // s2 has neither meta.json nor store.db → empty dir
+        return false;
+      },
+      readDir: (pth: string) => pth === chatsDir
+        ? [
+            { name: s1, path: chatsDir + sep + s1, isDir: true, isFile: false },
+            { name: s2, path: chatsDir + sep + s2, isDir: true, isFile: false },
+          ]
+        : [],
+      readJson: () => ({ updatedAtMs: 999999 }),
+    },
+  }));
+  // s2 has no meta.json or store.db → not a real candidate → only s1 remains → bind it
+  eq(p.detectSessionId("/proj"), s1, "empty UUID dir + real session → bind the real one (not refused)");
+  eq(p.detectSessionId("/proj", s1), null, "real session excluded → empty dir not a candidate → null");
 }
 
 console.log("\n--- discoverModels (live --list-models, manifest fallback) ---\n");

@@ -135,6 +135,7 @@ var plugin = {
       if (!looksLikeUuid(sid)) continue;
       if (ex.indexOf(sid) !== -1) continue;
       const meta = readMetaJson(e.path + sep + "meta.json");
+      if (!meta && !host.fs.fileExists(e.path + sep + "store.db")) continue;
       const ts = meta ? meta.updatedAtMs || meta.createdAtMs || 0 : 0;
       if (maxAge && now && ts && now - ts > maxAge) continue;
       candidates.push({ id: sid, ts });
@@ -307,7 +308,7 @@ function trustPrefix() {
       ""
     ].join(" ");
   }
-  return `__ctd="$(pwd -P)"; __cts="$(printf '%s' "\${__ctd#/}" | tr -c 'a-zA-Z0-9' '-')"; __ctp="$HOME/.cursor/projects/$__cts"; mkdir -p "$__ctp" 2>/dev/null; [ -f "$__ctp/.workspace-trusted" ] || printf '{"trustedAt":"%s","workspacePath":"%s"}\\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$__ctd" > "$__ctp/.workspace-trusted" 2>/dev/null; `;
+  return `__ctd="$(pwd -P)"; __cts="$(printf '%s' "\${__ctd#/}" | tr -c 'a-zA-Z0-9' '-')"; __ctp="$HOME/.cursor/projects/$__cts"; __ctdj="$(printf '%s' "$__ctd" | sed 's/\\\\/\\\\\\\\/g; s/"/\\\\"/g')"; mkdir -p "$__ctp" 2>/dev/null; [ -f "$__ctp/.workspace-trusted" ] || printf '{"trustedAt":"%s","workspacePath":"%s"}\\n' "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" "$__ctdj" > "$__ctp/.workspace-trusted" 2>/dev/null; `;
 }
 function pathSep() {
   return host.platform() === "windows" ? "\\" : "/";

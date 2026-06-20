@@ -141,7 +141,10 @@ const plugin: PluginModule = {
       const sid = e.name;
       if (!looksLikeUuid(sid)) continue;
       if (ex.indexOf(sid) !== -1) continue;
+      // Only real sessions: same existence contract as sessionExists.
+      // Dirs with neither meta.json nor store.db are ignored (stale/empty temp dirs).
       const meta = readMetaJson(e.path + sep + "meta.json");
+      if (!meta && !host.fs.fileExists(e.path + sep + "store.db")) continue;
       const ts = meta ? (meta.updatedAtMs || meta.createdAtMs || 0) : 0;
       if (maxAge && now && ts && (now - ts) > maxAge) continue;
       candidates.push({ id: sid, ts: ts });
@@ -344,14 +347,17 @@ function trustPrefix(): string {
   }
   // POSIX: pwd -P resolves symlinks (matches cursor's realpath); tr maps every
   // non-alphanumeric to '-' after the leading slash is stripped.
+  // JSON-escape the path before embedding: sed escapes \ then " so paths with
+  // those chars produce valid JSON instead of silently breaking the trust file.
   return (
     "__ctd=\"$(pwd -P)\"; " +
     "__cts=\"$(printf '%s' \"${__ctd#/}\" | tr -c 'a-zA-Z0-9' '-')\"; " +
     "__ctp=\"$HOME/.cursor/projects/$__cts\"; " +
+    "__ctdj=\"$(printf '%s' \"$__ctd\" | sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g')\"; " +
     "mkdir -p \"$__ctp\" 2>/dev/null; " +
     "[ -f \"$__ctp/.workspace-trusted\" ] || " +
     "printf '{\"trustedAt\":\"%s\",\"workspacePath\":\"%s\"}\\n' " +
-    "\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\" \"$__ctd\" > \"$__ctp/.workspace-trusted\" 2>/dev/null; "
+    "\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\" \"$__ctdj\" > \"$__ctp/.workspace-trusted\" 2>/dev/null; "
   );
 }
 
