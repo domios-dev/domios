@@ -250,6 +250,12 @@ pub struct Pane {
     /// Pending interactive prompt (permission, confirmation, etc.)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pending_prompt: Option<PendingPrompt>,
+    /// Live 3-state agent classification (working / idle / question + subtype),
+    /// computed from the PTY stream by the shared state engine and surfaced to
+    /// the chat view's state indicator. Runtime-only — recomputed from output,
+    /// never persisted to the session snapshot (which is hand-built).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_state: Option<crate::agent::offline_state_classifier::AgentLiveState>,
     /// Auto-approve prompts (set when spawned with skip_permissions).
     /// When true, detected prompts are answered automatically instead of shown to user.
     #[serde(default)]
@@ -350,6 +356,7 @@ mod tests {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            agent_state: None,
             auto_approve: false,
             protected: false,
             connected_services: vec![],
