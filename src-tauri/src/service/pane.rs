@@ -568,16 +568,25 @@ impl ServiceContext {
                 buf.get_text(&pty_id).unwrap_or_default()
             };
             let clean = crate::pty::ansi::clean_terminal_output(&screen);
-            let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean);
+            let agent_type = self
+                .mux
+                .read()
+                .get_pane(pane_id)
+                .and_then(|p| p.agent_type.clone());
+            // Providers whose prompts aren't the universal numbered-list shape
+            // (opencode's horizontal row, cursor overlays) verify via their own
+            // parse_prompt; the universal detector covers claude/codex.
+            let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean)
+                || agent_type.as_deref().is_some_and(|at| {
+                    crate::agent::prompt::parse_prompt_safely(|| {
+                        self.agent_registry.parse_prompt(at, &clean)
+                    })
+                    .is_some()
+                });
 
             if prompt_on_screen {
                 let option_index = value.parse::<usize>().unwrap_or(1).saturating_sub(1);
 
-                let agent_type = self
-                    .mux
-                    .read()
-                    .get_pane(pane_id)
-                    .and_then(|p| p.agent_type.clone());
                 let steps = if let Some(ref at) = agent_type {
                     self.agent_registry
                         .build_prompt_response(at, option_index)

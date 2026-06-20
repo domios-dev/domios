@@ -132,6 +132,19 @@ var plugin = {
     if (!question) question = "Permission required";
     return { question, options };
   },
+  // opencode's permission options are a HORIZONTAL row navigated with ←/→, not a
+  // vertical list — the host default (down × N + Enter) would mis-navigate. The
+  // default highlight is the leftmost option, so move right `optionIndex` times
+  // then Enter. Base64-encoded byte steps: right=ESC[C, enter=\r.
+  buildPromptResponse(optionIndex) {
+    const RIGHT = "G1tD";
+    const ENTER = "DQ==";
+    const steps = [];
+    const n = optionIndex > 0 ? optionIndex : 0;
+    for (let i = 0; i < n; i++) steps.push(RIGHT);
+    steps.push(ENTER);
+    return steps;
+  },
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = ["opencode"];
