@@ -84,3 +84,18 @@ Gate every merge with the pre-push hook. Cross-platform: ROG verifies on Windows
 (cursor-agent / lmstudio live paths differ by OS).
 
 <!-- revision: 1 -->
+
+## DM5 — bring codex/cursor/opencode to claude-parity (Andrey 2026-06-20)
+DM1 wired refresh_live for ALL providers + DM4 confirmed codex/cursor/opencode discoverModels
+return LIVE data (codex slug cache, cursor `--list-models`, opencode rows) — so their LISTS already
+auto-update. MISSING vs claude: clean live labels + availability flags. DM5 closes that:
+- codex: ensure the live gpt-5.x list drives the dropdown with clean labels (current versions auto-appear);
+  manifest = offline fallback.
+- cursor: `--list-models` already strips status; add availability (a model the plan/account can't use ->
+  available:false, greyed, like fable) if the live output signals it; clean labels; `auto` stays default.
+- opencode: full provider/model ids -> clean display labels; availability for federated providers not
+  configured (-> disabled) if detectable; live list source-of-truth, manifest fallback, default-resolve (4-8 done).
+- These are FULL-ID providers (no alias-mapping like claude) — apply the DM3 merge policy (live truth +
+  manifest fallback + junk filter + availability) + clean displayNames; do NOT invent aliases.
+- Tests per provider: discover -> clean current models; availability flag; offline -> manifest fallback.
+- Rebuild bundles. MERGE AFTER comment-trim (both touch provider-*/plugin.ts; comment-trim is comment-only).
