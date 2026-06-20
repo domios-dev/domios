@@ -6,7 +6,7 @@
       "expect": "question:model_picker"
     },
     {
-      "at_ms": 11033,
+      "at_ms": 11119,
       "action": "model picker visible",
       "expect": "question:model_picker"
     },
@@ -24,17 +24,17 @@
   "segments": [
     {
       "from_ms": 17,
-      "to_ms": 11033,
+      "to_ms": 11119,
       "state": "idle"
     },
     {
-      "from_ms": 11033,
-      "to_ms": 11118,
+      "from_ms": 11119,
+      "to_ms": 11453,
       "state": "question",
       "subtype": "model_picker"
     },
     {
-      "from_ms": 11118,
+      "from_ms": 11453,
       "to_ms": 15752,
       "state": "idle"
     }
