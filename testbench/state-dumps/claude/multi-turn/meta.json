@@ -1,0 +1,9 @@
+{
+  "provider": "claude",
+  "scenario": "multi-turn",
+  "cli_version": "from existing real snapshot fixture",
+  "capturedAtMs": 1781984508061,
+  "source": "testbench/snapshots/claude/agent-state-working_streaming_real/raw.cast",
+  "width": 120,
+  "height": 40
+}
