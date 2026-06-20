@@ -200,6 +200,9 @@ pub struct Pane {
     /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this pane.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub session_binding_nonce: Option<String>,
+    /// Per-session shell-integration nonce, exported as CODETERM_SHELL_NONCE and echoed on OSC 633;E. Lets the marker consumer reject command-line text forged by untrusted output.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shell_integration_nonce: Option<String>,
     /// Orchestration role (orchestrator / worker — 2-level, no middle tier).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,
@@ -320,6 +323,7 @@ mod tests {
             agent_session_name: None,
             agent_session_model: None,
             session_binding_nonce: None,
+            shell_integration_nonce: None,
             role: None,
             parent_pane_id: None,
             can_spawn: false,

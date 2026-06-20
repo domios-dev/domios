@@ -260,6 +260,7 @@ impl MultiplexerState {
                     agent_session_name: None,
                     agent_session_model: agent_session_model.clone(),
                     session_binding_nonce: None,
+                    shell_integration_nonce: None,
                     role: parsed_role,
                     parent_pane_id: parent_pane_id.clone(),
                     can_spawn: *can_spawn,
