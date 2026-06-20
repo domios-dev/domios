@@ -15,6 +15,7 @@ import { useGraphWorkers } from "./useGraphWorkers";
 import { MemorySpawnWorkerDialog } from "./MemorySpawnWorkerDialog";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
+import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 
 interface Props {
   api: ApiConfig;
@@ -383,7 +384,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             subtitle={[logWorker.agent_provider, logWorker.model].filter(Boolean).join(" / ")}
             status={logWorker.status}
             report={logWorker.report}
-            provider={logWorker.agent_provider ?? "claude"}
+            provider={logWorker.agent_provider ?? defaultSpawnProviderId()}
             cwd={logWorker.cwd ?? ""}
             sessionId={logWorker.session_id}
             live={!["done", "error", "orphaned"].includes(logWorker.status)}

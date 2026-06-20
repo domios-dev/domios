@@ -89,7 +89,7 @@ for (const sc of scenarios) {
         /^data:image\//,
       );
 
-      const hint = page.locator('[data-testid="web-ui-serve-hint"]');
+      const hint = page.locator('[data-testid="web-access-serve-hint"]');
       if (sc.fallback) {
         await expect(hint).toBeVisible();
         await expect(hint).toContainText(`tailscale serve --bg --https=443 http://127.0.0.1:${PORT}`);
