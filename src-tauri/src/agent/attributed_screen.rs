@@ -49,6 +49,13 @@ enum MarkerClass {
     Plain,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OptionKind {
+    Checkbox,
+    Numbered,
+    Plain,
+}
+
 #[derive(Clone, Debug)]
 struct RowFeature {
     row: u16,
@@ -61,6 +68,8 @@ struct RowFeature {
     border: bool,
     option_like: bool,
     multi_select: bool,
+    side_band: bool,
+    content_bg: AttributedColor,
 }
 
 impl AttributedScreen {
@@ -122,6 +131,17 @@ pub fn detect_picker(screen: &AttributedScreen) -> Option<PickerDetection> {
     let rows: Vec<RowFeature> = (0..screen.rows)
         .map(|row| analyze_row(screen, row))
         .collect();
+
+    if let Some(detection) = detect_title_search_panel(&rows) {
+        return Some(detection);
+    }
+    if let Some(detection) = detect_footer_panel(&rows) {
+        return Some(detection);
+    }
+    if let Some(detection) = detect_selected_row_block(screen, &rows) {
+        return Some(detection);
+    }
+
     let mut blocks = Vec::new();
     let mut start: Option<usize> = None;
 
@@ -182,17 +202,30 @@ fn cell_char(cell: &AttributedCell) -> &str {
     }
 }
 
+fn row_content_bg(screen: &AttributedScreen, row: u16) -> AttributedColor {
+    let mut counts = BTreeMap::<AttributedColor, usize>::new();
+    for cell in screen.cells.get(row as usize).into_iter().flatten() {
+        if !cell.ch.trim().is_empty() {
+            *counts.entry(cell.bg.clone()).or_default() += 1;
+        }
+    }
+    dominant(counts)
+}
+
 fn analyze_row(screen: &AttributedScreen, row: u16) -> RowFeature {
     let text = screen.row_text(row);
     let trimmed_end = text.trim_end().to_string();
-    let stripped = strip_frame(&trimmed_end);
+    let framed = strip_frame(&trimmed_end);
+    let side_band = framed.trim_start().starts_with('┃') || framed.trim_start().starts_with('╹');
+    let stripped = strip_side_band(&framed);
     let clean = clean_option_label(&stripped);
     let indent = stripped.chars().take_while(|c| c.is_whitespace()).count();
     let class = marker_class(stripped.trim_start());
     let footer = is_footer_hint(&stripped);
     let border = is_box_border(&stripped);
     let multi_select = contains_checkbox(&stripped) || contains_select_all_hint(&stripped);
-    let selected_score = selected_score(screen, row, &stripped, class);
+    let selected_score = selected_score(screen, row, &framed, class);
+    let content_bg = row_content_bg(screen, row);
     let option_like = !clean.is_empty()
         && !footer
         && !border
@@ -209,7 +242,228 @@ fn analyze_row(screen: &AttributedScreen, row: u16) -> RowFeature {
         border,
         option_like,
         multi_select,
+        side_band,
+        content_bg,
     }
+}
+
+fn detect_title_search_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
+    let title_idx = rows.iter().position(|row| {
+        let lower = row.text.to_lowercase();
+        !row.clean.is_empty() && lower.ends_with("esc") && !lower.contains(" to ")
+    })?;
+    let search_idx = rows[title_idx + 1..]
+        .iter()
+        .position(|row| row.clean.eq_ignore_ascii_case("search"))
+        .map(|idx| idx + title_idx + 1)?;
+
+    let panel_bg = rows
+        .get(search_idx)
+        .map(|row| row.content_bg.clone())
+        .unwrap_or(AttributedColor::Default);
+    let mut options = Vec::new();
+    let mut selected_index = None;
+    for row in &rows[search_idx + 1..] {
+        if row.clean.is_empty() {
+            if !options.is_empty() {
+                break;
+            }
+            continue;
+        }
+        if row.clean.to_lowercase().starts_with("view all ") {
+            break;
+        }
+        let Some(label) = panel_option_label(row) else {
+            continue;
+        };
+        if (is_panel_selection(row) || (!row.side_band && row.content_bg != panel_bg))
+            && selected_index.is_none()
+        {
+            selected_index = Some(options.len());
+        }
+        options.push(label);
+    }
+
+    if options.len() < 2 {
+        return None;
+    }
+
+    Some(PickerDetection {
+        question: clean_question(&rows[title_idx].text),
+        options,
+        selected_index: selected_index.unwrap_or(0),
+        multi_select: false,
+    })
+}
+
+fn detect_footer_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
+    let footer_idx = rows.iter().position(|row| row.footer)?;
+    let selected_idx = rows[..footer_idx]
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, row)| is_strong_selection(row) && option_kind(row).is_some())
+        .map(|(idx, _)| idx)?;
+    let selected_kind = option_kind(&rows[selected_idx])?;
+
+    match selected_kind {
+        OptionKind::Checkbox | OptionKind::Numbered => {
+            structured_footer_panel(rows, selected_idx, footer_idx, selected_kind)
+        }
+        OptionKind::Plain => plain_footer_panel(rows, selected_idx, footer_idx),
+    }
+}
+
+fn structured_footer_panel(
+    rows: &[RowFeature],
+    selected_idx: usize,
+    footer_idx: usize,
+    selected_kind: OptionKind,
+) -> Option<PickerDetection> {
+    let mut top = selected_idx;
+    while top > 0 && !rows[top - 1].border && !rows[top - 1].footer {
+        top -= 1;
+        if rows[top].clean.is_empty() {
+            break;
+        }
+    }
+
+    let mut options = Vec::new();
+    let mut selected_index = None;
+    for (idx, row) in rows[top..footer_idx].iter().enumerate() {
+        let absolute = top + idx;
+        if option_kind(row) != Some(selected_kind) {
+            continue;
+        }
+        let Some(label) = group_option_label(row, selected_kind) else {
+            continue;
+        };
+        if absolute == selected_idx {
+            selected_index = Some(options.len());
+        }
+        options.push(label);
+    }
+    if options.len() < 2 {
+        return None;
+    }
+
+    Some(PickerDetection {
+        question: find_question(rows, top)?,
+        options,
+        selected_index: selected_index.unwrap_or(0),
+        multi_select: selected_kind == OptionKind::Checkbox
+            || rows[footer_idx].multi_select
+            || contains_select_all_hint(&rows[footer_idx].text),
+    })
+}
+
+fn plain_footer_panel(
+    rows: &[RowFeature],
+    selected_idx: usize,
+    _footer_idx: usize,
+) -> Option<PickerDetection> {
+    let mut top = selected_idx;
+    while top > 0 && group_option_label(&rows[top - 1], OptionKind::Plain).is_some() {
+        top -= 1;
+    }
+    let mut bottom = selected_idx + 1;
+    while bottom < rows.len() && group_option_label(&rows[bottom], OptionKind::Plain).is_some() {
+        bottom += 1;
+    }
+
+    let mut options = Vec::new();
+    let mut selected_index = None;
+    for (idx, row) in rows[top..bottom].iter().enumerate() {
+        let Some(label) = group_option_label(row, OptionKind::Plain) else {
+            continue;
+        };
+        if top + idx == selected_idx {
+            selected_index = Some(options.len());
+        }
+        options.push(label);
+    }
+    if options.len() < 2 {
+        return None;
+    }
+
+    Some(PickerDetection {
+        question: find_question(rows, top)?,
+        options,
+        selected_index: selected_index.unwrap_or(0),
+        multi_select: false,
+    })
+}
+
+fn detect_selected_row_block(
+    screen: &AttributedScreen,
+    rows: &[RowFeature],
+) -> Option<PickerDetection> {
+    rows.iter()
+        .enumerate()
+        .filter(|(_, row)| row.selected_score > 0)
+        .filter_map(|(idx, row)| selected_row_candidate(screen, rows, idx, row))
+        .max_by_key(|candidate| candidate.0)
+        .map(|(_, detection)| detection)
+}
+
+fn selected_row_candidate(
+    screen: &AttributedScreen,
+    rows: &[RowFeature],
+    selected_row_idx: usize,
+    selected_row: &RowFeature,
+) -> Option<(usize, PickerDetection)> {
+    let selected_kind = option_kind(selected_row)?;
+    let mut top = selected_row_idx;
+    while top > 0 && group_option_label(&rows[top - 1], selected_kind).is_some() {
+        top -= 1;
+    }
+    let mut bottom = selected_row_idx + 1;
+    while bottom < rows.len() && group_option_label(&rows[bottom], selected_kind).is_some() {
+        bottom += 1;
+    }
+
+    let mut options = Vec::new();
+    let mut selected_index = None;
+    for (idx, row) in rows[top..bottom].iter().enumerate() {
+        let Some(label) = group_option_label(row, selected_kind) else {
+            continue;
+        };
+        if top + idx == selected_row_idx {
+            selected_index = Some(options.len());
+        }
+        options.push(label);
+    }
+
+    if options.len() < 2 {
+        return None;
+    }
+    let footer_near = rows[bottom..rows.len().min(bottom + 5)]
+        .iter()
+        .any(|row| row.footer);
+    if !footer_near
+        && !rows[top..bottom]
+            .iter()
+            .any(|row| row.row.abs_diff(screen.cursor_row) <= 1)
+    {
+        return None;
+    }
+
+    let question = find_question(rows, top)?;
+    let multi_select = selected_kind == OptionKind::Checkbox
+        || rows[bottom..rows.len().min(bottom + 5)]
+            .iter()
+            .any(|row| contains_select_all_hint(&row.text));
+    let score = selected_row.selected_score * 10 + options.len() + usize::from(footer_near) * 5;
+
+    Some((
+        score,
+        PickerDetection {
+            question,
+            options,
+            selected_index: selected_index.unwrap_or(0),
+            multi_select,
+        },
+    ))
 }
 
 fn push_block(rows: &[RowFeature], top: usize, bottom: usize, blocks: &mut Vec<(usize, usize)>) {
@@ -402,7 +656,19 @@ fn is_question_candidate(row: &RowFeature) -> bool {
         return false;
     }
     let lower = row.clean.to_lowercase();
-    lower != "search" && !lower.starts_with("view all ")
+    lower != "search" && lower != "filter:" && !lower.starts_with("view all ")
+}
+
+fn is_strong_selection(row: &RowFeature) -> bool {
+    row.selected_score >= 3
+        || has_selected_glyph(row.text.trim_start())
+        || has_checked_box(&row.text)
+}
+
+fn is_panel_selection(row: &RowFeature) -> bool {
+    row.selected_score >= 8
+        || has_selected_glyph(row.text.trim_start())
+        || has_checked_box(&row.text)
 }
 
 fn looks_like_banner(
@@ -423,11 +689,13 @@ fn looks_like_banner(
 fn strip_frame(text: &str) -> String {
     let trimmed = text.trim_end();
     let chars = trimmed.chars().collect::<Vec<_>>();
-    if chars.len() >= 2
-        && is_vertical_border(chars[0])
-        && is_vertical_border(*chars.last().unwrap())
-    {
-        chars[1..chars.len() - 1].iter().collect::<String>()
+    let leading = chars.iter().take_while(|c| c.is_whitespace()).count();
+    let trailing = chars.iter().rev().take_while(|c| c.is_whitespace()).count();
+    let start = leading;
+    let end = chars.len().saturating_sub(trailing);
+    if end > start + 1 && is_vertical_border(chars[start]) && is_vertical_border(chars[end - 1]) {
+        let inner = chars[start + 1..end - 1].iter().collect::<String>();
+        format!("{}{}", " ".repeat(leading), inner)
     } else {
         trimmed.to_string()
     }
@@ -439,37 +707,168 @@ fn clean_question(text: &str) -> String {
         .trim_matches(|c| is_vertical_border(c) || c == '─' || c == '━')
         .trim()
         .to_string();
-    question
+    let question = question
+        .split("Max mode:")
+        .next()
+        .unwrap_or(&question)
+        .trim_end();
+    let question = question
         .strip_suffix("esc")
         .unwrap_or(&question)
         .trim_end()
+        .to_string();
+    question
+        .split(" — ")
+        .last()
+        .unwrap_or(&question)
+        .split(" (Select all that apply)")
+        .next()
+        .unwrap_or(&question)
+        .trim()
         .to_string()
 }
 
 fn clean_option_label(text: &str) -> String {
-    strip_marker_prefix(text).trim().to_string()
+    display_label(&strip_marker_prefix(text))
+}
+
+fn panel_option_label(row: &RowFeature) -> Option<String> {
+    let lower = row.clean.to_lowercase();
+    if row.clean.is_empty()
+        || matches!(
+            lower.as_str(),
+            "search" | "popular" | "popular providers" | "providers" | "ask" | "buil" | "build"
+        )
+    {
+        return None;
+    }
+    group_option_label(row, option_kind(row).unwrap_or(OptionKind::Plain))
+}
+
+fn group_option_label(row: &RowFeature, selected_kind: OptionKind) -> Option<String> {
+    if row.clean.is_empty() || row.footer || row.border {
+        return None;
+    }
+    let kind = option_kind(row)?;
+    let compatible = match selected_kind {
+        OptionKind::Checkbox => kind == OptionKind::Checkbox,
+        OptionKind::Numbered => kind == OptionKind::Numbered,
+        OptionKind::Plain => kind == OptionKind::Plain,
+    };
+    compatible.then(|| row.clean.clone())
+}
+
+fn option_kind(row: &RowFeature) -> Option<OptionKind> {
+    let text = strip_selected_glyph(row.text.trim_start());
+    if contains_checkbox(text) {
+        return Some(OptionKind::Checkbox);
+    }
+    if marker_token(text).is_some_and(|token| token.chars().all(|c| c.is_ascii_digit())) {
+        return Some(OptionKind::Numbered);
+    }
+    is_plain_option_label(&row.clean).then_some(OptionKind::Plain)
+}
+
+fn is_plain_option_label(label: &str) -> bool {
+    let lower = label.to_lowercase();
+    !label.is_empty()
+        && !matches!(
+            lower.as_str(),
+            "search"
+                | "filter:"
+                | "popular"
+                | "popular providers"
+                | "providers"
+                | "ask"
+                | "buil"
+                | "build"
+        )
+        && !lower.contains(" of ")
+        && !lower.starts_with("type to ")
+        && !lower.starts_with("view all ")
+        && !lower.starts_with("use /")
+        && !lower.starts_with("cursor agent")
+        && !lower.starts_with('v')
+}
+
+fn display_label(text: &str) -> String {
+    let mut label = text
+        .split("          commands")
+        .next()
+        .unwrap_or(text)
+        .trim();
+    label = label
+        .split(" (Tab to modify)")
+        .next()
+        .unwrap_or(label)
+        .trim();
+    if let Some((name, meta)) = split_columns(label) {
+        if is_cursor_model_metadata(meta) {
+            label = name;
+        }
+    }
+    label.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn split_columns(text: &str) -> Option<(&str, &str)> {
+    let idx = text.find("  ")?;
+    Some((text[..idx].trim_end(), text[idx..].trim()))
+}
+
+fn is_cursor_model_metadata(text: &str) -> bool {
+    text.contains("K ")
+        || text.ends_with('K')
+        || matches!(
+            text,
+            "Medium" | "High" | "Extra High" | "Low" | "Fast" | "Slow"
+        )
+}
+
+fn strip_side_band(text: &str) -> String {
+    let trimmed = text.trim_end();
+    let mut s = trimmed.trim_start();
+    if let Some(rest) = s.strip_prefix('┃') {
+        s = rest.trim_start();
+        for label in ["Ask", "Buil", "Build"] {
+            if let Some(rest) = s.strip_prefix(label) {
+                if rest.starts_with("  ") {
+                    s = rest.trim_start();
+                    break;
+                }
+            }
+        }
+        return preserve_indent(trimmed, s);
+    }
+    if s.starts_with('╹') {
+        s = s.trim_start_matches(|c| c == '╹' || c == '▀' || c == ' ');
+        let s = s.split("  ▀").next().unwrap_or(s).trim();
+        return preserve_indent(trimmed, s);
+    }
+    trimmed.to_string()
+}
+
+fn preserve_indent(original: &str, text: &str) -> String {
+    let indent = original.chars().take_while(|c| c.is_whitespace()).count();
+    format!("{}{}", " ".repeat(indent), text)
+}
+
+fn strip_selected_glyph(text: &str) -> &str {
+    ["❯", "›", ">", "→", "➜", "▸", "▶", "●", "•", "-", "*"]
+        .iter()
+        .find_map(|glyph| text.strip_prefix(glyph).map(str::trim_start))
+        .unwrap_or(text)
 }
 
 fn strip_marker_prefix(text: &str) -> String {
-    let mut s = text.trim_start().to_string();
-    for glyph in ["❯", "›", ">", "→", "➜", "▸", "▶", "●", "•", "-", "*"] {
-        if let Some(rest) = s.strip_prefix(glyph) {
-            s = rest.trim_start().to_string();
-            break;
-        }
-    }
+    let mut s = strip_selected_glyph(text.trim_start()).to_string();
     for prefix in ["[ ]", "[x]", "[X]", "( )", "(x)", "(X)", "☐", "☑", "☒"] {
         if let Some(rest) = s.strip_prefix(prefix) {
             s = rest.trim_start().to_string();
             break;
         }
     }
-    if let Some((prefix, rest)) = s.split_once(['.', ')']) {
-        let token = prefix.trim();
-        if !token.is_empty() && token.len() <= 3 && token.chars().all(|c| c.is_ascii_alphanumeric())
-        {
-            return rest.trim_start().to_string();
-        }
+    if let Some((_, rest)) = marker_token_and_rest(&s) {
+        return rest.trim_start().to_string();
     }
     s
 }
@@ -498,10 +897,18 @@ fn marker_class(text: &str) -> MarkerClass {
 }
 
 fn marker_token(text: &str) -> Option<&str> {
-    let (prefix, _) = text.split_once(['.', ')'])?;
-    let token = prefix.trim();
+    marker_token_and_rest(text).map(|(token, _)| token)
+}
+
+fn marker_token_and_rest(text: &str) -> Option<(&str, &str)> {
+    let marker = text.find(['.', ')'])?;
+    let rest = text.get(marker + 1..)?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let token = text[..marker].trim();
     if !token.is_empty() && token.len() <= 3 {
-        Some(token)
+        Some((token, rest))
     } else {
         None
     }
@@ -536,8 +943,8 @@ fn is_footer_hint(text: &str) -> bool {
         || lower.contains("tab select")
         || lower.contains("esc dismiss")
         || lower.contains("esc to")
-        || lower.contains("←")
-        || lower.contains("→")
+        || lower.contains("←/→")
+        || lower.contains("left/right")
 }
 
 fn is_box_border(text: &str) -> bool {
@@ -586,75 +993,4 @@ fn starts_with_any(text: &str, needles: &[&str]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn detects_bg_selected_picker_with_footer() {
-        let screen = screen_from_rows(&[
-            ("Choose a model", false),
-            ("  Auto", false),
-            ("  Composer", true),
-            ("  Opus", false),
-            ("Enter to select", false),
-        ]);
-
-        let detected = detect_picker(&screen).expect("picker");
-
-        assert_eq!(detected.question, "Choose a model");
-        assert_eq!(detected.options, ["Auto", "Composer", "Opus"]);
-        assert_eq!(detected.selected_index, 1);
-        assert!(!detected.multi_select);
-    }
-
-    #[test]
-    fn rejects_boxed_banner_without_footer() {
-        let screen = screen_from_rows(&[
-            ("┌────────────┐", false),
-            ("│ What's new │", true),
-            ("│ Read docs  │", true),
-            ("└────────────┘", false),
-        ]);
-
-        assert_eq!(detect_picker(&screen), None);
-    }
-
-    fn screen_from_rows(rows: &[(&str, bool)]) -> AttributedScreen {
-        let cols = rows
-            .iter()
-            .map(|(text, _)| text.chars().count())
-            .max()
-            .unwrap_or(0) as u16;
-        let cells = rows
-            .iter()
-            .map(|(text, selected)| {
-                let mut row = text
-                    .chars()
-                    .map(|ch| AttributedCell {
-                        ch: ch.to_string(),
-                        fg: AttributedColor::Default,
-                        bg: if *selected {
-                            AttributedColor::Rgb(30, 30, 30)
-                        } else {
-                            AttributedColor::Default
-                        },
-                        inverse: false,
-                        bold: false,
-                    })
-                    .collect::<Vec<_>>();
-                row.resize_with(cols as usize, default_cell);
-                row
-            })
-            .collect::<Vec<_>>();
-
-        AttributedScreen {
-            rows: rows.len() as u16,
-            cols,
-            cells,
-            cursor_row: 2,
-            cursor_col: 0,
-            dominant_bg: AttributedColor::Default,
-            dominant_fg: AttributedColor::Default,
-        }
-    }
-}
+mod tests;

@@ -1,6 +1,7 @@
 {
   "provider": "codex",
   "unit": "provider_screen",
+  "gating": false,
   "expected": {
     "parsePrompt": {
       "question": "Which release strategy should we use?",
