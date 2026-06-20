@@ -152,6 +152,7 @@ pub fn run() {
             commands::get_pane_output,
             commands::get_pane_history_raw,
             commands::get_pane_text,
+            commands::shell_command_snapshot,
             commands::list_agent_providers,
             commands::wait_shell_ready,
             commands::read_session_jsonl,

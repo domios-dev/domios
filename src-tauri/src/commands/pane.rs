@@ -68,6 +68,19 @@ pub async fn get_pane_text(
         .to_string())
 }
 
+/// Shell-integration snapshot for a pane: the accumulated command list + cwd
+/// the `shell-command-changed` events stream live. OSC4 chat hydrates from this
+/// on mount so existing commands render, not only ones seen after subscribing.
+#[tauri::command]
+pub async fn shell_command_snapshot(
+    svc: tauri::State<'_, ServiceState>,
+    pane_id: String,
+) -> Result<serde_json::Value, String> {
+    let pty_id = svc.resolve_pty_id(&pane_id).ok();
+    let snap = pty_id.and_then(|pty_id| svc.shell_caps.lock().snapshot(&pty_id));
+    serde_json::to_value(snap.unwrap_or_default()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn list_agent_providers(
     svc: tauri::State<'_, ServiceState>,
