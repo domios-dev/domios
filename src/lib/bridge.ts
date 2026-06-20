@@ -165,6 +165,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     );
     return resp.output ?? "";
   },
+  shell_command_snapshot: (a) =>
+    webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/shell-commands`),
 
   // ── chat (raw-JSONL window + tailer — matches the Tauri command shapes, NOT the parsed-snapshot /chat/* routes other consumers use) ──
   chat_start: (a) =>
