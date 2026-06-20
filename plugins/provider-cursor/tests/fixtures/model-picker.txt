@@ -1,0 +1,22 @@
+  Composer 2.5                                                                                                                                                                                                                  Run Everything
+  /private/tmp/picker-investigate
+  → Plan, search, build anything
+
+ Available models                                                                                                                                                                                                                 Max mode: OFF
+
+ Filter:
+
+ →  Composer 2.5             (Tab to modify)
+    Auto
+    Opus 4.8                 300K High
+    GPT-5.5                  272K Medium
+    Sonnet 4.6               200K Medium
+    Codex 5.3                Medium
+    Opus 4.7                 300K Extra High
+    Grok Build 0.1           200K
+    GPT-5.4                  272K Medium
+    Opus 4.6                 200K High
+
+ 1-10 of 28
+
+ Type to filter • Enter to select • Tab to edit

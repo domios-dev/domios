@@ -426,7 +426,7 @@ function cleanText(raw, role) {
   t = t.replace(/\n{3,}/g, "\n\n");
   return t.trim();
 }
-var PROMPT_SELECTORS = "\u276F\u203A\u25B6\u27A4";
+var PROMPT_SELECTORS = "\u276F\u203A\u25B6\u27A4\u2192";
 var PROMPT_NUM_RE = /^[❯›▶➤>\s]*?(\d+)[.)]\s+(.+)$/;
 function cleanPromptLine(line) {
   return String(line).replace(/[│┃|╎╏┆┊╭╮╯╰]/g, " ").replace(/[─━═]{2,}/g, " ").replace(/\s+/g, " ").trim();
@@ -436,7 +436,9 @@ function chunkHasPromptSignal(chunk) {
     if (chunk.indexOf(PROMPT_SELECTORS[i]) !== -1) return true;
   }
   const lc = chunk.toLowerCase();
-  return lc.indexOf("workspace trust") !== -1 || lc.indexOf("run everything") !== -1 || lc.indexOf("to continue") !== -1 || lc.indexOf("to cancel") !== -1 || lc.indexOf("approve") !== -1 || lc.indexOf("esc") !== -1 && lc.indexOf("enter") !== -1;
+  return lc.indexOf("workspace trust") !== -1 || lc.indexOf("run everything") !== -1 || lc.indexOf("to continue") !== -1 || lc.indexOf("to cancel") !== -1 || lc.indexOf("to select") !== -1 || // /model list footer "Enter to select"
+  lc.indexOf("to filter") !== -1 || // /model list footer "Type to filter"
+  lc.indexOf("approve") !== -1 || lc.indexOf("esc") !== -1 && lc.indexOf("enter") !== -1;
 }
 function findPromptQuestion(lines, firstIdx) {
   for (let i = firstIdx - 1; i >= 0 && firstIdx - i <= 6; i--) {
@@ -450,6 +452,9 @@ function findPromptQuestion(lines, firstIdx) {
   return "Permission required";
 }
 function parseCursorPrompt(text) {
+  return parseCursorNumberedMenu(text) || parseCursorListMenu(text);
+}
+function parseCursorNumberedMenu(text) {
   const lines = String(text || "").split("\n").map(cleanPromptLine);
   if (lines.length < 2) return null;
   const start = Math.max(0, lines.length - 25);
@@ -487,6 +492,58 @@ function parseCursorPrompt(text) {
   const question = findPromptQuestion(lines, cluster[0].idx);
   const options = cluster.map((o) => [o.label, o.value]);
   return { question, options };
+}
+function parseCursorListMenu(text) {
+  const raw = String(text || "").split("\n");
+  if (raw.length < 3) return null;
+  const start = Math.max(0, raw.length - 30);
+  let footer = -1;
+  for (let i = raw.length - 1; i >= start; i--) {
+    const lc = raw[i].toLowerCase();
+    if (lc.indexOf("to select") !== -1 || lc.indexOf("to filter") !== -1) {
+      footer = i;
+      break;
+    }
+  }
+  if (footer === -1) return null;
+  const rows = [];
+  let question = "Select an option";
+  for (let i = footer - 1; i >= start && footer - i <= 18; i--) {
+    const t = raw[i].trim();
+    if (!t) continue;
+    const lc = t.toLowerCase();
+    if (isPaginationLine(t)) continue;
+    if (lc.indexOf("to select") !== -1 || lc.indexOf("to filter") !== -1) break;
+    if (lc.indexOf("filter:") === 0) continue;
+    if (t.charAt(t.length - 1) === "?") {
+      question = firstField(t);
+      break;
+    }
+    if (lc.indexOf("available models") === 0) {
+      question = firstField(t);
+      break;
+    }
+    const sel = PROMPT_SELECTORS.indexOf(t.charAt(0)) !== -1 || t.charAt(0) === ">";
+    const body = sel ? t.substring(1).trim() : t;
+    const label = firstField(body);
+    if (!label) {
+      if (rows.length) break;
+      else continue;
+    }
+    rows.unshift({ label, sel });
+  }
+  if (rows.length < 2) return null;
+  if (!rows.some((r) => r.sel) && question === "Select an option") return null;
+  const options = rows.map((r, i) => [r.label, String(i + 1)]);
+  return { question, options };
+}
+function isPaginationLine(t) {
+  return /^\d+\s*-\s*\d+\s+of\s+\d+/i.test(t) || /^\d+\s+of\s+\d+$/i.test(t);
+}
+function firstField(s) {
+  const m = /^(.*?)\s{2,}\S/.exec(s);
+  const label = (m ? m[1] : s).trim();
+  return label.replace(/\s*\(tab to [^)]*\)\s*$/i, "").trim();
 }
 function toExcludeList(exclude) {
   if (Array.isArray(exclude)) return exclude;
