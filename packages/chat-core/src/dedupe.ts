@@ -1,5 +1,6 @@
 import { normalizeChatText } from "./normalize";
 import { parseMarker } from "./markers";
+import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
 
 /** Grace window (ms) subtracted from an optimistic bubble's send time when
@@ -23,15 +24,6 @@ export interface OptimisticEcho {
   content: string;
   /** Epoch ms the bubble was sent at (the stable client send time). */
   sentAtMs: number;
-}
-
-function timestampMs(ts: string | undefined): number | null {
-  if (!ts) return null;
-  // Numeric epoch-ms string (our own bubbles) or ISO-8601 (provider logs).
-  const numeric = Number(ts);
-  if (Number.isFinite(numeric)) return numeric;
-  const parsed = Date.parse(ts);
-  return Number.isNaN(parsed) ? null : parsed;
 }
 
 interface CoverageToken {
