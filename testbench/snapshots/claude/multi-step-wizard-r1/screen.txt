@@ -1,0 +1,28 @@
+dev@workstation codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-ef089922-9aa4-40ed-984d-d0ddde6f8b70.sh
+╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ The stream-stall hint now reads "Waiting for API response · wi… │
+│                        ▘▘ ▝▝                       │ Improved auto mode safety: destructive git commands (`git rese… │
+│                                                    │ Added a warning when the requested model is deprecated or auto… │
+│ Opus 4.8 with high effort · Claude Team · Team Org A │ /release-notes for more                                         │
+│          /…/T/codeterm-snapshot-testbench          │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+❯ Give me a multi-stage A/B/C in-TUI questionnaire across several sections, then wait for my picks.                     
+⏺ I'll present a multi-section questionnaire using the in-TUI picker. Each section offers three choices (A/B/C). Make
+  your picks and I'll wait for them.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Setup  ☒ Architecture  ☐ Testing  ☐ Delivery  ✔ Submit  →
+Section 3 — Testing strategy: where should effort go?
+❯ 1. Unit-heavy
+     A) Many fast unit tests, few integration. Quick feedback loop.
+  2. Balanced pyramid
+     B) Mix of unit, integration, and a few end-to-end tests.
+  3. E2E-first
+     C) Focus on user-facing end-to-end flows over isolated units.
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel

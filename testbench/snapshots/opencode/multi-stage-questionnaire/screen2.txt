@@ -1,0 +1,36 @@
+         "Developer speed" \                                                                                            
+         "Runtime performance" \                                                                                        
+         "Correctness / safety"                                                                                         
+       ask "C2" "scale" "Project scale preference?" \                                                                   
+         "Small scripts / tools" \                                                                                      
+         "Mid-size apps" \                                                                                              
+         "Large distributed systems"                                                                                    
+       echo ""                                                                                                          
+       echo "========================================"                                                                  
+       echo "           YOUR RESULTS"                                                                                   
+       echo "========================================"                                                                  
+       printf "%-30s %s\n" "Question" "Answer"                                                                          
+       printf "%-30s %s\n" "------------------------------" "------"                                                    
+       printf "%-30s %s\n" "Experience Level"  "${answers[exp]}"                                                        
+       printf "%-30s %s\n" "Environment"      "${answers[env]}"                                                         
+       printf "%-30s %s\n" "Language"         "${answers[lang]}"                                                        
+       printf "%-30s %s\n" "Stack"            "${answers[stack]}"                                                       
+       printf "%-30s %s\n" "Optimize for"     "${answers[speed]}"                                                       
+       printf "%-30s %s\n" "Project Scale"    "${answers[scale]}"                                                       
+       echo "========================================"                                                                  
+       SCRIPT                                                                                                           
+       chmod +x /tmp/questionnaire.sh                                                                                   
+       echo "Questionnaire script created at /tmp/questionnaire.sh"                                                     
+       echo "Run it with: bash /tmp/questionnaire.sh"                                                                   
+     ▣  Build · DeepSeek V4 Flash Free                                                                                  
+  ┃                                                                                                                     
+  ┃  △ Permission required                                                                                              
+  ┃    ← Access external directory /tmp                                                                                 
+  ┃                                                                                                                     
+  ┃  Patterns                                                                                                           
+  ┃                                                                                                                     
+  ┃  - /tmp/*                                                                                                           
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃   Allow once   Allow always   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm     
+  ┃                                                                                                                     

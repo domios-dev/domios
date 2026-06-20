@@ -1,0 +1,18 @@
+{
+  "provider": "claude",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Select model",
+    "options": [
+      "Default (recommended) Opus 4.8 with 1M context · Best for everyday, complex tasks",
+      "Opus (1M context) Opus 4.8 with 1M context · Best for everyday, complex tasks",
+      "Sonnet Sonnet 4.6 · Efficient for routine tasks",
+      "Sonnet (1M context) Sonnet 4.6 with 1M context · Draws from usage credits · $3/$15 per Mtok",
+      "Haiku Haiku 4.5 · Fastest for quick answers",
+      "Opus ✔ Opus 4.8 · Best for everyday, complex tasks",
+      "Fable (disabled) Claude Fable 5 is currently unavailable. Learn more:"
+    ],
+    "selectedIndex": 5,
+    "multiSelect": false
+  }
+}

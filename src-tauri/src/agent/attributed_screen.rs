@@ -1,11 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+mod horizontal_buttons;
 mod picker_helpers;
 
+use horizontal_buttons::detect_horizontal_button_row;
 use picker_helpers::{
-    looks_like_path, looks_like_section_tabs, shortcut_token, shortcut_token_and_rest,
-    starts_with_any, strip_side_band, strip_side_preview,
+    is_border_char, looks_like_path, looks_like_section_tabs, row_is_bold, shortcut_token,
+    shortcut_token_and_rest, starts_with_any, strip_side_band, strip_side_preview,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -79,6 +81,7 @@ struct RowFeature {
     multi_select: bool,
     side_band: bool,
     content_bg: AttributedColor,
+    bold: bool,
 }
 
 impl AttributedScreen {
@@ -141,6 +144,9 @@ pub fn detect_picker(screen: &AttributedScreen) -> Option<PickerDetection> {
         .map(|row| analyze_row(screen, row))
         .collect();
 
+    if let Some(detection) = detect_horizontal_button_row(screen, &rows) {
+        return Some(detection);
+    }
     if let Some(detection) = detect_title_search_panel(&rows) {
         return Some(detection);
     }
@@ -235,6 +241,7 @@ fn analyze_row(screen: &AttributedScreen, row: u16) -> RowFeature {
     let multi_select = contains_checkbox(&stripped) || contains_select_all_hint(&stripped);
     let selected_score = selected_score(screen, row, &framed, class);
     let content_bg = row_content_bg(screen, row);
+    let bold = row_is_bold(screen, row);
     let option_like = !clean.is_empty()
         && !footer
         && !border
@@ -253,6 +260,7 @@ fn analyze_row(screen: &AttributedScreen, row: u16) -> RowFeature {
         multi_select,
         side_band,
         content_bg,
+        bold,
     }
 }
 
@@ -662,12 +670,34 @@ fn selected_score(screen: &AttributedScreen, row: u16, text: &str, class: Marker
 }
 
 fn find_question(rows: &[RowFeature], top: usize) -> Option<String> {
-    rows[..top]
-        .iter()
-        .rev()
-        .find(|row| is_question_candidate(row))
+    let mut marked: Option<&RowFeature> = None;
+    let mut bold: Option<&RowFeature> = None;
+    let mut nearest: Option<&RowFeature> = None;
+    for (idx, row) in rows[..top].iter().enumerate().rev() {
+        if !is_question_candidate(row) || heads_bullet_list(rows, idx, top) {
+            continue;
+        }
+        if row.class == MarkerClass::Numbered || row.class == MarkerClass::Lettered {
+            marked.get_or_insert(row);
+        }
+        if row.bold {
+            bold.get_or_insert(row);
+        }
+        nearest.get_or_insert(row);
+    }
+    marked
+        .or(bold)
+        .or(nearest)
         .map(|row| clean_question(&row.text))
         .filter(|question| !question.is_empty())
+}
+
+fn heads_bullet_list(rows: &[RowFeature], idx: usize, top: usize) -> bool {
+    rows[idx].class == MarkerClass::Plain
+        && rows[idx + 1..top]
+            .iter()
+            .find(|row| !row.clean.is_empty())
+            .is_some_and(|row| row.class == MarkerClass::Bullet)
 }
 
 fn is_question_candidate(row: &RowFeature) -> bool {
@@ -725,7 +755,9 @@ fn strip_frame(text: &str) -> String {
 }
 
 fn clean_question(text: &str) -> String {
-    let question = strip_marker_prefix(text)
+    let stripped = text.trim_start();
+    let stripped = stripped.strip_prefix('←').unwrap_or(stripped);
+    let question = strip_marker_prefix(stripped)
         .trim()
         .trim_matches(|c| is_vertical_border(c) || c == '─' || c == '━')
         .trim()
@@ -957,36 +989,6 @@ fn is_box_border(text: &str) -> bool {
     !trimmed.is_empty()
         && (trimmed.chars().filter(|c| is_border_char(*c)).count() * 2 >= trimmed.chars().count()
             || trimmed.chars().filter(|c| is_border_char(*c)).count() >= 6)
-}
-
-fn is_border_char(c: char) -> bool {
-    matches!(
-        c,
-        '─' | '━'
-            | '│'
-            | '┃'
-            | '┌'
-            | '┐'
-            | '└'
-            | '┘'
-            | '├'
-            | '┤'
-            | '┬'
-            | '┴'
-            | '┼'
-            | '╭'
-            | '╮'
-            | '╰'
-            | '╯'
-            | '═'
-            | '║'
-            | '╔'
-            | '╗'
-            | '╚'
-            | '╝'
-            | '▀'
-            | '╹'
-    )
 }
 
 fn is_vertical_border(c: char) -> bool {

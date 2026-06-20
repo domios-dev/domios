@@ -1,0 +1,10 @@
+{
+  "provider": "claude",
+  "situation": "model-picker-r2",
+  "capturedAtMs": 1781997138859,
+  "paneId": "c2e8f61f",
+  "source": "dev-7686",
+  "until": "(Select model|Switch model|Choose.*model|❯|›).*(Enter|select|esc|↑|↓)",
+  "prompt": "/model",
+  "providerCliVersion": "2.1.185 (Claude Code)"
+}
