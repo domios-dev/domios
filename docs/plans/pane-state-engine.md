@@ -101,4 +101,55 @@ Over the labeled corpus, via `agent_state_replay`:
 Most primitives exist (P1a SignalExtractor, PaneState enum, agent_state_replay, W1 attributed
 grid). This plan is mostly INTEGRATION + the corpus to measure — not a from-scratch build.
 
-<!-- revision: 1 -->
+## Dynamic state dumps — the detailed HOW (Phase A spike)
+State (unlike pickers) needs TIME-SERIES, so a dump is a whole-session recording + a labeled
+timeline, replayed offline through the classifier and scored against the labels.
+
+### Dump format — `testbench/state-dumps/<provider>/<scenario>/`
+- `session.cast` — the FULL session recording (asciicast `[t,"o",data]` rows), not a single frame.
+- `timeline.json` — ground truth:
+  `{ steps:[{at_ms, action, expect}], segments:[{from_ms, to_ms, state, subtype?, note}] }`
+  where `state ∈ {working, idle, question}` and `subtype ∈ {model_choice, permission, auth,
+  rate_limit, update, error, unknown}`.
+- `meta.json` — provider, cli_version (`<provider> --version`), scenario, capturedAtMs.
+
+### Capture protocol — `testbench/state-capture.sh --provider P --scenario S`
+1. spawn the agent in a fresh fake-project dir; `dc pane capture start` (full session) — never
+   rebuild dev.
+2. run the scenario's scripted steps; for each, record `{at_ms (relative to cast t0), action,
+   expect}`.
+3. between steps, poll the live screen to find the transition instant: WORKING→IDLE = quiescence
+   settles (no byte motion ~DONE_MS); →QUESTION = picker becomes active. Those instants become the
+   segment boundaries.
+4. `capture stop`; write `session.cast` + `timeline.json` (segments derived from steps + observed
+   transition instants) + `meta.json`. AUTO-LABEL: the script KNOWS each action and its expected
+   state; the polled transition instants refine the exact boundary ms. Human spot-checks.
+
+### Scenarios (a couple per provider for the spike)
+- `code-then-idle` — send a real coding task ("write fib.py") → WORKING → IDLE.
+- `model-picker` — send `/model` → QUESTION:model_choice → answer → WORKING → IDLE.
+- `multi-turn` — two coding turns → WORKING→IDLE→WORKING→IDLE (repeated transitions).
+- provider-specific where easy: `approval` (codex/opencode) → QUESTION:permission.
+
+### The 3-state classifier (Tier-2, the calibration target)
+`classify_timeline(cast) -> Vec<{from_ms,to_ms,state,subtype}>` — replay the cast at TICK
+granularity through `SignalExtractor` (as `agent_state_replay` already does), per tick decide:
+- `picker_active` && `attributed_screen` detect_picker ⇒ **QUESTION** + subtype (fingerprints, or
+  the opencode SSE handle when present);
+- else `byte_idle < WAIT_MS` or `Motion::{Streaming,Animating}` ⇒ **WORKING**;
+- else `semantic_idle ≥ DONE_MS` && ready-prompt ⇒ **IDLE**;
+- else hold previous / **Unknown** (transitional).
+Collapse consecutive same-state ticks into segments.
+
+### Calibration runner — `state_calibration` bench unit
+Per dump: `classify_timeline(session.cast)` → predicted segments vs `timeline.json` →
+- per-state precision/recall (tick-overlap), transition latency (predicted vs labeled boundary ms),
+  subtype confusion; print a per-dump + aggregate scorecard.
+
+### Phase A spike deliverable
+The capturer + a couple dumps per provider + the classifier + the calibration runner + a REPORT:
+where the 3-state engine is accurate and where it needs tuning (WAIT_MS/DONE_MS thresholds,
+subtype fingerprints, opencode region extraction). Proves the tiered state model on real dynamic
+data before wiring it into the live status path (P2).
+
+<!-- revision: 2 -->
