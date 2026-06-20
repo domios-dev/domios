@@ -496,8 +496,14 @@ pub fn provider_screen_actual(provider: &JsProvider, text: &str) -> Value {
 fn provider_screen_attr_actual_from_cast(cast: &Cast) -> Value {
     let screen = attributed_screen_from_cast(cast);
     match attributed_screen::detect_picker(&screen) {
-        Some(detection) => json!(detection),
-        None => Value::Null,
+        Some(detection) => {
+            let mut value = json!(detection);
+            if let Value::Object(obj) = &mut value {
+                obj.insert("detectPicker".into(), json!(detection));
+            }
+            value
+        }
+        None => json!({ "detectPicker": Value::Null }),
     }
 }
 

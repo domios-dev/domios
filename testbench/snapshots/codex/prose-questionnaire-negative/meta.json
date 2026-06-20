@@ -1,0 +1,10 @@
+{
+  "provider": "codex",
+  "situation": "prose-questionnaire-negative",
+  "capturedAtMs": 1781990637542,
+  "paneId": "5ebb8a42",
+  "source": "dev-7686",
+  "cwd": "/tmp/codex-prose-questionnaire.FIGi8p",
+  "prompt": "Give me a test multi-step A B C picker with several stages, answer in one line. Print it as plain text questionnaire, not an interactive terminal UI. Include instructions like: Answer one line such as 1B 2C 3A 4D. Then Step 1: task type with A/B/C/D choices, Step 2, Step 3, Step 4. Do not wait for arrow-key selection; just ask me to reply in text.",
+  "until": "1B|Step 4|one line"
+}
