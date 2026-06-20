@@ -1,0 +1,31 @@
+kandrey@ROC-6W49K3GN codeterm-state-capture-claude-model-choice-1-83974 % bash /tmp/codeterm-spawn-e12711b3-2f89-415f-a0ff-2dcf43a36c0f.sh
+╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Run /init to create a CLAUDE.md file with instructions for Cla… │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ Improved auto mode safety: destructive git commands (`git rese… │
+│                        ▘▘ ▝▝                       │ Added a warning when the requested model is deprecated or auto… │
+│                                                    │ Added `attribution.sessionUrl` setting to omit the claude.ai s… │
+│ Opus 4.8 with high effort · Claude Team · 8x8 RD 2 │ /release-notes for more                                         │
+│ /codeterm-state-capture-claude-model-choice-1-839… │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Ask me to choose a caching strategy. Print exactly three numbered options: 1. in-memory, 2. Redis, 3. file-based.     
+  Then wait for my answer and do nothing else.Use in-memory caching.                                                    
+  
+⏺ You've already answered — in-memory caching it is. No need to pose the question back to you.
+
+  Caching strategy: in-memory.
+
+  (For the record, the three options were: 1. in-memory, 2. Redis, 3. file-based — and you picked #1.)
+
+  Let me know what you'd like to do with it next.
+
+✻ Churned for 9s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents    
