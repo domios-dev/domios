@@ -298,7 +298,14 @@ impl MultiplexerState {
             .peek_in_workspace(workspace_id, idx)
             .ok_or("No recently closed pane")?;
         let res = self.materialize_closed_pane(workspace_id, &record, chat_capable)?;
-        self.closed_store.delete_pane_row(row_id);
+        if let Err(e) = self.closed_store.delete_pane_row(row_id) {
+            // Materialize succeeded but the history delete failed: the entry is
+            // still present, so a retry would reopen a duplicate. Surface it.
+            log::warn!(
+                "reopen_closed_pane: reopened pane {} but failed to delete closed entry (row {row_id}): {e}",
+                res.1
+            );
+        }
         Ok(res)
     }
 
@@ -334,7 +341,11 @@ impl MultiplexerState {
             self.restore_target_workspace(record.workspace_name.clone(), record.cwd.clone());
         let (tab_id, new_pane_id) =
             self.materialize_closed_pane(&workspace_id, &record, chat_capable)?;
-        self.closed_store.delete_pane_row(row_id);
+        if let Err(e) = self.closed_store.delete_pane_row(row_id) {
+            log::warn!(
+                "reopen_orphaned_pane: reopened pane {new_pane_id} but failed to delete closed entry (row {row_id}): {e}"
+            );
+        }
         Ok((workspace_id, tab_id, new_pane_id))
     }
 
@@ -398,7 +409,13 @@ impl MultiplexerState {
         }
 
         // Every pane materialized: now it is safe to drop the group from history.
-        self.closed_store.delete_group(group_id);
+        if let Err(e) = self.closed_store.delete_group(group_id) {
+            // The whole group is still in history after a successful reopen, so a
+            // retry would duplicate every pane. Surface it.
+            log::warn!(
+                "reopen_closed_group: reopened group {group_id} but failed to delete it from history: {e}"
+            );
+        }
 
         // Relink the subtree: old parent ids -> freshly minted pane ids.
         for record in &panes {

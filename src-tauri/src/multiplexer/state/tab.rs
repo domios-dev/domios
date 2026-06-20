@@ -90,6 +90,30 @@ impl MultiplexerState {
         Ok(pty_ids)
     }
 
+    /// Unwind a tab + its pane created by an atomic spawn whose `launch` then
+    /// failed, leaving no blank focused tab behind. Unlike [`close_tab`] this does
+    /// NOT record the pane into the closed-tab history — a never-launched pane is
+    /// not a user "recently closed" tab and must not pollute that list.
+    ///
+    /// [`close_tab`]: Self::close_tab
+    pub fn rollback_spawn_tab(&mut self, workspace_id: &str, tab_id: &str, pane_id: &str) {
+        if let Some(workspace) = self.workspaces.iter_mut().find(|w| w.id == workspace_id) {
+            workspace.tabs.retain(|t| t.id != tab_id);
+            if workspace.active_tab_id.as_deref() == Some(tab_id) {
+                workspace.active_tab_id = workspace.tabs.last().map(|t| t.id.clone());
+            }
+        }
+        if let Some(pane) = self.panes.remove(pane_id) {
+            if let Some(pty_id) = &pane.pty_id {
+                self.pty_to_pane.remove(pty_id);
+            }
+        }
+        if self.focused_pane_id.as_deref() == Some(pane_id) {
+            self.focused_pane_id = None;
+            self.fallback_focus_to_general();
+        }
+    }
+
     pub fn rename_tab(
         &mut self,
         workspace_id: &str,

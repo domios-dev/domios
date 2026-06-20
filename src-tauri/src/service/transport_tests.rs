@@ -1,5 +1,70 @@
-use super::AtomicSpawnParams;
+use super::{finish_launch, AtomicSpawnParams};
 use crate::multiplexer::state::MultiplexerState;
+
+#[test]
+fn launch_failure_runs_rollback_and_propagates_error() {
+    use std::cell::Cell;
+    // The result shape a failing AgentTransport::launch returns.
+    let rolled_back = Cell::new(false);
+    let res = finish_launch(Err("launch boom".to_string()), || rolled_back.set(true));
+    assert!(res.is_err(), "launch error propagates to the caller");
+    assert!(rolled_back.get(), "tab rollback ran on launch failure");
+}
+
+#[test]
+fn successful_launch_does_not_roll_back() {
+    use std::cell::Cell;
+    let rolled_back = Cell::new(false);
+    let res = finish_launch(Ok(Some("the-command".to_string())), || {
+        rolled_back.set(true)
+    });
+    assert_eq!(res.unwrap(), Some("the-command".to_string()));
+    assert!(!rolled_back.get(), "a successful launch never rolls back");
+}
+
+#[test]
+fn rollback_spawn_tab_removes_tab_pane_and_does_not_record_history() {
+    // The mux-level unwind a failed launch triggers: the just-created tab + pane
+    // are gone, focus is moved off the dead pane, and — unlike a real close — the
+    // never-launched pane is NOT recorded into the recently-closed history.
+    let (mut state, _) = MultiplexerState::new();
+    let ws = state
+        .snapshot()
+        .active_workspace_id
+        .expect("default workspace");
+    let (tab, pane) = state.create_tab(&ws).expect("create_tab");
+    state.set_active_tab(&ws, &tab).expect("activate tab");
+    state.set_focused_pane(&pane).expect("focus pane");
+
+    state.rollback_spawn_tab(&ws, &tab, &pane);
+
+    let snap = state.snapshot();
+    assert!(
+        !snap.panes.contains_key(&pane),
+        "rolled-back pane is removed"
+    );
+    let ws_view = snap
+        .workspaces
+        .iter()
+        .find(|w| w.id == ws)
+        .expect("workspace still present");
+    assert!(
+        !ws_view.tabs.iter().any(|t| t.id == tab),
+        "rolled-back tab is removed"
+    );
+    assert_ne!(
+        snap.focused_pane_id.as_deref(),
+        Some(pane.as_str()),
+        "focus moved off the rolled-back pane"
+    );
+    assert!(
+        state
+            .list_recently_closed(&ws)
+            .iter()
+            .all(|p| p.pane_id != pane),
+        "a never-launched pane must not enter recently-closed history"
+    );
+}
 
 #[test]
 fn snapshot_generation_strictly_increases() {
