@@ -125,12 +125,11 @@ async fn backend_read_loop(
                     }
                 }
 
-                // Answer CSI 6n so PowerShell doesn't hang. Visible frontend
-                // panes let xterm.js answer (double-answering races and leaks
-                // the second response into the terminal as input). Hidden panes
-                // never get an xterm. Headless spawns (orchestrator/GA/API)
-                // answer only until a frontend xterm claims resize ownership —
-                // a background tab may stay unmounted forever.
+                // Answer CSI 6n only for hidden/headless panes. Visible panes let
+                // xterm answer with the REAL cursor position — answering here with a
+                // fixed 1;1 would corrupt running TUIs (wrong cursor -> garbled
+                // layout). The launch-time race is handled by the one-shot nudge in
+                // send_launch_command_to_pty instead.
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
                     let is_hidden = {
                         let mux = svc.mux.write();

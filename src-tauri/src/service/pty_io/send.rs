@@ -157,6 +157,29 @@ impl ServiceContext {
         self.send_text_to_pty(pty_id, text, enter)
     }
 
+    /// Deliver the initial agent launch command to a bare shell — no verify path
+    /// (no agent TUI exists yet). Mirrors general_agent::lifecycle.
+    pub fn send_launch_command_to_pty(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
+        // Wait for the prompt (arms PSReadLine's bracketed-paste handler). If it
+        // never renders the shell is likely stuck on an unanswered CSI 6n — xterm
+        // claimed resize ownership before it could reply, so the read loop's
+        // no_owner answer didn't fire. Answer it ourselves and re-poll.
+        #[cfg(windows)]
+        {
+            use std::time::Duration;
+            if !poll_shell_prompt(&self.screen_state, pty_id, Duration::from_secs(4)) {
+                let _ = self.pty.lock().write(pty_id, b"\x1b[1;1R");
+                poll_shell_prompt(&self.screen_state, pty_id, Duration::from_secs(4));
+            }
+        }
+        let payload: Vec<u8> = if cfg!(windows) {
+            format!("\x1b[200~ {}\x1b[201~\r", cmd).into_bytes()
+        } else {
+            format!("{}\r", cmd).into_bytes()
+        };
+        self.pty.lock().write(pty_id, &payload)
+    }
+
     /// Poll the screen until the provider's TUI fingerprint shows, bounded by `timeout`. Best-effort.
     fn await_agent_tui_on_screen(
         &self,

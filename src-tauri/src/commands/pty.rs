@@ -82,6 +82,11 @@ pub async fn spawn_pty(
     let mut env_vars: HashMap<String, String> = HashMap::new();
     if let Some(ref pid) = pane_id {
         env_vars.insert("CODETERM_PANE_ID".to_string(), pid.clone());
+        // Binding nonce so the agent's session_start hook can claim this pane (parity with pane_env).
+        env_vars.insert(
+            "CODETERM_SESSION_BINDING_NONCE".to_string(),
+            svc.ensure_session_binding_nonce(pid),
+        );
         // Pass role/parent info so agents know their place in hierarchy
         let mux = mux_state.read();
         if let Some(pane) = mux.get_pane(pid) {
@@ -535,6 +540,20 @@ pub async fn write_pty_string(
         .await
         .map_err(|e| format!("send task failed: {e}"))?
     }
+}
+
+/// Deliver an agent's initial launch command via the no-verify launch writer
+/// (no agent TUI exists pre-boot). poll_shell_prompt blocks → off the runtime.
+#[tauri::command]
+pub async fn write_pty_launch_command(
+    svc: tauri::State<'_, ServiceState>,
+    pty_id: String,
+    command: String,
+) -> Result<(), String> {
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.send_launch_command_to_pty(&pty_id, &command))
+        .await
+        .map_err(|e| format!("launch task failed: {e}"))?
 }
 
 /// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/write.
