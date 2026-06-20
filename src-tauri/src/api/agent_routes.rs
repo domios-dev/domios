@@ -451,6 +451,7 @@ mod tests {
                 id: "qwen".into(),
                 display_name: "Qwen".into(),
                 description: None,
+                available: None,
             }])
         }
 

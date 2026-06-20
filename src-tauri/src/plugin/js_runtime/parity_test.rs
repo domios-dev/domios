@@ -100,11 +100,13 @@ fn discover_models_fixture() -> Vec<ModelInfo> {
             id: "live-a".into(),
             display_name: "Live A".into(),
             description: None,
+            available: None,
         },
         ModelInfo {
             id: "live-b".into(),
             display_name: "Live B".into(),
             description: Some("second".into()),
+            available: None,
         },
     ]
 }

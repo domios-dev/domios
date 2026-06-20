@@ -205,6 +205,7 @@ fn build_agent_command_canonicalizes_display_model_before_launch_args() {
                 id: "gpt-5.5".into(),
                 display_name: "GPT-5.5".into(),
                 description: None,
+                available: None,
             }],
             default: Some("gpt-5.5".into()),
         },
