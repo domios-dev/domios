@@ -1,0 +1,10 @@
+{
+  "question": "# Todos",
+  "options": [
+    "[•] Build a multi-stage A/B/C questionnaire CLI with sections",
+    "Run and test the questionnaire",
+    "Wait for user answers"
+  ],
+  "selectedIndex": 0,
+  "multiSelect": true
+}

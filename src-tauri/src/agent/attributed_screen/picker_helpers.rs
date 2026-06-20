@@ -1,4 +1,50 @@
-use super::{is_vertical_border, strip_selected_glyph};
+use super::{is_vertical_border, strip_selected_glyph, AttributedScreen};
+
+pub(super) fn is_border_char(c: char) -> bool {
+    matches!(
+        c,
+        '─' | '━'
+            | '│'
+            | '┃'
+            | '┌'
+            | '┐'
+            | '└'
+            | '┘'
+            | '├'
+            | '┤'
+            | '┬'
+            | '┴'
+            | '┼'
+            | '╭'
+            | '╮'
+            | '╰'
+            | '╯'
+            | '═'
+            | '║'
+            | '╔'
+            | '╗'
+            | '╚'
+            | '╝'
+            | '▀'
+            | '╹'
+    )
+}
+
+pub(super) fn row_is_bold(screen: &AttributedScreen, row: u16) -> bool {
+    let cells = screen.cells.get(row as usize).into_iter().flatten();
+    let mut total = 0usize;
+    let mut bold = 0usize;
+    for cell in cells {
+        if cell.ch.trim().is_empty() || is_border_char(cell.ch.chars().next().unwrap_or(' ')) {
+            continue;
+        }
+        total += 1;
+        if cell.bold {
+            bold += 1;
+        }
+    }
+    total > 0 && bold * 2 >= total
+}
 
 pub(super) fn strip_side_band(text: &str) -> String {
     let trimmed = text.trim_end();

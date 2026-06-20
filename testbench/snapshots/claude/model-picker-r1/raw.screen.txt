@@ -1,0 +1,33 @@
+kandrey@ROC-6W49K3GN codeterm-harvest-model % bash /tmp/codeterm-spawn-23fea289-adbf-4c2c-9e61-49cbe4fdff73.sh
+╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ The stream-stall hint now reads "Waiting for API response · wi… │
+│                        ▘▘ ▝▝                       │ Improved auto mode safety: destructive git commands (`git rese… │
+│                                                    │ Added a warning when the requested model is deprecated or auto… │
+│ Opus 4.8 with high effort · Claude Team · 8x8 RD 2 │ /release-notes for more                                         │
+│            /…/T/codeterm-harvest-model             │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ /model                                                                                                                
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Select model
+  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous model names,
+  specify with --model.
+
+    1. Default (recommended)  Opus 4.8 with 1M context · Best for everyday, complex tasks
+    2. Opus (1M context)      Opus 4.8 with 1M context · Best for everyday, complex tasks
+    3. Sonnet                 Sonnet 4.6 · Efficient for routine tasks
+    4. Sonnet (1M context)    Sonnet 4.6 with 1M context · Draws from usage credits · $3/$15 per Mtok
+    5. Haiku                  Haiku 4.5 · Fastest for quick answers
+  ❯ 6. Opus ✔                 Opus 4.8 · Best for everyday, complex tasks
+    7. Fable (disabled)       Claude Fable 5 is currently unavailable. Learn more: 
+                              https://www.anthropic.com/news/fable-mythos-access
+
+  ● High effort (default) ←/→ to adjust
+
+  Enter to set as default · s to use this session only · Esc to cancel

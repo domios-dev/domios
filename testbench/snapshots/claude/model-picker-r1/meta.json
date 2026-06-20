@@ -1,0 +1,8 @@
+{
+  "provider": "claude",
+  "situation": "model-picker-r1",
+  "source": "dev-7686",
+  "until": "(❯|›).*(Enter|select|esc|↑|↓)",
+  "prompt": "/model",
+  "providerCliVersion": "2.1.185 (Claude Code)"
+}

@@ -1,0 +1,10 @@
+{
+  "provider": "codex",
+  "situation": "prose-negative-r1",
+  "capturedAtMs": 1781992366247,
+  "paneId": "292d39b9",
+  "source": "dev-7686",
+  "until": "A.*B.*C",
+  "prompt": "Give me a multi-step A/B/C picker, answer in one line — print it as text.",
+  "providerCliVersion": "codex-cli 0.141.0"
+}
