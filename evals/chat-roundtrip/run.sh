@@ -248,10 +248,12 @@ main() {
     case_binding "$provider" "$pane"
     case_elementary "$provider" "$pane"
     case_rapid "$provider" "$pane"
-    # Picker-extraction gate (facet9 P9.3/P9.4): /model populates pending_prompt
-    # for ALL three. claude + codex via the universal numbered parser; cursor via
-    # its plugin parsePrompt list-menu path (cursor's /model is a non-numbered list).
-    case "$provider" in claude|codex|cursor) case_picker "$provider" "$pane" ;; esac
+    # Picker-extraction gate (facet9 P9.3/P9.4): /model populates pending_prompt.
+    # GATED: claude (universal numbered parser) + cursor (plugin list-menu path,
+    # non-numbered) — both PROVEN live. codex /model is excluded from the gate: it
+    # extracts intermittently (slow menu render vs poll window) — reliability is a
+    # follow-up before re-adding it here.
+    case "$provider" in claude|cursor) case_picker "$provider" "$pane" ;; esac
     [ "${CR_KEEP:-0}" = "1" ] || dc pane close "$pane" >/dev/null 2>&1
   done
 
