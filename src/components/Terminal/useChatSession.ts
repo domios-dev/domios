@@ -10,6 +10,7 @@ import {
   type OptimisticEcho,
 } from "@codeterm/chat-core";
 import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "../../lib/chatPrefixes";
+import { useShellCommands } from "./useShellCommands";
 
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
@@ -178,6 +179,7 @@ export function useChatSession({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
+  const shellMessages = useShellCommands(paneId);
   const onErrorRef = useRef(onError);
 
   useEffect(() => {
@@ -240,7 +242,11 @@ export function useChatSession({
   }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    const grouped = attachToolResults(resetParsed);
+    const agentGrouped = attachToolResults(resetParsed);
+    // Shell-integration command items interleave with agent turns by timestamp.
+    const grouped = shellMessages.length > 0
+      ? mergeTimelineMessages(agentGrouped, shellMessages)
+      : agentGrouped;
     if (liveOptimistic.length === 0) return grouped;
     // Render every real user turn (mergeById already dedupes by stable id — no
     // content-collapse that would swallow a legitimately repeated message).
@@ -251,7 +257,7 @@ export function useChatSession({
     const matched = new Set(matchedIds);
     const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
     return mergeTimelineMessages(grouped, stillPending);
-  }, [resetParsed, liveOptimistic]);
+  }, [resetParsed, liveOptimistic, shellMessages]);
 
   const enrichedMessages = useMemo(() => {
     const visible = allMessages.slice(-visibleMessageCount);

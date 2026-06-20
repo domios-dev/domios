@@ -4,11 +4,20 @@ export type {
   NormalizedChatMessage,
   ProviderChatAdapter,
   ChatOrigin,
+  ShellCommandStatus,
   SlashCommand,
   InteractiveElement,
   InteractiveQuestion,
   InteractiveOption,
 } from "./types";
+export {
+  shellCommandMessage,
+  shellSnapshotToMessages,
+  applyShellLifecycle,
+  type ShellCommandSnapshot,
+  type ShellCommandSnapshotItem,
+  type CommandLifecycle,
+} from "./shellCommands";
 export {
   chatMessageFingerprint,
   normalizeChatText,

@@ -106,6 +106,22 @@ export function PaneSessionChat({
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
 
+  // Shell-command decoration: re-run sends the command back through the same PTY
+  // input path the composer uses; jump surfaces the live terminal output.
+  const handleRerunShellCommand = useCallback((command: string) => {
+    if (!currentPtyId) {
+      showComposerError("Pane has no PTY");
+      return;
+    }
+    void invoke("write_pty_string", { ptyId: currentPtyId, data: command + "\r", raw: false }).catch(
+      (e) => showComposerError(e instanceof Error ? e.message : String(e)),
+    );
+  }, [currentPtyId, showComposerError]);
+
+  const handleJumpToShellCommand = useCallback(() => {
+    onOpenTerminalFallback?.();
+  }, [onOpenTerminalFallback]);
+
   // Route an interactive-widget answer back to the agent through the SAME send
   // path the composer uses: write_pty_string with raw=false → backend bracket
   // paste + delayed CR, which handles the TUI-menu / long-message no-auto-submit
@@ -314,6 +330,8 @@ export function PaneSessionChat({
                 fontScale={uiFontScale}
                 onAnswerInteractive={handleAnswerInteractive}
                 answeredInteractiveIds={answeredInteractiveIds}
+                onRerunShellCommand={handleRerunShellCommand}
+                onJumpToShellCommand={onOpenTerminalFallback ? handleJumpToShellCommand : undefined}
                 originAvatar={
                   origin?.kind === "pane" && originProviderId
                     ? <OriginProviderAvatar providerId={originProviderId} />

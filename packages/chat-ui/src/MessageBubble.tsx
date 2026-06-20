@@ -21,6 +21,7 @@ import {
   Settings,        // plugin_config (Configure card)
   Info,
 } from "lucide-react";
+import { ShellCommandItem } from "./ShellCommandItem";
 import { recognize } from "./codeterm/recognize";
 import { CodetermCard } from "./codeterm/CodetermCard";
 import { ReminderCard } from "./codeterm/ReminderCard";
@@ -66,6 +67,10 @@ interface MessageBubbleProps {
   /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolvePaneName?: PaneNameResolver;
   fontScale?: number;
+  /** `shell_command` decoration — re-run the command in the pane's PTY. */
+  onRerunShellCommand?: (command: string) => void;
+  /** `shell_command` decoration — surface the command's terminal output. */
+  onJumpToShellCommand?: (message: ChatMessage) => void;
 }
 
 // Kill switch for interactive AskUserQuestion widgets (all providers). Detection
@@ -189,7 +194,7 @@ function isRenderableMessage(message: ChatMessage): boolean {
   return true;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds, fontScale }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   // Auto-expand for Write-style tool input (the file body being written) and
   // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
   // force-expand — it shows a compact inline tail under the pill instead.
@@ -916,6 +921,17 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           </div>
         )}
       </div>
+    );
+  }
+
+  // Shell command — first-class command item with VS Code-style decorations.
+  if (message.type === "shell_command") {
+    return (
+      <ShellCommandItem
+        message={message}
+        onRerun={onRerunShellCommand}
+        onJump={onJumpToShellCommand}
+      />
     );
   }
 

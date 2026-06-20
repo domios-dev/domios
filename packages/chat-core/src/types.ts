@@ -8,7 +8,11 @@ export type ChatMessageKind =
   | "system"
   | "local_command"
   | "image"
+  | "shell_command"
   | "custom";
+
+/** Lifecycle status of a `shell_command` chat item (OSC 133/633 boundaries). */
+export type ShellCommandStatus = "running" | "ok" | "failed";
 
 export interface ChatAttachment {
   id: string;
@@ -64,6 +68,14 @@ export interface NormalizedChatMessage {
   inboundKind?: "pane" | "report" | "reminder" | "mesh" | "telegram";
   /** Interactive prompts the provider extracted from this message (answerable widgets). */
   interactive?: InteractiveElement[];
+  /** `shell_command` items only — the command line, lifecycle status, exit code
+   *  and cwd surfaced from the shell-integration accumulators (OSC 133/633/7). */
+  shellCommand?: string;
+  shellStatus?: ShellCommandStatus;
+  shellExitCode?: number;
+  shellCwd?: string;
+  /** False in A/D-only degraded mode (no pre-exec `C`); decorations stay valid. */
+  shellHasOutputStart?: boolean;
 }
 
 export interface ProviderChatAdapter<TMessage extends NormalizedChatMessage = NormalizedChatMessage> {
