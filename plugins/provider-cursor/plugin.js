@@ -126,8 +126,8 @@ var plugin = {
       if (ex.indexOf(sid) !== -1) continue;
       const meta = readMetaJson(e.path + sep + "meta.json");
       if (!meta && !host.fs.fileExists(e.path + sep + "store.db")) continue;
-      const ts = meta ? meta.updatedAtMs || meta.createdAtMs || 0 : 0;
-      if (maxAge && now && ts && now - ts > maxAge) continue;
+      const ts = meta ? meta.updatedAtMs || meta.createdAtMs || 0 : e.modifiedMs || 0;
+      if (maxAge && now && (!ts || now - ts > maxAge)) continue;
       candidates.push({ id: sid, ts });
     }
     if (candidates.length !== 1) return null;
