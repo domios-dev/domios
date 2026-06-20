@@ -1,0 +1,40 @@
+                                                                                                                        
+  ┃                                                                                                                     
+  ┃  Write a Python function fib(n) with a docstring in fib.py. Keep it small.                                          
+  ┃                                                                                                                     
+                                                                                                                        
+     + Thought: 450ms                                                                                                   
+                                                                                                                        
+     ✱ Glob "**/fib.py" (1 match)                                                                                       
+                                                                                                                        
+     + Thought: 309ms                                                                                                   
+                                                                                                                        
+     → Read fib.py                                                                                                      
+                                                                                                                        
+     + Thought: 139ms                                                                                                   
+                                                                                                                        
+  ┃                                                                                                                     
+  ┃  ← Edit fib.py                                                                                                      
+  ┃                                                                                                                     
+  ┃    1   def fib(n):                                                                                                  
+  ┃    2 +     """Return the nth Fibonacci number (0-indexed)."""                                                       
+  ┃    3       return n if n < 2 else fib(n - 1) + fib(n - 2)                                                           
+  ┃                                                                                                                     
+                                                                                                                        
+     + Thought: 198ms                                                                                                   
+                                                                                                                        
+     Done.                                                                                                              
+                                                                                                                        
+     ▣  Build · DeepSeek V4 Flash Free · 8.8s                                                                           
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                                        
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  
+                                                                                            9.7K (5%)  ctrl+p commands  
+                                                                                                                        

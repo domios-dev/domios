@@ -1,0 +1,23 @@
+dev@workstation codeterm-state-capture-cursor-error-1-60251 % bash /tmp/codeterm-spawn-7d1f48a7-6486-40d0-8af7-91682e040863.sh
+
+
+  Cursor Agent
+  v2026.06.19-20-24-33-653a7fb
+  Try Composer via /models, frontier intelligence at a fraction of the cost.
+
+                                                                                                                       
+  Run `nonexistent_command_xyz` and report the failure.                                                                
+                                                                                                                       
+
+  $ nonexistent_command_xyz exit 127 • 352ms
+    (eval):1: command not found: nonexistent_command_xyz
+
+ ⠘⠤ Running  84 tokens
+    Tip: Use /mcp to connect Cursor to your tools and data sources.
+
+                                                                                                                       
+  → Add a follow-up                                                                                     ctrl+c to stop 
+                                                                                                                       
+
+  Composer 2.5 · 6.9%                                                                                   Run Everything
+  /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-state-capture-cursor-error-1-60251

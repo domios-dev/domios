@@ -1,0 +1,40 @@
+                                                                                                                        
+  ┃                                                                                                                     
+  ┃  Try to open and read /no/such/path, then report the error.                                                         
+  ┃                                                                                                                     
+                                                                                                                        
+     + Thought: 280ms                                                                                                   
+                                                                                                                        
+     ⠼ Read /no/such/path                                                                                               
+                                                                                                                        
+     ▣  Build · DeepSeek V4 Flash Free                                                                                  
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+  ┃                                                                                                                     
+  ┃  △ Permission required                                                                                              
+  ┃    ← Access external directory /no/such                                                                             
+  ┃                                                                                                                     
+  ┃  Patterns                                                                                                           
+  ┃                                                                                                                     
+  ┃  - /no/such/*                                                                                                       
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃   Allow once   Allow always   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm     
+  ┃                                                                                                                     
+                                                                                                                        
