@@ -1,0 +1,8 @@
+{
+  "provider": "codex",
+  "final_state": "unknown",
+  "gating": false,
+  "source": "real-capture",
+  "negatives": ["waiting_on_auth", "update_prompt", "rate_limited", "waiting", "turn_complete"],
+  "notes": "Real codex turn: 'Reply with exactly: OK' -> '• OK' -> idle composer ('› ...' placeholder). Ground truth = turn finished. Enum has no turn_complete/idle, so honest correct verdict is 'unknown'. If codex classify returns 'working' at the idle composer, that is the can't-tell-done finding — record in BASELINE.md."
+}
