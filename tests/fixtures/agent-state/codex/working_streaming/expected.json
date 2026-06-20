@@ -1,0 +1,6 @@
+{
+  "provider": "codex",
+  "final_state": "working",
+  "negatives": ["update_prompt", "waiting_on_auth", "rate_limited", "waiting", "turn_complete"],
+  "notes": "Sustained streaming output. Must stay 'working' and never spuriously read as parked/done mid-stream."
+}

@@ -1,0 +1,7 @@
+{
+  "provider": "codex",
+  "final_state": "update_prompt",
+  "extracted": { "keys": ["down", "enter"] },
+  "negatives": ["waiting_on_auth", "rate_limited", "waiting", "turn_complete"],
+  "notes": "Self-update menu. Final verdict update_prompt; action must step OFF the 'Update now' default (down) before enter. Never auth/rate-limited, and never parked/done while output is still arriving."
+}
