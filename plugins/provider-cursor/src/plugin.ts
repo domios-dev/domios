@@ -510,7 +510,7 @@ function cleanText(raw: string, role: string): string {
 
 // ── interactive prompt parsing ──
 
-const PROMPT_SELECTORS = "❯›▶➤";
+const PROMPT_SELECTORS = "❯›▶➤→";
 // Selector-or-numbered option line, optional leading selector glyph: "❯ 1. Yes" / "2) No".
 const PROMPT_NUM_RE = /^[❯›▶➤>\s]*?(\d+)[.)]\s+(.+)$/;
 
@@ -536,6 +536,8 @@ function chunkHasPromptSignal(chunk: string): boolean {
     lc.indexOf("run everything") !== -1 ||
     lc.indexOf("to continue") !== -1 ||
     lc.indexOf("to cancel") !== -1 ||
+    lc.indexOf("to select") !== -1 || // /model list footer "Enter to select"
+    lc.indexOf("to filter") !== -1 || // /model list footer "Type to filter"
     lc.indexOf("approve") !== -1 ||
     (lc.indexOf("esc") !== -1 && lc.indexOf("enter") !== -1)
   );
@@ -553,11 +555,18 @@ function findPromptQuestion(lines: string[], firstIdx: number): string {
   return "Permission required";
 }
 
+// Numbered menus (trust gate, command approval) parse via the host's universal
+// shape; the /model picker is a non-numbered list cursor draws instead → try that
+// fallback so both layouts surface a card.
+function parseCursorPrompt(text: string): ParsedPrompt | null {
+  return parseCursorNumberedMenu(text) || parseCursorListMenu(text);
+}
+
 // Parse the active vertical menu near the bottom of cursor's screen. Mirrors the
 // host's universal numbered-picker shape (so numbered menus never regress) and
 // requires a selector glyph or keyboard footer near the options so a plain
 // numbered list in prose is not mistaken for a prompt.
-function parseCursorPrompt(text: string): ParsedPrompt | null {
+function parseCursorNumberedMenu(text: string): ParsedPrompt | null {
   const lines = String(text || "").split("\n").map(cleanPromptLine);
   if (lines.length < 2) return null;
   const start = Math.max(0, lines.length - 25);
@@ -601,6 +610,61 @@ function parseCursorPrompt(text: string): ParsedPrompt | null {
   const question = findPromptQuestion(lines, cluster[0].idx);
   const options: [string, string][] = cluster.map((o) => [o.label, o.value]);
   return { question: question, options: options };
+}
+
+// Cursor's /model picker is a NON-numbered vertical list: a selector glyph (→)
+// marks the highlight, labels carry trailing metadata after a 2-space gap, and a
+// "Type to filter • Enter to select" footer gates it. The host's numbered reader
+// can't see it. Works on RAW lines (no whitespace collapse) so the 2-space gap that
+// separates a label from its metadata survives. Footer-gated, so prose never cards.
+function parseCursorListMenu(text: string): ParsedPrompt | null {
+  const raw = String(text || "").split("\n");
+  if (raw.length < 3) return null;
+  const start = Math.max(0, raw.length - 30);
+
+  // Anchor on the LAST picker footer (bottom-most = the active menu).
+  let footer = -1;
+  for (let i = raw.length - 1; i >= start; i--) {
+    const lc = raw[i].toLowerCase();
+    if (lc.indexOf("to select") !== -1 || lc.indexOf("to filter") !== -1) { footer = i; break; }
+  }
+  if (footer === -1) return null;
+
+  const rows: { label: string; sel: boolean }[] = [];
+  let question = "Select an option";
+  for (let i = footer - 1; i >= start && footer - i <= 18; i--) {
+    const t = raw[i].trim();
+    if (!t) continue; // cursor pads blank lines between the title and the rows
+    const lc = t.toLowerCase();
+    if (isPaginationLine(t)) continue;
+    if (lc.indexOf("to select") !== -1 || lc.indexOf("to filter") !== -1) break; // previous cluster's footer
+    if (lc.indexOf("filter:") === 0) continue; // the filter input row, not an option
+    if (t.charAt(t.length - 1) === "?") { question = firstField(t); break; }
+    if (lc.indexOf("available models") === 0) { question = firstField(t); break; } // picker title
+    const sel = PROMPT_SELECTORS.indexOf(t.charAt(0)) !== -1 || t.charAt(0) === ">";
+    const body = sel ? t.substring(1).trim() : t;
+    const label = firstField(body);
+    if (!label) { if (rows.length) break; else continue; }
+    rows.unshift({ label: label, sel: sel });
+  }
+  if (rows.length < 2) return null;
+  if (!rows.some((r) => r.sel) && question === "Select an option") return null; // need a highlight or a title
+
+  const options: [string, string][] = rows.map((r, i) => [r.label, String(i + 1)]);
+  return { question: question, options: options };
+}
+
+// "1-10 of 28" / "3 of 28" pagination row — never an option.
+function isPaginationLine(t: string): boolean {
+  return /^\d+\s*-\s*\d+\s+of\s+\d+/i.test(t) || /^\d+\s+of\s+\d+$/i.test(t);
+}
+
+// The label is the text before a 2+ space gap (drops trailing metadata like
+// "300K High" or a "(Tab to modify)" hint); single-spaced multi-word names stay whole.
+function firstField(s: string): string {
+  const m = /^(.*?)\s{2,}\S/.exec(s);
+  const label = (m ? m[1] : s).trim();
+  return label.replace(/\s*\(tab to [^)]*\)\s*$/i, "").trim();
 }
 
 // ── misc helpers ──

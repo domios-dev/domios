@@ -59,7 +59,13 @@ const plugin: PluginModule = {
       c.indexOf("approve") !== -1 ||
       c.indexOf("run the following") !== -1 ||
       c.indexOf("make the following") !== -1 ||
-      c.indexOf("grant these permissions") !== -1
+      c.indexOf("grant these permissions") !== -1 ||
+      // Picker/menu screens (/model, /permissions, update) so the host reads the
+      // screen off the auto-approve path; the universal numbered parser then extracts.
+      c.indexOf("to confirm") !== -1 ||
+      c.indexOf("esc to go back") !== -1 ||
+      c.indexOf("›") !== -1 ||
+      c.indexOf("❯") !== -1
     );
   },
 
