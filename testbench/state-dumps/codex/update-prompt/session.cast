@@ -1,9 +1,0 @@
-{"version": 2, "width": 80, "height": 24, "title": "codex update_prompt (synthetic seed)"}
-[0.0, "o", "OpenAI Codex\r\ncodex/gpt-5\r\n\r\n"]
-[0.08, "o", "Checking for updates...\r\n"]
-[0.3, "o", "\u001b[2J\u001b[H"]
-[0.34, "o", "✨ Update available! 0.139.0 -> 0.141.0\r\n"]
-[0.4, "o", "Release notes: https://github.com/openai/codex/releases/latest\r\n"]
-[0.46, "o", "> 1. Update now (runs `irm https://example.com/install.ps1 | iex`)\r\n"]
-[0.52, "o", "  2. Skip\r\n  3. Skip until next version\r\n"]
-[0.58, "o", "Press enter to continue"]
