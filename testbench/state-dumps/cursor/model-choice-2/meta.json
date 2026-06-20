@@ -1,0 +1,11 @@
+{
+  "provider": "cursor",
+  "scenario": "model-choice",
+  "run": 2,
+  "provider_version": "2026.06.19-20-24-33-653a7fb",
+  "cli_version": "2026.06.19-20-24-33-653a7fb",
+  "capturedAtMs": 1781987345916,
+  "source": "state-capture.sh dev-7686",
+  "paneId": "6d82cdbf",
+  "workspaceId": "b32320f6"
+}

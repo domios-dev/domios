@@ -1,0 +1,66 @@
+{
+  "steps": [
+    {
+      "at_ms": 20,
+      "action": "send multi-turn task 1",
+      "expect": "working"
+    },
+    {
+      "at_ms": 14473,
+      "action": "task 1 quiescence settled",
+      "expect": "idle"
+    },
+    {
+      "at_ms": 14553,
+      "action": "send multi-turn task 2",
+      "expect": "working"
+    },
+    {
+      "at_ms": 18156,
+      "action": "task 2 quiescence settled",
+      "expect": "idle"
+    },
+    {
+      "at_ms": 18266,
+      "action": "send multi-turn task 3",
+      "expect": "working"
+    },
+    {
+      "at_ms": 21841,
+      "action": "task 3 quiescence settled",
+      "expect": "idle"
+    }
+  ],
+  "segments": [
+    {
+      "from_ms": 20,
+      "to_ms": 14473,
+      "state": "working"
+    },
+    {
+      "from_ms": 14473,
+      "to_ms": 14553,
+      "state": "idle"
+    },
+    {
+      "from_ms": 14553,
+      "to_ms": 18156,
+      "state": "working"
+    },
+    {
+      "from_ms": 18156,
+      "to_ms": 18266,
+      "state": "idle"
+    },
+    {
+      "from_ms": 18266,
+      "to_ms": 21841,
+      "state": "working"
+    },
+    {
+      "from_ms": 21841,
+      "to_ms": 23816,
+      "state": "idle"
+    }
+  ]
+}
