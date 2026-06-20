@@ -837,6 +837,9 @@ pub fn run() {
             startup::start_background_tasks(&app_handle, &states);
             // Pane-state reactor: classify parked panes and auto-advance via the provider's recommendation.
             agent::state_reactor::start(service_state.clone());
+            // Live 3-state sweep: drives the chat-view agent-state indicator's
+            // working→idle edge (no output to ride on when a turn settles).
+            agent::live_state::start(service_state.clone());
 
             // PTY read loops are started by spawn_pty command (initiated by frontend)
             Ok(())

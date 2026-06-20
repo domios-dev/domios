@@ -243,7 +243,95 @@ impl ServiceContext {
             }
         }
 
+        // Live 3-state classification (working / idle / question + subtype) for
+        // the chat-view indicator. Agent panes only; cheap + non-blocking (one
+        // grid text read + a pure classify over signals already computed above).
+        if agent_type.is_some() {
+            self.recompute_agent_state(pty_id);
+        }
+
         (prev_status, current_status)
+    }
+
+    /// Recompute and store the pane's live 3-state classification, then emit if
+    /// it changed. Output-driven (here) and timer-driven (the live-state poller)
+    /// both call this. Reuses the per-pane `ScreenState` parser (no second vt100)
+    /// and the already-surfaced `pending_prompt` for the picker question, so the
+    /// live path never re-parses the picker. Locks in CLAUDE.md order, each
+    /// scoped and dropped before the next; nothing held across the emit.
+    pub(crate) fn recompute_agent_state(&self, pty_id: &str) {
+        use crate::agent::offline_state_classifier::{
+            classify_state, AgentLiveState, ClassifyInput, PaneVerdict, TimelineState,
+        };
+        use crate::agent::signal_extractor::Motion;
+
+        // mux (1): the pane's identity + agent gate + picker question + previous.
+        let (pane_id, prompt_question, previous) = {
+            let mux = self.mux.read();
+            let Some(pane_id) = mux.pane_id_for_pty(pty_id) else {
+                return;
+            };
+            let Some(pane) = mux.get_pane(&pane_id) else {
+                return;
+            };
+            if pane.agent_type.is_none() {
+                return;
+            }
+            let prompt_question = pane.pending_prompt.as_ref().map(|p| p.question.clone());
+            let previous = pane
+                .agent_state
+                .map(PaneVerdict::from)
+                .unwrap_or(PaneVerdict {
+                    state: TimelineState::Idle,
+                    subtype: None,
+                });
+            (pane_id, prompt_question, previous)
+        };
+
+        // screen_state (3): trimmed lines + tail from the existing parser.
+        const LIVE_TAIL_ROWS: usize = 60;
+        let Some((lines, tail)) = self
+            .screen_state
+            .lock()
+            .lines_and_tail(pty_id, LIVE_TAIL_ROWS)
+        else {
+            return;
+        };
+
+        // agent_tracker (4): two-clock quiescence.
+        let Some((byte_idle_ms, semantic_idle_ms)) =
+            self.agent_tracker.lock().quiescence(pty_id, Instant::now())
+        else {
+            return;
+        };
+
+        let verdict = classify_state(
+            &ClassifyInput {
+                picker_question: prompt_question.as_deref(),
+                screen_lines: &lines,
+                tail: &tail,
+                byte_idle_ms,
+                semantic_idle_ms,
+                motion: Motion::Still,
+            },
+            previous,
+        );
+        let new_state: AgentLiveState = verdict.into();
+
+        // mux (1): store if changed.
+        let changed = {
+            let mut mux = self.mux.write();
+            match mux.get_pane_mut(&pane_id) {
+                Some(pane) if pane.agent_state != Some(new_state) => {
+                    pane.agent_state = Some(new_state);
+                    true
+                }
+                _ => false,
+            }
+        };
+        if changed {
+            self.emit_state_changed();
+        }
     }
 
     /// Feed a raw chunk into the pane's shell-integration accumulators and emit

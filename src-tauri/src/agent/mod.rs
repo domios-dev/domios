@@ -4,6 +4,7 @@ pub mod command_detection;
 pub mod detector;
 pub mod keys;
 pub mod ledger;
+pub mod live_state;
 pub mod model_catalog;
 pub mod models;
 pub mod native_prompt;

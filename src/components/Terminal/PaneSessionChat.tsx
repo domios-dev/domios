@@ -9,6 +9,7 @@ import type { PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AgentStateIndicator } from "./AgentStateIndicator";
+import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
 import { useChatSession } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
@@ -255,6 +256,20 @@ export function PaneSessionChat({
     }
   }, [allMessages, activePrompt?.question]);
 
+  // Backend state engine is the source of truth (working / idle / question +
+  // subtype). Fall back to the terminal-activity heuristic only until the first
+  // classification arrives. `longIdle` stays frontend-timed and applies only
+  // while idle.
+  const backendState = pane?.agent_state ?? null;
+  const liveAgentState: AgentState = useMemo(() => {
+    const kind = backendState?.state ?? (terminalActive ? "working" : "idle");
+    return {
+      state: kind,
+      subtype: backendState?.subtype,
+      longIdle: kind === "idle" && !terminalActive && longIdle,
+    };
+  }, [backendState?.state, backendState?.subtype, terminalActive, longIdle]);
+
   if (error) {
     return (
       <div
@@ -374,10 +389,7 @@ export function PaneSessionChat({
         })}
         {!activePrompt && enrichedMessages.length > 0 && (
           <AgentStateIndicator
-            state={{
-              state: terminalActive ? "working" : "idle",
-              longIdle: !terminalActive && longIdle,
-            }}
+            state={liveAgentState}
             paneSeed={paneId}
           />
         )}
