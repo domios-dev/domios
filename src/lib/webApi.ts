@@ -1,50 +1,30 @@
 /**
- * Web-mirror runtime: API host + per-peer token management.
+ * Web-mirror runtime: local daemon host/token + mesh relay targeting.
  *
- * In WEB mode (no Tauri) the React app talks to a CodeTerm daemon over
- * plain HTTP. The default target is the daemon that served /web (same
- * origin). The peer picker can flip the target to a paired peer by asking
- * the current daemon to mint the target's web token over the signed mesh
- * channel, then storing that token per host.
+ * In WEB mode (no Tauri) the React app talks to the CodeTerm daemon that
+ * served /web over plain HTTP, authenticated by that daemon's own token.
+ * The browser ALWAYS points at this local daemon. To view a paired mesh
+ * peer the picker sets a "relay target" (a peer instance_id); requests are
+ * then wrapped and proxied through the local daemon's `/api/mesh/relay-to`,
+ * which forwards over the signed mesh channel. The browser never re-points
+ * at the peer and never holds a peer-scoped secret.
  */
 
 export const IS_WEB =
   typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window);
 
-const HOST_KEY = "codeterm-web-host";
-const HOST_NAME_KEY = "codeterm-web-host-name";
 const TOKEN_PREFIX = "codeterm-web-token:";
+const RELAY_PEER_KEY = "codeterm-web-relay-peer";
+const RELAY_NAME_KEY = "codeterm-web-relay-peer-name";
 
-/** Origin the SPA was served from — the "self" peer. */
+/** Origin the SPA was served from — the local daemon. */
 export function selfHost(): string {
   return `${window.location.protocol}//${window.location.host}`;
 }
 
-/** Current API target (self unless the peer picker switched). */
+/** API host the browser talks to directly — always the local daemon. */
 export function apiHost(): string {
-  return sessionStorage.getItem(HOST_KEY) ?? selfHost();
-}
-
-export function setApiHost(host: string | null, name?: string): void {
-  if (host === null || host === selfHost()) {
-    sessionStorage.removeItem(HOST_KEY);
-    sessionStorage.removeItem(HOST_NAME_KEY);
-  } else {
-    sessionStorage.setItem(HOST_KEY, host);
-    // The friendly name is only knowable at switch time: the target daemon
-    // doesn't list ITSELF in /api/mesh/peers, so post-reload lookups by
-    // host would fall back to the raw IP.
-    if (name) {
-      sessionStorage.setItem(HOST_NAME_KEY, name);
-    } else {
-      sessionStorage.removeItem(HOST_NAME_KEY);
-    }
-  }
-}
-
-/** Friendly name of the switched-to host, captured at switch time. */
-export function apiHostName(): string | null {
-  return sessionStorage.getItem(HOST_NAME_KEY);
+  return selfHost();
 }
 
 export function tokenFor(host: string): string | null {
@@ -55,12 +35,31 @@ export function setTokenFor(host: string, token: string): void {
   localStorage.setItem(TOKEN_PREFIX + host, token);
 }
 
-export function clearTokenFor(host: string): void {
-  localStorage.removeItem(TOKEN_PREFIX + host);
+/** Local-daemon token (authenticates the browser to its own daemon). */
+export function currentToken(): string | null {
+  return tokenFor(selfHost());
 }
 
-export function currentToken(): string | null {
-  return tokenFor(apiHost());
+interface RelayTarget {
+  id: string;
+  name: string;
+}
+
+/** Active mesh peer the browser is viewing through the relay, or null (self). */
+export function relayTarget(): RelayTarget | null {
+  const id = sessionStorage.getItem(RELAY_PEER_KEY);
+  if (!id) return null;
+  return { id, name: sessionStorage.getItem(RELAY_NAME_KEY) ?? id };
+}
+
+export function setRelayTarget(id: string, name: string): void {
+  sessionStorage.setItem(RELAY_PEER_KEY, id);
+  sessionStorage.setItem(RELAY_NAME_KEY, name);
+}
+
+export function clearRelayTarget(): void {
+  sessionStorage.removeItem(RELAY_PEER_KEY);
+  sessionStorage.removeItem(RELAY_NAME_KEY);
 }
 
 /** Local-daemon address shape (the desktop app's `config.api`). */
@@ -96,8 +95,16 @@ export class WebApiError extends Error {
   }
 }
 
-/** Authenticated fetch against the current API target. */
-export async function webFetch(
+/** Mesh relay envelope returned by `/api/mesh/relay-to`. */
+interface RelayResponse {
+  ok: boolean;
+  status: number;
+  data: unknown;
+  error: string | null;
+}
+
+/** Authenticated fetch straight at the local daemon — never relayed. */
+export async function localFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
@@ -105,7 +112,59 @@ export async function webFetch(
   headers.set("Content-Type", "application/json");
   const token = currentToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(`${apiHost()}${path}`, { ...init, headers });
+  return fetch(`${selfHost()}${path}`, { ...init, headers });
+}
+
+/** Local-daemon JSON call (bypasses any active relay target). */
+export async function localJson<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const res = await localFetch(path, {
+    method,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new WebApiError(res.status, path, text);
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return text as unknown as T;
+  }
+}
+
+/**
+ * Authenticated fetch. With no relay target it hits the local daemon
+ * directly; when a mesh peer is the active target the request is wrapped as
+ * `POST /api/mesh/relay-to` to the LOCAL daemon (existing local token), which
+ * proxies it to the peer over the signed mesh channel and returns its
+ * response — synthesized back into a `Response` so callers are unaffected.
+ */
+export async function webFetch(
+  path: string,
+  init: RequestInit = {},
+): Promise<Response> {
+  const target = relayTarget();
+  if (!target) return localFetch(path, init);
+
+  const method = (init.method ?? "GET").toUpperCase();
+  const body =
+    typeof init.body === "string" && init.body.length > 0
+      ? JSON.parse(init.body)
+      : null;
+  const local = await localFetch("/api/mesh/relay-to", {
+    method: "POST",
+    body: JSON.stringify({ target_peer_id: target.id, method, path, body }),
+  });
+  // Framing-level failure (peer unpaired, daemon error): surface verbatim.
+  if (!local.ok) return local;
+  const relay = (await local.json()) as RelayResponse;
+  const inner = relay.data == null ? "" : JSON.stringify(relay.data);
+  return new Response(inner, {
+    status: relay.status || (relay.ok ? 200 : 502),
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 /**

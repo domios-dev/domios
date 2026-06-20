@@ -152,7 +152,7 @@ fn get_cookie<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a 
     None
 }
 
-/// Validate a token against the configured API token or the web token cache.
+/// Validate a token against the configured local API token.
 fn validate_manifest_token(
     state: &AppState,
     candidate: &str,
@@ -167,16 +167,7 @@ fn validate_manifest_token(
             return Ok(true);
         }
     }
-    let cache = state.web_tokens.lock().map_err(|e| {
-        log::error!("[web] web token cache lock poisoned: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Web token cache unavailable",
-        )
-    })?;
-    Ok(cache.get(candidate).map_or(false, |created| {
-        created.elapsed() < crate::api::routes::WEB_TOKEN_TTL
-    }))
+    Ok(false)
 }
 
 /// Bootstrap endpoint: validates the bearer token and sets an HttpOnly cookie
