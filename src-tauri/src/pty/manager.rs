@@ -222,6 +222,16 @@ pub struct BuiltSession {
 
 /// Build a new PTY + child process without touching any manager state.
 /// Safe to call from `spawn_blocking` — does blocking I/O (ConPTY + CreateProcess on Windows).
+/// Env vars removed from every interactive pane PTY (see build_session for why).
+pub const STRIPPED_PTY_ENV: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "NO_COLOR",
+    "CI",
+    "CONTINUOUS_INTEGRATION",
+];
+
 pub fn build_session(
     command: Option<String>,
     cwd: Option<String>,
@@ -284,11 +294,14 @@ pub fn build_session(
         cmd.env(key, value);
     }
 
-    cmd.env_remove("CLAUDECODE");
-    // Claude 2.1.x treats these as "I'm a sub-session" and writes no transcript — strip so a pane's claude is a real top-level session.
-    cmd.env_remove("CLAUDE_CODE_SESSION_ID");
-    cmd.env_remove("CLAUDE_CODE_CHILD_SESSION");
-    cmd.env_remove("NO_COLOR");
+    // Env vars stripped from every interactive pane PTY. CLAUDECODE / CLAUDE_CODE_*:
+    // Claude 2.1.x treats them as "I'm a sub-session" and writes no transcript.
+    // CI / CONTINUOUS_INTEGRATION: an interactive pane is never a CI job, and an
+    // inherited CI=true makes TUIs (cursor-agent etc.) go non-interactive and hide
+    // their input bar even though stdout is a real TTY. NO_COLOR: we want color.
+    for key in STRIPPED_PTY_ENV {
+        cmd.env_remove(key);
+    }
 
     let child = pair
         .slave
@@ -535,6 +548,20 @@ mod tests {
         let mut manager = PtyManager::new();
         let result = manager.kill("nonexistent-pty-id");
         assert!(result.is_err(), "kill on unknown id must return Err");
+    }
+
+    /// Interactive panes must never look like a CI job: an inherited CI=true makes
+    /// cursor-agent (and other is-ci-aware TUIs) go non-interactive and hide their
+    /// input bar even with a real TTY. Guard against the strip list regressing.
+    #[test]
+    fn stripped_pty_env_drops_ci_markers() {
+        assert!(STRIPPED_PTY_ENV.contains(&"CI"), "CI must be stripped");
+        assert!(
+            STRIPPED_PTY_ENV.contains(&"CONTINUOUS_INTEGRATION"),
+            "CONTINUOUS_INTEGRATION must be stripped"
+        );
+        assert!(STRIPPED_PTY_ENV.contains(&"CLAUDECODE"));
+        assert!(STRIPPED_PTY_ENV.contains(&"NO_COLOR"));
     }
 
     /// `launch_agent_in_background` relies on `write` returning `Err("PTY not
