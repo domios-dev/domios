@@ -1,0 +1,23 @@
+{
+  "provider": "cursor",
+  "unit": "provider_screen",
+  "expected": {
+    "hasEventMarkers": true,
+    "detectEvents": [
+      "PermissionRequest"
+    ],
+    "parsePrompt": {
+      "question": "Is this rule just for you or for the project?",
+      "options": [
+        {
+          "label": "Project Rule (.cursor/)",
+          "value": "1"
+        },
+        {
+          "label": "Just for Me (~/.cursor/)",
+          "value": "2"
+        }
+      ]
+    }
+  }
+}

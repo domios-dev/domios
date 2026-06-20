@@ -499,6 +499,48 @@ console.log("\n--- parsePrompt: /model non-numbered list picker (live fixture) -
   eq(p.parsePrompt(bareList), null, "non-numbered list without selector/footer → null (no phantom card)");
 }
 
+console.log("\n--- parsePrompt: cursor rule/skills selectors ---\n");
+{
+  const p = loadCursorWithHost(baseHost({}));
+  const grouped = [
+    " Create New Rule",
+    "",
+    " When should this rule be applied?",
+    "",
+    "  → Always Apply",
+    "      Apply to every chat session",
+    "    Apply Intelligently",
+    "      Agent decides based on description",
+    "    Apply to Specific Files",
+    "      When file matches a pattern",
+    "    Apply Manually",
+    "      Only when @-mentioned in chat",
+    "",
+    " ↑/↓ to navigate • Enter to confirm • Esc to cancel",
+  ].join("\n");
+  const g = p.parsePrompt(grouped);
+  eq(g && g.question, "When should this rule be applied?", "grouped selector question extracted");
+  eq(
+    g && g.options,
+    [["Always Apply", "1"], ["Apply Intelligently", "2"], ["Apply to Specific Files", "3"], ["Apply Manually", "4"]],
+    "grouped selector extracts labels and skips descriptions",
+  );
+  eq(p.buildPromptResponse(0, grouped), ["DQ=="], "grouped selector highlighted row click → Enter only");
+  eq(p.buildPromptResponse(2, grouped), ["G1tC", "G1tC", "DQ=="], "grouped selector click below highlight → down ×2 + Enter");
+
+  const single = [
+    " Rules (0 rules)",
+    "",
+    "  → + Create new rule",
+    "",
+    " ↑/↓ to navigate • Enter to select • d to delete • Esc to close",
+  ].join("\n");
+  const s = p.parsePrompt(single);
+  eq(s && s.question, "Rules (0 rules)", "single-row selector title extracted");
+  eq(s && s.options, [["+ Create new rule", "1"]], "single highlighted row is a valid picker");
+  eq(p.buildPromptResponse(0, single), ["DQ=="], "single-row click sends Enter");
+}
+
 console.log("\n--- buildPromptResponse (vertical ↓ nav + Enter) ---\n");
 {
   const p = loadCursorWithHost(baseHost({}));

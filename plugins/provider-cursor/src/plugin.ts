@@ -545,6 +545,9 @@ function chunkHasPromptSignal(chunk: string): boolean {
     lc.indexOf("to cancel") !== -1 ||
     lc.indexOf("to select") !== -1 || // /model list footer "Enter to select"
     lc.indexOf("to filter") !== -1 || // /model list footer "Type to filter"
+    lc.indexOf("to navigate") !== -1 ||
+    lc.indexOf("to confirm") !== -1 ||
+    lc.indexOf("to use") !== -1 ||
     lc.indexOf("approve") !== -1 ||
     (lc.indexOf("esc") !== -1 && lc.indexOf("enter") !== -1)
   );
@@ -640,28 +643,35 @@ function collectCursorListMenu(text: string): ListMenu | null {
   let footer = -1;
   for (let i = raw.length - 1; i >= start; i--) {
     const lc = raw[i].toLowerCase();
-    if (lc.indexOf("to select") !== -1 || lc.indexOf("to filter") !== -1) { footer = i; break; }
+    if (isCursorListFooter(lc)) { footer = i; break; }
   }
   if (footer === -1) return null;
 
   const rows: { label: string; sel: boolean }[] = [];
   let question = "Select an option";
   for (let i = footer - 1; i >= start && footer - i <= 18; i--) {
-    const t = raw[i].trim();
+    const line = raw[i];
+    const t = line.trim();
     if (!t) continue; // cursor pads blank lines between the title and the rows
     const lc = t.toLowerCase();
     if (isPaginationLine(t)) continue;
-    if (lc.indexOf("to select") !== -1 || lc.indexOf("to filter") !== -1) break; // previous cluster's footer
+    if (isScrollMarkerLine(t)) continue;
+    if (isCursorListFooter(lc)) break; // previous cluster's footer
     if (lc.indexOf("filter:") === 0) continue; // the filter input row, not an option
-    if (t.charAt(t.length - 1) === "?") { question = firstField(t); break; }
-    if (lc.indexOf("available models") === 0) { question = firstField(t); break; } // picker title
+    if (isListQuestionLine(t)) { question = firstField(t); break; }
     const sel = PROMPT_SELECTORS.indexOf(t.charAt(0)) !== -1 || t.charAt(0) === ">";
+    if (!sel && !isCursorListOptionLine(line)) {
+      if (rows.length) continue;
+      question = firstField(t);
+      continue;
+    }
     const body = sel ? t.substring(1).trim() : t;
     const label = firstField(body);
     if (!label) { if (rows.length) break; else continue; }
     rows.unshift({ label: label, sel: sel });
   }
-  if (rows.length < 2) return null;
+  if (rows.length < 1) return null;
+  if (rows.length === 1 && !rows[0].sel) return null;
   if (!rows.some((r) => r.sel) && question === "Select an option") return null; // need a highlight or a title
   return { question: question, rows: rows };
 }
@@ -688,6 +698,37 @@ function cursorHighlightIndex(text: string): number {
 // "1-10 of 28" / "3 of 28" pagination row — never an option.
 function isPaginationLine(t: string): boolean {
   return /^\d+\s*-\s*\d+\s+of\s+\d+/i.test(t) || /^\d+\s+of\s+\d+$/i.test(t);
+}
+
+function isCursorListFooter(lc: string): boolean {
+  return lc.indexOf("to select") !== -1 ||
+    lc.indexOf("to filter") !== -1 ||
+    lc.indexOf("to navigate") !== -1 ||
+    lc.indexOf("to confirm") !== -1 ||
+    lc.indexOf("to use") !== -1;
+}
+
+function isScrollMarkerLine(t: string): boolean {
+  return /^[↑↓]\s+\d+\s+more\s+(?:above|below)$/i.test(t);
+}
+
+function isListQuestionLine(t: string): boolean {
+  if (t.charAt(t.length - 1) === "?") return true;
+  return /^(?:available models|rules \(\d+ rules?\)|skills \(\d+ skills?\))(?:\s|$)/i.test(t);
+}
+
+function isCursorListOptionLine(line: string): boolean {
+  const leading = leadingSpaces(line);
+  const t = line.trim();
+  if (!t) return false;
+  if (PROMPT_SELECTORS.indexOf(t.charAt(0)) !== -1 || t.charAt(0) === ">") return true;
+  if (leading >= 2 && leading <= 4) return true;
+  return false;
+}
+
+function leadingSpaces(s: string): number {
+  const m = /^ */.exec(s);
+  return m ? m[0].length : 0;
 }
 
 // The label is the text before a 2+ space gap (drops trailing metadata like
