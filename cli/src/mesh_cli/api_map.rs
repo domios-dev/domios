@@ -285,6 +285,24 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     None,
                 )
             }
+            crate::PaneAction::Capture { action } => match action {
+                crate::args::misc::PaneCaptureAction::Start { pane, out } => {
+                    let p = pane.as_deref().unwrap_or("general");
+                    (
+                        "POST".into(),
+                        format!("/api/panes/{}/capture/start", p),
+                        Some(serde_json::json!({ "out": out }).to_string()),
+                    )
+                }
+                crate::args::misc::PaneCaptureAction::Stop { pane } => {
+                    let p = pane.as_deref().unwrap_or("general");
+                    (
+                        "POST".into(),
+                        format!("/api/panes/{}/capture/stop", p),
+                        None,
+                    )
+                }
+            },
         },
         Commands::Paste { action } => match action {
             crate::PasteAction::Put {

@@ -678,6 +678,7 @@ pub fn resize_pty_core(
     };
 
     let _ = session.resize(cols, rows)?;
+    crate::pty::capture::CaptureRegistry::global().tap_resize(&pty_id, cols, rows);
     Ok(())
 }
 
