@@ -935,6 +935,82 @@ pub async fn get_pane_text(
     }
 }
 
+#[derive(Deserialize)]
+pub struct CaptureStartBody {
+    /// Path of the `.cast` file to write.
+    pub out: String,
+}
+
+/// POST /api/panes/{id}/capture/start — dev-only PTY capture tap → asciicast v2.
+pub async fn start_capture(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+    Json(body): Json<CaptureStartBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id)?;
+    let (cols, rows) = {
+        let mgr = state.svc.pty.lock();
+        match mgr.get_session(&pty_id) {
+            Some(s) => *s
+                .size
+                .lock()
+                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "pty size lock poisoned"))?,
+            None => (80, 24),
+        }
+    };
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let out = std::path::PathBuf::from(&body.out);
+    crate::pty::capture::CaptureRegistry::global()
+        .start(&pty_id, out, cols, rows, timestamp)
+        .map_err(|_| {
+            (
+                StatusCode::CONFLICT,
+                "Failed to start capture (already active?)",
+            )
+        })?;
+    Ok(Json(serde_json::json!({
+        "ok": true, "out": body.out, "width": cols, "height": rows,
+    })))
+}
+
+/// POST /api/panes/{id}/capture/stop — flush+close `.cast`, write sidecar screen.txt.
+pub async fn stop_capture(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id)?;
+    // Render the final grid from the SAME vt100 ScreenState the daemon uses.
+    let screen = state.svc.screen_state.lock().get_screen_text(&pty_id);
+    let reg = crate::pty::capture::CaptureRegistry::global();
+    // stop() joins the writer thread (file IO) — keep it off the async runtime.
+    let pty_for_stop = pty_id.clone();
+    let out = tokio::task::spawn_blocking(move || reg.stop(&pty_for_stop))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "capture stop join failed",
+            )
+        })?
+        .ok_or((StatusCode::NOT_FOUND, "no active capture for this pane"))?;
+    let screen_path = out.with_extension("screen.txt");
+    if let Some(text) = screen {
+        let _ = std::fs::write(&screen_path, text);
+    }
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "cast": out.to_string_lossy(),
+        "screen": screen_path.to_string_lossy(),
+    })))
+}
+
 #[cfg(test)]
 mod tests_send_text_body;
 

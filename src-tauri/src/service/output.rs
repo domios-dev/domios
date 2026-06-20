@@ -23,6 +23,9 @@ impl ServiceContext {
     /// Process new PTY output: track status, detect agent events, dispatch notifications.
     /// Returns the previous and current status for the caller to emit status-change events.
     pub fn process_pty_output(&self, pty_id: &str, data: &[u8]) -> (PaneStatus, PaneStatus) {
+        // Dev capture tap — single relaxed atomic load when idle, no lock held here.
+        crate::pty::capture::CaptureRegistry::global().tap_output(pty_id, data);
+
         static CALL_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let n = CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if n % 500 == 0 {

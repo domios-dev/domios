@@ -166,6 +166,32 @@ pub enum PaneAction {
         #[arg(long, default_value = "0")]
         since: usize,
     },
+
+    /// Dev-only: tee a pane's raw PTY output into an asciicast v2 `.cast` file.
+    Capture {
+        #[command(subcommand)]
+        action: PaneCaptureAction,
+    },
+}
+
+/// Dev-only PTY capture tap (asciicast v2). Used to build agent-state fixtures.
+#[derive(Subcommand)]
+pub enum PaneCaptureAction {
+    /// Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`.
+    Start {
+        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+        /// Path of the `.cast` file to write.
+        #[arg(long)]
+        out: String,
+    },
+    /// Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`.
+    Stop {
+        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+        #[arg(long, alias = "id")]
+        pane: Option<String>,
+    },
 }
 
 /// Cross-mesh ephemeral pastebin (#98). In-memory; daemon restart wipes

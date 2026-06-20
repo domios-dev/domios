@@ -387,6 +387,48 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 }
             }
         }
+        PaneAction::Capture { action } => handle_pane_capture(client, json, action),
+    }
+}
+
+fn handle_pane_capture(
+    client: &mut SocketClient,
+    json: bool,
+    action: crate::args::misc::PaneCaptureAction,
+) {
+    use crate::args::misc::PaneCaptureAction;
+    let (api_url, api_token) = read_api_config();
+    let http = match build_http(&api_token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let (pane, url, body) = match action {
+        PaneCaptureAction::Start { pane, out } => {
+            let pane_id = resolve_pane(client, pane);
+            let url = format!("{}/api/panes/{}/capture/start", api_url, pane_id);
+            (pane_id, url, serde_json::json!({ "out": out }))
+        }
+        PaneCaptureAction::Stop { pane } => {
+            let pane_id = resolve_pane(client, pane);
+            let url = format!("{}/api/panes/{}/capture/stop", api_url, pane_id);
+            (pane_id, url, serde_json::json!({}))
+        }
+    };
+    let _ = pane;
+    match http.post(url).json(&body).send() {
+        Ok(resp) => {
+            let v = resp
+                .json::<serde_json::Value>()
+                .unwrap_or_else(|_| serde_json::json!({}));
+            handle_result(json, Ok(v));
+        }
+        Err(e) => {
+            eprintln!("Error: capture request failed: {}", e);
+            std::process::exit(1);
+        }
     }
 }
 
