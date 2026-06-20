@@ -161,12 +161,12 @@ fn classify_question_subtype(signals: &StreamSignals, question: &str) -> Questio
         ],
     ) {
         QuestionSubtype::ModelChoice
-    } else if contains_any(&question_text, &["connect a provider", "provider"]) {
-        QuestionSubtype::Auth
-    } else if contains_any(
-        &text,
-        &["login", "sign in", "oauth", "api key", "authenticate"],
-    ) {
+    } else if contains_any(&question_text, &["connect a provider", "provider"])
+        || contains_any(
+            &text,
+            &["login", "sign in", "oauth", "api key", "authenticate"],
+        )
+    {
         QuestionSubtype::Auth
     } else if contains_any(
         &text,
