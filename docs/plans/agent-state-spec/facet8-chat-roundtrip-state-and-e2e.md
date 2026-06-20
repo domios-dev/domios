@@ -83,6 +83,30 @@ A test that **sends a message from the chat UI and proves the agent received it 
 - **Hard gate:** no chat/state/session change merges without an agent-driven E2E proving
   the round-trip. This is what was missing and let OSC4 through.
 
+### 3b. Randomized option-interception test (anti-overfit — the headline-WIN gate)
+The in-chat option/question interception (CE5) must work for ANY prompt shape, not the one
+demo menu in the screenshot. So the test is GENERATED, never canned:
+- **Interrogator agent (Sonnet)** — each round it INVENTS a fresh, random prompt that makes
+  the target agent present options or ask a clarifying question, in a deliberately VARIED
+  form (see dimensions). Never a fixed prompt → the detector can't be tuned to one shape.
+  (This is Andrey's "Sonnet asks random 3 things each time so we don't overfit.")
+- **Target agent** (claude / codex / cursor / opencode) receives it via the chat send path
+  → presents the interactive prompt in its TUI.
+- **Oracle (model-judged):** the interrogator compares what the target ACTUALLY presented
+  (terminal screen / transcript) against what WE intercepted — the classified
+  `presented_options`/`clarifying_question`, the extracted option list, the chat card.
+  Did we capture the question + ALL options + the right nav? Scores the round.
+- **Close the loop:** the interrogator selects one option via the chat card (send-back) →
+  assert the target advances as if that option was chosen.
+- **Variety dimensions (randomized per round):** option count (2–9); labels (1/2/3, A/B/C,
+  words); question-vs-options; single vs multi-select; RU/EN; a free "type something"
+  option present or not; permission-style prompts; secondary/nested menus.
+- **Pass bar (hard gate):** over N random rounds × M providers — interception
+  precision/recall ≥ threshold; ZERO option-prompts misread as plain "waiting"; ZERO false
+  cards on normal prose. Robust across variety, not tuned to the demo menu.
+- **Runs:** Layer B (API: classify + extract assertion, model-judged) in CI; Layer A
+  (Playwright: card renders + click advances the agent) on ROG.
+
 ## 4. Sequencing + tasks (I delegate, re-run the E2E gate myself before every merge)
 - **CE1 — agent-driven E2E harness** [FIRST; it is the oracle for all the rest]. Layer B
   (macOS API round-trip) now + the Layer A Playwright spec handed to ROG. Seed the
@@ -97,6 +121,10 @@ A test that **sends a message from the chat UI and proves the agent received it 
 - **CE5 — chat reacts to state in-chat** (question/option cards + send-choice-back) +
   re-introduce the shell decorations CORRECTLY (filter empty entries, never displace agent
   turns), gated by CE1's hard cases.
+- **CE6 — randomized option-interception eval** (section 3b): the Sonnet interrogator that
+  generates fresh varied option/question prompts each round, drives them through the chat,
+  and model-judges whether we intercepted question+options correctly + the pick advances
+  the agent. This is the anti-overfit gate for CE4/CE5; runs Layer B in CI + Layer A on ROG.
 - Verify: orchestrator re-runs the E2E gate (Layer B in CI + Layer A on ROG) before each
   merge; a final live agent-driven pass per provider.
 
