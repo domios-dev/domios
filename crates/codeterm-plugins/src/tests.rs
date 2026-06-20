@@ -75,7 +75,7 @@ mod store_index_tests {
     /// folders — the exact check the live channel-refresh does at runtime.
     #[test]
     fn channel_json_is_a_consistent_store_index() {
-        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../plugins");
+        let plugins_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
         let text = std::fs::read_to_string(plugins_dir.join("channel.json"))
             .expect("plugins/channel.json must exist (store index)");
         let manifest: ChannelManifest =

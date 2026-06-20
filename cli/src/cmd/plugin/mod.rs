@@ -1,65 +1,33 @@
-mod audit;
-mod channel;
-mod config;
-mod install;
-mod list;
-mod state;
-mod types;
-mod update;
-mod util;
-mod version;
-
-#[cfg(test)]
-mod tests;
+//! CLI front-end for plugin management. The filesystem-level logic lives in the
+//! shared `codeterm-plugins` crate (called in-process by both this CLI and the
+//! daemon); this module only converts the clap action, prints the result, and
+//! handles the one path the crate can't — the `plugin <id> <verb>` passthrough,
+//! which routes over the daemon socket.
 
 use crate::args::plugin::{PluginAction, PluginChannelAction};
-use crate::data_root;
-use sha2::{Digest, Sha256};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use codeterm_plugins::{PluginAction as Action, PluginChannelAction as ChannelAction, PluginCtx};
 
-use audit::*;
-use channel::*;
-use install::*;
-use list::*;
-use state::*;
-use types::*;
-use update::*;
-use util::*;
-use version::*;
-pub fn handle_plugin(json: bool, action: PluginAction) {
-    let result = match action.clone() {
-        PluginAction::List => list_installed(),
-        PluginAction::Install {
-            id,
-            from_dir,
-            id_override,
-            channel,
-        } => install_command(id, from_dir, id_override, channel),
-        PluginAction::Update { id } => update_command(id),
-        PluginAction::UpdateSystem { id } => update_system_command(id),
-        PluginAction::Remove {
-            id,
-            force,
-            remove_data,
-        } => remove_installed(&id, force, remove_data),
-        PluginAction::Channel { command } => channel_command(command),
-        PluginAction::Get { id } => config::get_command(&id),
-        PluginAction::Config {
-            id,
-            set,
-            values_json,
-            grant,
-            revoke,
-        } => config::config_command(&id, &set, values_json.as_deref(), &grant, &revoke),
-        PluginAction::Pass(parts) => pass_command(parts),
-    };
-
-    if let Err(e) = &result {
-        let _ = audit_command_failure(&action, e);
+fn plugin_ctx() -> PluginCtx {
+    PluginCtx {
+        data_root: crate::data_root(),
+        version: std::env::var("CODETERM_VERSION")
+            .ok()
+            .filter(|s| !s.trim().is_empty()),
     }
+}
+
+pub fn handle_plugin(json: bool, action: PluginAction) {
+    let ctx = plugin_ctx();
+    let result = match action {
+        PluginAction::Pass(parts) => {
+            let r = pass_command(parts.clone());
+            if let Err(e) = &r {
+                codeterm_plugins::audit_failure(ctx, &Action::Pass(parts), e);
+            }
+            r
+        }
+        other => codeterm_plugins::run(ctx, convert_action(other)),
+    };
 
     match result {
         Ok(value) => {
@@ -73,6 +41,61 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
             eprintln!("Error: {e}");
             std::process::exit(1);
         }
+    }
+}
+
+fn convert_action(action: PluginAction) -> Action {
+    match action {
+        PluginAction::List => Action::List,
+        PluginAction::Install {
+            id,
+            from_dir,
+            id_override,
+            channel,
+        } => Action::Install {
+            id,
+            from_dir,
+            id_override,
+            channel,
+        },
+        PluginAction::Update { id } => Action::Update { id },
+        PluginAction::UpdateSystem { id } => Action::UpdateSystem { id },
+        PluginAction::Remove {
+            id,
+            force,
+            remove_data,
+        } => Action::Remove {
+            id,
+            force,
+            remove_data,
+        },
+        PluginAction::Channel { command } => Action::Channel(convert_channel(command)),
+        PluginAction::Get { id } => Action::Get { id },
+        PluginAction::Config {
+            id,
+            set,
+            values_json,
+            grant,
+            revoke,
+        } => Action::Config {
+            id,
+            set,
+            values_json,
+            grant,
+            revoke,
+        },
+        PluginAction::Pass(parts) => Action::Pass(parts),
+    }
+}
+
+fn convert_channel(action: PluginChannelAction) -> ChannelAction {
+    match action {
+        PluginChannelAction::Add { url, name } => ChannelAction::Add { url, name },
+        PluginChannelAction::EnsureDefault => ChannelAction::EnsureDefault,
+        PluginChannelAction::List => ChannelAction::List,
+        PluginChannelAction::Refresh { name } => ChannelAction::Refresh { name },
+        PluginChannelAction::Diff { name } => ChannelAction::Diff { name },
+        PluginChannelAction::Remove { name, force } => ChannelAction::Remove { name, force },
     }
 }
 
