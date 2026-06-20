@@ -173,6 +173,18 @@ fn attachment_from_image(data: &serde_json::Value, id: String) -> ChatAttachment
 /// place JSONL providers' rich rendering lives; the desktop renders the same
 /// output, so there is no second parser.
 pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
+    // `base_id` is the monotonic source ordinal (rich-message index in a snapshot,
+    // atomic counter in the stream). Stamp it as `seq` so the client can break
+    // coarse/absent-timestamp ties by true source order — sub-messages of one rich
+    // message share it and the client's stable sort preserves their emit order.
+    let mut out = rich_to_chat_msgs_blocks(rich, base_id);
+    for m in &mut out {
+        m.seq = base_id as i64;
+    }
+    out
+}
+
+fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
     let mut out = Vec::new();
     let role = rich.role.as_str();
     let base = rich
