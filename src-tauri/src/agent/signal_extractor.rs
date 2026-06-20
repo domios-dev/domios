@@ -56,6 +56,16 @@ pub struct Quiescence {
     pub kind: Motion,
 }
 
+/// DECSET private-mode snapshot from the OUTPUT stream (`CSI ? Pm h/l`), tracked
+/// by the vt100 parser: `?25` cursor visibility, `?1049` alternate screen,
+/// `?2004` bracketed paste. The provider-agnostic basis for `picker_active`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputMode {
+    pub cursor_hidden: bool,
+    pub alt_screen: bool,
+    pub bracketed_paste: bool,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CursorSignal {
     pub row: u16,
@@ -83,6 +93,10 @@ pub struct StreamSignals {
     pub quiescence: Quiescence,
     pub cursor: CursorSignal,
     pub regions: RegionSignal,
+    pub input_mode: InputMode,
+    /// Generic, provider-agnostic "a picker/prompt is awaiting input" signal,
+    /// fused from `input_mode` + quiescence. SIGNAL ONLY — no consumer yet.
+    pub picker_active: bool,
 }
 
 /// Plugin-declared volatile region hint. Default = none (every change is
@@ -271,6 +285,18 @@ impl SignalExtractor {
             on_last_nonblank_row: last_nonblank == Some(crow),
         };
 
+        let input_mode = InputMode {
+            cursor_hidden: screen.hide_cursor(),
+            alt_screen: screen.alternate_screen(),
+            bracketed_paste: screen.bracketed_paste(),
+        };
+
+        // alt-screen is high-precision; the inline branch needs a parked menu
+        // (Motion::Still discriminates a spinner) and excludes the shell's
+        // bracketed-paste line prompt (anti-signal).
+        let picker_active = input_mode.alt_screen
+            || (input_mode.cursor_hidden && kind == Motion::Still && !input_mode.bracketed_paste);
+
         let tail = self.tail_text(&lines, last_nonblank);
 
         self.prev = Some(PrevGrid {
@@ -308,6 +334,8 @@ impl SignalExtractor {
                 volatile,
                 content_text,
             },
+            input_mode,
+            picker_active,
         }
     }
 
