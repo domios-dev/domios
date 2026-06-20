@@ -174,14 +174,29 @@ impl ServiceContext {
         }
         let handle = self.app_handle.clone();
         let pending = self.mux_emit_pending.clone();
-        // Acquire lock, clone snapshot, then drop lock before spawning the thread.
-        // Serde serialization happens outside the lock in the spawned thread.
-        let snapshot = self.mux.read().snapshot();
+        let mux = self.mux.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            pending.store(false, Ordering::Release);
+            // Snapshot is read AFTER the coalesce window so the emitted payload
+            // reflects the latest state — a fast follow-up mutation during the
+            // window is included, not lost until some unrelated later emit.
+            let snapshot =
+                Self::coalesce_snapshot(&mux, &pending, std::time::Duration::from_millis(50));
             let _ = handle.emit("mux-state-changed", &snapshot);
         });
+    }
+
+    /// Sleep out the coalesce window, then read a fresh snapshot. The pending
+    /// flag is cleared BEFORE the read so any mutation landing after this point
+    /// opens a new window (its own emit) rather than being swallowed; mutations
+    /// that landed during the window are captured by reading last.
+    fn coalesce_snapshot(
+        mux: &MuxState,
+        pending: &AtomicBool,
+        delay: std::time::Duration,
+    ) -> crate::multiplexer::state::MultiplexerSnapshot {
+        std::thread::sleep(delay);
+        pending.store(false, Ordering::Release);
+        mux.read().snapshot()
     }
 
     pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {

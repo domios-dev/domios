@@ -160,3 +160,43 @@ fn test_batch_op_no_id() {
     assert_eq!(op.method, "send");
     assert!(op.id.is_none());
 }
+
+// `emit_state_changed` coalesces emits over a 50ms window. The snapshot that
+// gets emitted MUST be read AFTER the window so a fast follow-up mutation that
+// lands during the window is reflected (not lost until some unrelated later
+// emit). Two mutations inside one window → the emitted payload reflects the
+// second.
+#[test]
+fn coalesce_snapshot_reflects_latest_mutation_in_window() {
+    use crate::multiplexer::state::MultiplexerState;
+    use parking_lot::RwLock;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let mux: MuxState = Arc::new(RwLock::new(MultiplexerState::empty()));
+    let pending = Arc::new(AtomicBool::new(true));
+
+    let mux_clone = mux.clone();
+    let pending_clone = pending.clone();
+    let handle = std::thread::spawn(move || {
+        ServiceContext::coalesce_snapshot(&mux_clone, &pending_clone, Duration::from_millis(80))
+    });
+
+    // Both mutations land well inside the single coalesce window.
+    mux.write().create_workspace("first".to_string(), None);
+    mux.write().create_workspace("second".to_string(), None);
+
+    let snapshot = handle.join().unwrap();
+
+    // Read happened AFTER the window, so the payload reflects BOTH mutations —
+    // the latest being "second".
+    assert_eq!(
+        snapshot.workspaces.len(),
+        2,
+        "snapshot reflects both in-window mutations"
+    );
+    assert_eq!(snapshot.workspaces.last().unwrap().name, "second");
+    // Pending flag cleared so a mutation after the window starts a fresh one.
+    assert!(!pending.load(Ordering::Acquire));
+}
