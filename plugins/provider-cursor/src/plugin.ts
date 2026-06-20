@@ -298,6 +298,9 @@ interface CursorSessionMeta {
 
 // ── model discovery ──
 
+// Annotations cursor appends that mean the account/plan cannot select the model.
+const CURSOR_UNAVAILABLE_RE = /\s*\((?:unavailable|locked|disabled|coming soon|not available|requires [^)]+|pro only|upgrade required)\)\s*/i;
+
 function discoverCursorModels(): ModelInfo[] | null {
   const raw = host.exec(JSON.stringify({
     bin: "cursor-agent",
@@ -312,11 +315,29 @@ function discoverCursorModels(): ModelInfo[] | null {
     const m = /^([a-z0-9][a-z0-9._-]*)\s+-\s+(.+)$/i.exec(lines[i].trim());
     if (!m) continue;
     const id = m[1];
-    // Strip status annotations cursor appends ("(current)", "(default)").
-    const disp = m[2].replace(/\s*\((?:current|default)\)\s*$/i, "").trim();
-    models.push({ id: id, displayName: disp || id });
+    if (isNonChatModel(id)) continue;
+    const unavailable = CURSOR_UNAVAILABLE_RE.test(m[2]);
+    // Strip status/lockout annotations ("(current)", "(default)", "(locked)"); keep
+    // informative ones like "(NO ZDR)".
+    const disp = m[2]
+      .replace(CURSOR_UNAVAILABLE_RE, " ")
+      .replace(/\s*\((?:current|default)\)\s*$/i, "")
+      .trim();
+    const info: ModelInfo = { id: id, displayName: disp || id };
+    if (unavailable) info.available = false; // greyed in the picker, like claude's fable
+    models.push(info);
   }
   return models.length ? models : null;
+}
+
+// Duplicated across provider bundles by design (QuickJS, no imports) — drops
+// embedding/tts/moderation/rerank ids so only chat models reach the picker.
+const NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+function isNonChatModel(id: string): boolean {
+  const leaf = (id.split("/").pop() || id).toLowerCase();
+  const toks = leaf.split(/[-_.]/);
+  for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
+  return false;
 }
 
 function manifestModels(): ModelInfo[] {

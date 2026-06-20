@@ -283,6 +283,25 @@ console.log("\n--- discoverModels (live --list-models, manifest fallback) ---\n"
   assert(models.every((m: { id: string }) => m.id.indexOf("Tip") === -1), "tip footer ignored");
 }
 
+// Availability: a lockout annotation greys the model (available:false), the marker
+// is stripped from the label, and embedding ids are filtered out.
+{
+  const listOutput = [
+    "auto - Auto (current)",
+    "claude-opus-4-8 - Opus 4.8",
+    "gpt-5.5-pro - GPT-5.5 Pro (requires Pro)",
+    "text-embedding-3-large - Embeddings",
+  ].join("\n");
+  const liveHost = loadCursorWithHost(baseHost({ exec: () => JSON.stringify({ code: 0, stdout: listOutput }) }));
+  const models = liveHost.discoverModels() as Array<{ id: string; displayName: string; available?: boolean }>;
+  const byId: Record<string, { displayName: string; available?: boolean }> = {};
+  for (const m of models) byId[m.id] = m;
+  assert(byId["text-embedding-3-large"] === undefined, "embedding model filtered out");
+  eq(byId["auto"].available, undefined, "available model leaves availability unset");
+  eq(byId["gpt-5.5-pro"].available, false, "(requires Pro) → available:false");
+  eq(byId["gpt-5.5-pro"].displayName, "GPT-5.5 Pro", "lockout annotation stripped from label");
+}
+
 console.log("\n--- projectHash + slug (md5 of canonical cwd) ---\n");
 {
   const p = loadCursorWithHost(baseHost({

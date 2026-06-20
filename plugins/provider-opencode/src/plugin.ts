@@ -348,13 +348,26 @@ function discoverOpencodeModels(): ModelInfo[] | null {
   for (let i = 0; i < lines.length; i++) {
     const id = lines[i].trim();
     if (!isModelId(id)) continue;
+    if (isNonChatModel(id)) continue;
     models.push({ id: id, displayName: displayNameFromId(id) });
   }
+  // `opencode models` only lists models for configured providers, so the live
+  // list is already availability-filtered — every entry is selectable (available unset).
   return models.length ? models : null;
 }
 
 function isModelId(value: string): boolean {
   return /^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(value);
+}
+
+// Duplicated across provider bundles by design (QuickJS, no imports) — drops
+// embedding/tts/moderation/rerank ids so only chat models reach the picker.
+const NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+function isNonChatModel(id: string): boolean {
+  const leaf = (id.split("/").pop() || id).toLowerCase();
+  const toks = leaf.split(/[-_.]/);
+  for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
+  return false;
 }
 
 function manifestModels(): ModelInfo[] {
@@ -374,13 +387,32 @@ function displayNameFromId(id: string): string {
   const slash = id.split("/");
   const provider = slash.length > 1 ? slash[0] : "";
   const leaf = slash[slash.length - 1] || id;
-  const words = leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
-  if (provider.toLowerCase() === "opencode") return "OpenCode " + words;
+  const words = prettyLeaf(leaf);
+  if (provider.toLowerCase() === "opencode") return "OpenCode Zen " + words;
   return words;
 }
 
+// "claude-opus-4-8" -> "Claude Opus 4.8": title-case tokens, but fold a bare
+// number onto the prior numeric token as a dotted version (4-8 -> 4.8).
+function prettyLeaf(leaf: string): string {
+  const parts = leaf.split("-").filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (/^\d+$/.test(p) && out.length && /\d$/.test(out[out.length - 1])) {
+      out[out.length - 1] = out[out.length - 1] + "." + p;
+    } else {
+      out.push(capitalizeToken(p));
+    }
+  }
+  return out.join(" ");
+}
+
 function capitalizeToken(token: string): string {
-  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
+  if (!token) return token;
+  if (token === "gpt") return "GPT";
+  if (token === "ai") return "AI";
+  return token.charAt(0).toUpperCase() + token.substring(1);
 }
 
 // Map one opencode `part` blob to a ChatMsg (camelCase, matching the Rust
