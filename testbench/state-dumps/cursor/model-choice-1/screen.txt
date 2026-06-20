@@ -1,0 +1,43 @@
+dev@workstation codeterm-state-capture-cursor-model-choice-1-47889 % bash /tmp/codeterm-spawn-e966e5f1-bb1d-4b14-9337-e1f30d07ed54.sh
+
+
+  Cursor Agent
+  v2026.06.19-20-24-33-653a7fb
+  Hit shift+tab to enable Plan Mode for large or complex changes.
+
+                                                                                                                       
+  Before implementing, ask me which caching strategy to use. Give exactly three numbered options: in-memory,           
+  Redis, or file-based, then wait for my choice.                                                                       
+                                                                                                                       
+
+  Before I implement anything, which caching strategy should we use?
+
+  1. In-memory — Store cache entries in the application process (e.g. a map or LRU). Fastest reads/writes, but
+     cache is lost on restart and isn’t shared across multiple instances.
+
+  2. Redis — Store cache in a Redis server. Shared across instances, survives app restarts (depending on Redis
+     config), and supports TTLs and eviction policies. Adds a network hop and Redis as a dependency.
+
+  3. File-based — Store cache on disk (e.g. JSON or binary files in a cache directory). Persists across restarts
+     without extra infrastructure, but slower than memory/Redis and needs careful handling of concurrency and
+     cleanup.
+
+  Reply with 1, 2, or 3 (or the name: in-memory, Redis, or file-based).
+
+                                                                                                                       
+  Use in-memory caching.                                                                                               
+                                                                                                                       
+
+  Exploring the workspace to see what we're building and where in-memory caching fits.
+
+    Globbing "**/*" in .
+
+ ⠘⠣ Composing  67 tokens
+    Tip: Use /config to customize Cursor settings and behavior.
+
+                                                                                                                       
+  → Add a follow-up                                                                                     ctrl+c to stop 
+                                                                                                                       
+
+  Composer 2.5 · 7%                                                                                     Run Everything
+  /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-state-capture-cursor-model-choice-1-47889

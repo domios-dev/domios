@@ -7,27 +7,28 @@ source "$ROOT/evals/_lib/lib.sh"
 
 PROVIDER=""
 SCENARIO=""
-VARIANT=""
-TIMEOUT="${STATE_CAPTURE_TIMEOUT:-240}"
+COUNT=1
+RUN_INDEX=""
+TIMEOUT="${STATE_CAPTURE_TIMEOUT:-180}"
 OUT_ROOT="$ROOT/testbench/state-dumps"
 PY="${PYTHON:-python3}"
 
 usage() {
   cat >&2 <<'EOF'
-usage: testbench/state-capture.sh --provider P --scenario S [--variant N] [--timeout SEC]
+usage: testbench/state-capture.sh --provider P --scenario S [--count N] [--run N]
 
 Scenarios:
-  working-idle
+  working-idle      (alias: code-then-idle)
   multi-turn
   model-choice
   model-picker
   error
 
-Writes:
-  testbench/state-dumps/<provider>/<scenario-N>/{session.cast,timeline.json,meta.json,screen.txt}
+Writes numbered full-session dumps to:
+  testbench/state-dumps/<provider>/<scenario>-<N>/
 
-The script targets dev through evals/_lib dc only. If dc exits 7 it waits and retries.
-It never starts, kills, or rebuilds dev.
+The script targets dev through evals/_lib dc only. If dc exits 7 it waits and
+retries; this script never starts, kills, or rebuilds dev.
 EOF
   exit 2
 }
@@ -36,7 +37,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --provider) PROVIDER="${2:-}"; shift 2 ;;
     --scenario) SCENARIO="${2:-}"; shift 2 ;;
-    --variant) VARIANT="${2:-}"; shift 2 ;;
+    --count) COUNT="${2:-}"; shift 2 ;;
+    --run) RUN_INDEX="${2:-}"; shift 2 ;;
     --timeout) TIMEOUT="${2:-}"; shift 2 ;;
     *) usage ;;
   esac
@@ -55,24 +57,6 @@ case "$SCENARIO" in
   *) usage ;;
 esac
 
-dc_retry() {
-  local attempt=0 rc
-  while true; do
-    set +e
-    dc "$@"
-    rc=$?
-    set -e
-    if [ "$rc" -eq 0 ]; then
-      return 0
-    fi
-    if [ "$rc" -ne 7 ] || [ "$attempt" -ge 20 ]; then
-      return "$rc"
-    fi
-    attempt=$((attempt + 1))
-    sleep 6
-  done
-}
-
 json_field() {
   "$PY" -c 'import json,sys
 doc=json.load(sys.stdin)
@@ -82,7 +66,44 @@ print(doc)' "$1"
 }
 
 now_ms() { "$PY" -c 'import time; print(int(time.time()*1000))'; }
-mark_ms() { echo "$(($(now_ms) - CAPTURE_START_MS))"; }
+
+dc_retry() {
+  local attempt=0
+  while true; do
+    set +e
+    dc "$@"
+    local code=$?
+    set -e
+    if [ "$code" -eq 0 ]; then
+      return 0
+    fi
+    if [ "$code" -ne 7 ] || [ "$attempt" -ge 24 ]; then
+      return "$code"
+    fi
+    attempt=$((attempt + 1))
+    sleep 5
+  done
+}
+
+dev_get_retry() {
+  local path="$1" attempt=0
+  while true; do
+    set +e
+    local body
+    body="$(dev_get "$path")"
+    local code=$?
+    set -e
+    if [ "$code" -eq 0 ] && [ -n "$body" ]; then
+      printf '%s\n' "$body"
+      return 0
+    fi
+    if [ "$attempt" -ge 24 ]; then
+      return 7
+    fi
+    attempt=$((attempt + 1))
+    sleep 5
+  done
+}
 
 provider_version() {
   case "$PROVIDER" in
@@ -95,7 +116,7 @@ provider_version() {
 }
 
 pane_status() {
-  dev_get "/api/panes/$1/status" \
+  dev_get_retry "/api/panes/$1/status" \
     | "$PY" -c "import json,sys; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true
 }
 
@@ -114,93 +135,64 @@ send_text() {
   dc_retry send --pane "$pane" "$text" --actions enter >/dev/null
 }
 
-press_enter() {
-  local pane="$1"
-  dc_retry send --pane "$pane" --actions enter >/dev/null
+send_actions() {
+  local pane="$1" actions="$2"
+  dc_retry send --pane "$pane" --actions "$actions" >/dev/null
 }
 
-json_string() {
-  "$PY" -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"
-}
-
-capture_start() {
-  local pane="$1" out="$2" out_json
-  out_json="$(json_string "$out")"
-  local body status
-  body="$(mktemp)"
-  printf '{"out":%s}' "$out_json" > "$body"
-  status="$(curl -s --max-time 30 -o "$body.response" -w '%{http_code}' \
-    -X POST -H "$CODETERM_DEV_AUTH_HEADER" -H "Content-Type: application/json" \
-    --data-binary "@$body" "http://127.0.0.1:7686/api/panes/$pane/capture/start")"
-  if [ "$status" != "200" ]; then
-    cat "$body.response" >&2
-    rm -f "$body" "$body.response"
-    return 1
-  fi
-  rm -f "$body" "$body.response"
-}
-
-capture_stop() {
-  local pane="$1"
-  local body status
-  body="$(mktemp)"
-  status="$(curl -s --max-time 30 -o "$body.response" -w '%{http_code}' \
-    -X POST -H "$CODETERM_DEV_AUTH_HEADER" -H "Content-Type: application/json" \
-    --data '{}' "http://127.0.0.1:7686/api/panes/$pane/capture/stop")"
-  if [ "$status" != "200" ]; then
-    cat "$body.response" >&2
-    rm -f "$body" "$body.response"
-    return 1
-  fi
-  rm -f "$body" "$body.response"
-}
-
-cast_ms() {
-  local cast="$1"
-  "$PY" - "$cast" <<'PY'
-import json, sys
-last = 0
-try:
-    with open(sys.argv[1]) as f:
-        next(f, None)
-        for line in f:
-            if line.strip():
-                last = round(json.loads(line)[0] * 1000)
-except FileNotFoundError:
-    pass
-print(last)
+rel_ms() {
+  local start="$1"
+  "$PY" - "$start" <<'PY'
+import sys, time
+print(max(0, int(time.time() * 1000) - int(sys.argv[1])))
 PY
 }
 
-screen_has_choice() {
+screen_kind() {
   "$PY" -c 'import re,sys
 text=sys.stdin.read().lower()
 option_lines=len(re.findall(r"(?m)^\s*(?:[›>❯→▸▶●•*-]|\d+[.)]|[a-z][.)]|\[[ xX]\])\s+\S", text))
-choice_words=any(s in text for s in ["choose", "choice", "select", "option", "which", "strategy", "caching", "migration"])
-footer=any(s in text for s in ["enter to select", "esc to", "space select", "tab select"])
-keyword_sets=[
-    ["in-memory", "redis", "file-based"],
-    ["reversible", "squash", "migration"],
-    ["structured", "json", "logging"],
-]
-keyword_choice=any(sum(1 for k in ks if k in text) >= 2 for ks in keyword_sets)
-print("yes" if (option_lines >= 2 and (choice_words or footer)) or keyword_choice else "no")'
+option_lines += len(re.findall(r"(?m)(?:[›>❯→▸▶●•*-]\s*)?\[[ xX]\]\s+(?:\d+[.)]\s*)?\S", text))
+option_lines += len(re.findall(r"(?m)(?:^|[┃│])\s*\d+[.)]\s+\S", text))
+footer=any(s in text for s in ["enter to select","enter submit","esc to","esc dismiss","space select","tab select","type to filter","navigate"])
+model_words=any(s in text for s in ["model", "provider", "gpt", "claude", "composer", "opencode"])
+choice_words=any(s in text for s in ["choose", "choice", "option", "in-memory", "redis", "file-based", "migration"])
+error_words=any(s in text for s in ["error", "failed", "failure", "not found", "no such file", "nonexistent_command_xyz", "command not found", "exit code"])
+if "select model" in text and model_words:
+    print("model_picker")
+elif option_lines >= 2 and choice_words:
+    print("model_choice")
+elif option_lines >= 2 and (footer or model_words):
+    print("model_picker")
+elif error_words:
+    print("error")
+else:
+    print("none")'
 }
 
-screen_has_model_picker() {
-  "$PY" -c 'import re,sys
-text=sys.stdin.read().lower()
-option_lines=len(re.findall(r"(?m)^\s*(?:[›>❯→▸▶●•*-]|\d+[.)]|[a-z][.)]|\[[ xX]\])\s+\S", text))
-has_model=any(s in text for s in ["model", "reasoning", "provider"])
-footer=any(s in text for s in ["enter to select", "esc to", "select model"])
-print("yes" if option_lines >= 2 and has_model and (footer or "model" in text) else "no")'
-}
-
-screen_has_error() {
+screen_idle() {
   "$PY" -c 'import sys
 text=sys.stdin.read().lower()
-needles=["nonexistent_command_xyz", "command not found", "not found", "no such file", "failed", "error", "exit code"]
-print("yes" if any(n in text for n in needles) else "no")'
+idle_markers=[
+    "add a follow-up",
+    "plan, search, build anything",
+    "send a message",
+    "message opencode",
+    "what can i do",
+    "type your message",
+    "ctrl+p commands",
+]
+print("yes" if any(marker in text for marker in idle_markers) else "no")'
+}
+
+screen_is_question() {
+  local pane="$1" subtype="$2"
+  [ "$(pane_text "$pane" | screen_kind)" = "$subtype" ]
+}
+
+screen_is_error() {
+  local pane="$1"
+  [ "$(pane_text "$pane" | screen_kind)" = "error" ]
 }
 
 wait_status_seen() {
@@ -212,39 +204,15 @@ wait_status_seen() {
   return 1
 }
 
-wait_idle_mark() {
-  local pane="$1" deadline=$((SECONDS + TIMEOUT)) streak=0 mark=0
-  while [ "$SECONDS" -lt "$deadline" ]; do
-    local st
-    st="$(pane_status "$pane")"
-    if [ "$st" = "Idle" ] || [ "$st" = "Waiting" ]; then
-      streak=$((streak + 1))
-      [ "$mark" -eq 0 ] && mark="$(mark_ms)"
-      if [ "$streak" -ge 3 ]; then
-        echo "$mark"
-        return 0
-      fi
-    else
-      streak=0
-      mark=0
-    fi
-    sleep 1
-  done
-  return 1
-}
-
-wait_initial_idle() {
+wait_idle() {
   local pane="$1" deadline=$((SECONDS + TIMEOUT)) streak=0
   while [ "$SECONDS" -lt "$deadline" ]; do
-    local st pty
+    local st text kind idle
     st="$(pane_status "$pane")"
-    pty="$(dev_get /api/panes | "$PY" -c 'import json,sys
-pane=sys.argv[1]
-for p in json.load(sys.stdin):
-    if p.get("id")==pane:
-        print(p.get("pty_id") or "")
-        break' "$pane")"
-    if { [ "$st" = "Idle" ] || [ "$st" = "Waiting" ]; } && [ -n "$pty" ]; then
+    text="$(pane_text "$pane")"
+    kind="$(printf '%s' "$text" | screen_kind)"
+    idle="$(printf '%s' "$text" | screen_idle)"
+    if { [ "$st" = "Idle" ] || [ "$st" = "Waiting" ] || [ "$idle" = "yes" ]; } && { [ "$kind" = "none" ] || [ "$idle" = "yes" ]; }; then
       streak=$((streak + 1))
       [ "$streak" -ge 3 ] && return 0
     else
@@ -255,284 +223,360 @@ for p in json.load(sys.stdin):
   return 1
 }
 
-wait_screen_mark() {
-  local pane="$1" detector="$2" deadline=$((SECONDS + TIMEOUT))
+wait_question() {
+  local pane="$1" subtype="$2" deadline=$((SECONDS + TIMEOUT))
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if [ "$(pane_text "$pane" | "$detector")" = "yes" ]; then
-      mark_ms
-      return 0
-    fi
+    screen_is_question "$pane" "$subtype" && return 0
     sleep 1
   done
   return 1
 }
 
-pick_prompt() {
-  local index="$1"; shift
-  local count=$#
-  local pos=$(( (index - 1) % count + 1 ))
-  eval "printf '%s\n' \"\${$pos}\""
+wait_error() {
+  local pane="$1" deadline=$((SECONDS + TIMEOUT))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    screen_is_error "$pane" && return 0
+    sleep 1
+  done
+  return 1
 }
 
-next_variant() {
-  local base="$OUT_ROOT/$PROVIDER" max=0 name n
-  mkdir -p "$base"
-  for path in "$base"/"$SCENARIO"-*; do
-    [ -d "$path" ] || continue
-    name="$(basename "$path")"
-    n="${name##*-}"
-    case "$n" in
-      ''|*[!0-9]*) ;;
-      *) [ "$n" -gt "$max" ] && max="$n" ;;
-    esac
-  done
-  echo $((max + 1))
+cast_ms() {
+  local cast="$1"
+  "$PY" - "$cast" <<'PY'
+import json, sys
+path = sys.argv[1]
+last = 0
+with open(path, encoding="utf-8", errors="replace") as f:
+    next(f, None)
+    for line in f:
+        if line.strip():
+            last = round(json.loads(line)[0] * 1000)
+print(last)
+PY
+}
+
+prompt_for() {
+  local scenario="$1" run="$2"
+  "$PY" - "$scenario" "$run" <<'PY'
+import sys
+scenario = sys.argv[1]
+run = (int(sys.argv[2]) - 1) % 3
+prompts = {
+    "working-idle": [
+        "Write a Python function fib(n) with a docstring in fib.py. Keep it small.",
+        "Add input validation and two unit tests for fib.py.",
+        "Refactor fib.py to use an iterative implementation; keep behavior.",
+    ],
+    "model-choice": [
+        "Before implementing, ask me which caching strategy to use. Give exactly three numbered options: in-memory, Redis, or file-based, then wait for my choice.",
+        "Ask me how to handle migrations as a multiple-choice question with exactly three numbered options, then stop and wait.",
+        "Ask me to choose one API style from exactly three numbered options before doing any work, then wait for my answer.",
+    ],
+    "error": [
+        "Run `nonexistent_command_xyz` and report the failure.",
+        "Try to open and read /no/such/path, then report the error.",
+        "Run a shell command that fails with exit code 7 and show the error.",
+    ],
+}
+print(prompts[scenario][run])
+PY
+}
+
+multi_prompt_for() {
+  local run="$1" step="$2"
+  "$PY" - "$run" "$step" <<'PY'
+import sys
+run = (int(sys.argv[1]) - 1) % 3
+step = int(sys.argv[2])
+sets = [
+    ["Create greet.py with a hello function.", "Add a --name flag to greet.py.", "Write a small test for greet.py."],
+    ["Create calc.py with an add(a, b) function.", "Add a subtract(a, b) function.", "Add a simple pytest file for calc.py."],
+    ["Create notes.txt with one project note.", "Append a second note to notes.txt.", "Create README.md summarizing the notes."],
+]
+print(sets[run][step - 1])
+PY
 }
 
 write_timeline() {
   local path="$1" steps_json="$2" segments_json="$3"
   "$PY" - "$path" "$steps_json" "$segments_json" <<'PY'
 import json, sys
-doc = {"steps": json.loads(sys.argv[2]), "segments": json.loads(sys.argv[3])}
-json.dump(doc, open(sys.argv[1], "w"), indent=2)
-open(sys.argv[1], "a").write("\n")
+segments = []
+for seg in json.loads(sys.argv[3]):
+    if segments and segments[-1]["state"] == seg["state"] and segments[-1].get("subtype") == seg.get("subtype"):
+        segments[-1]["to_ms"] = seg["to_ms"]
+    else:
+        segments.append(seg)
+doc = {"steps": json.loads(sys.argv[2]), "segments": segments}
+json.dump(doc, open(sys.argv[1], "w", encoding="utf-8"), indent=2)
+open(sys.argv[1], "a", encoding="utf-8").write("\n")
 PY
 }
 
-append_step() {
-  steps="$("$PY" - "$steps" "$1" "$2" "$3" <<'PY'
-import json, sys
-steps=json.loads(sys.argv[1])
-steps.append({"at_ms": int(sys.argv[2]), "action": sys.argv[3], "expect": sys.argv[4]})
-print(json.dumps(steps))
-PY
-)"
-}
-
-append_segment() {
-  local from="$1" to="$2" state="$3" subtype="${4:-}"
-  [ "$to" -gt "$from" ] || to=$((from + 250))
-  segments="$("$PY" - "$segments" "$from" "$to" "$state" "$subtype" <<'PY'
-import json, sys
-segments=json.loads(sys.argv[1])
-seg={"from_ms": int(sys.argv[2]), "to_ms": int(sys.argv[3]), "state": sys.argv[4]}
-if sys.argv[5]:
-    seg["subtype"] = sys.argv[5]
-segments.append(seg)
-print(json.dumps(segments))
-PY
-)"
-}
-
-verify_timeline() {
-  "$PY" - "$SCENARIO" "$OUT_DIR/session.cast" "$OUT_DIR/timeline.json" <<'PY'
-import json, sys
-scenario, cast_path, path = sys.argv[1], sys.argv[2], sys.argv[3]
-doc = json.load(open(path))
-segments = doc.get("segments", [])
-states = [s.get("state") for s in segments]
-subtypes = [s.get("subtype") for s in segments]
+verify_dump() {
+  local dir="$1" scenario="$2"
+  "$PY" - "$dir" "$scenario" <<'PY'
+import json, os, sys
+dir, scenario = sys.argv[1], sys.argv[2]
 errors = []
-try:
-    rows = sum(1 for line in open(cast_path) if line.strip())
-except FileNotFoundError:
-    rows = 0
-if rows < 5:
-    errors.append(f"session.cast too thin or missing: {rows} rows")
-if not segments:
-    errors.append("no segments")
-if any(int(s["to_ms"]) <= int(s["from_ms"]) for s in segments):
-    errors.append("non-positive segment")
-if scenario == "working-idle":
-    if states[:2] != ["working", "idle"]:
-        errors.append(f"expected working,idle got {states}")
-elif scenario == "multi-turn":
-    alternating = all(states[i] != states[i-1] for i in range(1, len(states)))
-    if len(segments) < 4 or not alternating or states[0] != "working" or states[-1] != "idle":
-        errors.append(f"expected >=4 alternating working/idle ending idle got {states}")
-elif scenario == "model-choice":
-    if "question" not in states or "model_choice" not in subtypes:
-        errors.append(f"expected question:model_choice got {list(zip(states, subtypes))}")
-    if states[:4] != ["working", "question", "working", "idle"]:
-        errors.append(f"expected working,question,working,idle got {states}")
-elif scenario == "model-picker":
-    if "question" not in states or "model_choice" not in subtypes:
-        errors.append(f"expected picker question:model_choice got {list(zip(states, subtypes))}")
-elif scenario == "error":
-    if "error" not in subtypes:
-        errors.append(f"expected question:error got {list(zip(states, subtypes))}")
+for name in ("session.cast", "timeline.json", "meta.json"):
+    path = os.path.join(dir, name)
+    if not os.path.exists(path):
+        errors.append(f"{name} missing")
+    elif os.path.getsize(path) < (200 if name == "session.cast" else 10):
+        errors.append(f"{name} too small")
+timeline_path = os.path.join(dir, "timeline.json")
+if os.path.exists(timeline_path):
+    timeline = json.load(open(timeline_path, encoding="utf-8"))
+    segs = timeline.get("segments", [])
+    labels = [(s.get("state"), s.get("subtype")) for s in segs]
+    if any(int(s.get("to_ms", 0)) <= int(s.get("from_ms", 0)) for s in segs):
+        errors.append("non-positive segment duration")
+    if scenario == "working-idle":
+        if [s for s, _ in labels] != ["working", "idle"]:
+            errors.append(f"expected working,idle got {labels}")
+    elif scenario == "multi-turn":
+        states = [s for s, _ in labels]
+        if len(states) < 6 or states[:6] != ["working", "idle", "working", "idle", "working", "idle"]:
+            errors.append(f"expected 3 working/idle pairs got {labels}")
+    elif scenario == "model-choice":
+        if not any(s == "question" and t == "model_choice" for s, t in labels):
+            errors.append(f"missing question:model_choice in {labels}")
+        if labels[0][0] != "working" or labels[-1][0] != "idle":
+            errors.append(f"expected working...idle got {labels}")
+    elif scenario == "model-picker":
+        if not any(s == "question" and t == "model_picker" for s, t in labels):
+            errors.append(f"missing question:model_picker in {labels}")
+        if labels[0][0] != "idle" or labels[-1][0] != "idle":
+            errors.append(f"expected idle...idle got {labels}")
+    elif scenario == "error":
+        if not any(s == "error" for s, _ in labels):
+            errors.append(f"missing error segment in {labels}")
 if errors:
-    print("; ".join(errors), file=sys.stderr)
+    print(f"dump verify failed: {dir}: " + "; ".join(errors), file=sys.stderr)
     sys.exit(1)
-print("verified")
+print(f"dump verify ok: {dir}")
 PY
 }
 
-VARIANT="${VARIANT:-$(next_variant)}"
-OUT_DIR="$OUT_ROOT/$PROVIDER/$SCENARIO-$VARIANT"
-WS_CWD="${TMPDIR:-/tmp}/codeterm-state-capture-$PROVIDER-$SCENARIO-$VARIANT-$$"
-mkdir -p "$WS_CWD" "$OUT_DIR"
-rm -f "$OUT_DIR/session.cast" "$OUT_DIR/timeline.json" "$OUT_DIR/meta.json" "$OUT_DIR/screen.txt"
+append_json_item() {
+  "$PY" - "$1" "$2" <<'PY'
+import json, sys
+items=json.loads(sys.argv[1])
+items.append(json.loads(sys.argv[2]))
+print(json.dumps(items))
+PY
+}
 
-cat > "$WS_CWD/fib.py" <<'EOF'
+run_capture() {
+  local run="$1"
+  local ws_cwd="${TMPDIR:-/tmp}/codeterm-state-capture-$PROVIDER-$SCENARIO-$run-$$"
+  mkdir -p "$ws_cwd"
+  cat > "$ws_cwd/fib.py" <<'EOF'
 def fib(n):
     return n if n < 2 else fib(n - 1) + fib(n - 2)
 EOF
-cat > "$WS_CWD/main.py" <<'EOF'
-def total(items):
-    value = 0
-    for item in items:
-        value += item
-    return value
-EOF
 
-steps='[]'
-segments='[]'
-PANE=""
-cleanup() {
-  if [ -n "$PANE" ]; then
-    capture_stop "$PANE" 2>/dev/null || true
-    dc_retry pane close "$PANE" >/dev/null 2>&1 || true
+  local out_dir="$OUT_ROOT/$PROVIDER/$SCENARIO-$run"
+  mkdir -p "$out_dir"
+  rm -f "$out_dir/session.cast" "$out_dir/timeline.json" "$out_dir/meta.json" "$out_dir/screen.txt" "$out_dir/session.screen.txt"
+
+  local ws pane started_at steps segments
+  ws="$(dc_retry workspace create "state-$PROVIDER-$SCENARIO-$run" --cwd "$ws_cwd" --json | json_field id)"
+  pane="$(spawn_agent "$ws" "$ws_cwd" "state-$SCENARIO-$run")"
+  sleep 5
+  wait_idle "$pane" || true
+
+  dc_retry pane capture start --pane "$pane" --out "$out_dir/session.cast" >/dev/null
+  started_at="$(now_ms)"
+  steps='[]'
+  segments='[]'
+
+  add_step() {
+    local at="$1" action="$2" expect="$3"
+    steps="$(append_json_item "$steps" "{\"at_ms\":$at,\"action\":\"$action\",\"expect\":\"$expect\"}")"
+  }
+
+  add_segment() {
+    local from="$1" to="$2" state="$3" subtype="${4:-}"
+    if [ -n "$subtype" ]; then
+      segments="$(append_json_item "$segments" "{\"from_ms\":$from,\"to_ms\":$to,\"state\":\"$state\",\"subtype\":\"$subtype\"}")"
+    else
+      segments="$(append_json_item "$segments" "{\"from_ms\":$from,\"to_ms\":$to,\"state\":\"$state\"}")"
+    fi
+  }
+
+  local t0 t1 t2 t3 t4 prompt answer
+  case "$SCENARIO" in
+    working-idle)
+      prompt="$(prompt_for "$SCENARIO" "$run")"
+      t0="$(rel_ms "$started_at")"
+      send_text "$pane" "$prompt"
+      add_step "$t0" "send coding task" "working"
+      wait_status_seen "$pane" "Working" || true
+      wait_idle "$pane" || true
+      t1="$(rel_ms "$started_at")"
+      add_step "$t1" "quiescence settled" "idle"
+      add_segment "$t0" "$t1" "working"
+      ;;
+    multi-turn)
+      t0="$(rel_ms "$started_at")"
+      prompt="$(multi_prompt_for "$run" 1)"
+      send_text "$pane" "$prompt"
+      add_step "$t0" "send multi-turn task 1" "working"
+      wait_status_seen "$pane" "Working" || true
+      wait_idle "$pane" || true
+      t1="$(rel_ms "$started_at")"
+      add_step "$t1" "task 1 quiescence settled" "idle"
+      add_segment "$t0" "$t1" "working"
+
+      t2="$(rel_ms "$started_at")"
+      prompt="$(multi_prompt_for "$run" 2)"
+      send_text "$pane" "$prompt"
+      add_step "$t2" "send multi-turn task 2" "working"
+      wait_status_seen "$pane" "Working" || true
+      wait_idle "$pane" || true
+      t3="$(rel_ms "$started_at")"
+      add_step "$t3" "task 2 quiescence settled" "idle"
+      add_segment "$t1" "$t2" "idle"
+      add_segment "$t2" "$t3" "working"
+
+      t4="$(rel_ms "$started_at")"
+      prompt="$(multi_prompt_for "$run" 3)"
+      send_text "$pane" "$prompt"
+      add_step "$t4" "send multi-turn task 3" "working"
+      wait_status_seen "$pane" "Working" || true
+      wait_idle "$pane" || true
+      local t5
+      t5="$(rel_ms "$started_at")"
+      add_step "$t5" "task 3 quiescence settled" "idle"
+      add_segment "$t3" "$t4" "idle"
+      add_segment "$t4" "$t5" "working"
+      ;;
+    model-choice)
+      prompt="$(prompt_for "$SCENARIO" "$run")"
+      t0="$(rel_ms "$started_at")"
+      send_text "$pane" "$prompt"
+      add_step "$t0" "send prompt that asks for choices" "working"
+      wait_status_seen "$pane" "Working" || true
+      wait_question "$pane" "model_choice" || true
+      t1="$(rel_ms "$started_at")"
+      add_step "$t1" "choice block visible" "question:model_choice"
+      answer="Use in-memory caching."
+      case $(((run - 1) % 3)) in
+        1) answer="Choose the first migration option." ;;
+        2) answer="Use the REST API style." ;;
+      esac
+      send_text "$pane" "$answer"
+      t2="$(rel_ms "$started_at")"
+      add_step "$t2" "answer choice" "working"
+      wait_status_seen "$pane" "Working" || true
+      wait_idle "$pane" || true
+      t3="$(rel_ms "$started_at")"
+      add_step "$t3" "quiescence settled after answer" "idle"
+      add_segment "$t0" "$t1" "working"
+      add_segment "$t1" "$t2" "question" "model_choice"
+      add_segment "$t2" "$t3" "working"
+      ;;
+    model-picker)
+      t0="$(rel_ms "$started_at")"
+      send_text "$pane" "/model"
+      add_step "$t0" "send /model" "question:model_picker"
+      wait_question "$pane" "model_picker" || true
+      t1="$(rel_ms "$started_at")"
+      add_step "$t1" "model picker visible" "question:model_picker"
+      send_actions "$pane" "enter"
+      t2="$(rel_ms "$started_at")"
+      add_step "$t2" "accept model picker default" "idle"
+      wait_idle "$pane" || true
+      t3="$(rel_ms "$started_at")"
+      add_step "$t3" "picker closed and idle" "idle"
+      add_segment "$t0" "$t1" "idle"
+      add_segment "$t1" "$t2" "question" "model_picker"
+      add_segment "$t2" "$t3" "idle"
+      ;;
+    error)
+      prompt="$(prompt_for "$SCENARIO" "$run")"
+      t0="$(rel_ms "$started_at")"
+      send_text "$pane" "$prompt"
+      add_step "$t0" "send failing task" "working"
+      wait_status_seen "$pane" "Working" || true
+      wait_error "$pane" || true
+      t1="$(rel_ms "$started_at")"
+      add_step "$t1" "error visible" "error"
+      wait_idle "$pane" || true
+      t2="$(rel_ms "$started_at")"
+      add_step "$t2" "quiescence settled after error" "idle"
+      add_segment "$t0" "$t1" "working"
+      add_segment "$t1" "$t2" "error"
+      ;;
+  esac
+
+  sleep 2
+  dc_retry pane capture stop --pane "$pane" >/dev/null || true
+  [ -f "$out_dir/session.screen.txt" ] && mv "$out_dir/session.screen.txt" "$out_dir/screen.txt"
+  [ -f "$out_dir/screen.txt" ] || pane_text "$pane" > "$out_dir/screen.txt"
+
+  local end_ms last_state last_subtype
+  end_ms="$(cast_ms "$out_dir/session.cast")"
+  local wall_end_ms
+  wall_end_ms="$(rel_ms "$started_at")"
+  [ "$end_ms" -ge "$wall_end_ms" ] || end_ms="$wall_end_ms"
+  last_state="$("$PY" - "$segments" <<'PY'
+import json, sys
+items=json.loads(sys.argv[1])
+print(items[-1]["state"] if items else "idle")
+PY
+)"
+  last_subtype="$("$PY" - "$segments" <<'PY'
+import json, sys
+items=json.loads(sys.argv[1])
+print(items[-1].get("subtype", "") if items else "")
+PY
+)"
+  local last_to
+  last_to="$("$PY" - "$segments" <<'PY'
+import json, sys
+items=json.loads(sys.argv[1])
+print(items[-1]["to_ms"] if items else 0)
+PY
+)"
+  if [ "$end_ms" -gt "$last_to" ]; then
+    if [ "$last_state" = "question" ]; then
+      add_segment "$last_to" "$end_ms" "$last_state" "$last_subtype"
+    else
+      add_segment "$last_to" "$end_ms" "idle"
+    fi
   fi
-}
-trap cleanup EXIT
 
-WS="$(dc_retry workspace create "state-$PROVIDER-$SCENARIO-$VARIANT" --cwd "$WS_CWD" --json | json_field id)"
-PANE="$(spawn_agent "$WS" "$WS_CWD" "state-$SCENARIO-$VARIANT")"
-wait_initial_idle "$PANE" || true
+  write_timeline "$out_dir/timeline.json" "$steps" "$segments"
 
-capture_start "$PANE" "$OUT_DIR/session.cast"
-CAPTURE_START_MS="$(now_ms)"
-sleep 1
-
-case "$SCENARIO" in
-  working-idle)
-    prompt="$(pick_prompt "$VARIANT" \
-      "Write a Python function fib(n) with a docstring in fib.py. Keep it compact." \
-      "Add input validation and two small unit tests for fib.py." \
-      "Refactor fib.py to use an iterative implementation while keeping behavior.")"
-    start="$(mark_ms)"
-    send_text "$PANE" "$prompt"
-    append_step "$start" "send coding task variant $VARIANT" "working"
-    wait_status_seen "$PANE" "Working" || true
-    idle="$(wait_idle_mark "$PANE")"
-    append_step "$idle" "quiescence settled" "idle"
-    end="$((idle + 2500))"
-    ;;
-  multi-turn)
-    prompts=(
-      "Create greet.py with a hello(name) function that returns a greeting."
-      "Add a --name command-line flag to greet.py."
-      "Write a small pytest test file for greet.py."
-    )
-    for i in 0 1 2; do
-      start="$(mark_ms)"
-      send_text "$PANE" "${prompts[$i]}"
-      append_step "$start" "send multi-turn task $((i + 1))" "working"
-      wait_status_seen "$PANE" "Working" || true
-      idle="$(wait_idle_mark "$PANE")"
-      append_step "$idle" "task $((i + 1)) quiescence settled" "idle"
-      append_segment "$start" "$idle" "working"
-      if [ "$i" -lt 2 ]; then
-        sleep 1
-        next_start="$(mark_ms)"
-        append_segment "$idle" "$next_start" "idle"
-      else
-        end="$((idle + 2500))"
-        append_segment "$idle" "$end" "idle"
-      fi
-    done
-    ;;
-  model-choice)
-    prompt="$(pick_prompt "$VARIANT" \
-      "Ask me to choose a caching strategy. Print exactly three numbered options: 1. in-memory, 2. Redis, 3. file-based. Then wait for my answer and do nothing else." \
-      "Ask me how to handle migrations. Print exactly three numbered options: 1. reversible, 2. squash, 3. manual SQL. Then wait for my answer." \
-      "Ask me to choose a logging approach. Print exactly three numbered options: 1. structured JSON, 2. plain text, 3. syslog. Then wait for my answer.")"
-    answer="$(pick_prompt "$VARIANT" "Use in-memory caching." "Use reversible migrations." "Use structured JSON logging.")"
-    start="$(mark_ms)"
-    send_text "$PANE" "$prompt"
-    append_step "$start" "send prompt that asks for model choice" "working"
-    wait_status_seen "$PANE" "Working" || true
-    question="$(wait_screen_mark "$PANE" screen_has_choice)"
-    append_step "$question" "choice block visible" "question:model_choice"
-    answer_at="$(mark_ms)"
-    send_text "$PANE" "$answer"
-    append_step "$answer_at" "answer model choice" "working"
-    wait_status_seen "$PANE" "Working" || true
-    idle="$(wait_idle_mark "$PANE")"
-    append_step "$idle" "quiescence settled after answer" "idle"
-    end="$((idle + 2500))"
-    append_segment "$start" "$question" "working"
-    append_segment "$question" "$answer_at" "question" "model_choice"
-    append_segment "$answer_at" "$idle" "working"
-    append_segment "$idle" "$end" "idle"
-    ;;
-  model-picker)
-    start="$(mark_ms)"
-    send_text "$PANE" "/model"
-    append_step "$start" "send /model" "question:model_choice"
-    question="$(wait_screen_mark "$PANE" screen_has_model_picker)"
-    append_step "$question" "model picker visible" "question:model_choice"
-    answer_at="$(mark_ms)"
-    press_enter "$PANE"
-    append_step "$answer_at" "accept model picker default" "idle"
-    idle="$(wait_idle_mark "$PANE")"
-    append_step "$idle" "picker closed and idle" "idle"
-    end="$((idle + 2000))"
-    append_segment "$start" "$question" "idle"
-    append_segment "$question" "$answer_at" "question" "model_choice"
-    append_segment "$answer_at" "$end" "idle"
-    ;;
-  error)
-    prompt="$(pick_prompt "$VARIANT" \
-      "Run nonexistent_command_xyz in the terminal and stop after showing the failure." \
-      "Try to execute nonexistent_command_xyz and report the exact error output." \
-      "Use the shell to run nonexistent_command_xyz; do not fix it, just show the failure.")"
-    start="$(mark_ms)"
-    send_text "$PANE" "$prompt"
-    append_step "$start" "send failing-command task" "working"
-    wait_status_seen "$PANE" "Working" || true
-    err_at="$(wait_screen_mark "$PANE" screen_has_error)"
-    append_step "$err_at" "error text visible" "question:error"
-    idle="$(wait_idle_mark "$PANE" || mark_ms)"
-    append_step "$idle" "post-error quiescence" "idle"
-    end="$((idle + 2500))"
-    append_segment "$start" "$err_at" "working"
-    append_segment "$err_at" "$idle" "question" "error"
-    append_segment "$idle" "$end" "idle"
-    ;;
-esac
-
-sleep 2
-capture_stop "$PANE" || true
-[ -f "$OUT_DIR/session.screen.txt" ] && mv "$OUT_DIR/session.screen.txt" "$OUT_DIR/screen.txt"
-[ -f "$OUT_DIR/screen.txt" ] || pane_text "$PANE" > "$OUT_DIR/screen.txt"
-
-actual_end="$(cast_ms "$OUT_DIR/session.cast")"
-if [ "${end:-0}" -gt "$actual_end" ]; then
-  end="$actual_end"
-fi
-if [ "$SCENARIO" = "working-idle" ]; then
-  append_segment "$start" "$idle" "working"
-  append_segment "$idle" "${end:-$actual_end}" "idle"
-fi
-
-write_timeline "$OUT_DIR/timeline.json" "$steps" "$segments"
-
-PROVIDER_VERSION="$(provider_version | head -1 | sed 's/"/\\"/g')"
-cat > "$OUT_DIR/meta.json" <<JSON
+  local provider_version_value
+  provider_version_value="$(provider_version | head -1 | sed 's/"/\\"/g')"
+  cat > "$out_dir/meta.json" <<JSON
 {
   "provider": "$PROVIDER",
   "scenario": "$SCENARIO",
-  "variant": $VARIANT,
-  "cli_version": "$PROVIDER_VERSION",
+  "run": $run,
+  "provider_version": "$provider_version_value",
+  "cli_version": "$provider_version_value",
   "capturedAtMs": $(now_ms),
   "source": "state-capture.sh dev-7686",
-  "paneId": "$PANE"
+  "paneId": "$pane",
+  "workspaceId": "$ws"
 }
 JSON
 
-verify_timeline >/dev/null
-dc_retry pane close "$PANE" >/dev/null 2>&1 || true
-PANE=""
-echo "wrote $OUT_DIR"
+  dc_retry pane close "$pane" >/dev/null 2>&1 || true
+  verify_dump "$out_dir" "$SCENARIO"
+  echo "wrote $out_dir"
+}
+
+if [ -n "$RUN_INDEX" ]; then
+  run_capture "$RUN_INDEX"
+else
+  for run in $(seq 1 "$COUNT"); do
+    run_capture "$run"
+  done
+fi

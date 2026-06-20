@@ -1,0 +1,37 @@
+dev@workstation codeterm-state-capture-cursor-multi-turn-2-40105 % bash /tmp/codeterm-spawn-ff851aa7-456e-4946-b437-a60c3d9a925d.sh
+
+
+  Cursor Agent
+  v2026.06.19-20-24-33-653a7fb
+  Use /auto-run to skip all approvals.
+
+                                                                                                                       
+  Create calc.py with an add(a, b) function.                                                                           
+                                                                                                                       
+
+  Checking the workspace, then creating calc.py with an add(a, b) function.
+
+    Globbed, read 1 glob, 1 file
+    Globbed "**/*" in .
+    Read fib.py
+
+    Edited calc.py                                                                                             +2 -1
+
+    ▎-                                                                                                              
+    ▎+ def add(a, b):                                                                                               
+    ▎+     return a + b                                                                                             
+
+ ┌─ follow-ups ─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ ○ Add a subtract(a, b) function.                                                                                 │
+ │ ○ Add a simple pytest file for calc.py.                                                                          │
+ │ enter send now · ↑ select/edit · esc cancel                                                                      │
+ └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+ ⠠⠜ Editing  249 tokens
+
+                                                                                                                       
+  → Add a follow-up                                                                                     ctrl+c to stop 
+                                                                                                                       
+
+  Composer 2.5 · 7% · 1 file edited                                                                     Run Everything
+  /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-state-capture-cursor-multi-turn-2-40105
