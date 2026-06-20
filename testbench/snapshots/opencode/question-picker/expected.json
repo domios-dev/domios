@@ -3,16 +3,34 @@
   "unit": "provider_screen",
   "expected": {
     "hasEventMarkers": true,
-    "detectEvents": ["PermissionRequest"],
+    "detectEvents": [
+      "PermissionRequest"
+    ],
     "parsePrompt": {
       "question": "Выбери, что хочешь увидеть:",
       "options": [
-        { "label": "A — Исследовать код", "value": "1" },
-        { "label": "Б — Подкорректировать файл", "value": "2" },
-        { "label": "В — Запустить тесты/сборку", "value": "3" },
-        { "label": "Г — Поискать в коде", "value": "4" },
-        { "label": "Type your own answer", "value": "5" }
+        {
+          "label": "A — Исследовать код",
+          "value": "1"
+        },
+        {
+          "label": "Б — Подкорректировать файл",
+          "value": "2"
+        },
+        {
+          "label": "В — Запустить тесты/сборку",
+          "value": "3"
+        },
+        {
+          "label": "Г — Поискать в коде",
+          "value": "4"
+        },
+        {
+          "label": "Type your own answer",
+          "value": "5"
+        }
       ]
     }
-  }
+  },
+  "gating": false
 }

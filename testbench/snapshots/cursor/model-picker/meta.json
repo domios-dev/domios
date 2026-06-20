@@ -1,7 +1,10 @@
 {
   "provider": "cursor",
   "situation": "model-picker",
-  "capturedAtMs": 1781979130507,
-  "paneId": "69273b0c",
-  "source": "dev-7686"
+  "capturedAtMs": 1781983734394,
+  "paneId": "a17b4b3d",
+  "source": "dev-7686",
+  "until": "Available models.*(Type to filter|Enter to select)",
+  "prompt": "/model",
+  "providerCliVersion": "Error: No Cursor IDE installation found. Use 'cursor agent' or 'agent' to run the agent."
 }
