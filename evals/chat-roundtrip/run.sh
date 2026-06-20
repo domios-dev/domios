@@ -17,11 +17,16 @@
 # DEV-LOCKED: sources evals/_lib/lib.sh → every CLI/HTTP call is pinned to dev
 # (port 7686). NEVER touches prod (7685).
 #
+# Cases: binding, elementary, rapid-send, and (codex|cursor) picker-extraction —
+# the facet9 P9.3 gate that drives a command-approval menu and asserts the prompt
+# (question + ALL options) was extracted into the pane's pending_prompt.
+#
 # Usage:
-#   ./run.sh                       # claude + codex, elementary + rapid-send cases
-#   CR_PROVIDERS="claude" ./run.sh # one provider
-#   CR_TIMEOUT=120 ./run.sh        # per-turn poll budget (s)
-#   CR_KEEP=1 ./run.sh             # leave panes/workspace for inspection
+#   ./run.sh                            # claude + codex (codex runs the picker case)
+#   CR_PROVIDERS="codex cursor" ./run.sh # both picker-extraction providers
+#   CR_PROVIDERS="cursor" ./run.sh      # one provider
+#   CR_TIMEOUT=120 ./run.sh             # per-turn poll budget (s)
+#   CR_KEEP=1 ./run.sh                  # leave panes/workspace for inspection
 set -uo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
@@ -61,6 +66,10 @@ chat_send() {
 # Parsed transcript snapshot (the SAME normalized ChatMsg shape the chat UI
 # renders). Stateless read — no tailer dependency.
 chat_snapshot() { dev_get "/api/panes/$1/chat?since=0"; }
+
+# Full mux snapshot — carries each pane's pending_prompt (the extracted
+# interactive prompt the chat card renders). Read-only.
+mux_state() { dev_get /api/mux/state; }
 
 # The UI seam the web chat view hits: chat_start_core, which returns
 # {pending, messages}. Unlike /chat/start (pane_chat_routes) it does NOT 400
@@ -177,6 +186,41 @@ case_binding() {
   esac
 }
 
+# --- Case: interactive-picker extraction (facet9 P9.3) --------------
+# Drive the agent into a command-approval menu, then assert CodeTerm extracted
+# the prompt — question + ALL options — into the pane's pending_prompt (the SAME
+# field the chat card reads). This gates the per-provider parse path: codex's
+# numbered menu via the universal parser; cursor via its new plugin parsePrompt.
+# A non-skip-permissions pane prompts before running a shell command.
+case_picker() {
+  local provider="$1" pane="$2"
+  echo "[chat-roundtrip] $provider: picker-extraction — drive a menu + assert question/options extracted"
+  local probe="PICK$(now_ms)"
+  dev_post "/api/panes/$pane/chat/start" '{}' >/dev/null
+  # Ask the agent to actually EXECUTE a command → triggers the approval menu.
+  chat_send "$pane" "Run this exact shell command now (do not just describe it): echo $probe"
+  local deadline=$((SECONDS + TIMEOUT)) cap=""
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    cap="$(mux_state | $PY "$RT" pending-prompt "$pane")"
+    [ -n "$cap" ] && break
+    sleep 2
+  done
+  if [ -z "$cap" ]; then
+    fail "$provider picker: no interactive prompt was extracted into pending_prompt within ${TIMEOUT}s"
+    return 1
+  fi
+  local q n
+  q="$(echo "$cap" | $PY -c 'import json,sys;print(json.load(sys.stdin).get("question",""))')"
+  n="$(echo "$cap" | $PY -c 'import json,sys;print(len(json.load(sys.stdin).get("options",[])))')"
+  echo "    extracted: question=$(printf '%q' "$q") options=$n"
+  [ -n "$q" ] && pass "$provider picker: question extracted" || fail "$provider picker: question empty"
+  [ "${n:-0}" -ge 2 ] && pass "$provider picker: $n options extracted (>=2)" \
+    || fail "$provider picker: expected >=2 options, got ${n:-0}"
+  echo "$cap" > "$OUT_DIR/picker-$provider.json"
+  # Clear so the menu doesn't block teardown / leave the agent parked.
+  dev_post "/api/panes/$pane/prompt/clear" '{}' >/dev/null 2>&1 || true
+}
+
 main() {
   if ! curl -s --max-time 2 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
     echo "ERROR: dev daemon not on 7686. Start it: ./build.sh dev" >&2; exit 7
@@ -202,6 +246,9 @@ main() {
     case_binding "$provider" "$pane"
     case_elementary "$provider" "$pane"
     case_rapid "$provider" "$pane"
+    # Picker-extraction gate (facet9 P9.3): codex (numbered menu, universal
+    # parser) + cursor (new plugin parsePrompt). claude uses the hook path.
+    case "$provider" in codex|cursor) case_picker "$provider" "$pane" ;; esac
     [ "${CR_KEEP:-0}" = "1" ] || dc pane close "$pane" >/dev/null 2>&1
   done
 

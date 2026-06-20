@@ -65,11 +65,34 @@ var plugin = {
     }
     return true;
   },
-  hasEventMarkers(_chunk) {
-    return false;
+  // Cheap incremental gate: a selector glyph, a keyboard footer, or a
+  // trust/approval keyword means a prompt frame might be on screen → let the
+  // host read the full screen and run parsePrompt (the authoritative gate).
+  hasEventMarkers(chunk) {
+    return chunkHasPromptSignal(String(chunk || ""));
   },
-  detectEvents(_text) {
-    return [];
+  // Surface a waiting state when the full screen parses as an interactive menu.
+  detectEvents(text) {
+    return parseCursorPrompt(String(text || "")) ? ["permission_request"] : [];
+  },
+  // Read cursor's alt-screen menu (permission / workspace-trust / model picker)
+  // into {question, options}. Returns null on non-menu output so normal chat
+  // never surfaces a phantom card. The host navigates via buildPromptResponse.
+  parsePrompt(text) {
+    return parseCursorPrompt(String(text || ""));
+  },
+  // Cursor menus are vertical lists navigated with ↑/↓ + Enter; default
+  // highlight is the top row, so move down `optionIndex` times then Enter.
+  // Esc-cancel is handled by the host's separate cancel path. Base64 byte
+  // steps: down=ESC[B, enter=\r.
+  buildPromptResponse(optionIndex) {
+    const DOWN = "G1tC";
+    const ENTER = "DQ==";
+    const steps = [];
+    const n = optionIndex > 0 ? optionIndex : 0;
+    for (let i = 0; i < n; i++) steps.push(DOWN);
+    steps.push(ENTER);
+    return steps;
   },
   // Discover via `cursor-agent --list-models` (host-cached); falls back to the manifest seed when offline.
   discoverModels() {
@@ -402,6 +425,68 @@ function cleanText(raw, role) {
   t = t.split("[REDACTED]").join("");
   t = t.replace(/\n{3,}/g, "\n\n");
   return t.trim();
+}
+var PROMPT_SELECTORS = "\u276F\u203A\u25B6\u27A4";
+var PROMPT_NUM_RE = /^[❯›▶➤>\s]*?(\d+)[.)]\s+(.+)$/;
+function cleanPromptLine(line) {
+  return String(line).replace(/[│┃|╎╏┆┊╭╮╯╰]/g, " ").replace(/[─━═]{2,}/g, " ").replace(/\s+/g, " ").trim();
+}
+function chunkHasPromptSignal(chunk) {
+  for (let i = 0; i < PROMPT_SELECTORS.length; i++) {
+    if (chunk.indexOf(PROMPT_SELECTORS[i]) !== -1) return true;
+  }
+  const lc = chunk.toLowerCase();
+  return lc.indexOf("workspace trust") !== -1 || lc.indexOf("run everything") !== -1 || lc.indexOf("to continue") !== -1 || lc.indexOf("to cancel") !== -1 || lc.indexOf("approve") !== -1 || lc.indexOf("esc") !== -1 && lc.indexOf("enter") !== -1;
+}
+function findPromptQuestion(lines, firstIdx) {
+  for (let i = firstIdx - 1; i >= 0 && firstIdx - i <= 6; i--) {
+    const t = lines[i];
+    if (t.length > 3 && t.charAt(t.length - 1) === "?") return t;
+  }
+  for (let i = firstIdx - 1; i >= 0 && firstIdx - i <= 4; i--) {
+    const t = lines[i];
+    if (t && t.length > 3) return t;
+  }
+  return "Permission required";
+}
+function parseCursorPrompt(text) {
+  const lines = String(text || "").split("\n").map(cleanPromptLine);
+  if (lines.length < 2) return null;
+  const start = Math.max(0, lines.length - 25);
+  const collected = [];
+  for (let i = start; i < lines.length; i++) {
+    const l = lines[i];
+    if (!l) continue;
+    const m = PROMPT_NUM_RE.exec(l);
+    if (m && m[2].trim()) {
+      const sel = PROMPT_SELECTORS.indexOf(l.charAt(0)) !== -1 || l.charAt(0) === ">";
+      collected.push({ value: m[1], label: m[2].trim(), idx: i, sel });
+    }
+  }
+  if (collected.length < 2) return null;
+  const cluster = [];
+  let prev = collected[collected.length - 1].idx;
+  for (let i = collected.length - 1; i >= 0; i--) {
+    if (prev - collected[i].idx <= 2 || cluster.length === 0) {
+      cluster.unshift(collected[i]);
+      prev = collected[i].idx;
+    } else break;
+  }
+  if (cluster.length < 2) return null;
+  const lastIdx = cluster[cluster.length - 1].idx;
+  const hasSelector = cluster.some((o) => o.sel);
+  let hasFooter = false;
+  for (let i = lastIdx; i < Math.min(lines.length, lastIdx + 5); i++) {
+    const t = lines[i].toLowerCase();
+    if ((t.indexOf("esc") !== -1 || t.indexOf("enter") !== -1) && (t.indexOf("cancel") !== -1 || t.indexOf("confirm") !== -1 || t.indexOf("select") !== -1 || t.indexOf("continue") !== -1)) {
+      hasFooter = true;
+      break;
+    }
+  }
+  if (!hasSelector && !hasFooter) return null;
+  const question = findPromptQuestion(lines, cluster[0].idx);
+  const options = cluster.map((o) => [o.label, o.value]);
+  return { question, options };
 }
 function toExcludeList(exclude) {
   if (Array.isArray(exclude)) return exclude;

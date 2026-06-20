@@ -424,5 +424,60 @@ console.log("\n--- chat path: JSONL tailer, not structured ---\n");
   eq(p.parseUsage("any tui screen text", 0), null, "parseUsage null (cursor TUI has no usage gauge)");
 }
 
+console.log("\n--- parsePrompt + hasEventMarkers (interactive menu extraction) ---\n");
+{
+  const p = loadCursorWithHost(baseHost({}));
+
+  // Workspace-trust style numbered menu inside a rounded box.
+  const trust = [
+    "╭───────────────────────────────────────────╮",
+    "│  Do you trust the files in this folder?     │",
+    "│                                             │",
+    "│  ❯ 1. Yes, allow this workspace             │",
+    "│    2. No, exit                              │",
+    "│                                             │",
+    "│  Enter to confirm · Esc to cancel           │",
+    "╰───────────────────────────────────────────╯",
+  ].join("\n");
+  const parsed = p.parsePrompt(trust);
+  eq(parsed && parsed.question, "Do you trust the files in this folder?", "cursor parsePrompt extracts the question");
+  eq(
+    parsed && parsed.options,
+    [["Yes, allow this workspace", "1"], ["No, exit", "2"]],
+    "cursor parsePrompt extracts ALL options (selector glyph stripped)",
+  );
+  assert(p.hasEventMarkers("  ❯ 1. Yes"), "hasEventMarkers fires on a selector glyph chunk");
+  assert(p.hasEventMarkers("Workspace Trust Required"), "hasEventMarkers fires on trust keyword");
+  assert(!p.hasEventMarkers("regular streaming assistant text"), "hasEventMarkers stays quiet on normal output");
+  eq(p.detectEvents(trust), ["permission_request"], "detectEvents surfaces permission_request for a real menu");
+
+  // Three-option command-approval menu (footer-gated, no selector glyph).
+  const approve = [
+    "Allow this command to run?",
+    "  1. Yes, once",
+    "  2. Yes, always",
+    "  3. No",
+    "Press Enter to confirm · Esc to cancel",
+  ].join("\n");
+  const a = p.parsePrompt(approve);
+  eq(
+    a && a.options,
+    [["Yes, once", "1"], ["Yes, always", "2"], ["No", "3"]],
+    "footer-gated numbered menu → all 3 options",
+  );
+
+  // Normal assistant prose with a numbered list must NOT surface a card.
+  const prose = "Here is the plan:\n1. Refactor parser\n2. Add tests\n3. Ship it\n\nLet me start.";
+  eq(p.parsePrompt(prose), null, "numbered prose without selector/footer → null (no phantom prompt)");
+  eq(p.detectEvents(prose), [], "no event for numbered prose");
+}
+
+console.log("\n--- buildPromptResponse (vertical ↓ nav + Enter) ---\n");
+{
+  const p = loadCursorWithHost(baseHost({}));
+  eq(p.buildPromptResponse(0), ["DQ=="], "index 0 → Enter only");
+  eq(p.buildPromptResponse(2), ["G1tC", "G1tC", "DQ=="], "index 2 → down ×2 + Enter (ESC[B)");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
