@@ -1,0 +1,32 @@
+
+
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.141.0)                               │
+│                                                          │
+│ model:       gpt-5.5 medium   /model to change           │
+│ directory:   …0000gp/T/codeterm-codex-snapshot-testbench │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: New Use /fast to enable our fastest inference with increased plan usage.
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+› Output this as plain text, preserving these line breaks exactly, and nothing else:
+  Which test strategy should we use?
+  1) Unit tests first
+  2) Integration smoke tests
+  3) Full end-to-end suite
+
+
+• Which test strategy should we use?
+
+  1. Unit tests first
+  2. Integration smoke tests
+  3. Full end-to-end suite
+
+
+› Write tests for @filename
+
+  gpt-5.5 medium · /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-codex-snapshot-testbench

@@ -1,0 +1,25 @@
+{
+  "provider": "codex",
+  "unit": "provider_screen",
+  "expected": {
+    "parsePrompt": {
+      "question": "Which release strategy should we use?",
+      "options": [
+        {
+          "label": "Fast patch release now",
+          "value": "A"
+        },
+        {
+          "label": "Minor release with bundled fixes",
+          "value": "B"
+        },
+        {
+          "label": "Delay for more testing",
+          "value": "C"
+        }
+      ],
+      "multi_select": false,
+      "submit_available": false
+    }
+  }
+}
