@@ -10,7 +10,7 @@
  * (most listeners treat events purely as "go refetch now" signals), so
  * the UI stays live even for emits the daemon doesn't mirror to SSE yet.
  */
-import { apiHost, currentToken, IS_WEB } from "./webApi";
+import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
 
 type Handler = (e: { payload: unknown }) => void;
 
@@ -92,7 +92,9 @@ async function runStream(): Promise<void> {
 function ensureStarted(): void {
   if (started || !IS_WEB) return;
   started = true;
-  void runStream();
+  // Remote peer target: the mesh relay can't stream yet (W2), so skip the SSE
+  // connection and rely on the polling tick alone. Local target streams.
+  if (!relayTarget()) void runStream();
   tickTimer = setInterval(() => {
     for (const ev of POLL_EVENTS) dispatch(ev, null);
   }, POLL_INTERVAL_MS);
