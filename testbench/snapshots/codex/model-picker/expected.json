@@ -1,6 +1,7 @@
 {
   "provider": "codex",
   "unit": "provider_screen",
+  "gating": false,
   "expected": {
     "hasEventMarkers": true,
     "parsePrompt": {

@@ -1,0 +1,16 @@
+{
+  "provider": "claude",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Which deployment strategy would you like to use?",
+    "options": [
+      "Blue/Green",
+      "Canary",
+      "Rolling",
+      "Type something.",
+      "Chat about this"
+    ],
+    "selectedIndex": 0,
+    "multiSelect": false
+  }
+}
