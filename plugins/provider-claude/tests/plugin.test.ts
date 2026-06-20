@@ -69,7 +69,10 @@ function loadClaudeWithHost(host: unknown) {
 
 const manifestSeed = {
   models: [
-    { id: "seed-sonnet", displayName: "Seed Sonnet", description: "Manifest fallback" },
+    { id: "opus", displayName: "Claude Opus 4.8 (1M context)", description: "Most capable for complex work." },
+    { id: "sonnet", displayName: "Claude Sonnet 4.6", description: "Best for everyday tasks. Default for most work." },
+    { id: "haiku", displayName: "Claude Haiku 4.5", description: "Fastest for quick answers." },
+    { id: "fable", displayName: "Claude Fable 5", description: "Newest model — enabled once available for your account.", available: false },
   ],
 };
 
@@ -163,19 +166,30 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
 console.log("\n--- discoverModels ---\n");
 
 {
+  // Live /v1/models maps ONTO the curated aliases: opus takes its version label
+  // from live (4.9, not the manifest's 4.8), fable auto-enables when present,
+  // and aliases absent from live (sonnet/haiku) are marked unavailable.
   const p = loadClaudeWithHost(baseHost({
     envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
     fetch: () => JSON.stringify({
       status: 200,
       body: JSON.stringify({
-        data: [{ id: "claude-live-1", display_name: "Claude Live 1" }],
+        data: [
+          { id: "claude-opus-4-9", display_name: "Claude Opus 4.9" },
+          { id: "claude-fable-5", display_name: "Claude Fable 5" },
+        ],
       }),
     }),
   }));
   eq(
     p.discoverModels(),
-    [{ id: "claude-live-1", displayName: "Claude Live 1" }],
-    "discoverModels surfaces the stubbed Anthropic models probe",
+    [
+      { id: "opus", displayName: "Claude Opus 4.9 (1M context)", description: "Most capable for complex work.", available: true },
+      { id: "sonnet", displayName: "Claude Sonnet 4.6", description: "Best for everyday tasks. Default for most work.", available: false },
+      { id: "haiku", displayName: "Claude Haiku 4.5", description: "Fastest for quick answers.", available: false },
+      { id: "fable", displayName: "Claude Fable 5", description: "Newest model — enabled once available for your account.", available: true },
+    ],
+    "discoverModels maps live /v1/models onto curated aliases (version label + fable availability)",
   );
 }
 

@@ -30,8 +30,8 @@
   },
   "models": [
     {
-      "id": "anthropic/claude-opus-4-7",
-      "displayName": "Claude Opus 4.7",
+      "id": "anthropic/claude-opus-4-8",
+      "displayName": "Claude Opus 4.8",
       "description": "Anthropic Opus via opencode router."
     },
     {
@@ -60,7 +60,7 @@
       "description": "OpenCode Zen hosted coding model."
     }
   ],
-  "defaultModel": "anthropic/claude-opus-4-7",
+  "defaultModel": "anthropic/claude-opus-4-8",
   "installer": {
     "macos": "curl -fsSL https://opencode.ai/install | bash",
     "linux": "curl -fsSL https://opencode.ai/install | bash",
