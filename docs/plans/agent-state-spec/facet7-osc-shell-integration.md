@@ -110,7 +110,14 @@ OSC1 starts now (needs only the spec). OSC2 starts when ROG's VS Code scripts la
 - Nonce-guard 633;E (untrusted output can spoof command text otherwise).
 - Accept ST and BEL terminators; accept the OSC 133 A/B/C/D subset (interop with tools
   emitting 133).
-- cwd via 633;P;Cwd (per-command) preferred over OSC 7 (race-free).
+- cwd arrives from BOTH OSC 7 and 633;P;Cwd (our chained prompt emits both) —
+  `CwdDetection` DEDUPES into a single source of truth, no double-count; prefer the
+  per-command 633;P;Cwd, fall back to OSC 7.
+- Graceful degradation when pre-exec C is unreliable: on Windows the PSReadLine B/C
+  handlers run under our pty-fork's PSEUDOCONSOLE_WIN32_INPUT_MODE (not stock conhost),
+  so B/C may be flaky. The capability model + chat decorations MUST work in A/D-only mode
+  (command boundary + exit code + cwd, minus the pre-exec C/output-start precision) — never
+  assume C is present. ROG validates B/C under WIN32_INPUT_MODE before we rely on it.
 - No per-provider hardcoding in the parser; deterministic + pure over the stream.
 - Parity BEFORE deletion: never remove a heuristic path until markers are proven equal on
   a real corpus.
