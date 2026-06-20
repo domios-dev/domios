@@ -1,0 +1,16 @@
+╭───────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.141.0)                            │
+│                                                       │
+│ model:       gpt-5.5 medium   /model to change        │
+│ directory:   /private/…/T/codeterm-snapshot-testbench │
+│ permissions: YOLO mode                                │
+╰───────────────────────────────────────────────────────╯
+  Tip: Try the Codex App. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+› Give me a multi-step A/B/C picker, answer in one line — print it as text.
+• Step 1: A/B/C → Step 2: A/B/C → Step 3: A/B/C → Result: pick the option with the most repeats.
+› In plain text on a single line, describe (don't render) a 3-stage A/B/C selection menu.
+• Stage 1: choose A, B, or C; Stage 2: choose A, B, or C; Stage 3: choose A, B, or C; then submit the combined
+  selection.
+› Improve documentation in @filename
+  gpt-5.5 medium · /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-snapshot-testbench

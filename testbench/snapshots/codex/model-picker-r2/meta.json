@@ -1,0 +1,8 @@
+{
+  "provider": "codex",
+  "situation": "model-picker-r2",
+  "source": "dev-7686",
+  "until": "Select Model and Effort | Frontier model",
+  "prompt": "/model",
+  "providerCliVersion": "codex-cli 0.141.0"
+}

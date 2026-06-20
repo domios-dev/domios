@@ -1,0 +1,26 @@
+  ┃                                                                                                                     
+  ┃  Click to expand                                                                                                    
+  ┃                                                                                                                     
+     + Thought: 2.6s                                                                                                    
+     The terminal environment doesn't support interactive input that way. I'll present the questionnaire                
+     conversationally instead.                                                                                          
+     ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+     📋 Multi-Stage A/B/C Questionnaire — 3 sections, 7 questions, pick A/B/C each time.                                
+     ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────  
+     Section 1: Background & Experience                                                                                 
+     Q1: What is your experience level?                                                                                 
+     - A Beginner — new to the field                                                                                    
+     - B Intermediate — some hands-on experience                                                                        
+     - C Expert — deep knowledge and practice                                                                           
+     Q2: Which best describes your role?                                                                                
+     - A Individual Contributor                                                                                         
+     - B Team Lead / Manager                                                                                            
+     - C Executive / Decision-maker                                                                                     
+     Please reply with your choices (e.g., "A, B" or one at a time).                                                    
+     ▣  Build · DeepSeek V4 Flash Free · 27.2s                                                                          
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                                        
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  
+                                                                                           12.0K (6%)  ctrl+p commands  

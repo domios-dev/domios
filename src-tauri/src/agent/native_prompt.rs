@@ -171,6 +171,38 @@ mod tests {
         assert!(pending_prompt_from_input(&input).is_none());
     }
 
+    #[test]
+    fn harvest_r2_detect_picker_dump() {
+        let dir = snapshots_root().join("claude/multi-step-wizard-r2");
+        let mut extractor = extractor_for_cast(&dir);
+        for event in cast_events(&dir) {
+            match event {
+                CastEvent::Output { bytes, now_ms } => {
+                    extractor.step(&bytes, now_ms);
+                }
+                CastEvent::Resize { rows, cols } => extractor.resize(rows, cols),
+            }
+        }
+        let signals = extractor.step(b"", 60_000);
+        let screen = extractor.attributed_screen();
+        let detection = detect_picker(&screen);
+        let pending = pending_prompt_from_signals(screen.clone(), &signals);
+        println!(
+            "HARVEST_DETECT_PICKER_JSON={}",
+            serde_json::to_string(&detection).unwrap()
+        );
+        println!(
+            "HARVEST_PENDING_PROMPT_JSON={}",
+            serde_json::to_string(&pending).unwrap()
+        );
+        let mut flat = String::new();
+        for r in 0..screen.rows {
+            flat.push_str(screen.row_text(r).trim_end());
+            flat.push('\n');
+        }
+        println!("HARVEST_SCREEN_BEGIN\n{}\nHARVEST_SCREEN_END", flat);
+    }
+
     fn prompt_from_cast(dir: &Path) -> Option<PendingPrompt> {
         let mut extractor = extractor_for_cast(dir);
         for event in cast_events(dir) {
