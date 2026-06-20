@@ -24,6 +24,8 @@ static EVENT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
 /// second per pane is plenty during the brief window before the id is found.
 static SESSION_DETECT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
+static PROMPT_SETTLE_POLL_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
+    LazyLock::new(|| StdMutex::new(HashMap::new()));
 
 impl ServiceContext {
     /// Process new PTY output: track status, detect agent events, dispatch notifications.
@@ -213,7 +215,12 @@ impl ServiceContext {
                     parsed,
                 );
 
+                let should_poll_settle =
+                    has_markers && !has_active_prompt && matches!(decision, PromptDecision::None);
                 self.apply_prompt_decision_with_screen(&decision, clean_text.as_deref());
+                if should_poll_settle {
+                    self.schedule_prompt_settle_poll(pid.clone(), pty_id.to_string(), at.clone());
+                }
 
                 if has_markers {
                     if let Some(ref clean) = clean_text {
@@ -333,6 +340,52 @@ impl ServiceContext {
             self.set_agent_session_id(pane_id, Some(sid));
             self.emit_state_changed();
         }
+    }
+
+    fn schedule_prompt_settle_poll(&self, pane_id: String, pty_id: String, agent_type: String) {
+        {
+            let mut cd = PROMPT_SETTLE_POLL_COOLDOWN.lock().unwrap();
+            let now = Instant::now();
+            if let Some(last) = cd.get(&pane_id) {
+                if now.duration_since(*last) < std::time::Duration::from_secs(2) {
+                    return;
+                }
+            }
+            cd.insert(pane_id.clone(), now);
+        }
+
+        let svc = self.clone();
+        std::thread::spawn(move || {
+            for delay_ms in [120u64, 240, 400, 700, 1000] {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                if svc
+                    .mux
+                    .read()
+                    .get_pane(&pane_id)
+                    .and_then(|p| p.pending_prompt.as_ref())
+                    .is_some()
+                {
+                    return;
+                }
+                let Some(screen) = svc.screen_state.lock().get_screen_text(&pty_id) else {
+                    continue;
+                };
+                let parsed = crate::agent::prompt::parse_prompt_safely(|| {
+                    svc.agent_registry.parse_prompt(&agent_type, &screen)
+                });
+                if parsed.is_none() {
+                    continue;
+                }
+                let decision = svc
+                    .prompt_detector
+                    .lock()
+                    .evaluate_pty_output_parsed(&pane_id, true, true, parsed);
+                svc.apply_prompt_decision_with_screen(&decision, Some(&screen));
+                if !matches!(decision, PromptDecision::None) {
+                    return;
+                }
+            }
+        });
     }
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {

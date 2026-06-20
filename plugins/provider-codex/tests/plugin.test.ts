@@ -131,19 +131,44 @@ assert(plugin.imageSend === undefined, "imageSend undefined (host falls back to 
 console.log("\n--- hasEventMarkers: picker/menu screens gate a screen read (/model) ---\n");
 {
   const evp = loadHostPlugin();
-  // Captured live from `codex` after `/model`: a numbered ratatui menu with a › selector
-  // and an "enter to confirm / esc to go back" footer. hasEventMarkers must fire so the
-  // host reads the screen and the universal numbered parser extracts it — even off the
-  // auto-approve path where chunks carry no approval phrase.
   const modelScreen = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "model-picker.txt"),
     "utf8",
   );
   assert(evp.hasEventMarkers(modelScreen), "hasEventMarkers fires on the /model picker screen");
+  assert(evp.hasEventMarkers("Select Model and Effort"), "fires on the /model title before rows settle");
   assert(evp.hasEventMarkers("Press enter to confirm or esc to go back"), "fires on the confirm/back footer");
   assert(evp.hasEventMarkers("› 1. gpt-5.5 (current)"), "fires on a › selector option row");
   assert(evp.hasEventMarkers("Would you like to run the following command"), "still fires on approval phrasing");
   assert(!evp.hasEventMarkers("Wrote 12 lines to src/lib/foo.ts and ran the tests."), "stays quiet on normal output");
+}
+
+console.log("\n--- parsePrompt + buildPromptResponse: /model numbered picker ---\n");
+{
+  const evp = loadHostPlugin();
+  const modelScreen = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "model-picker.txt"),
+    "utf8",
+  );
+  const parsed = evp.parsePrompt(modelScreen);
+  eq(
+    parsed && parsed.question,
+    "Select Reasoning Level for gpt-5.5",
+    "parsePrompt uses the active picker cluster",
+  );
+  eq(
+    parsed && parsed.options,
+    [
+      ["Low                        Fast responses with lighter reasoning", "1"],
+      ["Medium (default) (current) Balances speed and reasoning depth for everyday tasks", "2"],
+      ["High                       Greater reasoning depth for complex problems", "3"],
+      ["Extra high                 Extra high reasoning depth for complex problems", "4"],
+    ],
+    "parsePrompt extracts active numbered options with 1-based values",
+  );
+  eq(evp.buildPromptResponse(1, modelScreen), ["DQ=="], "current highlighted option → Enter only");
+  eq(evp.buildPromptResponse(0, modelScreen), ["G1tB", "DQ=="], "target above current → Up + Enter");
+  eq(evp.buildPromptResponse(3, modelScreen), ["G1tC", "G1tC", "DQ=="], "target below current → Down ×2 + Enter");
 }
 
 console.log("\n--- parseSessionDelta hardening ---\n");
