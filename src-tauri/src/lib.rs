@@ -44,6 +44,7 @@ pub mod update;
 pub mod usage;
 pub mod view;
 pub mod view_host;
+mod webview2_reap;
 
 use std::sync::Arc;
 
@@ -84,6 +85,9 @@ pub fn run() {
     startup::setup_logging();
 
     log::info!("CodeTerm starting...");
+
+    // Reap msedgewebview2.exe orphaned by a prior hard GUI crash, before window init (GH #183).
+    webview2_reap::reap_orphaned_webview2();
 
     // Write shell integration scripts (OSC 7 CWD tracking)
     pty::shell_integration::ensure_scripts();
@@ -891,6 +895,7 @@ pub fn run() {
 fn graceful_exit_cleanup(app: &tauri::AppHandle) {
     crash::shutdown::mark_shutting_down();
     keepawake::cleanup_active_children_for_exit();
+    webview2_reap::clear_journal_for_exit();
 
     if let (Some(mux), Some(session)) =
         (app.try_state::<MuxState>(), app.try_state::<SessionState>())
