@@ -156,10 +156,18 @@ function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
   return msgs.map((m) => ({ id: m.id, content: m.content, sentAtMs: Number(m.timestamp) || 0 }));
 }
 
+// Mirrors chat-core/time.ts: scale Unix-seconds stamps (codex floors to
+// seconds; RichMessage.ts is documented in seconds) up to ms so reset-cutoff
+// comparisons use the same unit as the ms send-time. Kept local rather than
+// imported from chat-core to avoid widening this package's public surface.
+const MS_EPOCH_FLOOR = 1e12;
 function timestampMs(ts: string | undefined): number | null {
   if (!ts) return null;
   const numeric = Number(ts);
-  if (Number.isFinite(numeric)) return numeric;
+  if (Number.isFinite(numeric)) {
+    if (numeric <= 0) return null;
+    return numeric < MS_EPOCH_FLOOR ? numeric * 1000 : numeric;
+  }
   const parsed = Date.parse(ts);
   return Number.isNaN(parsed) ? null : parsed;
 }
