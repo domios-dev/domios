@@ -101,13 +101,22 @@ pub struct SessionMessage {
 // frontend for Settings, Sidebar, and command-palette rows.
 
 /// Single model offered by an agent provider.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ModelInfo {
     pub id: String,
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Whether the account can actually select this model right now. `None`
+    /// (the common case) means "no availability info — treat as available".
+    /// `Some(false)` means the model is known-unavailable for this account
+    /// (e.g. an alias the API key can't yet use) and the picker greys it out;
+    /// `Some(true)` is explicitly confirmed-available. Dynamic discovery sets
+    /// this; static manifest seeds usually leave it `None` (or `false` for an
+    /// alias that ships disabled until live discovery enables it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available: Option<bool>,
 }
 
 /// Severity flavor for `SettingField::Info` notes.

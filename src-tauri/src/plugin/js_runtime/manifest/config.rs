@@ -269,6 +269,10 @@ pub struct SerdeModelInfo {
     pub display_name: String,
     #[serde(default)]
     pub description: Option<String>,
+    /// See `ModelInfo::available`. Lets a manifest seed ship an alias as
+    /// disabled (`false`) until live discovery confirms it for the account.
+    #[serde(default)]
+    pub available: Option<bool>,
 }
 
 impl From<&SerdeModelInfo> for ModelInfo {
@@ -277,6 +281,7 @@ impl From<&SerdeModelInfo> for ModelInfo {
             id: s.id.clone(),
             display_name: s.display_name.clone(),
             description: s.description.clone(),
+            available: s.available,
         }
     }
 }

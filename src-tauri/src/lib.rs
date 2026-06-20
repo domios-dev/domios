@@ -577,6 +577,36 @@ pub fn run() {
             // always see the current build's defaults.
             agent::model_catalog::refresh_example_files();
 
+            // Warm the live model catalog. First prime each provider's last-known
+            // live list from disk (instant, cheap) so the picker isn't stuck on
+            // the static seed; then fan out one background refresh per provider.
+            // Discovery may run sync JS / shell out / hit the network, so it goes
+            // off the async runtime (refresh_live → spawn_blocking) and NEVER
+            // gates startup. A successful refresh emits `models-updated` so the
+            // picker re-renders live.
+            {
+                let providers = agent_registry.all_provider_arcs();
+                for p in &providers {
+                    agent::model_catalog::prime_from_cache(p.id());
+                }
+                let app_for_models = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    for provider in providers {
+                        let id = provider.id().to_string();
+                        if agent::model_catalog::refresh_models(provider, false)
+                            .await
+                            .is_some()
+                        {
+                            crate::api::events::emit_everywhere(
+                                &app_for_models,
+                                "models-updated",
+                                serde_json::json!({ "provider": id }),
+                            );
+                        }
+                    }
+                });
+            }
+
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
 
