@@ -83,6 +83,20 @@ impl ScreenState {
         self.parsers.get(pty_id).map(|p| p.screen().contents())
     }
 
+    pub fn native_prompt_input(
+        &self,
+        pty_id: &str,
+    ) -> Option<crate::agent::native_prompt::NativePromptInput> {
+        self.parsers.get(pty_id).map(|p| {
+            let screen = p.screen();
+            crate::agent::native_prompt::NativePromptInput {
+                screen: crate::agent::attributed_screen::AttributedScreen::from_vt100(screen),
+                cursor_hidden: screen.hide_cursor(),
+                alt_screen: screen.alternate_screen(),
+            }
+        })
+    }
+
     /// Get screen as escape-coded bytes — preserves colors, cursor position, cursor visibility.
     /// Used for screen restore on pane remount (HMR, tab switch).
     pub fn get_screen_formatted(&self, pty_id: &str) -> Option<Vec<u8>> {
