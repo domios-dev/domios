@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::attributed_screen::AttributedScreen;
+
 /// Half-open row band `[top, bottom)`. Geometry-relative, used for both the
 /// region model and the changed-row bounding box.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -147,6 +149,10 @@ impl SignalExtractor {
     pub fn resize(&mut self, rows: u16, cols: u16) {
         self.parser.screen_mut().set_size(rows, cols);
         self.prev = None;
+    }
+
+    pub fn attributed_screen(&self) -> AttributedScreen {
+        AttributedScreen::from_vt100(self.parser.screen())
     }
 
     pub fn step(&mut self, chunk: &[u8], now_ms: u64) -> StreamSignals {
