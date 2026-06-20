@@ -30,6 +30,17 @@ function setupDom() {
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
   Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
+  Object.defineProperty(globalThis, "KeyboardEvent", { value: window.KeyboardEvent, configurable: true });
+  Object.defineProperty(globalThis, "HTMLInputElement", { value: window.HTMLInputElement, configurable: true });
+}
+
+// React tracks the input's value via a property setter; bypass it with the
+// native setter so onChange fires, mirroring a real keystroke.
+function typeInto(input: HTMLInputElement, value: string) {
+  const proto = Object.getPrototypeOf(input);
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
@@ -73,6 +84,15 @@ const WIZARD_PROMPT: PendingPrompt = {
   ],
   multi_select: false,
   submit_available: true,
+};
+
+const FREE_TEXT_PROMPT: PendingPrompt = {
+  question: "How should I proceed?",
+  options: [
+    { label: "Continue", value: "1" },
+    { label: "Stop", value: "2" },
+    { label: "Type your own", value: "3" },
+  ],
 };
 
 const MULTI_PROMPT: PendingPrompt = {
@@ -175,6 +195,99 @@ test("wizard multi-select confirm sends selected bitmask sentinel", async () => 
     confirm.click();
   });
   assert(calls[0] === "10007", `selected values 1,2,3 should send mask value 10007, got ${calls[0]}`);
+  await act(async () => root.unmount());
+});
+
+test("free-text option opens an inline editor instead of responding", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(
+    <PendingPromptCard pendingPrompt={FREE_TEXT_PROMPT} onRespond={(v) => calls.push(v)} />,
+  );
+  // The free-text option ("Type your own") is options[2].
+  await act(async () => {
+    optionButtons(host)[2].click();
+  });
+  assert(calls.length === 0, `free-text click must not respond immediately, got ${calls.length}`);
+  const input = host.querySelector('[data-testid="pane-pending-prompt-freetext-input"]');
+  assert(input, "clicking the free-text option should reveal an inline input");
+  await act(async () => root.unmount());
+});
+
+test("fixed options still respond directly when a free-text option exists", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(
+    <PendingPromptCard pendingPrompt={FREE_TEXT_PROMPT} onRespond={(v) => calls.push(v)} />,
+  );
+  await act(async () => {
+    optionButtons(host)[0].click();
+  });
+  assert(calls[0] === "1", `fixed option should send its value, got ${calls[0]}`);
+  await act(async () => root.unmount());
+});
+
+test("typing free text and clicking Accept sends the raw text", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(
+    <PendingPromptCard pendingPrompt={FREE_TEXT_PROMPT} onRespond={(v) => calls.push(v)} />,
+  );
+  await act(async () => {
+    optionButtons(host)[2].click();
+  });
+  const input = host.querySelector(
+    '[data-testid="pane-pending-prompt-freetext-input"]',
+  ) as HTMLInputElement;
+  await act(async () => {
+    typeInto(input, "  rebase onto main  ");
+  });
+  const accept = host.querySelector(
+    '[data-testid="pane-pending-prompt-freetext-accept"]',
+  ) as HTMLButtonElement;
+  assert(accept && !accept.disabled, "Accept should enable once text is entered");
+  await act(async () => {
+    accept.click();
+  });
+  assert(calls.length === 1, `Accept should respond once, got ${calls.length}`);
+  assert(calls[0] === "rebase onto main", `Accept should send trimmed text, got: "${calls[0]}"`);
+  await act(async () => root.unmount());
+});
+
+test("Enter in the free-text input submits the typed text", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(
+    <PendingPromptCard pendingPrompt={FREE_TEXT_PROMPT} onRespond={(v) => calls.push(v)} />,
+  );
+  await act(async () => {
+    optionButtons(host)[2].click();
+  });
+  const input = host.querySelector(
+    '[data-testid="pane-pending-prompt-freetext-input"]',
+  ) as HTMLInputElement;
+  await act(async () => {
+    typeInto(input, "use codex");
+  });
+  await act(async () => {
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  assert(calls[0] === "use codex", `Enter should send typed text, got: "${calls[0]}"`);
+  await act(async () => root.unmount());
+});
+
+test("empty free text cannot be submitted", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(
+    <PendingPromptCard pendingPrompt={FREE_TEXT_PROMPT} onRespond={(v) => calls.push(v)} />,
+  );
+  await act(async () => {
+    optionButtons(host)[2].click();
+  });
+  const accept = host.querySelector(
+    '[data-testid="pane-pending-prompt-freetext-accept"]',
+  ) as HTMLButtonElement;
+  assert(accept.disabled, "Accept must be disabled with no text");
+  await act(async () => {
+    accept.click();
+  });
+  assert(calls.length === 0, `empty Accept must not respond, got ${calls.length}`);
   await act(async () => root.unmount());
 });
 

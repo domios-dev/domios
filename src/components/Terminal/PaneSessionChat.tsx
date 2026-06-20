@@ -8,6 +8,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { PendingPromptCard } from "./PendingPromptCard";
+import { AgentStateIndicator } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
 import { useChatSession } from "./useChatSession";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
@@ -72,6 +73,7 @@ export function PaneSessionChat({
   const terminalActiveTimerRef = useRef<number | null>(null);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const [terminalActive, setTerminalActive] = useState(false);
+  const [longIdle, setLongIdle] = useState(false);
 
   const { state: muxState, setFocusedPane, addNotification } = useMultiplexer();
   const pane = muxState.panes[paneId];
@@ -234,6 +236,18 @@ export function PaneSessionChat({
     };
   }, [currentPtyId, paneId]);
 
+  // Long-idle ('resting') nuance: once the pane has gone quiet — no terminal
+  // activity, no open prompt — for a stretch, soften the indicator from
+  // 'your turn' to a dormant treatment. Any activity resets it immediately.
+  useEffect(() => {
+    if (terminalActive || pendingPrompt) {
+      setLongIdle(false);
+      return;
+    }
+    const id = window.setTimeout(() => setLongIdle(true), 90_000);
+    return () => window.clearTimeout(id);
+  }, [terminalActive, pendingPrompt]);
+
   useEffect(() => {
     if (!scrollRef.current) return;
     if (atBottomRef.current) {
@@ -358,6 +372,15 @@ export function PaneSessionChat({
             </div>
           );
         })}
+        {!activePrompt && enrichedMessages.length > 0 && (
+          <AgentStateIndicator
+            state={{
+              state: terminalActive ? "working" : "idle",
+              longIdle: !terminalActive && longIdle,
+            }}
+            paneSeed={paneId}
+          />
+        )}
         <PendingPromptCard pendingPrompt={activePrompt} onRespond={handleRespondPrompt} />
       </div>
       <ChatComposer
