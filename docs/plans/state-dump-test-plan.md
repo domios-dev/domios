@@ -88,4 +88,49 @@ reply sent = Q→W). Those instants become segment boundaries. Human spot-checks
 - Add `error` dumps. Keep `rate_limit`/`update` as single synthetic fixtures until they occur.
 - Re-run calibration; the low question recall is a DETECTION gap (W1 region work), not a label gap.
 
-<!-- revision: 1 -->
+## Execution plan & task breakdown (engineering)
+The loop: **build dumps (agents) → verify dumps are GOOD (dump-doctor) → calibrate the 3 states on
+them → verify scorecard → iterate**. Each task has an explicit acceptance gate; nothing advances on
+an unverified artifact.
+
+### Phase 0 — dump-doctor (the quality gate; precedes trusting any dump)  → task `dumpdoctor`
+A validator (`testbench/state-doctor.sh` + a Rust check) that a state dump is REAL, not thin/reused:
+- `session.cast` is a full session (spans the scenario, not a single picker frame);
+- `timeline.json` has the EXPECTED segment shape for its scenario id (model_choice ⇒ a `question`
+  segment; multi-turn ⇒ ≥4 alternating working/idle; error ⇒ an error segment);
+- each labeled boundary corresponds to a real signal in the cast (re-render at the instant; the
+  state-defining signal — quiescence / picker-active — is actually present there);
+- flag reused thin casts (row/byte floor + no transitions).
+ACCEPTANCE: doctor FLAGS the current shallow Phase-A dumps (multi-turn=2seg, cursor/opencode thin)
+as bad and PASSES a known-good one. Runs in CI separate from gating.
+
+### Phase 1 — build proper [S] scriptable dumps via agents  → tasks `dumps-A`, `dumps-B`
+Use `state-capture.sh` + the scenario catalog above. Per provider, ≥2 dumps per [S] state, rotating
+3 prompt wordings (anti-overfit). Cover: working→idle, multi-turn (sends GATED on observed idle,
+not sleeps), model_choice, model_picker (/model), error.
+- `dumps-A`: claude + codex. `dumps-B`: cursor + opencode.
+ACCEPTANCE: every produced dump passes `dumpdoctor`; report the dump list + each timeline.
+
+### Phase 2 — [C] config-setup dumps  → task `dumps-config` (after Phase 1)
+Add an approval-on spawn variant (codex `--ask-for-approval on-request`, opencode permission mode,
+claude no-skip-permissions) → permission dumps; a logged-out throwaway profile → auth dumps.
+opencode permission via the SSE handle (console blocked). ACCEPTANCE: permission + auth dumps per
+applicable provider, doctor-green.
+
+### Phase 3 — calibrate the 3-state engine on the GOOD corpus  → task `calibrate` (re-task Phase-A pane)
+Tune WAIT_MS / DONE_MS / ready-prompt (fix late IDLE) + question detection (pairs with W1 region
+extraction) on the doctor-green dumps; re-run `state_calibration`.
+TARGETS: WORKING P/R ≥0.90/0.90; IDLE ≥0.80/0.80; QUESTION recall ≥0.80; subtype accuracy ≥0.90;
+W→I/→Q transition latency ≤1 tick. Iterate prompts/thresholds until met.
+
+### Phase 4 — lock + iterate
+Combined gate (`state-doctor` + `state_calibration` green) = the state regression corpus. Add dumps
+where a state is weak. THEN wire the classifier into the live status path (pane-state-engine P2).
+
+### Sequencing & parallelism
+Wave 1 (now, parallel): `dumpdoctor` (compiles) ‖ `dumps-A` ‖ `dumps-B` (live captures, per-pane,
+no daemon restart). Wave 2: `dumps-config` + `calibrate`. Orchestrator gates+merges each; W1's
+region fix feeds question recall before `calibrate`.
+
+<!-- revision: 2 -->
+
