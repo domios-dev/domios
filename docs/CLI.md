@@ -1056,6 +1056,23 @@ Send a notification
 
 Pane management
 
+#### `codeterm pane capture`
+
+Dev-only: tee a pane's raw PTY output into an asciicast v2 `.cast` file
+
+#### `codeterm pane capture start`
+
+Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`
+
+- `--out` — Path of the `.cast` file to write
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm pane capture stop`
+
+Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`
+
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+
 #### `codeterm pane chat`
 
 Read a pane's parsed chat transcript (text/thinking/tool calls/results)
