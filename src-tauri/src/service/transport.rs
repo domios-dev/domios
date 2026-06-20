@@ -78,6 +78,19 @@ pub trait AgentTransport {
     ) -> Result<Option<String>, String>;
 }
 
+/// Glue for [`spawn_pane_atomic_with`]: on a launch `Err`, run `rollback` (close
+/// the half-built tab + emit state) and then propagate the error; on `Ok`, pass
+/// the launch command through untouched. Factored out so the launch-failure
+/// unwind is unit-testable without a live `ServiceContext`.
+///
+/// [`spawn_pane_atomic_with`]: ServiceContext::spawn_pane_atomic_with
+fn finish_launch<F: FnOnce()>(
+    launch: Result<Option<String>, String>,
+    rollback: F,
+) -> Result<Option<String>, String> {
+    launch.inspect_err(|_| rollback())
+}
+
 pub struct PtyTransport;
 pub struct ChatTransport;
 
@@ -252,15 +265,27 @@ impl ServiceContext {
         }
         let _ = self.focus_pane(&pane_id);
 
-        let launch_command = transport.launch(
-            self,
-            &TransportLaunchCtx {
-                provider_id: provider,
-                pane_id: &pane_id,
-                tab_id: &tab_id,
-                workspace_id: &ws_id,
-                skip_permissions: params.skip_permissions,
-                config: params.config.clone().unwrap_or(serde_json::Value::Null),
+        // The tab is already created + activated + focused. If launch fails we must
+        // roll it back, else the user is left on a blank focused tab (LOW
+        // spawn-robustness fix). `finish_launch` runs the rollback on Err and then
+        // propagates the launch error.
+        let launch_command = finish_launch(
+            transport.launch(
+                self,
+                &TransportLaunchCtx {
+                    provider_id: provider,
+                    pane_id: &pane_id,
+                    tab_id: &tab_id,
+                    workspace_id: &ws_id,
+                    skip_permissions: params.skip_permissions,
+                    config: params.config.clone().unwrap_or(serde_json::Value::Null),
+                },
+            ),
+            || {
+                self.mux
+                    .write()
+                    .rollback_spawn_tab(&ws_id, &tab_id, &pane_id);
+                self.emit_state_changed();
             },
         )?;
 

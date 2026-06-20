@@ -377,7 +377,7 @@ impl ClosedPanesStore {
     /// `index` 0 = most recent. Returns `None` if out of range.
     pub fn take_in_workspace(&self, workspace_id: &str, index: usize) -> Option<ClosedPane> {
         let (row_id, pane) = self.peek_in_workspace(workspace_id, index)?;
-        self.delete_pane_row(row_id);
+        let _ = self.delete_pane_row(row_id);
         Some(pane)
     }
 
@@ -405,14 +405,25 @@ impl ClosedPanesStore {
     }
 
     /// Delete a single pane row by sqlite id, then prune any now-empty group.
-    /// Paired with [`peek_in_workspace`]/[`peek_by_pane_id`] for delete-after-success.
+    /// Paired with [`peek_in_workspace`]/[`peek_by_pane_id`] for
+    /// delete-after-success. Returns `Err` if the sqlite delete failed OR removed
+    /// no row (the entry is still in history): the reopen paths must surface this,
+    /// because a "succeeded" reopen whose delete silently failed leaves the entry
+    /// behind and a retry then duplicates the reopened pane (MED data-loss fix).
     ///
     /// [`peek_in_workspace`]: Self::peek_in_workspace
     /// [`peek_by_pane_id`]: Self::peek_by_pane_id
-    pub fn delete_pane_row(&self, row_id: i64) {
+    pub fn delete_pane_row(&self, row_id: i64) -> Result<(), String> {
         let conn = self.conn.lock();
-        Self::delete_pane(&conn, row_id);
+        let affected =
+            Self::delete_pane(&conn, row_id).map_err(|e| format!("delete closed pane row: {e}"))?;
         Self::prune_empty_groups(&conn).ok();
+        if affected == 0 {
+            return Err(format!(
+                "closed pane row {row_id} was already gone (no row deleted)"
+            ));
+        }
+        Ok(())
     }
 
     /// Count of retained panes in a workspace (for range error messages).
@@ -431,7 +442,7 @@ impl ClosedPanesStore {
     /// regardless of workspace. Used by orphaned reopen.
     pub fn take_by_pane_id(&self, pane_id: &str) -> Option<ClosedPane> {
         let (row_id, pane) = self.peek_by_pane_id(pane_id)?;
-        self.delete_pane_row(row_id);
+        let _ = self.delete_pane_row(row_id);
         Some(pane)
     }
 
@@ -460,7 +471,7 @@ impl ClosedPanesStore {
     /// Take (fetch + delete) a whole group: its meta + every pane, newest-first.
     pub fn take_group(&self, group_id: &str) -> Option<(ClosedGroup, Vec<ClosedPane>)> {
         let res = self.peek_group(group_id)?;
-        self.delete_group(group_id);
+        let _ = self.delete_group(group_id);
         Some(res)
     }
 
@@ -518,30 +529,28 @@ impl ClosedPanesStore {
     /// [`peek_group`] for delete-after-success on reopen.
     ///
     /// [`peek_group`]: Self::peek_group
-    pub fn delete_group(&self, group_id: &str) {
+    pub fn delete_group(&self, group_id: &str) -> Result<(), String> {
         let mut conn = self.conn.lock();
-        let Ok(tx) = conn.transaction() else {
-            return;
-        };
-        if tx
-            .execute(
-                "DELETE FROM closed_pane WHERE group_id = ?1",
-                params![group_id],
-            )
-            .and_then(|_| {
-                tx.execute(
-                    "DELETE FROM closed_group WHERE group_id = ?1",
-                    params![group_id],
-                )
-            })
-            .is_ok()
-        {
-            let _ = tx.commit();
-        }
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("delete group tx: {e}"))?;
+        tx.execute(
+            "DELETE FROM closed_pane WHERE group_id = ?1",
+            params![group_id],
+        )
+        .map_err(|e| format!("delete group panes: {e}"))?;
+        tx.execute(
+            "DELETE FROM closed_group WHERE group_id = ?1",
+            params![group_id],
+        )
+        .map_err(|e| format!("delete group meta: {e}"))?;
+        tx.commit()
+            .map_err(|e| format!("delete group commit: {e}"))?;
+        Ok(())
     }
 
-    fn delete_pane(conn: &Connection, row_id: i64) {
-        let _ = conn.execute("DELETE FROM closed_pane WHERE id = ?1", params![row_id]);
+    fn delete_pane(conn: &Connection, row_id: i64) -> rusqlite::Result<usize> {
+        conn.execute("DELETE FROM closed_pane WHERE id = ?1", params![row_id])
     }
 
     /// Deserialize a [`ClosedPane`] from a row whose first column is `pane_id`.
@@ -731,7 +740,7 @@ mod tests {
         );
 
         // Only an explicit delete (after a fully successful materialize) drops it.
-        store.delete_group("g1");
+        store.delete_group("g1").expect("delete group succeeds");
         assert!(
             store.peek_group("g1").is_none(),
             "group consumed only after delete_group"
@@ -757,11 +766,38 @@ mod tests {
             1,
             "peek leaves the pane in history"
         );
-        store.delete_pane_row(row_id);
+        store.delete_pane_row(row_id).expect("row deleted");
         assert!(
             store.list_for_workspace("w").is_empty(),
             "delete_pane_row removes only after success"
         );
+    }
+
+    #[test]
+    fn delete_reports_failure_instead_of_swallowing() {
+        // MED data-loss fix: a delete that removes no row must return Err so the
+        // reopen path can surface it — a silently-swallowed failure leaves the
+        // entry in history and a retry then reopens a duplicate.
+        let store = ClosedPanesStore::in_memory();
+        store
+            .insert_group(
+                &group("g1", GroupKind::Single, "w", 1),
+                &[pane("p1", "w", "t", 1)],
+            )
+            .unwrap();
+        let (row_id, _) = store.peek_in_workspace("w", 0).expect("peeked");
+
+        // First delete removes the row and reports success.
+        store
+            .delete_pane_row(row_id)
+            .expect("first delete succeeds");
+        // Second delete of the same id removes nothing → Err (entry already gone).
+        assert!(
+            store.delete_pane_row(row_id).is_err(),
+            "deleting an absent row must report failure, not silently 'succeed'"
+        );
+        // Deleting an absent group still succeeds (idempotent: nothing to retry).
+        assert!(store.delete_group("nope").is_ok());
     }
 
     #[test]

@@ -65,6 +65,31 @@ fn chatbackend_should_stage(pane_has_agent: bool) -> bool {
     pane_has_agent
 }
 
+/// Post-`openSession` recheck for the restore→reopen transition (MED race fix).
+///
+/// `openSession` runs WITHOUT the mux lock, so between reading
+/// `restored_from_snapshot == true` and committing the new session the pane may
+/// have been closed or re-backed (a concurrent close / respawn). Only commit the
+/// migrate + poll-loop when the pane STILL exists AND STILL carries the exact
+/// restored `ChatBackend { expected_plugin, expected_old_session }` we opened
+/// against. Anything else — pane gone (`backing == None`), backing swapped, or
+/// the restore flag already cleared — must abort so the freshly-opened session
+/// is closed instead of attaching to (and spawning a poll loop for) a dead pane.
+fn chatbackend_reopen_still_valid(
+    backing: Option<&crate::multiplexer::types::PaneBacking>,
+    restored_from_snapshot: bool,
+    expected_plugin: &str,
+    expected_old_session: &str,
+) -> bool {
+    use crate::multiplexer::types::PaneBacking;
+    restored_from_snapshot
+        && matches!(
+            backing,
+            Some(PaneBacking::ChatBackend { plugin_id, session_id })
+                if plugin_id == expected_plugin && session_id == expected_old_session
+        )
+}
+
 fn build_chatbackend_open_session_ctx(
     pane_id: &str,
     workspace_id: Option<&str>,
@@ -262,24 +287,48 @@ impl ServiceContext {
                 .unwrap_or(serde_json::Value::Null);
 
             let new_session = self.chatbackend_open_session(&plugin_id, pane_id, config.clone())?;
-            crate::service::pane_chat::chatbackend_history::migrate(
-                &plugin_id,
-                &old_session,
-                &new_session,
-            );
 
-            {
+            // `openSession` ran without the mux lock. Re-acquire it and re-verify
+            // the pane is STILL the same restored chatBackend BEFORE migrating
+            // history or spawning the poll loop — if it was closed or re-backed
+            // meanwhile, committing here would leak a plugin session + a poll loop
+            // onto a dead pane (MED restore-race fix). The mux is held only for the
+            // backing swap (no provider call), so `closeSession` runs after it drops.
+            let committed = {
                 let mut mux = self.mux.write();
-                if let Some(resolved) = mux.resolve_pane_id(pane_id) {
-                    if let Some(pane) = mux.get_pane_mut(&resolved) {
+                let resolved = mux.resolve_pane_id(pane_id);
+                match resolved.and_then(|r| mux.get_pane_mut(&r)) {
+                    Some(pane)
+                        if chatbackend_reopen_still_valid(
+                            Some(&pane.backing),
+                            pane.restored_from_snapshot,
+                            &plugin_id,
+                            &old_session,
+                        ) =>
+                    {
                         pane.backing = PaneBacking::ChatBackend {
                             plugin_id: plugin_id.clone(),
                             session_id: new_session.clone(),
                         };
                         pane.restored_from_snapshot = false;
+                        true
                     }
+                    _ => false,
                 }
+            };
+
+            if !committed {
+                // Pane vanished or changed backing during openSession: drop the
+                // orphan session and bail — no history migrate, no poll loop.
+                let _ = self.chatbackend_close(&plugin_id, &new_session);
+                return Ok(None);
             }
+
+            crate::service::pane_chat::chatbackend_history::migrate(
+                &plugin_id,
+                &old_session,
+                &new_session,
+            );
 
             self.spawn_chatbackend_poll_loop(
                 pane_id.to_string(),
@@ -451,6 +500,102 @@ mod tests {
         let a = guards.serialized("pane-a", || "a");
         let b = guards.serialized("pane-b", || "b");
         assert_eq!((a, b), ("a", "b"));
+    }
+
+    #[test]
+    fn reopen_recheck_rejects_a_pane_changed_during_open_session() {
+        // MED restore-race fix: openSession runs without the mux lock, so the
+        // post-open recheck is the guard. Anything that means "this is no longer
+        // the restored pane we opened against" must NOT commit.
+        use crate::multiplexer::types::PaneBacking;
+        let chat = |plugin: &str, sess: &str| PaneBacking::ChatBackend {
+            plugin_id: plugin.into(),
+            session_id: sess.into(),
+        };
+
+        // Pane was closed mid-openSession → mux has no backing for it.
+        assert!(
+            !super::chatbackend_reopen_still_valid(None, true, "lmstudio", "old"),
+            "a vanished pane must not commit the migrate/poll-loop"
+        );
+        // Session id changed (respawned) during openSession.
+        assert!(
+            !super::chatbackend_reopen_still_valid(
+                Some(&chat("lmstudio", "different")),
+                true,
+                "lmstudio",
+                "old",
+            ),
+            "a re-backed session id must not commit"
+        );
+        // Plugin id changed.
+        assert!(!super::chatbackend_reopen_still_valid(
+            Some(&chat("other", "old")),
+            true,
+            "lmstudio",
+            "old",
+        ));
+        // Restore flag already cleared (a concurrent caller committed).
+        assert!(
+            !super::chatbackend_reopen_still_valid(
+                Some(&chat("lmstudio", "old")),
+                false,
+                "lmstudio",
+                "old",
+            ),
+            "an already-committed pane must not re-open again"
+        );
+        // Backing is now a plain PTY pane.
+        assert!(!super::chatbackend_reopen_still_valid(
+            Some(&PaneBacking::Pty),
+            true,
+            "lmstudio",
+            "old",
+        ));
+        // Unchanged restored pane ⇒ the only case that commits.
+        assert!(
+            super::chatbackend_reopen_still_valid(
+                Some(&chat("lmstudio", "old")),
+                true,
+                "lmstudio",
+                "old",
+            ),
+            "an unchanged restored pane commits the reopen"
+        );
+    }
+
+    #[test]
+    fn reopen_invalid_recheck_closes_session_and_skips_poll_loop() {
+        // Mirrors chatbackend_reopen_if_restored's control flow AFTER openSession:
+        // a failed recheck closes the orphan session and spawns NO poll loop (and
+        // does not migrate history); it returns None for the pane.
+        let closed = AtomicUsize::new(0);
+        let migrated = AtomicUsize::new(0);
+        let spawned = AtomicUsize::new(0);
+
+        // pane-closed-during-openSession → recheck invalid (backing == None).
+        let committed = super::chatbackend_reopen_still_valid(None, true, "p", "old");
+        let result: Option<String> = if !committed {
+            closed.fetch_add(1, Ordering::SeqCst); // closeSession(new_session)
+            None
+        } else {
+            migrated.fetch_add(1, Ordering::SeqCst);
+            spawned.fetch_add(1, Ordering::SeqCst);
+            Some("new".into())
+        };
+
+        assert_eq!(result, None, "a dead pane reopens to None");
+        assert_eq!(
+            closed.load(Ordering::SeqCst),
+            1,
+            "orphan session was closed"
+        );
+        assert_eq!(migrated.load(Ordering::SeqCst), 0, "no history migrate");
+        assert_eq!(
+            spawned.load(Ordering::SeqCst),
+            0,
+            "no poll loop spawned for a dead pane"
+        );
     }
 
     #[test]
