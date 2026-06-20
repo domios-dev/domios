@@ -1,12 +1,5 @@
+import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
-
-function timestampMs(ts: string | undefined): number | null {
-  if (!ts) return null;
-  const numeric = Number(ts);
-  if (Number.isFinite(numeric)) return numeric;
-  const parsed = Date.parse(ts);
-  return Number.isNaN(parsed) ? null : parsed;
-}
 
 export function mergeTimelineMessages<T extends NormalizedChatMessage>(
   confirmed: T[],
@@ -21,6 +14,12 @@ export function mergeTimelineMessages<T extends NormalizedChatMessage>(
       const at = timestampMs(a.message.timestamp);
       const bt = timestampMs(b.message.timestamp);
       if (at != null && bt != null && at !== bt) return at - bt;
+      // Equal/missing timestamps: confirmed turns carry the server's source-order
+      // `seq` (codex same-second, cursor timeless); fall back to arrival index so
+      // seq-less optimistic bubbles keep their appended position.
+      const as = a.message.seq;
+      const bs = b.message.seq;
+      if (as != null && bs != null && as !== bs) return as - bs;
       return a.index - b.index;
     })
     .map((entry) => entry.message);

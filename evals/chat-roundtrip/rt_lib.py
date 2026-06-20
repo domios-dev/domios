@@ -71,6 +71,35 @@ def cmd_rapid_check(base: str):
     print(1 if got else 0)
 
 
+def cmd_order_check(base: str, n_raw: str):
+    """Send-order gate: N distinct messages "msg <i> of <base> ..." were sent in
+    order 1..N. Assert their user turns appear in the transcript in that same
+    relative order — the regression oracle for coarse/absent provider timestamps
+    shuffling same-second (codex) or timeless (cursor) turns.
+
+    Prints: "ok" if all N present and strictly increasing; "missing <k>" if a
+    message never landed; "disorder <seq>" with the observed index sequence."""
+    n = int(n_raw)
+    doc = load_stdin()
+    if not doc:
+        print("missing all")
+        return
+    users = [m for m in doc.get("messages", []) if m.get("type") == "user"]
+    # Position (in transcript user-turn order) of each sent message i=1..N.
+    positions = []
+    for i in range(1, n + 1):
+        marker = norm(f"msg {i} of {base}")
+        pos = next((j for j, m in enumerate(users) if marker in norm(m.get("content", ""))), None)
+        if pos is None:
+            print(f"missing {i}")
+            return
+        positions.append(pos)
+    if positions == sorted(positions) and len(set(positions)) == n:
+        print("ok")
+    else:
+        print("disorder " + ",".join(str(p) for p in positions))
+
+
 def _to_ms(t):
     if t is None:
         return None
@@ -139,12 +168,14 @@ def cmd_skew(capture_json: str):
 
 def main():
     if len(sys.argv) < 2:
-        sys.exit("usage: rt_lib.py <match-roundtrip|rapid-check|skew> ...")
+        sys.exit("usage: rt_lib.py <match-roundtrip|rapid-check|order-check|binding-state|pending-prompt|skew> ...")
     cmd = sys.argv[1]
     if cmd == "match-roundtrip":
         cmd_match_roundtrip(sys.argv[2], int(sys.argv[3]))
     elif cmd == "rapid-check":
         cmd_rapid_check(sys.argv[2])
+    elif cmd == "order-check":
+        cmd_order_check(sys.argv[2], sys.argv[3])
     elif cmd == "binding-state":
         cmd_binding_state(sys.argv[2])
     elif cmd == "pending-prompt":
