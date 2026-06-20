@@ -63,6 +63,18 @@ struct Verdict {
     subtype: Option<QuestionSubtype>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoundarySignals {
+    pub state: TimelineState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtype: Option<QuestionSubtype>,
+    pub byte_idle_ms: u64,
+    pub semantic_idle_ms: u64,
+    pub picker_active: bool,
+    pub picker_detected: bool,
+    pub ready_prompt: bool,
+}
+
 pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
     let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
     let mut samples = Vec::new();
@@ -107,6 +119,43 @@ pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
     }
 
     collapse_samples(samples, end_ms)
+}
+
+pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignals {
+    let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
+
+    for event in &cast.events {
+        if event.now_ms() > at_ms {
+            break;
+        }
+        match event {
+            CastEvent::Resize { rows, cols, .. } => {
+                extractor.resize(*rows, *cols);
+            }
+            CastEvent::Output { now_ms, bytes } => {
+                extractor.step(bytes, *now_ms);
+            }
+        }
+    }
+
+    let signals = extractor.step(b"", at_ms);
+    let verdict = classify_signals(
+        &extractor,
+        &signals,
+        Verdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        },
+    );
+    BoundarySignals {
+        state: verdict.state,
+        subtype: verdict.subtype,
+        byte_idle_ms: signals.quiescence.byte_idle_ms,
+        semantic_idle_ms: signals.quiescence.semantic_idle_ms,
+        picker_active: signals.picker_active,
+        picker_detected: detect_picker(&extractor.attributed_screen()).is_some(),
+        ready_prompt: ready_prompt(&signals),
+    }
 }
 
 fn classify_signals(
