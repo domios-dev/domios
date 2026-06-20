@@ -1,0 +1,13 @@
+{
+  "provider": "cursor",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Do you trust the contents of this directory?",
+    "options": [
+      "Trust this workspace",
+      "Quit"
+    ],
+    "selectedIndex": 0,
+    "multiSelect": false
+  }
+}
