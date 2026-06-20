@@ -30,6 +30,7 @@ impl MultiplexerState {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            agent_state: None,
             auto_approve: false,
             protected: false,
             connected_services: vec![],

@@ -272,6 +272,7 @@ impl MultiplexerState {
                     title_level: restored_level,
                     chat_view: chat_view.unwrap_or(false),
                     pending_prompt: None,
+                    agent_state: None,
                     auto_approve: *auto_approve,
                     protected: false,
                     connected_services: vec![],

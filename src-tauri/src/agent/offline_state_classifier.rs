@@ -58,10 +58,102 @@ pub struct CastTimelineInput {
     pub events: Vec<CastEvent>,
 }
 
+/// The per-tick classification result: the 3-state verdict plus, when in
+/// `Question`, its subtype. Produced by [`classify_state`] — the single source
+/// of truth shared by the offline cast replay and the live PTY path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Verdict {
-    state: TimelineState,
-    subtype: Option<QuestionSubtype>,
+pub struct PaneVerdict {
+    pub state: TimelineState,
+    pub subtype: Option<QuestionSubtype>,
+}
+
+/// Persisted-to-frontend snapshot of a pane's live agent state. Stored on the
+/// pane (runtime-only, recomputed from output) and serialized into the mux
+/// snapshot so the chat view's state indicator renders it. Field names/casing
+/// mirror the frontend `AgentState` shape.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentLiveState {
+    pub state: TimelineState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtype: Option<QuestionSubtype>,
+}
+
+impl From<AgentLiveState> for PaneVerdict {
+    fn from(s: AgentLiveState) -> Self {
+        PaneVerdict {
+            state: s.state,
+            subtype: s.subtype,
+        }
+    }
+}
+
+impl From<PaneVerdict> for AgentLiveState {
+    fn from(v: PaneVerdict) -> Self {
+        AgentLiveState {
+            state: v.state,
+            subtype: v.subtype,
+        }
+    }
+}
+
+/// Minimal per-tick inputs the 3-state engine classifies. Both paths build this
+/// and call [`classify_state`]:
+/// - offline replay fills `picker_question` by running `detect_picker` over the
+///   replayed grid;
+/// - the live PTY path passes the already-surfaced pending prompt's question so
+///   it never re-parses the picker, and derives `screen_lines`/`tail` from the
+///   existing per-pane `ScreenState` parser (no second vt100).
+pub struct ClassifyInput<'a> {
+    /// Pre-detected picker question, if a picker is on screen.
+    pub picker_question: Option<&'a str>,
+    /// Trimmed per-row screen text (text-question + ready-prompt fingerprints).
+    pub screen_lines: &'a [String],
+    /// Recent screen tail (subtype fingerprints for a picker question).
+    pub tail: &'a str,
+    /// Two-clock quiescence: any byte resets `byte_idle`; only a non-volatile
+    /// change resets `semantic_idle`.
+    pub byte_idle_ms: u64,
+    pub semantic_idle_ms: u64,
+    /// Mechanical motion verdict (offline supplies the real kind; the live path
+    /// passes `Still` and relies on `byte_idle_ms`).
+    pub motion: Motion,
+}
+
+/// The 3-state classification core — the ONE place the verdict is decided.
+///
+/// Order: picker question → text question → working (bytes flowing) → idle
+/// (quiet, settled, composer ready) → hold previous (ambiguous middle).
+pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdict {
+    if let Some(question) = input.picker_question {
+        return PaneVerdict {
+            state: TimelineState::Question,
+            subtype: Some(classify_question_subtype(input.tail, question)),
+        };
+    }
+
+    if let Some(subtype) = classify_text_question(input.screen_lines) {
+        return PaneVerdict {
+            state: TimelineState::Question,
+            subtype: Some(subtype),
+        };
+    }
+
+    if input.byte_idle_ms < WAIT_MS || matches!(input.motion, Motion::Streaming | Motion::Animating)
+    {
+        return PaneVerdict {
+            state: TimelineState::Working,
+            subtype: None,
+        };
+    }
+
+    if input.semantic_idle_ms >= DONE_MS && ready_prompt(input.screen_lines) {
+        return PaneVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        };
+    }
+
+    previous
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,7 +172,7 @@ pub struct BoundarySignals {
 pub fn classify_timeline(cast: &CastTimelineInput) -> Vec<ClassifiedSegment> {
     let mut extractor = SignalExtractor::new(cast.height, cast.width, VolatileHint::default());
     let mut samples = Vec::new();
-    let mut previous = Verdict {
+    let mut previous = PaneVerdict {
         state: TimelineState::Idle,
         subtype: None,
     };
@@ -142,11 +234,11 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
 
     let signals = extractor.step(b"", at_ms);
     let picker = detect_picker(&extractor.attributed_screen());
-    let text_question = classify_text_question(&signals);
+    let text_question = classify_text_question(&signals.screen.lines);
     let verdict = classify_signals(
         &extractor,
         &signals,
-        Verdict {
+        PaneVerdict {
             state: TimelineState::Idle,
             subtype: None,
         },
@@ -159,50 +251,35 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
         picker_active: signals.picker_active,
         picker_detected: picker.is_some(),
         text_question_detected: text_question.is_some(),
-        ready_prompt: ready_prompt(&signals),
+        ready_prompt: ready_prompt(&signals.screen.lines),
     }
 }
 
+/// Offline adapter: build a [`ClassifyInput`] from the replayed `SignalExtractor`
+/// (running `detect_picker` over its grid) and delegate to [`classify_state`].
 fn classify_signals(
     extractor: &SignalExtractor,
     signals: &StreamSignals,
-    previous: Verdict,
-) -> Verdict {
-    if let Some(picker) = detect_picker(&extractor.attributed_screen()) {
-        return Verdict {
-            state: TimelineState::Question,
-            subtype: Some(classify_question_subtype(signals, &picker.question)),
-        };
-    }
-
-    if let Some(subtype) = classify_text_question(signals) {
-        return Verdict {
-            state: TimelineState::Question,
-            subtype: Some(subtype),
-        };
-    }
-
-    let q = signals.quiescence;
-    if q.byte_idle_ms < WAIT_MS || matches!(q.kind, Motion::Streaming | Motion::Animating) {
-        return Verdict {
-            state: TimelineState::Working,
-            subtype: None,
-        };
-    }
-
-    if q.semantic_idle_ms >= DONE_MS && ready_prompt(signals) {
-        return Verdict {
-            state: TimelineState::Idle,
-            subtype: None,
-        };
-    }
-
-    previous
+    previous: PaneVerdict,
+) -> PaneVerdict {
+    let attributed = extractor.attributed_screen();
+    let picker = detect_picker(&attributed);
+    classify_state(
+        &ClassifyInput {
+            picker_question: picker.as_ref().map(|p| p.question.as_str()),
+            screen_lines: &signals.screen.lines,
+            tail: &signals.tail,
+            byte_idle_ms: signals.quiescence.byte_idle_ms,
+            semantic_idle_ms: signals.quiescence.semantic_idle_ms,
+            motion: signals.quiescence.kind,
+        },
+        previous,
+    )
 }
 
-fn classify_question_subtype(signals: &StreamSignals, question: &str) -> QuestionSubtype {
+fn classify_question_subtype(tail: &str, question: &str) -> QuestionSubtype {
     let question_text = question.to_lowercase();
-    let text = format!("{question}\n{}", signals.tail).to_lowercase();
+    let text = format!("{question}\n{tail}").to_lowercase();
     if contains_any(
         &text,
         &["permission", "approve", "allow", "deny", "run command"],
@@ -241,8 +318,8 @@ fn classify_question_subtype(signals: &StreamSignals, question: &str) -> Questio
     }
 }
 
-fn classify_text_question(signals: &StreamSignals) -> Option<QuestionSubtype> {
-    let text = signals.screen.lines.join("\n").to_lowercase();
+fn classify_text_question(screen_lines: &[String]) -> Option<QuestionSubtype> {
+    let text = screen_lines.join("\n").to_lowercase();
     if contains_any(
         &text,
         &[
@@ -289,10 +366,8 @@ fn contains_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| text.contains(needle))
 }
 
-fn ready_prompt(signals: &StreamSignals) -> bool {
-    let visible = signals
-        .screen
-        .lines
+fn ready_prompt(screen_lines: &[String]) -> bool {
+    let visible = screen_lines
         .iter()
         .rev()
         .take(8)
@@ -315,7 +390,7 @@ fn ready_prompt(signals: &StreamSignals) -> bool {
     if busy {
         return false;
     }
-    let composer_visible = signals.screen.lines.iter().any(|line| {
+    let composer_visible = screen_lines.iter().any(|line| {
         let line = line.trim();
         line.starts_with('❯')
             || line.starts_with('›')
@@ -326,7 +401,7 @@ fn ready_prompt(signals: &StreamSignals) -> bool {
     composer_visible
 }
 
-fn collapse_samples(samples: Vec<(u64, Verdict)>, end_ms: u64) -> Vec<ClassifiedSegment> {
+fn collapse_samples(samples: Vec<(u64, PaneVerdict)>, end_ms: u64) -> Vec<ClassifiedSegment> {
     let Some((first_ms, first)) = samples.first().copied() else {
         return Vec::new();
     };

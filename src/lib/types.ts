@@ -82,6 +82,21 @@ export type PaneBacking =
   | { kind: "pty" }
   | { kind: "chat_backend"; plugin_id: string; session_id: string };
 
+/** Backend-computed live agent state. Mirrors the Rust `AgentLiveState` serde
+ *  shape; `subtype` only carries meaning when `state === "question"`. */
+export interface PaneAgentState {
+  state: "working" | "idle" | "question";
+  subtype?:
+    | "model_choice"
+    | "model_picker"
+    | "permission"
+    | "auth"
+    | "rate_limit"
+    | "update"
+    | "error"
+    | "unknown";
+}
+
 export interface Pane {
   id: string;
   pty_id: string | null;
@@ -102,6 +117,9 @@ export interface Pane {
   depth?: number;
   chat_view?: boolean;
   pending_prompt?: PendingPrompt | null;
+  /** Live 3-state agent classification from the backend state engine. Drives
+   *  the chat-view AgentStateIndicator. Absent until the backend classifies. */
+  agent_state?: PaneAgentState | null;
   protected?: boolean;
   connected_services?: string[];
   hidden?: boolean;
