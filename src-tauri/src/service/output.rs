@@ -46,6 +46,7 @@ impl ServiceContext {
             locked_cached,
             has_active_prompt,
             is_auto_approve,
+            shell_nonce,
         ) = {
             let mux = self.mux.read();
             let pid = mux.pane_id_for_pty(pty_id);
@@ -58,8 +59,14 @@ impl ServiceContext {
             let locked = pane.map(|p| p.agent_type_locked).unwrap_or(false);
             let active_prompt = pane.and_then(|p| p.pending_prompt.as_ref()).is_some();
             let auto_approve = pane.map(|p| p.auto_approve).unwrap_or(false);
-            (pid, at, grace, locked, active_prompt, auto_approve)
+            let nonce = pane.and_then(|p| p.shell_integration_nonce.clone());
+            (pid, at, grace, locked, active_prompt, auto_approve, nonce)
         };
+
+        // Shell-integration capability layer (additive, runs for every pane):
+        // fold OSC 133/633/7 markers from this RAW chunk into the pane's
+        // command/cwd accumulators and surface lifecycle changes to chat.
+        self.process_shell_markers(pty_id, pane_id.as_deref(), shell_nonce, data);
 
         let exclude_rows = agent_type
             .as_deref()
@@ -214,6 +221,34 @@ impl ServiceContext {
         }
 
         (prev_status, current_status)
+    }
+
+    /// Feed a raw chunk into the pane's shell-integration accumulators and emit
+    /// command-lifecycle changes on the unified frontend event path (same
+    /// `emit_everywhere` channel `pane-status-changed` uses). OSC4 renders these.
+    fn process_shell_markers(
+        &self,
+        pty_id: &str,
+        pane_id: Option<&str>,
+        nonce: Option<String>,
+        data: &[u8],
+    ) {
+        let events = self.shell_caps.lock().feed(pty_id, nonce, data);
+        if events.is_empty() {
+            return;
+        }
+        // No mapped pane (transient race) — accumulators still updated, just
+        // nothing to surface to a chat view yet.
+        let Some(pane_id) = pane_id else {
+            return;
+        };
+        for event in &events {
+            crate::api::events::emit_everywhere(
+                &self.app_handle,
+                "shell-command-changed",
+                serde_json::json!({ "pane_id": pane_id, "event": event }),
+            );
+        }
     }
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {

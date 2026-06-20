@@ -61,6 +61,7 @@ pub type PtyState = Arc<Mutex<PtyManager>>;
 pub type OutputBufferState = Arc<Mutex<OutputBuffer>>;
 pub type ScreenStateHandle = Arc<Mutex<ScreenState>>;
 pub type AgentTrackerState = Arc<Mutex<agent::status::PaneStatusTracker>>;
+pub type ShellCapabilityState = Arc<Mutex<agent::command_detection::ShellCapabilityTracker>>;
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
 pub use cron::scheduler::{CronState, CronWake};
@@ -621,6 +622,7 @@ pub fn run() {
                 events: states.event_broadcaster.clone(),
                 app_handle: app_handle.clone(),
                 agent_tracker: states.agent_tracker.clone(),
+                shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
                 agent_registry,
                 mem,

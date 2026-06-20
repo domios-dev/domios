@@ -195,6 +195,7 @@ async fn backend_read_loop(
 fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
     let pane_id = svc.mux.read().pane_id_for_pty(pty_id);
     svc.agent_tracker.lock().set_dead(pty_id);
+    svc.shell_caps.lock().remove(pty_id);
 
     if let Some(ref pid) = pane_id {
         crate::api::events::emit_everywhere(
