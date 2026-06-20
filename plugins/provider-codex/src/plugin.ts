@@ -159,6 +159,10 @@ const plugin: PluginModule = {
       if (!v || v.type !== "response_item" || !v.payload) continue;
       const p = v.payload;
       let ts: number | null = null;
+      // Forward the raw ISO string too (parity with claude): RichMessage.timestamp is what
+      // flows to ChatMsg.timestamp and the optimistic-echo matcher — `ts` (seconds) alone
+      // left codex echoes timeless, forcing content-only dedupe.
+      const tsIso: string | null = (typeof v.timestamp === "string") ? v.timestamp : null;
       if (typeof v.timestamp === "string") {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
@@ -176,7 +180,7 @@ const plugin: PluginModule = {
           text = p.content;
         }
         if (!text) continue;
-        out.push({ role: role, blocks: [{ kind: "text", data: { text: text } }], ts: ts });
+        out.push({ role: role, blocks: [{ kind: "text", data: { text: text } }], ts: ts, timestamp: tsIso });
       } else if (p.type === "function_call") {
         let input: Record<string, unknown> = {};
         try { input = JSON.parse(p.arguments || "{}"); } catch (_) { input = { raw: p.arguments }; }
@@ -187,6 +191,7 @@ const plugin: PluginModule = {
           role: "assistant",
           blocks: [{ kind: "tool_use", data: { name: name || "tool", input: input } }],
           ts: ts,
+          timestamp: tsIso,
         });
       } else if (p.type === "function_call_output") {
         let content: unknown = p.output;
@@ -195,6 +200,7 @@ const plugin: PluginModule = {
           role: "assistant",
           blocks: [{ kind: "tool_result", data: { content: String(content == null ? "" : content) } }],
           ts: ts,
+          timestamp: tsIso,
         });
       }
     }

@@ -430,6 +430,37 @@ mod tests {
     }
 
     #[test]
+    fn encode_cwd_matches_real_claude_project_dirs() {
+        // FIXTURE GATE (CE3): pin the cwd -> ~/.claude/projects/<dir> encoding against
+        // REAL on-disk dir names observed in this machine's ~/.claude/projects. Claude
+        // collapses every non-alphanumeric (/, \, ., _, -, space) to '-', so a leading
+        // '/' and a hidden-dir '.' BOTH contribute a dash (note the `--` runs). A
+        // path/separator regression here silently empties the chat (session never binds),
+        // so these mappings are load-bearing — never "optimize" them without updating this.
+        let cases = [
+            ("/Users/kandrey", "-Users-kandrey"),
+            // /Users/kandrey/.codeterm-dev/general : the '/' before '.codeterm' AND the '.'
+            // each become a dash -> the `--codeterm` double-dash. Real dir on disk.
+            (
+                "/Users/kandrey/.codeterm-dev/general",
+                "-Users-kandrey--codeterm-dev-general",
+            ),
+            (
+                "/Users/kandrey/Developer/wk-cb-p1",
+                "-Users-kandrey-Developer-wk-cb-p1",
+            ),
+            // Windows native path: drive colon + backslashes all collapse to dashes.
+            ("C:\\Users\\User\\proj", "C--Users-User-proj"),
+            // Forward-slash form of the same Windows path encodes identically — the
+            // encoder is separator-agnostic, so a normalized cwd binds the same dir.
+            ("C:/Users/User/proj", "C--Users-User-proj"),
+        ];
+        for (cwd, want) in cases {
+            assert_eq!(encode_cwd(cwd), want, "encode_cwd({cwd:?})");
+        }
+    }
+
+    #[test]
     fn detect_session_id_refuses_to_guess_when_ambiguous_in_shared_cwd() {
         // Bug B (#25 / W3): сессии перепутаны. When 2+ agents share a cwd and a
         // pane's session is None (restart/resume), the newest-in-cwd guess hands

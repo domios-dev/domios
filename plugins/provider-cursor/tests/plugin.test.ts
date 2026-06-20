@@ -188,6 +188,28 @@ console.log("\n--- buildLaunchCommand (windows trust prefix, gated) ---\n");
   assert(cmd.endsWith("cursor-agent --force"), "windows launch ends with the invocation");
 }
 
+console.log("\n--- cursorChatsDir md5 keys off the NATIVE-separator cwd (ROG md5 fix) ---\n");
+{
+  // Cursor hashes its cwd in the OS-native separator. The host hands plugins forward-slash
+  // paths, so on Windows the plugin must restore backslashes before md5 — else the hash misses
+  // cursor's chats dir and the session never binds (chat stays empty forever).
+  let winSeen: string | null = null;
+  const pWin = loadCursorWithHost(baseHost({
+    platform: () => "windows",
+    md5: (s: string) => { winSeen = s; return "HASH"; },
+  }));
+  pWin.sessionExists("C:/Users/u/proj", "1a7e8655-f97a-0000-0000-000000000000");
+  eq(winSeen, "C:\\Users\\u\\proj", "windows: md5 input has native backslashes, not forward slashes");
+
+  let nixSeen: string | null = null;
+  const pNix = loadCursorWithHost(baseHost({
+    platform: () => "linux",
+    md5: (s: string) => { nixSeen = s; return "HASH"; },
+  }));
+  pNix.sessionExists("/Users/u/proj", "1a7e8655-f97a-0000-0000-000000000000");
+  eq(nixSeen, "/Users/u/proj", "posix: md5 input unchanged (forward slashes already native)");
+}
+
 console.log("\n--- detectSessionId (identity-bound: refuse when ambiguous) ---\n");
 {
   const sep = "/";

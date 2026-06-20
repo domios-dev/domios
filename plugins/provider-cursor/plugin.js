@@ -71,18 +71,12 @@ var plugin = {
   detectEvents(_text) {
     return [];
   },
-  // Dynamic model discovery via `cursor-agent --list-models`; host caches the
-  // result so this sync probe stays off hot reads. Falls back to the curated
-  // manifest seed when the CLI is missing/offline.
+  // Discover via `cursor-agent --list-models` (host-cached); falls back to the manifest seed when offline.
   discoverModels() {
     return discoverCursorModels() || manifestModels();
   },
-  // The cursor-agent TUI gates every cwd behind a one-time "Workspace Trust
-  // Required" prompt. Pre-writing cursor's own trust marker
-  // (`~/.cursor/projects/<slug>/.workspace-trusted`) from the launch shell
-  // silently bypasses that gate — so only do it when the user opted into
-  // skip-permissions (`--force`); that is their intentional "trust everything"
-  // flow. Without it, let cursor show its own trust prompt.
+  // Pre-write cursor's workspace-trust marker to bypass its one-time trust prompt,
+  // but only under skip-permissions — that's the user's intentional "trust everything" flow.
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = ["cursor-agent"];
@@ -106,19 +100,15 @@ var plugin = {
     const sep = pathSep();
     return host.fs.fileExists(dir + sep + "meta.json") || host.fs.fileExists(dir + sep + "store.db");
   },
-  // Session birth time (unix ms) from meta.json, so the host's launch-window
-  // birth-time guard works on cursor's sqlite-backed sessions.
+  // Session birth time (unix ms) from meta.json, for the host's launch-window birth-time guard.
   sessionCreatedMs(cwd, sessionId) {
     const meta = readSessionMeta(cwd, sessionId);
     if (!meta) return null;
     const ms = meta.createdAtMs;
     return typeof ms === "number" ? ms : null;
   },
-  // Re-attach a restarted cursor pane to its session dir under the cwd-hash dir.
-  // Identity-bound, never "newest-for-cwd" (capability rule #3): when 2+ viable
-  // candidates remain after sibling exclusions, refuse — return null instead of
-  // handing the pane a SIBLING's session. The exclude list collapses the set as
-  // siblings get bound, so the last unclaimed session still resolves cleanly.
+  // Re-attach a restarted cursor pane to its session. Identity-bound, never
+  // "newest-for-cwd" (capability rule #3): with 2+ viable candidates, refuse rather than hand over a sibling's session.
   detectSessionId(cwd, exclude, maxAgeMs) {
     const dir = cursorChatsDir(cwd);
     if (!dir || !host.fs.fileExists(dir)) return null;
@@ -146,9 +136,7 @@ var plugin = {
   detectActiveSession(_cwd, _currentSid) {
     return null;
   },
-  // Per-turn model lives as `"modelName"` inside the JSON message blobs in
-  // store.db (binary protobuf tree blobs are skipped via the 0x7B first-byte
-  // filter). Returns the raw cursor model id; the host resolves it to a label.
+  // Per-turn model is `"modelName"` in store.db JSON blobs (the 0x7B filter skips binary protobuf blobs).
   detectSessionModel(cwd, sessionId) {
     const dir = cursorSessionDir(cwd, sessionId);
     if (!dir) return null;
@@ -192,28 +180,21 @@ var plugin = {
     }
     return out;
   },
-  // ── Chat transcript: append-only JSONL tailer (NOT structured-chat). The
-  // CLI cannot replay a full transcript (`--resume -p` emits only the new turn)
-  // and store.db is a protobuf merkle tree, so the clean source is the
-  // per-session JSONL cursor writes under ~/.cursor/projects/<slug>/agent-transcripts. ──
+  // Chat transcript via append-only JSONL tailer: the CLI can't replay a full
+  // transcript and store.db is a protobuf tree, so the clean source is cursor's per-session JSONL.
   usesStructuredChat() {
     return false;
   },
-  // Live tailer path: host canonicalizes the cwd (manifest.sessions cwdEncoding)
-  // before this call, so the slug matches cursor's own.
+  // Live tailer path: the host canonicalizes the cwd first, so the slug matches cursor's own.
   sessionJsonlPath(cwd, sessionId) {
     return cursorTranscriptPath(cwd, sessionId);
   },
-  // Pane-less snapshot + content search read this with a raw (uncanonicalized)
-  // cwd, so the scan fallback inside resolves symlinked paths too.
+  // Snapshot + content search pass a raw cwd, so the scan fallback inside resolves symlinks.
   sessionFilePath(cwd, sessionId) {
     return cursorTranscriptPath(cwd, sessionId);
   },
-  // Parse appended JSONL lines into RichMessages. Cursor transcript schema:
-  //   {"role":"user"|"assistant","message":{"content":[{type,text|name,input}]}}
-  //   {"type":"turn_ended",...}  (metadata, skipped)
-  // `<user_query>…</user_query>` framing and redacted-thinking `[REDACTED]`
-  // markers are stripped; tool_use blocks map to tool_use blocks.
+  // Parse appended JSONL lines into RichMessages. Schema:
+  //   {"role":"user"|"assistant","message":{"content":[{type,text|name,input}]}}  ("turn_ended" skipped)
   parseSessionDelta(chunk) {
     const out = [];
     const lines = String(chunk || "").split("\n");
@@ -262,9 +243,7 @@ var plugin = {
     }
     return out;
   },
-  // Cursor's interactive TUI has no usage gauge screen (per-turn tokens surface
-  // only in the `--print` stream-json `result.usage`, which the PTY never
-  // shows), so there's nothing to parse from the rendered screen → null.
+  // Cursor's interactive TUI has no usage gauge screen, so there's nothing to parse → null.
   parseUsage(_rawText, _nowMs) {
     return null;
   }
@@ -338,10 +317,14 @@ function projectsRoot() {
   const r = cursorRoot();
   return r ? r + pathSep() + "projects" : null;
 }
+function toNativeCwd(cwd) {
+  const s = String(cwd || "");
+  return host.platform() === "windows" ? s.replace(/\//g, "\\") : s;
+}
 function cursorChatsDir(cwd) {
   const root = chatsRoot();
   if (!root) return null;
-  const hash = host.md5(String(cwd || ""));
+  const hash = host.md5(toNativeCwd(cwd));
   if (!hash) return null;
   return root + pathSep() + hash;
 }

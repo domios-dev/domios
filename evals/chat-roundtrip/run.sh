@@ -62,6 +62,12 @@ chat_send() {
 # renders). Stateless read — no tailer dependency.
 chat_snapshot() { dev_get "/api/panes/$1/chat?since=0"; }
 
+# The UI seam the web chat view hits: chat_start_core, which returns
+# {pending, messages}. Unlike /chat/start (pane_chat_routes) it does NOT 400
+# before the session binds — it returns pending:true, exactly what the chat UI
+# sees. This is the oracle for the "stuck pending / session: -" binding bug.
+chat_raw_start() { dev_post "/api/panes/$1/chat-raw/start" '{}'; }
+
 # Poll the transcript until the user echo of `text` appears AND an assistant
 # message follows it. Echoes a JSON capture tuple on success; empty on timeout.
 poll_roundtrip() {
@@ -144,6 +150,33 @@ case_rapid() {
   fi
 }
 
+# --- Case: session-binding gate (CE3) -------------------------------
+# A fresh agent pane MUST bind its session and DELIVER the transcript through the
+# UI seam (chat-raw/start) — never sit on pending:true forever. That perpetual
+# pending IS the bug Andrey saw: "Polo session: -", chat empty while the TUI
+# works. This case reproduces it and is the gate proving the binding+delivery fix.
+case_binding() {
+  local provider="$1" pane="$2"
+  echo "[chat-roundtrip] $provider: session-binding — fresh pane binds + chat-raw/start delivers (not pending)"
+  local nonce; nonce="BIND$(now_ms)"
+  local prompt="Reply with exactly this token and nothing else: BOUND-$nonce"
+  # Informational: the UI seam typically reports pending until the session binds.
+  local init; init="$(chat_raw_start "$pane" | $PY "$RT" binding-state "$prompt")"
+  echo "    initial chat-raw/start state: $init"
+  chat_send "$pane" "$prompt"
+  local deadline=$((SECONDS + TIMEOUT)) state="pending"
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    state="$(chat_raw_start "$pane" | $PY "$RT" binding-state "$prompt")"
+    [ "$state" = "bound" ] && break
+    sleep 2
+  done
+  case "$state" in
+    bound) pass "$provider binding: session bound + transcript delivered via chat-raw/start (pending cleared)" ;;
+    pending) fail "$provider binding: chat-raw/start STUCK on pending — session never bound (the 'session: -' empty-chat bug)" ;;
+    *) fail "$provider binding: session bound but transcript not delivered within ${TIMEOUT}s" ;;
+  esac
+}
+
 main() {
   if ! curl -s --max-time 2 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
     echo "ERROR: dev daemon not on 7686. Start it: ./build.sh dev" >&2; exit 7
@@ -166,6 +199,7 @@ main() {
       [ "${CR_KEEP:-0}" = "1" ] || dc pane close "$pane" >/dev/null 2>&1
       continue
     fi
+    case_binding "$provider" "$pane"
     case_elementary "$provider" "$pane"
     case_rapid "$provider" "$pane"
     [ "${CR_KEEP:-0}" = "1" ] || dc pane close "$pane" >/dev/null 2>&1
