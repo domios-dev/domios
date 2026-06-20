@@ -178,7 +178,7 @@ impl AgentProvider for ClaudeProvider {
     }
 
     /// Claude TUI supports vim j/k navigation — simpler and more reliable than arrow keys.
-    fn build_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
+    fn build_prompt_response(&self, option_index: usize, _screen: &str) -> Vec<Vec<u8>> {
         let mut steps = Vec::new();
         for _ in 0..option_index {
             steps.push(b"j".to_vec());

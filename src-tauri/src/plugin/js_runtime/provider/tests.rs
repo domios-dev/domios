@@ -266,7 +266,7 @@ fn build_prompt_response_decodes_base64_steps() {
             };
         "#;
     let p = load(MIN_MANIFEST, js);
-    let steps = p.build_prompt_response(2);
+    let steps = p.build_prompt_response(2, "");
     assert_eq!(steps, vec![b"j".to_vec(), b"j".to_vec(), b"\r".to_vec()]);
 }
 

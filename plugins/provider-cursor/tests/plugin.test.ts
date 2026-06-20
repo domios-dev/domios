@@ -502,8 +502,31 @@ console.log("\n--- parsePrompt: /model non-numbered list picker (live fixture) -
 console.log("\n--- buildPromptResponse (vertical ↓ nav + Enter) ---\n");
 {
   const p = loadCursorWithHost(baseHost({}));
-  eq(p.buildPromptResponse(0), ["DQ=="], "index 0 → Enter only");
-  eq(p.buildPromptResponse(2), ["G1tC", "G1tC", "DQ=="], "index 2 → down ×2 + Enter (ESC[B)");
+  // No screen → top-start fallback (highlight unknown → assume index 0).
+  eq(p.buildPromptResponse(0), ["DQ=="], "index 0, no screen → Enter only");
+  eq(p.buildPromptResponse(2), ["G1tC", "G1tC", "DQ=="], "index 2, no screen → down ×2 + Enter (ESC[B)");
+
+  // Highlight-relative: cursor's /model lands the → selector on the CURRENT model,
+  // NOT the top row. Here Auto=0, Composer 2.5 (→ highlighted)=1, Opus 4.8=2, GPT-5.5=3.
+  const screen = [
+    " Available models                                          Max mode: OFF",
+    " Filter:",
+    "    Auto",
+    " →  Composer 2.5             (Tab to modify)",
+    "    Opus 4.8                 300K High",
+    "    GPT-5.5                  272K Medium",
+    " 1-10 of 28",
+    " Type to filter • Enter to select • Tab to edit",
+  ].join("\n");
+  // sanity: the highlight sits at index 1, not the top → naive down×N would mis-pick.
+  eq(p.parsePrompt(screen).options[1], ["Composer 2.5", "2"], "fixture: highlighted row is index 1 (Composer 2.5)");
+  eq(p.buildPromptResponse(1, screen), ["DQ=="], "target == current highlight → Enter only (no drift)");
+  eq(p.buildPromptResponse(2, screen), ["G1tC", "DQ=="], "target below highlight → 1 down + Enter");
+  eq(p.buildPromptResponse(3, screen), ["G1tC", "G1tC", "DQ=="], "target 2 below → 2 down + Enter");
+  eq(p.buildPromptResponse(0, screen), ["G1tB", "DQ=="], "target above highlight → 1 up + Enter (ESC[A)");
+  // A screen with no detectable highlight → top-start fallback (down × target).
+  const noHighlight = "some assistant prose with no menu at all";
+  eq(p.buildPromptResponse(2, noHighlight), ["G1tC", "G1tC", "DQ=="], "no highlight in screen → top-start fallback");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
