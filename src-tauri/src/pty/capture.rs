@@ -15,11 +15,13 @@ use std::sync::{LazyLock, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+
 /// Writes an asciicast v2 stream: a JSON header line followed by one NDJSON
 /// event row per chunk. Output rows split only on UTF-8 char boundaries so the
 /// concatenated `"o"` payloads round-trip byte-identical for any valid-UTF-8
-/// stream — incomplete trailing bytes (a multibyte char split across PTY reads)
-/// are carried to the next row.
+/// stream. Truly invalid bytes are emitted as `"o+b64"` rows so the capture
+/// remains byte-exact without forcing invalid UTF-8 into asciicast text rows.
 pub struct CastWriter {
     out: BufWriter<std::fs::File>,
     pending: Vec<u8>,
@@ -42,14 +44,7 @@ impl CastWriter {
 
     pub fn write_output(&mut self, t: f64, data: &[u8]) -> io::Result<()> {
         self.pending.extend_from_slice(data);
-        let valid = utf8_valid_prefix(&self.pending);
-        if valid == 0 {
-            return Ok(());
-        }
-        let text = String::from_utf8_lossy(&self.pending[..valid]).into_owned();
-        self.pending.drain(..valid);
-        let line = serde_json::json!([t, "o", text]);
-        writeln!(self.out, "{}", line)
+        self.flush_decodable(t, false)
     }
 
     pub fn write_resize(&mut self, t: f64, cols: u16, rows: u16) -> io::Result<()> {
@@ -59,10 +54,7 @@ impl CastWriter {
     }
 
     pub fn finish(mut self) -> io::Result<()> {
-        // Genuinely invalid trailing bytes (never completed) — flush lossily so
-        // no chunk is silently dropped; valid streams leave `pending` empty here.
-        let t = 0.0;
-        self.flush_pending(t)?;
+        self.flush_decodable(0.0, true)?;
         self.out.flush()
     }
 
@@ -70,18 +62,64 @@ impl CastWriter {
         if self.pending.is_empty() {
             return Ok(());
         }
-        let text = String::from_utf8_lossy(&self.pending).into_owned();
-        self.pending.clear();
-        let line = serde_json::json!([t, "o", text]);
+        self.flush_decodable(t, true)
+    }
+
+    fn flush_decodable(&mut self, t: f64, finish: bool) -> io::Result<()> {
+        loop {
+            match std::str::from_utf8(&self.pending) {
+                Ok(text) => {
+                    if !text.is_empty() {
+                        let line = serde_json::json!([t, "o", text]);
+                        writeln!(self.out, "{}", line)?;
+                    }
+                    self.pending.clear();
+                    return Ok(());
+                }
+                Err(e) => {
+                    let valid = e.valid_up_to();
+                    if valid > 0 {
+                        let text = std::str::from_utf8(&self.pending[..valid]).unwrap();
+                        let line = serde_json::json!([t, "o", text]);
+                        writeln!(self.out, "{}", line)?;
+                        self.pending.drain(..valid);
+                        continue;
+                    }
+                    match e.error_len() {
+                        Some(len) => {
+                            let raw: Vec<u8> = self.pending.drain(..len).collect();
+                            self.write_raw_b64(t, &raw)?;
+                        }
+                        None if finish => {
+                            let raw = std::mem::take(&mut self.pending);
+                            self.write_raw_b64(t, &raw)?;
+                            return Ok(());
+                        }
+                        None => return Ok(()),
+                    }
+                }
+            }
+        }
+    }
+
+    fn write_raw_b64(&mut self, t: f64, data: &[u8]) -> io::Result<()> {
+        if data.is_empty() {
+            return Ok(());
+        }
+        let line = serde_json::json!([t, "o+b64", BASE64.encode(data)]);
         writeln!(self.out, "{}", line)
     }
 }
 
-/// Largest prefix length of `buf` that is valid UTF-8.
-fn utf8_valid_prefix(buf: &[u8]) -> usize {
-    match std::str::from_utf8(buf) {
-        Ok(_) => buf.len(),
-        Err(e) => e.valid_up_to(),
+/// Decode capture output rows into the original output bytes.
+pub fn decode_output_event(code: &str, data: &str) -> io::Result<Option<Vec<u8>>> {
+    match code {
+        "o" => Ok(Some(data.as_bytes().to_vec())),
+        "o+b64" => BASE64
+            .decode(data)
+            .map(Some)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
+        _ => Ok(None),
     }
 }
 

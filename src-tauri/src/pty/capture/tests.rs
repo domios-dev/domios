@@ -16,7 +16,10 @@ fn read_cast(path: &Path) -> (serde_json::Value, Vec<(f64, String, Vec<u8>)>) {
             let v: serde_json::Value = serde_json::from_str(l).unwrap();
             let t = v[0].as_f64().unwrap();
             let code = v[1].as_str().unwrap().to_string();
-            let data = v[2].as_str().unwrap().as_bytes().to_vec();
+            let raw = v[2].as_str().unwrap();
+            let data = decode_output_event(&code, raw)
+                .unwrap()
+                .unwrap_or_else(|| raw.as_bytes().to_vec());
             (t, code, data)
         })
         .collect();
@@ -61,6 +64,30 @@ fn output_round_trips_byte_identical_across_multibyte_chunk_split() {
         recovered, full,
         "concatenated output must equal input bytes"
     );
+}
+
+#[test]
+fn invalid_utf8_round_trips_byte_identical() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("invalid.cast");
+    let full = b"ok\xff\xfe\x80after\xf0\x28\x8c\x28done".to_vec();
+    let mut w = CastWriter::create(&path, 80, 24, 0).unwrap();
+    w.write_output(0.0, &full[..4]).unwrap();
+    w.write_output(0.1, &full[4..12]).unwrap();
+    w.write_output(0.2, &full[12..]).unwrap();
+    w.finish().unwrap();
+
+    let (_, events) = read_cast(&path);
+    assert!(
+        events.iter().any(|(_, code, _)| code == "o+b64"),
+        "invalid bytes must be tagged instead of replacement-decoded"
+    );
+    let recovered: Vec<u8> = events
+        .iter()
+        .filter(|(_, code, _)| code == "o" || code == "o+b64")
+        .flat_map(|(_, _, data)| data.clone())
+        .collect();
+    assert_eq!(recovered, full);
 }
 
 #[test]
