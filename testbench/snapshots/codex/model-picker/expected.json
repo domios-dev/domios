@@ -1,0 +1,28 @@
+{
+  "provider": "codex",
+  "unit": "provider_screen",
+  "expected": {
+    "hasEventMarkers": true,
+    "parsePrompt": {
+      "question": "Select Reasoning Level for gpt-5.5",
+      "options": [
+        {
+          "label": "Low                        Fast responses with lighter reasoning",
+          "value": "1"
+        },
+        {
+          "label": "Medium (default) (current) Balances speed and reasoning depth for everyday tasks",
+          "value": "2"
+        },
+        {
+          "label": "High                       Greater reasoning depth for complex problems",
+          "value": "3"
+        },
+        {
+          "label": "Extra high                 Extra high reasoning depth for complex problems",
+          "value": "4"
+        }
+      ]
+    }
+  }
+}

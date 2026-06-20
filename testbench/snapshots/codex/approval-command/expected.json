@@ -1,0 +1,25 @@
+{
+  "provider": "codex",
+  "unit": "provider_screen",
+  "expected": {
+    "hasEventMarkers": true,
+    "detectEvents": ["PermissionRequest"],
+    "parsePrompt": {
+      "question": "Would you like to run the following command?",
+      "options": [
+        {
+          "label": "Yes",
+          "value": "1"
+        },
+        {
+          "label": "Yes, and don't ask again for this command",
+          "value": "2"
+        },
+        {
+          "label": "No, and tell Codex what to do differently",
+          "value": "3"
+        }
+      ]
+    }
+  }
+}

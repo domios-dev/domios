@@ -1,0 +1,25 @@
+{
+  "provider": "codex",
+  "unit": "provider_screen",
+  "expected": {
+    "parsePrompt": {
+      "question": "Which test strategy should we use?",
+      "options": [
+        {
+          "label": "Unit tests first",
+          "value": "1"
+        },
+        {
+          "label": "Integration smoke tests",
+          "value": "2"
+        },
+        {
+          "label": "Full end-to-end suite",
+          "value": "3"
+        }
+      ],
+      "multi_select": false,
+      "submit_available": false
+    }
+  }
+}
