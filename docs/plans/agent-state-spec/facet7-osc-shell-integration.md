@@ -27,11 +27,15 @@ PTY bytes
   -> [CORE] extraction (provider-agnostic, over the same byte stream):
        (a) SignalExtractor (P1a, vt100 grid)      -> StreamSignals      (agent TUI state)
        (b) SemanticMarkerParser (NEW, facet7)     -> SemanticEvents     (OSC 133/633/7)
-            PromptStart(A) | PromptEnd(B) | CmdStart(C) | CmdEnd(D,exit)
-            | CmdLine(E,text,nonce) | Prop(P, Cwd=...) ; ST or BEL ; 133 subset accepted
-  -> [UNIFY] PaneAttentionState contract (facet5) consumes BOTH:
-       shell panes  -> command lifecycle events drive chat command items + decorations
-       agent panes  -> classifier state (P2) for turn state; shell layer adds launch/exit/cwd
+            A=PromptStart B=CommandStart C=CommandExecuted D[;exit]=CommandFinished
+            E[;cmd[;nonce]]=CommandLine P;Key=Value=Property(Cwd) H=RightPrompt
+            EnvJson;<json>;<nonce> ; ST or BEL ; 133 A/B/C/D subset; 7/9/1337 cwd
+  -> [CAPABILITY] accumulators fold events into state (mirror VS Code; NO buffer-scraping):
+       CommandDetection { commands[], cmdline, exitCode, marks }
+       CwdDetection { cwd }    (nonce-checked: E/EnvJson forged by output are rejected)
+  -> [UNIFY] PaneAttentionState contract (facet5) consumes the CAPABILITIES:
+       shell panes  -> CommandDetection drives chat command items + decorations
+       agent panes  -> classifier state (P2) for turn state; CwdDetection + launch/exit from shell
   -> [CHAT UI] ChatView renders shell-command items: command text, status
        (running / ok / failed + exit code), cwd, the output segment (between C and D),
        with rerun / jump-to-command / copy affordances (VS Code command-decoration UX).
@@ -47,13 +51,18 @@ consume). Core never branches on a provider id.
    subset, and the 633;E nonce guard (command text must carry the per-session nonce, else
    it is untrusted output spoofing). Pure over the stream; deterministic.
 2. **Shell-integration injection (per-shell scripts).** Extend `build_session` /
-   `shell_integration.rs` to inject the integration script per shell (bash
-   PROMPT_COMMAND/PS0, zsh precmd+preexec, pwsh PSConsoleHostReadLine wrap, fish events)
-   emitting A/B/C/D/E/P with the nonce. We already inject env + a pwsh prompt fn there —
-   that is the hook. (ROG pulling the exact VS Code scripts as the reference.)
-3. **Unified PaneEvent plumbing.** The backend reader (`pty_lifecycle`) feeds
-   SemanticEvents into the SAME event channel that carries agent-state, into one
-   `PaneAttentionState`/event contract — not a parallel ad-hoc path.
+   `shell_integration.rs` to inject per shell (bash PROMPT_COMMAND/PS0, zsh
+   precmd+preexec, pwsh prompt-wrap + PSReadLine key handlers for B/C, fish events)
+   emitting A/B/C/D/E/P with the per-session nonce. We ALREADY inject env + a pwsh
+   prompt fn there — **COMPOSE with it (chain, store + call the original), never
+   clobber.** Guards (from VS Code .ps1): skip if LanguageMode != FullLanguage; nonce
+   from an env var then unset; escape non-ascii/control; preserve `$?`; Win10 build
+   <22000 ConPTY special path. Reference scripts: `/Users/kandrey/Developer/vscode-shell-ref/`.
+3. **Capability accumulators (the clean model, mirrors VS Code).** The backend reader
+   (`pty_lifecycle`) feeds SemanticEvents into stateful capability accumulators —
+   `CommandDetection` (command list, cmdline, exit codes, marks) and `CwdDetection` —
+   NOT a one-off scraper. Chat/UI consume the CAPABILITIES via the one unified
+   `PaneAttentionState` contract (same channel as agent-state), not raw events.
 4. **Chat UI command items + decorations.** chat-core ingests command-lifecycle events as
    a first-class "shell command" chat item (distinct from agent messages); ChatView
    renders status/exit/cwd + rerun/jump/copy.
@@ -74,12 +83,15 @@ consume). Core never branches on a provider id.
   ST+BEL, partial-chunk carry, 133 subset, nonce guard. TDD against synthetic fixtures.
   Provider-agnostic; additive (not yet wired to a consumer). NO new parser for OSC if an
   existing OSC handler exists — check first.
-- **OSC2 (Rust, shells):** per-shell injection scripts in shell_integration.rs +
-  build_session wiring (bash/zsh/pwsh/fish), nonce per session. Verify by capturing a
-  real shell session (RT1 `.cast`) and asserting A/B/C/D/E/P appear. Seeds from ROG's
-  VS Code reference. ROG owns Windows pwsh verification.
-- **OSC3 (Rust):** plumb SemanticEvents from the backend reader into the unified PaneEvent
-  contract + emit to chat-core (same channel as agent-state). No parallel path.
+- **OSC2-unix (Rust, shells):** bash/zsh/fish injection in shell_integration.rs +
+  build_session wiring, nonce per session, COMPOSE with the existing prompt hook (chain,
+  not clobber). Verify by capturing a real shell session (RT1 `.cast`) and asserting
+  A/B/C/D/E/P appear. Reference: `/Users/kandrey/Developer/vscode-shell-ref/`.
+- **OSC2-win (Rust, pwsh) = ROG.** Windows PowerShell injector (prompt-wrap + PSReadLine
+  B/C, Win10<22000 path); ROG owns it. Hand off when OSC2 lands; ROG verifies on Windows.
+- **OSC3 (Rust):** capability accumulators (`CommandDetection`, `CwdDetection`) fed from
+  the backend reader's SemanticEvents; expose via the unified `PaneAttentionState`
+  contract (same channel as agent-state). No raw-event scraping in consumers.
 - **OSC4 (TS, chat UI):** shell-command chat item + decorations (status/exit/cwd/output
   segment) + rerun/jump/copy in ChatView/chat-core. Clean component, follows chat-core
   patterns.
