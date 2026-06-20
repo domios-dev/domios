@@ -61,7 +61,8 @@ export function useShellIntegration({
       if (!cmd) return true;
       pendingCommandFired.current = true;
       console.log(`[spawn] Firing pending command in pane ${paneId}: ${cmd}`);
-      invoke("write_pty_string", { ptyId: ptyIdNow, data: cmd + "\r", raw: false });
+      // No-verify launch writer (no agent TUI exists pre-boot).
+      invoke("write_pty_launch_command", { ptyId: ptyIdNow, command: cmd });
       return true;
     };
 
