@@ -127,8 +127,13 @@ const plugin: PluginModule = {
       // Only real sessions (same existence contract as sessionExists); ignore stale/empty temp dirs.
       const meta = readMetaJson(e.path + sep + "meta.json");
       if (!meta && !host.fs.fileExists(e.path + sep + "store.db")) continue;
-      const ts = meta ? (meta.updatedAtMs || meta.createdAtMs || 0) : 0;
-      if (maxAge && now && ts && (now - ts) > maxAge) continue;
+      // Current cursor builds write only store.db (no meta.json), so meta
+      // timestamps are absent. Fall back to the session dir's mtime — without a
+      // timestamp every session has ts=0, the maxAge window can't filter, and 2+
+      // sessions in a reused cwd make detection refuse (chat never binds). With
+      // mtime, only the just-spawned session falls inside maxAge.
+      const ts = meta ? (meta.updatedAtMs || meta.createdAtMs || 0) : (e.modifiedMs || 0);
+      if (maxAge && now && (!ts || (now - ts) > maxAge)) continue;
       candidates.push({ id: sid, ts: ts });
     }
     if (candidates.length !== 1) return null;

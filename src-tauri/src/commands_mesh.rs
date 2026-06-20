@@ -503,6 +503,13 @@ pub async fn fetch_peer_services_view(
     serde_json::to_value(&view).map_err(|e| e.to_string())
 }
 
+/// Per-address timeout for the direct peer /api/services fetch. A peer with many
+/// services + mesh-signed-token verification can take ~5s to answer (measured
+/// against a 17-service peer); the old 3s cut every such peer off mid-request, so
+/// the Mesh tab showed 0 services for healthy peers. Kept above real-world latency
+/// but bounded so a dead address still fails fast enough for the next address.
+const PEER_SERVICES_FETCH_TIMEOUT_SECS: u64 = 10;
+
 async fn fetch_peer_services(
     addresses: &[crate::mesh::types::PeerAddress],
     port: u16,
@@ -512,7 +519,9 @@ async fn fetch_peer_services(
     use crate::mesh::transport::TryNext;
 
     let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(
+            PEER_SERVICES_FETCH_TIMEOUT_SECS,
+        ))
         .build()
     {
         Ok(c) => c,
@@ -548,4 +557,128 @@ async fn fetch_peer_services(
         Ok(services) => FetchOutcome::Fetched(services),
         Err(e) => FetchOutcome::Failed(e),
     }
+}
+
+#[derive(Clone, Copy)]
+enum PeerMethod {
+    Get,
+    Post,
+    Delete,
+}
+
+/// Signed-token request to a paired peer's REST API, walking its addresses just
+/// like the services fetch. This is the cross-mesh ACTION path: the Mesh tab can
+/// delete a service or control a cron ON the peer, instead of every mutation
+/// silently hitting the local daemon. Returns the peer's JSON response (or Null
+/// for empty bodies like a 204 delete).
+async fn peer_authed_request(
+    mesh: &crate::MeshStateHandle,
+    instance_id: &str,
+    method: PeerMethod,
+    path: &str,
+) -> Result<serde_json::Value, String> {
+    use crate::mesh::transport::TryNext;
+
+    let (addresses, port, token) = {
+        let m = mesh.lock();
+        let peer = m
+            .paired_peers
+            .get(instance_id)
+            .ok_or_else(|| format!("Peer {} not paired", instance_id))?;
+        let token = m
+            .sign_request()
+            .map_err(|e| format!("sign_request: {}", e))?;
+        (
+            crate::mesh::types::sanitize_addresses(&peer.addresses),
+            peer.api_port,
+            token,
+        )
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(
+            PEER_SERVICES_FETCH_TIMEOUT_SECS,
+        ))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    crate::mesh::transport::try_peer(&addresses, |addr| {
+        let client = client.clone();
+        let url = format!("http://{}:{}{}", addr.ip, port, path);
+        let token = token.clone();
+        async move {
+            let req = match method {
+                PeerMethod::Get => client.get(&url),
+                PeerMethod::Post => client.post(&url),
+                PeerMethod::Delete => client.delete(&url),
+            };
+            let resp = match req
+                .header("Authorization", format!("Bearer {}", token))
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => return TryNext::Retry(format!("request: {}", e)),
+            };
+            if !resp.status().is_success() {
+                return TryNext::Stop(format!("HTTP {}", resp.status()));
+            }
+            // Action endpoints may return JSON or an empty body (204); tolerate both.
+            let text = resp.text().await.unwrap_or_default();
+            let val = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+            TryNext::Success(val)
+        }
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn mesh_peer_service_delete(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    instance_id: String,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    peer_authed_request(
+        mesh.inner(),
+        &instance_id,
+        PeerMethod::Delete,
+        &format!("/api/services/{}", id),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn mesh_peer_cron_action(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    instance_id: String,
+    id: String,
+    action: String,
+) -> Result<serde_json::Value, String> {
+    // Whitelist the cron sub-actions so this can't be turned into an arbitrary
+    // POST against the peer's API surface.
+    if !matches!(action.as_str(), "enable" | "disable" | "trigger" | "cancel") {
+        return Err(format!("unsupported cron action: {}", action));
+    }
+    peer_authed_request(
+        mesh.inner(),
+        &instance_id,
+        PeerMethod::Post,
+        &format!("/api/crons/{}/{}", id, action),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn mesh_peer_cron_history(
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    instance_id: String,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    peer_authed_request(
+        mesh.inner(),
+        &instance_id,
+        PeerMethod::Get,
+        &format!("/api/crons/{}/history", id),
+    )
+    .await
 }
