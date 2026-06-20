@@ -14,6 +14,7 @@ import { useMeshData } from "./useMeshData";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
+import type { PeerStatus } from "./useMeshData";
 import { tabClass, UI_BUTTON, UI_INPUT, UI_PANEL, UI_TEXT } from "../shared/design";
 import {
   buildWebAccessUrls,
@@ -34,6 +35,7 @@ interface DrawerProps {
   open: boolean;
   onToggle: () => void;
   services: Service[];
+  peers: PeerStatus[];
   thisMachineName: string;
   onServiceClick: (s: Service) => void;
 }
@@ -47,6 +49,7 @@ function CollapsibleTablesDrawer({
   open,
   onToggle,
   services,
+  peers,
   thisMachineName,
   onServiceClick,
 }: DrawerProps) {
@@ -80,12 +83,14 @@ function CollapsibleTablesDrawer({
         <div className="flex-1 min-h-0 overflow-auto flex">
           <CronsTable
             services={services}
+            peers={peers}
             thisMachineName={thisMachineName}
             onServiceClick={onServiceClick}
           />
           <div className="w-px bg-[var(--ct-accent)]/30 shadow-[0_0_4px_var(--ct-accent)]" />
           <ServicesTable
             services={services}
+            peers={peers}
             thisMachineName={thisMachineName}
             onServiceClick={onServiceClick}
           />
@@ -492,7 +497,11 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     setDrawerState({ kind: "peer", id: name });
   }, []);
   const handleServiceClick = useCallback((s: Service) => {
-    setDrawerState({ kind: "service", id: s.id });
+    setDrawerState({
+      kind: "service",
+      id: s.id,
+      sourcePeerId: s.source_peer_id ?? s.source_peer ?? null,
+    });
   }, []);
 
   useEffect(() => {
@@ -597,6 +606,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
               open={tablesOpen}
               onToggle={() => setTablesOpen((v) => !v)}
               services={data.services}
+              peers={data.peers}
               thisMachineName={data.thisMachine.name}
               onServiceClick={handleServiceClick}
             />

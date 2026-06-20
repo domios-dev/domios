@@ -88,6 +88,43 @@ pub async fn peer_services(
     Ok(Json(view))
 }
 
+pub async fn peer_service_delete(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let value = crate::commands_mesh::peer_service_delete_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
+pub async fn peer_cron_action(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id, action)): Path<(String, String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let value =
+        crate::commands_mesh::peer_cron_action_request(&state.mesh, &instance_id, &id, &action)
+            .await
+            .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
+pub async fn peer_cron_history(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((instance_id, id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let value = crate::commands_mesh::peer_cron_history_request(&state.mesh, &instance_id, &id)
+        .await
+        .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+    Ok(Json(value))
+}
+
 /// SSE stream of system events for the web bundle's `listen()` bridge.
 /// Frames are `data: {"event_type": "...", "data": {...}}`.
 pub async fn events_stream(
