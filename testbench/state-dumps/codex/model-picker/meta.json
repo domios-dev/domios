@@ -1,9 +1,0 @@
-{
-  "provider": "codex",
-  "scenario": "model-picker",
-  "cli_version": "from existing real snapshot fixture",
-  "capturedAtMs": 1781984508067,
-  "source": "testbench/snapshots/codex/options-numbered/raw.cast",
-  "width": 120,
-  "height": 40
-}

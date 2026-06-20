@@ -1,9 +1,0 @@
-{
-  "provider": "claude",
-  "scenario": "code-then-idle",
-  "cli_version": "from existing real snapshot fixture",
-  "capturedAtMs": 1781984508059,
-  "source": "testbench/snapshots/claude/agent-state-turn_complete_real/raw.cast",
-  "width": 120,
-  "height": 40
-}
