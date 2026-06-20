@@ -1,0 +1,5 @@
+I checked the dashboard — your session limit resets 4pm today, so we have
+plenty of headroom. I'll keep going and finish the refactor now.
+
+I've updated src/router.ts and the middleware chain. The tests pass and the
+working tree is clean, so this change is ready for review.
