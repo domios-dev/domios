@@ -20,6 +20,17 @@ function eq(actual: unknown, expected: unknown, name: string) {
 function user(id: string, content: string, tsMs: number): NormalizedChatMessage {
   return { id, type: "user", content, timestamp: new Date(tsMs).toISOString() };
 }
+// Provider echo whose transcript timestamp is a Unix-SECONDS number (codex floors
+// to seconds; RichMessage.ts is documented in seconds). The matcher must treat
+// it as the same instant as a millisecond bubble send-time.
+function userSec(id: string, content: string, tsMs: number): NormalizedChatMessage {
+  return { id, type: "user", content, timestamp: String(Math.floor(tsMs / 1000)) };
+}
+// Provider echo whose timestamp is a millisecond epoch NUMBER as a string
+// (opencode hands the frontend String(time_created) in ms).
+function userMsNum(id: string, content: string, tsMs: number): NormalizedChatMessage {
+  return { id, type: "user", content, timestamp: String(tsMs) };
+}
 function echo(id: string, content: string, sentAtMs: number): OptimisticEcho {
   return { id, content, sentAtMs };
 }
@@ -213,6 +224,51 @@ const T0 = 1_700_000_000_000;
   );
   eq(matchedIds, [], "stale similar message does not fuzzy-clear fresh bubble");
   eq(pendingIds, ["opt-1"], "fresh bubble stays pending despite similar history");
+}
+
+// 18. Real-data skew: a fresh echo stamped in Unix SECONDS clears its bubble.
+//     Before seconds→ms normalization, String(floor(T0/1000)) ≈ 1.7e9 was read
+//     as epoch-ms (1970) — ~56 years before the ms send-time — so the skew guard
+//     rejected EVERY real echo and the bubble stuck on "sending…" forever.
+{
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-1", "hi", T0)],
+    [userSec("a-0", "hi", T0 + 500)], // seconds-stamped echo, just after send
+  );
+  eq(matchedIds, ["opt-1"], "seconds-stamped fresh echo → matched (skew fix)");
+  eq(pendingIds, [], "seconds-stamped fresh echo leaves no stuck bubble");
+}
+
+// 19. The seconds scaling must NOT regress the stale-echo guard: a seconds-stamped
+//     message a minute older than the send still must NOT clear a fresh bubble.
+{
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-1", "yes", T0)],
+    [userSec("old-0", "yes", T0 - 60_000)], // a minute-old "yes", seconds units
+  );
+  eq(matchedIds, [], "stale seconds-stamped identical message → not matched");
+  eq(pendingIds, ["opt-1"], "fresh bubble stays pending despite old seconds echo");
+}
+
+// 20. Re-sent short message with seconds stamps: consume-once + guard still pick
+//     the NEW echo, never the stale identical line (units normalized to ms first).
+{
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-1", "yes", T0)],
+    [userSec("old-0", "yes", T0 - 60_000), userSec("new-0", "yes", T0 + 400)],
+  );
+  eq(matchedIds, ["opt-1"], "fresh bubble matches the new seconds echo");
+  eq(pendingIds, [], "fresh bubble cleared by its own (not the stale) echo");
+}
+
+// 21. Millisecond-number string echo (opencode shape) still matches as ms — the
+//     normalization must leave genuine ms values untouched.
+{
+  const { matchedIds } = matchedOptimisticEchoes(
+    [echo("opt-1", "deploy", T0)],
+    [userMsNum("a-0", "deploy", T0 + 700)],
+  );
+  eq(matchedIds, ["opt-1"], "ms-number-string echo matches (no double-scaling)");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

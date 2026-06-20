@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# Layer B — agent-driven chat round-trip harness (macOS-runnable, no UI).
+#
+# THE ORACLE for "did my message land": spawns a REAL provider agent on the DEV
+# daemon, sends a message through the SAME path the chat composer uses
+# (POST /api/panes/{id}/send → send_text_when_ready, identical to the Tauri
+# `chat_send_text` command), then polls the PARSED chat transcript
+# (GET /api/panes/{id}/chat) until the user echo AND a following assistant reply
+# appear. Asserts both. This proves backend delivery end-to-end — the thing that
+# was missing when OSC4 shipped green-but-broken.
+#
+# It ALSO captures, per provider, the exact (client_send_ms, transcript user-echo
+# timestamp, content) tuple to target-check/evals/chat-roundtrip/. That capture
+# is the real-data input for the optimistic-bubble (dedupe) diagnosis — run
+# analyze-optimistic.mjs against it.
+#
+# DEV-LOCKED: sources evals/_lib/lib.sh → every CLI/HTTP call is pinned to dev
+# (port 7686). NEVER touches prod (7685).
+#
+# Usage:
+#   ./run.sh                       # claude + codex, elementary + rapid-send cases
+#   CR_PROVIDERS="claude" ./run.sh # one provider
+#   CR_TIMEOUT=120 ./run.sh        # per-turn poll budget (s)
+#   CR_KEEP=1 ./run.sh             # leave panes/workspace for inspection
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+# shellcheck source=/dev/null
+source "$ROOT/evals/_lib/lib.sh"   # auto dev_env + `dc` (locked to dev 7686)
+PY=python3
+RT="$ROOT/evals/chat-roundtrip/rt_lib.py"
+
+PROVIDERS="${CR_PROVIDERS:-claude codex}"
+TIMEOUT="${CR_TIMEOUT:-90}"
+WS_NAME="WS-chat-roundtrip"
+WS_CWD="/tmp/chat-roundtrip"
+OUT_DIR="$ROOT/target-check/evals/chat-roundtrip"
+mkdir -p "$WS_CWD" "$OUT_DIR"
+
+FAILS=0
+pass() { echo "  ✓ $1"; }
+fail() { echo "  ✗ $1" >&2; FAILS=$((FAILS + 1)); }
+
+now_ms() { $PY -c 'import time;print(int(time.time()*1000))'; }
+
+pane_status() {
+  dev_get "/api/panes/$1/status" \
+    | $PY -c "import json,sys;print(json.load(sys.stdin).get('status',''))" 2>/dev/null
+}
+
+# Faithful chat send: same REST seam the web chat composer hits, which routes to
+# send_text_when_ready — the exact path as the Tauri chat_send_text command.
+chat_send() {
+  local pane="$1" text="$2"
+  $PY -c "import json,sys;print(json.dumps({'text':sys.argv[1],'enter':True}))" "$text" \
+    | curl -s --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+        -H "Content-Type: application/json" --data @- \
+        "http://127.0.0.1:7686/api/panes/$pane/send" >/dev/null
+}
+
+# Parsed transcript snapshot (the SAME normalized ChatMsg shape the chat UI
+# renders). Stateless read — no tailer dependency.
+chat_snapshot() { dev_get "/api/panes/$1/chat?since=0"; }
+
+# Poll the transcript until the user echo of `text` appears AND an assistant
+# message follows it. Echoes a JSON capture tuple on success; empty on timeout.
+poll_roundtrip() {
+  local pane="$1" text="$2" sent_ms="$3" deadline=$((SECONDS + TIMEOUT))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    local cap
+    cap="$(chat_snapshot "$pane" | $PY "$RT" match-roundtrip "$text" "$sent_ms")"
+    if [ -n "$cap" ]; then echo "$cap"; return 0; fi
+    sleep 2
+  done
+  return 1
+}
+
+ws_id() {
+  dev_get /api/workspaces \
+    | $PY -c "import json,sys;[print(w['id']) for w in json.load(sys.stdin) if w.get('name')=='$WS_NAME']" 2>/dev/null \
+    | head -1
+}
+
+spawn_agent() {
+  local provider="$1" ws="$2" title="$3"
+  dc agent spawn "$provider" --workspace "$ws" --cwd "$WS_CWD" --title "$title" 2>&1 \
+    | grep -oE "pane [a-f0-9]+" | awk '{print $2}' | head -1
+}
+
+wait_live() {
+  local pane="$1"
+  for _ in $(seq 1 40); do
+    local st; st="$(pane_status "$pane")"
+    [ -n "$st" ] && [ "$st" != "Dead" ] && { sleep 4; return 0; }
+    sleep 1
+  done
+  return 1
+}
+
+# --- Case: elementary round-trip ------------------------------------
+# Send one trivially-answerable prompt; the agent echoes a nonce back. Proves:
+# (a) the user message lands in the transcript, (b) an assistant reply follows.
+case_elementary() {
+  local provider="$1" pane="$2"
+  local nonce; nonce="RT$(now_ms)"
+  local prompt="Reply with exactly this token and nothing else: PONG-$nonce"
+  echo "[chat-roundtrip] $provider: elementary — send + await echo & reply"
+  dev_post "/api/panes/$pane/chat/start" '{}' >/dev/null
+  local sent_ms; sent_ms="$(now_ms)"
+  chat_send "$pane" "$prompt"
+  local cap; cap="$(poll_roundtrip "$pane" "$prompt" "$sent_ms")"
+  if [ -z "$cap" ]; then
+    fail "$provider elementary: user echo + assistant reply did NOT appear within ${TIMEOUT}s"
+    return 1
+  fi
+  pass "$provider elementary: user echo present in transcript"
+  pass "$provider elementary: assistant reply followed"
+  echo "$cap" | $PY -m json.tool > "$OUT_DIR/roundtrip-$provider.json"
+  echo "    skew: $($PY "$RT" skew "$cap")"
+}
+
+# --- Case: rapid multi-send -----------------------------------------
+# Three quick distinct sends; each must land as its own user turn (or be
+# coverable within a combined turn). Beats the "stuck sending…" class where
+# quick sends never resolve.
+case_rapid() {
+  local provider="$1" pane="$2"
+  echo "[chat-roundtrip] $provider: rapid multi-send (3 quick messages)"
+  local base; base="RR$(now_ms)"
+  dev_post "/api/panes/$pane/chat/start" '{}' >/dev/null
+  chat_send "$pane" "rapid one $base"; sleep 1
+  chat_send "$pane" "rapid two $base"; sleep 1
+  chat_send "$pane" "rapid three $base"
+  local deadline=$((SECONDS + TIMEOUT)) ok=0
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    ok="$(chat_snapshot "$pane" | $PY "$RT" rapid-check "$base")"
+    [ "$ok" = "1" ] && break
+    sleep 2
+  done
+  if [ "$ok" = "1" ]; then
+    pass "$provider rapid: all 3 quick sends landed in transcript"
+  else
+    fail "$provider rapid: not all quick sends appeared within ${TIMEOUT}s"
+  fi
+}
+
+main() {
+  if ! curl -s --max-time 2 http://127.0.0.1:7686/api/health >/dev/null 2>&1; then
+    echo "ERROR: dev daemon not on 7686. Start it: ./build.sh dev" >&2; exit 7
+  fi
+  local ws; ws="$(ws_id)"
+  if [ -z "$ws" ]; then
+    ws="$(dc workspace create "$WS_NAME" --cwd "$WS_CWD" --json 2>/dev/null \
+          | $PY -c "import json,sys;print(json.load(sys.stdin).get('id',''))")"
+  fi
+  [ -n "$ws" ] || { echo "ERROR: could not create scratch workspace" >&2; exit 1; }
+  echo "[chat-roundtrip] workspace=$ws providers='$PROVIDERS' timeout=${TIMEOUT}s out=$OUT_DIR"
+
+  for provider in $PROVIDERS; do
+    echo; echo "=== provider: $provider ==="
+    local pane; pane="$(spawn_agent "$provider" "$ws" "rt-$provider")"
+    if [ -z "$pane" ]; then fail "$provider: agent spawn failed"; continue; fi
+    echo "[chat-roundtrip] $provider pane=$pane — waiting for agent"
+    if ! wait_live "$pane"; then
+      fail "$provider: agent never came live"
+      [ "${CR_KEEP:-0}" = "1" ] || dc pane close "$pane" >/dev/null 2>&1
+      continue
+    fi
+    case_elementary "$provider" "$pane"
+    case_rapid "$provider" "$pane"
+    [ "${CR_KEEP:-0}" = "1" ] || dc pane close "$pane" >/dev/null 2>&1
+  done
+
+  echo
+  if [ "$FAILS" -eq 0 ]; then
+    echo "[chat-roundtrip] ALL PASS — backend round-trip proven for: $PROVIDERS"
+    exit 0
+  fi
+  echo "[chat-roundtrip] $FAILS assertion(s) FAILED" >&2
+  exit 1
+}
+
+main "$@"
