@@ -59,6 +59,38 @@ const MODEL_PROMPT: PendingPrompt = {
   ],
 };
 
+const WIZARD_PROMPT: PendingPrompt = {
+  question: "Which environment should this setup target?",
+  sections: [
+    { label: "Environment", active: true },
+    { label: "Autonomy" },
+    { label: "Scope" },
+    { label: "Verbosity" },
+  ],
+  options: [
+    { label: "Dev", value: "1" },
+    { label: "Prod", value: "2" },
+  ],
+  multi_select: false,
+  submit_available: true,
+};
+
+const MULTI_PROMPT: PendingPrompt = {
+  question: "Which focus areas should be enabled?",
+  sections: [
+    { label: "Environment", completed: true },
+    { label: "Focus", active: true },
+  ],
+  options: [
+    { label: "Performance", value: "1" },
+    { label: "Tests", value: "2" },
+    { label: "Docs", value: "3" },
+  ],
+  multi_select: true,
+  submit_available: true,
+  selected_values: ["2"],
+};
+
 setupDom();
 
 test("renders nothing when there is no pending prompt", async () => {
@@ -107,6 +139,47 @@ test("clicking cancel calls onCancel", async () => {
     cancel.click();
   });
   assert(cancelled === 1, `onCancel should fire once, got ${cancelled}`);
+  await act(async () => root.unmount());
+});
+
+test("wizard prompt renders section progress and submit", async () => {
+  const { host, root } = await render(
+    <PendingPromptCard pendingPrompt={WIZARD_PROMPT} onRespond={() => {}} onCancel={() => {}} />,
+  );
+  const sections = host.querySelector('[data-testid="pane-pending-prompt-sections"]');
+  assert(sections?.textContent?.includes("Environment"), "wizard sections should render");
+  const submit = host.querySelector('[data-testid="pane-pending-prompt-submit"]') as HTMLButtonElement | null;
+  assert(submit, "wizard submit should render");
+  await act(async () => root.unmount());
+});
+
+test("wizard single-select option preserves option value", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(
+    <PendingPromptCard pendingPrompt={WIZARD_PROMPT} onRespond={(v) => calls.push(v)} onCancel={() => {}} />,
+  );
+  await act(async () => {
+    optionButtons(host)[1].click();
+  });
+  assert(calls[0] === "2", `wizard option should send value 2, got ${calls[0]}`);
+  await act(async () => root.unmount());
+});
+
+test("wizard multi-select confirm sends selected bitmask sentinel", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(
+    <PendingPromptCard pendingPrompt={MULTI_PROMPT} onRespond={(v) => calls.push(v)} onCancel={() => {}} />,
+  );
+  await act(async () => {
+    optionButtons(host)[0].click();
+    optionButtons(host)[2].click();
+  });
+  const confirm = host.querySelector('[data-testid="pane-pending-prompt-confirm"]') as HTMLButtonElement | null;
+  assert(confirm, "multi-select confirm should render");
+  await act(async () => {
+    confirm.click();
+  });
+  assert(calls[0] === "10007", `selected values 1,2,3 should send mask value 10007, got ${calls[0]}`);
   await act(async () => root.unmount());
 });
 

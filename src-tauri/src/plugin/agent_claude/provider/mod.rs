@@ -169,8 +169,9 @@ impl AgentProvider for ClaudeProvider {
         detection::detect_claude_events(text)
     }
 
-    fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
+    fn parse_prompt(&self, text: &str) -> Option<crate::multiplexer::types::PendingPrompt> {
         crate::agent::detector::parse_permission_prompt(text)
+            .map(|(question, options)| crate::agent::prompt::build_prompt(question, options))
     }
 
     fn has_hooks(&self) -> bool {
@@ -178,10 +179,13 @@ impl AgentProvider for ClaudeProvider {
     }
 
     /// Claude TUI supports vim j/k navigation — simpler and more reliable than arrow keys.
-    fn build_prompt_response(&self, option_index: usize, _screen: &str) -> Vec<Vec<u8>> {
+    fn build_prompt_response(&self, option_index: usize, screen: &str) -> Vec<Vec<u8>> {
+        let current = highlighted_option_index(screen).unwrap_or(0);
+        let delta = option_index as isize - current as isize;
         let mut steps = Vec::new();
-        for _ in 0..option_index {
-            steps.push(b"j".to_vec());
+        let key = if delta >= 0 { b"j" } else { b"k" };
+        for _ in 0..delta.unsigned_abs() {
+            steps.push(key.to_vec());
         }
         steps.push(b"\r".to_vec());
         steps
@@ -297,6 +301,27 @@ impl AgentProvider for ClaudeProvider {
     }
 }
 
+fn highlighted_option_index(screen: &str) -> Option<usize> {
+    let mut option_idx = 0usize;
+    for line in screen.lines() {
+        let trimmed = line.trim_start();
+        let selected = trimmed.starts_with('❯') || trimmed.starts_with('>');
+        let candidate = trimmed.trim_start_matches(['❯', '>']).trim_start();
+        let digits = candidate
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect::<String>();
+        if digits.is_empty() || !candidate[digits.len()..].starts_with(". ") {
+            continue;
+        }
+        if selected {
+            return Some(option_idx);
+        }
+        option_idx += 1;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,6 +355,21 @@ mod tests {
         assert_eq!(
             p.model_switch_command("sonnet").as_deref(),
             Some("/model sonnet")
+        );
+    }
+
+    #[test]
+    fn claude_prompt_response_is_highlight_relative() {
+        let p = ClaudeProvider::new();
+        let screen = "Choose:\n  1. Opus\n❯ 2. Sonnet\n  3. Haiku\nEnter to select";
+        assert_eq!(p.build_prompt_response(1, screen), vec![b"\r".to_vec()]);
+        assert_eq!(
+            p.build_prompt_response(0, screen),
+            vec![b"k".to_vec(), b"\r".to_vec()]
+        );
+        assert_eq!(
+            p.build_prompt_response(2, screen),
+            vec![b"j".to_vec(), b"\r".to_vec()]
         );
     }
 
