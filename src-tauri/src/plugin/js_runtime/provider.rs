@@ -95,6 +95,7 @@ use crate::agent::provider::{
 use super::{
     call_json, manifest_settings_sections, PluginManifest, PluginVm, SerdeModelInfo, VmError,
 };
+use crate::multiplexer::types::PendingPrompt;
 
 /// One generic provider per plugin bundle.
 pub struct JsProvider {
@@ -270,6 +271,7 @@ fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
         "args": p.args,
         "skipPermissions": p.skip_permissions,
         "sessionId": p.session_id,
+        "structuredPromptServer": p.structured_prompt_server,
     })
 }
 
@@ -385,7 +387,7 @@ impl AgentProvider for JsProvider {
         out
     }
 
-    fn parse_prompt(&self, text: &str) -> Option<crate::multiplexer::types::PendingPrompt> {
+    fn parse_prompt(&self, text: &str) -> Option<PendingPrompt> {
         // Plugin returns `{question, options: [[id, label]]}` or null.
         if let Some(v) = self.try_call::<Option<Value>>("parsePrompt", &[json!(text)]) {
             return v.and_then(prompt_parse::parsed_prompt_from_js);
@@ -775,6 +777,25 @@ impl AgentProvider for JsProvider {
 
     fn has_hooks(&self) -> bool {
         self.manifest.spawn.has_hooks
+    }
+
+    fn supports_structured_prompts(&self) -> bool {
+        self.manifest.spawn.supports_structured_prompts
+            || self
+                .native()
+                .is_some_and(|n| n.supports_structured_prompts())
+    }
+
+    fn structured_pending_prompt(&self, cwd: &str, session_id: &str) -> Option<PendingPrompt> {
+        self.native()
+            .and_then(|n| n.structured_pending_prompt(cwd, session_id))
+    }
+
+    fn needs_structured_prompt_server(&self) -> bool {
+        self.manifest.spawn.structured_prompt_server
+            || self
+                .native()
+                .is_some_and(|n| n.needs_structured_prompt_server())
     }
 
     fn auto_approve_flags(&self) -> Vec<String> {

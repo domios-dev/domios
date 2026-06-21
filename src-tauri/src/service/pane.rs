@@ -38,6 +38,7 @@ impl ServiceContext {
         let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.prompt_detector.lock().remove_pane(pane_id);
+        crate::service::structured_prompt::clear_pane(pane_id);
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {
@@ -557,6 +558,14 @@ impl ServiceContext {
 
         // Transition PromptDetector to Cooldown — suppresses re-detection of the same prompt from PTY output that hasn't been cleared yet.
         self.prompt_detector.lock().mark_responded(pane_id);
+
+        // STRUCTURED handle (opencode SSE) answers over HTTP, not the PTY: the
+        // PTY is display-only for these prompt classes. When a structured route
+        // exists for this pane, reply there and skip the keystroke send-back.
+        if let Some(result) = crate::service::structured_prompt::respond(self, pane_id, value) {
+            self.emit_state_changed();
+            return result;
+        }
 
         // Only send to PTY if there was an actual prompt — prevents phantom input
         if had_prompt {

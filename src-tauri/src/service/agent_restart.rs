@@ -207,6 +207,7 @@ fn build_relaunch_command(
             args: None,
             skip_permissions: auto_approve,
             session_id: None,
+            structured_prompt_server: None,
         })
     })
 }

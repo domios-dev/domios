@@ -131,6 +131,15 @@ const plugin: PluginModule = {
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
     const parts = ["opencode"];
+    // Structured-prompt handle: bind opencode's local HTTP/SSE server to the
+    // host-allocated fixed address so the host can subscribe to /event and
+    // reply over HTTP instead of scraping the PTY picker.
+    const sps = p.structuredPromptServer;
+    if (sps && sps.port) {
+      const platform = host.platform();
+      parts.push("--hostname", host.shell.quoteFor(String(sps.hostname || "127.0.0.1"), platform));
+      parts.push("--port", host.shell.quoteFor(String(sps.port), platform));
+    }
     if (p.args && p.args.length > 0) {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));

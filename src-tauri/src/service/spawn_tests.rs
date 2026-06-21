@@ -53,6 +53,7 @@ fn spawn_params(provider: &str) -> SpawnAgentParams {
         preset: None,
         resume_session_id: None,
         activate: None,
+        structured_prompt_server: None,
     }
 }
 
@@ -452,6 +453,7 @@ fn from_agent_params_carries_model_into_spec() {
         preset: None,
         resume_session_id: None,
         activate: None,
+        structured_prompt_server: None,
     };
     let spec = SpawnPaneSpec::from_agent_params(params);
     assert_eq!(spec.description.as_deref(), Some("triage failing snapshot"));
@@ -553,6 +555,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         preset: None,
         resume_session_id: None,
         activate: None,
+        structured_prompt_server: None,
     };
     let spec = SpawnPaneSpec::from_agent_params(p.clone());
     match spec.command {
@@ -593,6 +596,7 @@ fn from_agent_params_carries_activate_into_spec() {
         preset: None,
         resume_session_id: None,
         activate: Some(true),
+        structured_prompt_server: None,
     };
     let spec = SpawnPaneSpec::from_agent_params(p.clone());
     match spec.command {
