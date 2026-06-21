@@ -279,6 +279,11 @@ const HTTP_MAP: Record<string, Mapper> = {
       data: a.data,
       raw: a.raw !== false,
     }),
+  interrupt_agent: (a) =>
+    webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/write`, {
+      data: "\x1b",
+      raw: true,
+    }),
   resize_pty: (a) => {
     if (!a.clientId) return Promise.resolve({ ok: true, ignored: true });
     return webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/resize`, {

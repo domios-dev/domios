@@ -265,11 +265,21 @@ fn private_mode_split_across_chunks_is_reassembled() {
 }
 
 #[test]
-fn picker_active_on_alt_screen() {
+fn picker_inactive_on_alt_screen_alone() {
     let mut ex = SignalExtractor::new(6, 40, none_hint());
-    let s = ex.step(b"\x1b[?1049h\x1b[2J\x1b[Hmenu", 0);
+    let s = ex.step(b"\x1b[?1049h\x1b[2J\x1b[Hmenu\x1b[?25l", 0);
     assert!(s.input_mode.alt_screen);
-    assert!(s.picker_active, "alt-screen alone fires (high precision)");
+    assert!(s.input_mode.cursor_hidden);
+    assert!(
+        !s.picker_active,
+        "newly drawn alt-screen TUI must not read as a picker"
+    );
+    let quiescent = ex.step(b"", 800);
+    assert_eq!(quiescent.quiescence.kind, Motion::Still);
+    assert!(
+        !quiescent.picker_active,
+        "parked full-screen TUI with a hidden cursor must not read as a picker"
+    );
 }
 
 #[test]
@@ -293,6 +303,16 @@ fn picker_inactive_while_spinner_churns_cursor_hidden() {
     assert!(spinning.input_mode.cursor_hidden);
     assert_ne!(spinning.quiescence.kind, Motion::Still);
     assert!(!spinning.picker_active);
+}
+
+#[test]
+fn picker_inactive_on_empty_hidden_cursor_boot() {
+    let mut ex = SignalExtractor::new(6, 40, none_hint());
+    ex.step(b"\x1b[?25l", 0);
+    let idle = ex.step(b"", 500);
+    assert!(idle.input_mode.cursor_hidden);
+    assert_eq!(idle.quiescence.kind, Motion::Still);
+    assert!(!idle.picker_active);
 }
 
 #[test]
@@ -326,7 +346,7 @@ fn picker_inactive_when_bracketed_paste_even_if_cursor_hidden_and_still() {
 #[test]
 fn picker_active_clears_when_alt_screen_exits() {
     let mut ex = SignalExtractor::new(6, 40, none_hint());
-    assert!(ex.step(b"\x1b[?1049h\x1b[Hmenu", 0).picker_active);
+    assert!(!ex.step(b"\x1b[?1049h\x1b[Hmenu", 0).picker_active);
     let exited = ex.step(b"\x1b[?1049l", 100);
     assert!(!exited.input_mode.alt_screen);
     assert!(!exited.picker_active);

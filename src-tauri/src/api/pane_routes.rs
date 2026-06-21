@@ -982,8 +982,15 @@ pub async fn start_capture(
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let out = std::path::PathBuf::from(&body.out);
+    let prefill = state
+        .svc
+        .output_buf
+        .lock()
+        .get_full(&pty_id)
+        .map(|bytes| bytes.to_vec())
+        .unwrap_or_default();
     crate::pty::capture::CaptureRegistry::global()
-        .start(&pty_id, out, cols, rows, timestamp)
+        .start(&pty_id, out, cols, rows, timestamp, prefill)
         .map_err(|_| {
             (
                 StatusCode::CONFLICT,

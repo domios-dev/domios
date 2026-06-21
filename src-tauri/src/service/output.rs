@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 use std::sync::Mutex as StdMutex;
+use std::time::Duration;
 use std::time::Instant;
 
 use tauri::Emitter;
@@ -24,10 +25,67 @@ static EVENT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
 /// second per pane is plenty during the brief window before the id is found.
 static SESSION_DETECT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
-static PROMPT_SETTLE_POLL_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
+
+static AGENT_STOP_SUPPRESS_UNTIL: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
+const AGENT_STOP_SUPPRESS_MS: u64 = 1_500;
+
 impl ServiceContext {
+    pub(crate) fn mark_agent_interrupted(&self, pty_id: &str) {
+        AGENT_STOP_SUPPRESS_UNTIL.lock().unwrap().insert(
+            pty_id.to_string(),
+            Instant::now() + Duration::from_millis(AGENT_STOP_SUPPRESS_MS),
+        );
+        self.force_agent_idle_for_pty(pty_id);
+    }
+
+    fn is_agent_stop_suppressed(pty_id: &str) -> bool {
+        let now = Instant::now();
+        let mut suppressed = AGENT_STOP_SUPPRESS_UNTIL.lock().unwrap();
+        match suppressed.get(pty_id).copied() {
+            Some(until) if until > now => true,
+            Some(_) => {
+                suppressed.remove(pty_id);
+                false
+            }
+            None => false,
+        }
+    }
+
+    fn force_agent_idle_for_pty(&self, pty_id: &str) {
+        let pane_id = self.mux.read().pane_id_for_pty(pty_id);
+        if let Some(pane_id) = pane_id {
+            self.force_agent_idle_for_pane(&pane_id);
+        }
+    }
+
+    fn force_agent_idle_for_pane(&self, pane_id: &str) {
+        use crate::agent::offline_state_classifier::{AgentLiveState, PaneVerdict, TimelineState};
+
+        let idle_state: AgentLiveState = PaneVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        }
+        .into();
+        let changed = {
+            let mut mux = self.mux.write();
+            match mux.get_pane_mut(pane_id) {
+                Some(pane) if pane.agent_type.is_some() => {
+                    let changed = pane.agent_state.as_ref() != Some(&idle_state)
+                        || pane.pending_prompt.is_some();
+                    pane.agent_state = Some(idle_state);
+                    pane.pending_prompt = None;
+                    changed
+                }
+                _ => false,
+            }
+        };
+        if changed {
+            self.emit_state_changed();
+        }
+    }
+
     /// Process new PTY output: track status, detect agent events, dispatch notifications.
     /// Returns the previous and current status for the caller to emit status-change events.
     pub fn process_pty_output(&self, pty_id: &str, data: &[u8]) -> (PaneStatus, PaneStatus) {
@@ -256,12 +314,11 @@ impl ServiceContext {
                     parsed,
                 );
 
-                let should_poll_settle =
-                    has_markers && !has_active_prompt && matches!(decision, PromptDecision::None);
+                // Cards come ONLY from structured handles (opencode SSE). The
+                // raw-PTY settle-poll that re-parsed the screen was removed: it
+                // fabricated phantom cards (→ a bogus "question" / "needs your
+                // attention" state) on normal claude/codex/cursor output.
                 self.apply_prompt_decision_with_screen(&decision, clean_text.as_deref());
-                if should_poll_settle {
-                    self.schedule_prompt_settle_poll(pid.clone(), pty_id.to_string(), at.clone());
-                }
 
                 if has_markers {
                     if let Some(ref clean) = clean_text {
@@ -334,7 +391,8 @@ impl ServiceContext {
     /// scoped and dropped before the next; nothing held across the emit.
     pub(crate) fn recompute_agent_state(&self, pty_id: &str) {
         use crate::agent::offline_state_classifier::{
-            classify_state, AgentLiveState, ClassifyInput, PaneVerdict, TimelineState,
+            classify_state, extract_completion_summary, extract_status_line, AgentLiveState,
+            ClassifyInput, PaneVerdict, TimelineState,
         };
         use crate::agent::signal_extractor::Motion;
 
@@ -353,6 +411,7 @@ impl ServiceContext {
             let prompt_question = pane.pending_prompt.as_ref().map(|p| p.question.clone());
             let previous = pane
                 .agent_state
+                .clone()
                 .map(PaneVerdict::from)
                 .unwrap_or(PaneVerdict {
                     state: TimelineState::Idle,
@@ -360,14 +419,24 @@ impl ServiceContext {
                 });
             (pane_id, prompt_question, previous)
         };
+        if Self::is_agent_stop_suppressed(pty_id) {
+            self.force_agent_idle_for_pane(&pane_id);
+            return;
+        }
 
         // screen_state (3): trimmed lines + tail from the existing parser.
         const LIVE_TAIL_ROWS: usize = 60;
-        let Some((lines, tail)) = self
-            .screen_state
-            .lock()
-            .lines_and_tail(pty_id, LIVE_TAIL_ROWS)
-        else {
+        let Some((lines, tail, cursor_hidden)) = ({
+            let screen_state = self.screen_state.lock();
+            let Some((lines, tail)) = screen_state.lines_and_tail(pty_id, LIVE_TAIL_ROWS) else {
+                return;
+            };
+            let cursor_hidden = screen_state
+                .native_prompt_input(pty_id)
+                .map(|input| input.cursor_hidden)
+                .unwrap_or(false);
+            Some((lines, tail, cursor_hidden))
+        }) else {
             return;
         };
 
@@ -386,16 +455,34 @@ impl ServiceContext {
                 byte_idle_ms,
                 semantic_idle_ms,
                 motion: Motion::Still,
+                cursor_hidden,
             },
             previous,
         );
-        let new_state: AgentLiveState = verdict.into();
+        let mut new_state: AgentLiveState = verdict.into();
+        // Surface the live status/progress line while working (UI shows it verbatim);
+        // when idle, surface the completed-turn summary as a muted secondary line.
+        match new_state.state {
+            TimelineState::Working => {
+                if let Some(status) = extract_status_line(&lines) {
+                    new_state.status_line = Some(status.line);
+                    new_state.phase = status.phase;
+                    new_state.elapsed_ms = status.elapsed_ms;
+                }
+            }
+            TimelineState::Idle => {
+                if let Some(summary) = extract_completion_summary(&lines) {
+                    new_state.last_turn_summary = Some(summary.line);
+                }
+            }
+            TimelineState::Question => {}
+        }
 
         // mux (1): store if changed.
         let changed = {
             let mut mux = self.mux.write();
             match mux.get_pane_mut(&pane_id) {
-                Some(pane) if pane.agent_state != Some(new_state) => {
+                Some(pane) if pane.agent_state.as_ref() != Some(&new_state) => {
                     pane.agent_state = Some(new_state);
                     true
                 }
@@ -507,56 +594,6 @@ impl ServiceContext {
             self.set_agent_session_id(pane_id, Some(sid));
             self.emit_state_changed();
         }
-    }
-
-    fn schedule_prompt_settle_poll(&self, pane_id: String, pty_id: String, _agent_type: String) {
-        {
-            let mut cd = PROMPT_SETTLE_POLL_COOLDOWN.lock().unwrap();
-            let now = Instant::now();
-            if let Some(last) = cd.get(&pane_id) {
-                if now.duration_since(*last) < std::time::Duration::from_secs(2) {
-                    return;
-                }
-            }
-            cd.insert(pane_id.clone(), now);
-        }
-
-        let svc = self.clone();
-        std::thread::spawn(move || {
-            for delay_ms in [120u64, 240, 400, 700, 1000] {
-                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                if svc
-                    .mux
-                    .read()
-                    .get_pane(&pane_id)
-                    .and_then(|p| p.pending_prompt.as_ref())
-                    .is_some()
-                {
-                    return;
-                }
-                let Some(screen) = svc.screen_state.lock().get_screen_text(&pty_id) else {
-                    continue;
-                };
-                let parsed = crate::agent::prompt::parse_prompt_safely(|| {
-                    svc.screen_state
-                        .lock()
-                        .native_prompt_input(&pty_id)
-                        .as_ref()
-                        .and_then(crate::agent::native_prompt::pending_prompt_from_input)
-                });
-                if parsed.is_none() {
-                    continue;
-                }
-                let decision = svc
-                    .prompt_detector
-                    .lock()
-                    .evaluate_pty_output_parsed(&pane_id, true, true, parsed);
-                svc.apply_prompt_decision_with_screen(&decision, Some(&screen));
-                if !matches!(decision, PromptDecision::None) {
-                    return;
-                }
-            }
-        });
     }
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowUpCircle,
@@ -7,13 +7,15 @@ import {
   KeyRound,
   Layers,
   ShieldQuestion,
+  Square,
+  Terminal,
   Timer,
+  X,
 } from "lucide-react";
 
 // The live state of a pane's agent, as a single small shape. `subtype` only
-// carries meaning for the `question` state; the others ignore it. The component
-// is built to render the full shape now even though the backend signal that
-// drives every branch is wired separately.
+// carries meaning for the `question` state; `phase`/`status_line`/`elapsed_ms`
+// only for `working`; `last_turn_summary` only for `idle`.
 export type AgentStateKind = "working" | "idle" | "question";
 
 export type AgentQuestionSubtype =
@@ -29,19 +31,12 @@ export type AgentQuestionSubtype =
 export interface AgentState {
   state: AgentStateKind;
   subtype?: AgentQuestionSubtype;
+  status_line?: string | null;
+  last_turn_summary?: string | null;
+  phase?: string | null;
+  elapsed_ms?: number | null;
   /** Idle for long enough that the pane reads as dormant rather than just done. */
   longIdle?: boolean;
-}
-
-// A handful of working verbs so identical adjacent panes don't read as one
-// stuck label. Deterministic per pane — not animated cycling, which reads busy.
-const WORKING_VERBS = ["Working", "Thinking", "Reasoning", "Cooking", "Crunching"] as const;
-
-function workingVerb(seed: string | undefined): string {
-  if (!seed) return WORKING_VERBS[0];
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
-  return WORKING_VERBS[Math.abs(h) % WORKING_VERBS.length];
 }
 
 type Tone = "accent" | "warn" | "info" | "danger" | "ok";
@@ -132,98 +127,184 @@ function questionCopy(subtype: AgentQuestionSubtype | undefined): QuestionCopy {
   }
 }
 
-// Block cursor — the unifying signature across every state. Class drives the
-// motion (breathe / blink / steady); colour comes from the caller's context.
-function Cursor({ variant, color }: { variant: "work" | "idle" | "rest" | "solid"; color: string }) {
-  const cls =
-    variant === "work"
-      ? "ct-agent-cursor ct-agent-cursor-work"
-      : variant === "idle"
-        ? "ct-agent-cursor ct-agent-cursor-idle"
-        : variant === "rest"
-          ? "ct-agent-cursor ct-agent-cursor-rest"
-          : "ct-agent-cursor";
-  return <span aria-hidden className={cls} style={{ color }} />;
+// Steady caret beside the question title — the one place the block cursor remains.
+function Cursor({ color }: { color: string }) {
+  return <span aria-hidden className="ct-agent-cursor" style={{ color }} />;
 }
 
-// Inline, in-canvas agent state line. Never a bubble — it sits in the
-// conversation flow as the pane's live pulse. Accessible: announced politely,
-// motion is CSS-gated by prefers-reduced-motion.
+// The working sub-phase (best-effort) morphs the dots' rhythm + hue; it never
+// changes the state.
+type WorkPhase = "thinking" | "streaming" | "work";
+const STATUS_MESSAGE_MAX_CHARS = 80;
+
+function workPhaseOf(phase: string | null | undefined): WorkPhase {
+  return phase === "thinking" || phase === "streaming" ? phase : "work";
+}
+
+function compactStatusMessage(text: string): string {
+  const chars = Array.from(text);
+  if (chars.length <= STATUS_MESSAGE_MAX_CHARS) return text;
+  return `${chars.slice(0, STATUS_MESSAGE_MAX_CHARS - 1).join("").trimEnd()}…`;
+}
+
+// Hold a phase until a NEW one has been stable for `dwellMs`. The live signal
+// flips as the status widget appears/disappears mid-turn; without this the dots
+// would strobe. Combined with eased CSS, phase changes read calm.
+function useStablePhase(phase: WorkPhase, dwellMs = 700): WorkPhase {
+  const [shown, setShown] = useState(phase);
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  useEffect(() => {
+    if (phase === shownRef.current) return;
+    const t = setTimeout(() => setShown(phase), dwellMs);
+    return () => clearTimeout(t);
+  }, [phase, dwellMs]);
+  return shown;
+}
+
+// Inline, in-canvas agent state line. Working and idle share ONE persistent row
+// so the transition flows: the three dots keep their slot and SETTLE into one
+// resting dot on idle (no icon swap, no horizontal jump), and the message
+// crossfades only on the state change — not on every status tick.
 export function AgentStateIndicator({
   state,
-  paneSeed,
   className,
+  onStop,
+  onCancel,
+  onOpenTerminal,
 }: {
   state: AgentState;
-  /** Stable per-pane string used only to vary the working verb. */
-  paneSeed?: string;
   className?: string;
+  /** Interrupt the working agent (PTY panes only). Renders a Stop control while
+   *  working when provided. */
+  onStop?: () => void;
+  /** Cancel a terminal-side question/picker (PTY panes only). */
+  onCancel?: () => void;
+  /** Reveal the live terminal — the only place to answer a structural question
+   *  that has no inline card. Renders an 'Open terminal' control while
+   *  questioning when provided. */
+  onOpenTerminal?: () => void;
 }) {
-  if (state.state === "working") {
-    const verb = workingVerb(paneSeed);
+  const isWorking = state.state === "working";
+  const summary = state.last_turn_summary?.trim();
+  // Hook runs every render (rules of hooks); only meaningful while working.
+  const phase = useStablePhase(isWorking ? workPhaseOf(state.phase) : "work");
+
+  if (state.state === "question") {
+    const copy = questionCopy(state.subtype);
+    const color = toneColor(copy.tone);
     return (
       <div
-        className={`flex items-center gap-2 py-1.5 ${className ?? ""}`}
+        className={`ct-agent-question-in mt-2 flex items-start gap-2.5 rounded-lg px-3 py-2.5 ${className ?? ""}`}
         data-testid="agent-state"
-        data-agent-state="working"
+        data-agent-state="question"
+        data-agent-subtype={state.subtype ?? "unknown"}
         role="status"
         aria-live="polite"
-        aria-label={`Agent ${verb.toLowerCase()}`}
+        style={{
+          background: `color-mix(in srgb, ${color} 9%, var(--ct-surface, #161b22))`,
+          border: `1px solid color-mix(in srgb, ${color} 32%, transparent)`,
+          borderLeft: `3px solid ${color}`,
+        }}
       >
-        <Cursor variant="work" color="var(--ct-accent, #58a6ff)" />
         <span
-          className="ct-agent-shimmer text-sm font-medium tracking-tight"
-          style={{ fontFamily: "var(--ct-font-mono)" }}
+          aria-hidden
+          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+          style={{ background: `color-mix(in srgb, ${color} 16%, transparent)`, color }}
         >
-          {verb}
-          <span className="opacity-70">…</span>
+          {copy.icon}
         </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-semibold leading-tight" style={{ color: "var(--ct-fg)" }}>
+              {copy.title}
+            </span>
+            <Cursor color={color} />
+          </div>
+          <p className="mt-0.5 text-xs leading-snug" style={{ color: "var(--ct-muted-fg)" }}>
+            {copy.hint}
+          </p>
+          {(onOpenTerminal || onCancel) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {onOpenTerminal && (
+                <button
+                  type="button"
+                  data-testid="agent-open-terminal"
+                  onClick={onOpenTerminal}
+                  className="ct-agent-open-term inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium"
+                  style={{
+                    color,
+                    border: `1px solid color-mix(in srgb, ${color} 38%, transparent)`,
+                    background: `color-mix(in srgb, ${color} 12%, transparent)`,
+                  }}
+                >
+                  <Terminal size={13} strokeWidth={2} aria-hidden />
+                  Open terminal
+                </button>
+              )}
+              {onCancel && (
+                <button
+                  type="button"
+                  data-testid="agent-cancel-question"
+                  onClick={onCancel}
+                  className="ct-agent-cancel inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium"
+                  aria-label="Cancel the terminal question"
+                  title="Cancel the terminal question"
+                >
+                  <X size={13} strokeWidth={2} aria-hidden />
+                  Cancel
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
-  // IDLE renders nothing — "your turn" is the default, no status chrome needed.
-  if (state.state === "idle") {
-    return null;
-  }
+  // Idle with nothing to report → render nothing (your turn).
+  if (!isWorking && !summary) return null;
 
-  const copy = questionCopy(state.subtype);
-  const color = toneColor(copy.tone);
+  const text = isWorking ? state.status_line?.trim() || "Working" : (summary ?? "");
+  const visibleText = compactStatusMessage(text);
   return (
     <div
-      className={`ct-agent-question-in mt-2 flex items-start gap-2.5 rounded-lg px-3 py-2.5 ${className ?? ""}`}
+      className={`ct-agent-row flex items-center gap-2 py-1 ${className ?? ""}`}
       data-testid="agent-state"
-      data-agent-state="question"
-      data-agent-subtype={state.subtype ?? "unknown"}
+      data-agent-state={isWorking ? "working" : "idle"}
+      data-agent-phase={phase}
       role="status"
       aria-live="polite"
-      style={{
-        background: `color-mix(in srgb, ${color} 9%, var(--ct-surface, #161b22))`,
-        border: `1px solid color-mix(in srgb, ${color} 32%, transparent)`,
-        borderLeft: `3px solid ${color}`,
-      }}
+      aria-label={`Agent ${text}`}
     >
-      <span
-        aria-hidden
-        className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-        style={{
-          background: `color-mix(in srgb, ${color} 16%, transparent)`,
-          color,
-        }}
-      >
-        {copy.icon}
+      <span aria-hidden className="ct-phase-dots">
+        <i />
+        <i />
+        <i />
       </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="text-sm font-semibold leading-tight" style={{ color: "var(--ct-fg)" }}>
-            {copy.title}
-          </span>
-          <Cursor variant="solid" color={color} />
-        </div>
-        <p className="mt-0.5 text-xs leading-snug" style={{ color: "var(--ct-muted-fg)" }}>
-          {copy.hint}
-        </p>
-      </div>
+      {/* keyed by state (not text) so it fades in on working↔idle, never on a status tick */}
+      <span
+        key={isWorking ? "working" : "idle"}
+        className="ct-agent-msg min-w-0 flex-1 truncate text-sm font-medium tracking-tight"
+        style={{ fontFamily: "var(--ct-font-mono)" }}
+        title={text}
+      >
+        {visibleText}
+        {isWorking && !state.status_line && <span className="opacity-70">…</span>}
+      </span>
+      {isWorking && onStop && (
+        <button
+          type="button"
+          data-testid="agent-stop"
+          onClick={onStop}
+          className="ct-agent-stop shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium"
+          aria-label="Stop the agent"
+          title="Stop the agent"
+        >
+          <Square size={9} strokeWidth={0} fill="currentColor" aria-hidden />
+          Stop
+        </button>
+      )}
     </div>
   );
 }

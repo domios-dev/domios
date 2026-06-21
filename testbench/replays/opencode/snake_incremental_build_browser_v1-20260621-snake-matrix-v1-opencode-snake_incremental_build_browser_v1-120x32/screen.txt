@@ -1,0 +1,27 @@
+┃    129 +   playGameOverSound();                                                                                     
+  ┃    130     msgEl.textContent = 'game over! press space to restart';                                                 
+  ┃    131     return;                                                                                                  
+  ┃    132   }                                                                                                          
+  ┃    133                                                                                                              
+  ┃    134   if (snake.some(s => s.x === head.x && s.y === head.y)) {                                                   
+  ┃    135     gameOver = true;                                                                                         
+  ┃    136 +   playGameOverSound();                                                                                     
+  ┃    137     msgEl.textContent = 'game over! press space to restart';                                                 
+  ┃    138     return;                                                                                                  
+  ┃    139   }                                                                                                          
+  ┃    140                                                                                                              
+  ┃                                                                                                                     
+     + Thought: 367ms                                                                                                   
+     ← Edit ~/scratch/snake.html                                                                                        
+     ▣  Build · DeepSeek V4 Flash Free                                                                                  
+  ┃                                                                                                                     
+  ┃  △ Permission required                                                                                              
+  ┃    ← Access external directory ~/scratch                                                                            
+  ┃                                                                                                                     
+  ┃  Patterns                                                                                                           
+  ┃                                                                                                                     
+  ┃  - /Users/kandrey/scratch/*                                                                                         
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃   Allow once   Allow always   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm     
+  ┃

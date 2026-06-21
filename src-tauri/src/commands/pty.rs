@@ -547,6 +547,14 @@ pub async fn write_pty_string(
     }
 }
 
+#[tauri::command]
+pub async fn interrupt_agent(
+    svc: tauri::State<'_, ServiceState>,
+    pty_id: String,
+) -> Result<(), String> {
+    write_pty_string_core(&svc, pty_id, "\x1b".to_string())
+}
+
 /// Deliver an agent's initial launch command via the no-verify launch writer
 /// (no agent TUI exists pre-boot). poll_shell_prompt blocks → off the runtime.
 #[tauri::command]
@@ -576,6 +584,12 @@ pub fn write_pty_string_core(
     let bytes = data.into_bytes();
     parse_pty_input(svc, &svc.mux, &pty_id, &bytes);
     mark_user_activity(svc, &svc.mux, &pty_id);
+    crate::pty::capture::CaptureRegistry::global().tap_input(
+        &pty_id,
+        "write_pty_string_core",
+        &bytes,
+    );
+    mark_manual_agent_interrupt(svc, &pty_id, &bytes);
     session.write_queue.send(bytes)
 }
 
@@ -595,7 +609,15 @@ pub async fn write_pty(
     };
     parse_pty_input(&svc, &mux_state, &pty_id, &data);
     mark_user_activity(&svc, &mux_state, &pty_id);
+    crate::pty::capture::CaptureRegistry::global().tap_input(&pty_id, "write_pty", &data);
+    mark_manual_agent_interrupt(&svc, &pty_id, &data);
     session.write_queue.send(data)
+}
+
+fn mark_manual_agent_interrupt(svc: &ServiceState, pty_id: &str, bytes: &[u8]) {
+    if bytes == b"\x1b" {
+        svc.mark_agent_interrupted(pty_id);
+    }
 }
 
 fn mark_user_activity(

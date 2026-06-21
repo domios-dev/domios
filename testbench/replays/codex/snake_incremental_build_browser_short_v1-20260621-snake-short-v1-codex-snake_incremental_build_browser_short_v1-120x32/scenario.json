@@ -1,0 +1,124 @@
+{
+  "id": "snake_incremental_build_browser_short_v1",
+  "title": "Build and iterate a single-file browser Snake game (short gating slice)",
+  "providers": [
+    "opencode",
+    "codex",
+    "cursor"
+  ],
+  "workspace_setup": {
+    "files": [],
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    }
+  },
+  "pacing": {
+    "strategy": "adaptive_stability",
+    "min_dwell_ms": 1200,
+    "stability_quiet_ms": 2500,
+    "max_wait_ms": 180000,
+    "tolerate_volatile_rows": true
+  },
+  "turns": [
+    {
+      "n": 1,
+      "user": "Create a minimal but complete browser Snake game in a single self-contained snake.html file (inline CSS + JS, canvas, no external assets or libraries). Just create the file.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      }
+    },
+    {
+      "n": 2,
+      "user": "Add arrow-key and WASD controls and a visible score in the top-left.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      }
+    },
+    {
+      "n": 3,
+      "user": "Add pause/resume on the spacebar and a restart button below the canvas.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      }
+    },
+    {
+      "n": 4,
+      "user": "Make the snake speed up a little every 5 points.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      }
+    },
+    {
+      "n": 5,
+      "user": "Add a start screen with three difficulty buttons: Easy, Normal, Hard.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      }
+    },
+    {
+      "n": 6,
+      "user": "Add an optional wall-wrap mode toggled by a checkbox on the start screen.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      }
+    },
+    {
+      "n": 7,
+      "user": "Persist the high score in localStorage and show it next to the current score.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      }
+    },
+    {
+      "n": 8,
+      "user": "Before coding more, explain in prose the options you'd consider for mobile controls. Give a numbered list and end by asking which I'd like — but do not open any interactive menu, just plain text.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "prose_question_and_list"
+      }
+    }
+  ],
+  "stop": {
+    "after_final_idle_ms": 3000
+  },
+  "oracle": {
+    "forbid_card_on_all_negative_frames": true,
+    "require_status_line_during_working": true,
+    "expected_status_phases": [
+      "working"
+    ]
+  }
+}

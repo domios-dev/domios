@@ -6,6 +6,7 @@ use super::signal_extractor::{Motion, SignalExtractor, StreamSignals, VolatileHi
 pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;
 pub const DONE_MS: u64 = 800;
+const WORKING_GRACE_MS: u64 = 1500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -71,11 +72,24 @@ pub struct PaneVerdict {
 /// pane (runtime-only, recomputed from output) and serialized into the mux
 /// snapshot so the chat view's state indicator renders it. Field names/casing
 /// mirror the frontend `AgentState` shape.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentLiveState {
     pub state: TimelineState,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subtype: Option<QuestionSubtype>,
+    /// The agent's live status/progress line, surfaced verbatim by the chat UI
+    /// while working (see [`extract_status_line`]). Only set in `Working`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_line: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u64>,
+    /// Completed-turn summary (e.g. "Churned for 1m 37s"), shown as a muted
+    /// secondary line while idle. Set only in `Idle`; distinct from the active
+    /// `status_line`. See [`extract_completion_summary`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_turn_summary: Option<String>,
 }
 
 impl From<AgentLiveState> for PaneVerdict {
@@ -92,6 +106,10 @@ impl From<PaneVerdict> for AgentLiveState {
         AgentLiveState {
             state: v.state,
             subtype: v.subtype,
+            status_line: None,
+            phase: None,
+            elapsed_ms: None,
+            last_turn_summary: None,
         }
     }
 }
@@ -117,12 +135,15 @@ pub struct ClassifyInput<'a> {
     /// Mechanical motion verdict (offline supplies the real kind; the live path
     /// passes `Still` and relies on `byte_idle_ms`).
     pub motion: Motion,
+    /// Current VT cursor visibility. Used only for parked terminal menus; normal
+    /// prose with numbered lists must not become a question.
+    pub cursor_hidden: bool,
 }
 
 /// The 3-state classification core — the ONE place the verdict is decided.
 ///
-/// Order: picker question → text question → working (bytes flowing) → idle
-/// (quiet, settled, composer ready) → hold previous (ambiguous middle).
+/// Order: picker question → structural working → parked terminal-menu question
+/// → text question → idle (quiet, settled, composer ready) → hold previous.
 pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdict {
     // 1. Structured picker (API/SSE) -> question. The only card source; reliable.
     if let Some(question) = input.picker_question {
@@ -132,14 +153,23 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    // 2. Actively producing output -> working. Checked BEFORE the console text-question
-    //    scan so a mid-stream mention of "rate limit"/"log in" can never false-fire a
-    //    question while the agent is still typing.
-    if input.byte_idle_ms < WAIT_MS || matches!(input.motion, Motion::Streaming | Motion::Animating)
+    // 2. Structurally active turn -> working. Do not treat raw PTY bytes as work:
+    // composer redraws and bracketed-paste echoes are PTY output too.
+    if extract_status_line(input.screen_lines).is_some()
+        || active_turn_footer(input.screen_lines)
+        || matches!(input.motion, Motion::Streaming | Motion::Animating)
     {
         return PaneVerdict {
             state: TimelineState::Working,
             subtype: None,
+        };
+    }
+
+    if let Some(subtype) = classify_terminal_menu_question(input.screen_lines, input.cursor_hidden)
+    {
+        return PaneVerdict {
+            state: TimelineState::Question,
+            subtype: Some(subtype),
         };
     }
 
@@ -152,9 +182,16 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    if input.semantic_idle_ms >= DONE_MS && ready_prompt(input.screen_lines) {
+    if ready_prompt(input.screen_lines) {
         return PaneVerdict {
             state: TimelineState::Idle,
+            subtype: None,
+        };
+    }
+
+    if previous.state == TimelineState::Working && input.semantic_idle_ms < WORKING_GRACE_MS {
+        return PaneVerdict {
+            state: TimelineState::Working,
             subtype: None,
         };
     }
@@ -278,9 +315,94 @@ fn classify_signals(
             byte_idle_ms: signals.quiescence.byte_idle_ms,
             semantic_idle_ms: signals.quiescence.semantic_idle_ms,
             motion: signals.quiescence.kind,
+            cursor_hidden: signals.input_mode.cursor_hidden,
         },
         previous,
     )
+}
+
+pub fn classify_terminal_menu_question(
+    screen_lines: &[String],
+    cursor_hidden: bool,
+) -> Option<QuestionSubtype> {
+    if !cursor_hidden {
+        return None;
+    }
+    let mut selected = 0usize;
+    let mut numbered = 0usize;
+    let mut checkbox = 0usize;
+    for line in screen_lines {
+        let (marked, unmarked) = terminal_menu_payload(line);
+        if numbered_menu_line(unmarked) {
+            if marked {
+                selected += 1;
+            }
+            numbered += 1;
+        }
+        if checkbox_menu_line(unmarked) {
+            checkbox += 1;
+        }
+    }
+    let has_choice_footer = choice_key_footer(screen_lines);
+    ((selected == 1 && numbered >= 2)
+        || (numbered >= 2 && has_choice_footer)
+        || (checkbox >= 2 && has_choice_footer))
+        .then_some(QuestionSubtype::Unknown)
+}
+
+fn terminal_menu_payload(line: &str) -> (bool, &str) {
+    let mut trimmed = line.trim_start();
+    if let Some(rest) = trimmed
+        .strip_prefix('│')
+        .or_else(|| trimmed.strip_prefix('┃'))
+    {
+        trimmed = rest.trim_start();
+    }
+    let marked = trimmed.starts_with('›') || trimmed.starts_with('❯');
+    if let Some(rest) = trimmed
+        .strip_prefix('›')
+        .or_else(|| trimmed.strip_prefix('❯'))
+    {
+        trimmed = rest.trim_start();
+    }
+    (marked, trimmed)
+}
+
+fn numbered_menu_line(line: &str) -> bool {
+    let line = line.trim_start();
+    let mut chars = line.chars().peekable();
+    let mut digits = 0usize;
+    while matches!(chars.peek(), Some(c) if c.is_ascii_digit()) {
+        digits += 1;
+        chars.next();
+    }
+    digits > 0 && matches!(chars.next(), Some('.'))
+}
+
+fn checkbox_menu_line(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with("[ ]")
+        || line.starts_with("[x]")
+        || line.starts_with("[X]")
+        || line.starts_with("( )")
+        || line.starts_with("(x)")
+        || line.starts_with("(X)")
+}
+
+fn choice_key_footer(screen_lines: &[String]) -> bool {
+    screen_lines.iter().rev().take(8).any(|line| {
+        let line = line.trim();
+        let lower = line.to_lowercase();
+        let has_navigation = line.contains('↑')
+            || line.contains('↓')
+            || line.contains('←')
+            || line.contains('→')
+            || lower.contains("space");
+        let has_submit = lower.contains("enter") && lower.contains("submit");
+        let has_escape =
+            lower.contains("esc") && (lower.contains("dismiss") || lower.contains("skip"));
+        has_navigation && has_submit && has_escape
+    })
 }
 
 fn classify_question_subtype(_tail: &str, question: &str) -> QuestionSubtype {
@@ -376,38 +498,380 @@ fn contains_any(text: &str, needles: &[&str]) -> bool {
 }
 
 fn ready_prompt(screen_lines: &[String]) -> bool {
-    let visible = screen_lines
-        .iter()
-        .rev()
-        .take(8)
-        .map(|line| line.trim())
-        .collect::<Vec<_>>();
-    let bottom = visible.join("\n").to_lowercase();
-    let busy = [
-        "esc to interrupt",
-        "ctrl+c to stop",
-        "running",
-        "thinking",
-        "composing",
-        "editing",
-        "reading",
-        "globbing",
-        "booting",
-    ]
-    .iter()
-    .any(|needle| bottom.contains(needle));
-    if busy {
+    if active_turn_footer(screen_lines) || extract_status_line(screen_lines).is_some() {
         return false;
     }
-    let composer_visible = screen_lines.iter().any(|line| {
+    screen_lines.iter().rev().take(4).any(|line| {
         let line = line.trim();
-        line.starts_with('❯')
-            || line.starts_with('›')
-            || line.starts_with("→ add a follow-up")
-            || line.starts_with("→ plan, search, build anything")
-            || line.contains("ctrl+p commands")
-    });
-    composer_visible
+        line.starts_with('❯') || line.starts_with('›')
+    })
+}
+
+fn active_turn_footer(screen_lines: &[String]) -> bool {
+    let nonempty: Vec<&str> = screen_lines
+        .iter()
+        .map(|r| r.trim())
+        .filter(|r| !r.is_empty())
+        .collect();
+    nonempty.iter().rev().take(8).any(|line| {
+        let trimmed = line.trim();
+        let lower = trimmed.to_lowercase();
+        let has_interrupt_hint =
+            lower.contains("esc to interrupt") || lower.contains("esc interrupt");
+        let has_stop_hint = lower.contains("ctrl+c to stop");
+        (trimmed.starts_with("⏵⏵") && has_interrupt_hint)
+            || (has_interrupt_hint && has_progress_meter_shape(trimmed))
+            || (has_interrupt_hint && parse_elapsed_ms(trimmed).is_some())
+            || (trimmed.starts_with('→') && has_stop_hint)
+    })
+}
+
+/// A live status/progress widget extracted from the rendered screen — the line
+/// the UI surfaces verbatim while the agent works (e.g. claude's
+/// `Swooping… (6m 24s · ↓ 29.8k tokens · still thinking with high effort)`).
+/// Provider-tuned today; generalized via the replay loop.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StatusLine {
+    pub line: String,
+    pub phase: Option<String>,
+    pub elapsed_ms: Option<u64>,
+}
+
+const STATUS_SPINNERS: &[char] = &['✻', '✳', '✢', '✶', '✷', '✺', '✽', '●', '∗', '⋆'];
+const STATUS_MESSAGE_MAX_CHARS: usize = 80;
+
+fn compact_status_message(line: &str) -> String {
+    let mut out = String::new();
+    for (idx, ch) in line.chars().enumerate() {
+        if idx >= STATUS_MESSAGE_MAX_CHARS {
+            out.push('…');
+            return out;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn is_braille_spinner(c: char) -> bool {
+    ('\u{2800}'..='\u{28ff}').contains(&c)
+}
+
+fn has_progress_meter_shape(row: &str) -> bool {
+    row.chars()
+        .take(24)
+        .filter(|c| matches!(c, '■' | '⬝' | '▰' | '▱' | '─' | '━' | '·'))
+        .count()
+        >= 3
+}
+
+/// Sum every `<digits><h|m|s>` token inside the first `(...)` group → ms.
+/// Handles `(2s`, `(12s`, `(3m 54s`, `(1h 02m 10s`; ignores `↓ 17.0k tokens`.
+fn parse_elapsed_ms(row: &str) -> Option<u64> {
+    let open = row.find('(')?;
+    let rest = &row[open + 1..];
+    let end = rest.find(')').unwrap_or(rest.len());
+    let inner = &rest[..end];
+    let b = inner.as_bytes();
+    let mut i = 0;
+    let mut total = 0u64;
+    let mut found = false;
+    while i < b.len() {
+        if b[i].is_ascii_digit() {
+            let s = i;
+            while i < b.len() && b[i].is_ascii_digit() {
+                i += 1;
+            }
+            let mult = match b.get(i) {
+                Some(b'h') => 3_600_000,
+                Some(b'm') => 60_000,
+                Some(b's') => 1_000,
+                _ => 0,
+            };
+            if mult > 0 {
+                if let Ok(n) = inner[s..i].parse::<u64>() {
+                    total += n * mult;
+                    found = true;
+                }
+                i += 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if found {
+        Some(total)
+    } else {
+        None
+    }
+}
+
+/// Scan the bottom band of the rendered screen for the live status widget. A row
+/// qualifies ONLY with the structural signature — an ellipsis plus a timer or
+/// token meter, or a strong spinner plus a timer — so ordinary prose and the
+/// persistent mode line (`⏵⏵ auto mode … esc to interrupt`, which has neither)
+/// never read as a status line. Validated on a 15-turn claude cast: 90% coverage
+/// while working, zero false positives. The leading spinner glyph is stripped for
+/// a clean UI line.
+pub fn extract_status_line(screen_lines: &[String]) -> Option<StatusLine> {
+    if let Some(status) = extract_opencode_status_line(screen_lines) {
+        return Some(status);
+    }
+    if let Some(status) = extract_structural_status_line(screen_lines) {
+        return Some(status);
+    }
+    // The last 16 NON-EMPTY rows: the widget can sit above blank input-box padding,
+    // so counting blanks would shrink the real window.
+    let nonempty: Vec<&str> = screen_lines
+        .iter()
+        .map(|r| r.trim_end())
+        .filter(|r| !r.is_empty())
+        .collect();
+    let start = nonempty.len().saturating_sub(16);
+    for row in nonempty[start..].iter().rev() {
+        let row = *row;
+        let has_ellipsis = row.contains('…') || row.contains("...");
+        let elapsed_ms = parse_elapsed_ms(row);
+        let has_token = row.to_lowercase().contains("tok");
+        let strong_spinner = row.chars().any(|c| STATUS_SPINNERS.contains(&c));
+        let is_widget = (has_ellipsis && (elapsed_ms.is_some() || has_token))
+            || (strong_spinner && elapsed_ms.is_some());
+        if !is_widget {
+            continue;
+        }
+        let phase = status_phase_from_meter(row);
+        let line = row.trim_start_matches(|c: char| {
+            STATUS_SPINNERS.contains(&c) || c == '·' || c.is_whitespace()
+        });
+        return Some(StatusLine {
+            line: compact_status_message(line),
+            phase: Some(phase.to_string()),
+            elapsed_ms,
+        });
+    }
+    None
+}
+
+fn extract_structural_status_line(screen_lines: &[String]) -> Option<StatusLine> {
+    if !active_turn_footer(screen_lines) {
+        return None;
+    }
+    let nonempty: Vec<&str> = screen_lines
+        .iter()
+        .map(|r| r.trim())
+        .filter(|r| !r.is_empty())
+        .collect();
+    let start = nonempty.len().saturating_sub(14);
+    for row in nonempty[start..].iter().rev() {
+        if let Some(status) = extract_braille_status_row(row) {
+            return Some(status);
+        }
+        if let Some(status) = extract_elapsed_interrupt_status_row(row) {
+            return Some(status);
+        }
+    }
+    None
+}
+
+fn extract_braille_status_row(row: &str) -> Option<StatusLine> {
+    let trimmed = row.trim_start();
+    let mut chars = trimmed.char_indices().peekable();
+    let mut end = 0usize;
+    let mut count = 0usize;
+    while let Some((idx, ch)) = chars.peek().copied() {
+        if ch.is_whitespace() {
+            end = idx + ch.len_utf8();
+            chars.next();
+            continue;
+        }
+        if is_braille_spinner(ch) {
+            end = idx + ch.len_utf8();
+            count += 1;
+            chars.next();
+            continue;
+        }
+        break;
+    }
+    if count == 0 {
+        return None;
+    }
+    let line = trimmed[end..].trim();
+    if line.is_empty() || line.len() > 80 {
+        return None;
+    }
+    Some(StatusLine {
+        line: compact_status_message(line),
+        phase: Some("work".to_string()),
+        elapsed_ms: None,
+    })
+}
+
+fn extract_elapsed_interrupt_status_row(row: &str) -> Option<StatusLine> {
+    let trimmed = row.trim();
+    let lower = trimmed.to_lowercase();
+    if !(lower.contains("esc to interrupt") || lower.contains("esc interrupt")) {
+        return None;
+    }
+    let elapsed_ms = parse_elapsed_ms(trimmed)?;
+    let line = trimmed
+        .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '•' | '*' | '-' | '·' | '●'))
+        .to_string();
+    if line.is_empty() || line.len() > 100 {
+        return None;
+    }
+    Some(StatusLine {
+        line: compact_status_message(&line),
+        phase: Some("work".to_string()),
+        elapsed_ms: Some(elapsed_ms),
+    })
+}
+
+fn status_phase_from_meter(row: &str) -> &'static str {
+    let _ = row;
+    "work"
+}
+
+fn extract_opencode_status_line(screen_lines: &[String]) -> Option<StatusLine> {
+    if !active_turn_footer(screen_lines) {
+        return None;
+    }
+    let nonempty: Vec<&str> = screen_lines
+        .iter()
+        .map(|r| r.trim())
+        .filter(|r| !r.is_empty())
+        .collect();
+    let start = nonempty.len().saturating_sub(14);
+    let mut fallback = None;
+    for row in nonempty[start..].iter().rev() {
+        let row = *row;
+        if is_opencode_chrome_row(row) {
+            continue;
+        }
+        let Some((phase, trimmed)) = strip_opencode_status_prefix(row) else {
+            continue;
+        };
+        if trimmed.is_empty() || trimmed.len() > 80 {
+            continue;
+        }
+        let status = StatusLine {
+            line: compact_status_message(trimmed),
+            phase: Some(phase.clone()),
+            elapsed_ms: None,
+        };
+        if phase == "work" {
+            fallback.get_or_insert(status);
+            continue;
+        }
+        return Some(status);
+    }
+    fallback
+}
+
+fn is_opencode_chrome_row(row: &str) -> bool {
+    let trimmed = row.trim_start();
+    let lower = trimmed.to_lowercase();
+    if lower.contains("esc to interrupt") || lower.contains("esc interrupt") {
+        return true;
+    }
+    trimmed.starts_with('┃')
+        || trimmed.starts_with('╹')
+        || trimmed.starts_with('│')
+        || trimmed
+            .chars()
+            .all(|c| c.is_whitespace() || matches!(c, '─' | '━' | '╹' | '╺' | '╸'))
+}
+
+fn strip_opencode_status_prefix(row: &str) -> Option<(String, &str)> {
+    let trimmed = row.trim_start();
+    let mut chars = trimmed.char_indices();
+    let (_, first) = chars.next()?;
+    let phase = if is_braille_spinner(first) {
+        "thinking"
+    } else if first == '~' {
+        "streaming"
+    } else if first == '▣' {
+        "work"
+    } else {
+        return None;
+    };
+    let rest_start = first.len_utf8();
+    Some((phase.to_string(), trimmed[rest_start..].trim()))
+}
+
+pub fn has_active_turn_footer(screen_lines: &[String]) -> bool {
+    active_turn_footer(screen_lines)
+}
+
+/// Sum `<digits><h|m|s>` tokens ANYWHERE in `s` → ms. For the completed-turn
+/// summary ("Churned for 1m 37s") the elapsed is not parenthesized.
+fn sum_hms(s: &str) -> Option<u64> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    let mut total = 0u64;
+    let mut found = false;
+    while i < b.len() {
+        if b[i].is_ascii_digit() {
+            let start = i;
+            while i < b.len() && b[i].is_ascii_digit() {
+                i += 1;
+            }
+            let mult = match b.get(i) {
+                Some(b'h') => 3_600_000,
+                Some(b'm') => 60_000,
+                Some(b's') => 1_000,
+                _ => 0,
+            };
+            if mult > 0 {
+                if let Ok(n) = s[start..i].parse::<u64>() {
+                    total += n * mult;
+                    found = true;
+                }
+                i += 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if found {
+        Some(total)
+    } else {
+        None
+    }
+}
+
+/// The completed-turn summary claude shows once idle (e.g. `✻ Churned for 1m
+/// 37s`). Structurally distinct from the ACTIVE widget: a strong spinner with a
+/// bare h/m/s elapsed, but NO ellipsis and NO parenthesized timer. Surfaced as a
+/// muted secondary line WHILE IDLE — never the working line, never keyed on the
+/// verb (the gerund varies: Churned/Brewed/Sautéed/…).
+pub fn extract_completion_summary(screen_lines: &[String]) -> Option<StatusLine> {
+    let nonempty: Vec<&str> = screen_lines
+        .iter()
+        .map(|r| r.trim_end())
+        .filter(|r| !r.is_empty())
+        .collect();
+    let start = nonempty.len().saturating_sub(16);
+    for row in nonempty[start..].iter().rev() {
+        let row = *row;
+        // Skip the active widget (ellipsis / parenthesized timer) and chrome lines.
+        if row.contains('…') || row.contains("...") || row.contains('(') {
+            continue;
+        }
+        if !row.chars().any(|c| STATUS_SPINNERS.contains(&c)) {
+            continue;
+        }
+        let Some(elapsed_ms) = sum_hms(row) else {
+            continue;
+        };
+        let line = row.trim_start_matches(|c: char| {
+            STATUS_SPINNERS.contains(&c) || c == '·' || c.is_whitespace()
+        });
+        return Some(StatusLine {
+            line: compact_status_message(line),
+            phase: Some("done".to_string()),
+            elapsed_ms: Some(elapsed_ms),
+        });
+    }
+    None
 }
 
 fn collapse_samples(samples: Vec<(u64, PaneVerdict)>, end_ms: u64) -> Vec<ClassifiedSegment> {
@@ -438,4 +902,68 @@ fn collapse_samples(samples: Vec<(u64, PaneVerdict)>, end_ms: u64) -> Vec<Classi
         subtype: current.subtype,
     });
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_terminal_menu_question, QuestionSubtype};
+
+    fn lines(rows: &[&str]) -> Vec<String> {
+        rows.iter().map(|row| (*row).to_string()).collect()
+    }
+
+    #[test]
+    fn detects_boxed_checkbox_terminal_question() {
+        let screen = lines(&[
+            " │ CLI choice",
+            " │ 1. Please choose one option:",
+            " │   › [ ] Alpha",
+            " │     [ ] Beta",
+            " │     [ ] Gamma",
+            " │ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip",
+        ]);
+        assert_eq!(
+            classify_terminal_menu_question(&screen, true),
+            Some(QuestionSubtype::Unknown)
+        );
+    }
+
+    #[test]
+    fn detects_boxed_numbered_terminal_question_without_selected_marker() {
+        let screen = lines(&[
+            "┃  Which option do you choose?",
+            "┃",
+            "┃  1. Alpha",
+            "┃  2. Beta",
+            "┃  3. Gamma",
+            "┃",
+            "┃  ↑↓ select  enter submit  esc dismiss",
+        ]);
+        assert_eq!(
+            classify_terminal_menu_question(&screen, true),
+            Some(QuestionSubtype::Unknown)
+        );
+    }
+
+    #[test]
+    fn ignores_plain_numbered_prose_without_terminal_choice_footer() {
+        let screen = lines(&[
+            "Here is a plain list:",
+            "1. Alpha",
+            "2. Beta",
+            "3. Gamma",
+            "No action is required.",
+        ]);
+        assert_eq!(classify_terminal_menu_question(&screen, true), None);
+    }
+
+    #[test]
+    fn ignores_terminal_choice_shape_when_cursor_is_visible() {
+        let screen = lines(&[
+            "┃  1. Alpha",
+            "┃  2. Beta",
+            "┃  ↑↓ select  enter submit  esc dismiss",
+        ]);
+        assert_eq!(classify_terminal_menu_question(&screen, false), None);
+    }
 }

@@ -1,0 +1,308 @@
+[
+  {
+    "t_ms": 0,
+    "event": "capture_start",
+    "cast": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/terminal_questions_choice_v1-20260621-question-choice-v1-cursor-terminal_questions_choice_v1-120x32/raw.cast",
+    "capture_start_result": {
+      "ok": true,
+      "out": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/terminal_questions_choice_v1-20260621-question-choice-v1-cursor-terminal_questions_choice_v1-120x32/raw.cast",
+      "width": 120,
+      "height": 40
+    }
+  },
+  {
+    "t_ms": 1,
+    "event": "capture_resize",
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 5536,
+    "event": "spawned",
+    "pane": "fdaf140c",
+    "workspace": "d4e4af02",
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 8641,
+    "event": "send_turn",
+    "turn": 1
+  },
+  {
+    "t_ms": 12775,
+    "event": "turn_settled",
+    "turn": 1,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 4095,
+      "stable_ms": 3069,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 12776,
+    "event": "idle_hold_start",
+    "turn": 1,
+    "duration_ms": 10000
+  },
+  {
+    "t_ms": 13304,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 1
+  },
+  {
+    "t_ms": 13841,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 2
+  },
+  {
+    "t_ms": 14374,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 3
+  },
+  {
+    "t_ms": 14915,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 4
+  },
+  {
+    "t_ms": 15449,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 5
+  },
+  {
+    "t_ms": 22787,
+    "event": "send_turn",
+    "turn": 2
+  },
+  {
+    "t_ms": 26923,
+    "event": "turn_settled",
+    "turn": 2,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 4099,
+      "stable_ms": 3072,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 26924,
+    "event": "idle_hold_start",
+    "turn": 2,
+    "duration_ms": 10000
+  },
+  {
+    "t_ms": 27459,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 1
+  },
+  {
+    "t_ms": 27991,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 2
+  },
+  {
+    "t_ms": 28540,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 3
+  },
+  {
+    "t_ms": 29082,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 4
+  },
+  {
+    "t_ms": 29617,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 5
+  },
+  {
+    "t_ms": 36930,
+    "event": "send_turn",
+    "turn": 3
+  },
+  {
+    "t_ms": 41095,
+    "event": "turn_settled",
+    "turn": 3,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 4108,
+      "stable_ms": 3082,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 41095,
+    "event": "idle_hold_start",
+    "turn": 3,
+    "duration_ms": 12000
+  },
+  {
+    "t_ms": 41641,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 1
+  },
+  {
+    "t_ms": 42194,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 2
+  },
+  {
+    "t_ms": 42745,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 3
+  },
+  {
+    "t_ms": 43296,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 4
+  },
+  {
+    "t_ms": 43851,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 5
+  },
+  {
+    "t_ms": 44403,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 6
+  },
+  {
+    "t_ms": 53107,
+    "event": "send_turn",
+    "turn": 4
+  },
+  {
+    "t_ms": 57293,
+    "event": "turn_settled",
+    "turn": 4,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 4121,
+      "stable_ms": 3089,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 57294,
+    "event": "idle_hold_start",
+    "turn": 4,
+    "duration_ms": 15000
+  },
+  {
+    "t_ms": 57842,
+    "event": "focus_churn",
+    "label": "turn-4",
+    "cycle": 1
+  },
+  {
+    "t_ms": 58392,
+    "event": "focus_churn",
+    "label": "turn-4",
+    "cycle": 2
+  },
+  {
+    "t_ms": 58945,
+    "event": "focus_churn",
+    "label": "turn-4",
+    "cycle": 3
+  },
+  {
+    "t_ms": 59492,
+    "event": "focus_churn",
+    "label": "turn-4",
+    "cycle": 4
+  },
+  {
+    "t_ms": 60038,
+    "event": "focus_churn",
+    "label": "turn-4",
+    "cycle": 5
+  },
+  {
+    "t_ms": 60595,
+    "event": "focus_churn",
+    "label": "turn-4",
+    "cycle": 6
+  },
+  {
+    "t_ms": 61142,
+    "event": "focus_churn",
+    "label": "turn-4",
+    "cycle": 7
+  },
+  {
+    "t_ms": 61685,
+    "event": "focus_churn",
+    "label": "turn-4",
+    "cycle": 8
+  },
+  {
+    "t_ms": 72859,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 1
+  },
+  {
+    "t_ms": 73417,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 2
+  },
+  {
+    "t_ms": 73970,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 3
+  },
+  {
+    "t_ms": 74514,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 4
+  },
+  {
+    "t_ms": 75059,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 5
+  },
+  {
+    "t_ms": 84309,
+    "event": "capture_stop",
+    "capture_stop_result": {
+      "ok": true,
+      "cast": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/terminal_questions_choice_v1-20260621-question-choice-v1-cursor-terminal_questions_choice_v1-120x32/raw.cast",
+      "screen": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/terminal_questions_choice_v1-20260621-question-choice-v1-cursor-terminal_questions_choice_v1-120x32/raw.screen.txt"
+    }
+  }
+]

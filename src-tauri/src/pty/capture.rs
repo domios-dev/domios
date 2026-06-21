@@ -53,6 +53,21 @@ impl CastWriter {
         writeln!(self.out, "{}", line)
     }
 
+    pub fn write_input(&mut self, t: f64, source: &str, data: &[u8]) -> io::Result<()> {
+        self.flush_pending(t)?;
+        let text = std::str::from_utf8(data).ok();
+        let line = serde_json::json!([
+            t,
+            "i",
+            {
+                "source": source,
+                "bytes_b64": BASE64.encode(data),
+                "text": text,
+            }
+        ]);
+        writeln!(self.out, "{}", line)
+    }
+
     pub fn finish(mut self) -> io::Result<()> {
         self.flush_decodable(0.0, true)?;
         self.out.flush()
@@ -126,6 +141,7 @@ pub fn decode_output_event(code: &str, data: &str) -> io::Result<Option<Vec<u8>>
 enum CaptureMsg {
     Output(f64, Vec<u8>),
     Resize(f64, u16, u16),
+    Input(f64, String, Vec<u8>),
 }
 
 struct ActiveCapture {
@@ -170,6 +186,7 @@ impl CaptureRegistry {
         cols: u16,
         rows: u16,
         timestamp: u64,
+        prefill: Vec<u8>,
     ) -> io::Result<()> {
         let mut map = self.map.lock().unwrap();
         if map.contains_key(pty_id) {
@@ -182,10 +199,14 @@ impl CaptureRegistry {
         let (tx, rx) = mpsc::channel::<CaptureMsg>();
         let handle = std::thread::spawn(move || {
             let mut w = writer;
+            if !prefill.is_empty() && w.write_output(0.0, &prefill).is_err() {
+                return;
+            }
             while let Ok(msg) = rx.recv() {
                 let r = match msg {
                     CaptureMsg::Output(t, data) => w.write_output(t, &data),
                     CaptureMsg::Resize(t, c, r) => w.write_resize(t, c, r),
+                    CaptureMsg::Input(t, source, data) => w.write_input(t, &source, &data),
                 };
                 if r.is_err() {
                     break;
@@ -246,6 +267,20 @@ impl CaptureRegistry {
         if let Some(cap) = map.get(pty_id) {
             let t = cap.start.elapsed().as_secs_f64();
             let _ = cap.tx.send(CaptureMsg::Resize(t, cols, rows));
+        }
+    }
+
+    #[inline]
+    pub fn tap_input(&self, pty_id: &str, source: &str, data: &[u8]) {
+        if !self.is_capturing() {
+            return;
+        }
+        let map = self.map.lock().unwrap();
+        if let Some(cap) = map.get(pty_id) {
+            let t = cap.start.elapsed().as_secs_f64();
+            let _ = cap
+                .tx
+                .send(CaptureMsg::Input(t, source.to_string(), data.to_vec()));
         }
     }
 }

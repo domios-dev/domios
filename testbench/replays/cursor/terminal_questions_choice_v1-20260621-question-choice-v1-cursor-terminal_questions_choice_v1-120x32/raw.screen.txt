@@ -1,0 +1,25 @@
+kandrey@ROC-6W49K3GN ct-replay-cursor-terminal_questions_choice_v1-_uyryml4 % bash /tmp/codeterm-spawn-9a6cc76e-76a3-4814-8198-9caa2c2e059a.sh
+
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                                                  │
+  │  ⚠ Workspace Trust Required                                                                                      │
+  │                                                                                                                  │
+  │  Cursor Agent can execute code and access files in this directory.                                               │
+  │                                                                                                                  │
+  │  Do you trust the contents of this directory?                                                                    │
+  │                                                                                                                  │
+  │    /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-cursor-terminal_questions_choice_v1-_uyry  │
+  │    ml4                                                                                                           │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │    [a] Trust this workspace                                                                                      │
+  │    [q] Quit                                                                                                      │
+  │                                                                                                                  │
+  │  ⏳ Trusting workspace...                                                                                        │
+  │                                                                                                                  │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+kandrey@ROC-6W49K3GN ct-replay-cursor-terminal_questions_choice_v1-_uyryml4 % 
+kandrey@ROC-6W49K3GN ct-replay-cursor-terminal_questions_choice_v1-_uyryml4 % Pick option B yourself and implement a minimal notes.html file. If you need confirmation or permission, use the provider's normal terminal prompt/menu rather than inventing prose.
+quote> Now explain, in plain text only, a fake menu with: 1. Alpha, 2. Beta, 3. Gamma. This is a negative case: do not open a real menu, just write prose.
+quote> Ask me one clarifying question if your normal provider UI supports a blocking question. If not, state that no blocking question UI is available and stop.
+quote> 

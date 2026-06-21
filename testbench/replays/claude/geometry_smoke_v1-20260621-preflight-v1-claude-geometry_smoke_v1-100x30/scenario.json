@@ -1,0 +1,76 @@
+{
+  "id": "geometry_smoke_v1",
+  "title": "Fast geometry and recording smoke",
+  "providers": [
+    "claude",
+    "opencode",
+    "codex",
+    "cursor"
+  ],
+  "first_capture": "claude",
+  "workspace_setup": {
+    "files": [],
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    }
+  },
+  "pacing": {
+    "strategy": "adaptive_stability",
+    "min_dwell_ms": 900,
+    "stability_quiet_ms": 1800,
+    "max_wait_ms": 90000,
+    "tolerate_volatile_rows": true
+  },
+  "focus_churn": {
+    "enabled": true,
+    "cycles": 3,
+    "delay_ms": 200
+  },
+  "turns": [
+    {
+      "n": 1,
+      "user": "Create a tiny TODO/checklist if your UI supports it, then answer with exactly two short bullets about terminal replay fidelity. Then stop.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "quick_geometry_smoke"
+      },
+      "idle_after_ms": 5000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 3,
+        "delay_ms": 200
+      }
+    },
+    {
+      "n": 2,
+      "user": "Write geometry-smoke-notes.md with one sentence, then say 'geometry smoke done' in chat. Do not open any picker or menu.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "file_write_smoke"
+      },
+      "idle_after_ms": 6000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 4,
+        "delay_ms": 200
+      }
+    }
+  ],
+  "stop": {
+    "after_final_idle_ms": 5000,
+    "focus_churn": true
+  },
+  "oracle": {
+    "forbid_card_on_all_negative_frames": true,
+    "require_no_working_during_idle_holds": true
+  }
+}

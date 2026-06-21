@@ -9,6 +9,7 @@ export interface UseTerminalInputOptions {
   connectedPtyRef: React.MutableRefObject<string | null>;
   containerRef: React.RefObject<HTMLDivElement | null>;
   termReady: boolean;
+  terminalActive: boolean;
   onTabKey: () => boolean;
   onNonTabKey: () => void;
   onInputData: (data: string) => void;
@@ -24,6 +25,7 @@ export function useTerminalInput({
   connectedPtyRef,
   containerRef,
   termReady,
+  terminalActive,
   onTabKey,
   onNonTabKey,
   onInputData,
@@ -47,7 +49,10 @@ export function useTerminalInput({
 
     // Ctrl+V/Cmd+V: handle paste at keydown so we don't depend on WebView2's flaky `paste` event.
     // Ctrl+C/Cmd+C: copy only on selection; pass through for SIGINT when nothing selected.
+    // When the terminal is hidden behind another UI layer (e.g. Chat UI), returning false
+    // from this handler tells xterm to NOT process any key — prevents blind PTY writes.
     term.attachCustomKeyEventHandler((e) => {
+      if (!terminalActive) return false;
       if (e.type !== "keydown") return true;
       const mod = isMac ? e.metaKey : e.ctrlKey;
       if (!mod || e.altKey) return true;
@@ -93,7 +98,7 @@ export function useTerminalInput({
     };
     el?.addEventListener("paste", onPaste, true);
 
-    const focusXterm = () => term.focus();
+    const focusXterm = () => { if (terminalActive) term.focus(); };
     el?.addEventListener("mousedown", focusXterm);
 
     return () => {
@@ -101,7 +106,7 @@ export function useTerminalInput({
       el?.removeEventListener("mousedown", focusXterm);
       el?.removeEventListener("paste", onPaste, true);
     };
-  }, [termReady, termRef, connectedPtyRef, containerRef, onTabKey, onNonTabKey, onInputData]);
+  }, [termReady, terminalActive, termRef, connectedPtyRef, containerRef, onTabKey, onNonTabKey, onInputData]);
 
   return { copySelection, pasteFromClipboard };
 }

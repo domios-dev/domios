@@ -4,10 +4,26 @@ import { AgentStateIndicator, type AgentState } from "./AgentStateIndicator";
 // canvas background. Not wired into the app shell — mount it in a dev route or
 // screenshot it standalone to review the design. Pairs with the static mirror
 // kept for visual review.
-const ROWS: Array<{ label: string; state: AgentState; seed?: string }> = [
-  { label: "working", state: { state: "working" }, seed: "alpha" },
-  { label: "working (other pane)", state: { state: "working" }, seed: "bravo" },
+const ROWS: Array<{ label: string; state: AgentState }> = [
+  { label: "working", state: { state: "working" } },
+  {
+    label: "working · thinking",
+    state: {
+      state: "working",
+      phase: "thinking",
+      status_line: "Swooping… (6m 24s · ↓ 29.8k tokens · still thinking with high effort)",
+    },
+  },
+  {
+    label: "working · streaming",
+    state: {
+      state: "working",
+      phase: "streaming",
+      status_line: "Composing the answer… (18s · ↑ 2.1k tokens)",
+    },
+  },
   { label: "idle — your turn", state: { state: "idle" } },
+  { label: "idle · summary", state: { state: "idle", last_turn_summary: "Churned for 1m 37s" } },
   { label: "idle — long (resting)", state: { state: "idle", longIdle: true } },
   { label: "question · model_choice", state: { state: "question", subtype: "model_choice" } },
   { label: "question · model_picker", state: { state: "question", subtype: "model_picker" } },
@@ -46,7 +62,7 @@ export function AgentStateGallery() {
           >
             {row.label}
           </span>
-          <AgentStateIndicator state={row.state} paneSeed={row.seed} />
+          <AgentStateIndicator state={row.state} />
         </div>
       ))}
     </div>

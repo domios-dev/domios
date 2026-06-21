@@ -1,0 +1,43 @@
+kandrey@ROC-6W49K3GN ct-replay-cursor-provider_cli_question_probe_v1-zrku1i6t % bash /tmp/codeterm-spawn-5df30033-2182-4ada-9604-2abc9209bd36.sh
+
+
+  Cursor Agent
+  v2026.06.19-20-24-33-653a7fb
+  Use /config to customize Cursor settings and behavior.
+
+                                                                                                                       
+  Can you send me, inside your normal CLI interface if you support it, a blocking poll/question with A, B, and C       
+  options? Do not just describe it in prose if you have a real CLI choice UI. If you do not support such a UI,         
+  say so plainly and stop.                                                                                             
+                                                                                                                       
+
+    AskQuestion CLI choice (1)
+    1. Please choose one option:
+      [x] A
+      [ ] B
+      [ ] C
+
+  You do have a real choice UI here — I used it (not prose only).
+
+  Question: Please choose one option
+  Options: A · B · C
+
+  Your answer: A
+
+                                                                                                                       
+  Negative case: write plain text only with three lines: A) Alpha, B) Beta, C) Gamma. Do not open any real menu        
+  or choice UI.                                                                                                        
+                                                                                                                       
+
+  A) Alpha
+  B) Beta
+  C) Gamma
+
+
+
+                                                                                                                       
+  → Add a follow-up                                                                                                    
+                                                                                                                       
+
+  Composer 2.5 · 7.1%                                                                                   Run Everything
+  /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-cursor-provider_cli_question_probe_v1-zrku1i6t

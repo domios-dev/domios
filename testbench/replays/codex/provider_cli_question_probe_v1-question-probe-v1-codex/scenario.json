@@ -1,0 +1,101 @@
+{
+  "id": "provider_cli_question_probe_v1",
+  "title": "Provider CLI question and A/B/C choice probe",
+  "providers": [
+    "opencode",
+    "cursor",
+    "codex"
+  ],
+  "first_capture": "cursor",
+  "workspace_setup": {
+    "files": [
+      {
+        "path": "README.md",
+        "content": "# Question probe workspace\n\nThis workspace is used only to record provider-native CLI interaction\nsurfaces for CodeTerm state detection.\n"
+      }
+    ],
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    }
+  },
+  "pacing": {
+    "strategy": "adaptive_stability",
+    "min_dwell_ms": 1200,
+    "stability_quiet_ms": 2500,
+    "max_wait_ms": 180000,
+    "tolerate_volatile_rows": true
+  },
+  "focus_churn": {
+    "enabled": true,
+    "cycles": 4,
+    "delay_ms": 250
+  },
+  "turns": [
+    {
+      "n": 1,
+      "user": "Can you send me, inside your normal CLI interface if you support it, a blocking poll/question with A, B, and C options? Do not just describe it in prose if you have a real CLI choice UI. If you do not support such a UI, say so plainly and stop.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle",
+          "question"
+        ],
+        "card": "none",
+        "target": "provider_native_abc_question"
+      },
+      "idle_after_ms": 15000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 4,
+        "delay_ms": 250
+      }
+    },
+    {
+      "n": 2,
+      "user": "If a provider-native question or choice UI is currently open, choose option B yourself or cancel it using the provider's normal keyboard flow, then explain in one sentence what happened.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle",
+          "question"
+        ],
+        "card": "none",
+        "target": "question_clear_path"
+      },
+      "idle_after_ms": 12000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 4,
+        "delay_ms": 250
+      }
+    },
+    {
+      "n": 3,
+      "user": "Negative case: write plain text only with three lines: A) Alpha, B) Beta, C) Gamma. Do not open any real menu or choice UI.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "abc_plain_text_no_question"
+      },
+      "idle_after_ms": 12000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 5,
+        "delay_ms": 250
+      }
+    }
+  ],
+  "stop": {
+    "after_final_idle_ms": 12000,
+    "focus_churn": true
+  },
+  "oracle": {
+    "forbid_card_on_all_negative_frames": true,
+    "require_no_working_during_idle_holds": true,
+    "allow_state_question_without_card": true
+  }
+}

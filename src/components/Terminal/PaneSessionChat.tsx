@@ -72,6 +72,7 @@ export function PaneSessionChat({
   const atBottomRef = useRef(true);
   const terminalTextRef = useRef<string | null>(null);
   const terminalActiveTimerRef = useRef<number | null>(null);
+  const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const [terminalActive, setTerminalActive] = useState(false);
   const [longIdle, setLongIdle] = useState(false);
@@ -113,6 +114,7 @@ export function PaneSessionChat({
   // clears pane.pending_prompt shortly after on the next state poll.
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
   const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
+  const inlinePrompt = chatBackend ? activePrompt : null;
 
   useEffect(() => {
     if (!pendingPrompt) setAnsweredPromptQuestion(null);
@@ -143,6 +145,21 @@ export function PaneSessionChat({
   const handleJumpToShellCommand = useCallback(() => {
     onOpenTerminalFallback?.();
   }, [onOpenTerminalFallback]);
+
+  const handleStopAgent = useCallback(() => {
+    if (!currentPtyId) {
+      showComposerError("Pane has no PTY");
+      return;
+    }
+    const now = Date.now();
+    if (now - lastStopAtRef.current < 2000) {
+      return;
+    }
+    lastStopAtRef.current = now;
+    void invoke("interrupt_agent", { ptyId: currentPtyId }).catch((e) =>
+      showComposerError(e instanceof Error ? e.message : String(e)),
+    );
+  }, [currentPtyId, showComposerError]);
 
   // Route an interactive-widget answer back to the agent through the SAME send
   // path the composer uses: write_pty_string with raw=false → backend bracket
@@ -249,26 +266,40 @@ export function PaneSessionChat({
     return () => window.clearTimeout(id);
   }, [terminalActive, pendingPrompt]);
 
+  const backendState = pane?.agent_state ?? null;
+
   useEffect(() => {
     if (!scrollRef.current) return;
     if (atBottomRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [allMessages, activePrompt?.question]);
+  }, [allMessages, inlinePrompt?.question, backendState?.state]);
 
   // Backend state engine is the source of truth (working / idle / question +
   // subtype). Fall back to the terminal-activity heuristic only until the first
   // classification arrives. `longIdle` stays frontend-timed and applies only
   // while idle.
-  const backendState = pane?.agent_state ?? null;
   const liveAgentState: AgentState = useMemo(() => {
     const kind = backendState?.state ?? (terminalActive ? "working" : "idle");
     return {
       state: kind,
       subtype: backendState?.subtype,
+      status_line: backendState?.status_line,
+      last_turn_summary: backendState?.last_turn_summary,
+      phase: backendState?.phase,
+      elapsed_ms: backendState?.elapsed_ms,
       longIdle: kind === "idle" && !terminalActive && longIdle,
     };
-  }, [backendState?.state, backendState?.subtype, terminalActive, longIdle]);
+  }, [
+    backendState?.state,
+    backendState?.status_line,
+    backendState?.last_turn_summary,
+    backendState?.phase,
+    backendState?.elapsed_ms,
+    backendState?.subtype,
+    terminalActive,
+    longIdle,
+  ]);
 
   if (error) {
     return (
@@ -346,7 +377,7 @@ export function PaneSessionChat({
             </button>
           </div>
         )}
-        {enrichedMessages.length === 0 && !activePrompt && (
+        {enrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
           <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
             No messages yet.
           </div>
@@ -387,13 +418,19 @@ export function PaneSessionChat({
             </div>
           );
         })}
-        {!activePrompt && enrichedMessages.length > 0 && (
-          <AgentStateIndicator
-            state={liveAgentState}
-            paneSeed={paneId}
-          />
+        {!inlinePrompt && (enrichedMessages.length > 0 || liveAgentState.state === "question") && (
+          // Same centered column as the message rows so the indicator sits flush
+          // with the message text instead of the far-left container edge.
+          <div className="w-full max-w-4xl min-w-0 mx-auto">
+            <AgentStateIndicator
+              state={liveAgentState}
+              onStop={chatBackend || !currentPtyId ? undefined : handleStopAgent}
+              onCancel={chatBackend || !currentPtyId ? undefined : handleStopAgent}
+              onOpenTerminal={chatBackend ? undefined : onOpenTerminalFallback}
+            />
+          </div>
         )}
-        <PendingPromptCard pendingPrompt={activePrompt} onRespond={handleRespondPrompt} />
+        <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
       </div>
       <ChatComposer
         paneId={paneId}

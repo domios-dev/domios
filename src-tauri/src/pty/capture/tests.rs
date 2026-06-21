@@ -16,10 +16,12 @@ fn read_cast(path: &Path) -> (serde_json::Value, Vec<(f64, String, Vec<u8>)>) {
             let v: serde_json::Value = serde_json::from_str(l).unwrap();
             let t = v[0].as_f64().unwrap();
             let code = v[1].as_str().unwrap().to_string();
-            let raw = v[2].as_str().unwrap();
-            let data = decode_output_event(&code, raw)
-                .unwrap()
-                .unwrap_or_else(|| raw.as_bytes().to_vec());
+            let data = match v[2].as_str() {
+                Some(raw) => decode_output_event(&code, raw)
+                    .unwrap()
+                    .unwrap_or_else(|| raw.as_bytes().to_vec()),
+                None => serde_json::to_vec(&v[2]).unwrap(),
+            };
             (t, code, data)
         })
         .collect();
@@ -123,6 +125,38 @@ fn resize_emits_r_row_with_cols_x_rows() {
 }
 
 #[test]
+fn input_emits_structured_i_row_without_becoming_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("input.cast");
+    let mut w = CastWriter::create(&path, 80, 24, 0).unwrap();
+    w.write_output(0.0, b"before").unwrap();
+    w.write_input(0.1, "test", b"hello\r").unwrap();
+    w.write_output(0.2, b"after").unwrap();
+    w.finish().unwrap();
+
+    let text = std::fs::read_to_string(&path).unwrap();
+    let mut rows = text.lines().skip(1);
+    let first: serde_json::Value = serde_json::from_str(rows.next().unwrap()).unwrap();
+    let second: serde_json::Value = serde_json::from_str(rows.next().unwrap()).unwrap();
+    let third: serde_json::Value = serde_json::from_str(rows.next().unwrap()).unwrap();
+
+    assert_eq!(first[1], "o");
+    assert_eq!(second[1], "i");
+    assert_eq!(second[2]["source"], "test");
+    assert_eq!(second[2]["text"], "hello\r");
+    assert_eq!(second[2]["bytes_b64"], "aGVsbG8N");
+    assert_eq!(third[1], "o");
+
+    let (_, events) = read_cast(&path);
+    let output: Vec<u8> = events
+        .iter()
+        .filter(|(_, code, _)| code == "o")
+        .flat_map(|(_, _, data)| data.clone())
+        .collect();
+    assert_eq!(output, b"beforeafter");
+}
+
+#[test]
 fn screen_txt_equals_vt100_render_of_final_grid() {
     use crate::pty::screen_state::ScreenState;
     // Drive the SAME vt100 renderer the daemon uses; the sidecar is its output.
@@ -155,8 +189,10 @@ fn registry_start_stop_round_trips_through_writer_thread() {
     let path = dir.path().join("reg.cast");
     let reg = CaptureRegistry::global();
     let pty = "reg-pty-1";
-    reg.start(pty, path.clone(), 80, 24, 42).unwrap();
+    reg.start(pty, path.clone(), 80, 24, 42, b"prefill-".to_vec())
+        .unwrap();
     reg.tap_output(pty, b"\x1b[32mok\x1b[0m");
+    reg.tap_input(pty, "test", b"hello\r");
     let out = reg.stop(pty).unwrap();
     assert_eq!(out, path);
 
@@ -167,5 +203,8 @@ fn registry_start_stop_round_trips_through_writer_thread() {
         .filter(|(_, code, _)| code == "o")
         .flat_map(|(_, _, data)| data.clone())
         .collect();
-    assert_eq!(recovered, b"\x1b[32mok\x1b[0m");
+    assert_eq!(recovered, b"prefill-\x1b[32mok\x1b[0m");
+    assert!(events.iter().any(|(_, code, data)| {
+        code == "i" && String::from_utf8_lossy(data).contains("\"source\":\"test\"")
+    }));
 }

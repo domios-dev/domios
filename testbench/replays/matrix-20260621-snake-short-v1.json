@@ -1,0 +1,40 @@
+[
+  {
+    "provider": "codex",
+    "scenario": "snake_incremental_build_browser_short_v1",
+    "run_id": "20260621-snake-short-v1-codex-snake_incremental_build_browser_short_v1-120x32",
+    "geometry": {
+      "cols": 120,
+      "rows": 32
+    },
+    "capture_output": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-codex-snake_incremental_build_browser_short_v1-120x32\n",
+    "replay_dir": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-codex-snake_incremental_build_browser_short_v1-120x32",
+    "gate": {
+      "ok": true,
+      "stage": "gate",
+      "render": "wrote /Users/kandrey/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-codex-snake_incremental_build_browser_short_v1-120x32/timeline.json (3699 frames @ 75ms, 16 input anchors, window 0..277366ms)\n",
+      "analyze": "timeline: /Users/kandrey/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-codex-snake_incremental_build_browser_short_v1-120x32/timeline.json\nsummary: frames=3699 duration_ms=277350 inputs=16\ndetector: states={'idle': 542, 'question': 203, 'working': 2954} working_frames=2954 status_line_frames=2882 card_frames=0 native_picker_frames=0 transitions=19 idle_runs=9 short_idle_blips=0\nper_turn:\n  turn=1 frames=137 working_pct=10.2 status_frames=5 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=2 frames=904 working_pct=93.4 status_frames=835 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=3 frames=549 working_pct=87.2 status_frames=470 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=4 frames=426 working_pct=84.5 status_frames=351 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=5 frames=508 working_pct=86.4 status_frames=430 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=6 frames=618 working_pct=88.7 status_frames=539 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=7 frames=316 working_pct=75.9 status_frames=231 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=8 frames=125 working_pct=24.0 status_frames=21 card_frames=0 native_picker_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-xkkxs3ot/timeline.json (1110 frames @ 250ms, 16 input anchors, window 0..277366ms)\nreplay: /Users/kandrey/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-codex-snake_incremental_build_browser_short_v1-120x32\ncast: inputs=16 outputs=12988 o+b64=0 resize=1 bad=0 last_t=273.893887125\nphases: 8\nscreen_compare: rows=cast cols=cast\ntimeline: frames=3699 working=2954 status_line=2882 cards=0\nOK replay doctor passed\n"
+    },
+    "ok": true
+  },
+  {
+    "provider": "cursor",
+    "scenario": "snake_incremental_build_browser_short_v1",
+    "run_id": "20260621-snake-short-v1-cursor-snake_incremental_build_browser_short_v1-120x32",
+    "geometry": {
+      "cols": 120,
+      "rows": 32
+    },
+    "capture_output": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-cursor-snake_incremental_build_browser_short_v1-120x32\n",
+    "replay_dir": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-cursor-snake_incremental_build_browser_short_v1-120x32",
+    "gate": {
+      "ok": true,
+      "stage": "gate",
+      "render": "wrote /Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-cursor-snake_incremental_build_browser_short_v1-120x32/timeline.json (4598 frames @ 75ms, 16 input anchors, window 0..344823ms)\n",
+      "analyze": "timeline: /Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-cursor-snake_incremental_build_browser_short_v1-120x32/timeline.json\nsummary: frames=4598 duration_ms=344775 inputs=16\ndetector: states={'idle': 581, 'working': 4017} working_frames=4017 status_line_frames=3871 card_frames=0 native_picker_frames=0 transitions=21 idle_runs=11 short_idle_blips=2\nshort_idle: t_ms=276750 frames=3690-3692 duration_ms=150\nshort_idle: t_ms=318225 frames=4243-4247 duration_ms=300\nper_turn:\n  turn=1 frames=524 working_pct=74.8 status_frames=382 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=2 frames=385 working_pct=86.5 status_frames=316 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=3 frames=783 working_pct=94.0 status_frames=711 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=4 frames=413 working_pct=87.4 status_frames=342 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=5 frames=1002 working_pct=95.4 status_frames=936 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=6 frames=522 working_pct=91.4 status_frames=453 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=7 frames=550 working_pct=90.9 status_frames=478 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=8 frames=303 working_pct=86.5 status_frames=253 card_frames=0 native_picker_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-smiqu1ho/timeline.json (1380 frames @ 250ms, 16 input anchors, window 0..344823ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/kandrey/Developer/codeterm-alpha/testbench/replays/cursor/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-cursor-snake_incremental_build_browser_short_v1-120x32\ncast: inputs=16 outputs=2517 o+b64=0 resize=1 bad=0 last_t=341.66665075\nphases: 8\nscreen_compare: rows=cast cols=cast\ntimeline: frames=4598 working=4017 status_line=3871 cards=0\nOK replay doctor passed\n"
+    },
+    "ok": true
+  }
+]

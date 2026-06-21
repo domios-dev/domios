@@ -281,6 +281,7 @@ export const TerminalPane = memo(function TerminalPane({
   // --- Input handling ---
   const { copySelection, pasteFromClipboard } = useTerminalInput({
     termRef, connectedPtyRef, containerRef, termReady,
+    terminalActive: terminalVisible,
     onTabKey: completion.handleTab,
     onNonTabKey: completion.dismissCompletions,
     onInputData: completion.feedInput,

@@ -1,0 +1,209 @@
+/* ── Agent state indicator — SHARED visual contract ───────────────────────
+   Single source of truth for the agent status surface, imported by both the app
+   (via globals.css) and the replay player. Render the identical DOM and these
+   classes will style it the same in both places.
+
+   MARKUP CONTRACT
+   working / idle (one persistent row — never remove the dots on idle, the CSS
+   settles them so the message can't jump):
+     <div class="ct-agent-row" data-agent-state="working|idle"
+                               data-agent-phase="thinking|streaming|work">
+       <span class="ct-phase-dots"><i></i><i></i><i></i></span>
+       <span class="ct-agent-msg">TEXT</span>
+     </div>
+   question:
+     <div class="ct-agent-question-in" data-agent-state="question" …card…>
+   PHASE DEBOUNCE: hold a new data-agent-phase ~700ms before applying it, or the
+   dots strobe as the status widget appears/disappears mid-turn. */
+
+.ct-agent-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+/* Steady block caret — kept only beside the question title. */
+.ct-agent-cursor {
+  display: inline-block;
+  width: 0.5em;
+  height: 1.05em;
+  border-radius: 1px;
+  vertical-align: text-bottom;
+  background: currentColor;
+}
+.ct-agent-cursor-work {
+  animation: ct-agent-breathe 1.15s ease-in-out infinite;
+}
+.ct-agent-cursor-idle {
+  animation: ct-agent-blink 1.4s steps(1, end) infinite;
+}
+.ct-agent-cursor-rest {
+  opacity: 0.6;
+  animation: ct-agent-blink 2.6s steps(1, end) infinite;
+}
+@keyframes ct-agent-breathe {
+  0%, 100% { opacity: 1; transform: scaleY(1); }
+  50% { opacity: 0.32; transform: scaleY(0.86); }
+}
+@keyframes ct-agent-blink {
+  0%, 55% { opacity: 1; }
+  55.01%, 100% { opacity: 0.12; }
+}
+
+/* Working = three dots that PERSIST across every sub-phase; only the rhythm +
+   hue morph, so work → thinking → streaming flow rather than jump. work breathes
+   in unison; thinking pulses in a slow stagger (an idea forming); streaming runs
+   a gentle left→right wave (text flowing). Hue eases over 0.6s; phase is
+   debounced upstream so it can't strobe. */
+.ct-phase-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--ct-accent, #58a6ff);
+  transition: color 0.6s ease;
+}
+.ct-phase-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  display: block;
+  animation: ct-dots-breathe 1.9s ease-in-out infinite;
+  transition: opacity 0.45s ease, transform 0.45s ease;
+}
+[data-agent-phase="thinking"] .ct-phase-dots {
+  color: var(--ct-think, #a371f7);
+}
+[data-agent-phase="thinking"] .ct-phase-dots i {
+  animation: ct-dots-breathe 2.4s ease-in-out infinite;
+}
+[data-agent-phase="thinking"] .ct-phase-dots i:nth-child(2) {
+  animation-delay: 0.3s;
+}
+[data-agent-phase="thinking"] .ct-phase-dots i:nth-child(3) {
+  animation-delay: 0.6s;
+}
+/* streaming reuses the SAME breathe keyframe, just faster + a tighter stagger —
+   that reads as a left→right wave, and because the motion is identical to the
+   other phases a phase change only shifts speed/stagger/hue (all eased), never
+   snapping the dots. */
+[data-agent-phase="streaming"] .ct-phase-dots i {
+  animation: ct-dots-breathe 1s ease-in-out infinite;
+}
+[data-agent-phase="streaming"] .ct-phase-dots i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+[data-agent-phase="streaming"] .ct-phase-dots i:nth-child(3) {
+  animation-delay: 0.36s;
+}
+@keyframes ct-dots-breathe {
+  0%, 100% { opacity: 0.4; transform: scale(0.82); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* Going idle: the dots SETTLE into the first one — it stays put and dims to
+   rest, the other two fade out (opacity:0 keeps their layout width, so the
+   message never shifts left). Eased, so working ↔ idle is one continuous motion,
+   never an icon swap or a horizontal jump. */
+[data-agent-state="idle"] .ct-phase-dots {
+  color: var(--ct-muted-fg, #8b949e);
+}
+[data-agent-state="idle"] .ct-phase-dots i {
+  animation: none;
+}
+[data-agent-state="idle"] .ct-phase-dots i:nth-child(1) {
+  opacity: 0.55;
+  transform: scale(0.9);
+}
+[data-agent-state="idle"] .ct-phase-dots i:nth-child(2),
+[data-agent-state="idle"] .ct-phase-dots i:nth-child(3) {
+  opacity: 0;
+  transform: scale(0.4);
+}
+
+/* The message: full-weight while working, muted while idle, with a soft fade-in
+   that fires only on the state flip (key the element by state, so a ticking
+   status line never re-triggers it). */
+.ct-agent-msg {
+  color: var(--ct-fg, #c9d1d9);
+  animation: ct-msg-in 0.3s ease;
+}
+[data-agent-state="idle"] .ct-agent-msg {
+  color: var(--ct-muted-fg, #8b949e);
+}
+@keyframes ct-msg-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Stop control — sits at the end of the working row. Quiet by default (a muted
+   outline that doesn't compete with the dots) and resolves to danger only on
+   intent (hover/focus), so interrupting reads as deliberate. */
+.ct-agent-stop {
+  color: var(--ct-muted-fg, #8b949e);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.ct-agent-stop:hover,
+.ct-agent-stop:focus-visible {
+  color: var(--ct-err, var(--ct-red, #f85149));
+  border-color: color-mix(in srgb, var(--ct-err, #f85149) 45%, transparent);
+  background: color-mix(in srgb, var(--ct-err, #f85149) 12%, transparent);
+  outline: none;
+}
+
+/* Open-terminal control — tinted to the question's tone (color set inline);
+   brightens on intent. The route to answer a structural question with no card. */
+.ct-agent-open-term {
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.ct-agent-open-term:hover,
+.ct-agent-open-term:focus-visible {
+  filter: brightness(1.2);
+  outline: none;
+}
+
+.ct-agent-cancel {
+  color: var(--ct-muted-fg, #8b949e);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.ct-agent-cancel:hover,
+.ct-agent-cancel:focus-visible {
+  color: var(--ct-err, var(--ct-red, #f85149));
+  border-color: color-mix(in srgb, var(--ct-err, #f85149) 45%, transparent);
+  background: color-mix(in srgb, var(--ct-err, #f85149) 10%, transparent);
+  outline: none;
+}
+
+/* Question banner: a one-shot settle as the agent lands on a blocker. */
+.ct-agent-question-in {
+  animation: ct-agent-question-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes ct-agent-question-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-agent-cursor-work,
+  .ct-agent-cursor-idle,
+  .ct-agent-cursor-rest,
+  .ct-phase-dots i,
+  .ct-agent-msg,
+  .ct-agent-question-in {
+    animation: none;
+  }
+  .ct-agent-cursor-rest { opacity: 0.6; }
+  .ct-phase-dots i { opacity: 0.85; transition: none; }
+  [data-agent-state="idle"] .ct-phase-dots i:nth-child(2),
+  [data-agent-state="idle"] .ct-phase-dots i:nth-child(3) { opacity: 0; }
+}

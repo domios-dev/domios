@@ -385,6 +385,7 @@ impl PtyManager {
             .sessions
             .get(pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?;
+        crate::pty::capture::CaptureRegistry::global().tap_input(pty_id, "pty.write", data);
         session.write_queue.send(data.to_vec())
     }
 

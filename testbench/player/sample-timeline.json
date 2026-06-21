@@ -1,0 +1,42 @@
+{
+  "provider": "claude",
+  "scenario": "sample",
+  "frames": [
+    {
+      "t_ms": 0,
+      "screen": "CodeTerm replay sample\\n\\n> ready",
+      "detector": { "state": "idle", "status_line": null },
+      "cursor": { "row": 3, "col": 8 },
+      "decset": { "alt_screen": false, "cursor_hidden": false },
+      "changed_cells": 18
+    },
+    {
+      "t_ms": 100,
+      "screen": "CodeTerm replay sample\\n\\nUser: build snake.html\\n\\n* Thinking... 1s · esc to interrupt",
+      "detector": {
+        "state": "working",
+        "working": true,
+        "status_line": "Thinking... 1s · esc to interrupt",
+        "phase": "thinking"
+      },
+      "cursor": { "row": 5, "col": 43 },
+      "decset": { "alt_screen": false, "cursor_hidden": true },
+      "changed_cells": 42
+    },
+    {
+      "t_ms": 200,
+      "screen": "CodeTerm replay sample\\n\\nCreated snake.html\\n\\n> ready",
+      "detector": { "state": "idle", "status_line": null },
+      "cursor": { "row": 5, "col": 8 },
+      "decset": { "alt_screen": false, "cursor_hidden": false },
+      "changed_cells": 31
+    }
+  ],
+  "inputs": [
+    { "t_ms": 50, "kind": "input", "turn": 1, "text": "build snake.html" }
+  ],
+  "expected_phases": [
+    { "from_ms": 50, "to_ms": 180, "state": "working" },
+    { "from_ms": 180, "to_ms": 220, "state": "idle" }
+  ]
+}

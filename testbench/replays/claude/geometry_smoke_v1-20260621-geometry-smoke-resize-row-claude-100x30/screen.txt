@@ -1,0 +1,23 @@
+-605a-466c-b2e6-ac318c554484.sh
+╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                    │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a … │
+│                                                    │ ─────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                  │
+│                      ▝▜█████▛▘                     │ The stream-stall hint now reads "Waiting f… │
+│                        ▘▘ ▝▝                       │ Improved auto mode safety: destructive git… │
+│                                                    │ Added a warning when the requested model i… │
+│ Opus 4.8 with high effort · Claude Team · 8x8 RD 2 │ /release-notes for more                     │
+│  /…/T/ct-replay-claude-geometry_smoke_v1-_nw0am3q  │                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+❯ Write geometry-smoke-notes.md with one sentence, then say 'geometry smoke done' in chat. Do not   
+  open any picker or menu.                                                                          
+⏺ Write(geometry-smoke-notes.md)
+  ⎿  Wrote 1 lines to geometry-smoke-notes.md
+      1 This is a geometry smoke test note.
+⏺ geometry smoke done
+✻ Cogitated for 7s
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

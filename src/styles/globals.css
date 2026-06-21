@@ -1,6 +1,7 @@
 @import "./tokens.css";
 @import "tailwindcss";
 @import "@xterm/xterm/css/xterm.css";
+@import "./agent-state.css";
 
 :root {
   font-family: var(--ct-font-ui);
@@ -282,83 +283,8 @@ body {
   }
 }
 
-/* ── Agent state indicator: the agent's cursor (its pulse) ─────────────
-   One terminal block cursor unifies every state: it shimmer-breathes while
-   the agent works, blinks slowly while it waits on you, and goes solid in a
-   subtype colour when it's blocked on a question. */
-.ct-agent-cursor {
-  display: inline-block;
-  width: 0.5em;
-  height: 1.05em;
-  border-radius: 1px;
-  vertical-align: text-bottom;
-  background: currentColor;
-}
-.ct-agent-cursor-work {
-  animation: ct-agent-breathe 1.15s ease-in-out infinite;
-}
-.ct-agent-cursor-idle {
-  animation: ct-agent-blink 1.4s steps(1, end) infinite;
-}
-.ct-agent-cursor-rest {
-  opacity: 0.6;
-  animation: ct-agent-blink 2.6s steps(1, end) infinite;
-}
-@keyframes ct-agent-breathe {
-  0%, 100% { opacity: 1; transform: scaleY(1); }
-  50% { opacity: 0.32; transform: scaleY(0.86); }
-}
-@keyframes ct-agent-blink {
-  0%, 55% { opacity: 1; }
-  55.01%, 100% { opacity: 0.12; }
-}
-
-/* Verb shimmer: a light sweep travels across the working word. */
-.ct-agent-shimmer {
-  background: linear-gradient(
-    100deg,
-    var(--ct-muted-fg, #8b949e) 0%,
-    var(--ct-muted-fg, #8b949e) 38%,
-    var(--ct-accent, #58a6ff) 50%,
-    var(--ct-muted-fg, #8b949e) 62%,
-    var(--ct-muted-fg, #8b949e) 100%
-  );
-  background-size: 220% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  animation: ct-agent-shimmer 2.4s linear infinite;
-}
-@keyframes ct-agent-shimmer {
-  from { background-position: 220% 0; }
-  to { background-position: -220% 0; }
-}
-
-/* Question banner: a one-shot settle as the agent lands on a blocker. */
-.ct-agent-question-in {
-  animation: ct-agent-question-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-@keyframes ct-agent-question-in {
-  from { opacity: 0; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ct-agent-cursor-work,
-  .ct-agent-cursor-idle,
-  .ct-agent-cursor-rest,
-  .ct-agent-question-in {
-    animation: none;
-  }
-  .ct-agent-cursor-rest { opacity: 0.6; }
-  .ct-agent-shimmer {
-    animation: none;
-    background: none;
-    -webkit-text-fill-color: var(--ct-accent, #58a6ff);
-    color: var(--ct-accent, #58a6ff);
-  }
-}
+/* Agent state indicator styles live in src/styles/agent-state.css (imported at
+   the top of this file) — shared verbatim with the replay player. */
 
 /* ── Mobile sidebar overlay: slide + backdrop fade ─────────────────── */
 .ct-sidebar-backdrop {

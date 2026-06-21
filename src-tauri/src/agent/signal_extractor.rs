@@ -60,7 +60,7 @@ pub struct Quiescence {
 
 /// DECSET private-mode snapshot from the OUTPUT stream (`CSI ? Pm h/l`), tracked
 /// by the vt100 parser: `?25` cursor visibility, `?1049` alternate screen,
-/// `?2004` bracketed paste. The provider-agnostic basis for `picker_active`.
+/// `?2004` bracketed paste.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputMode {
     pub cursor_hidden: bool,
@@ -297,11 +297,12 @@ impl SignalExtractor {
             bracketed_paste: screen.bracketed_paste(),
         };
 
-        // alt-screen is high-precision; the inline branch needs a parked menu
-        // (Motion::Still discriminates a spinner) and excludes the shell's
-        // bracketed-paste line prompt (anti-signal).
-        let picker_active = input_mode.alt_screen
-            || (input_mode.cursor_hidden && kind == Motion::Still && !input_mode.bracketed_paste);
+        let has_screen_content = last_nonblank.is_some();
+        let picker_active = input_mode.cursor_hidden
+            && !input_mode.alt_screen
+            && kind == Motion::Still
+            && !input_mode.bracketed_paste
+            && has_screen_content;
 
         let tail = self.tail_text(&lines, last_nonblank);
 

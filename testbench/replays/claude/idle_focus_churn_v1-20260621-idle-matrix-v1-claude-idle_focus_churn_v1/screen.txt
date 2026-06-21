@@ -1,0 +1,32 @@
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ The stream-stall hint now reads "Waiting for API response · wi… │
+│                        ▘▘ ▝▝                       │ Improved auto mode safety: destructive git commands (`git rese… │
+│                                                    │ Added a warning when the requested model is deprecated or auto… │
+│ Opus 4.8 with high effort · Claude Team · 8x8 RD 2 │ /release-notes for more                                         │
+│ /…/T/ct-replay-claude-idle_focus_churn_v1-adw0vrzd │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+❯ Write idle-notes.md with one sentence, then write one short paragraph in chat explaining why a blinking cursor is not 
+  proof of agent work. Then stop.                                                                                       
+⏺ Write(idle-notes.md)
+  ⎿  Wrote 1 lines to idle-notes.md
+      1 A blinking cursor signals readiness to act, not action itself.
+⏺ Wrote idle-notes.md.
+  A blinking cursor only proves that a process is alive and waiting for input — it's an idle state, not evidence of
+  work. An agent can sit on a blinking prompt having done nothing, while real work shows up as concrete artifacts: files
+  changed, commands run with output, tests passing, commits made. The cursor reflects the terminal's readiness loop,
+  which keeps ticking whether or not anything meaningful is happening behind it. To know an agent actually did
+  something, look at what it produced, not at the fact that it's still blinking.
+✻ Sautéed for 10s
+❯ Say 'done' and nothing else.                                                                                          
+⏺ done
+✻ Baked for 2s
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ cat idle-notes.md
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt
