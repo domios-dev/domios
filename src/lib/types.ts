@@ -650,6 +650,10 @@ export interface ProviderDescriptor {
   /// Provider can render a pane as chat (JSONL sessions or structured/DB-backed
   /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.
   supports_chat_ui?: boolean;
+  /// Provider exposes a structured prompt source (claude AskUserQuestion in the
+  /// JSONL transcript, opencode SSE bus) so pending prompts come from a handle
+  /// rather than PTY scraping. Informational on the wire today.
+  supports_structured_prompts?: boolean;
   /// Binary name to probe via `which` when checking installation. Optional —
   /// providers without a CLI dependency leave this null.
   cli_binary?: string | null;

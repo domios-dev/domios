@@ -102,6 +102,7 @@ impl SpawnPaneSpec {
             preset: None,
             resume_session_id: agent.resume_session_id.clone(),
             activate: agent.activate,
+            structured_prompt_server: None,
         })
     }
 }

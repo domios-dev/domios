@@ -229,6 +229,7 @@ pub async fn resume_session_api(
         preset: None,
         resume_session_id: Some(meta.session_id.clone()),
         activate: None,
+        structured_prompt_server: None,
     };
     let spawned = state
         .svc

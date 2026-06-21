@@ -23,6 +23,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         preset: None,
         resume_session_id: None,
         activate: None,
+        structured_prompt_server: None,
     }
 }
 

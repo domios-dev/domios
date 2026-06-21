@@ -126,6 +126,12 @@ var plugin = {
   buildLaunchCommand(params) {
     const p = params || {};
     const parts = ["opencode"];
+    const sps = p.structuredPromptServer;
+    if (sps && sps.port) {
+      const platform = host.platform();
+      parts.push("--hostname", host.shell.quoteFor(String(sps.hostname || "127.0.0.1"), platform));
+      parts.push("--port", host.shell.quoteFor(String(sps.port), platform));
+    }
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }

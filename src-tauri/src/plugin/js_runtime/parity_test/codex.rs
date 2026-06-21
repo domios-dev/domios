@@ -238,3 +238,14 @@ fn session_fs_capabilities_over_rollout_tree() {
         .expect("detectSessionModel must resolve a model");
     assert!(!model.is_empty(), "resolved model id must be non-empty");
 }
+
+#[test]
+fn codex_stays_on_native_prompt_detector() {
+    if require_plugins().is_none() {
+        return;
+    }
+    // codex's app-server structured channel is not reachable in interactive-PTY
+    // mode, so codex has no structured prompt handle — pickers come from the
+    // native attributed-grid detector. Documents the deliberate "no work" call.
+    assert!(!codex().supports_structured_prompts());
+}

@@ -26,6 +26,11 @@ static SESSION_DETECT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 static PROMPT_SETTLE_POLL_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
+/// Per-pane throttle for the structured-prompt PULL handle (claude JSONL tail).
+/// The bounded file read runs at most once per window so a burst of marker
+/// chunks can't turn it into per-chunk disk work on the PTY drain thread.
+static STRUCTURED_PULL_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
+    LazyLock::new(|| StdMutex::new(HashMap::new()));
 
 impl ServiceContext {
     /// Process new PTY output: track status, detect agent events, dispatch notifications.
@@ -55,6 +60,8 @@ impl ServiceContext {
             has_active_prompt,
             is_auto_approve,
             shell_nonce,
+            pane_cwd,
+            agent_session_id,
         ) = {
             let mux = self.mux.read();
             let pid = mux.pane_id_for_pty(pty_id);
@@ -68,7 +75,19 @@ impl ServiceContext {
             let active_prompt = pane.and_then(|p| p.pending_prompt.as_ref()).is_some();
             let auto_approve = pane.map(|p| p.auto_approve).unwrap_or(false);
             let nonce = pane.and_then(|p| p.shell_integration_nonce.clone());
-            (pid, at, grace, locked, active_prompt, auto_approve, nonce)
+            let cwd = pane.and_then(|p| p.cwd.clone());
+            let sid = pane.and_then(|p| p.agent_session_id.clone());
+            (
+                pid,
+                at,
+                grace,
+                locked,
+                active_prompt,
+                auto_approve,
+                nonce,
+                cwd,
+                sid,
+            )
         };
 
         // Shell-integration capability layer (additive, runs for every pane):
@@ -158,6 +177,7 @@ impl ServiceContext {
                             );
                             self.set_pane_agent_type(pid, None);
                             self.prompt_detector.lock().clear(pid);
+                            crate::service::structured_prompt::clear_pane(pid);
                             {
                                 let mut mux = self.mux.write();
                                 if let Some(pane) = mux.get_pane_mut(pid) {
@@ -205,10 +225,30 @@ impl ServiceContext {
                             .flatten(),
                     )
                 };
-                let parsed = crate::agent::prompt::parse_prompt_safely(|| {
-                    native_prompt_input
-                        .as_ref()
-                        .and_then(crate::agent::native_prompt::pending_prompt_from_input)
+                // STRUCTURED beats raw PTY: when the provider exposes a
+                // structured prompt source in this run mode, build the prompt
+                // from THAT (clean question + options) and only fall back to
+                // the native attributed-grid PTY detector otherwise. Gated by
+                // capability (never a provider-id branch) + the same
+                // marker/active-prompt signal that already gates the screen
+                // read, and throttled, so the bounded JSONL tail read stays off
+                // the per-chunk hot path.
+                let structured = if check_screen {
+                    self.structured_pending_prompt(
+                        pid,
+                        at,
+                        pane_cwd.as_deref(),
+                        agent_session_id.as_deref(),
+                    )
+                } else {
+                    None
+                };
+                let parsed = structured.or_else(|| {
+                    crate::agent::prompt::parse_prompt_safely(|| {
+                        native_prompt_input
+                            .as_ref()
+                            .and_then(crate::agent::native_prompt::pending_prompt_from_input)
+                    })
                 });
                 let native_signal = parsed.is_some();
                 if native_signal && clean_text.is_none() {
@@ -251,6 +291,56 @@ impl ServiceContext {
         }
 
         (prev_status, current_status)
+    }
+
+    /// Build a pending prompt from the provider's STRUCTURED handle, if it has
+    /// one in this run mode. Two handle shapes, both capability-gated (never a
+    /// provider-id branch):
+    ///
+    /// - PUSH (opencode): a background SSE subscriber has already parsed the
+    ///   event into the structured-prompt store — an in-memory read, cheap, no
+    ///   throttle.
+    /// - PULL (claude): read the session JSONL tail for the live AskUserQuestion.
+    ///   Bounded + throttled per pane so the file read stays off the per-chunk
+    ///   hot path.
+    ///
+    /// Returns `None` when the provider has no structured handle or no prompt is
+    /// active; the caller then falls back to the native PTY detector.
+    fn structured_pending_prompt(
+        &self,
+        pane_id: &str,
+        agent_type: &str,
+        cwd: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Option<crate::multiplexer::types::PendingPrompt> {
+        if !self
+            .agent_registry
+            .with_provider(agent_type, |p| p.supports_structured_prompts())
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        // PUSH handle (opencode SSE) — already-parsed, in-memory.
+        if let Some(prompt) = crate::service::structured_prompt::pending_for_pane(pane_id) {
+            return Some(prompt);
+        }
+        // PULL handle (claude transcript) — bounded JSONL tail read, throttled.
+        let (cwd, session_id) = (cwd?, session_id?);
+        {
+            let mut cd = STRUCTURED_PULL_COOLDOWN.lock().unwrap();
+            let now = Instant::now();
+            if let Some(last) = cd.get(pane_id) {
+                if now.duration_since(*last) < std::time::Duration::from_millis(200) {
+                    return None;
+                }
+            }
+            cd.insert(pane_id.to_string(), now);
+        }
+        crate::agent::prompt::parse_prompt_safely(|| {
+            self.agent_registry
+                .with_provider(agent_type, |p| p.structured_pending_prompt(cwd, session_id))
+                .flatten()
+        })
     }
 
     /// Recompute and store the pane's live 3-state classification, then emit if
@@ -488,6 +578,32 @@ impl ServiceContext {
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
         self.apply_prompt_decision_with_screen(decision, None);
+    }
+
+    /// Set (or clear) a pane's pending prompt from a PUSH structured handle
+    /// (opencode SSE). No-op when unchanged. Bypasses the auto-approve PTY
+    /// send-back in `apply_prompt_decision` — structured prompts are answered
+    /// over HTTP, never by typing into the PTY.
+    pub(crate) fn push_structured_prompt(
+        &self,
+        pane_id: &str,
+        prompt: Option<crate::multiplexer::types::PendingPrompt>,
+    ) {
+        {
+            let mut mux = self.mux.write();
+            let Some(pane) = mux.get_pane_mut(pane_id) else {
+                return;
+            };
+            if pane.pending_prompt == prompt {
+                return;
+            }
+            pane.pending_prompt = prompt.clone();
+        }
+        let _ = self.app_handle.emit(
+            "prompt-state-changed",
+            serde_json::json!({ "pane_id": pane_id, "prompt": prompt }),
+        );
+        self.emit_state_changed();
     }
 
     pub(crate) fn apply_prompt_decision_with_screen(

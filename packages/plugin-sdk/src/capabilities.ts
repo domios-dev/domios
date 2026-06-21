@@ -60,6 +60,11 @@ export interface LaunchParams {
   agentName?: string;
   sessionId?: string;
   task?: string;
+  /// Fixed local server the host wants this agent's structured-prompt handle to
+  /// listen on. Set only for providers that declare `supportsStructuredPrompts`;
+  /// the plugin maps it to the provider's own server flags (opencode:
+  /// `--hostname <h> --port <p>`).
+  structuredPromptServer?: { hostname: string; port: number };
   [key: string]: unknown;
 }
 

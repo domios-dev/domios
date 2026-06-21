@@ -50,6 +50,20 @@ pub struct AgentLaunchParams {
     // Pre-generated session id to use when starting a NEW conversation. Honored only by providers reporting `SessionIdInjection != None` — others
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,
+    /// Fixed local server the host wants the agent's structured-prompt handle to
+    /// listen on (opencode `--hostname/--port`). Set by the host only for
+    /// providers that `supports_structured_prompts`; the plugin maps it to the
+    /// provider's server flags. Fixes the W3 leading-dash `--args` ergonomics
+    /// gap — the host allocates the port instead of the caller hand-passing args.
+    pub structured_prompt_server: Option<StructuredPromptServer>,
+}
+
+/// Bind address for a provider's structured-prompt server (opencode SSE bus).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuredPromptServer {
+    pub hostname: String,
+    pub port: u16,
 }
 
 /// Whether a provider lets us choose the session id ahead of launch.
@@ -525,6 +539,12 @@ pub struct ProviderDescriptor {
     /// instead of a hardcoded provider list.
     #[serde(default)]
     pub supports_chat_ui: bool,
+    /// `true` when the provider exposes a structured prompt source in its
+    /// current interactive run mode (claude AskUserQuestion in the JSONL
+    /// transcript, opencode SSE bus). Core builds `pending_prompt` from the
+    /// structured handle first and only falls back to PTY scraping otherwise.
+    #[serde(default)]
+    pub supports_structured_prompts: bool,
     /// Trust status of the bundle backing this provider. `system` =
     /// shipped by CodeTerm, hash matched the build-time table, or was
     /// installed from the official codeterm-core system channel.
@@ -557,7 +577,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 6;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 7;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -1049,6 +1069,7 @@ pub trait AgentProvider: Send + Sync {
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
+            supports_structured_prompts: self.supports_structured_prompts(),
             trust: self.trust(),
             transport: ProviderTransport::Pty,
             behavior_config: self.behavior_config(),
@@ -1075,6 +1096,47 @@ pub trait AgentProvider: Send + Sync {
     /// provider list.
     fn supports_chat_ui(&self) -> bool {
         self.uses_structured_chat()
+    }
+
+    /// Whether this provider, in its CURRENT interactive run mode, exposes a
+    /// STRUCTURED source for pending prompts (permission / question pickers)
+    /// instead of leaving them only as ephemeral PTY terminal UI. When true,
+    /// core builds `pane.pending_prompt` from that structured handle and only
+    /// falls back to the native attributed-grid PTY detector when the handle
+    /// yields nothing. Capability-gated — core never branches on provider id.
+    ///
+    /// Examples: claude exposes its AskUserQuestion in the parsed JSONL
+    /// transcript (`parse_interactive_events`); opencode exposes a local SSE
+    /// event bus + reply endpoints. codex app-server and cursor ACP are NOT
+    /// reachable in interactive-PTY mode, so they stay on the native detector.
+    fn supports_structured_prompts(&self) -> bool {
+        false
+    }
+
+    /// Build the STRUCTURED pending prompt for an interactive pane, if one is
+    /// active and unanswered, from this provider's structured source. `cwd` /
+    /// `session_id` identify the pane's own session (detection keys off the
+    /// pane's OWN session, never "latest global"). Pure + I/O-only (no locks,
+    /// no process calls) — same contract as `parse_session_delta`. Returns
+    /// `None` when there is no active structured prompt; core then falls back
+    /// to the native PTY detector. Only ever invoked when
+    /// `supports_structured_prompts()` is true.
+    fn structured_pending_prompt(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+    ) -> Option<crate::multiplexer::types::PendingPrompt> {
+        None
+    }
+
+    /// Whether this provider's structured handle is a local SERVER the host must
+    /// bind: the host allocates a fixed `127.0.0.1:port`, passes it at launch
+    /// (`AgentLaunchParams::structured_prompt_server`), and subscribes to it.
+    /// True for opencode (SSE bus); false for pull-handle providers like claude
+    /// that read their own on-disk transcript. Implies
+    /// `supports_structured_prompts`.
+    fn needs_structured_prompt_server(&self) -> bool {
+        false
     }
 
     /// Bundle trust status. Default impl returns `Unknown` (native
