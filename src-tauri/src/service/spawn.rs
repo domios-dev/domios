@@ -864,6 +864,7 @@ impl ServiceContext {
                 },
                 skip_permissions: true,
                 session_id: None,
+                structured_prompt_server: None,
             };
             let launch_cmd = svc_outer
                 .agent_registry

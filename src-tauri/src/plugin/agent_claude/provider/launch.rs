@@ -61,6 +61,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             session_id: None,
+            structured_prompt_server: None,
         };
         let cmd = build_launch_command(&params);
         if cfg!(target_os = "windows") {
@@ -83,6 +84,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             session_id: None,
+            structured_prompt_server: None,
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--dangerously-skip-permissions"));
@@ -107,6 +109,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             session_id: None,
+            structured_prompt_server: None,
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--agent"));
@@ -122,6 +125,7 @@ mod tests {
             args: Some(vec!["--model".into(), model_id.into()]),
             skip_permissions: true,
             session_id: None,
+            structured_prompt_server: None,
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains(".ct-task-"));
@@ -145,6 +149,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             session_id: Some("my-pre-generated-uuid".to_string()),
+            structured_prompt_server: None,
         };
         let cmd = build_launch_command(&params);
         assert!(
@@ -168,6 +173,7 @@ mod tests {
             args: None,
             skip_permissions: true,
             session_id: Some("sid-xyz".to_string()),
+            structured_prompt_server: None,
         };
         let cmd = build_launch_command(&params);
         assert!(cmd.contains("--session-id"));

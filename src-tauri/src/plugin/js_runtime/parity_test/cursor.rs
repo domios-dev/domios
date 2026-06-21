@@ -188,3 +188,14 @@ fn detection_and_existence_negatives_round_trip() {
         .iter()
         .all(|s| s.provider == "cursor"));
 }
+
+#[test]
+fn cursor_stays_on_native_prompt_detector() {
+    if require_plugins().is_none() {
+        return;
+    }
+    // cursor's ACP structured channel is not reachable in interactive-PTY mode,
+    // so cursor has no structured prompt handle — pickers come from the native
+    // attributed-grid detector. Documents the deliberate "no work" call.
+    assert!(!cursor().supports_structured_prompts());
+}

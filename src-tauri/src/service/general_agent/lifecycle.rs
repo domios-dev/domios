@@ -343,6 +343,7 @@ pub fn start_general_agent(
             args: None,
             skip_permissions: true,
             session_id: pre_session_id,
+            structured_prompt_server: None,
         };
         match svc
             .agent_registry
