@@ -280,28 +280,48 @@ fn classify_signals(
 fn classify_question_subtype(tail: &str, question: &str) -> QuestionSubtype {
     let question_text = question.to_lowercase();
     let text = format!("{question}\n{tail}").to_lowercase();
+    // Question-specific intents FIRST: a prompt's intent lives in its question, so a
+    // provider splash line leaking into the tail (e.g. codex "permissions: YOLO mode")
+    // cannot mislabel a model/auth picker as a permission prompt.
     if contains_any(
-        &text,
-        &["permission", "approve", "allow", "deny", "run command"],
-    ) {
-        QuestionSubtype::Permission
-    } else if contains_any(
         &question_text,
         &[
             "model",
             "available models",
             "select model",
             "reasoning level",
+            "effort",
         ],
     ) {
         QuestionSubtype::ModelPicker
-    } else if contains_any(&question_text, &["connect a provider", "provider"])
-        || contains_any(
-            &text,
-            &["login", "sign in", "oauth", "api key", "authenticate"],
-        )
-    {
+    } else if contains_any(
+        &question_text,
+        &[
+            "connect a provider",
+            "provider",
+            "trust",
+            "sign in",
+            "log in",
+            "login",
+            "authenticate",
+            "api key",
+            "oauth",
+        ],
+    ) {
         QuestionSubtype::Auth
+    } else if contains_any(
+        &question_text,
+        &[
+            "permission",
+            "approve",
+            "allow",
+            "deny",
+            "run command",
+            "run the following",
+            "execute",
+        ],
+    ) {
+        QuestionSubtype::Permission
     } else if contains_any(
         &text,
         &["rate limit", "usage limit", "quota", "try again later"],
@@ -311,7 +331,7 @@ fn classify_question_subtype(tail: &str, question: &str) -> QuestionSubtype {
         QuestionSubtype::Update
     } else if contains_any(&text, &["error", "failed", "crash"]) {
         QuestionSubtype::Error
-    } else if contains_any(&text, &["model", "provider", "choose", "select"]) {
+    } else if contains_any(&question_text, &["choose", "select", "which", "pick"]) {
         QuestionSubtype::ModelChoice
     } else {
         QuestionSubtype::Unknown
