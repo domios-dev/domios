@@ -507,25 +507,16 @@ impl ServiceContext {
             }
         }
 
-        // 4d. Structured-prompt server: for providers whose handle is a local
-        // server (opencode SSE bus), allocate a fixed loopback port, register
-        // the endpoint, and thread it into the launch command so the agent
-        // binds its bus there. Capability-gated — never a provider-id branch.
-        if self
-            .agent_registry
-            .with_provider(&agent_cmd, |p| p.needs_structured_prompt_server())
-            .unwrap_or(false)
-        {
-            if let Some(server) = crate::service::structured_prompt::allocate_server() {
-                let base_url = format!("http://{}:{}", server.hostname, server.port);
-                crate::service::structured_prompt::register_endpoint(
-                    &pane_id,
-                    base_url,
-                    params.cwd.clone().unwrap_or_default(),
-                );
-                params.structured_prompt_server = Some(server);
-            }
-        }
+        // 4d. Structured-prompt server: capability-gated allocate + register +
+        // subscribe via the ONE shared chokepoint (also used by the desktop/CLI
+        // `spawn_pane_atomic` path). Threads the server into the launch command so
+        // the agent binds its bus there. Never a provider-id branch.
+        params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
+            self,
+            &agent_cmd,
+            &pane_id,
+            &params.cwd.clone().unwrap_or_default(),
+        );
 
         // 5. Launch agent in background thread
         let bg_task = params.task.as_ref().map(|t| match params.role.as_deref() {
@@ -556,10 +547,7 @@ impl ServiceContext {
             ready_tx,
         );
 
-        // Start the structured-prompt SSE subscriber (no-op unless an endpoint
-        // was registered above). Reconnect-tolerant — the local server comes up
-        // a beat after spawn.
-        crate::service::structured_prompt::maybe_start_subscriber(self, &pane_id);
+        // (subscriber already started inside ensure_for_spawn above)
 
         Ok(SpawnResult {
             pane_id,

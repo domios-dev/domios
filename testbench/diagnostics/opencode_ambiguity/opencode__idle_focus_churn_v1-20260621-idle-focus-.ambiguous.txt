@@ -1,0 +1,2 @@
+# opencode__idle_focus_churn_v1-20260621-idle-focus-v2-rest-opencode-idle_focus_churn_v1-100x30
+# strobes=1 ambiguous_frames=0 (showing 0)

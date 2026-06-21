@@ -7,6 +7,9 @@ pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;
 pub const DONE_MS: u64 = 800;
 const WORKING_GRACE_MS: u64 = 1500;
+/// Upper bound on how long a Working verdict may persist with zero active-work
+/// evidence and total PTY silence before resolving to Idle (anti-stuck-Working).
+const STUCK_WORKING_IDLE_MS: u64 = 5000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -138,6 +141,68 @@ pub struct ClassifyInput<'a> {
     /// Current VT cursor visibility. Used only for parked terminal menus; normal
     /// prose with numbered lists must not become a question.
     pub cursor_hidden: bool,
+    /// Structural "input composer is ready" signal for full-screen TUI composers
+    /// (e.g. opencode) whose idle prompt has no `❯`/`›`/`→` glyph: the VT cursor is
+    /// visible and sits in the bottom input region of an alt-screen. Lets such
+    /// providers settle to Idle promptly (structurally) instead of via the
+    /// stuck-Working timeout. Computed by both adapters via [`composer_cursor_ready`].
+    pub composer_ready: bool,
+}
+
+/// Structural input-composer readiness from VT cursor geometry (NOT prose): a
+/// visible cursor parked in the bottom input region of the TUI composer. Covers
+/// both alt-screen and primary-screen full-screen composers (e.g. opencode in
+/// either mode) — a blocking picker/question hides the cursor or moves it into the
+/// menu, so a *visible* cursor in the input region is an idle/ready signal. Shared
+/// by the offline replay adapter and the live path so both agree.
+pub fn composer_cursor_ready(cursor_visible: bool, cursor_row: u16, rows: u16) -> bool {
+    const BOTTOM_REGION_ROWS: u16 = 8;
+    cursor_visible && rows > 0 && cursor_row + BOTTOM_REGION_ROWS >= rows
+}
+
+/// Veto for the idle fast-paths: the BOTTOM row is a horizontal option/button
+/// block (a possibly-uncaught PTY question), so a glyph/visible-cursor must NOT be
+/// read as an idle composer and mask it. Scope is deliberately narrow:
+/// - VERTICAL numbered/checkbox menus are NOT vetoed here — an ACTIVE one is already
+///   classified Question by `classify_terminal_menu_question` (runs earlier), and an
+///   ANSWERED one sits in scrollback ABOVE the composer (cursor's `[x] A / [ ] B`
+///   poll), which must still resolve Idle. Vetoing those would re-strand cursor.
+/// - HORIZONTAL buttons (a `❯/›` marker row laid out in COLUMNS, ≥2 multi-space
+///   gaps like `❯ Yes      No      Always`, or a row with ≥2 bracketed tokens) ARE
+///   vetoed: they are not caught elsewhere and are a real selection surface. The
+///   column-gap test separates them from a composer holding free text
+///   (`› еще раз а ты можешь…`, single-spaced), which is never vetoed.
+fn looks_like_options_block(screen_lines: &[String]) -> bool {
+    let Some(bottom) = screen_lines
+        .iter()
+        .map(|r| r.trim())
+        .filter(|r| !r.is_empty())
+        .next_back()
+    else {
+        return false;
+    };
+    let starts_marker = bottom.starts_with('❯') || bottom.starts_with('›');
+    (starts_marker && multi_space_gaps(bottom) >= 2) || bottom.matches('[').count() >= 2
+}
+
+/// Count maximal runs of ≥2 spaces — column separators in a TUI button/menu row.
+fn multi_space_gaps(s: &str) -> usize {
+    let mut gaps = 0usize;
+    let mut run = 0usize;
+    for c in s.chars() {
+        if c == ' ' {
+            run += 1;
+        } else {
+            if run >= 2 {
+                gaps += 1;
+            }
+            run = 0;
+        }
+    }
+    if run >= 2 {
+        gaps += 1;
+    }
+    gaps
 }
 
 /// The 3-state classification core — the ONE place the verdict is decided.
@@ -155,6 +220,11 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     // 2. Structurally active turn -> working. Do not treat raw PTY bytes as work:
     // composer redraws and bracketed-paste echoes are PTY output too.
+    // NOTE: the `motion` arm is currently DEAD — both callers (live `recompute_
+    // agent_state` and offline `classify_signals`) pass `Motion::Still` so replay
+    // and live agree (live cannot compute motion). Retained, explicitly gated, for
+    // a future motion-aware caller; today working is decided purely by the status
+    // widget / active-turn footer, which covers the corpus (verified byte-identical).
     if extract_status_line(input.screen_lines).is_some()
         || active_turn_footer(input.screen_lines)
         || matches!(input.motion, Motion::Streaming | Motion::Animating)
@@ -182,16 +252,56 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    if ready_prompt(input.screen_lines) {
+    // A horizontal/vertical options block at the bottom (e.g. `❯ Yes  No  Always`)
+    // is a (possibly uncaught) question surface, NOT a composer — it must not be
+    // read as Idle by either the glyph fast-path or composer_ready below. Computed
+    // once; vetoes both idle paths so a real PTY question is never masked as Idle.
+    let options_block = looks_like_options_block(input.screen_lines);
+
+    // Strong idle signal: an input-prompt glyph (❯/›/→) at the bottom. Only shown
+    // when the agent is parked at its composer, so it may settle Idle immediately
+    // (pre-grace) — this is the prompt fast-path.
+    if !options_block && ready_prompt(input.screen_lines) {
         return PaneVerdict {
             state: TimelineState::Idle,
             subtype: None,
         };
     }
 
+    // Working-grace BEFORE the weaker composer_ready: a visible cursor in the input
+    // box is present mid-turn too, so it must NOT pre-empt the grace window (else a
+    // brief gap between status-widget repaints would flicker Working→Idle→Working).
     if previous.state == TimelineState::Working && input.semantic_idle_ms < WORKING_GRACE_MS {
         return PaneVerdict {
             state: TimelineState::Working,
+            subtype: None,
+        };
+    }
+
+    // Weaker structural idle: a visible cursor parked in the bottom input region
+    // (full-screen OR primary-screen TUI composer with no glyph, e.g. opencode).
+    // Gated AFTER grace and vetoed when the bottom looks like an (uncaught) options
+    // block, so it can neither pre-empt working-grace nor mask a real PTY question.
+    if input.composer_ready && !options_block {
+        return PaneVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        };
+    }
+
+    // Safety net against "stuck Working": reaching here means none of the active
+    // signals fired (no status widget, no active-turn footer, no motion, no
+    // picker/question, no recognized ready-prompt). A Working pane that has gone
+    // fully silent on BOTH clocks past the stuck threshold is not working — never
+    // inherit Working indefinitely just because the composer glyph was not matched.
+    // Requiring byte-silence too means an animating spinner (volatile, byte_idle≈0)
+    // never trips this.
+    if previous.state == TimelineState::Working
+        && input.byte_idle_ms >= STUCK_WORKING_IDLE_MS
+        && input.semantic_idle_ms >= STUCK_WORKING_IDLE_MS
+    {
+        return PaneVerdict {
+            state: TimelineState::Idle,
             subtype: None,
         };
     }
@@ -300,13 +410,25 @@ pub fn render_signals_at(cast: &CastTimelineInput, at_ms: u64) -> BoundarySignal
 
 /// Offline adapter: build a [`ClassifyInput`] from the replayed `SignalExtractor`
 /// (running `detect_picker` over its grid) and delegate to [`classify_state`].
-fn classify_signals(
+/// Public so the replay renderer (`examples/render_timeline.rs`) drives the SAME
+/// stateful `classify_state` semantics as the live path — one oracle, not two.
+pub fn classify_signals(
     extractor: &SignalExtractor,
     signals: &StreamSignals,
     previous: PaneVerdict,
 ) -> PaneVerdict {
+    // Fidelity gate: live `recompute_agent_state` takes its picker question ONLY
+    // from a STRUCTURED handle (output.rs hard-restriction) — never from native
+    // grid parsing. Offline has no SSE stream, so `detect_picker` is the stand-in,
+    // but it must fire ONLY while the picker is structurally ACTIVE (DECSET/alt-
+    // screen interactive mode = `picker_active`). Otherwise a picker's options
+    // left rendered in the transcript after it was answered (e.g. cursor's inline
+    // "AskQuestion" poll) keep matching the grid and strand the pane in Question.
     let attributed = extractor.attributed_screen();
-    let picker = detect_picker(&attributed);
+    let picker = signals
+        .picker_active
+        .then(|| detect_picker(&attributed))
+        .flatten();
     classify_state(
         &ClassifyInput {
             picker_question: picker.as_ref().map(|p| p.question.as_str()),
@@ -314,8 +436,19 @@ fn classify_signals(
             tail: &signals.tail,
             byte_idle_ms: signals.quiescence.byte_idle_ms,
             semantic_idle_ms: signals.quiescence.semantic_idle_ms,
-            motion: signals.quiescence.kind,
+            // Parity with the live path, which cannot compute motion and always
+            // passes `Still`: feeding the replay's real motion here would let the
+            // oracle reach Working via a signal the live classifier never sees.
+            // Verified redundant — status_line / active_turn_footer / composer_ready
+            // cover every working frame in the corpus, so forcing `Still` leaves all
+            // replay verdicts byte-identical while keeping replay==live.
+            motion: Motion::Still,
             cursor_hidden: signals.input_mode.cursor_hidden,
+            composer_ready: composer_cursor_ready(
+                signals.cursor.visible,
+                signals.cursor.row,
+                signals.rows,
+            ),
         },
         previous,
     )
@@ -325,9 +458,6 @@ pub fn classify_terminal_menu_question(
     screen_lines: &[String],
     cursor_hidden: bool,
 ) -> Option<QuestionSubtype> {
-    if !cursor_hidden {
-        return None;
-    }
     let mut selected = 0usize;
     let mut numbered = 0usize;
     let mut checkbox = 0usize;
@@ -343,11 +473,47 @@ pub fn classify_terminal_menu_question(
             checkbox += 1;
         }
     }
+    // A confirm-style key-hint footer (enter + esc + a nav/choose hint) is a strong
+    // active-choice signal on its own, so options + that footer classify Question
+    // EVEN WITH A VISIBLE CURSOR — otherwise a permission/choice box with a visible
+    // cursor would be false-idled by composer_ready (which runs later). Without that
+    // footer we still require the hidden-cursor interactive-mode signal to avoid
+    // turning plain numbered prose into a question.
+    let confirm_footer = confirm_style_footer(screen_lines);
+    let has_options = numbered >= 2 || checkbox >= 2;
+    if has_options && confirm_footer {
+        return Some(QuestionSubtype::Unknown);
+    }
+    if !cursor_hidden {
+        return None;
+    }
     let has_choice_footer = choice_key_footer(screen_lines);
     ((selected == 1 && numbered >= 2)
         || (numbered >= 2 && has_choice_footer)
         || (checkbox >= 2 && has_choice_footer))
         .then_some(QuestionSubtype::Unknown)
+}
+
+/// A confirm/choose key-hint footer: the same line tells the user how to navigate
+/// (arrows / "up/down" / space), confirm (enter), and cancel (esc). Broader than
+/// [`choice_key_footer`] (which demands the exact "submit"/"dismiss" tokens) so it
+/// also matches confirm-style permission prompts (`… Enter to confirm, Esc to
+/// cancel`). Key-hint structure, paired with on-screen options — not free prose.
+fn confirm_style_footer(screen_lines: &[String]) -> bool {
+    screen_lines.iter().rev().take(8).any(|line| {
+        let lower = line.to_lowercase();
+        let has_nav = line.contains('↑')
+            || line.contains('↓')
+            || lower.contains("up/down")
+            || lower.contains("up / down")
+            || lower.contains("arrow")
+            || lower.contains("space")
+            || lower.contains("choose")
+            || lower.contains("select");
+        let has_confirm = lower.contains("enter") || lower.contains("return");
+        let has_cancel = lower.contains("esc"); // esc / escape
+        has_nav && has_confirm && has_cancel
+    })
 }
 
 fn terminal_menu_payload(line: &str) -> (bool, &str) {
@@ -501,10 +667,22 @@ fn ready_prompt(screen_lines: &[String]) -> bool {
     if active_turn_footer(screen_lines) || extract_status_line(screen_lines).is_some() {
         return false;
     }
-    screen_lines.iter().rev().take(4).any(|line| {
-        let line = line.trim();
-        line.starts_with('❯') || line.starts_with('›')
-    })
+    // Last 4 NON-EMPTY rows: a full-height grid leaves blank padding rows below
+    // the composer, so counting raw rows would push the prompt glyph out of the
+    // window and strand the pane in its previous (often Working) verdict.
+    screen_lines
+        .iter()
+        .rev()
+        .filter(|line| !line.trim().is_empty())
+        .take(4)
+        .any(|line| {
+            let line = line.trim();
+            // Input-prompt glyphs: ❯/› (claude/codex), → (cursor's composer arrow).
+            // Structural input indicators, not prose. ready_prompt only runs when
+            // not actively working (guarded above), so cursor's working footer
+            // `→ … ctrl+c to stop` is caught by active_turn_footer first.
+            line.starts_with('❯') || line.starts_with('›') || line.starts_with('→')
+        })
 }
 
 fn active_turn_footer(screen_lines: &[String]) -> bool {
@@ -959,11 +1137,233 @@ mod tests {
 
     #[test]
     fn ignores_terminal_choice_shape_when_cursor_is_visible() {
+        // ↑↓/submit/dismiss footer without the broader confirm-footer wording: with a
+        // VISIBLE cursor this stays None (the strict path needs hidden cursor).
+        let screen = lines(&["┃  1. Alpha", "┃  2. Beta", "┃  press the keys"]);
+        assert_eq!(classify_terminal_menu_question(&screen, false), None);
+    }
+
+    // Permission/choice box with a VISIBLE cursor + a confirm-style key-hint footer
+    // (`… Enter to confirm, Esc to cancel`) must be Question — not false-idled by
+    // composer_ready. Mirrors synthetic permission_box_visible_cursor_v1.
+    #[test]
+    fn permission_box_with_visible_cursor_and_confirm_footer_is_question() {
         let screen = lines(&[
-            "┃  1. Alpha",
-            "┃  2. Beta",
-            "┃  ↑↓ select  enter submit  esc dismiss",
+            "Allow command execution?",
+            "  1. Yes, allow once",
+            "  2. Yes, allow for this session",
+            "  3. No, deny",
+            "  Use up/down to choose, Enter to confirm, Esc to cancel",
+        ]);
+        assert_eq!(
+            classify_terminal_menu_question(&screen, false),
+            Some(QuestionSubtype::Unknown),
+            "visible-cursor permission box must classify Question"
+        );
+    }
+
+    // Plain numbered prose WITHOUT a confirm/choice footer stays not-a-question even
+    // with a visible cursor (no false Question on normal lists).
+    #[test]
+    fn numbered_prose_without_confirm_footer_is_not_question_visible_cursor() {
+        let screen = lines(&[
+            "Here are three options to consider:",
+            "1. Alpha approach",
+            "2. Beta approach",
+            "3. Gamma approach",
+            "Let me know which you prefer.",
         ]);
         assert_eq!(classify_terminal_menu_question(&screen, false), None);
+    }
+
+    use super::{
+        classify_state, composer_cursor_ready, ClassifyInput, Motion, PaneVerdict, TimelineState,
+    };
+
+    fn working() -> PaneVerdict {
+        PaneVerdict {
+            state: TimelineState::Working,
+            subtype: None,
+        }
+    }
+
+    fn quiescent_input(screen: &[String]) -> ClassifyInput<'_> {
+        ClassifyInput {
+            picker_question: None,
+            screen_lines: screen,
+            tail: "",
+            byte_idle_ms: 6000,
+            semantic_idle_ms: 6000,
+            motion: Motion::Still,
+            cursor_hidden: false,
+            composer_ready: false,
+        }
+    }
+
+    // The codex idle composer: a `›` prompt line followed by the model/cwd footer.
+    // ready_prompt must recognize it as idle even when the TUI leaves blank
+    // padding rows below the footer (real grids are full-height with trailing
+    // blanks). Regression: `.rev().take(4)` over raw rows let >=2 trailing blanks
+    // push the `›` line out of the window, so a previously-Working pane stuck
+    // Working forever.
+    #[test]
+    fn idle_composer_with_trailing_blank_padding_returns_idle() {
+        let screen = lines(&[
+            "• Да, удобно для быстрых развилок.",
+            "› Implement {feature}",
+            "  gpt-5.5 medium · ~/.codeterm-dev/general",
+            "",
+            "",
+            "",
+        ]);
+        let verdict = classify_state(&quiescent_input(&screen), working());
+        assert_eq!(
+            verdict.state,
+            TimelineState::Idle,
+            "trailing-blank composer"
+        );
+    }
+
+    // Safety net: even when no provider-specific ready-prompt glyph is on screen,
+    // a long-quiescent pane with no active-work evidence (no status widget, no
+    // active-turn footer, no motion) must not stay Working indefinitely.
+    #[test]
+    fn long_quiescent_unknown_layout_does_not_stay_working_forever() {
+        let screen = lines(&["some completed assistant output", "with no composer glyph"]);
+        let mut input = quiescent_input(&screen);
+        input.byte_idle_ms = 8000;
+        input.semantic_idle_ms = 8000;
+        let verdict = classify_state(&input, working());
+        assert_eq!(
+            verdict.state,
+            TimelineState::Idle,
+            "stuck-working safety net"
+        );
+    }
+
+    // Cursor (app) post-turn composer: footer arrow `→` (no stop-hint) must read
+    // Idle PROMPTLY at low idle clocks (structural, not the 5s timeout).
+    #[test]
+    fn cursor_composer_arrow_returns_idle_promptly() {
+        let screen = lines(&[
+            "  коде. Напиши тему.",
+            "→ Add a follow-up",
+            "Composer 2.5 · 7%                          Run Everything",
+            "/private/var/folders/x/ct-replay-cursor",
+        ]);
+        let mut input = quiescent_input(&screen);
+        input.byte_idle_ms = 300;
+        input.semantic_idle_ms = 300;
+        let verdict = classify_state(&input, working());
+        assert_eq!(
+            verdict.state,
+            TimelineState::Idle,
+            "cursor → composer arrow"
+        );
+    }
+
+    // Opencode full-screen composer: no glyph, but a visible cursor parked in the
+    // bottom input region of an alt-screen ⇒ composer_ready ⇒ Idle promptly.
+    #[test]
+    fn opencode_visible_cursor_in_composer_returns_idle_promptly() {
+        let screen = lines(&[
+            "┃  Build · DeepSeek V4 Flash Free",
+            "  9.4K (5%)  ctrl+p commands",
+        ]);
+        let mut input = quiescent_input(&screen);
+        // Past WORKING_GRACE_MS: composer_ready is the post-grace structural idle
+        // (it must NOT pre-empt grace — see composer_ready_does_not_preempt_working_grace).
+        input.byte_idle_ms = 2000;
+        input.semantic_idle_ms = 2000;
+        input.composer_ready = composer_cursor_ready(true, 26, 30);
+        assert!(input.composer_ready, "geometry should be composer-ready");
+        let verdict = classify_state(&input, working());
+        assert_eq!(
+            verdict.state,
+            TimelineState::Idle,
+            "opencode visible-cursor composer"
+        );
+    }
+
+    #[test]
+    fn composer_ready_visible_cursor_in_bottom_region_primary_or_alt() {
+        assert!(
+            composer_cursor_ready(true, 26, 30),
+            "opencode idle (visible, bottom)"
+        );
+        assert!(
+            composer_cursor_ready(true, 20, 24),
+            "opencode primary-screen idle"
+        );
+        assert!(
+            !composer_cursor_ready(false, 26, 30),
+            "hidden cursor (picker)"
+        );
+        assert!(
+            !composer_cursor_ready(true, 5, 30),
+            "cursor mid-screen, not bottom"
+        );
+    }
+
+    // composer_ready must NOT pre-empt the working-grace window: a visible cursor in
+    // the box appears mid-turn too, so within grace the verdict stays Working.
+    #[test]
+    fn composer_ready_does_not_preempt_working_grace() {
+        let screen = lines(&["┃  Build · model", "  9.4K (5%)  ctrl+p commands"]);
+        let mut input = quiescent_input(&screen);
+        input.composer_ready = true;
+        input.semantic_idle_ms = 500; // < WORKING_GRACE_MS
+        input.byte_idle_ms = 500;
+        let verdict = classify_state(&input, working());
+        assert_eq!(
+            verdict.state,
+            TimelineState::Working,
+            "grace must win over composer_ready"
+        );
+    }
+
+    // composer_ready must NOT mask a real (even uncaught) PTY question: a horizontal
+    // button / options block at the bottom vetoes the composer-ready idle path.
+    #[test]
+    fn composer_ready_vetoed_by_options_block() {
+        let screen = lines(&["Allow this tool to run?", "❯ Yes      No      Always"]);
+        let mut input = quiescent_input(&screen);
+        input.composer_ready = true;
+        input.byte_idle_ms = 3000; // past grace
+        input.semantic_idle_ms = 3000;
+        let verdict = classify_state(&input, working());
+        assert_ne!(
+            verdict.state,
+            TimelineState::Idle,
+            "horizontal buttons must veto composer idle"
+        );
+    }
+
+    #[test]
+    fn options_block_horizontal_only_not_vertical_or_idle_box() {
+        // Horizontal buttons (bottom row, column-gapped) -> vetoed.
+        assert!(super::looks_like_options_block(&lines(&[
+            "Allow?",
+            "❯ Yes      No      Cancel"
+        ])));
+        // Vertical numbered menu is NOT vetoed here (handled by
+        // classify_terminal_menu_question when active; answered ones sit above the
+        // composer and must still resolve Idle).
+        assert!(!super::looks_like_options_block(&lines(&[
+            "┃ 1. Alpha",
+            "┃ 2. Beta",
+            "┃ 3. Gamma"
+        ])));
+        // Answered cursor poll above the composer -> not vetoed (composer is bottom).
+        assert!(!super::looks_like_options_block(&lines(&[
+            "[x] A",
+            "[ ] B",
+            "→ Add a follow-up"
+        ])));
+        // opencode idle box -> not vetoed.
+        assert!(!super::looks_like_options_block(&lines(&[
+            "┃  Build · model",
+            "  9.4K (5%)  ctrl+p commands"
+        ])));
     }
 }

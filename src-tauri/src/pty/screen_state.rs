@@ -97,6 +97,18 @@ impl ScreenState {
         })
     }
 
+    /// VT cursor geometry for the live composer-ready signal: `(alt_screen,
+    /// cursor_visible, cursor_row, rows)`. Mirrors what the offline `SignalExtractor`
+    /// exposes so the live and replay classifiers agree (see `composer_cursor_ready`).
+    pub fn cursor_input_state(&self, pty_id: &str) -> Option<(bool, bool, u16, u16)> {
+        self.parsers.get(pty_id).map(|p| {
+            let screen = p.screen();
+            let (rows, _cols) = screen.size();
+            let (row, _col) = screen.cursor_position();
+            (screen.alternate_screen(), !screen.hide_cursor(), row, rows)
+        })
+    }
+
     /// Get screen as escape-coded bytes — preserves colors, cursor position, cursor visibility.
     /// Used for screen restore on pane remount (HMR, tab switch).
     pub fn get_screen_formatted(&self, pty_id: &str) -> Option<Vec<u8>> {

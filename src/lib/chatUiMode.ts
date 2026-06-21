@@ -107,9 +107,10 @@ export function loadDefaultNewAgentPaneChat(): Promise<boolean> {
 }
 
 export async function setDefaultNewAgentPaneToChat(enabled: boolean): Promise<void> {
-  cachedDefaultNewAgentPaneChat = enabled;
-  markPrompted();
   await writeDefaultToConfig(enabled);
+  cachedDefaultNewAgentPaneChat = enabled;
+  configLoad = Promise.resolve(enabled);
+  markPrompted();
 }
 
 function askDefaultNewAgentPaneToChat(): Promise<ChatUiDefaultPromptChoice> {

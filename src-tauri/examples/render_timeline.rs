@@ -17,14 +17,12 @@ use std::path::Path;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use codeterm_lib::agent::attributed_screen::detect_picker;
 use codeterm_lib::agent::offline_state_classifier::{
-    classify_terminal_menu_question, extract_completion_summary, extract_status_line,
-    has_active_turn_footer,
+    classify_signals, extract_completion_summary, extract_status_line, PaneVerdict, TimelineState,
 };
 use codeterm_lib::agent::signal_extractor::{SignalExtractor, StreamSignals, VolatileHint};
 use serde_json::{json, Value};
 
 const DEFAULT_SAMPLE_MS: u64 = 75; // ~13.3 fps
-const WORKING_HOLD_MS: u64 = 1500;
 
 enum Ev {
     Output {
@@ -55,9 +53,21 @@ struct Cast {
     events: Vec<Ev>,
 }
 
-#[derive(Default)]
 struct DetectorOverlay {
-    last_active_ms: Option<u64>,
+    /// The previous frame's verdict, threaded so the replay runs the SAME stateful
+    /// `classify_state` (grace + stuck-working safety net) the live path runs.
+    previous: PaneVerdict,
+}
+
+impl Default for DetectorOverlay {
+    fn default() -> Self {
+        DetectorOverlay {
+            previous: PaneVerdict {
+                state: TimelineState::Idle,
+                subtype: None,
+            },
+        }
+    }
 }
 
 fn parse_cast(path: &Path) -> Cast {
@@ -173,51 +183,47 @@ fn max_phase_to_ms(phases: Option<&Value>) -> Option<u64> {
         .max()
 }
 
-/// Per-frame detector overlay. `working` is derived from the STATUS LINE, not
-/// byte flow — present widget ⇒ working; absent ⇒ idle.
+/// Per-frame detector overlay. The STATE is the production verdict: this calls
+/// the exact `classify_signals`/`classify_state` the live path runs, threading
+/// `overlay.previous` so the stateful grace + stuck-working logic replays
+/// faithfully (NOT a parallel status-line/hold-decay approximation). The
+/// status_line / summary fields are display-only, surfaced per verdict state to
+/// mirror `service::output::recompute_agent_state`.
 fn detector_json(
-    t_ms: u64,
+    extractor: &SignalExtractor,
     sig: &StreamSignals,
     card: Value,
     overlay: &mut DetectorOverlay,
 ) -> Value {
-    // Uses the SAME production extractor (codeterm_lib) the live classifier will.
+    let verdict = classify_signals(extractor, sig, overlay.previous);
+    overlay.previous = verdict;
+
     let status = extract_status_line(&sig.screen.lines);
-    let status_line = status.as_ref().map(|s| s.line.clone());
-    let phase = status.as_ref().and_then(|s| s.phase.clone());
-    let elapsed_ms = status.as_ref().and_then(|s| s.elapsed_ms);
-    let active = status_line.is_some() || has_active_turn_footer(&sig.screen.lines);
-    if active {
-        overlay.last_active_ms = Some(t_ms);
-    }
-    let working = active
-        || overlay
-            .last_active_ms
-            .is_some_and(|last| t_ms.saturating_sub(last) <= WORKING_HOLD_MS);
-    if !working {
-        if let Some(subtype) =
-            classify_terminal_menu_question(&sig.screen.lines, sig.input_mode.cursor_hidden)
-        {
-            return json!({
-                "state": "question",
-                "working": false,
-                "subtype": subtype,
-                "status_line": Value::Null,
-                "phase": Value::Null,
-                "elapsed_ms": Value::Null,
-                "last_turn_summary": Value::Null,
-                "card": card,
-            });
-        }
-    }
+    let working = matches!(verdict.state, TimelineState::Working);
+    let idle = matches!(verdict.state, TimelineState::Idle);
+    let status_line = working
+        .then(|| status.as_ref().map(|s| s.line.clone()))
+        .flatten();
+    let phase = working
+        .then(|| status.as_ref().and_then(|s| s.phase.clone()))
+        .flatten();
+    let elapsed_ms = working
+        .then(|| status.as_ref().and_then(|s| s.elapsed_ms))
+        .flatten();
     // When idle, surface the completed-turn summary ("Churned for 1m 37s") as a
     // separate muted line — NOT the working line.
-    let last_turn_summary = (!working)
+    let last_turn_summary = idle
         .then(|| extract_completion_summary(&sig.screen.lines).map(|s| s.line))
         .flatten();
+    let state = match verdict.state {
+        TimelineState::Working => "working",
+        TimelineState::Idle => "idle",
+        TimelineState::Question => "question",
+    };
     json!({
-        "state": if working { "working" } else { "idle" },
+        "state": state,
         "working": working,
+        "subtype": verdict.subtype,
         "status_line": status_line,
         "phase": phase,
         "elapsed_ms": elapsed_ms,
@@ -240,7 +246,7 @@ fn frame_json(
         .iter()
         .map(|r| r.trim_end().to_string())
         .collect();
-    let mut detector = detector_json(t_ms, sig, Value::Null, overlay);
+    let mut detector = detector_json(extractor, sig, Value::Null, overlay);
     if include_native_picker {
         let native_picker = detect_picker(&extractor.attributed_screen())
             .map(|picker| {

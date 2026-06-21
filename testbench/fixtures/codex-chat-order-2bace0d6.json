@@ -1,0 +1,162 @@
+{
+  "pane": "2bace0d6",
+  "agent": "codex",
+  "messages": [
+    {
+      "id": "0-0",
+      "type": "user",
+      "seq": 0,
+      "timestamp": "2026-06-21T08:35:53.795Z"
+    },
+    {
+      "id": "1-0",
+      "type": "user",
+      "seq": 1,
+      "timestamp": "2026-06-21T08:35:53.827Z"
+    },
+    {
+      "id": "2-0",
+      "type": "assistant",
+      "seq": 2,
+      "timestamp": "2026-06-21T08:35:57.692Z"
+    },
+    {
+      "id": "3-0",
+      "type": "user",
+      "seq": 3,
+      "timestamp": "2026-06-21T08:42:05.097Z"
+    },
+    {
+      "id": "4-0",
+      "type": "assistant",
+      "seq": 4,
+      "timestamp": "2026-06-21T08:42:06.765Z"
+    },
+    {
+      "id": "5-0",
+      "type": "user",
+      "seq": 5,
+      "timestamp": "2026-06-21T08:42:07.011Z"
+    },
+    {
+      "id": "6-0",
+      "type": "assistant",
+      "seq": 6,
+      "timestamp": "2026-06-21T08:42:08.981Z"
+    },
+    {
+      "id": "7-0",
+      "type": "user",
+      "seq": 7,
+      "timestamp": "2026-06-21T08:46:42.616Z"
+    },
+    {
+      "id": "8-0",
+      "type": "assistant",
+      "seq": 8,
+      "timestamp": "2026-06-21T08:46:44.314Z"
+    },
+    {
+      "id": "9-0",
+      "type": "user",
+      "seq": 9,
+      "timestamp": "2026-06-21T08:46:51.920Z"
+    },
+    {
+      "id": "10-0",
+      "type": "assistant",
+      "seq": 10,
+      "timestamp": "2026-06-21T08:46:54.977Z"
+    },
+    {
+      "id": "11-0",
+      "type": "user",
+      "seq": 11,
+      "timestamp": "2026-06-21T12:04:11.980Z"
+    },
+    {
+      "id": "12-0",
+      "type": "assistant",
+      "seq": 12,
+      "timestamp": "2026-06-21T12:04:13.543Z"
+    },
+    {
+      "id": "13-0",
+      "type": "user",
+      "seq": 13,
+      "timestamp": "2026-06-21T12:10:29.569Z"
+    },
+    {
+      "id": "14-0",
+      "type": "assistant",
+      "seq": 14,
+      "timestamp": "2026-06-21T12:10:31.264Z"
+    },
+    {
+      "id": "15-0",
+      "type": "tool_call",
+      "seq": 15,
+      "timestamp": "2026-06-21T12:10:32.771Z"
+    },
+    {
+      "id": "16-0",
+      "type": "tool_result",
+      "seq": 16,
+      "timestamp": "2026-06-21T12:10:33.328Z"
+    },
+    {
+      "id": "17-0",
+      "type": "assistant",
+      "seq": 17,
+      "timestamp": "2026-06-21T12:10:35.305Z"
+    },
+    {
+      "id": "18-0",
+      "type": "user",
+      "seq": 18,
+      "timestamp": "2026-06-21T12:13:06.321Z"
+    },
+    {
+      "id": "19-0",
+      "type": "assistant",
+      "seq": 19,
+      "timestamp": "2026-06-21T12:13:07.629Z"
+    },
+    {
+      "id": "20-0",
+      "type": "user",
+      "seq": 20,
+      "timestamp": "2026-06-21T14:21:09.636Z"
+    },
+    {
+      "id": "21-0",
+      "type": "assistant",
+      "seq": 21,
+      "timestamp": "2026-06-21T14:21:20.067Z"
+    },
+    {
+      "id": "22-0",
+      "type": "user",
+      "seq": 22,
+      "timestamp": "2026-06-21T14:45:52.950Z"
+    },
+    {
+      "id": "23-0",
+      "type": "assistant",
+      "seq": 23,
+      "timestamp": "2026-06-21T14:45:59.950Z"
+    },
+    {
+      "id": "24-0",
+      "type": "user",
+      "seq": 24,
+      "timestamp": "2026-06-21T14:46:04.841Z"
+    },
+    {
+      "id": "25-0",
+      "type": "assistant",
+      "seq": 25,
+      "timestamp": "2026-06-21T14:46:11.095Z"
+    }
+  ]
+}

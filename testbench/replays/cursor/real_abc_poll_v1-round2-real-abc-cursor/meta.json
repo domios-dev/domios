@@ -1,0 +1,29 @@
+{
+  "scenario": "real_abc_poll_v1",
+  "title": "Real casual A/B/C poll request (prose vs native menu divergence)",
+  "provider": "cursor",
+  "provider_version": "2026.06.19-20-24-33-653a7fb",
+  "codeterm_health": {
+    "status": "ok",
+    "version": "1.4.6",
+    "build": "3f477246",
+    "name": "CodeTerm",
+    "platform": "macos"
+  },
+  "workspace_id": "8b2e6a11",
+  "pane_id": "741cfe14",
+  "workspace_dir": "/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-cursor-real_abc_poll_v1-abd34shi",
+  "captured_at_ms": 1782054660440,
+  "terminal": {
+    "cols": 120,
+    "rows": 32,
+    "scenario_default": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  "source": "testbench/replay-capture.py"
+}

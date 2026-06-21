@@ -336,9 +336,19 @@ pub async fn respond_prompt(
         .and_then(|v| v.as_str())
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "Missing 'value' field".to_string()))?
         .to_string();
-    state
-        .svc
-        .respond_prompt(&pane_id, &value)
+    // respond_prompt's structured reply uses a BLOCKING reqwest client (it drops an
+    // internal runtime), which panics if run on the async runtime. Send it off the
+    // runtime via spawn_blocking (CLAUDE.md async-discipline: blocking IO off-runtime).
+    let svc = state.svc.clone();
+    let pid = pane_id.clone();
+    tokio::task::spawn_blocking(move || svc.respond_prompt(&pid, &value))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "respond_prompt task join failed".to_string(),
+            )
+        })?
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }

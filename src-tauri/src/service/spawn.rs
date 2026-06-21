@@ -453,6 +453,13 @@ impl ServiceContext {
 
         let mut legacy_params = spec.to_agent_params()?;
         legacy_params.model = launch_model;
+        legacy_params.structured_prompt_server =
+            crate::service::structured_prompt::ensure_for_spawn(
+                self,
+                &agent_cmd,
+                &pane_id,
+                &resolved_cwd.clone().unwrap_or_default(),
+            );
         let launch_cmd = build_agent_command(
             &agent_cmd,
             &legacy_params,
@@ -854,6 +861,14 @@ impl ServiceContext {
 
             // headless:false → ordinary interactive claude, task delivered as a positional after `--` (same launch a visible agent gets). Completion comes
             // from the standard agent rails, not a stream-json result event.
+            // Capability-gated structured-prompt server via the shared chokepoint
+            // (allocate+register+subscribe). No-op for providers that don't need it.
+            let hidden_cwd = svc_outer
+                .mux
+                .read()
+                .get_pane(&pane_id_outer)
+                .and_then(|p| p.cwd.clone())
+                .unwrap_or_default();
             let launch_params = crate::agent::provider::AgentLaunchParams {
                 agent_name: None,
                 task: task_for_thread,
@@ -864,7 +879,12 @@ impl ServiceContext {
                 },
                 skip_permissions: true,
                 session_id: None,
-                structured_prompt_server: None,
+                structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
+                    &svc_outer,
+                    &provider,
+                    &pane_id_outer,
+                    &hidden_cwd,
+                ),
             };
             let launch_cmd = svc_outer
                 .agent_registry

@@ -1,0 +1,3 @@
+{"version": 2, "width": 100, "height": 30, "timestamp": 0}
+[0.0, "o", "\u001b[2J\u001b[H\u001b[?25h\u001b[2;1HAssistant: I need to run a command to continue.\u001b[20;1HAllow command execution?\u001b[21;1H  The agent wants to run: rm -rf /tmp/build-cache\u001b[23;1H  1. Yes, allow once\u001b[24;1H  2. Yes, allow for this session\u001b[25;1H  3. No, deny\u001b[27;1H  Use up/down to choose, Enter to confirm, Esc to cancel\u001b[28;3H"]
+[7.0, "o", "\u001b[28;3H"]

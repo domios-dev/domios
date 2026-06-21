@@ -170,7 +170,7 @@ fn parse_permission(props: &Value) -> ParsedEvent {
     }
 }
 
-/// Session-scoped v2 reply endpoint (preferred), relative to the server base.
+/// Reply endpoint relative to the server base.
 pub fn reply_endpoint(route: &ResponseRoute) -> String {
     match route.kind {
         PromptKind::Question => format!(
@@ -178,22 +178,29 @@ pub fn reply_endpoint(route: &ResponseRoute) -> String {
             route.session_id, route.request_id
         ),
         PromptKind::Permission => format!(
-            "/api/session/{}/permission/{}/reply",
+            "/session/{}/permissions/{}",
             route.session_id, route.request_id
         ),
     }
 }
 
-/// Build the JSON reply body for a chosen 1-based option `value`.
+/// Build the JSON reply body for a chosen option `value`.
 /// For a question the answer is the option label; for a permission it is the
-/// reply token (`once` / `always` / `reject`). Returns `None` if the index is
-/// out of range.
+/// reply token (`once` / `always` / `reject`). Accepts either the option value
+/// exposed in [`PendingPrompt`] or a legacy 1-based index.
 pub fn reply_body(route: &ResponseRoute, value: &str) -> Option<Value> {
-    let index = value.parse::<usize>().ok()?.checked_sub(1)?;
-    let choice = route.option_labels.get(index)?.clone();
+    let choice = if let Some(index) = value.parse::<usize>().ok().and_then(|v| v.checked_sub(1)) {
+        route.option_labels.get(index)?.clone()
+    } else {
+        route
+            .option_labels
+            .iter()
+            .find(|label| label.as_str() == value)
+            .cloned()?
+    };
     Some(match route.kind {
         PromptKind::Question => json!({ "answers": [[choice]] }),
-        PromptKind::Permission => json!({ "reply": choice }),
+        PromptKind::Permission => json!({ "response": choice }),
     })
 }
 
@@ -271,11 +278,16 @@ mod tests {
                 let values: Vec<_> = prompt.options.iter().map(|o| o.value.as_str()).collect();
                 assert_eq!(values, vec!["once", "always", "reject"]);
                 assert_eq!(route.kind, PromptKind::Permission);
+                assert_eq!(reply_endpoint(&route), "/session/ses_5/permissions/per_7");
                 assert_eq!(
-                    reply_endpoint(&route),
-                    "/api/session/ses_5/permission/per_7/reply"
+                    reply_body(&route, "1").unwrap(),
+                    json!({"response": "once"})
                 );
-                assert_eq!(reply_body(&route, "2").unwrap(), json!({"reply": "always"}));
+                assert_eq!(
+                    reply_body(&route, "always").unwrap(),
+                    json!({"response": "always"})
+                );
+                assert!(reply_body(&route, "4").is_none());
             }
             other => panic!("expected Prompt, got {other:?}"),
         }
