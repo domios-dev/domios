@@ -97,5 +97,5 @@ test("@smoke keybinding display renders configured shortcuts", async ({ api, ui 
   await expect(openSettingsRow.locator('[data-testid="settings-keybinding-display"]')).toContainText(
     expectedShortcutText(config.keybindings.open_settings),
   );
-  await expect(ui.page.locator('[data-testid="settings-keybinding-row"]')).toHaveCount(13);
+  await expect(ui.page.locator('[data-testid="settings-keybinding-row"]')).toHaveCount(14);
 });

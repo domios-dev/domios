@@ -147,8 +147,19 @@ impl ServiceContext {
             return text;
         }
         stages.sort_by(|a, b| a.id().cmp(b.id()));
+        let (cwd, provider) = {
+            let mux = self.mux.read();
+            let resolved = mux.resolve_pane_id(pane_id);
+            let pane = resolved.as_deref().and_then(|id| mux.get_pane(id));
+            (
+                pane.and_then(|p| p.cwd.clone()),
+                pane.and_then(|p| p.agent_type.clone()),
+            )
+        };
         let ctx = crate::chatpreprocessor::PreprocessCtx {
             pane_id: pane_id.to_string(),
+            cwd,
+            provider,
             ..Default::default()
         };
         crate::chatpipeline::run_text_stages(&stages, &ctx, text)

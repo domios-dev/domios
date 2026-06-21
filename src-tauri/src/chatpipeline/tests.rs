@@ -127,6 +127,25 @@ async fn voice_stage_transcribes_via_active_engine() {
 }
 
 #[tokio::test]
+async fn voice_stage_output_can_flow_into_text_preprocessor() {
+    let reg = crate::transcribe::TranscribeRegistry::new();
+    reg.register("fake", Arc::new(FakeTranscriber));
+    let voice = run_voice_stage(&reg, "fake", Path::new("/a.oga"), "ru")
+        .await
+        .unwrap();
+    let stages: Vec<Arc<dyn ChatPreprocessorProvider>> = vec![Arc::new(TagStage {
+        id: "pre".into(),
+        tag: "[pre]".into(),
+    })];
+    let ctx = PreprocessCtx {
+        pane_id: "p1".into(),
+        ..Default::default()
+    };
+
+    assert_eq!(run_text_stages(&stages, &ctx, voice.text), "hello ru[pre]");
+}
+
+#[tokio::test]
 async fn voice_stage_auto_selects_single_registered_engine_when_active_empty() {
     let reg = crate::transcribe::TranscribeRegistry::new();
     reg.register("fake", Arc::new(FakeTranscriber));

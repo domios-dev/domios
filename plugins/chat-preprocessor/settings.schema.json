@@ -1,0 +1,44 @@
+[
+  {
+    "kind": "section",
+    "title": "Chat preprocessing",
+    "description": "Runs after voice transcription and before the final text is sent to an agent.",
+    "fields": [
+      {
+        "kind": "toggle",
+        "key": "enabled",
+        "label": "Enable preprocessing",
+        "default": false,
+        "description": "When off, messages pass through unchanged."
+      },
+      {
+        "kind": "number",
+        "key": "memK",
+        "label": "Memory hits",
+        "default": 3,
+        "min": 1,
+        "max": 8,
+        "description": "Maximum similar memory facts attached by the mem-recall preset."
+      },
+      {
+        "kind": "number",
+        "key": "memMaxChars",
+        "label": "Memory snippet chars",
+        "default": 140,
+        "min": 40,
+        "max": 500,
+        "description": "Per-hit compact snippet length."
+      },
+      {
+        "kind": "select",
+        "key": "insertPosition",
+        "label": "Insert position",
+        "default": "prepend",
+        "options": [
+          ["prepend", "Before message"],
+          ["append", "After message"]
+        ]
+      }
+    ]
+  }
+]

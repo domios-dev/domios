@@ -13,6 +13,7 @@ import {
 import { CapabilityChip, capabilityLabel } from "./CapabilityChip";
 import { SchemaRenderer } from "../Settings/SchemaRenderer";
 import { PresetManager } from "./PresetManager";
+import { ChatPreprocessorPresetManager } from "./ChatPreprocessorPresetManager";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { AgentProviderScreen } from "../Settings/AgentsTab";
 import { SecretBackendDetail } from "./SecretBackendDetail";
@@ -305,6 +306,10 @@ export function PluginDetailPanel({
 
       {entry.installed && !entry.pendingReload && supportsPresets && (
         <PresetManager pluginId={entry.id} models={descriptor?.available_models ?? []} />
+      )}
+
+      {entry.installed && !entry.pendingReload && entry.capabilities?.chat_preprocessor && (
+        <ChatPreprocessorPresetManager pluginId={entry.id} />
       )}
 
       <GroupLabel>About</GroupLabel>

@@ -161,10 +161,9 @@ export function PaneSessionChat({
     );
   }, [currentPtyId, showComposerError]);
 
-  // Route an interactive-widget answer back to the agent through the SAME send
-  // path the composer uses: write_pty_string with raw=false → backend bracket
-  // paste + delayed CR, which handles the TUI-menu / long-message no-auto-submit
-  // case (#155). We echo the answer optimistically so it appears as a user turn.
+  // Route an interactive-widget answer back to the agent through the verified PTY
+  // injector, bypassing chatPreprocessor because this is a menu answer, not a
+  // fresh Chat UI user prompt.
   const handleAnswerInteractive = useCallback<InteractiveAnswerHandler>(
     async (text, element) => {
       const answer = text.trim();

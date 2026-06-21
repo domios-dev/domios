@@ -68,6 +68,8 @@ mod tests {
         }
     }
 
+    // ── contract tests (inline JS) ──────────────────────────────────────────
+
     #[test]
     fn preprocess_replaces_text() {
         // The ctx carries the live text; the plugin augments it.
@@ -95,5 +97,110 @@ mod tests {
         );
         let p = JsChatPreprocessor::new(vm, "pre");
         assert_eq!(p.preprocess(&ctx(), "keep me"), None);
+    }
+
+    // ── bundled plugin preset tests ─────────────────────────────────────────
+    // Load the real compiled plugin.js bundle so the settings injection, preset
+    // selection, and mem-recall passthrough paths are proven against the actual
+    // shipped artifact.  If the plugin file isn't present (cargo-publish clone),
+    // the tests are skipped rather than failing.
+
+    fn bundled_plugin_js() -> Option<String> {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../plugins/chat-preprocessor/plugin.js");
+        std::fs::read_to_string(&path).ok()
+    }
+
+    fn bundled_vm(settings_json: &str) -> Option<Arc<PluginVm>> {
+        let src = bundled_plugin_js()?;
+        let vm = Arc::new(PluginVm::from_source("chat-preprocessor", src).expect("bundled vm"));
+        vm.reload_settings(settings_json.to_string());
+        Some(vm)
+    }
+
+    #[test]
+    fn settings_disabled_always_passes_through() {
+        // `enabled: false` (or absent) must short-circuit to null regardless of preset.
+        let Some(vm) = bundled_vm(r#"{"enabled":false,"activePreset":"mem-recall"}"#) else {
+            return;
+        };
+        let p = JsChatPreprocessor::new(vm, "chat-preprocessor");
+        assert_eq!(
+            p.preprocess(&ctx(), "hello"),
+            None,
+            "disabled → passthrough"
+        );
+    }
+
+    #[test]
+    fn settings_default_null_passes_through() {
+        // settings_json starts as "null" until a config.yaml or config.plugins entry is written;
+        // the plugin must treat that as disabled and never modify the text.
+        let Some(vm) = bundled_vm("null") else { return };
+        let p = JsChatPreprocessor::new(vm, "chat-preprocessor");
+        assert_eq!(
+            p.preprocess(&ctx(), "hello"),
+            None,
+            "null settings → passthrough"
+        );
+    }
+
+    #[test]
+    fn template_preset_active_applies_replacement() {
+        // A user template preset with {{text}} must wrap the outbound message.
+        let settings = serde_json::json!({
+            "enabled": true,
+            "activePreset": "wrap",
+            "presets": [{"id": "wrap", "kind": "template", "template": "<<{{text}}>>" }]
+        });
+        let Some(vm) = bundled_vm(&settings.to_string()) else {
+            return;
+        };
+        let p = JsChatPreprocessor::new(vm, "chat-preprocessor");
+        assert_eq!(
+            p.preprocess(&ctx(), "hello"),
+            Some("<<hello>>".to_string()),
+            "template preset must substitute {{text}}"
+        );
+    }
+
+    #[test]
+    fn mem_recall_without_service_context_passes_through() {
+        // When no ServiceContext is injected (unit test), host.mem.search returns an
+        // error envelope.  The plugin must treat empty/errored mem as an absent block
+        // and return null (passthrough) rather than modifying the text.
+        let settings = serde_json::json!({
+            "enabled": true,
+            "activePreset": "mem-recall"
+        });
+        let Some(vm) = bundled_vm(&settings.to_string()) else {
+            return;
+        };
+        let p = JsChatPreprocessor::new(vm, "chat-preprocessor");
+        assert_eq!(
+            p.preprocess(&ctx(), "hello"),
+            None,
+            "empty mem → no block → text unchanged → passthrough null"
+        );
+    }
+
+    #[test]
+    fn missing_user_preset_id_passes_through() {
+        // If activePreset names a preset that isn't in the presets array, the plugin
+        // must return null (nothing to apply) rather than crashing or outputting garbage.
+        let settings = serde_json::json!({
+            "enabled": true,
+            "activePreset": "no-such-preset",
+            "presets": []
+        });
+        let Some(vm) = bundled_vm(&settings.to_string()) else {
+            return;
+        };
+        let p = JsChatPreprocessor::new(vm, "chat-preprocessor");
+        assert_eq!(
+            p.preprocess(&ctx(), "hello"),
+            None,
+            "missing preset → passthrough null"
+        );
     }
 }

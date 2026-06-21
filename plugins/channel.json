@@ -27,6 +27,12 @@
       "path": "provider-cursor",
       "version": "1.4.6",
       "minCodeterm": "1.0.0"
+    },
+    {
+      "id": "chat-preprocessor",
+      "path": "chat-preprocessor",
+      "version": "1.4.6",
+      "minCodeterm": "1.0.0"
     }
   ]
 }

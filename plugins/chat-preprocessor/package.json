@@ -1,0 +1,15 @@
+{
+  "name": "@codeterm/chat-preprocessor",
+  "version": "1.4.6",
+  "private": true,
+  "type": "module",
+  "description": "CodeTerm send-time Chat UI preprocessor presets.",
+  "main": "src/plugin.ts",
+  "types": "src/plugin.ts",
+  "exports": {
+    ".": "./src/plugin.ts"
+  },
+  "devDependencies": {
+    "@codeterm/plugin-sdk": "workspace:*"
+  }
+}
