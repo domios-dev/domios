@@ -55,6 +55,95 @@ pub(super) fn session_file_path(cwd: &str, session_id: &str) -> Option<PathBuf> 
     Some(dir.join(format!("{}.jsonl", session_id)))
 }
 
+/// Build a structured pending prompt for this session from its OWN JSONL — the
+/// live, unanswered AskUserQuestion if one is on the wire. Reads only a bounded
+/// tail (the prompt and its eventual answer are always near the end) so it's
+/// safe to call on the hot path's marker-gated branch. Returns `None` when no
+/// structured question is pending. The permission picker has no structured
+/// transcript handle, so it falls through to the native detector.
+pub(super) fn structured_pending_prompt(
+    cwd: &str,
+    session_id: &str,
+) -> Option<crate::multiplexer::types::PendingPrompt> {
+    const TAIL_BYTES: u64 = 256 * 1024;
+    let path = session_file_path(cwd, session_id)?;
+    let messages = read_rich_tail(&path, TAIL_BYTES);
+    crate::agent::structured_prompt::active_question_prompt(&messages)
+}
+
+/// Parse the tail of a claude session JSONL into enriched [`RichMessage`]s —
+/// just enough structure (role + typed content blocks + `interactive`) for
+/// [`crate::agent::structured_prompt::active_question_prompt`]. Bounded read;
+/// the first (possibly partial) line after a mid-file seek is dropped.
+fn read_rich_tail(path: &Path, tail_bytes: u64) -> Vec<crate::agent::chat_types::RichMessage> {
+    use crate::agent::chat_types::{MessageBlock, RichMessage};
+    use std::io::{Read, Seek, SeekFrom};
+
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    let Ok(len) = f.metadata().map(|m| m.len()) else {
+        return Vec::new();
+    };
+    if len == 0 {
+        return Vec::new();
+    }
+    let start = len.saturating_sub(tail_bytes);
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if start > 0 && !lines.is_empty() {
+        // Drop the partial first line produced by the mid-file seek.
+        lines.remove(0);
+    }
+
+    let mut out = Vec::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let role = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        if role != "user" && role != "assistant" {
+            continue;
+        }
+        let Some(serde_json::Value::Array(content)) =
+            v.get("message").and_then(|m| m.get("content"))
+        else {
+            continue;
+        };
+        // Each claude content block carries its discriminant in `type`; mirror
+        // it into the host's `MessageBlock.kind` so `parse_interactive_events`
+        // (tool_use) and answer detection (tool_result) see the same shape.
+        let blocks: Vec<MessageBlock> = content
+            .iter()
+            .filter_map(|b| {
+                let kind = b.get("type").and_then(|t| t.as_str())?.to_string();
+                Some(MessageBlock {
+                    kind,
+                    data: b.clone(),
+                })
+            })
+            .collect();
+        let mut msg = RichMessage {
+            role: role.to_string(),
+            blocks,
+            ..Default::default()
+        };
+        msg.interactive = super::interactive::parse_interactive_events(&msg);
+        out.push(msg);
+    }
+    out
+}
+
 pub(super) fn detect_session_model(cwd: &str, session_id: &str) -> Option<String> {
     let path = session_file_path(cwd, session_id)?;
     // Climb the tail in tiers — most sessions resolve from 64K, but resumed sessions that haven't received a new assistant turn yet can have many

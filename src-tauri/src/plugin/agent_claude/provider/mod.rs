@@ -51,6 +51,21 @@ impl AgentProvider for ClaudeProvider {
         true
     }
 
+    fn supports_structured_prompts(&self) -> bool {
+        // AskUserQuestion is structured in the parsed JSONL transcript
+        // (`parse_interactive_events`). Permission prompts have no PTY-mode
+        // structured handle and fall through to the native detector.
+        true
+    }
+
+    fn structured_pending_prompt(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Option<crate::multiplexer::types::PendingPrompt> {
+        sessions::structured_pending_prompt(cwd, session_id)
+    }
+
     fn display_name(&self) -> &str {
         "Claude Code"
     }

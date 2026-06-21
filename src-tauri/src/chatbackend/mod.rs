@@ -143,6 +143,7 @@ pub trait ChatBackendProvider: Send + Sync {
             model_switch_format: None,
             supports_stop: false,
             supports_chat_ui: true,
+            supports_structured_prompts: false,
             trust: ProviderTrust::Unknown,
             transport: ProviderTransport::ChatBackend,
             behavior_config: BehaviorConfig::PresetsAndSystemPrompt,

@@ -379,6 +379,7 @@ pub fn build_agent_launch_command(
         },
         skip_permissions,
         session_id: None,
+        structured_prompt_server: None,
     };
     svc.agent_registry
         .with_provider(&agent_id, |p| p.build_launch_command(&params))

@@ -103,6 +103,7 @@ impl AgentTransport for PtyTransport {
             args: (!model_args.is_empty()).then_some(model_args),
             skip_permissions: ctx.skip_permissions,
             session_id: None,
+            structured_prompt_server: None,
         };
         svc.agent_registry
             .with_provider(ctx.provider_id, |p| p.build_launch_command(&params))

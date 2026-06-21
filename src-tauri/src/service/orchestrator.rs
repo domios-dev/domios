@@ -172,6 +172,11 @@ pub struct SpawnAgentParams {
     pub preset: Option<String>,
     pub resume_session_id: Option<String>,
     pub activate: Option<bool>,
+    /// Host-set, never from the wire: the fixed structured-prompt server the
+    /// host allocated for a `needs_structured_prompt_server` provider. Threaded
+    /// into the launch command so the agent binds its SSE bus there.
+    #[serde(default, skip)]
+    pub structured_prompt_server: Option<crate::agent::provider::StructuredPromptServer>,
 }
 
 impl SpawnAgentParams {
@@ -205,6 +210,7 @@ impl SpawnAgentParams {
             preset: json_str(params, "preset"),
             resume_session_id: json_str(params, "resume_session_id"),
             activate: params.get("activate").and_then(|v| v.as_bool()),
+            structured_prompt_server: None,
         })
     }
 }
@@ -501,6 +507,26 @@ impl ServiceContext {
             }
         }
 
+        // 4d. Structured-prompt server: for providers whose handle is a local
+        // server (opencode SSE bus), allocate a fixed loopback port, register
+        // the endpoint, and thread it into the launch command so the agent
+        // binds its bus there. Capability-gated — never a provider-id branch.
+        if self
+            .agent_registry
+            .with_provider(&agent_cmd, |p| p.needs_structured_prompt_server())
+            .unwrap_or(false)
+        {
+            if let Some(server) = crate::service::structured_prompt::allocate_server() {
+                let base_url = format!("http://{}:{}", server.hostname, server.port);
+                crate::service::structured_prompt::register_endpoint(
+                    &pane_id,
+                    base_url,
+                    params.cwd.clone().unwrap_or_default(),
+                );
+                params.structured_prompt_server = Some(server);
+            }
+        }
+
         // 5. Launch agent in background thread
         let bg_task = params.task.as_ref().map(|t| match params.role.as_deref() {
             Some("Worker") => format!("{}{}", t, crate::prompts::WORKER_SUFFIX),
@@ -529,6 +555,11 @@ impl ServiceContext {
             bg_task,
             ready_tx,
         );
+
+        // Start the structured-prompt SSE subscriber (no-op unless an endpoint
+        // was registered above). Reconnect-tolerant — the local server comes up
+        // a beat after spawn.
+        crate::service::structured_prompt::maybe_start_subscriber(self, &pane_id);
 
         Ok(SpawnResult {
             pane_id,
@@ -826,6 +857,7 @@ pub(crate) fn build_agent_command(
         },
         skip_permissions: params.skip_permissions.unwrap_or(true),
         session_id: injected_session_id.map(std::string::ToString::to_string),
+        structured_prompt_server: params.structured_prompt_server.clone(),
     };
     let cmd = registry
         .with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))

@@ -96,6 +96,7 @@ fn provider_descriptor_round_trip() {
             model_switch_format: Some("/model {model}".into()),
             supports_stop: true,
             supports_chat_ui: true,
+            supports_structured_prompts: true,
             trust: ProviderTrust::System,
             transport: ProviderTransport::ChatBackend,
             behavior_config: BehaviorConfig::PresetsAndSystemPrompt,
@@ -183,6 +184,7 @@ fn default_describe_assembles_from_methods() {
     assert!(desc.preserves_context_on_resume); // default true
     assert!(!desc.supports_lazy_skills); // default false
     assert!(!desc.has_hooks); // default false
+    assert!(!desc.supports_structured_prompts); // default false
     assert_eq!(desc.transport, ProviderTransport::Pty);
     assert_eq!(desc.behavior_config, BehaviorConfig::OwnPromptSet);
     assert!(desc.presets.is_empty());

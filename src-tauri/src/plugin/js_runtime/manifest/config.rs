@@ -42,6 +42,18 @@ pub struct SpawnConfig {
     /// interactive prompts. When false the native fallback handles it.
     #[serde(default)]
     pub interactive_events: bool,
+    /// Provider exposes a structured prompt source in its current run mode
+    /// (e.g. opencode's local SSE event bus). When true the host subscribes
+    /// to the structured handle and builds `pending_prompt` from it instead
+    /// of scraping the PTY picker.
+    #[serde(default)]
+    pub supports_structured_prompts: bool,
+    /// Provider's structured handle is a local SERVER it must bind — the host
+    /// allocates a fixed `127.0.0.1:port` and passes it as
+    /// `structuredPromptServer` at launch (opencode `--hostname/--port`).
+    /// Pull-handle providers (claude reads its own JSONL) leave this false.
+    #[serde(default)]
+    pub structured_prompt_server: bool,
     /// TUI command that prints the account usage screen (e.g. claude `/usage`,
     /// codex `/status`). Pairs with the plugin's `parseUsage` export; the
     /// usage poller skips providers without both.

@@ -79,6 +79,7 @@ pub async fn spawn_agent(
         preset: body.preset,
         resume_session_id: None,
         activate: body.activate,
+        structured_prompt_server: None,
     };
     let result = state
         .svc
