@@ -6,7 +6,6 @@ import {
   HelpCircle,
   KeyRound,
   Layers,
-  Moon,
   ShieldQuestion,
   Timer,
 } from "lucide-react";
@@ -183,34 +182,9 @@ export function AgentStateIndicator({
     );
   }
 
+  // IDLE renders nothing — "your turn" is the default, no status chrome needed.
   if (state.state === "idle") {
-    const rest = state.longIdle === true;
-    return (
-      <div
-        className={`flex items-center gap-2 py-1.5 ${className ?? ""}`}
-        data-testid="agent-state"
-        data-agent-state={rest ? "idle-long" : "idle"}
-        role="status"
-        aria-live="polite"
-        aria-label={rest ? "Agent resting" : "Your turn"}
-      >
-        {rest ? (
-          <Moon size={14} strokeWidth={2} aria-hidden style={{ color: "var(--ct-muted-fg)" }} />
-        ) : (
-          <Cursor variant="idle" color="var(--ct-green, var(--ct-ok, #3fb950))" />
-        )}
-        <span
-          className="text-sm tracking-tight"
-          style={{
-            fontFamily: "var(--ct-font-mono)",
-            color: rest ? "var(--ct-muted-fg)" : "var(--ct-fg)",
-            opacity: rest ? 0.75 : 0.9,
-          }}
-        >
-          {rest ? "Resting" : "Your turn"}
-        </span>
-      </div>
-    );
+    return null;
   }
 
   const copy = questionCopy(state.subtype);
