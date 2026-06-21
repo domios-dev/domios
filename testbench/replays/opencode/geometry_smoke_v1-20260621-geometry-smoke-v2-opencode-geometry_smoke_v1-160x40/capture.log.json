@@ -1,0 +1,150 @@
+[
+  {
+    "t_ms": 0,
+    "event": "capture_start",
+    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.cast",
+    "capture_start_result": {
+      "ok": true,
+      "out": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.cast",
+      "width": 120,
+      "height": 40
+    }
+  },
+  {
+    "t_ms": 2,
+    "event": "capture_resize",
+    "terminal": {
+      "cols": 160,
+      "rows": 40
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 5527,
+    "event": "spawned",
+    "pane": "6fed7351",
+    "workspace": "78127501",
+    "terminal": {
+      "cols": 160,
+      "rows": 40
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 7600,
+    "event": "send_turn",
+    "turn": 1
+  },
+  {
+    "t_ms": 97771,
+    "event": "turn_settled",
+    "turn": 1,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 90123,
+      "stable_ms": 0,
+      "timed_out": true
+    }
+  },
+  {
+    "t_ms": 97771,
+    "event": "idle_hold_start",
+    "turn": 1,
+    "duration_ms": 5000
+  },
+  {
+    "t_ms": 98212,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 1
+  },
+  {
+    "t_ms": 98654,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 2
+  },
+  {
+    "t_ms": 99099,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 3
+  },
+  {
+    "t_ms": 102776,
+    "event": "send_turn",
+    "turn": 2
+  },
+  {
+    "t_ms": 193220,
+    "event": "turn_settled",
+    "turn": 2,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 90393,
+      "stable_ms": 0,
+      "timed_out": true
+    }
+  },
+  {
+    "t_ms": 193221,
+    "event": "idle_hold_start",
+    "turn": 2,
+    "duration_ms": 6000
+  },
+  {
+    "t_ms": 193664,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 1
+  },
+  {
+    "t_ms": 194108,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 2
+  },
+  {
+    "t_ms": 194552,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 3
+  },
+  {
+    "t_ms": 194992,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 4
+  },
+  {
+    "t_ms": 199665,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 1
+  },
+  {
+    "t_ms": 200106,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 2
+  },
+  {
+    "t_ms": 200548,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 3
+  },
+  {
+    "t_ms": 204232,
+    "event": "capture_stop",
+    "capture_stop_result": {
+      "ok": true,
+      "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.cast",
+      "screen": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40/raw.screen.txt"
+    }
+  }
+]

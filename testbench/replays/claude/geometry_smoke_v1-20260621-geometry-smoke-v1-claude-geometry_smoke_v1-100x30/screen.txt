@@ -1,0 +1,24 @@
+dev@workstation ct-replay-claude-geometry_smoke_v1-qin541n7 % bash /tmp/codeterm-spawn-d2d19294-b220-47d3-b8ac-36f2e4404aad.sh
+╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                    │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a … │
+│                                                    │ ─────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                  │
+│                      ▝▜█████▛▘                     │ The stream-stall hint now reads "Waiting f… │
+│                        ▘▘ ▝▝                       │ Improved auto mode safety: destructive git… │
+│                                                    │ Added a warning when the requested model i… │
+│ Opus 4.8 with high effort · Claude Team · Team Org A │ /release-notes for more                     │
+│  /…/T/ct-replay-claude-geometry_smoke_v1-qin541n7  │                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+❯ Write geometry-smoke-notes.md with one sentence, then say 'geometry smoke done' in chat. Do not   
+  open any picker or menu.                                                                          
+⏺ Write(geometry-smoke-notes.md)
+  ⎿  Wrote 1 lines to geometry-smoke-notes.md
+      1 This is a geometry smoke test note.
+⏺ geometry smoke done
+✻ Baked for 7s
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents    
+                                    Plugin updated: frontend-design · Run /reload-plugins to apply

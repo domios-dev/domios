@@ -49,6 +49,19 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
 
+**Interactive dev restart from inside CodeTerm: prefer a visible pane.** On
+macOS/Tauri, `./build.sh dev --wait` can briefly report healthy and then lose the
+launcher process when the detached PTY goes away. For user-facing dev sessions,
+start dev in its own visible CodeTerm tab so the process keeps an owning PTY:
+
+```bash
+./build.sh kill
+codeterm pane new --cmd "cd $(pwd) && ./build.sh dev"
+```
+
+Then verify `http://127.0.0.1:7686/api/health`. Keep `./build.sh dev --wait` for
+scripts/benches/CI where a background readiness gate is needed.
+
 **Before debugging, always verify the running build matches your code:**
 
 ```bash

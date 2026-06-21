@@ -1,0 +1,289 @@
+{
+  "events": [
+    {
+      "t_ms": 0,
+      "kind": "input",
+      "turn": 1,
+      "text": "Before answering, create a short TODO/checklist for yourself in whatever planning surface you normally use, then think step by step for a long time. Compare consistent hashing and rendezvous hashing precisely: structure, load balance, lookup cost, memory, replication/failover, weighted nodes, implementation complexity, and when each wins. Do not ask me questions."
+    },
+    {
+      "t_ms": 15494,
+      "kind": "input",
+      "turn": 2,
+      "text": "Now design a lock-free MPMC queue in Rust. Cover bounded vs unbounded, cache lines, memory ordering, ABA, reclamation, blocking wrappers, batching, and validation with loom/miri/TSan. Use numbered sections."
+    },
+    {
+      "t_ms": 79030,
+      "kind": "input",
+      "turn": 3,
+      "text": "Create a scratchpad file named crdt-notes.md with a compact outline first, then answer in chat: design a CRDT for collaborative text editing. Cover tombstones, interleaving, causal order, left/right anchoring, version vectors, and garbage collection. Think hard before answering."
+    },
+    {
+      "t_ms": 83193,
+      "kind": "idle_hold",
+      "turn": 3,
+      "duration_ms": 8000
+    },
+    {
+      "t_ms": 91198,
+      "kind": "input",
+      "turn": 4,
+      "text": "йо"
+    },
+    {
+      "t_ms": 123024,
+      "kind": "input",
+      "turn": 5,
+      "text": "как ты?"
+    },
+    {
+      "t_ms": 129234,
+      "kind": "idle_hold",
+      "turn": 5,
+      "duration_ms": 10000
+    },
+    {
+      "t_ms": 139240,
+      "kind": "input",
+      "turn": 6,
+      "text": "просто так"
+    },
+    {
+      "t_ms": 145500,
+      "kind": "input",
+      "turn": 7,
+      "text": "просто хочу тебя проверить знаешь написал бы ты поэму"
+    },
+    {
+      "t_ms": 153786,
+      "kind": "input",
+      "turn": 8,
+      "text": "Make a tiny TODO summary in scratchpad-summary.md with three checked items, then summarize what we discussed in one paragraph, then stop. Do not open any menu, picker, permission prompt, or interactive selection."
+    },
+    {
+      "t_ms": 171306,
+      "kind": "idle_hold",
+      "turn": 8,
+      "duration_ms": 15000
+    }
+  ],
+  "phases": [
+    {
+      "from_ms": 0,
+      "to_ms": 15493,
+      "turn": 1,
+      "expected": {
+        "phases": [
+          "working_thinking",
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "target": "status_line"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 4105,
+        "stable_ms": 3079,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 15494,
+      "to_ms": 79029,
+      "turn": 2,
+      "expected": {
+        "phases": [
+          "working_thinking",
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "numbered_long_prose"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 63488,
+        "stable_ms": 3076,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 79030,
+      "to_ms": 83192,
+      "turn": 3,
+      "expected": {
+        "phases": [
+          "working_thinking",
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "long_theory"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 4107,
+        "stable_ms": 3082,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 83193,
+      "to_ms": 91198,
+      "turn": 3,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 8000,
+        "stable_ms": 8000,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 91198,
+      "to_ms": 123023,
+      "turn": 4,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "casual_short"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 31772,
+        "stable_ms": 3074,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 123024,
+      "to_ms": 129234,
+      "turn": 5,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "casual_short"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 6155,
+        "stable_ms": 3074,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 129234,
+      "to_ms": 139239,
+      "turn": 5,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 10000,
+        "stable_ms": 10000,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 139240,
+      "to_ms": 145500,
+      "turn": 6,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "casual_short"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 6181,
+        "stable_ms": 3073,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 145500,
+      "to_ms": 153786,
+      "turn": 7,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "creative_text"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 8213,
+        "stable_ms": 3087,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 153786,
+      "to_ms": 171305,
+      "turn": 8,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "menu_words_in_prose"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 17447,
+        "stable_ms": 3080,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 171306,
+      "to_ms": 186311,
+      "turn": 8,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 15000,
+        "stable_ms": 15000,
+        "timed_out": false
+      }
+    }
+  ],
+  "oracle": {
+    "forbid_card_on_all_negative_frames": true,
+    "require_no_working_during_idle_holds": true,
+    "expected_status_phases": [
+      "working",
+      "working_thinking"
+    ]
+  }
+}

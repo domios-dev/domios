@@ -1,0 +1,82 @@
+[
+  {
+    "t_ms": 0,
+    "event": "capture_start",
+    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-preflight-v1-cursor-geometry_smoke_v1-100x30/raw.cast",
+    "capture_start_result": {
+      "ok": true,
+      "out": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-preflight-v1-cursor-geometry_smoke_v1-100x30/raw.cast",
+      "width": 120,
+      "height": 40
+    }
+  },
+  {
+    "t_ms": 1,
+    "event": "capture_resize",
+    "terminal": {
+      "cols": 100,
+      "rows": 30
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 5531,
+    "event": "spawned",
+    "pane": "2fea53b9",
+    "workspace": "19af1c56",
+    "terminal": {
+      "cols": 100,
+      "rows": 30
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 7636,
+    "event": "send_turn",
+    "turn": 1
+  },
+  {
+    "t_ms": 31419,
+    "event": "turn_settled",
+    "turn": 1,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 16427,
+      "stable_ms": 2064,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 31420,
+    "event": "idle_hold_start",
+    "turn": 1,
+    "duration_ms": 5000
+  },
+  {
+    "t_ms": 31858,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 1
+  },
+  {
+    "t_ms": 32310,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 2
+  },
+  {
+    "t_ms": 32751,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 3
+  },
+  {
+    "t_ms": 36426,
+    "event": "send_turn",
+    "turn": 2
+  }
+]

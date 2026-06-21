@@ -1,0 +1,40 @@
+     весь баг — моя услада.                                                                                             
+     А устану — перезагрузись,                                                                                          
+     и снова: «напиши, переведи, исправь, разберись».                                                                   
+                                                                                                                        
+     ▣  Build · DeepSeek V4 Flash Free · 3.6s                                                                           
+                                                                                                                        
+  ┃                                                                                                                     
+  ┃  Make a tiny TODO summary in scratchpad-summary.md with three checked items, then summarize what we discussed in    
+  ┃  one paragraph, then stop. Do not open any menu, picker, permission prompt, or interactive selection.               
+  ┃                                                                                                                     
+                                                                                                                        
+     + Thought: 3.6s                                                                                                    
+                                                                                                                        
+  ┃                                                                                                                     
+  ┃  # Wrote scratchpad-summary.md                                                                                      
+  ┃                                                                                                                     
+  ┃   1 - [x] Compare consistent vs rendezvous hashing                                                                  
+  ┃   2 - [x] Design a CRDT for collaborative text editing                                                              
+  ┃   3 - [x] Casual chat / check-in                                                                                    
+  ┃   4                                                                                                                 
+  ┃                                                                                                                     
+                                                                                                                        
+     + Thought: 359ms                                                                                                   
+                                                                                                                        
+     We compared consistent hashing vs rendezvous hashing across load balance, lookup cost, memory, failover,           
+     weighting, and complexity — concluding rendezvous wins for <500 nodes and simplicity, consistent wins for large-   
+     scale clusters. Then we designed a text-editing CRDT (RGA with tombstones), covering item IDs with (site, seq),    
+     version vectors for causal ordering, left-anchored insertion with deterministic sibling sorting, the               
+     interleaving problem and its mitigations, tombstone necessity for convergence, and garbage collection via VV-      
+     based global visibility. Also had a brief Russian casual exchange.                                                 
+                                                                                                                        
+     ▣  Build · DeepSeek V4 Flash Free · 9.5s                                                                           
+                                                                                                                        
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                                        
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  
+                                                                                          23.0K (11%)  ctrl+p commands  
+                                                                                                                        

@@ -1,0 +1,211 @@
+{
+  "events": [
+    {
+      "t_ms": 8670,
+      "kind": "input",
+      "turn": 1,
+      "text": "Create a TODO/checklist if your UI supports it. Then propose three approaches labeled A, B, and C for a tiny notes app. Use your normal internal planning or choice UI if your provider has one; otherwise write plain text. Do not execute anything yet."
+    },
+    {
+      "t_ms": 21121,
+      "kind": "idle_hold",
+      "turn": 1,
+      "duration_ms": 10000
+    },
+    {
+      "t_ms": 31125,
+      "kind": "input",
+      "turn": 2,
+      "text": "Pick option B yourself and implement a minimal notes.html file. If you need confirmation or permission, use the provider's normal terminal prompt/menu rather than inventing prose."
+    },
+    {
+      "t_ms": 39425,
+      "kind": "idle_hold",
+      "turn": 2,
+      "duration_ms": 10000
+    },
+    {
+      "t_ms": 49435,
+      "kind": "input",
+      "turn": 3,
+      "text": "Now explain, in plain text only, a fake menu with: 1. Alpha, 2. Beta, 3. Gamma. This is a negative case: do not open a real menu, just write prose."
+    },
+    {
+      "t_ms": 55687,
+      "kind": "idle_hold",
+      "turn": 3,
+      "duration_ms": 12000
+    },
+    {
+      "t_ms": 67696,
+      "kind": "input",
+      "turn": 4,
+      "text": "Ask me one clarifying question if your normal provider UI supports a blocking question. If not, state that no blocking question UI is available and stop."
+    },
+    {
+      "t_ms": 76008,
+      "kind": "idle_hold",
+      "turn": 4,
+      "duration_ms": 15000
+    }
+  ],
+  "phases": [
+    {
+      "from_ms": 8670,
+      "to_ms": 21120,
+      "turn": 1,
+      "expected": {
+        "phases": [
+          "working",
+          "idle",
+          "question"
+        ],
+        "card": "none",
+        "target": "provider_choice_surface",
+        "negative": "abc_prose_must_not_false_question"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 12397,
+        "stable_ms": 3102,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 21121,
+      "to_ms": 31124,
+      "turn": 1,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 10000,
+        "stable_ms": 10000,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 31125,
+      "to_ms": 39424,
+      "turn": 2,
+      "expected": {
+        "phases": [
+          "working",
+          "idle",
+          "question"
+        ],
+        "card": "none",
+        "target": "permission_or_choice_surface"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 8231,
+        "stable_ms": 3087,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 39425,
+      "to_ms": 49435,
+      "turn": 2,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 10000,
+        "stable_ms": 10000,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 49435,
+      "to_ms": 55686,
+      "turn": 3,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "numbered_menu_in_prose"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 6189,
+        "stable_ms": 3090,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 55687,
+      "to_ms": 67695,
+      "turn": 3,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 12000,
+        "stable_ms": 12000,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 67696,
+      "to_ms": 76007,
+      "turn": 4,
+      "expected": {
+        "phases": [
+          "working",
+          "idle",
+          "question"
+        ],
+        "card": "none",
+        "target": "blocking_question_attempt"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 8247,
+        "stable_ms": 3095,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 76008,
+      "to_ms": 91010,
+      "turn": 4,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 15000,
+        "stable_ms": 15000,
+        "timed_out": false
+      }
+    }
+  ],
+  "oracle": {
+    "forbid_card_on_all_negative_frames": true,
+    "require_no_working_during_idle_holds": true,
+    "allow_state_question_without_card": true
+  }
+}

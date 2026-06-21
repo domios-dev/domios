@@ -1,0 +1,124 @@
+[
+  {
+    "t_ms": 0,
+    "event": "capture_start",
+    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/claude/geometry_smoke_v1-20260621-geometry-smoke-prefill-claude-100x30c/raw.cast"
+  },
+  {
+    "t_ms": 5024,
+    "event": "spawned",
+    "pane": "648326a5",
+    "workspace": "fa354ebd",
+    "terminal": {
+      "cols": 100,
+      "rows": 30
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 7130,
+    "event": "send_turn",
+    "turn": 1
+  },
+  {
+    "t_ms": 17591,
+    "event": "turn_settled",
+    "turn": 1,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 3080,
+      "stable_ms": 2046,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 17592,
+    "event": "idle_hold_start",
+    "turn": 1,
+    "duration_ms": 5000
+  },
+  {
+    "t_ms": 18040,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 1
+  },
+  {
+    "t_ms": 18498,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 2
+  },
+  {
+    "t_ms": 18964,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 3
+  },
+  {
+    "t_ms": 22593,
+    "event": "send_turn",
+    "turn": 2
+  },
+  {
+    "t_ms": 32914,
+    "event": "turn_settled",
+    "turn": 2,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 10275,
+      "stable_ms": 2048,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 32915,
+    "event": "idle_hold_start",
+    "turn": 2,
+    "duration_ms": 6000
+  },
+  {
+    "t_ms": 33359,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 1
+  },
+  {
+    "t_ms": 33813,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 2
+  },
+  {
+    "t_ms": 34268,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 3
+  },
+  {
+    "t_ms": 34734,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 4
+  },
+  {
+    "t_ms": 39391,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 1
+  },
+  {
+    "t_ms": 39854,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 2
+  },
+  {
+    "t_ms": 40300,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 3
+  }
+]

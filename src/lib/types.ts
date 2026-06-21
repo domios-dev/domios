@@ -86,6 +86,14 @@ export type PaneBacking =
  *  shape; `subtype` only carries meaning when `state === "question"`. */
 export interface PaneAgentState {
   state: "working" | "idle" | "question";
+  /** Provider-rendered live status line, e.g. Claude's token/progress row. */
+  status_line?: string | null;
+  /** Provider-rendered completed-turn summary shown while idle. */
+  last_turn_summary?: string | null;
+  /** Provider-derived work phase, e.g. thinking/streaming/tool, when known. */
+  phase?: string | null;
+  /** Parsed elapsed time for the provider status line, in milliseconds. */
+  elapsed_ms?: number | null;
   subtype?:
     | "model_choice"
     | "model_picker"

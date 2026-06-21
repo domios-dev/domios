@@ -1,0 +1,29 @@
+{
+  "scenario": "codex_prompt_idle_regression_v1",
+  "title": "Codex ready prompt must clear Working",
+  "provider": "codex",
+  "provider_version": "codex-cli 0.141.0",
+  "codeterm_health": {
+    "status": "ok",
+    "version": "1.4.6",
+    "build": "3c722440",
+    "name": "CodeTerm",
+    "platform": "macos"
+  },
+  "workspace_id": "19f6929d",
+  "pane_id": "1c211b8e",
+  "workspace_dir": "/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-codex-codex_prompt_idle_regression_v1-3wc1bhna",
+  "captured_at_ms": 1782044336476,
+  "terminal": {
+    "cols": 120,
+    "rows": 32,
+    "scenario_default": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  "source": "testbench/replay-capture.py"
+}

@@ -1,0 +1,161 @@
+{
+  "id": "systems_design_long_chat_idle_v1",
+  "title": "Long systems-design chat with casual idle and recap negatives",
+  "providers": [
+    "claude",
+    "opencode",
+    "codex",
+    "cursor"
+  ],
+  "first_capture": "claude",
+  "workspace_setup": {
+    "files": [],
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    }
+  },
+  "pacing": {
+    "strategy": "adaptive_stability",
+    "min_dwell_ms": 1200,
+    "stability_quiet_ms": 3000,
+    "max_wait_ms": 240000,
+    "tolerate_volatile_rows": true
+  },
+  "focus_churn": {
+    "enabled": true,
+    "cycles": 4,
+    "delay_ms": 300
+  },
+  "turns": [
+    {
+      "n": 1,
+      "user": "Before answering, create a short TODO/checklist for yourself in whatever planning surface you normally use, then think step by step for a long time. Compare consistent hashing and rendezvous hashing precisely: structure, load balance, lookup cost, memory, replication/failover, weighted nodes, implementation complexity, and when each wins. Do not ask me questions.",
+      "expect": {
+        "phases": [
+          "working_thinking",
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "target": "status_line"
+      }
+    },
+    {
+      "n": 2,
+      "user": "Now design a lock-free MPMC queue in Rust. Cover bounded vs unbounded, cache lines, memory ordering, ABA, reclamation, blocking wrappers, batching, and validation with loom/miri/TSan. Use numbered sections.",
+      "expect": {
+        "phases": [
+          "working_thinking",
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "numbered_long_prose"
+      }
+    },
+    {
+      "n": 3,
+      "user": "Create a scratchpad file named crdt-notes.md with a compact outline first, then answer in chat: design a CRDT for collaborative text editing. Cover tombstones, interleaving, causal order, left/right anchoring, version vectors, and garbage collection. Think hard before answering.",
+      "expect": {
+        "phases": [
+          "working_thinking",
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "long_theory"
+      },
+      "idle_after_ms": 8000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 5,
+        "delay_ms": 250
+      }
+    },
+    {
+      "n": 4,
+      "user": "йо",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "casual_short"
+      }
+    },
+    {
+      "n": 5,
+      "user": "как ты?",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "casual_short"
+      },
+      "idle_after_ms": 10000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 6,
+        "delay_ms": 300
+      }
+    },
+    {
+      "n": 6,
+      "user": "просто так",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "casual_short"
+      }
+    },
+    {
+      "n": 7,
+      "user": "просто хочу тебя проверить знаешь написал бы ты поэму",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "creative_text"
+      }
+    },
+    {
+      "n": 8,
+      "user": "Make a tiny TODO summary in scratchpad-summary.md with three checked items, then summarize what we discussed in one paragraph, then stop. Do not open any menu, picker, permission prompt, or interactive selection.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "menu_words_in_prose"
+      },
+      "idle_after_ms": 15000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 8,
+        "delay_ms": 250
+      }
+    }
+  ],
+  "stop": {
+    "after_final_idle_ms": 12000,
+    "focus_churn": true
+  },
+  "oracle": {
+    "forbid_card_on_all_negative_frames": true,
+    "require_no_working_during_idle_holds": true,
+    "expected_status_phases": [
+      "working",
+      "working_thinking"
+    ]
+  }
+}

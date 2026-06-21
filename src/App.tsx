@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "./lib/bridge";
 import { IS_WEB } from "./lib/webApi";
+import { getCurrentPaneUiMode } from "./lib/clientPaneUiMode";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
@@ -523,12 +524,17 @@ function AppInner() {
       // Ignore modifier-only key presses
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
-      // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY
+      // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY.
+      // Skip when the focused pane is in Chat UI mode — keys shouldn't leak into the PTY.
       const active = document.activeElement;
       const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
       const isInputFocused = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || active?.getAttribute("contenteditable") === "true";
       if (!isXtermFocused && !isInputFocused && stateRef.current.focused_pane_id) {
-        const pane = stateRef.current.panes[stateRef.current.focused_pane_id];
+        const focusedPaneId = stateRef.current.focused_pane_id;
+        const paneUiMode = getCurrentPaneUiMode(focusedPaneId)
+          ?? (stateRef.current.panes[focusedPaneId]?.chat_view ? "chat" : "terminal");
+        if (paneUiMode === "chat") return;
+        const pane = stateRef.current.panes[focusedPaneId];
         if (pane?.pty_id) {
           let data = "";
           if (e.ctrlKey && !e.shiftKey && e.key.length === 1) {

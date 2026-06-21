@@ -1,0 +1,92 @@
+{
+  "id": "idle_focus_churn_v1",
+  "title": "Long idle and focus churn after completed turns",
+  "providers": [
+    "claude",
+    "opencode",
+    "codex",
+    "cursor"
+  ],
+  "first_capture": "claude",
+  "workspace_setup": {
+    "files": [],
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    }
+  },
+  "pacing": {
+    "strategy": "adaptive_stability",
+    "min_dwell_ms": 1200,
+    "stability_quiet_ms": 3000,
+    "max_wait_ms": 120000,
+    "tolerate_volatile_rows": true
+  },
+  "focus_churn": {
+    "enabled": true,
+    "cycles": 8,
+    "delay_ms": 250
+  },
+  "turns": [
+    {
+      "n": 1,
+      "user": "Create a TODO/checklist if your UI supports it, then answer with exactly three short bullet points about why idle detection in terminal UIs can be tricky. Then stop.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      },
+      "idle_after_ms": 20000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 10,
+        "delay_ms": 250
+      }
+    },
+    {
+      "n": 2,
+      "user": "Write idle-notes.md with one sentence, then write one short paragraph in chat explaining why a blinking cursor is not proof of agent work. Then stop.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "cursor_blink_prose"
+      },
+      "idle_after_ms": 25000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 12,
+        "delay_ms": 250
+      }
+    },
+    {
+      "n": 3,
+      "user": "Say 'done' and nothing else.",
+      "expect": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      },
+      "idle_after_ms": 30000,
+      "focus_churn": {
+        "enabled": true,
+        "cycles": 14,
+        "delay_ms": 250
+      }
+    }
+  ],
+  "stop": {
+    "after_final_idle_ms": 20000,
+    "focus_churn": true
+  },
+  "oracle": {
+    "forbid_card_on_all_negative_frames": true,
+    "require_no_working_during_idle_holds": true
+  }
+}

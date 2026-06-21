@@ -1,0 +1,29 @@
+{
+  "scenario": "terminal_questions_choice_v1",
+  "title": "Provider-native question and choice surfaces",
+  "provider": "claude",
+  "provider_version": "2.1.185 (Claude Code)",
+  "codeterm_health": {
+    "status": "ok",
+    "version": "1.4.6",
+    "build": "3c722440",
+    "name": "CodeTerm",
+    "platform": "macos"
+  },
+  "workspace_id": "9ae0c8c7",
+  "pane_id": "c3d065c1",
+  "workspace_dir": "/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-claude-terminal_questions_choice_v1-u9haa69y",
+  "captured_at_ms": 1782044543828,
+  "terminal": {
+    "cols": 120,
+    "rows": 32,
+    "scenario_default": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  "source": "testbench/replay-capture.py"
+}
