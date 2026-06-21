@@ -577,7 +577,7 @@ export function ChatComposer({
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
-          await invoke("write_pty_string", { ptyId: currentPtyId, data: composed + "\r", raw: false });
+          await invoke("chat_send_text", { paneId, text: composed, enter: true });
         }
       }
     } catch (e) {

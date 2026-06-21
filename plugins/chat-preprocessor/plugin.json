@@ -1,0 +1,16 @@
+{
+  "id": "chat-preprocessor",
+  "version": "1.4.6",
+  "minCodeterm": "1.0.0",
+  "hostApi": 2,
+  "displayName": "Chat Preprocessor",
+  "description": "Send-time message presets for enriching Chat UI prompts before they reach an agent.",
+  "configHelp": "Enable the plugin, choose an active preset, then edit user presets. The built-in mem-recall preset searches CodeTerm memory and prepends compact similar facts to the outbound prompt.",
+  "entry": "plugin.js",
+  "settingsSchema": "settings.schema.json",
+  "capabilities": {
+    "chatPreprocessor": {
+      "match": "text"
+    }
+  }
+}

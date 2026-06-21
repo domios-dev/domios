@@ -389,6 +389,155 @@ fn tick_deregisters_capability_on_folder_removal() {
 }
 
 #[test]
+fn chat_preprocessor_plugin_mutates_outbound_text() {
+    // Regression gate: a JS chatPreprocessor plugin installed via hot-reload
+    // must intercept outbound text through run_text_stages and mutate it before
+    // delivery. Proves the full path: install → CapabilityRegistries →
+    // chat_preprocessor registry → run_text_stages.
+    let root = tempfile::tempdir().unwrap();
+    let registry = Arc::new(AgentRegistry::new());
+    let caps = test_caps();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        registry.clone(),
+        caps.clone(),
+    );
+    let dir = root.path().join("marker-pre");
+    write(
+        &dir.join("plugin.json"),
+        &capability_manifest_for("marker-pre", "chatPreprocessor"),
+    );
+    write(
+        &dir.join("plugin.js"),
+        r#"module.exports.default = {
+            chatPreprocess: function(ctx) {
+                return { text: ctx.text + "[MARKER:" + ctx.paneId + "]" };
+            }
+        };"#,
+    );
+    watcher.tick();
+    assert!(
+        caps.chat_preprocessor.contains("marker-pre"),
+        "chatPreprocessor must register live on install"
+    );
+
+    // Run the stages over a user-turn outbound text.
+    let stages = caps.chat_preprocessor.active();
+    assert_eq!(stages.len(), 1, "exactly one preprocessor registered");
+    let ctx = crate::chatpreprocessor::PreprocessCtx {
+        pane_id: "p-test".into(),
+        ..Default::default()
+    };
+    let result = crate::chatpipeline::run_text_stages(&stages, &ctx, "hello world".into());
+    assert_eq!(
+        result, "hello world[MARKER:p-test]",
+        "preprocessor must append its marker to outbound text"
+    );
+}
+
+#[test]
+fn chat_preprocessor_null_return_is_passthrough() {
+    // A preprocessor returning null must leave text unchanged (fail-safe contract).
+    let root = tempfile::tempdir().unwrap();
+    let caps = test_caps();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        Arc::new(AgentRegistry::new()),
+        caps.clone(),
+    );
+    let dir = root.path().join("noop-pre");
+    write(
+        &dir.join("plugin.json"),
+        &capability_manifest_for("noop-pre", "chatPreprocessor"),
+    );
+    write(
+        &dir.join("plugin.js"),
+        r#"module.exports.default = { chatPreprocess: function() { return null; } };"#,
+    );
+    watcher.tick();
+
+    let stages = caps.chat_preprocessor.active();
+    let ctx = crate::chatpreprocessor::PreprocessCtx::default();
+    let result = crate::chatpipeline::run_text_stages(&stages, &ctx, "unchanged".into());
+    assert_eq!(
+        result, "unchanged",
+        "null return must passthrough unchanged"
+    );
+}
+
+#[test]
+fn chat_preprocessor_throwing_plugin_is_passthrough() {
+    // A preprocessor that throws must fail safe — text passes through unmodified.
+    let root = tempfile::tempdir().unwrap();
+    let caps = test_caps();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        Arc::new(AgentRegistry::new()),
+        caps.clone(),
+    );
+    let dir = root.path().join("boom-pre");
+    write(
+        &dir.join("plugin.json"),
+        &capability_manifest_for("boom-pre", "chatPreprocessor"),
+    );
+    write(
+        &dir.join("plugin.js"),
+        r#"module.exports.default = { chatPreprocess: function() { throw new Error("boom"); } };"#,
+    );
+    watcher.tick();
+
+    let stages = caps.chat_preprocessor.active();
+    let ctx = crate::chatpreprocessor::PreprocessCtx::default();
+    let result = crate::chatpipeline::run_text_stages(&stages, &ctx, "keep me".into());
+    assert_eq!(
+        result, "keep me",
+        "throwing preprocessor must fail safe to passthrough"
+    );
+}
+
+#[test]
+fn chat_preprocessor_deregisters_on_uninstall() {
+    // Uninstalling a chatPreprocessor plugin must stop text mutation immediately.
+    let root = tempfile::tempdir().unwrap();
+    let caps = test_caps();
+    let watcher = HotReloadRegistry::new(
+        vec![root.path().to_path_buf()],
+        Arc::new(AgentRegistry::new()),
+        caps.clone(),
+    );
+    let dir = root.path().join("removable-pre");
+    write(
+        &dir.join("plugin.json"),
+        &capability_manifest_for("removable-pre", "chatPreprocessor"),
+    );
+    write(
+        &dir.join("plugin.js"),
+        r#"module.exports.default = { chatPreprocess: function(ctx) { return { text: ctx.text + "[X]" }; } };"#,
+    );
+    watcher.tick();
+    assert!(caps.chat_preprocessor.contains("removable-pre"));
+
+    // Pre-removal: text is mutated.
+    let ctx = crate::chatpreprocessor::PreprocessCtx::default();
+    let stages = caps.chat_preprocessor.active();
+    let before = crate::chatpipeline::run_text_stages(&stages, &ctx, "a".into());
+    assert_eq!(before, "a[X]");
+
+    // Remove the plugin folder and tick — must deregister.
+    std::fs::remove_dir_all(&dir).unwrap();
+    watcher.tick();
+    assert!(!caps.chat_preprocessor.contains("removable-pre"));
+
+    // Post-removal: no stages active, text is identity.
+    let stages_after = caps.chat_preprocessor.active();
+    let after = crate::chatpipeline::run_text_stages(&stages_after, &ctx, "a".into());
+    assert_eq!(
+        after, "a",
+        "uninstalled preprocessor must no longer mutate text"
+    );
+}
+
+#[test]
 fn config_yaml_edit_restamps_settings_without_vm_rebuild() {
     // HIGH-2 (CRITICAL): editing the per-plugin config.yaml must NOT rebuild
     // the VM — a rebuild wipes the plugin's module-scope in-memory sessions,
