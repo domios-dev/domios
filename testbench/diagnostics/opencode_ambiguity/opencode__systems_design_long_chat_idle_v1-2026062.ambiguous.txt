@@ -1,0 +1,482 @@
+# opencode__systems_design_long_chat_idle_v1-20260621-systems-matrix-v1-opencode-systems_design_long_chat_idle_v1
+# strobes=41 ambiguous_frames=660 (showing 60)
+
+=== f578 t=43275 state=working alt=False curRow=34/40 byteIdle=21 semIdle=21 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f579 t=43350 state=working alt=False curRow=34/40 byteIdle=96 semIdle=96 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f580 t=43425 state=working alt=False curRow=34/40 byteIdle=171 semIdle=171 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f581 t=43500 state=working alt=False curRow=34/40 byteIdle=246 semIdle=246 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f582 t=43575 state=working alt=False curRow=34/40 byteIdle=321 semIdle=321 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f583 t=43650 state=working alt=False curRow=34/40 byteIdle=396 semIdle=396 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f584 t=43725 state=working alt=False curRow=34/40 byteIdle=471 semIdle=471 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f585 t=43800 state=working alt=False curRow=34/40 byteIdle=546 semIdle=546 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f586 t=43875 state=working alt=False curRow=34/40 byteIdle=621 semIdle=621 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f587 t=43950 state=working alt=False curRow=34/40 byteIdle=696 semIdle=696 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f588 t=44025 state=working alt=False curRow=34/40 byteIdle=771 semIdle=771 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f589 t=44100 state=working alt=False curRow=34/40 byteIdle=846 semIdle=846 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f590 t=44175 state=working alt=False curRow=34/40 byteIdle=921 semIdle=921 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f591 t=44250 state=working alt=False curRow=34/40 byteIdle=996 semIdle=996 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f592 t=44325 state=working alt=False curRow=34/40 byteIdle=1071 semIdle=1071 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f593 t=44400 state=working alt=False curRow=34/40 byteIdle=1146 semIdle=1146 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f594 t=44475 state=working alt=False curRow=34/40 byteIdle=1221 semIdle=1221 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f595 t=44550 state=working alt=False curRow=34/40 byteIdle=1296 semIdle=1296 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f596 t=44625 state=working alt=False curRow=34/40 byteIdle=1371 semIdle=1371 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f597 t=44700 state=working alt=False curRow=34/40 byteIdle=1446 semIdle=1446 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f598 t=44775 state=working alt=False curRow=34/40 byteIdle=1521 semIdle=1521 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f599 t=44850 state=working alt=False curRow=34/40 byteIdle=1596 semIdle=1596 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f600 t=44925 state=working alt=False curRow=34/40 byteIdle=1671 semIdle=1671 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f601 t=45000 state=working alt=False curRow=34/40 byteIdle=1746 semIdle=1746 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f602 t=45075 state=working alt=False curRow=34/40 byteIdle=1821 semIdle=1821 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f603 t=45150 state=working alt=False curRow=34/40 byteIdle=1896 semIdle=1896 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f604 t=45225 state=working alt=False curRow=34/40 byteIdle=1971 semIdle=1971 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f605 t=45300 state=working alt=False curRow=34/40 byteIdle=2046 semIdle=2046 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f606 t=45375 state=working alt=False curRow=34/40 byteIdle=2121 semIdle=2121 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f607 t=45450 state=working alt=False curRow=34/40 byteIdle=2196 semIdle=2196 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f608 t=45525 state=working alt=False curRow=34/40 byteIdle=2271 semIdle=2271 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f609 t=45600 state=working alt=False curRow=34/40 byteIdle=2346 semIdle=2346 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f610 t=45675 state=working alt=False curRow=34/40 byteIdle=2421 semIdle=2421 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f611 t=45750 state=working alt=False curRow=34/40 byteIdle=2496 semIdle=2496 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f612 t=45825 state=working alt=False curRow=34/40 byteIdle=2571 semIdle=2571 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f613 t=45900 state=working alt=False curRow=34/40 byteIdle=2646 semIdle=2646 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f614 t=45975 state=working alt=False curRow=34/40 byteIdle=2721 semIdle=2721 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f615 t=46050 state=working alt=False curRow=34/40 byteIdle=2796 semIdle=2796 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f616 t=46125 state=working alt=False curRow=34/40 byteIdle=2871 semIdle=2871 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f617 t=46200 state=working alt=False curRow=34/40 byteIdle=2946 semIdle=2946 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f618 t=46275 state=working alt=False curRow=34/40 byteIdle=3021 semIdle=3021 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f619 t=46350 state=working alt=False curRow=34/40 byteIdle=3096 semIdle=3096 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f620 t=46425 state=working alt=False curRow=34/40 byteIdle=3171 semIdle=3171 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f621 t=46500 state=working alt=False curRow=34/40 byteIdle=3246 semIdle=3246 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f622 t=46575 state=working alt=False curRow=34/40 byteIdle=3321 semIdle=3321 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f623 t=46650 state=working alt=False curRow=34/40 byteIdle=3396 semIdle=3396 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f624 t=46725 state=working alt=False curRow=34/40 byteIdle=3471 semIdle=3471 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f625 t=46800 state=working alt=False curRow=34/40 byteIdle=3546 semIdle=3546 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f626 t=46875 state=working alt=False curRow=34/40 byteIdle=3621 semIdle=3621 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f627 t=46950 state=working alt=False curRow=34/40 byteIdle=3696 semIdle=3696 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f628 t=47025 state=working alt=False curRow=34/40 byteIdle=3771 semIdle=3771 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f629 t=47100 state=working alt=False curRow=34/40 byteIdle=3846 semIdle=3846 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f630 t=47175 state=working alt=False curRow=34/40 byteIdle=3921 semIdle=3921 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f631 t=47250 state=working alt=False curRow=34/40 byteIdle=3996 semIdle=3996 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f632 t=47325 state=working alt=False curRow=34/40 byteIdle=4071 semIdle=4071 ===
+  '  ┃'
+  '  ┃'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f633 t=47400 state=working alt=False curRow=34/40 byteIdle=36 semIdle=36 ===
+  '  ┃'
+  '  ┃  [Pasted ~1 lines]'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f634 t=47475 state=working alt=False curRow=34/40 byteIdle=111 semIdle=111 ===
+  '  ┃'
+  '  ┃  [Pasted ~1 lines]'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f635 t=47550 state=working alt=False curRow=34/40 byteIdle=186 semIdle=186 ===
+  '  ┃'
+  '  ┃  [Pasted ~1 lines]'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f636 t=47625 state=working alt=False curRow=34/40 byteIdle=261 semIdle=261 ===
+  '  ┃'
+  '  ┃  [Pasted ~1 lines]'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '
+
+=== f637 t=47700 state=working alt=False curRow=34/40 byteIdle=336 semIdle=336 ===
+  '  ┃'
+  '  ┃  [Pasted ~1 lines]'
+  '  ┃'
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '                                                                                           12.6K (6%)  ctrl+p '

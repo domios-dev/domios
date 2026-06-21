@@ -140,6 +140,9 @@ const plugin: PluginModule = {
       parts.push("--hostname", host.shell.quoteFor(String(sps.hostname || "127.0.0.1"), platform));
       parts.push("--port", host.shell.quoteFor(String(sps.port), platform));
     }
+    if (p.sessionId) {
+      parts.push("--session", host.shell.quote(String(p.sessionId)));
+    }
     if (p.args && p.args.length > 0) {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
       for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));

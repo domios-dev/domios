@@ -111,6 +111,35 @@ test("no path marks prompted only", async () => {
   await act(async () => root.unmount());
 });
 
+test("yes path does not mark prompted when config write fails", async () => {
+  localStorage.clear();
+  __setChatUiDefaultConfigWriterForTest(async () => {
+    throw new Error("write failed");
+  });
+  const { host, root } = await render(<ChatUiDefaultPrompt />);
+
+  let prompt: Promise<void> | undefined;
+  await act(async () => {
+    prompt = maybeAskDefaultNewAgentPaneToChat();
+  });
+
+  let failed = false;
+  await act(async () => {
+    buttonByText(host, "Use Chat UI").click();
+    try {
+      await prompt;
+    } catch {
+      failed = true;
+    }
+  });
+
+  assert(failed, "yes should surface config write failure");
+  assert(localStorage.getItem(CHAT_UI_DEFAULT_PROMPTED_KEY) !== "true", "failed write must not mark prompted");
+
+  __setChatUiDefaultConfigWriterForTest(null);
+  await act(async () => root.unmount());
+});
+
 async function main() {
   const started = performance.now();
   let failed = 0;

@@ -337,13 +337,26 @@ pub fn start_general_agent(
         } else {
             None
         };
+        // Capability-gated structured-prompt server via the shared chokepoint
+        // (allocate+register+subscribe). No-op for providers that don't need it.
+        let ga_cwd = svc
+            .mux
+            .read()
+            .get_pane(&pane_id)
+            .and_then(|p| p.cwd.clone())
+            .unwrap_or_default();
         let params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
             task: None,
             args: None,
             skip_permissions: true,
             session_id: pre_session_id,
-            structured_prompt_server: None,
+            structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
+                svc,
+                provider_name,
+                &pane_id,
+                &ga_cwd,
+            ),
         };
         match svc
             .agent_registry

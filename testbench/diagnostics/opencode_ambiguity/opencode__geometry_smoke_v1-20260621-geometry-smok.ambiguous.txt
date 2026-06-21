@@ -1,0 +1,210 @@
+# opencode__geometry_smoke_v1-20260621-geometry-smoke-v2-opencode-geometry_smoke_v1-160x40
+# strobes=0 ambiguous_frames=26 (showing 26)
+
+=== f115 t=8550 state=working alt=True curRow=34/40 byteIdle=19 semIdle=19 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ■■■■⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f116 t=8625 state=working alt=True curRow=34/40 byteIdle=9 semIdle=9 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ■■■■■■⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f117 t=8700 state=working alt=True curRow=34/40 byteIdle=1 semIdle=1 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝■■■■■■  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f118 t=8775 state=working alt=True curRow=34/40 byteIdle=76 semIdle=76 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝■■■■■■  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f119 t=8850 state=working alt=True curRow=34/40 byteIdle=24 semIdle=24 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝■■■■  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f120 t=8925 state=working alt=True curRow=34/40 byteIdle=15 semIdle=15 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝■■  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f121 t=9000 state=working alt=True curRow=34/40 byteIdle=5 semIdle=5 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f122 t=9075 state=working alt=True curRow=34/40 byteIdle=38 semIdle=80 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f123 t=9150 state=working alt=True curRow=34/40 byteIdle=32 semIdle=32 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝■■  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f124 t=9225 state=working alt=True curRow=34/40 byteIdle=23 semIdle=23 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝■■■■  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f125 t=9300 state=working alt=True curRow=34/40 byteIdle=13 semIdle=13 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝■■■■■■  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f126 t=9375 state=working alt=True curRow=34/40 byteIdle=3 semIdle=3 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ■■■■■■⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f127 t=9450 state=working alt=True curRow=34/40 byteIdle=78 semIdle=78 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ■■■■■■⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f128 t=9525 state=working alt=True curRow=34/40 byteIdle=28 semIdle=28 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ■■■■⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f129 t=9600 state=working alt=True curRow=34/40 byteIdle=15 semIdle=15 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ■■⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f130 t=9675 state=working alt=True curRow=34/40 byteIdle=8 semIdle=8 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f131 t=9750 state=working alt=True curRow=34/40 byteIdle=0 semIdle=42 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f132 t=9825 state=working alt=True curRow=34/40 byteIdle=34 semIdle=34 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f133 t=9900 state=working alt=True curRow=34/40 byteIdle=24 semIdle=24 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f134 t=9975 state=working alt=True curRow=34/40 byteIdle=13 semIdle=13 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f135 t=10050 state=working alt=True curRow=34/40 byteIdle=12 semIdle=12 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f136 t=10125 state=working alt=True curRow=34/40 byteIdle=2 semIdle=2 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f137 t=10200 state=working alt=True curRow=34/40 byteIdle=13 semIdle=77 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f138 t=10275 state=working alt=True curRow=34/40 byteIdle=7 semIdle=71 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f139 t=10350 state=working alt=True curRow=34/40 byteIdle=41 semIdle=64 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'
+
+=== f140 t=10425 state=working alt=True curRow=34/40 byteIdle=11 semIdle=39 ===
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃                                                                                                           '
+  '  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                              '
+  '  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+  '   ⬝⬝⬝⬝⬝⬝⬝⬝  esc interrupt                                                               tab agents  ctrl+p co'

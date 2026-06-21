@@ -278,4 +278,490 @@ production core (B), comparing attributed frames (not just text).
   - **(ii) Core-first**: go straight to the pure-core extraction, no interim stabilize.
   Recommend (i) — relief now, right architecture next. Andrey decides.
 
-<!-- revision: 4 -->
+## Live loop runbook — 2026-06-21 active coordination
+
+This section is the active Source of Truth for the Opus improvement loop started after commit
+`3f477246 feat: add replay-driven agent state detection`.
+
+### Agents
+- Loop Lead / fixer: pane `e6288f83` (`Detection Loop Lead`, Claude Opus).
+- Adversarial reviewer: pane `2830a5ee` (`Detection Adversary`, Claude Opus, read-only).
+- Visibility/replay researcher: pane `b6ca9166` (`Detection Visibility`, Claude Opus, read-only).
+- Human-facing coordinator: Joule / pane `70670bb8`.
+
+### Active known issues
+1. **Codex stuck Working after completion.** Live example: pane `2bace0d6`, pty
+   `84f81602-2386-4e8f-92f2-fe44f27878e1`; visually idle, backend `/api/panes`
+   reported `agent_state: {"state":"working"}`.
+2. **Codex ChatUI ordering bug.** Codex messages can render above/out of order relative to
+   Andrey's questions. This is not only classifier work; inspect transcript ordering, message
+   IDs/timestamps, and DOM order.
+3. **OpenCode stuck Working after normal answer.** Andrey asked for a question/choice; OpenCode
+   gave a normal prose answer instead of a blocking terminal question, but ChatUI stayed Working.
+   If no real blocking question surface exists and the answer completed, state must become Idle.
+4. **Question semantics.** For PTY providers, do not render inline option cards in ChatUI.
+   Backend may parse/record the existence of a question and diagnostics in replay JSON, but UI
+   shows only the state banner: Waiting/Open terminal/Cancel.
+5. **Manual cancel semantics.** Stop button, Cancel button, and a single `Esc` typed directly in
+   the terminal must force Idle and clear any pending question.
+
+### Real-prompt corpus requirement
+Synthetic prompts are not enough. Mine Andrey's real prompts from panes/sessions named
+`Dickens`, `Verne`, and `Twain` (or their current matching panes/session history), especially the
+questions that produced Cursor/OpenCode/Codex missing-Question or stuck-Working states. Use those
+exact prompts only as corpus generators; never hardcode them into detection.
+
+For each real prompt:
+1. Record a provider replay with `testbench/replay-capture.py` or a purpose-built full-session
+   capture.
+2. Run Dump Doctor.
+3. Render `timeline.json`.
+4. Analyze state counts and exact frame ranges.
+5. Compare to live `/api/panes` state and ChatUI DOM when possible.
+6. Add any failure as a permanent replay/test case.
+
+### Twenty-to-thirty-round loop protocol
+Each round must have measurable visibility. A round without measurement is invalid.
+
+1. Pick one defect/risk from known issues or replay review.
+2. If the defect cannot be measured, build the measurement first.
+3. Produce evidence before fixing:
+   - replay path and frame range, or live pane id / pty id;
+   - `/api/panes` `agent_state`;
+   - terminal screen text/frame;
+   - ChatUI DOM state if applicable;
+   - counts: Working frames, Question frames, Idle frames, card frames, flickers/blips.
+4. Fix only with structural signals: VT mode, cursor visibility, option-row structure, attributed
+   cells, status widget, input anchors. Key-hint text may confirm a structure but is never the
+   only signal. No provider prose or option-label hardcoding.
+5. Re-run affected replay(s) and at least one negative replay for that provider.
+6. Run focused tests and relevant build checks.
+7. Reviewer must attack hardcoding, false positives, oracle vacuity, and ChatUI mismatch.
+8. Report one round result with before/after numbers and exact artifacts.
+9. Continue for 20-30 rounds or until blocked; coordinator re-arms self-delay wakeups.
+10. When an agent finishes a round or cannot continue without a coordinator decision, it must
+    immediately send a `WAITING_FOR_COORDINATOR` report. The report must include:
+    - what was completed;
+    - the exact blocker or stopping point;
+    - the concrete next decision/action needed from the coordinator.
+    Agents must not sit silently after a report. If the runbook implies an obvious next task,
+    continue without waiting; otherwise report waiting and let the coordinator choose.
+
+### Final ChatUI acceptance checks
+Every substantial detector change must eventually be checked at the user-facing surface:
+- Idle terminal/CLI -> no Working indicator.
+- Working terminal/CLI -> Working only, no Question.
+- Blocking terminal question -> Question banner only, no inline options/card.
+- Stop/Cancel/manual `Esc` -> Idle.
+- Plain A/B/C or numbered prose -> not Question.
+- Normal answer completion -> Idle for Codex/OpenCode/Cursor/Claude.
+- Message ordering in Codex ChatUI matches chronological user/assistant turns.
+
+### Experimental streaming-response track
+Investigate whether the currently streaming assistant response can be extracted from PTY before
+JSONL/SQL transcript update. Keep it diagnostic-only until replay/player evidence proves it is
+stable per provider. First acceptable output is timeline/player JSON diagnostics, not ChatUI
+rendering.
+
+### Coordination tick — 2026-06-21 18:15
+Reports from Loop Lead, Adversary, and Visibility were reconciled.
+
+Accepted facts:
+- Dev now runs build `3f477246`, matching HEAD at the time of this tick.
+- The stale-build explanation covers earlier live repros against `3c722440`, but it does not close
+  the detector work.
+- Round 2 real-prompt captures are useful corpus additions, not final proof.
+
+Current blocker:
+- `render_timeline.rs` / replay `detector.state` must not be a parallel approximation of
+  production state. The next valid round must route replay verdicts through the same
+  `classify_state` semantics used by the live service, or through a shared `classify_timeline`
+  helper used by both production and replay. Any replay PASS before this oracle unification is
+  provisional.
+
+Next enforced order:
+1. Unify replay/timeline state verdicts with the production classifier.
+2. Re-run the existing probe + real-prompt replays and show exact state/frame/card counts.
+3. Fix structural idle recovery for Cursor/OpenCode/Codex using input/composer anchors or last
+   non-empty rows, never provider prose.
+4. Add Codex ChatUI same-second message-order coverage.
+5. Re-check Stop/Cancel/manual `Esc` -> Idle at API and ChatUI DOM levels.
+
+### Coordination tick — 2026-06-21 18:42
+Fresh reports from Rounds 3-4 were reconciled.
+
+Accepted direction:
+- The replay oracle blocker was addressed in the right place: `render_timeline` now threads the
+  production `classify_state` semantics instead of a memoryless hold-decay approximation.
+- The unified oracle reproduced stuck-Working before the fix and showed it resolved after the
+  structural idle recovery changes.
+- Round 4's `picker_active` gating is provisionally accepted as an offline-fidelity fix, pending
+  adversarial review that it does not hide real non-DECSET questions.
+
+Still active:
+- Adversary must review the actual R3/R4 diff, especially the 5s stuck-Working safety net and
+  picker gating.
+- Cursor `idle_focus_churn` still has Working false positives during focus churn and is the next
+  detector priority.
+- Codex short-work under-detection remains queued.
+- Codex same-second ChatUI message ordering needs deterministic unit/data-layer coverage and,
+  when available, DOM coverage.
+- Stop/Cancel/manual `Esc` -> Idle still needs API and ChatUI-surface verification.
+
+### Coordination tick — 2026-06-21 19:08
+Fresh reports from Rounds 5-8 were reconciled.
+
+Accepted:
+- `render_timeline` now uses the production classifier semantics; the old oracle-divergence
+  blocker is no longer the top issue.
+- Cursor `idle_focus_churn` was reclassified correctly: the large aggregate Working count was
+  mostly real work-turn frames, not focus-churn idle false positives.
+- Codex short-work was measured and is not currently user-visible except for a narrow startup
+  edge.
+- Stop via `stop_pane` now force-marks the pane Idle at the API level before sending the provider
+  stop keystroke. ChatUI-surface verification remains open.
+- Codex data-layer ordering tests are useful, but they do not close the observed live-render
+  ordering issue without a DOM/live-render capture.
+
+Current blocker:
+- Cursor/OpenCode still appear to recover from Working through the 5s stuck-Working safety net
+  rather than a structural idle/composer anchor. This creates a visible false-Working window after
+  completed turns and can still fail indefinitely if the idle TUI keeps repainting before
+  `byte_idle_ms >= 5000`.
+
+Next enforced order:
+1. Add a per-transition latency oracle. Final-tail checks are insufficient; each
+   working-to-idle transition must report latency and fail timeout-only recovery.
+2. Implement structural idle recovery for Cursor/OpenCode using VT/input-region/composer/chrome
+   signals, not provider prose and not only `STUCK_WORKING_IDLE_MS`.
+3. Resolve live/replay parity for `Motion::Streaming` / `Motion::Animating`, either by feeding
+   real motion live or removing/documenting the offline-only trigger.
+4. Find or record a post-turn idle-repaint replay to prove the safety net cannot hide an
+   indefinite live stuck-Working state.
+5. Continue Stop/Cancel/manual `Esc` API checks and add ChatUI-surface evidence when tooling
+   permits.
+
+### Coordination tick — 2026-06-21 19:34
+The worker protocol was tightened after the agents finished reports and went idle silently.
+
+New rule:
+- Every worker/reviewer must send `WAITING_FOR_COORDINATOR` when it has completed its current
+  round and needs the coordinator to decide the next step. The report must say what was done,
+  where it stopped, and what action is needed next.
+- The coordinator owns the next-step decision and must re-arm wakeups while the loop is active.
+
+### Coordination tick — 2026-06-21 19:40
+Fresh reports from Round 9/10 were reconciled.
+
+Accepted:
+- Round 10 `/stop` fallback-to-ESC is promising: Lead reports the route now sends a real
+  interrupt and verified Codex stayed Idle beyond the 1500ms suppression window with no assistant
+  growth. This is provisional until Adversary reviews the actual diff.
+
+Active blocker from Adversary Round 9:
+- The transition-latency script exists but is diagnostic-only. It must become a hard acceptance
+  gate that fails timeout-only working-to-idle recovery.
+- Cursor is structurally improved, but OpenCode still has safety-net transitions in
+  `idle_focus_churn` idle-matrix where `alt_screen=false`.
+- `composer_ready` must not pre-empt working grace or turn an uncaught real PTY question into
+  Idle.
+- The repaint proof must cover the unsolved OpenCode primary-screen/no-glyph case, not only a
+  glyph composer happy path.
+- Motion parity was resolved by forcing offline motion to `Still`; remove or clearly gate any dead
+  `Motion::Streaming` / `Motion::Animating` production implication.
+
+Next enforced order:
+1. Make transition latency a failing gate.
+2. Fix OpenCode primary-screen structural idle recovery.
+3. Guard `composer_ready` against false-idle during work/question surfaces.
+4. Add an OpenCode no-glyph/primary-screen repaint proof.
+5. Have Adversary review Round 10 `/stop` fallback.
+
+### Coordination tick — 2026-06-21 19:45
+Adversary reviewed the Round 10 `/stop` fix.
+
+Accepted:
+- The code path now falls back to ESC for built-in providers whose `stop_keystroke()` is `None`,
+  and it writes real PTY bytes via `write_raw`.
+- Non-agent panes are no longer over-cleared by the force-idle path.
+
+Rejected verification:
+- The current stop/cancel oracle is vacuous because it checks only that state becomes Idle inside
+  the 1500ms force-idle suppression window. It would pass even if no interrupt was sent or the
+  agent kept generating.
+
+Next enforced order:
+1. Harden the stop/cancel oracle so it waits beyond the suppression window and proves state remains
+   Idle.
+2. Prove actual generation halts using PTY output/screen-hash/assistant-length stability for a
+   post-stop window.
+3. For question surfaces, prove the visible terminal question is dismissed or that state honestly
+   returns to Question; do not hide a still-blocking question by clearing `pending_prompt`.
+4. Continue the Round 9 blockers after stop verification is non-vacuous.
+
+### Coordination tick — 2026-06-21 19:52
+Visibility and Adversary reports were reconciled.
+
+Accepted:
+- The transition-latency tool now has a `--gate` mode. Current status: Claude/Codex/Cursor pass;
+  OpenCode fails with 4 remaining safety-net transitions.
+- Remaining OpenCode failures are localized: `alt_screen=false`, visible cursor near the bottom,
+  inline box composer, no arrow glyph. This is the next detector fix.
+- Adversary retracted the earlier Codex timestamp/comparator root cause. Codex data-layer messages
+  use millisecond-precision ISO timestamps and the real fixture is ordered.
+
+Still open:
+- OpenCode primary-screen/no-glyph composer needs a structural idle anchor.
+- The latency gate must become part of the acceptance path, not only an ad hoc tool.
+- Stop/cancel verification must be non-vacuous beyond the force-idle suppression window.
+- Codex ordering is now a coverage/surface issue: add an optimistic pending-user merge unit test
+  and, when tooling permits, a DOM/jsdom/Windows Playwright order test.
+
+### Coordination tick — 2026-06-21 19:57
+Visibility r6 produced a non-vacuous `/stop` oracle.
+
+Accepted:
+- The new stop oracle avoids the previous vacuity by requiring a changing pre-stop baseline,
+  then checking raw monotonic output growth, screen hash, state, and transcript length after the
+  1500ms force-idle suppression window.
+- Claude and Codex `/stop` are truly halted by fallback ESC in the non-vacuous oracle.
+
+New blocker:
+- OpenCode `/stop` is not interrupted by fallback ESC. In repeated non-vacuous trials, raw output
+  kept growing after stop, the progress meter advanced, and state honestly reverted to Working.
+  This is not a state-machine bug; OpenCode needs a working interrupt key/path.
+
+Next enforced order update:
+1. Investigate and implement the OpenCode interrupt path via provider capability
+   (`stop_keystroke` or equivalent), not by masking state.
+2. Re-run the non-vacuous stop oracle: OpenCode must show no raw output growth beyond suppression
+   and remain Idle because generation really halted.
+3. Keep the OpenCode primary-screen/no-glyph composer latency fix active.
+
+### Coordination tick — 2026-06-21 20:03
+Adversary reviewed the landed OpenCode composer/`alt_screen` fix.
+
+Accepted:
+- The fix made real progress: the OpenCode idle-matrix safety-net cases now resolve
+  structurally, no provider-id branch was introduced, and working-grace moved before
+  composer readiness so known mid-work footer gaps are protected.
+
+Still open:
+- The option/question guard is incomplete. It misses OpenCode box-button permission surfaces such
+  as `Allow once / Allow always / Reject`, so composer readiness can still false-Idle a real PTY
+  permission if the SSE/structured handle is absent.
+- Transition latency is still not enforced in the acceptance path, and current regenerated data
+  still has residual safety-net transitions.
+- The no-glyph repaint proof still does not cover the OpenCode primary-screen/no-arrow case.
+- OpenCode stop remains an interrupt-delivery bug: ESC is the declared key, but a programmatic
+  lone ESC does not halt active generation in the non-vacuous oracle. Fix this at the capability
+  or delivery layer, not via provider-id hardcoding or state masking.
+
+Next enforced order:
+1. Widen the structural question guard for box-button permission surfaces without provider prose.
+2. Make transition latency a hard acceptance gate and account for all residual safety-net
+   transitions.
+3. Add OpenCode primary-screen/no-glyph repaint proof.
+4. Fix OpenCode interrupt delivery/API capability so `/stop` truly halts generation.
+
+### Coordination tick — 2026-06-21 20:08
+Adversary investigated the OpenCode interrupt failure.
+
+Accepted:
+- OpenCode's declared stop key is ESC, from its provider manifest. The problem is not the key
+  value; it is PTY delivery. A lone programmatic ESC byte does not register as an interrupt in
+  OpenCode's TUI.
+
+Preferred direction:
+- Use OpenCode's existing HTTP/control-plane integration for interrupt/abort. The host already
+  has the bound server base, session id, SSE subscription, and HTTP reply calls for structured
+  prompts. Verify the exact abort endpoint against the live bound server and implement this as a
+  capability-level interrupt path.
+
+Constraints:
+- No provider-id branch in core.
+- No Ctrl+C guess and no double-ESC hack unless represented by a provider capability/manifest
+  delivery hint.
+- If the control plane is unreachable, fallback must be honest: do not force-idle while generation
+  continues.
+- Acceptance is the non-vacuous stop oracle: OpenCode output must cease and state must remain Idle
+  beyond the suppression window.
+
+### Coordination tick — 2026-06-21 20:14
+Visibility r8 reconciled the OpenCode composer and stop tracks.
+
+Accepted:
+- OpenCode primary-screen composer latency is fixed on the available regenerated timelines:
+  safety-net transitions went from `4/19` to `0/26`; Cursor/Codex/Claude also pass the current
+  transition-latency gate.
+
+Active detector blocker:
+- A visible-cursor permission/choice box can still false-Idle. Synthetic
+  `permission_box_visible_cursor_v1` reproduces the bug: visible bottom cursor, `alt_screen=false`,
+  numbered/choice surface, and `121/121` frames classified Idle. Composer readiness must be
+  vetoed by an on-screen option/choice box even when `cursor_hidden=false`.
+
+OpenCode stop clarification:
+- Current CodeTerm launches OpenCode as a plain TUI, not `opencode serve`; there is no bound
+  local control-plane socket/port for HTTP abort today. The HTTP abort direction requires a
+  server-mode/attach architecture change. Until then, OpenCode `/stop` remains a known unresolved
+  interrupt-delivery issue, not a classifier/state issue.
+
+Next enforced order:
+1. Fix the visible-cursor permission/choice-box guard.
+2. Finish full timeline regeneration and report final latency/strobe counts.
+3. Keep OpenCode `/stop` as an architectural follow-up unless server mode/abort is actually wired.
+
+### Coordination tick — 2026-06-21 20:20
+Adversary and Visibility identified a shared OpenCode root cause.
+
+Accepted:
+- OpenCode's structured prompt server allocation is currently present only in the orchestrator
+  spawn path. Other spawn paths pass `structured_prompt_server: None`, so OpenCode launches as a
+  plain TUI with no SSE/structured prompt channel and no local HTTP control plane.
+- This explains two OpenCode problems at once:
+  1. Permission surfaces fall back to raw PTY, so `picker_question` is absent and composer
+     readiness can false-Idle a visible-cursor permission box.
+  2. `/stop` cannot use a control-plane abort because no OpenCode server is bound.
+
+Primary direction:
+- Centralize structured-prompt-server allocation in the shared spawn/launch path for every provider
+  that declares the capability. This must be capability-gated, not provider-id gated.
+- Validate normal UI/direct/restart/general spawn paths, not only orchestrator spawns.
+
+Secondary direction:
+- Keep the classifier permission/choice-box guard as defense-in-depth for genuinely server-less or
+  degraded cases, but do not treat it as the main OpenCode fix.
+
+Acceptance:
+- A normally spawned OpenCode pane gets a structured prompt server/base registered.
+- Structured prompts arrive via SSE/API, so permission surfaces become `Question` without inline
+  cards.
+- OpenCode stop can target the control-plane abort path, or at minimum the server base/session is
+  available for that next step.
+- Existing latency/strobe/permission synthetic replays remain green.
+
+### Coordination tick — 2026-06-21 20:25
+Adversary and Visibility prepared validation for the shared structured-server fix.
+
+Accepted:
+- Visibility added `opencode-server-check.sh`. Baseline for direct-spawned OpenCode currently
+  fails all checks: no `--port` in launch command, no listening socket, no reachable control plane.
+- Adversary identified that allocation alone is insufficient: subscriber startup is also currently
+  orchestrator-only. Registering an endpoint without starting the subscriber will not populate
+  `picker_question`.
+
+Review criteria for the shared fix:
+1. Single shared allocation chokepoint, not copied into every spawn path.
+2. Subscriber start parity across direct/UI/restart/general/orchestrator paths.
+3. Capability gate only; no provider-id branch.
+4. Port allocation race/leak considered.
+5. Endpoint/subscriber cleanup on close, exit, restart, and spawn failure.
+6. Restart gets a fresh endpoint and subscriber.
+7. Degraded fallback is honest if allocation/bind fails.
+8. Direct-spawned OpenCode shows live structured prompts and exposes the control plane needed for
+   future abort/stop.
+9. Structured-first semantics: for providers declaring structured prompt/control-plane capability,
+   SSE/control-plane events are the source of truth for questions and permissions. PTY screen
+   parsing is fallback/diagnostic only for degraded or genuinely server-less cases.
+
+### Coordination tick — 2026-06-21 20:35
+Coordinator decision: GO for shared structured-prompt-server centralization.
+
+Lead is authorized to implement the shared helper/chokepoint under these constraints:
+- allocation, endpoint registration, and subscriber startup must move together;
+- capability gate only (`needs_structured_prompt_server` / provider capability), no provider-id branch;
+- direct/UI/restart/general/orchestrator spawn paths must all go through the same path;
+- structured-capable providers must use the structured stream as the primary question/permission path;
+- no prod kill; dev restart only when needed for validation;
+- if port allocation, cleanup, or restart freshness requires a large unrelated refactor, stop and report
+  `WAITING_FOR_COORDINATOR` with the exact blocker.
+
+Acceptance order:
+1. `testbench/opencode-server-check.sh` passes all checks, including daemon SSE subscriber connection.
+2. A normal OpenCode permission prompt reaches the structured `Question` path without inline card rendering.
+3. `testbench/stop-oracle.sh --mode http-abort` passes if base/session is available.
+4. `testbench/transition-latency.py --gate`, `testbench/strobe-metric.py`, and
+   `testbench/permission-guard-check.sh` remain green.
+5. `./build.sh check` remains green.
+
+Coordination protocol update: any worker that reaches `WAITING_FOR_COORDINATOR` must both run
+`codeterm agent report` and send a short direct pane message to coordinator pane `70670bb8` with
+what changed, the exact blocker, and the proposed next action.
+
+### Coordination tick — 2026-06-21 20:42
+Adversary added and coordinator accepted C9: **structured-first**.
+
+Implications:
+- zero manual setup remains required; capability is the only gate;
+- no config/env/per-pane toggle for normal OpenCode structured behavior;
+- no provider-id hacks, guessed Ctrl+C, double-ESC, or allocation-without-subscriber;
+- for OpenCode and any future structured-capable provider, PTY grid parsing must not be the primary
+  question/permission detector once the structured server/subscriber is available.
+
+### Coordination tick — 2026-06-21 20:45
+Adversary found an urgent orchestration blocker: the backend worker worktree for centralization was
+created on the wrong base (`ed3cf911`, master-lineage), not on `plugins-rethink` / baseline
+`3f477246`. That worktree does not contain `src-tauri/src/service/structured_prompt/`, so any
+centralization diff from it is invalid and must not be reviewed or applied.
+
+Required recovery:
+- discard/abort the wrong-base worker output for this task;
+- re-create or rebase the worker worktree on current `plugins-rethink` / baseline `3f477246`;
+- before implementation, the worker must report:
+  - `git rev-parse HEAD`;
+  - `git merge-base --is-ancestor 3f477246 HEAD` result;
+  - presence of `src-tauri/src/service/structured_prompt/mod.rs`;
+- only then continue the `ensure_for_spawn` centralization and C1-C9 review.
+
+### Coordination tick — 2026-06-21 20:46
+Visibility reconciled the spawn architecture and narrowed the real gap:
+
+- Path A: web/REST `svc.spawn_agent` already goes through the orchestrator allocation block and has
+  allocation, endpoint registration, and subscriber startup. This path was live-verified green,
+  including C2.
+- Path B: desktop/Tauri `svc.spawn_pane_atomic` uses the `AgentLaunchParams` family and currently
+  passes `structured_prompt_server: None` without allocation/subscriber. This is the main
+  out-of-the-box user gap.
+- Path C: CLI spawn also follows a non-orchestrator launch path and currently lacks the structured
+  server/control plane.
+
+Implementation focus:
+- add `structured_prompt::ensure_for_spawn(svc, agent_cmd, pane_id, cwd)` or equivalent;
+- keep side-effect order explicit: capability gate -> allocate -> register endpoint -> start
+  subscriber -> return server;
+- replace the orchestrator inline block with the shared helper;
+- wire the `AgentLaunchParams` family (`transport.rs` / `spawn_pane_atomic`, `spawn.rs`,
+  `multiplexer/commands.rs`, `agent_restart.rs`, and any equivalent non-orchestrator path);
+- do not spend effort "fixing" the already-green web/REST path except to route it through the same
+  helper for one-source ownership.
+
+Lead is now actively editing in the main checkout on the correct base.
+
+### Coordination tick — 2026-06-21 20:51
+
+Lead reported the centralization diff ready in the main checkout. The shared helper now exists:
+
+`structured_prompt::ensure_for_spawn(svc, agent_cmd, pane_id, cwd)`
+
+Required review focus:
+- C1/C2: helper owns allocation, endpoint registration, and SSE subscriber startup together;
+- C8/B-ORDER: Path B must pass `StructuredPromptServer` into `AgentLaunchParams` before
+  `build_launch_command`, so OpenCode launches with `--hostname/--port`;
+- remaining `structured_prompt_server: None` sites must be classified, not ignored.
+
+Coordinator added the missing C6 restart coverage after Lead's initial report:
+- `agent_restart.rs` now uses `ensure_for_spawn` for fresh relaunch;
+- for providers that need a structured server and have a valid session, restart-resume uses
+  `build_launch_command(AgentLaunchParams { session_id, structured_prompt_server, ... })` instead
+  of the old `build_resume_command` path;
+- `plugins/provider-opencode/src/plugin.ts` and rebuilt `plugin.js` now add `--session` when
+  `LaunchParams.sessionId` is present, so resume can still bind `--hostname/--port` through the
+  normal launch-params contract.
+
+Validation order remains:
+1. Adversary C1-C9 review against current `git diff b14c1418`.
+2. Visibility behavior gates after review GO: `opencode-server-check --via cli` (Path B/C proxy)
+   and `--via rest`, structured prompt check, stop oracle, latency/strobe/permission gates.
+
+<!-- revision: 23 -->

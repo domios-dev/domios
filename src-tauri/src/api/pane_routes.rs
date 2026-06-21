@@ -469,25 +469,56 @@ pub async fn stop_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let agent_id = state
-        .svc
-        .mux
-        .write()
-        .get_pane(&pane_id)
-        .and_then(|p| p.agent_type.clone());
-    let bytes: Option<String> = agent_id.and_then(|aid| {
-        state
-            .svc
-            .agent_registry
-            .with_provider(&aid, |p| p.stop_keystroke().map(|s| s.to_string()))
-            .flatten()
-    });
-    let Some(bytes) = bytes else {
+    let (agent_id, session_id) = {
+        let mux = state.svc.mux.write();
+        match mux.get_pane(&pane_id) {
+            Some(pane) => (pane.agent_type.clone(), pane.agent_session_id.clone()),
+            None => (None, None),
+        }
+    };
+    // No agent on this pane → nothing to stop.
+    let Some(aid) = agent_id else {
         return Ok(Json(serde_json::json!({"ok": true, "stopped": false})));
     };
+    if let Some(sid) = session_id {
+        let svc = state.svc.clone();
+        let pane = pane_id.clone();
+        let structured_abort = tokio::task::spawn_blocking(move || {
+            crate::service::structured_prompt::abort_session(&svc, &pane, &sid)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(Ok(())) = structured_abort {
+            if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_pane_id) {
+                state.svc.mark_agent_interrupted(&pty_id);
+            }
+            return Ok(Json(
+                serde_json::json!({"ok": true, "stopped": true, "structured_abort": true}),
+            ));
+        }
+    }
+    // Real interrupt key. No built-in provider declares `stop_keystroke()` (trait
+    // default is None), so without a fallback the REST/CLI stop would send NOTHING
+    // and the agent keeps generating — the state flip alone is a 1500ms illusion.
+    // Fall back to ESC, mirroring the UI `interrupt_agent` path (which sends "\x1b"
+    // for every provider); a JS drop-in may override via manifest `stop_key`.
+    let key: String = state
+        .svc
+        .agent_registry
+        .with_provider(&aid, |p| p.stop_keystroke().map(|s| s.to_string()))
+        .flatten()
+        .unwrap_or_else(|| "\x1b".to_string());
+    // Stop/Cancel is a user intent to halt: force Idle + clear any pending question
+    // immediately (with the suppression window). write_raw bypasses the manual-Esc
+    // interrupt hook, so do it explicitly here — invariant: Stop must force Idle and
+    // clear the pending prompt for ALL providers.
+    if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_pane_id) {
+        state.svc.mark_agent_interrupted(&pty_id);
+    }
     state
         .svc
-        .write_raw(&pane_id, bytes.as_bytes())
+        .write_raw(&pane_id, key.as_bytes())
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     Ok(Json(serde_json::json!({"ok": true, "stopped": true})))
 }

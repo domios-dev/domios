@@ -86,5 +86,26 @@ function msg(id: string, opts: Partial<M> = {}): M {
   eq(merged.map((m) => m.id), ["a", "b", "c"], "no signals → stable arrival order");
 }
 
+// ── codex REAL rollout pairs (ms-precision ISO, user precedes its assistant by
+//    1.5–3.8s, plus a same-second context-injection user). Verbatim timestamps
+//    mined from a live rollout (round 7). Fed shuffled to prove the SORT (not
+//    arrival) keeps user-before-assistant — the ChatUI "assistant above user"
+//    report is NOT a comparator bug at the data layer.
+{
+  const incoming = [
+    msg("ctx", { type: "user", timestamp: "2026-06-21T08:35:53.795Z", seq: 0 }),
+    msg("u1", { type: "user", timestamp: "2026-06-21T08:35:53.827Z", seq: 1 }),
+    msg("a1", { type: "assistant", timestamp: "2026-06-21T08:35:57.692Z", seq: 2 }),
+    msg("u2", { type: "user", timestamp: "2026-06-21T08:42:05.097Z", seq: 3 }),
+    msg("a2", { type: "assistant", timestamp: "2026-06-21T08:42:06.765Z", seq: 4 }),
+  ];
+  const merged = mergeById([], [incoming[3], incoming[1], incoming[4], incoming[0], incoming[2]]);
+  eq(
+    merged.map((m) => m.id),
+    ["ctx", "u1", "a1", "u2", "a2"],
+    "codex real ms-precision rollout: user always before its assistant reply",
+  );
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

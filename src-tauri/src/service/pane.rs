@@ -210,6 +210,34 @@ impl ServiceContext {
                     }
                 }
             }
+            // Invariant: every agent pane surfaces exactly idle|working|question,
+            // never null. A restored pane has no `agent_state` until its first
+            // post-restart output, and the live-state poller only sweeps ptys the
+            // agent_tracker already knows — so a restored idle pane would report
+            // null. Seed Idle here (a freshly-restored pane is not mid-turn); the
+            // output-driven + timer paths refine it to working/question on the next
+            // activity. This is pure state visibility — no auto-approve/auto-answer.
+            let seeded = {
+                use crate::agent::offline_state_classifier::{
+                    AgentLiveState, PaneVerdict, TimelineState,
+                };
+                let idle: AgentLiveState = PaneVerdict {
+                    state: TimelineState::Idle,
+                    subtype: None,
+                }
+                .into();
+                let mut mux = self.mux.write();
+                match mux.get_pane_mut(&pane_id) {
+                    Some(pane) if pane.agent_type.is_some() && pane.agent_state.is_none() => {
+                        pane.agent_state = Some(idle);
+                        true
+                    }
+                    _ => false,
+                }
+            };
+            if seeded {
+                self.emit_state_changed();
+            }
             self.kick_off_session_name_detection(&pane_id, &agent_id);
             self.refresh_session_model_once(&pane_id, &agent_id);
         }

@@ -97,13 +97,31 @@ impl AgentTransport for PtyTransport {
                 .with_provider(ctx.provider_id, |p| p.model_launch_args(&model))
         })
         .unwrap_or_default();
+        // Desktop/CLI spawn path: allocate + register + subscribe the structured-
+        // prompt server via the SAME shared chokepoint the REST `spawn_agent` uses,
+        // so a capability provider (opencode) gets server-mode out of the box here
+        // too. Capability-gated inside the helper; None for providers that don't
+        // need it. cwd is read from the pane (set before launch) for the SSE
+        // `directory` query; brief read lock, no other lock held here.
+        let cwd = svc
+            .mux
+            .read()
+            .get_pane(ctx.pane_id)
+            .and_then(|p| p.cwd.clone())
+            .unwrap_or_default();
+        let structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
+            svc,
+            ctx.provider_id,
+            ctx.pane_id,
+            &cwd,
+        );
         let params = AgentLaunchParams {
             agent_name: None,
             task: None,
             args: (!model_args.is_empty()).then_some(model_args),
             skip_permissions: ctx.skip_permissions,
             session_id: None,
-            structured_prompt_server: None,
+            structured_prompt_server,
         };
         svc.agent_registry
             .with_provider(ctx.provider_id, |p| p.build_launch_command(&params))

@@ -1,0 +1,158 @@
+{
+  "events": [
+    {
+      "t_ms": 8656,
+      "kind": "input",
+      "turn": 1,
+      "text": "а ты можешь мне послать допустим в виде опросника A B C варианты как ты умеешь внутри интерфейса"
+    },
+    {
+      "t_ms": 35497,
+      "kind": "idle_hold",
+      "turn": 1,
+      "duration_ms": 15000
+    },
+    {
+      "t_ms": 50499,
+      "kind": "input",
+      "turn": 2,
+      "text": "еще раз а ты можешь мне послать допустим в виде опросника A B C варианты как ты умеешь внутри"
+    },
+    {
+      "t_ms": 80313,
+      "kind": "idle_hold",
+      "turn": 2,
+      "duration_ms": 15000
+    },
+    {
+      "t_ms": 95319,
+      "kind": "input",
+      "turn": 3,
+      "text": "круто"
+    },
+    {
+      "t_ms": 103612,
+      "kind": "idle_hold",
+      "turn": 3,
+      "duration_ms": 12000
+    }
+  ],
+  "phases": [
+    {
+      "from_ms": 8656,
+      "to_ms": 35497,
+      "turn": 1,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "target": "casual_abc_request_provider_choice"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 20488,
+        "stable_ms": 3071,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 35497,
+      "to_ms": 50498,
+      "turn": 1,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 15000,
+        "stable_ms": 15000,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 50499,
+      "to_ms": 80312,
+      "turn": 2,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "target": "casual_abc_request_repeat"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 29763,
+        "stable_ms": 3083,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 80313,
+      "to_ms": 95318,
+      "turn": 2,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 15000,
+        "stable_ms": 15000,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 95319,
+      "to_ms": 103611,
+      "turn": 3,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "ack_must_return_idle"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 8232,
+        "stable_ms": 3094,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 103612,
+      "to_ms": 115616,
+      "turn": 3,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 12000,
+        "stable_ms": 12000,
+        "timed_out": false
+      }
+    }
+  ],
+  "oracle": {
+    "forbid_card_on_all_negative_frames": true,
+    "require_no_working_during_idle_holds": true,
+    "allow_state_question_without_card": true
+  }
+}

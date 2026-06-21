@@ -108,6 +108,42 @@ pub fn maybe_start_subscriber(svc: &ServiceContext, pane_id: &str) {
         .ok();
 }
 
+/// One shared capability-gated chokepoint for EVERY agent spawn path (REST
+/// `spawn_agent`, desktop/CLI `spawn_pane_atomic`, restart). For a provider whose
+/// `needs_structured_prompt_server()` capability is true it, in this exact order:
+/// capability gate → allocate a loopback port → register the pane endpoint →
+/// start the SSE subscriber → return the server to thread into the launch command
+/// (so the agent binds its bus there). The subscriber MUST start here, not just
+/// the endpoint (C2). Returns `None` when the provider doesn't need a server OR
+/// allocation failed — an HONEST degraded result: the caller proceeds PTY-only and
+/// never fakes server mode. No provider-id branch — capability is the only gate.
+///
+/// Stale/orphan safety (C5/C6): per-pane state is dropped by [`clear_pane`] on
+/// pane close (`service::pane`) and agent exit (`service::output`), so a restart
+/// (same pane_id) re-allocates a FRESH port here rather than reusing a dead one.
+/// If allocation succeeds but no launch follows, the registered endpoint is inert
+/// (the subscriber just retries then gives up) and is reaped by the next
+/// `clear_pane`; no live resource leaks (the port listener is released immediately).
+pub fn ensure_for_spawn(
+    svc: &ServiceContext,
+    agent_cmd: &str,
+    pane_id: &str,
+    cwd: &str,
+) -> Option<crate::agent::provider::StructuredPromptServer> {
+    let needs = svc
+        .agent_registry
+        .with_provider(agent_cmd, |p| p.needs_structured_prompt_server())
+        .unwrap_or(false);
+    if !needs {
+        return None;
+    }
+    let server = allocate_server()?;
+    let base_url = format!("http://{}:{}", server.hostname, server.port);
+    register_endpoint(pane_id, base_url, cwd.to_string());
+    maybe_start_subscriber(svc, pane_id);
+    Some(server)
+}
+
 /// Answer a pending structured prompt over HTTP. Returns `Some(result)` when the
 /// pane has a structured route (the PTY send-back must then be skipped), or
 /// `None` when there is no structured handle (caller falls back to PTY).
@@ -120,6 +156,34 @@ pub fn respond(svc: &ServiceContext, pane_id: &str, value: &str) -> Option<Resul
     ACTIVE.lock().remove(pane_id);
     svc.push_structured_prompt(pane_id, None);
     Some(result)
+}
+
+pub fn abort_session(
+    svc: &ServiceContext,
+    pane_id: &str,
+    session_id: &str,
+) -> Option<Result<(), String>> {
+    let base_url = ENDPOINTS.lock().get(pane_id).map(|e| e.base_url.clone())?;
+    let url = format!("{base_url}/session/{session_id}/abort");
+    let result = abort_session_request(&url);
+    if result.is_ok() {
+        ACTIVE.lock().remove(pane_id);
+        svc.push_structured_prompt(pane_id, None);
+    }
+    Some(result)
+}
+
+fn abort_session_request(url: &str) -> Result<(), String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client.post(url).send().map_err(|e| e.to_string())?;
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("structured abort {}: HTTP {}", url, resp.status()))
+    }
 }
 
 fn send_reply(base_url: &str, route: &ResponseRoute, value: &str) -> Result<(), String> {
