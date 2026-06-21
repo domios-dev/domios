@@ -26,11 +26,6 @@ static SESSION_DETECT_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 static PROMPT_SETTLE_POLL_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
-/// Per-pane throttle for the structured-prompt PULL handle (claude JSONL tail).
-/// The bounded file read runs at most once per window so a burst of marker
-/// chunks can't turn it into per-chunk disk work on the PTY drain thread.
-static STRUCTURED_PULL_COOLDOWN: LazyLock<StdMutex<HashMap<String, Instant>>> =
-    LazyLock::new(|| StdMutex::new(HashMap::new()));
 
 impl ServiceContext {
     /// Process new PTY output: track status, detect agent events, dispatch notifications.
@@ -243,20 +238,20 @@ impl ServiceContext {
                 } else {
                     None
                 };
-                let parsed = structured.or_else(|| {
-                    crate::agent::prompt::parse_prompt_safely(|| {
-                        native_prompt_input
-                            .as_ref()
-                            .and_then(crate::agent::native_prompt::pending_prompt_from_input)
-                    })
-                });
-                let native_signal = parsed.is_some();
-                if native_signal && clean_text.is_none() {
+                // HARD RESTRICTION: pending_prompt (the card) comes ONLY from STRUCTURED
+                // handles (API/SSE — claude interactive[], opencode SSE). Raw-PTY picker
+                // parsing (native detect_picker) is intentionally NOT a fallback: it
+                // false-positives on provider startup/status chrome across every provider.
+                // Known console-only question states (rate_limit/auth) are surfaced by the
+                // state classifier as agent_state, never as a fabricated card.
+                let parsed = structured;
+                let prompt_signal = parsed.is_some();
+                if prompt_signal && clean_text.is_none() {
                     clean_text = self.screen_state.lock().get_screen_text(pty_id);
                 }
                 let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(
                     pid,
-                    check_screen || native_signal,
+                    check_screen || prompt_signal,
                     clean_text.is_some() || native_prompt_input.is_some(),
                     parsed,
                 );
@@ -310,8 +305,8 @@ impl ServiceContext {
         &self,
         pane_id: &str,
         agent_type: &str,
-        cwd: Option<&str>,
-        session_id: Option<&str>,
+        _cwd: Option<&str>,
+        _session_id: Option<&str>,
     ) -> Option<crate::multiplexer::types::PendingPrompt> {
         if !self
             .agent_registry
@@ -320,27 +315,15 @@ impl ServiceContext {
         {
             return None;
         }
-        // PUSH handle (opencode SSE) — already-parsed, in-memory.
-        if let Some(prompt) = crate::service::structured_prompt::pending_for_pane(pane_id) {
-            return Some(prompt);
-        }
-        // PULL handle (claude transcript) — bounded JSONL tail read, throttled.
-        let (cwd, session_id) = (cwd?, session_id?);
-        {
-            let mut cd = STRUCTURED_PULL_COOLDOWN.lock().unwrap();
-            let now = Instant::now();
-            if let Some(last) = cd.get(pane_id) {
-                if now.duration_since(*last) < std::time::Duration::from_millis(200) {
-                    return None;
-                }
-            }
-            cd.insert(pane_id.to_string(), now);
-        }
-        crate::agent::prompt::parse_prompt_safely(|| {
-            self.agent_registry
-                .with_provider(agent_type, |p| p.structured_pending_prompt(cwd, session_id))
-                .flatten()
-        })
+        // PUSH handles only (real-time API/SSE — e.g. opencode SSE bus): a background
+        // subscriber has already parsed the event into the store; in-memory read.
+        //
+        // NOTE: the claude transcript PULL was removed deliberately. claude writes the
+        // AskUserQuestion `interactive[]` to the session JSONL POST-FACTUM (after the
+        // question is resolved), so reading it never reflects a LIVE active prompt — it
+        // would surface a stale card at the wrong moment. claude has no real-time
+        // structured handle in interactive-PTY mode, so it gets no card from here.
+        crate::service::structured_prompt::pending_for_pane(pane_id)
     }
 
     /// Recompute and store the pane's live 3-state classification, then emit if

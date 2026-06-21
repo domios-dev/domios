@@ -124,6 +124,7 @@ pub struct ClassifyInput<'a> {
 /// Order: picker question → text question → working (bytes flowing) → idle
 /// (quiet, settled, composer ready) → hold previous (ambiguous middle).
 pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdict {
+    // 1. Structured picker (API/SSE) -> question. The only card source; reliable.
     if let Some(question) = input.picker_question {
         return PaneVerdict {
             state: TimelineState::Question,
@@ -131,18 +132,23 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
-    if let Some(subtype) = classify_text_question(input.screen_lines) {
-        return PaneVerdict {
-            state: TimelineState::Question,
-            subtype: Some(subtype),
-        };
-    }
-
+    // 2. Actively producing output -> working. Checked BEFORE the console text-question
+    //    scan so a mid-stream mention of "rate limit"/"log in" can never false-fire a
+    //    question while the agent is still typing.
     if input.byte_idle_ms < WAIT_MS || matches!(input.motion, Motion::Streaming | Motion::Animating)
     {
         return PaneVerdict {
             state: TimelineState::Working,
             subtype: None,
+        };
+    }
+
+    // 3. QUIESCENT only: the two known console question states (rate_limit / auth),
+    //    strict phrasings. Nothing generic is inferred from raw console text.
+    if let Some(subtype) = classify_text_question(input.screen_lines) {
+        return PaneVerdict {
+            state: TimelineState::Question,
+            subtype: Some(subtype),
         };
     }
 
@@ -277,12 +283,12 @@ fn classify_signals(
     )
 }
 
-fn classify_question_subtype(tail: &str, question: &str) -> QuestionSubtype {
+fn classify_question_subtype(_tail: &str, question: &str) -> QuestionSubtype {
     let question_text = question.to_lowercase();
-    let text = format!("{question}\n{tail}").to_lowercase();
-    // Question-specific intents FIRST: a prompt's intent lives in its question, so a
-    // provider splash line leaking into the tail (e.g. codex "permissions: YOLO mode")
-    // cannot mislabel a model/auth picker as a permission prompt.
+    // Subtype is keyed ONLY off the picker's QUESTION (never the tail): a structured
+    // picker's tail often carries unrelated output ("failed", "error", "permissions:")
+    // that would mislabel it. A picker is one of model_choice/model_picker/permission/
+    // auth — never rate_limit/update/error (those are text-question states, not pickers).
     if contains_any(
         &question_text,
         &[
@@ -322,15 +328,6 @@ fn classify_question_subtype(tail: &str, question: &str) -> QuestionSubtype {
         ],
     ) {
         QuestionSubtype::Permission
-    } else if contains_any(
-        &text,
-        &["rate limit", "usage limit", "quota", "try again later"],
-    ) {
-        QuestionSubtype::RateLimit
-    } else if contains_any(&text, &["update", "new version", "upgrade"]) {
-        QuestionSubtype::Update
-    } else if contains_any(&text, &["error", "failed", "crash"]) {
-        QuestionSubtype::Error
     } else if contains_any(&question_text, &["choose", "select", "which", "pick"]) {
         QuestionSubtype::ModelChoice
     } else {
@@ -339,44 +336,36 @@ fn classify_question_subtype(tail: &str, question: &str) -> QuestionSubtype {
 }
 
 fn classify_text_question(screen_lines: &[String]) -> Option<QuestionSubtype> {
+    // HARD RESTRICTION: only the two console question states we are confident about,
+    // with STRICT notice/prompt phrasings that do not occur in ordinary agent output.
+    // Everything else (model / permission / error / update / generic) is NEVER inferred
+    // from raw console text — those come only from structured handles (API/SSE), or not
+    // at all. This is gated by the caller to run ONLY when the pane is quiescent.
     let text = screen_lines.join("\n").to_lowercase();
     if contains_any(
         &text,
         &[
-            "rate limit",
-            "usage limit",
-            "quota exceeded",
-            "try again later",
+            "rate limit reached",
+            "usage limit reached",
+            "reached your usage limit",
             "too many requests",
+            "429 too many requests",
         ],
     ) {
         Some(QuestionSubtype::RateLimit)
     } else if contains_any(
         &text,
         &[
-            "login required",
-            "not authenticated",
-            "sign in",
-            "oauth",
-            "api key",
-            "authenticate",
+            "please log in",
+            "please sign in",
+            "you are not logged in",
+            "not signed in",
+            "authentication required",
+            "log in to continue",
+            "sign in to continue",
         ],
     ) {
         Some(QuestionSubtype::Auth)
-    } else if contains_any(&text, &["update available", "new version", "upgrade now"]) {
-        Some(QuestionSubtype::Update)
-    } else if contains_any(
-        &text,
-        &[
-            "error:",
-            "failed",
-            "command not found",
-            "exit code",
-            "traceback",
-            "file not found",
-        ],
-    ) {
-        Some(QuestionSubtype::Error)
     } else {
         None
     }
