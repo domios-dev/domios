@@ -1,6 +1,5 @@
 // The `host` global injected into every plugin QuickJS VM — the raw host_api.rs
 // bindings plus the vm.rs preamble convenience layer. QuickJS is not a browser:
-// no console, fetch, timers, or DOM.
 
 export interface ExecOpts {
   bin: string;
@@ -119,10 +118,6 @@ export interface HostPath {
 }
 
 // ── host compute base (host.worker / workspace / agent / mem) ──
-// All synchronous: worker/agent use a job-id/poll model that's sync per step (each
-// call returns immediately; the long work happens on the host between calls). Not
-// Promise-wrapped — QuickJS can't drain a Promise inside a sync `call_json` dispatch.
-// agent/workspace are gated by the `manage_workspaces` / `spawn_agents` grants.
 
 export interface Backend {
   provider?: string;
@@ -230,7 +225,6 @@ export interface Host {
   secretDelete(name: string): boolean;
   // Tolerant tool-call extractor returning a tri-state JSON `status` so "no call"
   // (`none`) is never confused with "broken call" (`malformed`, must be retried) vs `ok`.
-  // `schemaJson` describes the plugin's tools; repairs are re-validated, degrading to malformed/none rather than guessing.
   toolcallParse(rawText: string, schemaJson: string): string;
 
   // ── Manifest (raw + parsed via preamble) ──

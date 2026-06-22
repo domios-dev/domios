@@ -100,8 +100,6 @@ fn host_api_v2_gating_by_allowlist() {
 fn late_ref_resolves_only_after_population_while_target_lives() {
     // `LateRef` is the carrier `PluginSandbox.svc` uses. `ServiceContext`
     // cannot be built in a unit test (needs a `tauri::AppHandle` + ~40
-    // fields), so resolution semantics are proven here against a stand-in
-    // target; `PluginSandbox` delegates verbatim to this type.
     struct FakeService;
     let r: LateRef<FakeService> = LateRef::new();
     // Before population → None.
@@ -134,7 +132,6 @@ fn late_ref_resolves_only_after_population_while_target_lives() {
 fn sandbox_service_ref_is_late_bound() {
     // A fresh sandbox has no service ref. `set_service` with a live weak
     // makes `service()` resolve; this exercises the real `PluginSandbox`
-    // carrier wiring against the real `ServiceContext` type.
     let sb = PluginSandbox::unrestricted();
     assert!(sb.service().is_none(), "sandbox starts with no service ref");
     // A dangling weak (no backing Arc) populates the slot but never resolves.

@@ -369,8 +369,6 @@ pub(super) fn install(
     });
 
     // Crypto helpers.
-    // MD5 hex digest of a string. Use case: cursor stores chats under
-    // `~/.cursor/chats/<md5(cwd)>/...`, so the plugin needs MD5 to resolve which chat dir belongs to the current pane's cwd.
     bind!("md5", |s: String| -> String {
         use md5::{Digest, Md5};
         let mut h = Md5::new();

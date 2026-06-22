@@ -1,7 +1,5 @@
 // ── /usage screen parsing (port of the native usage_tui module) ─────────
-//
 // `usageNormalize` + `usageParseBlock` back the provider's parseUsage method;
-// `usageParseTodayClock` is reused by the AS3 rate-limit reset-clock parser.
 
 export function usageNormalize(raw: string): string {
   let out = "";

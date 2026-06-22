@@ -16,7 +16,6 @@ const SCANNER_BUFFER_CAP: usize = 64 * 1024;
 
 // Unattended hidden runs: nudge Enter when the pane looks stuck (auto-answers any
 // prompt auto_approve didn't catch), and resume the agent if it dropped to a bare
-// shell. Both are bounded so a genuinely-finished run still completes via idle.
 const NUDGE_AFTER_IDLE_SECS: u64 = 18;
 const MAX_NUDGES: u32 = 3;
 const RESTART_GRACE_SECS: u64 = 25;
@@ -233,7 +232,6 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         if idle_secs >= IDLE_COMPLETE_SECS {
             // Defer the kill while the agent is still working: its PTY can stay silent for >30s during a slow Bash subprocess (mem graph hubs on a busy
             // graph, large `mem search`, etc.). In interactive mode the stream-json in_flight() signal is gone, so screen markers ("esc to interrupt",
-            // spinner) are the live-tool signal that keeps long dreamer/worker runs from being reaped mid-work. Hard timeout still bounds runaways.
             let busy = state.scanner.lock().in_flight() || agent_screen_busy(&svc, &state.pty_id);
             if busy {
                 log::debug!(
@@ -307,10 +305,6 @@ fn agent_screen_busy(svc: &ServiceContext, pty_id: &str) -> bool {
 fn screen_shows_working(text: &str) -> bool {
     // Claude's live status line during a turn/tool is `<glyph> <Verb>… (<elapsed>
     // · <arrow> <N> tokens)` plus an "esc to interrupt" hint. Either marker means
-    // the agent is alive and generating (even with a frozen spinner while blocked
-    // on a slow Bash subprocess) — defer idle reaping. The spinner verb itself is
-    // whimsical and rotates through dozens of words, so we key off the STABLE bits
-    // (the "… tokens)" counter and the interrupt hint), not a verb whitelist.
     text.contains("esc to interrupt")
         || text.contains("tokens)")
         || text.contains("· ↑")
@@ -502,7 +496,6 @@ impl ResultEventScanner {
         if safe_consume > 0 {
             // Floor to a UTF-8 char boundary — PTY chunks split multibyte glyphs
             // (spinners ✶✳, …, box-drawing), and draining mid-char panics, which
-            // kills the backend reader and freezes the run.
             while safe_consume > 0 && !self.buffer.is_char_boundary(safe_consume) {
                 safe_consume -= 1;
             }
@@ -721,7 +714,6 @@ mod tests {
     fn scanner_caps_unicode_buffer_without_panic() {
         // The dreamer floods the PTY with multibyte glyphs (spinners ✶✳, …, box
         // drawing). Capping the buffer must floor to a char boundary, not slice
-        // mid-character (which panicked and killed the backend reader).
         let mut s = ResultEventScanner::new();
         let big = "✶✳✻… ".repeat(SCANNER_BUFFER_CAP); // far over cap, all multibyte
         let _ = s.feed(&big);

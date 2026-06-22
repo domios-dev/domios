@@ -85,8 +85,6 @@ test("@golden oneshot cron fires via time travel and spawns a real run", async (
     expect(history.length, "cron never fired after crossing its fire time").toBe(1);
 
     // Oneshot contract between fire and completion: disabled, no next_run.
-    // The job may already be gone if the (real, fast) agent run finished —
-    // completed oneshots AUTO-DELETE, which is the completion signal below.
     try {
       const afterFire = await api.get<CronJob>(`/crons/${created.id}`);
       expect(afterFire.enabled, "oneshot must disable after firing").toBe(false);
@@ -97,7 +95,6 @@ test("@golden oneshot cron fires via time travel and spawns a real run", async (
 
     // The run is real: a hidden agent pane executes the task; the
     // completion path then auto-deletes the oneshot job. Deletion within
-    // budget IS the proof the run completed.
     const gone = await pollUntil(async () => {
       try {
         await api.get<CronJob>(`/crons/${created.id}`);

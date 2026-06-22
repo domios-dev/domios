@@ -15,9 +15,6 @@ function assert(label: string, cond: boolean) {
 
 // The 5s poll tick dispatches each POLL_EVENTS entry with a null payload as a
 // pure "refetch now" signal. Any payload-bearing event whose handler reads
-// fields off the payload (e.g. pane-status-changed → event.payload.pane_id)
-// would throw on that null. Such events arrive with real data over SSE and
-// must never be polled here.
 console.log("webEvents POLL_EVENTS:");
 assert("polls mux-state-changed (refresh signal)", POLL_EVENTS.includes("mux-state-changed"));
 assert("polls mesh-state-changed (refresh signal)", POLL_EVENTS.includes("mesh-state-changed"));

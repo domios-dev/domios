@@ -20,6 +20,7 @@ import { ProviderGlyph } from "../ProviderGlyph";
 import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
+import { SidebarModelBadge } from "./SidebarModelBadge";
 
 interface TabItemProps {
   tab: Tab;
@@ -75,7 +76,6 @@ function TabItemInner({
   const [editName, setEditName] = useState(tab.title);
   // Mirror TerminalPane's mode resolution: no client override falls back to
   // the agent default (claude/GA panes open in chat), so the menu reflects
-  // what's actually showing instead of always saying "Open Chat UI".
   const resolveChatView = (p: typeof pane): boolean => {
     if (!p) return false;
     const current = getCurrentPaneUiMode(p.id);
@@ -202,7 +202,6 @@ function TabItemInner({
         {provider ? (
           // Agent (descriptor) OR chatBackend shell (plugin snapshot) — both
           // resolve through usePaneProvider, so shell panes get their plugin
-          // icon/color + working pulse instead of the generic terminal glyph.
           <ProviderGlyph
             iconSvg={provider.iconSvg}
             iconColor={provider.iconColor}
@@ -292,12 +291,7 @@ function TabItemInner({
           lives on .sidebar-tab-badge (its own max-width + ellipsis). */}
       <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
         {tabModelBadge && !touchMode && (
-          <span
-            className="sidebar-tab-badge px-1 py-0 text-[8px] leading-tight rounded font-mono uppercase tracking-wider border border-[var(--ct-border)] text-[var(--ct-muted-fg)]"
-            title={tabModel ?? undefined}
-          >
-            {tabModelBadge}
-          </span>
+          <SidebarModelBadge label={tabModelBadge} title={tabModel ?? undefined} />
         )}
         {menuItems.length > 0 && (
           <DropdownMenu
@@ -324,10 +318,6 @@ function TabItemInner({
 
 // Pane objects are always new references after SET_STATE (reducer spreads panes
 // map). Comparing by value for the fields TabItem actually renders prevents
-// every tab from re-rendering on high-frequency events like pane-status-changed
-// and SET_PANE_TITLE. Function props (onClick/onClose/onRename) close over
-// stable IDs and stable callbacks (guaranteed after A2 context memo fix), so
-// skipping their reference check is safe.
 function backingPluginId(p: Pane): string | undefined {
   return p.backing?.kind === "chat_backend" ? p.backing.plugin_id : undefined;
 }

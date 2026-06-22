@@ -2,8 +2,6 @@ import { AgentStateIndicator, type AgentState } from "./AgentStateIndicator";
 
 // Storybook-style render of every agent state + question subtype, on the chat
 // canvas background. Not wired into the app shell — mount it in a dev route or
-// screenshot it standalone to review the design. Pairs with the static mirror
-// kept for visual review.
 const ROWS: Array<{ label: string; state: AgentState }> = [
   { label: "working", state: { state: "working" } },
   {

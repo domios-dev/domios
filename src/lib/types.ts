@@ -519,6 +519,12 @@ export interface UiConfig {
   memory_tab_enabled?: boolean;
   mesh_tab_enabled?: boolean;
   default_new_agent_pane_chat?: boolean;
+  // Centralized client settings that used to live in localStorage. Extra keys
+  // persist via the Rust UiConfig flatten map (mirrors ProviderConfig).
+  chat_ui_default_prompted?: boolean;
+  keepawake_display?: boolean;
+  usage_intro_hint_opens?: number;
+  [key: string]: unknown;
 }
 
 export interface AppConfig {
@@ -547,7 +553,6 @@ export interface ModelInfo {
   description?: string;
   // Whether the account can select this model right now. Omitted means "no
   // info — treat as available"; `false` greys it out in the picker; `true` is
-  // confirmed-available. Set dynamically by live model discovery.
   available?: boolean | null;
 }
 

@@ -4,8 +4,6 @@ import { IS_WEB } from "../lib/webApi";
 function detectTouchOptimizedUi(): boolean {
   // The desktop Tauri app is never touch-optimized — phones/tablets reach
   // us through the web mirror. maxTouchPoints is deliberately NOT used:
-  // desktop Windows machines with touch digitizers report it and would
-  // flip the whole desktop UI into mobile mode.
   if (!IS_WEB || typeof window === "undefined") return false;
   return (
     window.matchMedia("(pointer: coarse)").matches ||

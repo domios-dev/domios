@@ -96,7 +96,6 @@ fn parse_full_manifest() {
 fn parse_chat_preprocessor_object_carries_match() {
     // §6: chatPreprocessor authored as an OBJECT declaring its slot. The
     // host must accept this (not only the bare bool) or the plugin never
-    // loads.
     let json = r#"{
             "id": "chat-preprocessor",
             "version": "0.1.0",
@@ -208,7 +207,6 @@ fn parse_agent_doc_field() {
 fn parse_config_help_field() {
     // Self-setup: every plugin declares `configHelp` for the Configure-with-AI
     // button. deny_unknown_fields would reject it without the schema entry →
-    // the plugin (and ALL its capabilities) silently fails to load.
     let json = r#"{
             "id": "transcriber",
             "version": "0.3.0",

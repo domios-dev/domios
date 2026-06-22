@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
+import { getCachedConfig, loadConfig, setUiSettings } from "../../lib/clientSettings";
 import { Power } from "lucide-react";
 import { createPortal } from "react-dom";
 
@@ -19,14 +20,14 @@ const PRESETS: { label: string; title: string; secs: number | null }[] = [
   { label: "12h", title: "12 hours", secs: 43200 },
 ];
 
-const DISPLAY_KEY = "keepawake.displaySleep";
-
+// "Keep display awake" preference — centralized in backend config so the toggle
+// is shared across clients instead of per-localStorage.
 function loadDisplay(): boolean {
-  try { return localStorage.getItem(DISPLAY_KEY) === "1"; } catch { return false; }
+  return getCachedConfig()?.ui?.keepawake_display === true;
 }
 
 function saveDisplay(v: boolean) {
-  try { localStorage.setItem(DISPLAY_KEY, v ? "1" : "0"); } catch {}
+  void setUiSettings({ keepawake_display: v });
 }
 
 function clockParts(expiresAt: number): { h: number; m: number } | null {
@@ -43,6 +44,13 @@ export function KeepAwakeTray() {
   const [tick, setTick] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Hydrate the display preference from centralized config once it loads.
+  useEffect(() => {
+    void loadConfig()
+      .then((cfg) => setDisplaySleep(cfg.ui?.keepawake_display === true))
+      .catch(() => {});
+  }, []);
 
   // Apply a status update from any source (event, invoke response, menu open).
   const applyStatus = useCallback((s: KeepAwakeStatus) => {

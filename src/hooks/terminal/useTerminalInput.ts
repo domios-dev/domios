@@ -48,9 +48,6 @@ export function useTerminalInput({
     // No connectedPtyRef guard — PTY connects async; onData checks the ref at write time.
 
     // Ctrl+V/Cmd+V: handle paste at keydown so we don't depend on WebView2's flaky `paste` event.
-    // Ctrl+C/Cmd+C: copy only on selection; pass through for SIGINT when nothing selected.
-    // When the terminal is hidden behind another UI layer (e.g. Chat UI), returning false
-    // from this handler tells xterm to NOT process any key — prevents blind PTY writes.
     term.attachCustomKeyEventHandler((e) => {
       if (!terminalActive) return false;
       if (e.type !== "keydown") return true;

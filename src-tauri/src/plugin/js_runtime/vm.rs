@@ -375,8 +375,6 @@ pub fn call_json<R: serde::de::DeserializeOwned>(
 ) -> Result<R, VmError> {
     // Untrusted code runs below this point. Contain a plugin-side panic so one
     // bad drop-in can't unwind through the host and take the daemon down (#16).
-    // (A native stack overflow is NOT catchable here — that class is prevented
-    // upstream in the registry/loader, not rescued by catch_unwind.)
     let run = std::panic::AssertUnwindSafe(|| call_json_inner::<R>(vm, method, args));
     match std::panic::catch_unwind(run) {
         Ok(res) => res,

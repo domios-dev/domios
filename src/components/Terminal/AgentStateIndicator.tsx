@@ -15,7 +15,6 @@ import {
 
 // The live state of a pane's agent, as a single small shape. `subtype` only
 // carries meaning for the `question` state; `phase`/`status_line`/`elapsed_ms`
-// only for `working`; `last_turn_summary` only for `idle`.
 export type AgentStateKind = "working" | "idle" | "question";
 
 export type AgentQuestionSubtype =
@@ -149,7 +148,6 @@ function compactStatusMessage(text: string): string {
 
 // Hold a phase until a NEW one has been stable for `dwellMs`. The live signal
 // flips as the status widget appears/disappears mid-turn; without this the dots
-// would strobe. Combined with eased CSS, phase changes read calm.
 function useStablePhase(phase: WorkPhase, dwellMs = 700): WorkPhase {
   const [shown, setShown] = useState(phase);
   const shownRef = useRef(shown);
@@ -164,8 +162,6 @@ function useStablePhase(phase: WorkPhase, dwellMs = 700): WorkPhase {
 
 // Inline, in-canvas agent state line. Working and idle share ONE persistent row
 // so the transition flows: the three dots keep their slot and SETTLE into one
-// resting dot on idle (no icon swap, no horizontal jump), and the message
-// crossfades only on the state change — not on every status tick.
 export function AgentStateIndicator({
   state,
   className,
@@ -269,7 +265,7 @@ export function AgentStateIndicator({
   const visibleText = compactStatusMessage(text);
   return (
     <div
-      className={`ct-agent-row flex items-center gap-2 py-1 ${className ?? ""}`}
+      className={`ct-agent-row flex items-baseline gap-2 py-1 ${className ?? ""}`}
       data-testid="agent-state"
       data-agent-state={isWorking ? "working" : "idle"}
       data-agent-phase={phase}

@@ -27,8 +27,6 @@ impl ServiceContext {
 
         // Tear down the plugin chatBackend session BEFORE the pane entry is
         // dropped — otherwise `pane_chat_backing` can no longer resolve it and
-        // the plugin leaks the session (model/context) until its own reaper.
-        // Best-effort: a failing closeSession must not block pane teardown.
         if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
             let _ = self.chatbackend_close(&plugin_id, &session_id);
         }
@@ -212,11 +210,6 @@ impl ServiceContext {
             }
             // Invariant: every agent pane surfaces exactly idle|working|question,
             // never null. A restored pane has no `agent_state` until its first
-            // post-restart output, and the live-state poller only sweeps ptys the
-            // agent_tracker already knows — so a restored idle pane would report
-            // null. Seed Idle here (a freshly-restored pane is not mid-turn); the
-            // output-driven + timer paths refine it to working/question on the next
-            // activity. This is pure state visibility — no auto-approve/auto-answer.
             let seeded = {
                 use crate::agent::offline_state_classifier::{
                     AgentLiveState, PaneVerdict, TimelineState,
@@ -589,7 +582,6 @@ impl ServiceContext {
 
         // STRUCTURED handle (opencode SSE) answers over HTTP, not the PTY: the
         // PTY is display-only for these prompt classes. When a structured route
-        // exists for this pane, reply there and skip the keystroke send-back.
         if let Some(result) = crate::service::structured_prompt::respond(self, pane_id, value) {
             self.emit_state_changed();
             return result;
@@ -612,7 +604,6 @@ impl ServiceContext {
                 .and_then(|p| p.agent_type.clone());
             // Providers whose prompts aren't the universal numbered-list shape
             // (opencode's horizontal row, cursor overlays) verify via their own
-            // parse_prompt; the universal detector covers claude/codex.
             let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean)
                 || agent_type.as_deref().is_some_and(|at| {
                     crate::agent::prompt::parse_prompt_safely(|| {

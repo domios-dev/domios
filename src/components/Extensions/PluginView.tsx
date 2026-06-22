@@ -141,7 +141,6 @@ export function PluginView({
 
   // No host chrome: the plugin owns its own header + close (the iframe calls
   // window.ct.close() → __ctClose). Esc is the universal escape for plugins
-  // that don't render their own close.
   return (
     <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", background: "var(--ct-bg)" }}>
       {frame}

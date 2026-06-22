@@ -163,9 +163,6 @@ fn test_batch_op_no_id() {
 
 // `emit_state_changed` coalesces emits over a 50ms window. The snapshot that
 // gets emitted MUST be read AFTER the window so a fast follow-up mutation that
-// lands during the window is reflected (not lost until some unrelated later
-// emit). Two mutations inside one window → the emitted payload reflects the
-// second.
 #[test]
 fn coalesce_snapshot_reflects_latest_mutation_in_window() {
     use crate::multiplexer::state::MultiplexerState;

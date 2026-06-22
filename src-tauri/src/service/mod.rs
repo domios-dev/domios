@@ -182,7 +182,6 @@ impl ServiceContext {
         std::thread::spawn(move || {
             // Snapshot is read AFTER the coalesce window so the emitted payload
             // reflects the latest state — a fast follow-up mutation during the
-            // window is included, not lost until some unrelated later emit.
             let snapshot =
                 Self::coalesce_snapshot(&mux, &pending, std::time::Duration::from_millis(50));
             let _ = handle.emit("mux-state-changed", &snapshot);

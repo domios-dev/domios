@@ -208,7 +208,6 @@ fn send_reply(base_url: &str, route: &ResponseRoute, value: &str) -> Result<(), 
 fn run_subscriber(svc: ServiceContext, pane_id: String, base_url: String, cwd: String) {
     // A handful of reconnect attempts — the server is local and comes up within
     // a second or two of spawn; give up (and let a later bind restart us) if it
-    // never appears or the pane goes away.
     for attempt in 0..30u32 {
         if pane_gone(&svc, &pane_id) {
             break;

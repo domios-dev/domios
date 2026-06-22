@@ -98,7 +98,6 @@ pub struct GraphWorkerInfo {
     pub cwd: Option<String>,
     // Verbs a plugin-spawned worker may invoke on its owning plugin via the
     // inverse seam — recorded from `host.agent.spawn(commands)` (C2 MINOR-2).
-    // Empty ⇒ unscoped (the plugin-level `agent_commands` grant alone gates it).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub commands: Vec<String>,
 }

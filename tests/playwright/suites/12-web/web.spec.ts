@@ -344,11 +344,6 @@ test("@golden close sync: web close updates the desktop window, desktop close up
 test("@golden web chat: a live assistant reply streams in AND history survives a reload", async ({ api, webBrowser, spawnAgent }) => {
   // Regression for the 'No messages yet' bug: chat_start in web returned
   // the wrong shape (parsed snapshot instead of raw JSONL), and assistant
-  // deltas (pane-chat-raw-{id}) were never mirrored to SSE.
-  //
-  // Hermetic by design: spawns its OWN claude pane. The GA pane belongs to
-  // the user — it may be mid-task (a marker prompt then queues behind real
-  // work and times out), and toggling its chat-view flips the desktop UI.
   test.setTimeout(300_000);
 
   const spawned = await spawnAgent({

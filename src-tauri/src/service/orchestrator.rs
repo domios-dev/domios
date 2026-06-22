@@ -286,7 +286,6 @@ impl ServiceContext {
             .unwrap_or_else(|| agent.clone());
         // Reject non-spawnable backends / unknown ids cleanly before building the
         // spec, so the socket-RPC path errors identically to the HTTP path
-        // instead of falling through to a generic "Unknown agent provider".
         self.classify_spawn_target(&agent)?;
         let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
             self.chatbackend_registry.as_ref(),
@@ -318,7 +317,6 @@ impl ServiceContext {
             .unwrap_or_else(|| default_provider.clone());
         // Classify once: spawnable shell → ChatBackend path, ordinary agent →
         // PTY path, anything else (non-spawnable backend or unknown id) → clean
-        // error. A spawnable shell id must never hit "Unknown agent provider".
         let is_shell = self.classify_spawn_target(&agent_cmd)?;
         if is_shell {
             let role = params.role.clone();
@@ -509,8 +507,6 @@ impl ServiceContext {
 
         // 4d. Structured-prompt server: capability-gated allocate + register +
         // subscribe via the ONE shared chokepoint (also used by the desktop/CLI
-        // `spawn_pane_atomic` path). Threads the server into the launch command so
-        // the agent binds its bus there. Never a provider-id branch.
         params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
             self,
             &agent_cmd,

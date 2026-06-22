@@ -5,10 +5,21 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ChatUiDefaultPrompt } from "./ChatUiDefaultPrompt";
 import {
-  CHAT_UI_DEFAULT_PROMPTED_KEY,
   __setChatUiDefaultConfigWriterForTest,
+  __setChatUiDefaultPromptedStoreForTest,
   maybeAskDefaultNewAgentPaneToChat,
 } from "../lib/chatUiMode";
+
+// Centralized prompted flag now lives in backend config; tests inject an
+// in-memory store instead of asserting on localStorage.
+let prompted = false;
+function resetPromptedStore() {
+  prompted = false;
+  __setChatUiDefaultPromptedStoreForTest({
+    get: () => prompted,
+    set: () => { prompted = true; },
+  });
+}
 
 type TestFn = () => void | Promise<void>;
 
@@ -57,7 +68,7 @@ function buttonByText(host: HTMLElement, text: string): HTMLButtonElement {
 setupDom();
 
 test("renders and yes path writes config", async () => {
-  localStorage.clear();
+  resetPromptedStore();
   const writes: boolean[] = [];
   __setChatUiDefaultConfigWriterForTest(async (enabled) => {
     writes.push(enabled);
@@ -78,7 +89,7 @@ test("renders and yes path writes config", async () => {
   });
 
   assert(writes.length === 1 && writes[0] === true, "yes should write true to config");
-  assert(localStorage.getItem(CHAT_UI_DEFAULT_PROMPTED_KEY) === "true", "yes should mark prompted");
+  assert(prompted === true, "yes should mark prompted");
   assert(!host.querySelector('[role="dialog"]'), "dialog should close");
 
   __setChatUiDefaultConfigWriterForTest(null);
@@ -86,7 +97,7 @@ test("renders and yes path writes config", async () => {
 });
 
 test("no path marks prompted only", async () => {
-  localStorage.clear();
+  resetPromptedStore();
   const writes: boolean[] = [];
   __setChatUiDefaultConfigWriterForTest(async (enabled) => {
     writes.push(enabled);
@@ -104,7 +115,7 @@ test("no path marks prompted only", async () => {
   });
 
   assert(writes.length === 0, "no should not write config");
-  assert(localStorage.getItem(CHAT_UI_DEFAULT_PROMPTED_KEY) === "true", "no should mark prompted");
+  assert(prompted === true, "no should mark prompted");
   assert(!host.querySelector('[role="dialog"]'), "dialog should close");
 
   __setChatUiDefaultConfigWriterForTest(null);
@@ -112,7 +123,7 @@ test("no path marks prompted only", async () => {
 });
 
 test("missing prompt host does not mark prompted", async () => {
-  localStorage.clear();
+  resetPromptedStore();
   const writes: boolean[] = [];
   __setChatUiDefaultConfigWriterForTest(async (enabled) => {
     writes.push(enabled);
@@ -121,13 +132,13 @@ test("missing prompt host does not mark prompted", async () => {
   await maybeAskDefaultNewAgentPaneToChat();
 
   assert(writes.length === 0, "unhandled prompt should not write config");
-  assert(localStorage.getItem(CHAT_UI_DEFAULT_PROMPTED_KEY) !== "true", "unhandled prompt must not suppress future prompts");
+  assert(prompted !== true, "unhandled prompt must not suppress future prompts");
 
   __setChatUiDefaultConfigWriterForTest(null);
 });
 
 test("yes path does not mark prompted when config write fails", async () => {
-  localStorage.clear();
+  resetPromptedStore();
   __setChatUiDefaultConfigWriterForTest(async () => {
     throw new Error("write failed");
   });
@@ -149,7 +160,7 @@ test("yes path does not mark prompted when config write fails", async () => {
   });
 
   assert(failed, "yes should surface config write failure");
-  assert(localStorage.getItem(CHAT_UI_DEFAULT_PROMPTED_KEY) !== "true", "failed write must not mark prompted");
+  assert(prompted !== true, "failed write must not mark prompted");
 
   __setChatUiDefaultConfigWriterForTest(null);
   await act(async () => root.unmount());

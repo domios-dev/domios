@@ -53,7 +53,6 @@ pub(crate) fn init_states() -> AppStates {
         Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
     // Durable orchestration ledger backs the report store so worker state
     // survives daemon restart. If the db can't be opened, fall back to an
-    // in-memory-only store (live stream still works; only durability is lost).
     let report_store: ReportStoreState = {
         let store = match agent::ledger::OrchestrationLedger::open(&crate::paths::data_dir()) {
             Ok(ledger) => agent::reports::ReportStore::with_ledger(200, Arc::new(ledger)),
@@ -150,8 +149,6 @@ pub(crate) fn init_states() -> AppStates {
     }
     // Session restore (kill + restart) re-creates panes outside the fresh-spawn
     // default logic, so re-apply the chat-UI default here. The dynamic plugin
-    // registry isn't queryable yet at startup, so use the bundled capability
-    // table (same source the general-agent default uses below).
     if config_state.lock().ui.default_new_agent_pane_chat {
         let capable: std::collections::HashSet<String> = BUNDLED_CHAT_UI_PROVIDERS
             .iter()

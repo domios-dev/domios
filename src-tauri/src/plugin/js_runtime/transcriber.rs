@@ -157,7 +157,6 @@ mod tests {
 
     // Multi-thread: the plugin's host.fetch blocks a worker on its request thread;
     // the in-runtime fake daemon needs another worker to respond. In production the
-    // daemon is a separate process, so a single worker is fine there.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn shipped_transcriber_transcribes_via_fake_daemon() {
         use axum::{routing::post, Json, Router};

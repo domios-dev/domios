@@ -63,12 +63,9 @@ function bash(args: string[], timeoutMs: number): void {
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
       // Harness-only terminal test mode: enables xterm screenReaderMode
       // (the .xterm-accessibility DOM the suites read) and skips the
-      // WebGL renderer. User-facing runs never set this — screenReader
-      // mode degrades terminal colors (the bad56175 regression).
       VITE_CODETERM_TEST: "1",
       // Debug builds run cron on a MockClock so 07-cron can time-travel
       // via /api/debug/clock. Harmless elsewhere: only cron reads it, and
-      // it starts at the real current time.
       CODETERM_TEST_CLOCK: "1",
     },
   });
@@ -78,7 +75,6 @@ export function killDevConsole(): void {
   bash(["build.sh", "kill"], 60_000);
   // build.sh kill only targets the 7686 listener; its vite child survives
   // holding port 1420 and orphan dev binaries keep the exe locked — both
-  // deterministically break the NEXT start, so sweep them every time.
   killDevLeftovers();
 }
 

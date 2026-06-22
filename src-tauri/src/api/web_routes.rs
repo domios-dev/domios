@@ -64,8 +64,6 @@ pub async fn pane_chat_view(
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state.svc.set_chat_view(&pane_id, body.enabled);
     // Explicit API request = remote-control command (bridge / agents / tests):
-    // broadcast so connected clients flip the pane's view. The in-client
-    // toggle stays client-local on purpose (multi-client isolation).
     crate::api::events::emit_everywhere(
         &state.svc.app_handle,
         "pane-chat-view",
@@ -897,8 +895,6 @@ pub async fn plugin_ui(
     };
     // Deliberately NO X-Frame-Options: the app embeds this cross-origin, and SAMEORIGIN
     // would blank the panel. Framing is safe anyway — sandboxed, CSP-locked, token-gated to an inert document.
-    //
-    // Cache: index.html is no-store (per-load nonce, rebuilt in place); content-hashed sibling assets cache immutably.
     let cache = if rel.ends_with(".html") {
         "no-store, must-revalidate"
     } else {

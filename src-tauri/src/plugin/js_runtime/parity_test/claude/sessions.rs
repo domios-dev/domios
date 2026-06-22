@@ -185,9 +185,6 @@ fn rich_flatten_parity_block_derivable_kinds() {
     let j = load_js("claude");
 
     // Covers every block kind plugin.js already passes through:
-    // user text, assistant text, thinking, tool_use, assistant-turn
-    // tool_result, user-turn tool_result, user image attachment,
-    // assistant standalone image.
     let jsonl = concat!(
         r#"{"type":"user","message":{"role":"user","content":"refactor please"},"timestamp":"2026-05-20T10:00:00Z"}"#,
         "\n",

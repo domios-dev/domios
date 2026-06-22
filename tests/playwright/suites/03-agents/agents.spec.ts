@@ -109,7 +109,6 @@ test("@golden real agent spawn → works → reports back (structural asserts)",
 
     // The agent runs the report command; poll the inbox. Single LLM call,
     // no retries — if the model never reports within budget, that is a
-    // real finding, not flake to paper over.
     const reportText = await pollUntil(async () => {
       const reports = await api.get<unknown>(`/panes/${inbox.id}/reports`);
       const text = JSON.stringify(reports);
@@ -146,7 +145,6 @@ async function spawnWorker(spawnAgent: SpawnAgent, inboxId: string, task: string
 test("@golden multi-turn + tool round-trip observed in the live terminal DOM", async ({ api, paneCleanup, spawnAgent, pollMarkerInDom }) => {
   // Turn 1 makes the agent EXECUTE a command (tool use — the echoed marker
   // only reaches the terminal if the tool actually ran); turn 2 sends a
-  // follow-up into the same session and reads the reply from the DOM.
   test.setTimeout(420_000);
 
   const inbox = await paneCleanup.createPane({ title: "pw-mt-inbox" });
@@ -248,7 +246,6 @@ test("@golden agent restart mid-session resumes and stays usable", async ({ api,
 test("@golden fully live: agent response read from the rendered terminal DOM", async ({ api, paneCleanup, spawnAgent, pollMarkerInDom }) => {
   // Real UI → real PTY → real LLM → real DOM. The WebGL canvas has no
   // readable text; the screenReaderMode accessibility tree
-  // (.xterm-accessibility) is the renderer-independent observable.
   test.setTimeout(300_000);
 
   const inbox = await paneCleanup.createPane({ title: "pw-dom-inbox" });

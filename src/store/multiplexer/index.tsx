@@ -350,8 +350,6 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     try {
       // One atomic backend command: create + cwd + agent_type + chat_view +
       // activate + focus, picking the transport (PTY vs chat) on the backend.
-      // It returns the authoritative snapshot (applied once — no refetch, no
-      // blink) and, for PTY, the launch command the terminal delivers.
       const res = await invoke<AtomicSpawn>("mux_spawn_pane", {
         params: { agentId, workspaceId, cwd, skipPermissions },
       });

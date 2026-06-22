@@ -56,8 +56,6 @@ pub fn start_general_agent(
                     if alive {
                         // Grace-poll markers: after a daemon restart the live PTY
                         // is up but the screen isn't rehydrated yet, so a one-shot
-                        // check would kill a healthy Main. Bail the instant markers
-                        // appear; only a genuinely bare shell survives the window.
                         let mut agent_visible = false;
                         for _ in 0..10 {
                             let screen = screen_state.lock().get_screen_text(&pty_id);
@@ -72,7 +70,6 @@ pub fn start_general_agent(
                         if agent_visible {
                             // Reused PTY across a restart: if the in-memory binding didn't
                             // survive, restore it from durable state so chat finds the
-                            // session — no relaunch, the running agent keeps its history.
                             let unbound = mux
                                 .write()
                                 .get_pane(&pid)
@@ -162,7 +159,6 @@ pub fn start_general_agent(
     } else {
         // If no session_id from snapshot or durable GA state, try detecting a GA-marked session from filesystem (covers first launch, new
         // machine, or wiped session store). This is intentionally stricter than generic provider detection so worker JSONLs in the GA cwd
-        // cannot win by recency.
         let exclude = mux.write().other_session_ids(&pane_id);
         let detected = state::detect_owned_session_id(
             &svc.agent_registry,
@@ -376,9 +372,6 @@ pub fn start_general_agent(
     log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
     // Windows ConPTY: writing the launch command before the shell prompt is
     // rendered races the first byte (drop/duplicate → mangled command like
-    // `c codex` → CommandNotFoundException). Wait for the prompt so PSReadLine's
-    // bracketed-paste handler is armed first. Bounded + best-effort; no-op on
-    // native PTYs (macOS/Linux don't exhibit the race).
     #[cfg(windows)]
     crate::service::pty_io::poll_shell_prompt(
         screen_state,

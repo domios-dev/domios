@@ -22,7 +22,6 @@ function user(id: string, content: string, tsMs: number): NormalizedChatMessage 
 }
 // Provider echo whose transcript timestamp is a Unix-SECONDS number (codex floors
 // to seconds; RichMessage.ts is documented in seconds). The matcher must treat
-// it as the same instant as a millisecond bubble send-time.
 function userSec(id: string, content: string, tsMs: number): NormalizedChatMessage {
   return { id, type: "user", content, timestamp: String(Math.floor(tsMs / 1000)) };
 }
@@ -85,7 +84,6 @@ const T0 = 1_700_000_000_000;
 
 // 12. CodeTerm voice markers are matched by their file identity. Provider
 //     timestamps can be older than the optimistic update because transcription
-//     formats the marker before the TUI records the user turn.
 {
   const file = "C:\\tmp\\voice-note-123.webm";
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
@@ -107,8 +105,6 @@ const T0 = 1_700_000_000_000;
 
 // 2b. Provider transcripts may store CodeTerm transport prefixes around the
 //     user turn while the optimistic bubble contains only the visible body.
-//     The matcher must compare against the marker payload, otherwise the
-//     optimistic bubble hangs until a full refresh rehydrates the transcript.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
     [echo("opt-1", "check the cursor ordering bug", T0)],
@@ -119,8 +115,6 @@ const T0 = 1_700_000_000_000;
 }
 
 // 3. An OLDER identical message (ts < sentAt) must NOT clear a fresh bubble.
-//    Root cause #3: re-sending a short line ("yes") must match the NEW echo,
-//    never an identical line from earlier in the history.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
     [echo("opt-1", "yes", T0)],
@@ -180,7 +174,6 @@ const T0 = 1_700_000_000_000;
 
 // 13. A stray leaked prefix on the echoed line (e.g. "YT" glued onto the first
 //     word from a focus-leaked keystroke) still clears the bubble via fuzzy
-//     similarity instead of leaving a stuck dim duplicate.
 {
   const real = "cannot scroll inside the input make it bigger and move the timer";
   const leaked = "YT" + real; // "YTcannot scroll ..." — first token diverges
@@ -194,7 +187,6 @@ const T0 = 1_700_000_000_000;
 
 // 14. Optimistic bubbles carry the raw attachment path appended to the text;
 //     the real echo renders the file as a chip (path stripped). They must still
-//     match so the image message does not duplicate.
 {
   const text = "each time I press record this happens please fix";
   const optimistic = `${text} /Users/me/.codeterm/uploads/2b9df9f1-shot.png /Users/me/.codeterm/uploads/2faa7ab5-shot.png`;
@@ -208,7 +200,6 @@ const T0 = 1_700_000_000_000;
 
 // 15. Short message + attachment path: meaningful text is identical once paths
 //     are stripped, so it matches even though there are too few shared tokens
-//     for the looser similarity threshold.
 {
   const { matchedIds } = matchedOptimisticEchoes(
     [echo("opt-1", "fix this /Users/me/.codeterm/uploads/x.png", T0)],
@@ -240,9 +231,6 @@ const T0 = 1_700_000_000_000;
 }
 
 // 18. Real-data skew: a fresh echo stamped in Unix SECONDS clears its bubble.
-//     Before seconds→ms normalization, String(floor(T0/1000)) ≈ 1.7e9 was read
-//     as epoch-ms (1970) — ~56 years before the ms send-time — so the skew guard
-//     rejected EVERY real echo and the bubble stuck on "sending…" forever.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(
     [echo("opt-1", "hi", T0)],

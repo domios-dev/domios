@@ -1,10 +1,5 @@
 // Run: npx tsx src/lib/agentDescriptorCache.test.ts
-//
 // defaultSpawnProviderId() backs every "spawn the default agent" affordance
-// (new-tab button, command palette, memory worker dialog). It must resolve by
-// CAPABILITY (first PTY-transport provider in registry order), never a
-// hardcoded vendor id — so a config that registers a different agent first
-// changes the default with zero call-site edits.
 
 import {
   setAgentDescriptors,

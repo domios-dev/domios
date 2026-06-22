@@ -1,9 +1,9 @@
 import { getAgentDescriptor } from "./agentDescriptorCache";
 import { invoke } from "./bridge";
+import { loadConfig, setUiSettings } from "./clientSettings";
 import type { AppConfig, PaneBacking } from "./types";
 
 export const CHAT_UI_DEFAULT_KEY = "codeterm-chat-ui-default-enabled";
-export const CHAT_UI_DEFAULT_PROMPTED_KEY = "codeterm-chat-ui-default-prompted";
 export const CHAT_UI_DEFAULT_PROMPT_EVENT = "codeterm-chat-ui-default-prompt";
 
 export type PaneUiMode = "terminal" | "chat";
@@ -16,8 +16,6 @@ export type ChatUiDefaultPromptDetail = {
 
 // Capability-driven: a provider supports chat when its descriptor says so
 // (JSONL sessions or structured/DB-backed chat). chatBackend shell panes have no
-// `agent_type` — they are intrinsically chat, so the backing alone qualifies.
-// No hardcoded provider list either way.
 export function isChatUiSupported(agentType?: string | null, backing?: PaneBacking | null): boolean {
   if (backing?.kind === "chat_backend") return true;
   if (!agentType) return false;
@@ -46,12 +44,23 @@ function readLegacyDefault(): boolean | null {
   }
 }
 
-function markPrompted(): void {
+// "Have we asked the user the chat-UI-default question yet?" — centralized in
+// backend config so a fresh client never re-prompts. Test-overridable.
+let promptedStoreForTest: { get: () => boolean; set: () => void } | null = null;
+
+async function isPrompted(): Promise<boolean> {
+  if (promptedStoreForTest) return promptedStoreForTest.get();
   try {
-    localStorage.setItem(CHAT_UI_DEFAULT_PROMPTED_KEY, "true");
+    const config = await loadConfig();
+    return config.ui?.chat_ui_default_prompted === true;
   } catch {
-    // localStorage can be unavailable in tests or hardened webviews.
+    return false;
   }
+}
+
+async function markPrompted(): Promise<void> {
+  if (promptedStoreForTest) { promptedStoreForTest.set(); return; }
+  await setUiSettings({ chat_ui_default_prompted: true });
 }
 
 function clearLegacyDefault(): void {
@@ -111,7 +120,7 @@ export async function setDefaultNewAgentPaneToChat(enabled: boolean): Promise<vo
   await writeDefaultToConfig(enabled);
   cachedDefaultNewAgentPaneChat = enabled;
   configLoad = Promise.resolve(enabled);
-  markPrompted();
+  await markPrompted();
 }
 
 function askDefaultNewAgentPaneToChat(): Promise<ChatUiDefaultPromptResult> {
@@ -128,17 +137,13 @@ function askDefaultNewAgentPaneToChat(): Promise<ChatUiDefaultPromptResult> {
 }
 
 export async function maybeAskDefaultNewAgentPaneToChat(): Promise<void> {
-  try {
-    if (localStorage.getItem(CHAT_UI_DEFAULT_PROMPTED_KEY) === "true") return;
-  } catch {
-    return;
-  }
+  if (await isPrompted()) return;
   const choice = await askDefaultNewAgentPaneToChat();
   if (choice === "unhandled") return;
   if (choice === "yes") {
     await setDefaultNewAgentPaneToChat(true);
   } else {
-    markPrompted();
+    await markPrompted();
   }
 }
 
@@ -146,6 +151,12 @@ export function __setChatUiDefaultConfigWriterForTest(
   writer: ((enabled: boolean) => Promise<void>) | null,
 ): void {
   configWriterForTest = writer;
+}
+
+export function __setChatUiDefaultPromptedStoreForTest(
+  store: { get: () => boolean; set: () => void } | null,
+): void {
+  promptedStoreForTest = store;
 }
 
 export function emitPaneUiMode(paneId: string, mode: PaneUiMode): void {

@@ -19,7 +19,6 @@ export function mergeTimelineMessages<T extends NormalizedChatMessage>(
       if (at != null && bt != null && at !== bt) return at - bt;
       // Equal/missing timestamps: confirmed turns carry the server's source-order
       // `seq` (codex same-second, cursor timeless); fall back to arrival index so
-      // seq-less optimistic bubbles keep their appended position.
       const as = a.message.seq;
       const bs = b.message.seq;
       if (as != null && bs != null && as !== bs) return as - bs;

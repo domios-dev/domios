@@ -108,9 +108,6 @@ impl Default for ApiConfig {
             enabled: true,
             // 0.0.0.0 by default because mesh peers connect directly to this
             // host's Tailscale/LAN IP (transport.rs builds http://<ip>:<port>) —
-            // a 127.0.0.1 bind would refuse those and break mesh out of the box
-            // (mesh.enabled defaults true). Security-conscious single-machine
-            // users can set api.host = "127.0.0.1"; start_servers warns on 0.0.0.0.
             host: "0.0.0.0".to_string(),
             #[cfg(debug_assertions)]
             port: 7686,
@@ -453,6 +450,10 @@ pub struct UiConfig {
     pub mesh_tab_enabled: bool,
     #[serde(default)]
     pub default_new_agent_pane_chat: bool,
+    /// Centralized per-user client settings that used to live in each client's
+    /// localStorage (prompt-seen flags, toggles). Pluggable; no Rust field churn.
+    #[serde(flatten)]
+    pub extra: HashMap<String, toml::Value>,
 }
 
 impl Default for UiConfig {
@@ -461,6 +462,7 @@ impl Default for UiConfig {
             memory_tab_enabled: true,
             mesh_tab_enabled: true,
             default_new_agent_pane_chat: false,
+            extra: HashMap::new(),
         }
     }
 }

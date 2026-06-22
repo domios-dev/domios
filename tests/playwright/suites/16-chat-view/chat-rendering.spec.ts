@@ -64,8 +64,6 @@ test("@smoke ChatView PTY provider pane shows no inline option card without a pe
   await ui.reconnect();
 
   // Find an existing terminal pane that is already visible in the web mirror.
-  // Enabling chat view on it triggers an SSE mux-state-changed event that the
-  // React app picks up in real time — no tab navigation or page reload needed.
   const panes = await api.panes();
   const target = panes.find((p) => p.focused) ?? panes[0];
   expect(target, "no pane found").toBeTruthy();
@@ -88,7 +86,6 @@ test("@golden ChatView message DOM order matches chronological push order", asyn
 }) => {
   // window.__codetermTestChat is injected by VITE_CODETERM_TEST=1 (dev-build
   // only). On macOS the web mirror serves dist/ without the test flag; skip
-  // gracefully instead of erroring.
   const hasTestHook = await ui.page.evaluate(() => typeof window.__codetermTestChat !== "undefined");
   test.skip(!hasTestHook, "window.__codetermTestChat not available in this build (macOS web mirror without VITE_CODETERM_TEST=1 build)");
 

@@ -192,7 +192,6 @@ console.log("\n--- cursorChatsDir md5 keys off the NATIVE-separator cwd (ROG md5
 {
   // Cursor hashes its cwd in the OS-native separator. The host hands plugins forward-slash
   // paths, so on Windows the plugin must restore backslashes before md5 — else the hash misses
-  // cursor's chats dir and the session never binds (chat stays empty forever).
   let winSeen: string | null = null;
   const pWin = loadCursorWithHost(baseHost({
     platform: () => "windows",

@@ -95,9 +95,6 @@ test("@golden two chat panes exchange a cross-pane message, origin rendered", as
 
   // UI side: switch to each chat tab and assert the marker renders inside a
   // chat message WITH an origin header ("from …") and WITHOUT the raw wire
-  // marker leaking — proving the client-side marker parse ran. Focus alone
-  // doesn't change the visible tab; click the tab-item (resolved by tab id,
-  // robust against agent auto-rename) to actually mount that pane's chat.
   const tabIdOf = async (paneId: string): Promise<string> => {
     const pane = (await api.panes()).find((p) => p.id === paneId) as
       | { tab_id?: string }
@@ -118,7 +115,6 @@ test("@golden two chat panes exchange a cross-pane message, origin rendered", as
     });
     // Target the injected USER turn specifically — a reacting agent may emit
     // its own tool_call cards that also echo the marker, so role-filter to the
-    // deterministic incoming message that carries the origin header.
     const msg = ui.page
       .locator('[data-testid="chat-message"][data-message-role="user"]')
       .filter({ hasText: marker })

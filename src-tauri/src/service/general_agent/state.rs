@@ -32,7 +32,6 @@ pub(super) fn load_session_id(
         .unwrap_or(false);
     // We only persist sessions the hook bound to the GA pane, so the durable record
     // is itself the ownership proof — don't re-gate on bootstrap markers (the filesystem
-    // SCAN in detect_owned_session_id still does, to disambiguate unknown sessions).
     valid.then_some(state.session_id)
 }
 

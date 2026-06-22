@@ -1,6 +1,5 @@
 // Pane-state classification (rate-limit / clarifying / auth). Wire shapes mirror
 // src-tauri/src/agent/pane_state.rs, declared locally because the SDK exposes
-// classifyPaneState only via its index signature.
 import { usageParseTodayClock } from "./usage";
 
 export interface PaneStateSnapshot {
@@ -41,9 +40,6 @@ const RESUME_BUFFER_MS = 60 * 1000;
 
 // Classify a parked claude pane from its rendered screen. Invariants: auth is
 // sacred (surfaced, never auto-pressed); every actionable verdict is an ensemble
-// of structural signals so a lone weak match stays sub-threshold; rate-limit
-// navigates to the wait option (never a blind Enter); clarifying questions are
-// only surfaced, never auto-answered.
 export function classifyClaudePaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
   // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
   const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
@@ -183,7 +179,6 @@ function scoreRateLimit(screen: string, nowMs: number): RateLimitScore {
 
 // Parse the reset clock, e.g. `resets 4:20pm`. Claude prints it in the machine's
 // local zone (which the daemon shares), so resolve the next occurrence locally.
-// Returns null when no clock is present, so the caller surfaces for a manual resume.
 function parseResetClock(screen: string, nowMs: number): number | null {
   const m = /\breset[s]?\b[^\n]{0,40}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
   if (!m) return null;
@@ -194,7 +189,6 @@ interface ClarifyScore { confidence: number; questions: string[] }
 
 // Structural signals for a clarifying-question prompt (weights sum to 1.0): a
 // numbered menu + question line + confirm footer together, so a lone in-stream
-// question stays sub-threshold. Only surfaced, never auto-answered.
 function scoreClarifyingQuestion(screen: string): ClarifyScore {
   const block = activeClarifyingPromptBlock(screen);
   const options = block?.options ?? [];

@@ -81,7 +81,6 @@ fn action_preview(actions: &[SendAction]) -> String {
 pub(super) async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
     // [G] A chatBackend pane has no PTY to link — don't poll for one that never
     // appears (it would hang the full budget and then fail). It is "ready" the
-    // moment it exists (B1.1#5).
     if state.svc.pane_chat_backing(pane_id).is_some() {
         return true;
     }
@@ -235,7 +234,6 @@ pub async fn send_text(
 
         // Raw terminal key writes are PTY-only; a chatBackend pane has no
         // terminal, so skip them (the text turn above already routed to the
-        // plugin via send_text_when_ready).
         if state.svc.pane_chat_backing(&pane_id).is_none() {
             let pty_id = state
                 .svc

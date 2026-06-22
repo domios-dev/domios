@@ -16,6 +16,10 @@ assert(
   "TabItem should import the model badge formatter",
 );
 assert(
+  source.includes('import { SidebarModelBadge } from "./SidebarModelBadge";'),
+  "TabItem should use the shared sidebar model badge",
+);
+assert(
   source.includes("const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;"),
   "TabItem should derive badge text through formatModelBadge",
 );
@@ -24,7 +28,7 @@ assert(
   "TabItem should keep the full model id in the badge title",
 );
 assert(
-  source.includes("{tabModelBadge}") && !source.includes("{tabModel}\n          </span>"),
+  source.includes("<SidebarModelBadge label={tabModelBadge}") && !source.includes("{tabModel}\n          </span>"),
   "TabItem should render the formatted badge text, not the raw model id",
 );
 

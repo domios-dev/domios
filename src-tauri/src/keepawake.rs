@@ -579,7 +579,6 @@ mod platform {
                 if let Some(mut c) = child_for_thread.lock().take() {
                     // SIGTERM (not Child::kill, which is SIGKILL) so the wrapper's trap runs and
                     // reaps its caffeinate. SIGKILL bypasses the trap, orphaning caffeinate to PID 1
-                    // — the leak behind "multiple caffeinates / machine never sleeps after off".
                     let _ = terminate_pid(c.id());
                     let _ = c.wait();
                 }

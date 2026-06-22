@@ -225,10 +225,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     let started = std::time::Instant::now();
     // chatBackend pane: its transcript is the durable host-side JSONL, not an
     // agent JSONL/sqlite session. Return that persisted snapshot so a pane shows
-    // its history immediately on (re)mount — a restored pane has no live poll
-    // loop until its first send, so without this it would render an empty chat.
-    // The frontend then attaches its `pane-chat-msg-{id}` listener for any live
-    // deltas (deduped by id), matching the agent path's start-then-stream shape.
     if svc.pane_chat_backing(&pane_id).is_some() {
         let (messages, _total) =
             crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
@@ -342,7 +338,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
 
     // JSONL providers (claude, codex): parse to normalized `ChatMsg` in Rust —
     // the SAME shape the DB-backed providers emit — so every provider renders
-    // through one client path. No second TS parser.
     let path_started = std::time::Instant::now();
     let path = svc
         .agent_registry
@@ -354,7 +349,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
 
     // Sessions over the cap skip the full parse to avoid blocking: return empty
     // messages and start the tailer at offset 0 so history streams in as deltas.
-    // A missing file is not an error — session id may arrive before the first line.
     const JSONL_SNAPSHOT_CAP: u64 = 10 * 1024 * 1024;
     let read_started = std::time::Instant::now();
     let (messages, msg_count, tailer_start_offset) = if total > JSONL_SNAPSHOT_CAP {

@@ -1,6 +1,5 @@
 // Claude Code provider plugin runtime logic, compiled to QuickJS-compatible
 // plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
-// This facade wires PluginModule methods to siblings: ./session, ./models, ./usage, ./classify.
 import type { LaunchParams, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 import { usageNormalize, usageParseBlock } from "./usage";

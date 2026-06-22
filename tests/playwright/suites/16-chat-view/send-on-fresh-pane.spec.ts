@@ -49,7 +49,6 @@ test(
 
     // Wait for the chat view to render.  The comment in TerminalPane says
     // "No session-readiness gate" — PaneSessionChat renders immediately,
-    // including when pty_id is still null.
     const chat = ui.page.locator(
       `[data-testid="pane-session-chat"][data-pane-id="${pane.id}"]`,
     );
@@ -75,7 +74,6 @@ test(
 
     // Assert: the optimistic user message was added to the chat history
     // (addOptimistic fires before the backend call, so this confirms the send
-    // path reached the backend rather than short-circuiting on the error).
     const userMsg = chat
       .locator('[data-testid="chat-message"][data-message-role="user"]')
       .filter({ hasText: marker });

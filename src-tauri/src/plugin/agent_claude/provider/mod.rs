@@ -54,7 +54,6 @@ impl AgentProvider for ClaudeProvider {
     fn supports_structured_prompts(&self) -> bool {
         // AskUserQuestion is structured in the parsed JSONL transcript
         // (`parse_interactive_events`). Permission prompts have no PTY-mode
-        // structured handle and fall through to the native detector.
         true
     }
 

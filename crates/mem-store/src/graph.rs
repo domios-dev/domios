@@ -180,10 +180,6 @@ pub fn revive_broken(
     }
     // Never revive a closed relation when an active twin already exists for the
     // same (from, rel, to, scope): re-opening it (valid_to = NULL) would create
-    // a second active row and violate the `idx_relations_active_unique` partial
-    // index, crashing the dreamer normalize phase (#129/#116). One predicate,
-    // shared by the COUNT and the UPDATE below, so the dry-run preview and the
-    // real run always agree.
     sql.push_str(
         " AND NOT EXISTS (SELECT 1 FROM relations a WHERE a.valid_to IS NULL \
           AND a.from_id = relations.from_id AND a.relation_type = relations.relation_type \
@@ -191,9 +187,6 @@ pub fn revive_broken(
     );
     // Prod can contain clusters of multiple CLOSED duplicate rows with the
     // same (from, rel, to, scope). Reviving every row in such a cluster would
-    // make the closed copies collide with each other on the active-unique
-    // partial index. Pick one deterministic winner per cluster: latest
-    // valid_to, then latest valid_from, then highest rowid.
     sql.push_str(
         " AND relations.rowid = (SELECT c.rowid FROM relations c \
           WHERE c.valid_to IS NOT NULL \

@@ -1,7 +1,5 @@
 // Right pane of the Extensions surface: the selected plugin's detail. Routes
 // agent providers to AgentProviderScreen and secret backends to
-// SecretBackendDetail (unchanged behavior); everything else gets the generic
-// header + primary action + capabilities + settings + markdown description.
 import { useState } from "react";
 import {
   canUninstall,

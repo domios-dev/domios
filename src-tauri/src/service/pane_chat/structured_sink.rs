@@ -204,11 +204,6 @@ mod tests {
     fn host_inbound_survives_poll_loop_flush() {
         // BUG B regression: a host-written inbound row + the model's reply must
         // both persist. Ordering reproduces the real bug — the poll-loop sink is
-        // a LONG-LIVED instance created at poll-loop startup (BEFORE any inbound),
-        // seeded once and never re-reading disk. Pre-fix it held a SEPARATE
-        // `ChatBackendHistory` from the gateway, so its flush rewrote the JSONL
-        // from its own state and clobbered a host inbound written after startup.
-        // With the single shared writer, both rows survive.
         let plugin = "test-single-writer-unique";
         let session = "sw-sid";
         let path = chatbackend_history::session_path(plugin, session);

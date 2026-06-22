@@ -175,8 +175,6 @@ fn attachment_from_image(data: &serde_json::Value, id: String) -> ChatAttachment
 pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
     // `base_id` is the monotonic source ordinal (rich-message index in a snapshot,
     // atomic counter in the stream). Stamp it as `seq` so the client can break
-    // coarse/absent-timestamp ties by true source order — sub-messages of one rich
-    // message share it and the client's stable sort preserves their emit order.
     let mut out = rich_to_chat_msgs_blocks(rich, base_id);
     for m in &mut out {
         m.seq = base_id as i64;
@@ -456,7 +454,6 @@ pub fn pane_chat_snapshot(
 ) -> Result<(Vec<ChatMsg>, usize), String> {
     // A chatBackend pane has no agent_type / agent_session_id — its transcript
     // lives in the plugin session, not a JSONL/sqlite file. Branch on the pane
-    // backing so `pane chat` / chat-ui work on these panes too (S9).
     let backing = {
         let m = svc.mux.write();
         m.get_pane(pane_id).ok_or("pane not found")?.backing.clone()
@@ -719,7 +716,6 @@ mod chat_snapshot_tests {
     fn snapshot_after_poll_flush_includes_host_inbound_and_reply() {
         // BUG B end-to-end at the snapshot layer: after the gateway writes a host
         // inbound and the poll loop flushes the reply through the SHARED mirror,
-        // a refresh (snapshot reads JSONL) returns BOTH the inbound and the reply.
         let plugin = "test-snapshot-single-writer-unique";
         let session = "snap-sw-sid";
         let path = chatbackend_history::session_path(plugin, session);

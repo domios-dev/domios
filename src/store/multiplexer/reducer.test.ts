@@ -1,8 +1,5 @@
 // Run: npx tsx src/store/multiplexer/reducer.test.ts
-//
 // SET_STATE monotonic generation guard (T3 Fix B): a snapshot whose generation
-// is <= the applied one is ignored, so a stale `mux_get_state` that resolves
-// after a newer snapshot can no longer clobber the just-created tab.
 
 import { reducer } from "./reducer";
 import type { ExtendedState } from "./tree";
@@ -83,8 +80,6 @@ test("snapshots without a generation still apply (back-compat)", () => {
 
 // SET_STATE focused_pane_id: under the payload-based mux-state-changed flow,
 // snapshots now carry focused_pane_id. The reducer must adopt it when it names
-// a pane present in the merged set (initial hydrate / restore), but must NOT
-// clobber a valid focus with a stale value naming a missing pane.
 function pane(id: string): Pane {
   return { id, pty_id: null, title: id } as unknown as Pane;
 }

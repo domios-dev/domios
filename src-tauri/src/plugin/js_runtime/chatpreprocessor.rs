@@ -136,10 +136,6 @@ mod tests {
     }
 
     // ── bundled plugin preset tests ─────────────────────────────────────────
-    // Load the real compiled plugin.js bundle so the settings injection, preset
-    // selection, and mem-recall passthrough paths are proven against the actual
-    // shipped artifact.  If the plugin file isn't present (cargo-publish clone),
-    // the tests are skipped rather than failing.
 
     fn bundled_plugin_js() -> Option<String> {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -204,7 +200,6 @@ mod tests {
     fn mem_recall_without_service_context_passes_through() {
         // When no ServiceContext is injected (unit test), host.mem.search returns an
         // error envelope.  The plugin must treat empty/errored mem as an absent block
-        // and return null (passthrough) rather than modifying the text.
         let settings = serde_json::json!({
             "enabled": true,
             "activePreset": "mem-recall"

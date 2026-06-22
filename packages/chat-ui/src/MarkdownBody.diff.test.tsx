@@ -71,8 +71,6 @@ test("tsx diff renders highlighted tokens on +/- backgrounds", async () => {
 
   // The highlighted token must live *inside* a +/- gutter row — that's what
   // "tokens on the +/- backgrounds" means structurally. (The color-mix
-  // background itself is applied in real browsers but dropped by happy-dom's
-  // CSS parser, so we assert the row/gutter+token coupling instead.)
   const rowWithMarker = (marker: string) =>
     Array.from(host.querySelectorAll<HTMLElement>("div")).find((d) => {
       const first = d.querySelector("span");

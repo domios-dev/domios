@@ -53,7 +53,6 @@ pub fn probe_serve_status(api_port: u16) -> ServeStatus {
         .map(|(host, port)| format_serve_url(&host, port));
     // The CLI `status --json` returns the GUI-bridge error string (null DNS) when
     // the daemon can't reach the macOS GUI shim; fall back to the serve-config's
-    // own Web host key so the UI still shows the real `host.ts.net`.
     let self_dns = super::discovery::tailscale_self_dns_name()
         .or_else(|| cfg.as_ref().and_then(serve_config_self_dns));
     ServeStatus {
@@ -95,11 +94,6 @@ fn format_serve_url(host: &str, port: u16) -> String {
 fn serve_status_json() -> Option<serde_json::Value> {
     // macOS: the App Store / GUI Tailscale exposes its LocalAPI over loopback TCP
     // with a `sameuserproof-<port>-<proof>` file in its Group Container (the CLI's
-    // own auth path). The GUI CLI shim needs an Aqua session the daemon doesn't
-    // have and fails (exit 0 + "GUI failed to start"), so read serve-config from
-    // the LocalAPI directly. In-process works in dev (unsigned), but a signed
-    // hardened `.app` is denied by App-Data protection on Tailscale's container —
-    // so fall back to a responsibility-disclaimed helper. CLI is the last resort.
     #[cfg(target_os = "macos")]
     {
         if let Some(val) = serve_config_via_localapi() {
@@ -333,7 +327,6 @@ pub fn enable_web_serve(api_port: u16, https_port: Option<u16>) -> ServeResult {
 
     // (4) macOS provisions a cert BEFORE serve; non-fatal if it fails (the cert
     //     may already exist, or serve will surface the real error). cfg-gated so
-    //     Windows/Linux never spawn it.
     #[cfg(target_os = "macos")]
     {
         if let Some(dns) = super::discovery::tailscale_self_dns_name() {

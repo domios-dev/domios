@@ -79,7 +79,6 @@ export function usePtyConnection({
 
       // Replay scrollback only on first mount — xterm is keep-alive (never destroyed on tab switch),
       // so re-sending up to 2MB of ANSI on every tab activation is wasteful.
-      // On remount a single resize is enough to make the PTY re-emit its current screen.
       if (ptyId && IS_WEB) {
         if (!webReplayedPtysRef.current.has(ptyId)) {
           webReplayedPtysRef.current.add(ptyId);

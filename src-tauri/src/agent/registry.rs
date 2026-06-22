@@ -153,9 +153,6 @@ impl AgentRegistry {
         if let Some(prev) = guard.remove(&id) {
             // Only a genuine native impl is a valid capability fallback. A JS
             // provider displaced by re-registration of the same id (hot-reload of
-            // a JS-only drop-in) must NOT become the fallback — `native()` would
-            // then return itself and capability delegation would recurse until
-            // the stack overflows (#16).
             if prev.is_native() {
                 self.native_fallbacks
                     .write()

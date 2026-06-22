@@ -1,7 +1,5 @@
 // Type-only conformance test. The oracle is `tsc --noEmit`: this file must
 // compile when the contracts exist, and every `@ts-expect-error` line asserts a
-// genuine type error (tsc fails if the error is absent — i.e. if a type is too
-// loose). No runtime; nothing here is executed.
 
 import type {
   ChatBackend,

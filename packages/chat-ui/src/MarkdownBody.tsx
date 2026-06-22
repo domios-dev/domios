@@ -86,8 +86,6 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
           />
         ),
         // Block code: SyntaxHighlighter/CodeBlock. Inline code: styled span.
-        // Detection: fenced blocks get a "language-*" className from remark.
-        // For language-less blocks, infer Mermaid from known source keywords.
         code: ({ node: _node, className, children, ...props }: React.ComponentProps<"code"> & { node?: unknown }) => {
           const language = resolveCodeLanguage(className, children);
           const plainCode = extractCodeText(children);

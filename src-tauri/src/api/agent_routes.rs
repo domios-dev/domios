@@ -338,7 +338,6 @@ pub async fn respond_prompt(
         .to_string();
     // respond_prompt's structured reply uses a BLOCKING reqwest client (it drops an
     // internal runtime), which panics if run on the async runtime. Send it off the
-    // runtime via spawn_blocking (CLAUDE.md async-discipline: blocking IO off-runtime).
     let svc = state.svc.clone();
     let pid = pane_id.clone();
     tokio::task::spawn_blocking(move || svc.respond_prompt(&pid, &value))

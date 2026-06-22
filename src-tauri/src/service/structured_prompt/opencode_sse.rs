@@ -358,8 +358,6 @@ mod tests {
 
     // Question reply BODY is LABEL-based (not raw index/id): a 1-based index resolves
     // to the option's LABEL, the label itself resolves identically, and anything
-    // out of range / unknown is None. (Pure value→label mapping; the live wire body
-    // shape `answers:[[label]]` is what the C9-style roundtrip must confirm.)
     #[test]
     fn question_reply_body_is_label_based_index_and_label_equivalent() {
         let route = ResponseRoute {
@@ -393,10 +391,6 @@ mod tests {
 
     // GAP (flagged, NOT fixed by analogy — needs a live multi-select roundtrip to
     // confirm the body shape): a multi-select question answered through the single
-    // `value` reply path still emits a SINGLE nested answer. `ResponseRoute` carries
-    // no `multi_select`, so `reply_body` cannot guard it here; a true multi submit
-    // (e.g. A+C) is not expressible until the server's multi-answer body is proven.
-    // This test pins the current behavior so a proven multi-select fix updates it.
     #[test]
     fn multi_select_question_reply_body_is_single_choice_today_gap() {
         let route = ResponseRoute {

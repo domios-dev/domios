@@ -27,9 +27,6 @@ export function listAgentDescriptors(): ProviderDescriptor[] {
 
 // Capability-driven default for "spawn an agent" affordances (new-tab button,
 // command palette, memory worker dialog) and as a display fallback for records
-// with no recorded provider. Picks the first registered PTY agent by capability,
-// never a hardcoded vendor id. "claude" is only a last resort while the registry
-// is still loading (cache empty) — the resolved default once it loads.
 export function defaultSpawnProviderId(): string {
   for (const d of ordered) {
     if (d.transport === "pty") return d.id;

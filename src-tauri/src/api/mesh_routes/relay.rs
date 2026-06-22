@@ -295,9 +295,6 @@ pub async fn mesh_relay(
 
     // Tag the originating peer so the forwarded local /send applies the one
     // canonical, agent-guarded Messenger (agents get `label@peer`; shells stay
-    // verbatim). `sender_name` comes from the signed token, so a peer cannot
-    // spoof its own identity. We do NOT pre-wrap here — prefixing lives in the
-    // single send handler to keep one source of truth and one agent guard.
     let mut body = cmd.body.clone();
     tag_relay_send_source(&mut body, &cmd.method, &cmd.path, &sender_name);
 

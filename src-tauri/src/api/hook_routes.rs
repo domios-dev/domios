@@ -422,8 +422,6 @@ fn bind_reported_session(
 
     // A verified launch nonce already proves ownership; the session file just hasn't
     // been persisted yet (fresh agent spawn at session_start). Only gate nonce-less /
-    // unverified reports on provider-owned session existence — that's the CB181
-    // cross-contamination guard for genuinely *reported* (not launched) sessions.
     let exists = nonce_verified
         || registry
             .with_provider(provider_id, |p| p.session_exists(&cwd, sid))
@@ -742,7 +740,6 @@ mod tests {
     fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
         // P0.2 regression: a session WE just launched carries a valid per-launch
         // nonce but is not yet on disk at session_start time. A matching nonce is
-        // proof-of-ownership — it must be accepted even though session_exists==false.
         let (mut mux, pane_id) = MultiplexerState::new();
         let pane = mux.get_pane_mut(&pane_id).unwrap();
         pane.cwd = Some("/tmp/project".into());

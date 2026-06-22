@@ -26,7 +26,6 @@ fn successful_launch_does_not_roll_back() {
 fn rollback_spawn_tab_removes_tab_pane_and_does_not_record_history() {
     // The mux-level unwind a failed launch triggers: the just-created tab + pane
     // are gone, focus is moved off the dead pane, and — unlike a real close — the
-    // never-launched pane is NOT recorded into the recently-closed history.
     let (mut state, _) = MultiplexerState::new();
     let ws = state
         .snapshot()
@@ -80,8 +79,6 @@ fn snapshot_generation_strictly_increases() {
 
 // Mirrors what `spawn_pane_atomic` does internally: create the pane, then the
 // returned snapshot both contains the new pane AND carries a generation higher
-// than any snapshot taken before the pane existed. The frontend's monotonic
-// guard then drops the pre-pane (stale, lower-generation) snapshot.
 #[test]
 fn create_then_snapshot_contains_pane_and_advances_generation() {
     let (mut state, _initial) = MultiplexerState::new();

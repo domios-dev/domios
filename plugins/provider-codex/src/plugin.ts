@@ -150,8 +150,6 @@ const plugin: PluginModule = {
   },
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
-  // Parse codex rollout JSONL into RichMessages, reading only `response_item` lines
-  // ({type:"response_item", payload:{type:"message"|"function_call"|"function_call_output"}}).
   parseSessionDelta(chunk: string): unknown {
     const out: unknown[] = [];
     const lines = String(chunk || "").split("\n");
@@ -178,7 +176,6 @@ const plugin: PluginModule = {
       let ts: number | null = null;
       // Forward the raw ISO string too (parity with claude): RichMessage.timestamp is what
       // flows to ChatMsg.timestamp and the optimistic-echo matcher — `ts` (seconds) alone
-      // left codex echoes timeless, forcing content-only dedupe.
       const tsIso: string | null = (typeof v.timestamp === "string") ? v.timestamp : null;
       if (typeof v.timestamp === "string") {
         const d = Date.parse(v.timestamp);
@@ -458,8 +455,6 @@ const plugin: PluginModule = {
 
   // Classify a parked codex pane from its rendered screen. Invariants: auth is
   // sacred (surfaced, never auto-pressed); the update verdict is an ensemble of
-  // structural signals so a lone weak match stays sub-threshold, and when it
-  // fires it navigates to "Skip", never the default "Update now" highlight.
   classifyPaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
     // Normalize CRLF/CR → LF: the structural patterns below match on \n boundaries.
     const screen = String((snapshot && snapshot.screenText) || "").replace(/\r\n?/g, "\n");
@@ -496,7 +491,6 @@ const plugin: PluginModule = {
 
 // Pane-state classification (codex self-update prompt). Wire shapes mirror
 // src-tauri/src/agent/pane_state.rs, declared locally because the SDK exposes
-// classifyPaneState only via its index signature.
 
 interface PaneStateSnapshot {
   paneId: string;

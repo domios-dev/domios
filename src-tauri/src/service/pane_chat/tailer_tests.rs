@@ -172,10 +172,6 @@ fn tailer_streams_new_messages_as_file_grows() {
 fn tailer_repopulates_when_session_file_appears_late() {
     // Bug A (#25 / W3): a fresh agent doesn't create <id>.jsonl until its FIRST
     // completed turn — which can be many seconds out (slow first turn, model
-    // spin-up). The tailer must NOT permanently give up while the file is
-    // missing; it has to keep watching so the chat populates the moment the
-    // file finally appears. Regression guard for the "No messages yet on a
-    // working agent" bug.
     if !workspace_plugins_root().join("provider-claude").exists() {
         return;
     }

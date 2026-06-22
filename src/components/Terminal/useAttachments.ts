@@ -83,7 +83,6 @@ export function useAttachments({
       : null;
     // When the image is visible synchronously, stop the default paste AND the
     // terminal's own window paste handler now (both can't be cancelled after an
-    // await) so the screenshot attaches here instead of leaking to the PTY.
     if (syncImageFile) {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -103,8 +102,6 @@ export function useAttachments({
 
     // 2. Screenshot / image. The synchronous paste event omits clipboard image
     //    DATA on WebView2 / WKWebView, so a pasted screenshot never attached and
-    //    leaked to the terminal (#152). Read it via the async Clipboard API and
-    //    save through storeBlob (→ /api/upload in web, temp file in Tauri).
     const image = await readClipboardImage(syncImageFile);
     if (image) {
       e.preventDefault();
