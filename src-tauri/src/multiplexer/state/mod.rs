@@ -10,6 +10,7 @@ mod alias;
 mod closed;
 mod names;
 mod pane;
+mod reorder;
 mod role;
 mod snapshot;
 mod tab;
@@ -159,6 +160,7 @@ impl MultiplexerState {
             title: names::generate_tab_name(),
             description: None,
             pane_id: pane_id.clone(),
+            sort_order: 0,
         };
 
         let workspace = Workspace {
@@ -168,6 +170,7 @@ impl MultiplexerState {
             active_tab_id: Some(tab_id),
             cwd: None,
             protected: false,
+            sort_order: 0,
         };
 
         let mut panes = HashMap::new();

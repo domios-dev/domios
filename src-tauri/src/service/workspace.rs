@@ -110,6 +110,39 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// Reorder the top-level tabs of a workspace to match `ordered_tab_ids`.
+    pub fn reorder_tab(
+        &self,
+        workspace_id: &str,
+        ordered_tab_ids: &[String],
+    ) -> Result<(), String> {
+        self.mux
+            .write()
+            .reorder_tabs(workspace_id, ordered_tab_ids)?;
+        self.emit_state_changed();
+        Ok(())
+    }
+
+    /// Reorder the children of `parent_pane_id` to match `ordered_tab_ids`.
+    pub fn reorder_child(
+        &self,
+        parent_pane_id: &str,
+        ordered_tab_ids: &[String],
+    ) -> Result<(), String> {
+        self.mux
+            .write()
+            .reorder_children(parent_pane_id, ordered_tab_ids)?;
+        self.emit_state_changed();
+        Ok(())
+    }
+
+    /// Reorder workspaces to match `ordered_workspace_ids`.
+    pub fn reorder_workspace(&self, ordered_workspace_ids: &[String]) -> Result<(), String> {
+        self.mux.write().reorder_workspaces(ordered_workspace_ids)?;
+        self.emit_state_changed();
+        Ok(())
+    }
+
     pub fn create_tab(&self, workspace_id: &str) -> Result<(String, String), String> {
         self.create_tab_with_activate(workspace_id, true)
     }

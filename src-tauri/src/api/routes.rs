@@ -72,8 +72,20 @@ pub fn create_router(state: AppState) -> Router {
             post(workspace_routes::reopen_closed_group),
         )
         .route(
+            "/api/workspaces/reorder",
+            post(workspace_routes::reorder_workspaces),
+        )
+        .route(
             "/api/workspaces/{id}/tabs",
             post(workspace_routes::create_tab),
+        )
+        .route(
+            "/api/workspaces/{id}/tabs/reorder",
+            post(workspace_routes::reorder_tabs),
+        )
+        .route(
+            "/api/panes/{id}/children/reorder",
+            post(workspace_routes::reorder_children),
         )
         .route(
             "/api/workspaces/{id}/tabs/{tab_id}/rename",

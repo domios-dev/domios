@@ -20,6 +20,9 @@ pub struct WorkspaceSnapshot {
     pub cwd: Option<String>,
     #[serde(default)]
     pub protected: bool,
+    /// Sibling ordinal among workspaces. Legacy snapshots default to 0.
+    #[serde(default)]
+    pub sort_order: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +32,9 @@ pub struct TabSnapshot {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
     pub split_tree: SplitNodeSnapshot,
+    /// Per-group sibling ordinal. Legacy snapshots default to 0.
+    #[serde(default)]
+    pub sort_order: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,6 +303,7 @@ mod tests {
                     active_tab_id: None,
                     cwd: None,
                     protected: false,
+                    sort_order: i as i32,
                 })
                 .collect(),
         }

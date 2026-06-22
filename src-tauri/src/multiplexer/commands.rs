@@ -79,6 +79,35 @@ pub fn mux_move_tab(
     svc.move_tab(&tab_id, &from_workspace_id, &to_workspace_id)
 }
 
+/// Reorder the top-level tabs of a workspace (within-group only).
+#[tauri::command]
+pub fn mux_reorder_tab(
+    svc: State<'_, ServiceState>,
+    workspace_id: String,
+    ordered_tab_ids: Vec<String>,
+) -> Result<(), String> {
+    svc.reorder_tab(&workspace_id, &ordered_tab_ids)
+}
+
+/// Reorder the child tabs of a parent pane (within its sibling group only).
+#[tauri::command]
+pub fn mux_reorder_child(
+    svc: State<'_, ServiceState>,
+    parent_pane_id: String,
+    ordered_tab_ids: Vec<String>,
+) -> Result<(), String> {
+    svc.reorder_child(&parent_pane_id, &ordered_tab_ids)
+}
+
+/// Reorder workspaces.
+#[tauri::command]
+pub fn mux_reorder_workspace(
+    svc: State<'_, ServiceState>,
+    ordered_workspace_ids: Vec<String>,
+) -> Result<(), String> {
+    svc.reorder_workspace(&ordered_workspace_ids)
+}
+
 /// Create a new tab in a workspace.
 #[tauri::command]
 pub fn mux_create_tab(
