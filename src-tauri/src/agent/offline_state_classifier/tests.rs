@@ -498,3 +498,73 @@ fn claude_auto_mode_footer_does_not_mask_active_spinner() {
         "excluding the idle mode footer must not hide the real active spinner"
     );
 }
+
+// Regression: after the user ANSWERS a claude AskUserQuestion, the resolved
+// picker's options + "Enter to select …" footer can stay painted BELOW the
+// composer (stale scrollback). With the idle mode-cycle footer + ready composer
+// glyph both present, the pane is at its ready prompt → Idle, not a live Question.
+#[test]
+fn claude_answered_question_with_stale_picker_below_composer_is_idle() {
+    let screen = lines(&[
+        "❯ йойо?тест",
+        "⏺ Йо-йо 😄 Тест принят, я на связи. Что дальше?",
+        "✻ Baked for 3s",
+        "───────────────────────────────────────────────────────",
+        "❯ ",
+        "───────────────────────────────────────────────────────",
+        "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents",
+        "───────────────────────────────────────────────────────",
+        "  5. Chat about this",
+        "     Вариант B.",
+        "Enter to select · ↑/↓ to navigate · Esc to cancel",
+        "     Вариант C.",
+        "  4. Type something.",
+        "───────────────────────────────────────────────────────",
+        "  5. Chat about this",
+        "Enter to select · ↑/↓ to navigate · Esc to cancel",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.byte_idle_ms = 6000;
+    input.semantic_idle_ms = 6000;
+    let previous = PaneVerdict {
+        state: TimelineState::Question,
+        subtype: Some(QuestionSubtype::Unknown),
+    };
+    let verdict = classify_state(&input, previous);
+    assert_eq!(
+        verdict.state,
+        TimelineState::Idle,
+        "answered question + stale picker echo below the ready composer must clear to Idle"
+    );
+}
+
+// No-regression companion: a GENUINELY active claude AskUserQuestion (picker
+// overlay focused, cursor hidden, NO idle mode-cycle footer, no free composer)
+// must still classify Question.
+#[test]
+fn claude_active_question_picker_still_classifies_question() {
+    let screen = lines(&[
+        "⏺ Выбери вариант:",
+        "  ❯ 1. Вариант A",
+        "    2. Вариант B",
+        "    3. Вариант C",
+        "    4. Type something.",
+        "Enter to select · ↑/↓ to navigate · Esc to cancel",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.cursor_hidden = true;
+    input.byte_idle_ms = 6000;
+    input.semantic_idle_ms = 6000;
+    let verdict = classify_state(
+        &input,
+        PaneVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        },
+    );
+    assert_eq!(
+        verdict.state,
+        TimelineState::Question,
+        "an active, unanswered picker must remain Question"
+    );
+}

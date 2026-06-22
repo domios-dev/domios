@@ -250,6 +250,18 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
+    // Answered + idle: the claude mode-cycle ready footer plus a composer glyph
+    // means the agent is back at its ready prompt (an ACTIVE picker hides both). A
+    // resolved AskUserQuestion's options/footer can linger painted below the
+    // composer — clear to Idle so that stale echo is not read as a live question.
+    if mode_switch_idle_footer(input.screen_lines) && ready_prompt_glyph_present(input.screen_lines)
+    {
+        return PaneVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        };
+    }
+
     if let Some(subtype) = classify_terminal_menu_question(input.screen_lines, input.cursor_hidden)
     {
         return PaneVerdict {
@@ -659,6 +671,36 @@ fn ready_prompt(screen_lines: &[String]) -> bool {
 
 fn ready_prompt_glyph(screen_lines: &[String]) -> bool {
     ready_prompt_glyph_row(screen_lines).is_some()
+}
+
+/// Claude's idle ready-prompt footer: the mode-cycle line (`⏵⏵ … shift+tab to
+/// cycle`). Shown ONLY at the idle composer — an active picker/permission overlay
+/// replaces the bottom region and hides it. Scanned over the recent tail so
+/// trailing stale picker paint (an answered question echo) cannot evict it.
+fn mode_switch_idle_footer(screen_lines: &[String]) -> bool {
+    screen_lines
+        .iter()
+        .map(|r| r.trim())
+        .filter(|r| !r.is_empty())
+        .rev()
+        .take(12)
+        .any(|line| {
+            let lower = line.to_lowercase();
+            lower.contains("shift+tab") && lower.contains("cycle")
+        })
+}
+
+/// A composer prompt glyph (❯/›/→) anywhere in the recent tail. Wider than
+/// [`ready_prompt_glyph_row`] (last 4 non-empty) so stale picker paint below the
+/// composer does not hide the real ready prompt.
+fn ready_prompt_glyph_present(screen_lines: &[String]) -> bool {
+    screen_lines
+        .iter()
+        .map(|r| r.trim())
+        .filter(|r| !r.is_empty())
+        .rev()
+        .take(12)
+        .any(|line| line.starts_with('❯') || line.starts_with('›') || line.starts_with('→'))
 }
 
 fn ready_prompt_glyph_row(screen_lines: &[String]) -> Option<u16> {
