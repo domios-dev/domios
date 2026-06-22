@@ -240,6 +240,47 @@ The provider/plugin boundary is the project's load-bearing seam. It stays clean 
 
 Full rationale + the boundary map: **`docs/contributing/architecture.md`**.
 
+## Code navigation (SCIP) — prefer the semantic index over grep-spelunking
+
+For *structural* questions — where is X defined, who calls X, who implements trait T, trace a
+path across files — **a SCIP semantic index beats grep + read.** This is an empirical result, not
+a preference: in the code-map bake-off (`docs/spikes/llm-codemap-eval.md`) SCIP scored F1 0.991
+with a 0.93 clean-answer rate and 0.6 ms queries, and was the **only** approach that found all 14
+`AgentProvider` impls — ripgrep and tree-sitter both undercount to 11 because 3 impls use a
+fully-qualified path (`impl crate::agent::provider::AgentProvider for …`) that text matching
+misses. Type-aware resolution is *more correct* on this code, not merely faster.
+
+**Build the index (cache it; never rebuild per query):**
+
+```bash
+# Rust — the heavy one (~130s: rust-analyzer analyses the whole crate). Build once, reuse.
+cd src-tauri && rust-analyzer scip .            # -> src-tauri/index.scip
+# TS — cheap (~3s); reuses the TS compiler + tsconfig.
+scip-typescript index --output ts.scip          # from repo root
+```
+
+**Query** the SCIP protobuf directly (Python `grpcio-tools`, or a Rust SCIP reader). **Do NOT use
+the `scip` Go CLI** — it fails to link on Go 1.26. Both indexers emit the same SCIP format, so one
+query layer serves Rust and TS.
+
+**When to use what:**
+- **SCIP** — definitions, find-references, impl graphs, cross-file flow. Default for any "go to /
+  who calls / who implements" question. Exact and clean.
+- **tree-sitter** (the `spike/` outline/def/impls binary) — instant, offline, no compile. Fallback
+  when the SCIP index is stale/absent, for quick outlines or a ranked repo-map. Known gaps:
+  overloaded names (`dispatch`) and TS `interface` declarations.
+- **ripgrep + read** — fine for exact-string / known-symbol lookups, but expect to hand-filter
+  false positives on ~half of structural queries; never trust a raw grep count for impls/refs.
+- **embeddings** (sqlite-vec mem store) — only for "which files/area handles X" when you have a
+  concept but no symbol name; hand its hits to SCIP for exact lines, never quote it as final.
+
+> `stack-graphs` is **not** an option here — it has TS/JS/Python/Java rulesets and **no Rust
+> support**. rust-analyzer SCIP is the only true semantic Rust indexer.
+
+Adopted direction: a `codeterm code` subcommand wrapping the cached SCIP index
+(def/refs/impls/outline) in-process — same shape as the tree-sitter spike, but type-aware. Until
+it lands, the raw `rust-analyzer scip` / `scip-typescript` workflow above is the usable path.
+
 ## Mem self-repair primitives (Dreamer interface)
 
 Graph cleanup goes through `src-tauri/src/mem/graph_repair.rs` — whitelist-bounded typed primitives, never raw SQL. The Dreamer chains these via the prompt at `src-tauri/prompts/dreaming_rem.md` Stage A.4.
@@ -276,4 +317,5 @@ Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
 - `docs/MEMORY.md` — memory subsystem (storage, search, workers, dreaming)
 - `docs/PROMPTS.md` — prompt templates: where they live, how they compile
 - `docs/TESTING.md` — full test guide
+- `docs/spikes/llm-codemap-eval.md` — code-map bake-off; why SCIP is the adopted code-navigation index
 - `docs/contributing/` — agents, style, architecture, per-feature testing recipes
