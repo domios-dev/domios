@@ -55,6 +55,33 @@ pub fn poll_shell_prompt(
     ready
 }
 
+/// Wait for a real shell prompt, rejecting agent TUI composers that also use
+/// prompt glyphs. Use before writing launch/resume commands into a restored PTY.
+pub fn poll_bare_shell_prompt(
+    screen_state: &crate::ScreenStateHandle,
+    pty_id: &str,
+    timeout: std::time::Duration,
+) -> bool {
+    let signal = screen_state.lock().arm_bare_prompt_signal(pty_id);
+    let short_id = &pty_id[..pty_id.len().min(8)];
+    let t0 = std::time::Instant::now();
+    let ready = signal.wait(timeout);
+    if ready {
+        log::info!(
+            "[poll_bare_shell_prompt] shell ready for pty {} after {}ms",
+            short_id,
+            t0.elapsed().as_millis()
+        );
+    } else {
+        log::warn!(
+            "[poll_bare_shell_prompt] timeout after {}ms for pty {}",
+            timeout.as_millis(),
+            short_id
+        );
+    }
+    ready
+}
+
 /// Cap a provider's submit-verify timeout: keep verification but don't let the
 /// full provider timeout compound across retries into a minute-long stall.
 fn cap_submit_timeout(

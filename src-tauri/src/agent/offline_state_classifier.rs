@@ -224,6 +224,12 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
+    let options_block = looks_like_options_block(input.screen_lines);
+    let ready_prompt_visible = !options_block && ready_prompt_glyph(input.screen_lines);
+    let stale_working_status_at_prompt = ready_prompt_visible
+        && input.byte_idle_ms >= WORKING_GRACE_MS
+        && input.semantic_idle_ms >= WORKING_GRACE_MS;
+
     // 2. Structurally active turn -> working. Do not treat raw PTY bytes as work:
     // composer redraws and bracketed-paste echoes are PTY output too.
     // NOTE: the `motion` arm is currently DEAD — both callers (live `recompute_
@@ -231,9 +237,10 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
     // and live agree (live cannot compute motion). Retained, explicitly gated, for
     // a future motion-aware caller; today working is decided purely by the status
     // widget / active-turn footer, which covers the corpus (verified byte-identical).
-    if extract_status_line(input.screen_lines).is_some()
-        || active_turn_footer(input.screen_lines)
-        || matches!(input.motion, Motion::Streaming | Motion::Animating)
+    if !stale_working_status_at_prompt
+        && (extract_status_line(input.screen_lines).is_some()
+            || active_turn_footer(input.screen_lines)
+            || matches!(input.motion, Motion::Streaming | Motion::Animating))
     {
         return PaneVerdict {
             state: TimelineState::Working,
@@ -262,12 +269,10 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
     // is a (possibly uncaught) question surface, NOT a composer — it must not be
     // read as Idle by either the glyph fast-path or composer_ready below. Computed
     // once; vetoes both idle paths so a real PTY question is never masked as Idle.
-    let options_block = looks_like_options_block(input.screen_lines);
-
     // Strong idle signal: an input-prompt glyph (❯/›/→) at the bottom. Only shown
     // when the agent is parked at its composer, so it may settle Idle immediately
     // (pre-grace) — this is the prompt fast-path.
-    if !options_block && ready_prompt(input.screen_lines) {
+    if ready_prompt_visible {
         return PaneVerdict {
             state: TimelineState::Idle,
             subtype: None,
@@ -674,6 +679,10 @@ fn ready_prompt(screen_lines: &[String]) -> bool {
     if active_turn_footer(screen_lines) || extract_status_line(screen_lines).is_some() {
         return false;
     }
+    ready_prompt_glyph(screen_lines)
+}
+
+fn ready_prompt_glyph(screen_lines: &[String]) -> bool {
     // Last 4 NON-EMPTY rows: a full-height grid leaves blank padding rows below
     // the composer, so counting raw rows would push the prompt glyph out of the
     // window and strand the pane in its previous (often Working) verdict.
@@ -711,8 +720,9 @@ pub(super) fn active_turn_footer(screen_lines: &[String]) -> bool {
         let lower = trimmed.to_lowercase();
         let has_interrupt_hint =
             lower.contains("esc to interrupt") || lower.contains("esc interrupt");
+        let is_mode_switch_footer = lower.contains("shift+tab") && lower.contains("cycle");
         let has_stop_hint = lower.contains("ctrl+c to stop");
-        (trimmed.starts_with("⏵⏵") && has_interrupt_hint)
+        (trimmed.starts_with("⏵⏵") && has_interrupt_hint && !is_mode_switch_footer)
             || (has_interrupt_hint && has_progress_meter_shape(trimmed))
             || (has_interrupt_hint && parse_elapsed_ms(trimmed).is_some())
             || (trimmed.starts_with('→') && has_stop_hint)

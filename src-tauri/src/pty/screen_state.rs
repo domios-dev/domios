@@ -46,6 +46,7 @@ impl PromptSignal {
 pub struct ScreenState {
     parsers: HashMap<String, vt100::Parser>,
     prompt_signals: HashMap<String, Arc<PromptSignal>>,
+    bare_prompt_signals: HashMap<String, Arc<PromptSignal>>,
     agent_signals: HashMap<String, Arc<PromptSignal>>,
 }
 
@@ -54,6 +55,7 @@ impl ScreenState {
         Self {
             parsers: HashMap::new(),
             prompt_signals: HashMap::new(),
+            bare_prompt_signals: HashMap::new(),
             agent_signals: HashMap::new(),
         }
     }
@@ -69,6 +71,11 @@ impl ScreenState {
 
         if let Some(signal) = self.prompt_signals.get(pty_id) {
             if !signal.is_ready() && screen_has_shell_prompt(&screen) {
+                signal.mark_ready();
+            }
+        }
+        if let Some(signal) = self.bare_prompt_signals.get(pty_id) {
+            if !signal.is_ready() && screen_has_bare_shell_prompt(&screen) {
                 signal.mark_ready();
             }
         }
@@ -205,6 +212,24 @@ impl ScreenState {
         signal
     }
 
+    /// Get or create the bare-shell prompt signal for a PTY. Unlike
+    /// `arm_prompt_signal`, this rejects agent TUI composers that also use `❯`.
+    pub fn arm_bare_prompt_signal(&mut self, pty_id: &str) -> Arc<PromptSignal> {
+        let signal = PromptSignal::new();
+        self.bare_prompt_signals
+            .insert(pty_id.to_string(), signal.clone());
+
+        if !signal.is_ready() {
+            if let Some(parser) = self.parsers.get(pty_id) {
+                if screen_has_bare_shell_prompt(&parser.screen().contents()) {
+                    signal.mark_ready();
+                }
+            }
+        }
+
+        signal
+    }
+
     /// Arm a one-shot signal that fires as soon as `screen_has_agent_tui` is true
     /// for this PTY. Fires immediately if a TUI is already on screen at arm-time.
     /// Mirrors `arm_prompt_signal`; callers block with `signal.wait(timeout)`.
@@ -229,6 +254,9 @@ impl ScreenState {
     pub fn remove(&mut self, pty_id: &str) {
         self.parsers.remove(pty_id);
         if let Some(sig) = self.prompt_signals.remove(pty_id) {
+            sig.mark_ready();
+        }
+        if let Some(sig) = self.bare_prompt_signals.remove(pty_id) {
             sig.mark_ready();
         }
         if let Some(sig) = self.agent_signals.remove(pty_id) {
@@ -506,6 +534,49 @@ mod tests {
         let sig = ss.arm_prompt_signal("pty1");
         ss.process("pty1", b"some regular line without prompt marker");
         assert!(!sig.is_ready());
+    }
+
+    #[test]
+    fn bare_prompt_signal_rejects_agent_tui_prompt() {
+        let mut ss = ScreenState::new();
+        ss.process(
+            "pty1",
+            "╭──────────────────────────╮\n│ ❯                        │".as_bytes(),
+        );
+        let prompt = ss.arm_prompt_signal("pty1");
+        let bare = ss.arm_bare_prompt_signal("pty1");
+        assert!(
+            prompt.is_ready(),
+            "regular prompt signal accepts TUI composer"
+        );
+        assert!(
+            !bare.is_ready(),
+            "restore launch must not treat an agent composer as a bare shell"
+        );
+
+        ss.process("pty1", b"\x1b[2J\x1b[Huser@host:~$ ");
+        assert!(
+            bare.is_ready(),
+            "bare prompt signal fires on real shell prompt"
+        );
+    }
+
+    #[test]
+    fn bare_prompt_signal_does_not_reuse_stale_ready_state() {
+        let mut ss = ScreenState::new();
+        ss.process("pty1", b"user@host:~$ ");
+        let first = ss.arm_bare_prompt_signal("pty1");
+        assert!(first.is_ready());
+
+        ss.process(
+            "pty1",
+            "\x1b[2J\x1b[H╭──────────────────────────╮\n│ ❯                        │".as_bytes(),
+        );
+        let second = ss.arm_bare_prompt_signal("pty1");
+        assert!(
+            !second.is_ready(),
+            "a previous bare shell prompt must not make a later TUI screen ready"
+        );
     }
 
     #[test]

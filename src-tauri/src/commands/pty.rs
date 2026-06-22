@@ -3,7 +3,6 @@ use std::io::Read;
 use tauri::{AppHandle, Emitter};
 
 use crate::multiplexer::commands::MuxState;
-use crate::service::pty_io::build_spawn_dispatch;
 use crate::service::ServiceState;
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
@@ -222,10 +221,18 @@ pub async fn spawn_pty(
                     .flatten();
 
                 if let Some(cmd) = resume_cmd {
-                    let pty_clone = state.inner().clone();
                     let pty_id_for_poll = pty_id.clone();
-                    let pty_id_for_write = pty_id.clone();
+                    let pty_id_for_launch = pty_id.clone();
                     let screen_state_clone = screen_state.inner().clone();
+                    let svc_for_launch = svc.inner().clone();
+                    let pane_id_for_boot = pid.clone();
+                    let submit_strategy = svc
+                        .agent_registry
+                        .with_provider(&provider_id, |p| p.verify_submit_strategy())
+                        .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+                            timeout: std::time::Duration::from_secs(15),
+                        });
+                    svc.clear_pane_restored_flag(pid);
                     tokio::spawn(async move {
                         if !resume_enabled {
                             return;
@@ -233,7 +240,7 @@ pub async fn spawn_pty(
 
                         // Wait up to 60s for shell readiness before writing resume command.
                         let ready = tokio::task::spawn_blocking(move || {
-                            crate::service::pty_io::poll_shell_prompt(
+                            crate::service::pty_io::poll_bare_shell_prompt(
                                 &screen_state_clone,
                                 &pty_id_for_poll,
                                 std::time::Duration::from_secs(60),
@@ -251,15 +258,41 @@ pub async fn spawn_pty(
                         }
 
                         log::info!("[resume] sending: {}", cmd);
-                        match build_spawn_dispatch(&cmd) {
-                            Ok(bytes) => {
-                                let _ = pty_clone.lock().write(&pty_id_for_write, &bytes);
+                        if let Some(pane) =
+                            svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                        {
+                            pane.agent_booting = true;
+                        }
+                        let svc_for_blocking = svc_for_launch.clone();
+                        let launch_result = tokio::task::spawn_blocking(move || {
+                            let opts = crate::service::inject_verify::VerifyOpts {
+                                require_prompt_first: false,
+                                verify_echo: true,
+                                verify_submit: true,
+                                prompt_timeout: std::time::Duration::from_secs(0),
+                                echo_timeout: std::time::Duration::from_secs(3),
+                                submit_timeout: std::time::Duration::from_secs(15),
+                            };
+                            svc_for_blocking.send_shell_spawn_verified(
+                                &pty_id_for_launch,
+                                &cmd,
+                                submit_strategy,
+                                opts,
+                            )
+                        })
+                        .await;
+                        if let Some(pane) =
+                            svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                        {
+                            pane.agent_booting = false;
+                        }
+                        match launch_result {
+                            Ok(Ok(_)) => {}
+                            Ok(Err(e)) => {
+                                log::error!("[resume] verified launch failed: {}", e);
                             }
                             Err(e) => {
-                                log::error!(
-                                    "[resume] spawn dispatch build failed: {} — skipping launch",
-                                    e
-                                );
+                                log::error!("[resume] verified launch task failed: {}", e);
                             }
                         }
                     });
@@ -287,14 +320,21 @@ pub async fn spawn_pty(
                 })
             });
             if let Some(cmd) = launch_cmd {
-                let pty_clone = state.inner().clone();
                 let pty_id_for_poll = pty_id.clone();
-                let pty_id_for_write = pty_id.clone();
+                let pty_id_for_launch = pty_id.clone();
                 let screen_state_clone = screen_state.inner().clone();
                 let provider_label = provider_id.clone();
+                let svc_for_launch = svc.inner().clone();
+                let pane_id_for_boot = pid.clone();
+                let submit_strategy = svc
+                    .agent_registry
+                    .with_provider(&provider_id, |p| p.verify_submit_strategy())
+                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+                        timeout: std::time::Duration::from_secs(15),
+                    });
                 tokio::spawn(async move {
                     let ready = tokio::task::spawn_blocking(move || {
-                        crate::service::pty_io::poll_shell_prompt(
+                        crate::service::pty_io::poll_bare_shell_prompt(
                             &screen_state_clone,
                             &pty_id_for_poll,
                             std::time::Duration::from_secs(60),
@@ -314,13 +354,43 @@ pub async fn spawn_pty(
                         provider_label,
                         cmd
                     );
-                    match build_spawn_dispatch(&cmd) {
-                        Ok(bytes) => {
-                            let _ = pty_clone.lock().write(&pty_id_for_write, &bytes);
+                    if let Some(pane) = svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot) {
+                        pane.agent_booting = true;
+                    }
+                    let svc_for_blocking = svc_for_launch.clone();
+                    let launch_result = tokio::task::spawn_blocking(move || {
+                        let opts = crate::service::inject_verify::VerifyOpts {
+                            require_prompt_first: false,
+                            verify_echo: true,
+                            verify_submit: true,
+                            prompt_timeout: std::time::Duration::from_secs(0),
+                            echo_timeout: std::time::Duration::from_secs(3),
+                            submit_timeout: std::time::Duration::from_secs(15),
+                        };
+                        svc_for_blocking.send_shell_spawn_verified(
+                            &pty_id_for_launch,
+                            &cmd,
+                            submit_strategy,
+                            opts,
+                        )
+                    })
+                    .await;
+                    if let Some(pane) = svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot) {
+                        pane.agent_booting = false;
+                    }
+                    match launch_result {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(e)) => {
+                            log::error!(
+                                "[restore-fresh] verified launch failed for {} pane: {}",
+                                provider_label,
+                                e
+                            );
                         }
                         Err(e) => {
                             log::error!(
-                                "[restore-fresh] spawn dispatch build failed: {} — skipping launch",
+                                "[restore-fresh] verified launch task failed for {} pane: {}",
+                                provider_label,
                                 e
                             );
                         }

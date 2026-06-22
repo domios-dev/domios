@@ -1,6 +1,6 @@
 // Run: npx tsx packages/chat-core/src/dedupe.test.ts
 import { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
-import { markVoice } from "./markers";
+import { markPane, markVoice } from "./markers";
 import type { NormalizedChatMessage } from "./types";
 
 let passed = 0;
@@ -103,6 +103,19 @@ const T0 = 1_700_000_000_000;
     [user("uuid-a-0", "hello world", T0 + 500)],
   );
   eq(matchedIds, ["opt-1"], "real echo after send → matched");
+}
+
+// 2b. Provider transcripts may store CodeTerm transport prefixes around the
+//     user turn while the optimistic bubble contains only the visible body.
+//     The matcher must compare against the marker payload, otherwise the
+//     optimistic bubble hangs until a full refresh rehydrates the transcript.
+{
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-1", "check the cursor ordering bug", T0)],
+    [user("a-0", markPane("Andrey", "abc12345", "check the cursor ordering bug"), T0 + 500)],
+  );
+  eq(matchedIds, ["opt-1"], "transport-prefixed stored echo matches optimistic body");
+  eq(pendingIds, [], "transport-prefixed echo leaves no duplicate pending bubble");
 }
 
 // 3. An OLDER identical message (ts < sentAt) must NOT clear a fresh bubble.

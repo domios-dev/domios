@@ -9,7 +9,7 @@ mod lifecycle;
 mod send;
 
 pub(crate) use send::build_spawn_dispatch;
-pub use send::poll_shell_prompt;
+pub use send::{poll_bare_shell_prompt, poll_shell_prompt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RestoredAgentMaterialization {
