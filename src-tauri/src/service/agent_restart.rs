@@ -397,16 +397,17 @@ fn bare_shell_prompt_visible(svc: &ServiceContext, pty_id: &str) -> bool {
         .lock()
         .get_screen_text(pty_id)
         .unwrap_or_default();
-    // Shell prompt must be present …
-    if !crate::pty::screen_state::screen_has_shell_prompt(&text) {
-        return false;
-    }
-    // … with no universal TUI glyphs (box-drawing, block chars) …
-    if crate::pty::screen_state::screen_has_agent_tui(&text) {
-        return false;
-    }
-    // … and no provider-specific TUI text patterns.
-    !svc.agent_registry.any_provider_screen_has_tui(&text)
+    // Shell prompt must be present, and no agent TUI may be on screen.
+    crate::pty::screen_state::screen_has_shell_prompt(&text)
+        && !screen_shows_agent_tui(&svc.agent_registry, &text)
+}
+
+pub(crate) fn screen_shows_agent_tui(
+    registry: &crate::agent::registry::AgentRegistry,
+    screen_text: &str,
+) -> bool {
+    crate::pty::screen_state::screen_has_agent_tui(screen_text)
+        || registry.any_provider_screen_has_tui(screen_text)
 }
 
 #[cfg(test)]
@@ -523,6 +524,38 @@ mod tests {
             build_relaunch_command_with_registry(&reg, "nonsuch", None, true, false, None)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn screen_shows_agent_tui_catches_provider_text_fingerprint() {
+        let reg = registry_with_claude();
+        let footer = "some assistant output\n⏵⏵ bypass permissions on (shift+tab to cycle)\n❯ ";
+        assert!(
+            !crate::pty::screen_state::screen_has_agent_tui(footer),
+            "footer-only frame has no universal glyphs — the gap the guard closes"
+        );
+        assert!(
+            crate::pty::screen_state::screen_has_shell_prompt(footer),
+            "`❯` still looks shell-ish to the prompt matcher"
+        );
+        assert!(
+            screen_shows_agent_tui(&reg, footer),
+            "provider fingerprint must mark this as an active agent TUI"
+        );
+    }
+
+    #[test]
+    fn screen_shows_agent_tui_catches_universal_glyphs() {
+        let reg = registry_with_claude();
+        let boxed = "╭──────────────────────────╮\n│ ❯                        │\n╰──────────────────────────╯";
+        assert!(screen_shows_agent_tui(&reg, boxed));
+    }
+
+    #[test]
+    fn screen_shows_agent_tui_false_for_bare_shell() {
+        let reg = registry_with_claude();
+        assert!(!screen_shows_agent_tui(&reg, "user@host:~/codeterm$ "));
+        assert!(!screen_shows_agent_tui(&reg, "~/code on  master\n❯ "));
     }
 
     #[test]

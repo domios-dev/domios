@@ -210,6 +210,27 @@ impl ServiceContext {
         // Gate on shell-prompt readiness before writing (Windows ConPTY first-byte race) — see `await_shell_ready`.
         self.await_shell_ready(pty_id);
 
+        // Guard footer-only TUI frames that look like bare shell prompts.
+        {
+            let screen = self
+                .screen_state
+                .lock()
+                .get_screen_text(pty_id)
+                .unwrap_or_default();
+            if crate::service::agent_restart::screen_shows_agent_tui(&self.agent_registry, &screen)
+            {
+                log::warn!(
+                    "[inject] agent TUI on screen for pty {} - refusing shell-spawn launch write",
+                    &pty_id[..pty_id.len().min(8)]
+                );
+                return Err(
+                    crate::service::inject_verify::InjectionError::AgentTuiPresent {
+                        pty_id: pty_id.to_string(),
+                    },
+                );
+            }
+        }
+
         self.feed_input_parser(pty_id, cmd, true);
 
         let hash_before = snapshot_screen_hash(&self.screen_state, pty_id).unwrap_or_default();
