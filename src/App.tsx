@@ -186,6 +186,8 @@ function AppInner() {
   // Keep ref to latest state for keyboard handler closure
   const stateRef = useRef(state);
   stateRef.current = state;
+  const configRef = useRef(config);
+  configRef.current = config;
 
   // Plugin glance/bubble surfaces ask the host to open a panel via this event
   // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
@@ -340,10 +342,7 @@ function AppInner() {
           if (!folder) return;
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
           if (wsId) {
-            let skipPerms = false;
-            try {
-              skipPerms = localStorage.getItem("codeterm-claude-skip-perms") === "true";
-            } catch { /* ignore */ }
+            const skipPerms = configRef.current.agents?.claude?.spawn_skip_permissions === true;
             spawnClaudeTab(wsId, skipPerms, folder);
           }
         },
@@ -765,6 +764,7 @@ function AppInner() {
               <div
                 key={tab.id}
                 className="absolute inset-0"
+                inert={!isVisible || undefined}
                 style={{
                   zIndex: isVisible ? 1 : 0,
                   opacity: isVisible ? 1 : 0,

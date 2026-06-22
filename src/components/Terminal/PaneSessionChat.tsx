@@ -89,6 +89,7 @@ export function PaneSessionChat({
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
   const terminalHasAttention = terminalActive || Boolean(pendingPrompt);
+  const isActive = muxState.focused_pane_id === paneId;
 
   const showComposerError = useCallback((message: string) => {
     addNotification({
@@ -440,6 +441,7 @@ export function PaneSessionChat({
         paneProvider={paneProvider}
         currentPtyId={currentPtyId}
         chatBackend={effectiveChatBackend}
+        isActive={isActive}
         pendingPrompt={pendingPrompt}
         terminalHasAttention={terminalHasAttention}
         attachments={attachments}
