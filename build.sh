@@ -50,6 +50,11 @@ setup_env() {
 kill_dev() {
   kill_web_watch 2>/dev/null || true
   if [[ "$OSTYPE" == darwin* ]]; then
+    if command -v screen >/dev/null 2>&1; then
+      screen -ls 2>/dev/null | awk '/codeterm-dev-/ {print $1}' | while read -r session; do
+        screen -S "$session" -X quit 2>/dev/null || true
+      done
+    fi
     pgrep -f "target/debug/codeterm" | xargs kill 2>/dev/null || true
     pgrep -f "pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json" | xargs kill 2>/dev/null || true
     lsof -ti:1420 | xargs kill -9 2>/dev/null || true
@@ -92,15 +97,30 @@ prepare_bundle_stubs() {
 start_dev_wait_process() {
   local log="$1"
   local cmd=(pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json)
-  if [[ "$OSTYPE" == darwin* ]] && command -v script >/dev/null 2>&1; then
-    # macOS Tauri dev is more reliable with a controlling pseudo-tty. Plain
-    # `nohup pnpm tauri dev` can report healthy, then exit as the launcher shell
-    # tears down; `script` keeps the dev command in a pty while still detaching.
-    nohup script -q "$log" "${cmd[@]}" </dev/null >/dev/null 2>&1 &
-  else
-    nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
+  if [[ "$OSTYPE" == darwin* ]] && command -v screen >/dev/null 2>&1; then
+    local session="codeterm-dev-$$"
+    local root_q log_q
+    printf -v root_q "%q" "$(pwd)"
+    printf -v log_q "%q" "$log"
+    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json >> $log_q 2>&1"
+    echo "screen:$session"
+    return
   fi
+  nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
   echo $!
+}
+
+dev_wait_process_alive() {
+  local pid="$1"
+  case "$pid" in
+    screen:*)
+      local session="${pid#screen:}"
+      screen -ls 2>/dev/null | grep -q "[.]$session[[:space:]]"
+      ;;
+    *)
+      kill -0 "$pid" 2>/dev/null
+      ;;
+  esac
 }
 
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
@@ -239,7 +259,7 @@ case "$CMD" in
           tail -25 "$LOG"
           exit 1
         fi
-        if ! kill -0 "$DEV_PID" 2>/dev/null; then
+        if ! dev_wait_process_alive "$DEV_PID"; then
           echo "Dev process exited before reporting ready. Last log lines:"
           tail -25 "$LOG"
           exit 1
@@ -252,7 +272,7 @@ case "$CMD" in
             STABLE=1
             for _ in 1 2 3 4; do
               sleep 2
-              if ! kill -0 "$DEV_PID" 2>/dev/null; then
+              if ! dev_wait_process_alive "$DEV_PID"; then
                 STABLE=0
                 break
               fi
