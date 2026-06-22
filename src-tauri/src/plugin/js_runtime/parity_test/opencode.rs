@@ -70,13 +70,59 @@ fn supports_structured_prompts_from_manifest() {
 }
 
 #[test]
-fn detect_session_id_and_active_session_are_null() {
+fn detect_session_id_no_db_returns_null() {
     if require_plugins().is_none() {
         return;
     }
+    let dir = tempfile::tempdir().unwrap();
+    // Empty dir — no opencode.db — detection must return null.
+    let _env = EnvGuard::new(&[("XDG_DATA_HOME", dir.path().to_str().unwrap())]);
     let j = opencode();
-    // Binding happens via the session_start hook, so both file-scan detection hooks return None by design.
     assert_eq!(j.detect_session_id("/work/proj", &[], None), None);
+    assert_eq!(j.detect_active_session("/work/proj", "current"), None);
+}
+
+#[test]
+fn detect_session_id_finds_recent_session() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let db_dir = dir.path().join("opencode");
+    std::fs::create_dir_all(&db_dir).unwrap();
+    let db_path = db_dir.join("opencode.db");
+    let conn = rusqlite::Connection::open(&db_path).unwrap();
+    conn.execute_batch("CREATE TABLE session (id TEXT PRIMARY KEY, time_created INTEGER);")
+        .unwrap();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    conn.execute(
+        "INSERT INTO session (id, time_created) VALUES (?1, ?2)",
+        rusqlite::params!["ses_fresh", now_ms],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO session (id, time_created) VALUES (?1, ?2)",
+        rusqlite::params!["ses_old", 1_700_000_000_000i64],
+    )
+    .unwrap();
+    drop(conn);
+
+    let _env = EnvGuard::new(&[("XDG_DATA_HOME", dir.path().to_str().unwrap())]);
+    let j = opencode();
+    // Recent session within default 300s window → found.
+    assert_eq!(
+        j.detect_session_id("/work/proj", &[], None),
+        Some("ses_fresh".to_string())
+    );
+    // Excluded → skip to next; old session outside window → null.
+    assert_eq!(
+        j.detect_session_id("/work/proj", &["ses_fresh".to_string()], None),
+        None
+    );
+    // detectActiveSession still null (not implemented).
     assert_eq!(j.detect_active_session("/work/proj", "current"), None);
 }
 
