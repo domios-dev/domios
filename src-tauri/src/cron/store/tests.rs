@@ -30,6 +30,39 @@ fn make_params(name: &str, ws: &str, schedule: &str) -> CronCreateParams {
 }
 
 #[test]
+fn set_run_session_persists_on_history_and_last_run() {
+    let mut store = temp_store();
+    let job = store.create(make_params("T", "ws", "0 * * * *")).unwrap();
+    let run = CronRunInfo {
+        run_id: "r1".into(),
+        started_at: 1,
+        finished_at: None,
+        status: CronRunStatus::Running,
+        pane_id: Some("p1".into()),
+        tab_id: None,
+        session_id: None,
+        cwd: None,
+    };
+    store.record_run(&job.id, run).unwrap();
+    store.set_run_session(&job.id, "r1", "sid-9", Some("/cwd"));
+    let hist = store.get_history(&job.id);
+    let saved = hist.iter().find(|r| r.run_id == "r1").unwrap();
+    assert_eq!(saved.session_id.as_deref(), Some("sid-9"));
+    assert_eq!(saved.cwd.as_deref(), Some("/cwd"));
+    assert_eq!(
+        store
+            .get(&job.id)
+            .unwrap()
+            .last_run
+            .as_ref()
+            .unwrap()
+            .session_id
+            .as_deref(),
+        Some("sid-9")
+    );
+}
+
+#[test]
 fn record_failure_increments_counter_and_backs_off() {
     let mut store = temp_store();
     let job = store
@@ -47,6 +80,8 @@ fn record_failure_increments_counter_and_backs_off() {
                 status: CronRunStatus::Failed,
                 pane_id: None,
                 tab_id: None,
+                session_id: None,
+                cwd: None,
             },
         )
         .unwrap();
@@ -73,6 +108,8 @@ fn record_5_failures_auto_disables_job() {
                     status: CronRunStatus::Failed,
                     pane_id: None,
                     tab_id: None,
+                    session_id: None,
+                    cwd: None,
                 },
             )
             .unwrap();
@@ -103,6 +140,8 @@ fn success_resets_failure_counter() {
                     status: CronRunStatus::Failed,
                     pane_id: None,
                     tab_id: None,
+                    session_id: None,
+                    cwd: None,
                 },
             )
             .unwrap();
@@ -117,6 +156,8 @@ fn success_resets_failure_counter() {
                 status: CronRunStatus::Success,
                 pane_id: None,
                 tab_id: None,
+                session_id: None,
+                cwd: None,
             },
         )
         .unwrap();
@@ -226,6 +267,8 @@ fn test_record_run_history() {
                     status: CronRunStatus::Success,
                     pane_id: None,
                     tab_id: None,
+                    session_id: None,
+                    cwd: None,
                 },
             )
             .unwrap();
@@ -284,6 +327,8 @@ fn test_oneshot_create_and_record_run() {
                 status: CronRunStatus::Success,
                 pane_id: None,
                 tab_id: None,
+                session_id: None,
+                cwd: None,
             },
         )
         .unwrap();
@@ -508,6 +553,8 @@ fn run(run_id: &str, started_at: u64, status: CronRunStatus) -> CronRunInfo {
         status,
         pane_id: None,
         tab_id: None,
+        session_id: None,
+        cwd: None,
     }
 }
 

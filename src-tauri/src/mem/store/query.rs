@@ -9,8 +9,14 @@ pub fn stats(conn: &Connection) -> Result<MemStats, String> {
     let total_items: i64 = conn
         .query_row("SELECT COUNT(*) FROM mem_items", [], |r| r.get(0))
         .map_err(|e| format!("count items: {}", e))?;
+    // Active relations only — invalidated (valid_to set) edges are soft-deleted
+    // history, not live graph; counting them inflated the relation total.
     let total_relations: i64 = conn
-        .query_row("SELECT COUNT(*) FROM relations", [], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM relations WHERE valid_to IS NULL",
+            [],
+            |r| r.get(0),
+        )
         .map_err(|e| format!("count relations: {}", e))?;
     let total_entities: i64 = conn
         .query_row("SELECT COUNT(*) FROM entities", [], |r| r.get(0))

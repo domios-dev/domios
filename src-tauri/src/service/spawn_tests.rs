@@ -1,6 +1,8 @@
 use super::*;
-use crate::service::ServiceContext;
+use crate::chatbackend::{ChatBackendError, ChatBackendProvider};
+use crate::service::{ServiceContext, SpawnAgentParams};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[test]
@@ -29,6 +31,32 @@ fn agent_spec(provider: &str) -> SpawnPaneSpec {
     }
 }
 
+fn spawn_params(provider: &str) -> SpawnAgentParams {
+    SpawnAgentParams {
+        agent: Some(provider.into()),
+        agent_name: None,
+        args: None,
+        cwd: None,
+        title: None,
+        description: None,
+        role: None,
+        parent_pane_id: None,
+        can_spawn: None,
+        task: None,
+        workspace_id: None,
+        force_tab: None,
+        report_target_pane_id: None,
+        skip_permissions: None,
+        spawned_by_pane_id: None,
+        model: None,
+        system_prompt: None,
+        preset: None,
+        resume_session_id: None,
+        activate: None,
+        structured_prompt_server: None,
+    }
+}
+
 struct ModelProvider {
     id: &'static str,
     models: Vec<crate::agent::provider::ModelInfo>,
@@ -47,6 +75,7 @@ impl ModelProvider {
                     id: (*id).into(),
                     display_name: (*id).into(),
                     description: None,
+                    available: None,
                 })
                 .collect(),
             default_model: model_ids.first().map(|id| (*id).to_string()),
@@ -101,38 +130,6 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
         None
     }
 
-    fn detect_launched_session_id(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String> {
-        if let Some(sid) = injected_session_id {
-            if self.session_exists(cwd, sid) {
-                return Some(sid.to_string());
-            }
-        }
-        self.detect_session_id(cwd, exclude, max_age)
-    }
-
-    fn detect_started_session(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String> {
-        self.detect_started_session_with_markers(
-            cwd,
-            exclude,
-            max_age,
-            injected_session_id,
-            screen_text,
-        )
-    }
-
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
     }
@@ -155,6 +152,13 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
 }
 
 fn registry_with(provider: ModelProvider) -> crate::agent::registry::AgentRegistry {
+    crate::agent::model_catalog::register(
+        provider.id,
+        crate::agent::model_catalog::RegisteredDefaults {
+            models: provider.models.clone(),
+            default: provider.default_model.clone(),
+        },
+    );
     let registry = crate::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(provider));
     registry
@@ -186,12 +190,10 @@ fn validate_agent_model_accepts_advertised_id() {
 }
 
 #[test]
-fn validate_agent_model_rejects_bogus_id() {
+fn validate_agent_model_allows_bogus_id_for_default_fallback() {
     let registry = registry_with(ModelProvider::new("opencode", &["opencode/big-pickle"]));
 
-    let err = validate_agent_model(&registry, "opencode", Some("does-not-exist")).unwrap_err();
-    assert!(err.contains("does-not-exist"));
-    assert!(err.contains("codeterm agent models opencode"));
+    assert!(validate_agent_model(&registry, "opencode", Some("does-not-exist")).is_ok());
 }
 
 #[test]
@@ -203,15 +205,13 @@ fn validate_agent_model_accepts_claude_alias() {
 }
 
 #[test]
-fn validate_agent_model_suggests_unique_prefixed_suffix() {
+fn validate_agent_model_allows_unique_prefixed_suffix_for_default_fallback() {
     let registry = registry_with(ModelProvider::new(
         "opencode",
         &["opencode/big-pickle", "opencode/ring-2.6-1t"],
     ));
 
-    let err = validate_agent_model(&registry, "opencode", Some("big-pickle")).unwrap_err();
-    assert!(err.contains("Did you mean 'opencode/big-pickle'?"));
-    assert!(err.contains("codeterm agent models opencode"));
+    assert!(validate_agent_model(&registry, "opencode", Some("big-pickle")).is_ok());
 }
 
 #[test]
@@ -284,6 +284,75 @@ fn fresh_agent_model_keeps_explicit_model() {
         )
         .as_deref(),
         Some("model-b")
+    );
+}
+
+#[test]
+fn fresh_agent_model_canonicalizes_display_name() {
+    let registry = registry_with(ModelProvider {
+        id: "model-test-display",
+        models: vec![crate::agent::provider::ModelInfo {
+            id: "gpt-5.5".into(),
+            display_name: "GPT-5.5".into(),
+            description: None,
+            available: None,
+        }],
+        default_model: Some("gpt-5.5".into()),
+        cli_binary: None,
+        install_command: None,
+    });
+
+    assert_eq!(
+        resolve_fresh_agent_model(
+            &registry,
+            "model-test-display",
+            Some("GPT-5.5".into()),
+            None
+        )
+        .as_deref(),
+        Some("gpt-5.5")
+    );
+}
+
+#[test]
+fn fresh_agent_model_falls_back_to_default_for_unknown_request() {
+    let registry = registry_with(ModelProvider::new(
+        "model-test-stale",
+        &["model-a", "model-b"],
+    ));
+
+    assert_eq!(
+        resolve_fresh_agent_model(&registry, "model-test-stale", Some("stale".into()), None)
+            .as_deref(),
+        Some("model-a")
+    );
+}
+
+#[test]
+fn fresh_agent_model_reports_fallback_notice() {
+    let registry = registry_with(ModelProvider::new(
+        "model-test-fallback-notice",
+        &["model-a", "model-b"],
+    ));
+
+    let resolved = resolve_fresh_agent_model_with_notice(
+        &registry,
+        "model-test-fallback-notice",
+        Some("stale".into()),
+        None,
+    );
+
+    assert_eq!(resolved.model.as_deref(), Some("model-a"));
+    assert_eq!(
+        resolved.fallback_notice,
+        Some(ModelFallbackNotice {
+            requested: "stale".into(),
+            using: "model-a".into(),
+        })
+    );
+    assert_eq!(
+        model_fallback_notice_title(&resolved.fallback_notice.unwrap()),
+        "model stale unavailable -> using model-a"
     );
 }
 
@@ -369,6 +438,7 @@ fn from_agent_params_carries_model_into_spec() {
         args: None,
         cwd: None,
         title: None,
+        description: Some("triage failing snapshot".into()),
         role: None,
         parent_pane_id: None,
         can_spawn: None,
@@ -379,10 +449,14 @@ fn from_agent_params_carries_model_into_spec() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: Some("gpt-5.4-mini".into()),
+        system_prompt: None,
+        preset: None,
         resume_session_id: None,
         activate: None,
+        structured_prompt_server: None,
     };
     let spec = SpawnPaneSpec::from_agent_params(params);
+    assert_eq!(spec.description.as_deref(), Some("triage failing snapshot"));
     match spec.command {
         PaneCommand::Agent(a) => assert_eq!(a.model.as_deref(), Some("gpt-5.4-mini")),
         _ => panic!("expected Agent"),
@@ -466,6 +540,7 @@ fn from_agent_params_preserves_can_spawn_option() {
         args: None,
         cwd: None,
         title: None,
+        description: None,
         role: Some("Orchestrator".into()),
         parent_pane_id: None,
         can_spawn: None,
@@ -476,8 +551,11 @@ fn from_agent_params_preserves_can_spawn_option() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        system_prompt: None,
+        preset: None,
         resume_session_id: None,
         activate: None,
+        structured_prompt_server: None,
     };
     let spec = SpawnPaneSpec::from_agent_params(p.clone());
     match spec.command {
@@ -503,6 +581,7 @@ fn from_agent_params_carries_activate_into_spec() {
         args: None,
         cwd: None,
         title: None,
+        description: None,
         role: None,
         parent_pane_id: None,
         can_spawn: None,
@@ -513,8 +592,11 @@ fn from_agent_params_carries_activate_into_spec() {
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,
+        system_prompt: None,
+        preset: None,
         resume_session_id: None,
         activate: Some(true),
+        structured_prompt_server: None,
     };
     let spec = SpawnPaneSpec::from_agent_params(p.clone());
     match spec.command {
@@ -630,4 +712,172 @@ fn chat_default_on_hidden_agent_stays_terminal() {
         PaneVisibility::Hidden,
         true,
     ));
+}
+
+#[test]
+fn chatbackend_pane_command_deserializes() {
+    // The spawn API contract for a chatBackend pane: kind "chat_backend" with a
+    // plugin id and opaque config (B1.3 #1/#6).
+    let json = r#"{"kind":"chat_backend","plugin_id":"local-shell","config":{"model":"qwen"}}"#;
+    let cmd: PaneCommand = serde_json::from_str(json).unwrap();
+    match cmd {
+        PaneCommand::ChatBackend { plugin_id, config } => {
+            assert_eq!(plugin_id, "local-shell");
+            assert_eq!(config["model"], "qwen");
+        }
+        _ => panic!("expected ChatBackend variant"),
+    }
+}
+
+#[test]
+fn chatbackend_pane_command_config_defaults_to_null() {
+    let json = r#"{"kind":"chat_backend","plugin_id":"local-shell"}"#;
+    let cmd: PaneCommand = serde_json::from_str(json).unwrap();
+    assert!(matches!(cmd, PaneCommand::ChatBackend { config, .. } if config.is_null()));
+}
+
+struct SpawnRouteShell {
+    id: &'static str,
+}
+
+impl ChatBackendProvider for SpawnRouteShell {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn spawnable(&self) -> bool {
+        true
+    }
+
+    fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+        Ok("session".into())
+    }
+
+    fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+        Ok(())
+    }
+
+    fn poll(
+        &self,
+        _: &str,
+        _: Option<&str>,
+    ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
+        Ok(crate::agent::chat_types::StructuredChat::default())
+    }
+
+    fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+        Ok(())
+    }
+
+    fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
+        Ok(Vec::new())
+    }
+}
+
+#[test]
+fn spawn_agent_params_for_registered_chatbackend_routes_to_chatbackend_config() {
+    let registry = crate::chatbackend::ChatBackendRegistry::new();
+    registry.register(
+        "local-shell",
+        Arc::new(SpawnRouteShell { id: "local-shell" }),
+    );
+
+    let spec = SpawnPaneSpec::from_agent_params_with_chatbackends(
+        &registry,
+        SpawnAgentParams {
+            agent: Some("local-shell".into()),
+            system_prompt: Some("You are terse.".into()),
+            preset: Some("ops".into()),
+            model: Some("qwen".into()),
+            ..spawn_params("local-shell")
+        },
+    );
+
+    match spec.command {
+        PaneCommand::ChatBackend { plugin_id, config } => {
+            assert_eq!(plugin_id, "local-shell");
+            assert_eq!(config["systemPrompt"], "You are terse.");
+            assert_eq!(config["preset"], "ops");
+            assert_eq!(config["model"], "qwen");
+        }
+        other => panic!("expected chatBackend command, got {other:?}"),
+    }
+}
+
+struct BackendOnlyShell;
+
+impl ChatBackendProvider for BackendOnlyShell {
+    fn id(&self) -> &str {
+        "npc"
+    }
+
+    // spawnable() defaults to false — a bare `chatBackend: true` backend.
+
+    fn open_session(&self, _: serde_json::Value) -> Result<String, ChatBackendError> {
+        Ok("session".into())
+    }
+
+    fn send_message(&self, _: &str, _: &str) -> Result<(), ChatBackendError> {
+        Ok(())
+    }
+
+    fn poll(
+        &self,
+        _: &str,
+        _: Option<&str>,
+    ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
+        Ok(crate::agent::chat_types::StructuredChat::default())
+    }
+
+    fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
+        Ok(())
+    }
+
+    fn list_models(&self) -> Result<Vec<crate::agent::provider::ModelInfo>, ChatBackendError> {
+        Ok(Vec::new())
+    }
+}
+
+#[test]
+fn spawn_agent_params_for_non_spawnable_chatbackend_does_not_route_to_chatbackend() {
+    // A registered-but-not-spawnable backend (bare `chatBackend: true`, e.g. the
+    // NPC plugin) must NOT be opened as a ChatBackend pane. It falls through to
+    let registry = crate::chatbackend::ChatBackendRegistry::new();
+    registry.register("npc", Arc::new(BackendOnlyShell));
+
+    let spec = SpawnPaneSpec::from_agent_params_with_chatbackends(
+        &registry,
+        SpawnAgentParams {
+            agent: Some("npc".into()),
+            ..spawn_params("npc")
+        },
+    );
+
+    match spec.command {
+        PaneCommand::Agent(agent) => assert_eq!(agent.provider, "npc"),
+        other => panic!("non-spawnable backend must not route to ChatBackend, got {other:?}"),
+    }
+}
+
+#[test]
+fn spawn_agent_params_for_non_chatbackend_keeps_agent_path() {
+    let registry = crate::chatbackend::ChatBackendRegistry::new();
+
+    let spec = SpawnPaneSpec::from_agent_params_with_chatbackends(
+        &registry,
+        SpawnAgentParams {
+            agent: Some("pty-agent".into()),
+            system_prompt: Some("ignored by PTY providers".into()),
+            preset: Some("ignored".into()),
+            ..spawn_params("pty-agent")
+        },
+    );
+
+    match spec.command {
+        PaneCommand::Agent(agent) => {
+            assert_eq!(agent.provider, "pty-agent");
+            assert_eq!(agent.model, None);
+        }
+        other => panic!("expected PTY agent command, got {other:?}"),
+    }
 }

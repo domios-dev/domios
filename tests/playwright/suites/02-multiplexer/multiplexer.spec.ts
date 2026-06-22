@@ -5,35 +5,19 @@
  * Includes the #132 lesson as e2e: across 50 focus switches the projected
  * pane list must mark exactly one focused pane every single time.
  */
-import { expect, test } from "@playwright/test";
-import { ApiClient, type Pane } from "../../helpers/api-client";
-import { connectUi, ensureDevConsole, killDevConsole, type UiSession } from "../../helpers/dev-console";
-import { apiReset } from "../../helpers/reset";
+import { expect, test, type PaneCleanup } from "../../helpers/fixtures";
+import { type ApiClient, type Pane } from "../../helpers/api-client";
+import { ensureDevConsole, killDevConsole } from "../../helpers/dev-console";
 
-const api = new ApiClient();
-let ui: UiSession;
-
-test.beforeAll(async () => {
-  ui = await connectUi();
-});
-
-test.afterAll(async () => {
-  await apiReset(api);
-  await ui.browser.close();
-});
-
-test.afterEach(async () => {
-  await apiReset(api);
-});
-
-async function createPane(workspaceId?: string): Promise<string> {
+async function createPane(api: ApiClient, paneCleanup: PaneCleanup, workspaceId?: string): Promise<string> {
   const created = await api.createPane(workspaceId ? { workspace_id: workspaceId } : {});
   const id = (created as { id?: string }).id;
   expect(id, `create pane response: ${JSON.stringify(created)}`).toBeTruthy();
+  paneCleanup.track(id);
   return id!;
 }
 
-test("@golden workspace create/focus/close round-trip, UI tracks it", async () => {
+test("@golden workspace create/focus/close round-trip, UI tracks it", async ({ api, ui }) => {
   const name = `pw-ws-${Date.now()}`;
   await api.createWorkspace(name);
 
@@ -57,9 +41,9 @@ test("@golden workspace create/focus/close round-trip, UI tracks it", async () =
   await expect(wsItem).toHaveCount(0);
 });
 
-test("@golden pane create/focus/close round-trip", async () => {
+test("@golden pane create/focus/close round-trip", async ({ api, paneCleanup }) => {
   const before = await api.panes();
-  const paneId = await createPane();
+  const paneId = await createPane(api, paneCleanup);
 
   let panes = await api.panes();
   expect(panes.length).toBe(before.length + 1);
@@ -74,9 +58,9 @@ test("@golden pane create/focus/close round-trip", async () => {
   expect(panes.some((p) => p.id === paneId)).toBe(false);
 });
 
-test("@smoke @regression #132: exactly one focused pane across 50 focus switches", async () => {
-  const a = await createPane();
-  const b = await createPane();
+test("@smoke @regression #132: exactly one focused pane across 50 focus switches", async ({ api, paneCleanup }) => {
+  const a = await createPane(api, paneCleanup);
+  const b = await createPane(api, paneCleanup);
   const targets = [a, b];
 
   for (let i = 0; i < 50; i++) {
@@ -92,13 +76,13 @@ test("@smoke @regression #132: exactly one focused pane across 50 focus switches
   }
 });
 
-test("@golden workspace + pane survive a daemon kill/restart", async () => {
+test("@golden workspace + pane survive a daemon kill/restart", async ({ api, ui, paneCleanup }) => {
   test.setTimeout(300_000);
   const name = `pw-persist-${Date.now()}`;
   await api.createWorkspace(name);
   const ws = (await api.workspaces()).find((w) => w.name === name);
   expect(ws).toBeDefined();
-  const paneId = await createPane(ws!.id);
+  const paneId = await createPane(api, paneCleanup, ws!.id);
 
   // Force-kill bypasses the close-to-tray save and the 30s auto-save timer
   // hasn't fired for state this young — snapshot explicitly first.
@@ -106,8 +90,7 @@ test("@golden workspace + pane survive a daemon kill/restart", async () => {
   killDevConsole();
   await ensureDevConsole();
   // CDP connection died with the old process — reattach.
-  await ui.browser.close().catch(() => {});
-  ui = await connectUi();
+  await ui.reconnect();
 
   const workspaces = await api.workspaces();
   const restored = workspaces.find((w) => w.name === name);

@@ -6,6 +6,7 @@
 //! + AppHandle).
 
 mod agent;
+mod agent_commands;
 mod bridge;
 mod cron;
 mod notification;
@@ -335,6 +336,8 @@ fn dispatch(
                     "system.capabilities",
                     "workspace.list", "workspace.create", "workspace.focus",
                     "workspace.rename", "workspace.close", "workspace.move_tab",
+                    "workspace.recently_closed", "workspace.reopen_closed",
+                    "workspace.reopen_closed_group",
                     "pane.list", "pane.focus", "pane.close", "pane.send_text",
                     "pane.get_output", "pane.rename", "pane.resize", "pane.kill_pty",
                     "browser.open",
@@ -365,13 +368,14 @@ fn dispatch(
     }
 
     // Domain prefix → submodule. Each submodule owns its own per-method match (and returns Method-not-found for anything within its prefix it
-    // doesn't know).
-    let prefix = method.split('.').next().unwrap_or("");
+    // doesn't know). The split also breaks on `:` so the reserved `plugin:<id>.<verb>`
+    let prefix = method.split(['.', ':']).next().unwrap_or("");
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),
         "pane" | "agents" | "browser" => pane::dispatch(method, &params, mux, app, svc),
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
+        "plugin" => agent_commands::dispatch(method, &params, svc),
         "cron" => cron::dispatch(method, &params, app, svc),
         "services" | "activity" => services::dispatch(method, &params, app, svc),
         "bridge" => bridge::dispatch(method, &params, svc),

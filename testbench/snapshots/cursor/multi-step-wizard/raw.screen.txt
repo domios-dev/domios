@@ -1,0 +1,47 @@
+    Found 2 matches 
+
+  $ codeterm docs TESTING 2>/dev/null | head -200 699ms
+    … 120 output lines hidden · ctrl+o to expand
+    [CodeTerm docs output truncated: showing 120/365 lines from TESTING. Use `codeterm docs TESTING --full` for the 
+    complete doc or `--head N` for a different preview.]
+
+    Grepped 2 greps
+    Grepped "picker" in /Users/dev/.claude/skills/codeterm
+    Grepped "" in .
+
+  $ codeterm identify 2>/dev/null; echo "---"; ls -la
+    /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-msw-cursor/ 2>/dev/null; echo "---"; env | grep
+    -i codeterm 542ms
+    … 34 output lines hidden · ctrl+o to expand
+    AGENT_TRANSCRIPTS=/Users/dev/.cursor/projects/private-var-folders-5w-xh9wzz-​j7l14jcqmty0hf6rm0000gp-T-codeterm
+    -msw-cursor/agent-transcripts
+    OLDPWD=/private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-msw-cur​sor
+
+    Grepped, globbed, read 3 greps, 1 glob, 5 files
+    … 6 earlier items hidden
+    Grepped "multi-step|select-all|select all" in /Users/dev/Developer/codeterm-alpha
+    Read ...h/snapshots/cursor/multi-step-wizard/screen.txt
+    Read ...nch/snapshots/cursor/multi-step-wizard/raw.cast
+
+  Starting a multi-step test wizard with native question UI — several stages, including select-all steps — then
+  waiting for your input.
+
+  $ codeterm pane rename "test picker wizard" 530ms
+      ok  true
+
+ ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ Test Setup Wizard                                                                                                  │
+ │                                                                                                                    │
+ │ Question 1 of 4                                                                                                    │
+ │                                                                                                                    │
+ │ 1. Step 1 of 4 — Which test phases apply to your project? (Select all that apply) (multi-select)                   │
+ │                                                                                                                    │
+ │   › [ ] Unit tests                                                                                                 │
+ │     [ ] Integration tests                                                                                          │
+ │     [ ] E2E tests                                                                                                  │
+ │     [ ] Smoke tests                                                                                                │
+ │     [ ] Golden / LLM tests                                                                                         │
+ │     [ ] Other: (type to answer)                                                                                    │
+ │                                                                                                                    │
+ │ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip                                         │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

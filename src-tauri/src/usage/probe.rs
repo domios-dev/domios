@@ -66,6 +66,7 @@ impl UsageProbe {
                 parent_pane_id: None,
                 cwd: None,
                 title: Some(format!("[usage-probe] {}", provider_for_spawn)),
+                description: None,
                 visibility: PaneVisibility::Hidden,
                 eager: false,
                 command: PaneCommand::Agent(AgentSpawnSpec {
@@ -289,7 +290,7 @@ async fn wait_for_output(
         };
         if !text.trim().is_empty() {
             last_text = text.clone();
-            if has_parseable_markers(&text, provider) {
+            if output_is_parseable(&svc, provider, &text) {
                 return Ok(text);
             }
             // "Loading usage data…" is normal progress, not a failure — keep
@@ -299,7 +300,7 @@ async fn wait_for_output(
     }
     if last_text.trim().is_empty() {
         Err(ProbeError::NoOutput)
-    } else if has_parseable_markers(&last_text, provider) {
+    } else if output_is_parseable(&svc, provider, &last_text) {
         Ok(last_text)
     } else if only_loading_state(&last_text) {
         Err(ProbeError::NotReady(format!(
@@ -313,12 +314,19 @@ async fn wait_for_output(
     }
 }
 
-fn has_parseable_markers(text: &str, provider: &str) -> bool {
-    match provider {
-        "claude" => text.contains("% used") && text.contains("Resets"),
-        "codex" => text.contains("% left") && text.contains("resets"),
-        _ => false,
-    }
+fn output_is_parseable(svc: &ServiceContext, provider: &str, text: &str) -> bool {
+    svc.agent_registry
+        .with_provider(provider, |p| parser_accepts(p.usage_parser(), text))
+        .unwrap_or(false)
+}
+
+fn parser_accepts(
+    parser: Option<&dyn crate::agent::usage_parser::UsageParser>,
+    text: &str,
+) -> bool {
+    parser
+        .and_then(|up| up.parse(text).ok())
+        .is_some_and(|s| s.has_any_field())
 }
 
 fn only_loading_state(text: &str) -> bool {
@@ -333,4 +341,51 @@ fn render_tall(bytes: &[u8], rows: u16, cols: u16) -> String {
     let mut parser = vt100::Parser::new(rows, cols, 0);
     parser.process(&bytes[start..]);
     parser.screen().contents()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parser_accepts;
+    use crate::agent::usage_parser::{UsageParseError, UsageParser, UsageSnapshot};
+
+    #[test]
+    fn parser_accepts_none_is_not_ready() {
+        assert!(!parser_accepts(None, "anything with % used and Resets"));
+    }
+
+    struct StubParser;
+    impl UsageParser for StubParser {
+        fn parse(&self, raw_text: &str) -> Result<UsageSnapshot, UsageParseError> {
+            if raw_text.contains("% used") {
+                let mut s = UsageSnapshot::empty("stub", raw_text, 0);
+                s.session_pct = Some(42.0);
+                Ok(s)
+            } else {
+                Err(UsageParseError::NothingFound)
+            }
+        }
+    }
+
+    #[test]
+    fn parser_accepts_tracks_field_presence() {
+        assert!(parser_accepts(
+            Some(&StubParser),
+            "Current session 50% used"
+        ));
+        assert!(!parser_accepts(Some(&StubParser), "Loading usage data…"));
+    }
+
+    #[test]
+    fn real_claude_parser_gates_like_old_markers() {
+        let parser = crate::plugin::agent_claude::usage_tui::ClaudeTuiUsageParser;
+        let fixture = include_str!("../plugin/agent_claude/fixtures/usage_v2_1.txt");
+        assert!(
+            parser_accepts(Some(&parser), fixture),
+            "captured /usage screen must be accepted"
+        );
+        assert!(
+            !parser_accepts(Some(&parser), "Loading usage data…"),
+            "loading screen must not be accepted"
+        );
+    }
 }

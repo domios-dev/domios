@@ -1,17 +1,25 @@
 use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
 
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::types::{AgentRole, Pane, PaneType, Tab, TitleLevel, Workspace};
+use super::types::{AgentRole, Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
 
 mod alias;
+mod closed;
 mod names;
 mod pane;
+mod reorder;
 mod role;
 mod snapshot;
 mod tab;
 mod workspace;
+
+pub use closed::{
+    ClosedGroup, ClosedPaneView, ClosedPanesStore, GroupKind, CLOSED_GROUP_CAP,
+    RECENTLY_CLOSED_CAP, RECENTLY_CLOSED_VIEW_LIMIT,
+};
 
 #[cfg(test)]
 mod tests;
@@ -51,6 +59,16 @@ pub struct MultiplexerState {
     pty_to_pane: HashMap<String, String>,
     /// Alias registry: human-readable name -> pane_id.
     pane_aliases: HashMap<String, String>,
+    /// Monotonic snapshot generation. Every `snapshot()` stamps a strictly
+    /// increasing value so the frontend reducer can ignore a stale snapshot
+    /// (older generation) that resolves after a newer one — kills the
+    /// spawn-then-blink race where a pre-pane `mux_get_state` clobbers the tab.
+    generation: AtomicU64,
+    /// Durable browser-style closed-tab history. Leaf lock (its own
+    /// `Mutex<Connection>`); only ever touched while the mux lock is held, never
+    /// across an await. Defaults to in-memory; production swaps in a file-backed
+    /// store at startup via [`MultiplexerState::attach_closed_store`].
+    pub(super) closed_store: ClosedPanesStore,
 }
 
 /// Full state snapshot for frontend hydration.
@@ -60,6 +78,14 @@ pub struct MultiplexerSnapshot {
     pub panes: HashMap<String, Pane>,
     pub active_workspace_id: Option<String>,
     pub focused_pane_id: Option<String>,
+    /// Monotonic generation; the reducer drops any snapshot whose value is
+    /// `<=` the one already applied.
+    pub generation: u64,
+    /// Bounded newest-first view of the closed-tab history (across all
+    /// workspaces) for the sidebar. Sourced live from the sqlite store, NOT the
+    /// persisted session snapshot — keeps both lean.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recently_closed: Vec<ClosedPaneView>,
 }
 
 impl MultiplexerState {
@@ -73,7 +99,15 @@ impl MultiplexerState {
             focused_pane_id: None,
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            generation: AtomicU64::new(0),
+            closed_store: ClosedPanesStore::in_memory(),
         }
+    }
+
+    /// Swap the in-memory closed-history store for a durable file-backed one.
+    /// Called once at startup so closed-tab history survives daemon restarts.
+    pub fn attach_closed_store(&mut self, store: ClosedPanesStore) {
+        self.closed_store = store;
     }
 
     /// Create a new state with a default "Main" workspace, one tab, and one pane.
@@ -86,8 +120,10 @@ impl MultiplexerState {
         let pane = Pane {
             id: pane_id.clone(),
             pty_id: None,
+            backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
             title: "Terminal".to_string(),
+            description: None,
             cwd: None,
             url: None,
             agent_type: None,
@@ -95,6 +131,8 @@ impl MultiplexerState {
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            session_binding_nonce: None,
+            shell_integration_nonce: None,
             role: Some(AgentRole::Orchestrator),
             parent_pane_id: None,
             can_spawn: true,
@@ -104,10 +142,12 @@ impl MultiplexerState {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            agent_state: None,
             auto_approve: false,
             protected: false,
             connected_services: vec![],
             agent_set_at: None,
+            exit_suspected_at: None,
             agent_booting: false,
             hidden: false,
             show_in_tabbar: true,
@@ -118,7 +158,9 @@ impl MultiplexerState {
         let tab = Tab {
             id: tab_id.clone(),
             title: names::generate_tab_name(),
+            description: None,
             pane_id: pane_id.clone(),
+            sort_order: 0,
         };
 
         let workspace = Workspace {
@@ -128,6 +170,7 @@ impl MultiplexerState {
             active_tab_id: Some(tab_id),
             cwd: None,
             protected: false,
+            sort_order: 0,
         };
 
         let mut panes = HashMap::new();
@@ -140,6 +183,8 @@ impl MultiplexerState {
             focused_pane_id: Some(pane_id.clone()),
             pty_to_pane: HashMap::new(),
             pane_aliases: HashMap::new(),
+            generation: AtomicU64::new(0),
+            closed_store: ClosedPanesStore::in_memory(),
         };
 
         (state, pane_id)

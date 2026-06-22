@@ -1,0 +1,27 @@
+Cursor Agent
+  v2026.06.19-20-24-33-653a7fb
+  Use /plan to plan execution and reach the right outcome faster.
+  Create a TODO/checklist if your UI supports it, then answer with exactly three short bullet points about why         
+  idle detection in terminal UIs can be tricky. Then stop.                                                             
+    To-do All done
+    ✔ Define what counts as "idle" (no input vs no output vs no activity)
+    ✔ Account for background jobs, prompts, and long-running commands
+    ✔ Handle cross-platform terminal/PTY signal differences
+  • "Idle" is ambiguous: no keystrokes, no shell output, and no subprocess activity can all mean different things.
+  • Long-running commands, pagers, and background jobs look idle even when work is still happening.
+  • PTY/terminal layers differ by OS and emulator, so reliable idle signals are hard to get consistently.
+  Write idle-notes.md with one sentence, then write one short paragraph in chat explaining why a blinking cursor       
+  is not proof of agent work. Then stop.                                                                               
+    Edited idle-notes.md                                                                                       +1 -1
+    ▎-                                                                                                              
+    ▎+ A blinking cursor only shows that the terminal is waiting for input, not that an agent is actively thinking  
+    ▎  or exec ...                                                                                                  
+  A blinking cursor usually means the shell is at a prompt and ready for keystrokes, not that an agent is running.
+  The process can be blocked on network I/O, waiting on a subprocess, or sitting idle after a command finished while
+   the UI still looks “alive.” Idle detection has to look at real activity—output, process state, and tool calls—not
+   cursor animation.
+  Say 'done' and nothing else.                                                                                         
+  done
+  → Add a follow-up                                                                                                    
+  Composer 2.5 · 7.3% · 1 file edited                                                                   Run Everything
+  /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-cursor-idle_focus_churn_v1-520ma13m

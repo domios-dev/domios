@@ -1,6 +1,6 @@
 [package]
 name = "codeterm-cli"
-version = "1.4.5"
+version = "1.4.6"
 edition = "2021"
 
 [[bin]]
@@ -11,6 +11,7 @@ path = "src/main.rs"
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 interprocess = "2"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 dirs = "5"
@@ -29,3 +30,4 @@ sha2 = "0.10"
 # without minding the input language.
 deunicode = "1"
 codeterm-mem-store = { path = "../crates/mem-store" }
+codeterm-plugins = { path = "../crates/codeterm-plugins" }

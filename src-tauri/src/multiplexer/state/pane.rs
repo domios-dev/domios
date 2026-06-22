@@ -1,5 +1,5 @@
 use super::{short_id, MultiplexerState};
-use crate::multiplexer::types::{Pane, PaneType, TitleLevel};
+use crate::multiplexer::types::{Pane, PaneBacking, PaneType, TitleLevel};
 
 impl MultiplexerState {
     /// Create a new terminal pane and register it. Returns the pane ID.
@@ -8,8 +8,10 @@ impl MultiplexerState {
         let pane = Pane {
             id: pane_id.clone(),
             pty_id: None,
+            backing: PaneBacking::default(),
             pane_type: PaneType::Terminal,
             title: "Terminal".to_string(),
+            description: None,
             cwd: None,
             url: None,
             agent_type: None,
@@ -17,6 +19,8 @@ impl MultiplexerState {
             agent_session_id: None,
             agent_session_name: None,
             agent_session_model: None,
+            session_binding_nonce: None,
+            shell_integration_nonce: None,
             role: None,
             parent_pane_id: None,
             can_spawn: false,
@@ -26,10 +30,12 @@ impl MultiplexerState {
             title_level: TitleLevel::Default,
             chat_view: false,
             pending_prompt: None,
+            agent_state: None,
             auto_approve: false,
             protected: false,
             connected_services: vec![],
             agent_set_at: None,
+            exit_suspected_at: None,
             agent_booting: false,
             hidden: false,
             show_in_tabbar: true,
@@ -123,6 +129,25 @@ impl MultiplexerState {
         Ok(())
     }
 
+    pub fn set_pane_description(
+        &mut self,
+        pane_id: &str,
+        description: Option<String>,
+    ) -> Result<(), String> {
+        let pane = self
+            .panes
+            .get_mut(pane_id)
+            .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
+        pane.description = description.clone();
+        for ws in &mut self.workspaces {
+            if let Some(tab) = ws.tabs.iter_mut().find(|t| t.pane_id == pane_id) {
+                tab.description = description;
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Find which workspace contains a given pane.
     pub fn find_workspace_for_pane(&self, pane_id: &str) -> Option<String> {
         for ws in &self.workspaces {
@@ -171,7 +196,17 @@ impl MultiplexerState {
 
     /// Close a pane: remove from the workspace tree and pane registry.
     /// Cascade-closes all children. Returns pty_ids that should be killed.
+    ///
+    /// Records the closed subtree (the pane + any cascade-closed children) as
+    /// ONE group in the closed-history store, preserving parent links, so the
+    /// whole subtree can be reopened together (or any single pane on its own).
+    /// Built before the panes are removed from the tree.
     pub fn close_pane(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
+        self.record_cascade_close(pane_id);
+        self.close_pane_inner(pane_id)
+    }
+
+    fn close_pane_inner(&mut self, pane_id: &str) -> Result<Vec<String>, String> {
         if let Some(pane) = self.panes.get(pane_id) {
             if pane.protected {
                 return Err("Cannot close protected pane".to_string());
@@ -196,8 +231,10 @@ impl MultiplexerState {
             self.fallback_focus_to_general();
         }
 
+        // Children were already recorded as part of the cascade group in
+        // close_pane; here we only tear them down.
         for cid in child_ids {
-            if let Ok(child_ptys) = self.close_pane(&cid) {
+            if let Ok(child_ptys) = self.close_pane_inner(&cid) {
                 pty_ids.extend(child_ptys);
             }
         }

@@ -1,0 +1,33 @@
+dev@workstation ct-replay-claude-idle_focus_churn_v1-8s1g1r9p % bash /tmp/codeterm-spawn-1a9f40d3-3662-4b48-9c80-6a29db8178bf.sh
+╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                    │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a … │
+│                                                    │ ─────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                  │
+│                      ▝▜█████▛▘                     │ The stream-stall hint now reads "Waiting f… │
+│                        ▘▘ ▝▝                       │ Improved auto mode safety: destructive git… │
+│                                                    │ Added a warning when the requested model i… │
+│ Opus 4.8 with high effort · Claude Team · Team Org A │ /release-notes for more                     │
+│ /…/T/ct-replay-claude-idle_focus_churn_v1-8s1g1r9p │                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+❯ Write idle-notes.md with one sentence, then write one short paragraph in chat explaining why a    
+  blinking cursor is not proof of agent work. Then stop.                                            
+⏺ Write(idle-notes.md)
+  ⎿  Wrote 1 lines to idle-notes.md
+      1 A blinking cursor signals that a process is waiting for input or idling, not that any
+         meaningful work is being done.
+⏺ Wrote idle-notes.md.
+  A blinking cursor is just a UI animation on a timer — it keeps pulsing whether the agent is
+  computing, waiting on a blocked call, stuck in a loop, or sitting completely idle at a prompt. It
+  reflects the terminal's render state, not the process's actual progress, so it can blink
+  identically during heavy work and during total inactivity. Real evidence of work is concrete
+  output: files changed, tests run, logs emitted, exit codes, or measurable state transitions — not
+  the mere fact that something on screen is moving.
+✻ Cogitated for 10s
+❯ Say 'done' and nothing else.                                                                      
+⏺ done
+✻ Cogitated for 1s
+────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ cat idle-notes.md
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

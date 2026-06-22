@@ -2,17 +2,41 @@
 
 use super::ServiceContext;
 
+pub const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
+
+pub fn normalize_pane_description(value: &str) -> Result<Option<String>, String> {
+    let trimmed = value.trim();
+    if trimmed.chars().count() > MAX_PANE_DESCRIPTION_CHARS {
+        return Err(format!(
+            "description must be {} characters or fewer",
+            MAX_PANE_DESCRIPTION_CHARS
+        ));
+    }
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed.to_string()))
+    }
+}
+
 impl ServiceContext {
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
         // Tear down the chat tailer (if any) BEFORE pane state goes away — the tailer thread reads provider/cwd/session_id from the mux on its first
         // iteration; once close_pane drops the entry, future polls would see Provider::None and bail anyway, but explicit stop joins the thread cleanly and frees the JSONL handle.
         self.chat_registry.stop(pane_id);
 
-        let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
-        let pty_ids = self.mux.lock().close_pane(pane_id)?;
-        let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
+        // Tear down the plugin chatBackend session BEFORE the pane entry is
+        // dropped — otherwise `pane_chat_backing` can no longer resolve it and
+        if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
+            let _ = self.chatbackend_close(&plugin_id, &session_id);
+        }
+
+        let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
+        let pty_ids = self.mux.write().close_pane(pane_id)?;
+        let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.prompt_detector.lock().remove_pane(pane_id);
+        crate::service::structured_prompt::clear_pane(pane_id);
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {
@@ -25,7 +49,7 @@ impl ServiceContext {
     pub fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String> {
         // Sync tab.title so the sidebar label matches.
         let tab_sync = {
-            let mux = self.mux.lock();
+            let mux = self.mux.read();
             let mut sync = None;
             'outer: for ws in mux.snapshot().workspaces.iter() {
                 for tab in &ws.tabs {
@@ -37,9 +61,9 @@ impl ServiceContext {
             }
             sync
         };
-        self.mux.lock().rename_pane(pane_id, title)?;
+        self.mux.write().rename_pane(pane_id, title)?;
         if let Some((ws_id, tab_id)) = tab_sync {
-            let _ = self.mux.lock().rename_tab(&ws_id, &tab_id, title);
+            let _ = self.mux.write().rename_tab(&ws_id, &tab_id, title);
         }
         self.emit_pane_title_pinned(pane_id, title);
         self.emit_state_changed();
@@ -48,21 +72,30 @@ impl ServiceContext {
 
     /// Label only the pane, leaving the tab's (auto-generated, unique) name untouched.
     pub fn set_pane_title(&self, pane_id: &str, title: &str) -> Result<(), String> {
-        self.mux.lock().rename_pane(pane_id, title)?;
+        self.mux.write().rename_pane(pane_id, title)?;
         self.emit_pane_title_pinned(pane_id, title);
         self.emit_state_changed();
         Ok(())
     }
 
+    pub fn set_pane_description(&self, pane_id: &str, description: &str) -> Result<(), String> {
+        let description = normalize_pane_description(description)?;
+        self.mux
+            .write()
+            .set_pane_description(pane_id, description)?;
+        self.emit_state_changed();
+        Ok(())
+    }
+
     pub fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
-        self.mux.lock().set_focused_pane(pane_id)?;
+        self.mux.write().set_focused_pane(pane_id)?;
         self.emit_pane_focus_changed(pane_id);
         self.refresh_focused_pane_model();
         Ok(())
     }
 
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {
-        if let Some(orphan) = self.mux.lock().link_pty(pane_id, pty_id) {
+        if let Some(orphan) = self.mux.write().link_pty(pane_id, pty_id) {
             log::warn!(
                 "[link_pty] pane {} relinked — killing orphan pty {}",
                 pane_id,
@@ -74,13 +107,13 @@ impl ServiceContext {
     }
 
     pub fn update_pane_cwd(&self, pane_id: &str, cwd: String) {
-        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+        if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
             pane.cwd = Some(cwd);
         }
     }
 
     pub fn clear_pane_restored_flag(&self, pane_id: &str) {
-        let mut mux = self.mux.lock();
+        let mut mux = self.mux.write();
         if let Some(pane) = mux.get_pane_mut(pane_id) {
             pane.restored_from_snapshot = false;
         }
@@ -100,7 +133,7 @@ impl ServiceContext {
     /// Release the lock without changing `agent_type`. Public so a future Tauri
     /// command can disconnect an agent identity without clearing it.
     pub fn unlock_pane_agent_type(&self, pane_id: &str) {
-        let mut mux = self.mux.lock();
+        let mut mux = self.mux.write();
         if let Some(pane) = mux.get_pane_mut(pane_id) {
             pane.agent_type_locked = false;
         }
@@ -108,7 +141,7 @@ impl ServiceContext {
 
     fn write_pane_agent_type(&self, pane_id: &str, agent_type: Option<String>, lock: bool) {
         let transition = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let Some(pane) = mux.get_pane_mut(pane_id) else {
                 return;
             };
@@ -137,13 +170,12 @@ impl ServiceContext {
         }
         if let Some(new_type) = next {
             if prev.as_deref() != Some(new_type.as_str()) {
-                self.kick_off_session_detection_if_needed(pane_id, &new_type);
                 self.kick_off_session_name_detection(pane_id, &new_type);
                 self.refresh_session_model_once(pane_id, &new_type);
             }
         } else {
             // Drop friendly name on agent clear; keep the last-seen model so the tab doesn't flicker blank between sessions.
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(pane_id) {
                 pane.agent_session_name = None;
             }
@@ -156,7 +188,7 @@ impl ServiceContext {
     /// Also kicks the global focused-pane model poller — one thread total.
     pub fn kick_off_pollers_for_existing_agents(&self) {
         let restored: Vec<(String, String, bool)> = {
-            let mux = self.mux.lock();
+            let mux = self.mux.read();
             mux.snapshot()
                 .panes
                 .values()
@@ -169,36 +201,40 @@ impl ServiceContext {
         };
         for (pane_id, agent_id, needs_session) in restored {
             if needs_session {
-                let mut mux = self.mux.lock();
+                let mut mux = self.mux.write();
                 if let Some(pane) = mux.get_pane_mut(&pane_id) {
                     if pane.agent_session_id.is_none() && pane.agent_set_at.is_none() {
                         pane.agent_set_at = Some(std::time::Instant::now());
                     }
                 }
             }
+            // Invariant: every agent pane surfaces exactly idle|working|question,
+            // never null. A restored pane has no `agent_state` until its first
+            let seeded = {
+                use crate::agent::offline_state_classifier::{
+                    AgentLiveState, PaneVerdict, TimelineState,
+                };
+                let idle: AgentLiveState = PaneVerdict {
+                    state: TimelineState::Idle,
+                    subtype: None,
+                }
+                .into();
+                let mut mux = self.mux.write();
+                match mux.get_pane_mut(&pane_id) {
+                    Some(pane) if pane.agent_type.is_some() && pane.agent_state.is_none() => {
+                        pane.agent_state = Some(idle);
+                        true
+                    }
+                    _ => false,
+                }
+            };
+            if seeded {
+                self.emit_state_changed();
+            }
             self.kick_off_session_name_detection(&pane_id, &agent_id);
             self.refresh_session_model_once(&pane_id, &agent_id);
-            if needs_session {
-                self.kick_off_session_detection_if_needed(&pane_id, &agent_id);
-            }
         }
         self.start_focused_pane_model_poller();
-    }
-
-    fn kick_off_session_detection_if_needed(&self, pane_id: &str, agent_id: &str) {
-        let provider_has_hooks = self
-            .agent_registry
-            .with_provider(agent_id, |p| p.has_hooks())
-            .unwrap_or(false);
-        if provider_has_hooks {
-            log::debug!(
-                "[session-detect] skipping filesystem/session polling for hook-backed provider {} pane {}",
-                agent_id,
-                pane_id
-            );
-            return;
-        }
-        self.kick_off_session_detection(pane_id, agent_id);
     }
 
     fn start_focused_pane_model_poller(&self) {
@@ -212,7 +248,7 @@ impl ServiceContext {
             loop {
                 std::thread::sleep(step);
                 let target = {
-                    let mux = svc.mux.lock();
+                    let mux = svc.mux.read();
                     let focused = mux.snapshot().focused_pane_id;
                     focused.and_then(|id| {
                         mux.get_pane(&id)
@@ -231,7 +267,7 @@ impl ServiceContext {
     /// instant the user switches tabs, instead of waiting up to one tick.
     pub fn refresh_focused_pane_model(&self) {
         let target: Option<(String, String)> = {
-            let mux = self.mux.lock();
+            let mux = self.mux.read();
             mux.snapshot().focused_pane_id.and_then(|id| {
                 mux.get_pane(&id)
                     .and_then(|p| p.agent_type.clone())
@@ -244,8 +280,8 @@ impl ServiceContext {
     }
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
-        let (cwd, session_id, current_model, exclude, age_from_launch, pty_id) = {
-            let mux = self.mux.lock();
+        let (cwd, session_id, current_model) = {
+            let mux = self.mux.read();
             let Some(p) = mux.get_pane(pane_id) else {
                 return;
             };
@@ -253,20 +289,10 @@ impl ServiceContext {
                 p.cwd.clone(),
                 p.agent_session_id.clone(),
                 p.agent_session_model.clone(),
-                mux.other_session_ids(pane_id),
-                p.agent_set_at.map(|at| at.elapsed()),
-                p.pty_id.clone(),
             )
         };
         let Some(cwd) = cwd else { return };
-        let provider_has_hooks = self
-            .agent_registry
-            .with_provider(agent_id, |p| p.has_hooks())
-            .unwrap_or(false);
-        let screen_text = pty_id
-            .as_ref()
-            .and_then(|id| self.screen_state.lock().get_screen_text(id));
-        // If the provider rolled the live session out from under us (opencode /model swap), point the pane at the new sid before scanning models.
+        // Provider rolled its live session (e.g. opencode /model swap): follow it to the new sid before scanning the model. Provider-owned signal (screen/event), guarded so it never steals a sibling pane's session.
         if let Some(ref current) = session_id {
             if let Some(new_sid) = self
                 .agent_registry
@@ -274,7 +300,7 @@ impl ServiceContext {
                 .flatten()
             {
                 let claimed = {
-                    let mut mux = self.mux.lock();
+                    let mut mux = self.mux.write();
                     if mux.other_session_ids(pane_id).contains(&new_sid) {
                         false
                     } else if let Some(p) = mux.get_pane_mut(pane_id) {
@@ -300,67 +326,26 @@ impl ServiceContext {
                 }
             }
         }
-        let session_id = {
-            let mux = self.mux.lock();
+        // Model badge needs a bound session. Binding is provider-reported only — we never guess one from the filesystem here; an unbound pane just has no model badge yet.
+        let sid = {
+            let mux = self.mux.read();
             mux.get_pane(pane_id)
                 .and_then(|p| p.agent_session_id.clone())
         };
-        let sid = match session_id {
-            Some(s) => s,
-            None => {
-                if provider_has_hooks {
-                    return;
-                }
-                let detected = self
-                    .agent_registry
-                    .with_provider(agent_id, |p| {
-                        p.detect_started_session(
-                            &cwd,
-                            &exclude,
-                            age_from_launch,
-                            None,
-                            screen_text.as_deref(),
-                        )
-                    })
-                    .flatten();
-                let Some(sid) = detected else { return };
-                let claimed = {
-                    let mut mux = self.mux.lock();
-                    if mux.other_session_ids(pane_id).contains(&sid) {
-                        false
-                    } else if let Some(p) = mux.get_pane_mut(pane_id) {
-                        if p.agent_session_id.is_none() && p.agent_type.as_deref() == Some(agent_id)
-                        {
-                            p.agent_session_id = Some(sid.clone());
-                            true
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                };
-                if !claimed {
-                    return;
-                }
-                log::info!(
-                    "[session-detect] focused-poller claimed {} for pane {} ({})",
-                    sid,
-                    pane_id,
-                    agent_id,
-                );
-                self.emit_state_changed();
-                sid
-            }
-        };
-        let model = self
+        let Some(sid) = sid else { return };
+        // A failed detection (None) must not clobber a known model — restore seeds it from the snapshot and the session file may not name the model yet.
+        let Some(model) = self
             .agent_registry
             .with_provider(agent_id, |p| p.detect_session_model(&cwd, &sid))
-            .flatten();
-        if model == current_model {
+            .flatten()
+        else {
+            return;
+        };
+        if Some(&model) == current_model.as_ref() {
             return;
         }
-        let mut mux = self.mux.lock();
+        let model = Some(model);
+        let mut mux = self.mux.write();
         if let Some(p) = mux.get_pane_mut(pane_id) {
             if p.agent_type.as_deref() == Some(agent_id) {
                 log::info!(
@@ -393,7 +378,7 @@ impl ServiceContext {
             for _ in 0..30u32 {
                 std::thread::sleep(step);
                 let (pty_id, already, current_agent) = {
-                    let mux = svc.mux.lock();
+                    let mux = svc.mux.read();
                     let Some(p) = mux.get_pane(&pane_id) else {
                         return;
                     };
@@ -423,7 +408,7 @@ impl ServiceContext {
                     .with_provider(&agent_id, |p| p.extract_session_name(&screen))
                     .flatten();
                 if let Some(name) = name {
-                    let mut mux = svc.mux.lock();
+                    let mut mux = svc.mux.write();
                     if let Some(p) = mux.get_pane_mut(&pane_id) {
                         if p.agent_type.as_deref() == Some(agent_id.as_str())
                             && p.agent_session_name.is_none()
@@ -485,173 +470,6 @@ impl ServiceContext {
         });
     }
 
-    /// Background loop that calls `detect_started_session` until it returns Some
-    /// or the budget expires. Provider plugins are responsible for the actual
-    /// filesystem walk; this wrapper just retries with backoff because the
-    /// session file is written *after* the agent CLI accepts its first prompt.
-    fn kick_off_session_detection(&self, pane_id: &str, agent_id: &str) {
-        if pane_id.is_empty() || agent_id.is_empty() {
-            return;
-        }
-        let svc = self.clone();
-        let pane_id = pane_id.to_string();
-        let agent_id = agent_id.to_string();
-        std::thread::spawn(move || {
-            // 15min budget — codex writes its rollout only on first user message.
-            let max_attempts = 300u32;
-            let step = std::time::Duration::from_secs(3);
-            for _ in 0..max_attempts {
-                std::thread::sleep(step);
-                let (cwd, sid_already, exclude, age_from_launch, pty_id) = {
-                    let mux = svc.mux.lock();
-                    let Some(p) = mux.get_pane(&pane_id) else {
-                        return;
-                    };
-                    if p.agent_type.as_deref() != Some(agent_id.as_str()) {
-                        return; // user/system swapped agent, abort
-                    }
-                    let age_from_launch = p.agent_set_at.map(|at| at.elapsed());
-                    (
-                        p.cwd.clone(),
-                        p.agent_session_id.clone(),
-                        mux.other_session_ids(&pane_id),
-                        age_from_launch,
-                        p.pty_id.clone(),
-                    )
-                };
-                let Some(cwd) = cwd else { continue };
-                let screen_text = pty_id
-                    .as_ref()
-                    .and_then(|id| svc.screen_state.lock().get_screen_text(id));
-                let sid = svc
-                    .agent_registry
-                    .with_provider(&agent_id, |p| {
-                        p.detect_started_session(
-                            &cwd,
-                            &exclude,
-                            age_from_launch,
-                            sid_already.as_deref(),
-                            screen_text.as_deref(),
-                        )
-                    })
-                    .flatten();
-                if let Some(sid) = sid {
-                    let already_bound = sid_already.as_deref() == Some(sid.as_str());
-                    if already_bound {
-                        return;
-                    }
-                    if sid_already.is_some() {
-                        let mut mux = svc.mux.lock();
-                        if let Some(p) = mux.get_pane_mut(&pane_id) {
-                            if p.agent_session_id.as_deref() == sid_already.as_deref() {
-                                p.agent_session_id = None;
-                            }
-                        }
-                    }
-                    // Atomic claim under the mux lock — between releasing the lock above and detection returning, another pane's detector may have already saved
-                    // the same sid (it shows up in `other_session_ids` only after the save). Re-check and skip if claimed; otherwise commit.
-                    enum ClaimOutcome {
-                        Wrote,
-                        AlreadySet,
-                        LostRace,
-                        PaneGone,
-                    }
-                    let outcome = {
-                        let mut mux = svc.mux.lock();
-                        if mux.other_session_ids(&pane_id).contains(&sid) {
-                            ClaimOutcome::LostRace
-                        } else if let Some(p) = mux.get_pane_mut(&pane_id) {
-                            if p.agent_session_id.is_none() {
-                                p.agent_session_id = Some(sid.clone());
-                                ClaimOutcome::Wrote
-                            } else {
-                                ClaimOutcome::AlreadySet
-                            }
-                        } else {
-                            ClaimOutcome::PaneGone
-                        }
-                    };
-                    match outcome {
-                        ClaimOutcome::Wrote => {
-                            log::info!(
-                                "[session-detect] auto-saved {} for pane {} (provider={})",
-                                sid,
-                                pane_id,
-                                agent_id,
-                            );
-                            svc.refresh_session_model_once(&pane_id, &agent_id);
-                            svc.emit_state_changed();
-                            return;
-                        }
-                        ClaimOutcome::AlreadySet => {
-                            log::debug!(
-                                "[session-detect] pane {} already had a session_id from another path — exiting",
-                                pane_id,
-                            );
-                            return;
-                        }
-                        ClaimOutcome::PaneGone => return,
-                        ClaimOutcome::LostRace => {
-                            log::info!(
-                                "[session-detect] candidate {} already claimed by another pane — retrying for pane {}",
-                                sid, pane_id,
-                            );
-                        }
-                    }
-                }
-            }
-            let total_secs = max_attempts as u64 * step.as_secs();
-            log::warn!(
-                "[session-detect] gave up after {}s for pane {} (provider={})",
-                total_secs,
-                pane_id,
-                agent_id,
-            );
-            if !svc.try_relaunch_stalled_agent(&pane_id, &agent_id) {
-                log::warn!(
-                    "[session-detect] recovery skipped for pane {} (provider={})",
-                    pane_id,
-                    agent_id
-                );
-            }
-        });
-    }
-
-    /// If a pane still has no attached session after a full detection window,
-    /// try a targeted relaunch path to avoid pinning unrelated sessions.
-    fn try_relaunch_stalled_agent(&self, pane_id: &str, agent_id: &str) -> bool {
-        let pane_is_stalled = {
-            let mux = self.mux.lock();
-            match mux.get_pane(pane_id) {
-                Some(p) => {
-                    p.agent_type.as_deref() == Some(agent_id)
-                        && p.agent_session_id.is_none()
-                        && p.pty_id.is_some()
-                }
-                None => false,
-            }
-        };
-        if !pane_is_stalled {
-            return false;
-        }
-
-        let _ = self
-            .agent_restart(
-                pane_id,
-                true,
-                crate::service::agent_restart::DEFAULT_GRACE_SECS,
-            )
-            .map_err(|e| {
-                log::warn!(
-                    "[session-detect] relaunch blocked for pane {} (provider={}) {:?}",
-                    pane_id,
-                    agent_id,
-                    e
-                );
-            });
-        true
-    }
-
     /// Set agent session ID on a pane. Kept as `set_agent_session_id`.
     ///
     /// Rejects assignments where the same session_id is already claimed by a
@@ -661,7 +479,7 @@ impl ServiceContext {
     /// atomically. Resume/snapshot rehydrate paths intentionally re-set the
     /// same id on the same pane and are unaffected.
     pub fn set_agent_session_id(&self, pane_id: &str, session_id: Option<String>) {
-        let mut mux = self.mux.lock();
+        let mut mux = self.mux.write();
         if let Some(ref new_sid) = session_id {
             let conflict = mux
                 .pane_ids_with_session(new_sid)
@@ -680,9 +498,41 @@ impl ServiceContext {
         }
     }
 
+    /// Per-launch binding nonce for a pane, generated once and reused. Injected as CODETERM_SESSION_BINDING_NONCE so a provider's session-start report can prove it owns this pane; a report carrying a different nonce is a stale/foreign claim and gets rejected.
+    pub fn ensure_session_binding_nonce(&self, pane_id: &str) -> String {
+        let mut mux = self.mux.write();
+        if let Some(pane) = mux.get_pane_mut(pane_id) {
+            if let Some(ref n) = pane.session_binding_nonce {
+                return n.clone();
+            }
+            let nonce = uuid::Uuid::new_v4().to_string();
+            pane.session_binding_nonce = Some(nonce.clone());
+            nonce
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        }
+    }
+
+    /// Per-session shell-integration nonce, generated once and reused. Exported as
+    /// CODETERM_SHELL_NONCE so the injected shell script can stamp it onto OSC 633;E;
+    /// the marker consumer (OSC3) rejects command-line text whose nonce mismatches.
+    pub fn ensure_shell_integration_nonce(&self, pane_id: &str) -> String {
+        let mut mux = self.mux.write();
+        if let Some(pane) = mux.get_pane_mut(pane_id) {
+            if let Some(ref n) = pane.shell_integration_nonce {
+                return n.clone();
+            }
+            let nonce = uuid::Uuid::new_v4().to_string();
+            pane.shell_integration_nonce = Some(nonce.clone());
+            nonce
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        }
+    }
+
     /// Set chat view state on a pane.
     pub fn set_chat_view(&self, pane_id: &str, enabled: bool) {
-        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+        if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
             pane.chat_view = enabled;
         }
     }
@@ -705,7 +555,7 @@ impl ServiceContext {
     /// Clear pending_prompt state without sending anything to PTY.
     /// Used for test cleanup and state reset.
     pub fn clear_prompt(&self, pane_id: &str) -> Result<(), String> {
-        if let Some(pane) = self.mux.lock().get_pane_mut(pane_id) {
+        if let Some(pane) = self.mux.write().get_pane_mut(pane_id) {
             pane.pending_prompt = None;
         }
         // Reset PromptDetector state so next inject is accepted (not blocked by same_options check)
@@ -718,7 +568,7 @@ impl ServiceContext {
     /// Only sends to PTY if there's actually a pending prompt (avoids phantom input).
     pub fn respond_prompt(&self, pane_id: &str, value: &str) -> Result<(), String> {
         let had_prompt = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let pane = mux
                 .get_pane_mut(pane_id)
                 .ok_or_else(|| format!("Pane not found: {}", pane_id))?;
@@ -730,6 +580,13 @@ impl ServiceContext {
         // Transition PromptDetector to Cooldown — suppresses re-detection of the same prompt from PTY output that hasn't been cleared yet.
         self.prompt_detector.lock().mark_responded(pane_id);
 
+        // STRUCTURED handle (opencode SSE) answers over HTTP, not the PTY: the
+        // PTY is display-only for these prompt classes. When a structured route
+        if let Some(result) = crate::service::structured_prompt::respond(self, pane_id, value) {
+            self.emit_state_changed();
+            return result;
+        }
+
         // Only send to PTY if there was an actual prompt — prevents phantom input
         if had_prompt {
             let pty_id = self.resolve_pty_id(pane_id)?;
@@ -740,19 +597,27 @@ impl ServiceContext {
                 buf.get_text(&pty_id).unwrap_or_default()
             };
             let clean = crate::pty::ansi::clean_terminal_output(&screen);
-            let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean);
+            let agent_type = self
+                .mux
+                .read()
+                .get_pane(pane_id)
+                .and_then(|p| p.agent_type.clone());
+            // Providers whose prompts aren't the universal numbered-list shape
+            // (opencode's horizontal row, cursor overlays) verify via their own
+            let prompt_on_screen = crate::agent::detector::detect_interactive_prompt(&clean)
+                || agent_type.as_deref().is_some_and(|at| {
+                    crate::agent::prompt::parse_prompt_safely(|| {
+                        self.agent_registry.parse_prompt(at, &clean)
+                    })
+                    .is_some()
+                });
 
             if prompt_on_screen {
                 let option_index = value.parse::<usize>().unwrap_or(1).saturating_sub(1);
 
-                let agent_type = self
-                    .mux
-                    .lock()
-                    .get_pane(pane_id)
-                    .and_then(|p| p.agent_type.clone());
                 let steps = if let Some(ref at) = agent_type {
                     self.agent_registry
-                        .build_prompt_response(at, option_index)
+                        .build_prompt_response(at, option_index, &clean)
                         .unwrap_or_else(|| self.default_prompt_response(option_index))
                 } else {
                     self.default_prompt_response(option_index)

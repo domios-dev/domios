@@ -183,8 +183,6 @@ The ServicesTable lists local services with health badges. ServiceDrawer shows f
 
 `AddServiceWizard` handles manual daemon registration. Smart-Add inspects running processes (`launchctl list` / `systemctl --user list-units` / `ps`) and offers heuristic field-mapping suggestions to pre-fill name / health-mode / process-label / port — the user reviews and edits before saving.
 
-Full architecture spec: `docs/superpowers/specs/2026-05-09-mesh-tab-design.md`.
-
 ## REST surface for peer management
 
 `/api/mesh/peers/*` ships both body-style and path-style endpoints. The path-style ones are aliases — they wrap the same handler with `request_id` / `instance_id` lifted from the URL — and exist so mesh tab UI components and curl scripts don't have to hand-build the body shape.
@@ -222,4 +220,4 @@ services/
   smart_add.rs      — heuristic field-mapping suggestions for AddServiceWizard
 ```
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

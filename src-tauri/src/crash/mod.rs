@@ -8,6 +8,7 @@
 mod native;
 mod panic;
 pub mod report;
+pub mod shutdown;
 
 use std::path::{Path, PathBuf};
 
@@ -57,7 +58,9 @@ pub fn trigger_test_crash(kind: &str) -> Result<(), String> {
 
 /// Scan the crashes directory for reports newer than the marker file.
 /// Returns absolute paths to text reports only (the human-readable artifact).
-/// Updates the marker after a successful scan.
+/// Reports written at or before the last graceful exit (the `.clean_exit`
+/// sentinel) are suppressed — a clean quit's API-down liveness report is not a
+/// crash. Updates the marker after a successful scan.
 pub fn check_previous_crashes() -> Vec<PathBuf> {
     let dir = report::crashes_dir();
     let marker = crate::paths::data_dir()
@@ -69,13 +72,13 @@ pub fn check_previous_crashes() -> Vec<PathBuf> {
         .and_then(|s| s.trim().parse::<i64>().ok())
         .unwrap_or(0);
 
+    let clean_exit_ts = shutdown::clean_exit_timestamp();
+
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
 
-    let mut new_reports: Vec<(i64, PathBuf)> = Vec::new();
-    let mut latest_mtime = last_seen;
-
+    let mut candidates: Vec<(i64, PathBuf)> = Vec::new();
     for entry in entries.flatten() {
         let path = entry.path();
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -95,18 +98,47 @@ pub fn check_previous_crashes() -> Vec<PathBuf> {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        if mtime > last_seen {
-            new_reports.push((mtime, path));
-            latest_mtime = latest_mtime.max(mtime);
-        }
+        candidates.push((mtime, path));
     }
+
+    let (new_reports, latest_mtime) = select_reports(candidates, last_seen, clean_exit_ts);
 
     if latest_mtime > last_seen {
         update_marker(&marker, latest_mtime);
     }
 
+    new_reports
+}
+
+/// Pure selection logic, split out for testing. Returns the reports to surface
+/// (sorted oldest-first) and the new marker high-water mark. A report surfaces
+/// only if its mtime is newer than `last_seen` AND newer than the clean-exit
+/// sentinel (when one exists). The high-water mark advances past suppressed
+/// reports too, so they stay suppressed even if the sentinel is later removed.
+fn select_reports(
+    candidates: Vec<(i64, PathBuf)>,
+    last_seen: i64,
+    clean_exit_ts: Option<i64>,
+) -> (Vec<PathBuf>, i64) {
+    let mut new_reports: Vec<(i64, PathBuf)> = Vec::new();
+    let mut latest_mtime = last_seen;
+
+    for (mtime, path) in candidates {
+        if mtime <= last_seen {
+            continue;
+        }
+        latest_mtime = latest_mtime.max(mtime);
+        if clean_exit_ts.is_some_and(|ce| mtime <= ce) {
+            continue;
+        }
+        new_reports.push((mtime, path));
+    }
+
     new_reports.sort_by_key(|(mtime, _)| *mtime);
-    new_reports.into_iter().map(|(_, p)| p).collect()
+    (
+        new_reports.into_iter().map(|(_, p)| p).collect(),
+        latest_mtime,
+    )
 }
 
 fn update_marker(marker: &Path, ts: i64) {
@@ -114,4 +146,51 @@ fn update_marker(marker: &Path, ts: i64) {
         let _ = std::fs::create_dir_all(parent);
     }
     let _ = std::fs::write(marker, ts.to_string());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn select_reports_ignores_pre_clean_exit_reports() {
+        // Clean exit at ts 150: the liveness report at 100 (written during the
+        // shutdown window) is suppressed; the genuine crash at 200 surfaces.
+        let candidates = vec![
+            (100, PathBuf::from("crash-old-liveness.txt")),
+            (200, PathBuf::from("crash-new-native.txt")),
+        ];
+        let (reports, latest) = select_reports(candidates, 0, Some(150));
+        assert_eq!(reports, vec![PathBuf::from("crash-new-native.txt")]);
+        assert_eq!(latest, 200);
+    }
+
+    #[test]
+    fn select_reports_surfaces_real_crash_without_sentinel() {
+        // No sentinel (no prior clean exit) → a real report still surfaces.
+        let candidates = vec![(200, PathBuf::from("crash-panic.txt"))];
+        let (reports, latest) = select_reports(candidates, 0, None);
+        assert_eq!(reports, vec![PathBuf::from("crash-panic.txt")]);
+        assert_eq!(latest, 200);
+    }
+
+    #[test]
+    fn select_reports_surfaces_real_crash_after_clean_exit() {
+        // A crash strictly newer than the clean-exit sentinel is a real crash
+        // in the new run and must surface (regression guard).
+        let candidates = vec![(500, PathBuf::from("crash-segv-native.txt"))];
+        let (reports, _) = select_reports(candidates, 0, Some(150));
+        assert_eq!(reports, vec![PathBuf::from("crash-segv-native.txt")]);
+    }
+
+    #[test]
+    fn select_reports_respects_last_seen() {
+        let candidates = vec![
+            (50, PathBuf::from("already-seen.txt")),
+            (300, PathBuf::from("fresh.txt")),
+        ];
+        let (reports, latest) = select_reports(candidates, 100, None);
+        assert_eq!(reports, vec![PathBuf::from("fresh.txt")]);
+        assert_eq!(latest, 300);
+    }
 }

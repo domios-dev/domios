@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use serde::Serialize;
 use tauri::State;
 
 use super::state::{MultiplexerSnapshot, MultiplexerState, WorkspaceInfo};
 use crate::service::{BatchOp, ServiceState};
 
-/// Shared multiplexer state, thread-safe.
-pub type MuxState = Arc<Mutex<MultiplexerState>>;
+/// Shared multiplexer state, thread-safe. RwLock allows concurrent reads from
+/// multiple PTY output handlers; writers still get exclusive access.
+pub type MuxState = Arc<RwLock<MultiplexerState>>;
 
 // ── Response types ───────────────────────────────────────────────────
 
@@ -25,7 +26,7 @@ pub struct TabInfo {
 /// Returns the full multiplexer state for frontend hydration (read-only).
 #[tauri::command]
 pub fn mux_get_state(state: State<'_, MuxState>) -> Result<MultiplexerSnapshot, String> {
-    Ok(state.lock().snapshot())
+    Ok(state.read().snapshot())
 }
 
 /// Create a new workspace.
@@ -78,6 +79,35 @@ pub fn mux_move_tab(
     svc.move_tab(&tab_id, &from_workspace_id, &to_workspace_id)
 }
 
+/// Reorder the top-level tabs of a workspace (within-group only).
+#[tauri::command]
+pub fn mux_reorder_tab(
+    svc: State<'_, ServiceState>,
+    workspace_id: String,
+    ordered_tab_ids: Vec<String>,
+) -> Result<(), String> {
+    svc.reorder_tab(&workspace_id, &ordered_tab_ids)
+}
+
+/// Reorder the child tabs of a parent pane (within its sibling group only).
+#[tauri::command]
+pub fn mux_reorder_child(
+    svc: State<'_, ServiceState>,
+    parent_pane_id: String,
+    ordered_tab_ids: Vec<String>,
+) -> Result<(), String> {
+    svc.reorder_child(&parent_pane_id, &ordered_tab_ids)
+}
+
+/// Reorder workspaces.
+#[tauri::command]
+pub fn mux_reorder_workspace(
+    svc: State<'_, ServiceState>,
+    ordered_workspace_ids: Vec<String>,
+) -> Result<(), String> {
+    svc.reorder_workspace(&ordered_workspace_ids)
+}
+
 /// Create a new tab in a workspace.
 #[tauri::command]
 pub fn mux_create_tab(
@@ -94,7 +124,7 @@ pub fn mux_create_tab(
     // Read tab title from state
     let title = svc
         .mux
-        .lock()
+        .write()
         .get_workspace(&workspace_id)
         .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
         .map(|t| t.title.clone())
@@ -126,6 +156,17 @@ pub fn mux_set_active_tab(
     svc.set_active_tab(&workspace_id, &tab_id)
 }
 
+/// Atomically switch active workspace and active tab in a single lock
+/// acquisition, emitting one mux-state-changed instead of two.
+#[tauri::command]
+pub fn mux_set_active_tab_and_workspace(
+    svc: State<'_, ServiceState>,
+    workspace_id: String,
+    tab_id: String,
+) -> Result<(), String> {
+    svc.set_active_tab_and_workspace(&workspace_id, &tab_id)
+}
+
 /// Rename a tab. Only path that changes a tab's title — pane renames don't propagate.
 #[tauri::command]
 pub fn mux_rename_tab(
@@ -141,6 +182,66 @@ pub fn mux_rename_tab(
 #[tauri::command]
 pub fn mux_close_pane(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
     svc.close_pane(&pane_id)
+}
+
+/// Reopen a recently-closed pane (browser-style). `index` picks the ring entry
+/// (newest = 0, default). Returns the new tab/pane ids.
+#[tauri::command]
+pub fn mux_reopen_closed_pane(
+    svc: State<'_, ServiceState>,
+    workspace_id: String,
+    index: Option<usize>,
+) -> Result<TabInfo, String> {
+    let (tab_id, pane_id) = svc.reopen_closed_pane(&workspace_id, index)?;
+    let title = svc
+        .mux
+        .read()
+        .get_workspace(&workspace_id)
+        .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
+        .map(|t| t.title.clone())
+        .unwrap_or_default();
+    Ok(TabInfo {
+        id: tab_id,
+        title,
+        pane_id,
+    })
+}
+
+/// Reopen a whole closed group (single / cascade subtree / workspace) by id.
+/// Recreates the workspace if needed, restores every pane, relinks hierarchy.
+#[tauri::command]
+pub fn mux_reopen_closed_group(
+    svc: State<'_, ServiceState>,
+    group_id: String,
+) -> Result<OrphanedRestoreInfo, String> {
+    let (workspace_id, tab_id, pane_id) = svc.reopen_closed_group(&group_id)?;
+    Ok(OrphanedRestoreInfo {
+        workspace_id,
+        tab_id,
+        pane_id,
+    })
+}
+
+/// Reopen a pane from the orphaned ring (its workspace was deleted). Recreates
+/// the workspace and materializes the pane into it. Returns workspace + tab ids.
+#[tauri::command]
+pub fn mux_restore_orphaned_pane(
+    svc: State<'_, ServiceState>,
+    pane_id: String,
+) -> Result<OrphanedRestoreInfo, String> {
+    let (workspace_id, tab_id, new_pane_id) = svc.reopen_orphaned_pane(pane_id.as_str())?;
+    Ok(OrphanedRestoreInfo {
+        workspace_id,
+        tab_id,
+        pane_id: new_pane_id,
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct OrphanedRestoreInfo {
+    pub workspace_id: String,
+    pub tab_id: String,
+    pub pane_id: String,
 }
 
 /// Set the focused pane.
@@ -285,6 +386,7 @@ pub fn build_agent_launch_command(
     agent_id: String,
     skip_permissions: bool,
 ) -> Result<String, String> {
+    svc.require_agent_provider_ready(&agent_id)?;
     let model_args = crate::service::spawn::resolve_fresh_agent_model(
         &svc.agent_registry,
         &agent_id,
@@ -305,12 +407,25 @@ pub fn build_agent_launch_command(
             Some(model_args)
         },
         skip_permissions,
-        headless: false,
         session_id: None,
+        structured_prompt_server: None,
     };
     svc.agent_registry
         .with_provider(&agent_id, |p| p.build_launch_command(&params))
         .ok_or_else(|| format!("Unknown agent provider: {}", agent_id))
+}
+
+/// The one atomic spawn command (T3): create + cwd + agent_type + activate +
+/// focus a pane and return the resulting snapshot, picking the transport via the
+/// unified registry. Launch runs on a background task — pane visibility never
+/// waits on it. The frontend dispatches `SET_STATE` from `snapshot` exactly once
+/// (no refetch, no blink) and, for PTY, delivers `launch_command` to the pane.
+#[tauri::command]
+pub fn mux_spawn_pane(
+    svc: State<'_, ServiceState>,
+    params: crate::service::transport::AtomicSpawnParams,
+) -> Result<crate::service::transport::AtomicSpawn, String> {
+    svc.spawn_pane_atomic(params)
 }
 
 // ── Agent Hierarchy Commands ─────────────────────────────────────────

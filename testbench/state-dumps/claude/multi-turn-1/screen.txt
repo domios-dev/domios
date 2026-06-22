@@ -1,0 +1,48 @@
+
+⏺ Write(test_greet.py)
+  ⎿  Wrote 30 lines to test_greet.py
+      1 import subprocess
+      2 import sys
+      3 
+      4 from greet import hello
+      5 
+      6
+      7 def test_hello_returns_greeting():
+      8     assert hello("Alice") == "Hello, Alice!"
+      9
+     … +20 lines (ctrl+o to expand)
+
+⏺ Bash(python -m pytest test_greet.py -q 2>&1 | tail -n 15)
+  ⎿  rtk: Failed to run pytest: Failed to spawn process: No such file or directory (os error 2)
+  ⎿  Allowed by auto mode classifier
+
+⏺ Bash(cd "/private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-state-capture-claude-multi-turn-1-70986" &&
+      python3 -m pytest test_greet.py -q 2>&1 | tail…)
+  ⎿  rtk: Failed to run pytest: Failed to spawn process: No such file or directory (os error 2)
+  ⎿  Allowed by auto mode classifier
+
+⏺ Bash(command -v python3 python pytest; echo "---"; which -a python3 2>/dev/null)
+  ⎿  /usr/local/bin/python3
+     ---
+     /usr/local/bin/python3
+     … +2 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+⏺ Bash(cd "/private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-state-capture-claude-multi-turn-1-70986" &&
+      /usr/local/bin/python3 -m pytest test_greet.py…)
+  ⎿  ....                                                                     [100%]
+     4 passed in 1.02s
+  ⎿  Allowed by auto mode classifier
+
+⏺ Created test_greet.py and ran it — 4 passed.
+
+  The tests cover both layers:
+  - hello() directly (normal name + empty-name edge case)
+  - The CLI via subprocess (--name Bob and the default World)
+
+✻ Churned for 30s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ add a test for whitespace-only names
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

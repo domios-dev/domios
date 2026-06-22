@@ -50,6 +50,11 @@ setup_env() {
 kill_dev() {
   kill_web_watch 2>/dev/null || true
   if [[ "$OSTYPE" == darwin* ]]; then
+    if command -v screen >/dev/null 2>&1; then
+      screen -ls 2>/dev/null | awk '/codeterm-dev-/ {print $1}' | while read -r session; do
+        screen -S "$session" -X quit 2>/dev/null || true
+      done
+    fi
     pgrep -f "target/debug/codeterm" | xargs kill 2>/dev/null || true
     pgrep -f "pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json" | xargs kill 2>/dev/null || true
     lsof -ti:1420 | xargs kill -9 2>/dev/null || true
@@ -92,19 +97,35 @@ prepare_bundle_stubs() {
 start_dev_wait_process() {
   local log="$1"
   local cmd=(pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json)
-  if [[ "$OSTYPE" == darwin* ]] && command -v script >/dev/null 2>&1; then
-    # macOS Tauri dev is more reliable with a controlling pseudo-tty. Plain
-    # `nohup pnpm tauri dev` can report healthy, then exit as the launcher shell
-    # tears down; `script` keeps the dev command in a pty while still detaching.
-    nohup script -q "$log" "${cmd[@]}" </dev/null >/dev/null 2>&1 &
-  else
-    nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
+  if [[ "$OSTYPE" == darwin* ]] && command -v screen >/dev/null 2>&1; then
+    local session="codeterm-dev-$$"
+    local root_q log_q
+    printf -v root_q "%q" "$(pwd)"
+    printf -v log_q "%q" "$log"
+    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json >> $log_q 2>&1"
+    echo "screen:$session"
+    return
   fi
+  nohup "${cmd[@]}" </dev/null >> "$log" 2>&1 &
   echo $!
+}
+
+dev_wait_process_alive() {
+  local pid="$1"
+  case "$pid" in
+    screen:*)
+      local session="${pid#screen:}"
+      screen -ls 2>/dev/null | grep -q "[.]$session[[:space:]]"
+      ;;
+    *)
+      kill -0 "$pid" 2>/dev/null
+      ;;
+  esac
 }
 
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
 # Watch-rebuild it so phone/browser mirrors pick up frontend edits on reload.
+# Tauri's beforeDevCommand owns the live devUrl server on 1420.
 start_web_watch() {
   kill_web_watch
   nohup pnpm exec vite build --watch </dev/null >> /tmp/codeterm-web-watch.log 2>&1 &
@@ -138,6 +159,9 @@ dev_listener_pid() {
 ensure_deps() {
   if [ ! -d node_modules ] || [ pnpm-lock.yaml -nt node_modules/.package-lock.json ] 2>/dev/null; then
     echo "Installing dependencies..."
+    # In no-TTY shells (agents, CI) pnpm aborts when it needs to remove node_modules
+    # without a terminal to confirm. CI=true disables that interactive guard.
+    [ -t 0 ] || export CI=true
     pnpm install --frozen-lockfile 2>/dev/null || pnpm install
   fi
 }
@@ -228,14 +252,14 @@ case "$CMD" in
       : > "$LOG"
       DEV_PID=$(start_dev_wait_process "$LOG")
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
-      DEADLINE=$(( $(date +%s) + 300 ))
+      DEADLINE=$(( $(date +%s) + 600 ))
       while : ; do
         if [ "$(date +%s)" -gt "$DEADLINE" ]; then
-          echo "Timeout after 300s. Last log lines:"
+          echo "Timeout after 600s. Last log lines:"
           tail -25 "$LOG"
           exit 1
         fi
-        if ! kill -0 "$DEV_PID" 2>/dev/null; then
+        if ! dev_wait_process_alive "$DEV_PID"; then
           echo "Dev process exited before reporting ready. Last log lines:"
           tail -25 "$LOG"
           exit 1
@@ -248,7 +272,7 @@ case "$CMD" in
             STABLE=1
             for _ in 1 2 3 4; do
               sleep 2
-              if ! kill -0 "$DEV_PID" 2>/dev/null; then
+              if ! dev_wait_process_alive "$DEV_PID"; then
                 STABLE=0
                 break
               fi
@@ -282,13 +306,13 @@ case "$CMD" in
     export CODETERM_API_URL="http://127.0.0.1:7686"
     cd tests/e2e
     pip install -q -r requirements.txt 2>/dev/null
-    python -m pytest -m "not llm" -v --tb=short "${@:2}"
+    python3 -m pytest -m "not llm" -v --tb=short "${@:2}"
     ;;
   e2e:llm)
     export CODETERM_API_URL="http://127.0.0.1:7686"
     cd tests/e2e
     pip install -q -r requirements.txt 2>/dev/null
-    python -m pytest -m llm -v --tb=short "${@:2}"
+    python3 -m pytest -m llm -v --tb=short "${@:2}"
     ;;
   test:all)
     # Aggregate runner for every NON-LLM test layer. Unit layers always run;
@@ -308,9 +332,9 @@ case "$CMD" in
     ta_run "ts-unit"    pnpm -s test:unit
     ta_run "plugin"     pnpm -s test:plugins
 
-    DEV_STATUS=$(dev_health_status | python -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
+    DEV_STATUS=$(dev_health_status | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
     if [ "$DEV_STATUS" = "ok" ]; then
-      ta_run "e2e-pytest" bash -c 'cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:7686 python -m pytest -m "not llm" -q'
+      ta_run "e2e-pytest" bash -c 'cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:7686 python3 -m pytest -m "not llm" -q'
       ta_run "playwright-smoke" pnpm -s test:pw:smoke
     else
       echo

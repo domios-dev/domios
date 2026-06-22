@@ -4,7 +4,6 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use tauri::Emitter;
 
 use crate::api::routes::{check_auth, AppState};
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle2, Download, RefreshCw, Trash2, Upload, XCircle } from "lucide-react";
+import { invoke } from "../../lib/bridge";
 import { SettingsCard, SettingsPage, SettingsPill } from "./shared";
 
 type PluginSource =

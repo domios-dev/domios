@@ -1,0 +1,20 @@
+-hard`, `git check                                                                                                     -- .`,                                                                                                                  `git cle…                                                                                                               │
+│                                                    │ Added a warning when the requested model is deprecated or automatically                                                                                                                 updated                                                                                                                 to                                                                                                                      newer                                                                                                                   model,                                                                                                                  show…                                                                                                                   │
+│ Opus 4.8 with high effort · Claude Team · Team Org A │ /release-notes for more                                         │
+│  /…/T/ct-replay-claude-geometry_smoke_v1-nfli_yqt  │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ Try "how do I log an error?"
+──Write geometry-smoke-notes.md with one sentence, then say 'geometry smoke done' in chat. Do not open any picker or men❯ Write geometry-smoke-notes.md with one sentence, then say 'geometry smoke done' in chat. Do not open any picker or menu.                                      
+✳ Bootstrapping… 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⏺ Write(geometry-smoke-notes.md)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────✻ Bootstrapping… (5s · ↓ 152 tokens · thought for 1s)
+⏺
+  ⎿  Wrote 1 lines to geometry-smoke-notes.md                                                                          /      1 This is a geometry smoke test note confirming the file write path works.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────✻ Bootstrapping… (5s · ↑ 165 tokens · thought for 1s)
+igh                                                                                                                    /⏺ geometry smoke done
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────✶ Bootstrapping… (7s · ↓ 260 tokens)
+igh                                                                                                                    /✻ Worked for 7s
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt                                                              high                                                                                                                    /effort                                   ← for agents                                           Plugin updated: frontend-design · Run /reload-plugins to apply

@@ -1,0 +1,21 @@
+dev@workstation codeterm-state-capture-claude-model-picker-2-87204 % bash /tmp/codeterm-spawn-5e5b195d-cb3c-42ba-96a9-89af6aad9dad.sh
+╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Run /init to create a CLAUDE.md file with instructions for Cla… │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ Improved auto mode safety: destructive git commands (`git rese… │
+│                        ▘▘ ▝▝                       │ Added a warning when the requested model is deprecated or auto… │
+│                                                    │ Added `attribution.sessionUrl` setting to omit the claude.ai s… │
+│ Opus 4.8 with high effort · Claude Team · Team Org A │ /release-notes for more                                         │
+│ /codeterm-state-capture-claude-model-picker-2-872… │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ /model                                                                                                                
+  ⎿  Set model to Opus 4.8 and saved as your default for new sessions
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents                                                 ● high · /effort

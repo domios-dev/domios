@@ -20,11 +20,21 @@ import type {
   SettingField,
 } from "../../lib/types";
 
+type ArraySettingField = Extract<SettingField, { kind: "array" }>;
+type ObjectArrayItemField = ArraySettingField["item"]["fields"][number];
+
 interface SchemaRendererProps {
   schema: SettingField[];
   providerId: string;
   config: AppConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
+  /**
+   * When set, field values are read from this record instead of
+   * `config.agents[providerId]`. Used by non-agent surfaces (plugin settings
+   * read/write `config.plugins.<id>`). When provided, the agent-only
+   * `[agent]` resume-toggle fallback is skipped.
+   */
+  values?: Record<string, unknown>;
   hideActions?: boolean;
   hidePathLinks?: boolean;
 }
@@ -34,12 +44,13 @@ export function SchemaRenderer({
   providerId,
   config,
   onChange,
+  values,
   hideActions,
   hidePathLinks,
 }: SchemaRendererProps) {
-  const providerConfig = config.agents?.[providerId] ?? {};
+  const providerConfig = (values ?? config.agents?.[providerId] ?? {}) as ProviderConfig;
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" data-testid="settings-schema" data-provider-id={providerId}>
       {schema.map((field, i) => (
         <FieldRenderer
           key={i}
@@ -48,6 +59,7 @@ export function SchemaRenderer({
           providerConfig={providerConfig}
           config={config}
           onChange={onChange}
+          agentNamespace={values === undefined}
           hideActions={hideActions}
           hidePathLinks={hidePathLinks}
         />
@@ -56,8 +68,10 @@ export function SchemaRenderer({
   );
 }
 
-// Provider-specific toggle inherits [agent] defaults when unset (matches backend fallback).
-function globalToggleFallback(key: string, config: AppConfig): boolean | undefined {
+// Provider-specific toggle inherits [agent] defaults when unset (matches backend
+// fallback). Only meaningful for agent providers; plugin surfaces pass values.
+function globalToggleFallback(key: string, config: AppConfig, agentNamespace: boolean): boolean | undefined {
+  if (!agentNamespace) return undefined;
   if (key === "resume_sessions") return config.agent?.resume_sessions;
   if (key === "resume_skip_permissions") return config.agent?.resume_skip_permissions;
   return undefined;
@@ -69,6 +83,7 @@ interface FieldRendererProps {
   providerConfig: ProviderConfig;
   config: AppConfig;
   onChange: (providerId: string, patch: Partial<ProviderConfig>) => void;
+  agentNamespace: boolean;
   hideActions?: boolean;
   hidePathLinks?: boolean;
 }
@@ -79,13 +94,14 @@ function FieldRenderer({
   providerConfig,
   config,
   onChange,
+  agentNamespace,
   hideActions,
   hidePathLinks,
 }: FieldRendererProps) {
   switch (field.kind) {
     case "section":
       return (
-        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3">
+        <div className="rounded-lg border border-[var(--ct-border)] bg-[var(--ct-bg)]/50 p-4 space-y-3" data-testid="settings-schema-section">
           <div className="text-sm font-medium text-[var(--ct-fg)]">{field.title}</div>
           {field.description && (
             <div className="text-xs text-[var(--ct-muted-fg)]">{field.description}</div>
@@ -98,6 +114,7 @@ function FieldRenderer({
               providerConfig={providerConfig}
               config={config}
               onChange={onChange}
+              agentNamespace={agentNamespace}
               hideActions={hideActions}
               hidePathLinks={hidePathLinks}
             />
@@ -107,7 +124,7 @@ function FieldRenderer({
 
     case "toggle": {
       const value = (providerConfig[field.key] as boolean | undefined)
-        ?? globalToggleFallback(field.key, config)
+        ?? globalToggleFallback(field.key, config, agentNamespace)
         ?? field.default;
       return (
         <ToggleField
@@ -122,10 +139,12 @@ function FieldRenderer({
     case "text": {
       const value = (providerConfig[field.key] as string | undefined) ?? field.default ?? "";
       return (
-        <div className="space-y-1">
+        <div className="space-y-1" data-testid="settings-schema-field" data-settings-field={field.key}>
           <div className="text-xs text-[var(--ct-fg)]">{field.label}</div>
           <input
             type="text"
+            data-testid="settings-schema-text"
+            data-settings-field={field.key}
             value={value}
             placeholder={field.placeholder}
             onChange={(e) => onChange(providerId, { [field.key]: e.target.value })}
@@ -141,10 +160,12 @@ function FieldRenderer({
     case "number": {
       const value = (providerConfig[field.key] as number | undefined) ?? field.default ?? 0;
       return (
-        <div className="space-y-1">
+        <div className="space-y-1" data-testid="settings-schema-field" data-settings-field={field.key}>
           <div className="text-xs text-[var(--ct-fg)]">{field.label}</div>
           <input
             type="number"
+            data-testid="settings-schema-number"
+            data-settings-field={field.key}
             value={value}
             min={field.min}
             max={field.max}
@@ -158,9 +179,11 @@ function FieldRenderer({
     case "select": {
       const value = (providerConfig[field.key] as string | undefined) ?? field.default ?? "";
       return (
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between" data-testid="settings-schema-field" data-settings-field={field.key}>
           <span className="text-xs text-[var(--ct-fg)]">{field.label}</span>
           <select
+            data-testid="settings-schema-select"
+            data-settings-field={field.key}
             value={value}
             onChange={(e) => onChange(providerId, { [field.key]: e.target.value })}
             className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-2 py-1 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
@@ -173,9 +196,23 @@ function FieldRenderer({
       );
     }
 
+    case "array": {
+      const stored = providerConfig[field.key];
+      const value = Array.isArray(stored)
+        ? (stored as Record<string, unknown>[])
+        : field.default ?? [];
+      return (
+        <ObjectArrayField
+          field={field}
+          value={value}
+          onChange={(next) => onChange(providerId, { [field.key]: next })}
+        />
+      );
+    }
+
     case "api_key":
       return (
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" data-testid="settings-schema-api-key" data-settings-field={field.env_var}>
           <div className="text-xs text-[var(--ct-fg)]">{field.label}</div>
           <div className="flex items-center gap-2 text-[10px] text-[var(--ct-muted-fg)]">
             <span>set via</span>
@@ -239,6 +276,7 @@ function FieldRenderer({
               providerConfig={providerConfig}
               config={config}
               onChange={onChange}
+              agentNamespace={agentNamespace}
               hideActions={hideActions}
               hidePathLinks={hidePathLinks}
             />
@@ -255,6 +293,239 @@ function FieldRenderer({
 
 // ── Sub-components ───────────────────────────────────────────────
 
+function ObjectArrayField({
+  field,
+  value,
+  onChange,
+}: {
+  field: ArraySettingField;
+  value: Record<string, unknown>[];
+  onChange: (next: Record<string, unknown>[]) => void;
+}) {
+  const itemLabel = field.item_label ?? field.label;
+  const add = () => onChange([...value, createDefaultObject(field.item.fields)]);
+  const remove = (index: number) => onChange(value.filter((_, i) => i !== index));
+  const update = (index: number, key: string, nextValue: unknown) => {
+    onChange(value.map((item, i) => (i === index ? { ...item, [key]: nextValue } : item)));
+  };
+
+  return (
+    <div className="space-y-2" data-testid="settings-schema-array" data-settings-field={field.key}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs text-[var(--ct-fg)]">{field.label}</div>
+          {field.description && (
+            <div className="text-[10px] text-[var(--ct-muted)]">{field.description}</div>
+          )}
+        </div>
+        <button
+          type="button"
+          data-testid="settings-schema-array-add"
+          data-settings-field={field.key}
+          onClick={add}
+          className="rounded border border-[var(--ct-border)] px-2 py-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+        >
+          Add
+        </button>
+      </div>
+      <div className="space-y-3">
+        {value.map((item, index) => (
+          <div
+            key={index}
+            className="rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 p-3 space-y-2"
+            data-testid="settings-schema-array-row"
+            data-settings-field={`${field.key}.${index}`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-medium text-[var(--ct-fg)]">
+                {arrayRowTitle(item, itemLabel, index)}
+              </div>
+              <button
+                type="button"
+                data-testid="settings-schema-array-remove"
+                data-settings-field={`${field.key}.${index}`}
+                onClick={() => remove(index)}
+                className="rounded border border-[var(--ct-border)] px-2 py-0.5 text-[10px] text-[var(--ct-muted-fg)] hover:border-[var(--ct-red)]/60 hover:text-[var(--ct-red)]"
+              >
+                Remove
+              </button>
+            </div>
+            {field.item.fields.map((subField) => (
+              <ObjectArrayItemInput
+                key={subField.key}
+                parentKey={field.key}
+                index={index}
+                field={subField}
+                value={item[subField.key]}
+                onChange={(next) => update(index, subField.key, next)}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function createDefaultObject(fields: ObjectArrayItemField[]): Record<string, unknown> {
+  const next: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (field.default !== undefined) {
+      next[field.key] = field.default;
+    } else if (field.kind === "number") {
+      next[field.key] = 0;
+    } else if (field.kind === "json") {
+      next[field.key] = {};
+    } else {
+      next[field.key] = "";
+    }
+  }
+  return next;
+}
+
+function arrayRowTitle(item: Record<string, unknown>, itemLabel: string, index: number): string {
+  const name = typeof item.name === "string" ? item.name.trim() : "";
+  const id = typeof item.id === "string" ? item.id.trim() : "";
+  const suffix = name || id || `${itemLabel} ${index + 1}`;
+  return suffix === itemLabel ? suffix : `${itemLabel}: ${suffix}`;
+}
+
+function ObjectArrayItemInput({
+  parentKey,
+  index,
+  field,
+  value,
+  onChange,
+}: {
+  parentKey: string;
+  index: number;
+  field: ObjectArrayItemField;
+  value: unknown;
+  onChange: (next: unknown) => void;
+}) {
+  const dataField = `${parentKey}.${index}.${field.key}`;
+  const label = <div className="text-[10px] text-[var(--ct-muted-fg)]">{field.label}</div>;
+
+  if (field.kind === "number") {
+    const numberValue = typeof value === "number" ? value : field.default ?? 0;
+    return (
+      <label className="block space-y-1">
+        {label}
+        <input
+          type="number"
+          data-testid="settings-schema-array-number"
+          data-settings-field={dataField}
+          value={numberValue}
+          min={field.min}
+          max={field.max}
+          onInput={(e) => onChange(Number(e.currentTarget.value))}
+          className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+        />
+      </label>
+    );
+  }
+
+  if (field.kind === "textarea") {
+    const textValue = typeof value === "string" ? value : field.default ?? "";
+    return (
+      <label className="block space-y-1">
+        {label}
+        <textarea
+          data-testid="settings-schema-array-textarea"
+          data-settings-field={dataField}
+          value={textValue}
+          placeholder={field.placeholder}
+          rows={4}
+          onInput={(e) => onChange(e.currentTarget.value)}
+          className="w-full resize-y bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+        />
+      </label>
+    );
+  }
+
+  if (field.kind === "json") {
+    return (
+      <JsonObjectInput
+        dataField={dataField}
+        field={field}
+        value={isRecord(value) ? value : field.default ?? {}}
+        onChange={onChange}
+      />
+    );
+  }
+
+  const textValue = typeof value === "string" ? value : field.default ?? "";
+  return (
+    <label className="block space-y-1">
+      {label}
+      <input
+        type="text"
+        data-testid="settings-schema-array-input"
+        data-settings-field={dataField}
+        value={textValue}
+        placeholder={field.placeholder}
+        onInput={(e) => onChange(e.currentTarget.value)}
+        className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+      />
+    </label>
+  );
+}
+
+function JsonObjectInput({
+  dataField,
+  field,
+  value,
+  onChange,
+}: {
+  dataField: string;
+  field: Extract<ObjectArrayItemField, { kind: "json" }>;
+  value: Record<string, unknown>;
+  onChange: (next: unknown) => void;
+}) {
+  const [draft, setDraft] = useState(() => JSON.stringify(value, null, 2));
+  const [error, setError] = useState<string | null>(null);
+  const valueKey = JSON.stringify(value);
+
+  useEffect(() => {
+    setDraft(JSON.stringify(value, null, 2));
+    setError(null);
+  }, [valueKey]);
+
+  return (
+    <label className="block space-y-1">
+      <div className="text-[10px] text-[var(--ct-muted-fg)]">{field.label}</div>
+      <textarea
+        data-testid="settings-schema-array-json"
+        data-settings-field={dataField}
+        value={draft}
+        rows={3}
+        onInput={(e) => {
+          const nextDraft = e.currentTarget.value;
+          setDraft(nextDraft);
+          try {
+            const parsed = JSON.parse(nextDraft) as unknown;
+            if (!isRecord(parsed)) {
+              setError("JSON must be an object");
+              return;
+            }
+            setError(null);
+            onChange(parsed);
+          } catch {
+            setError("Invalid JSON");
+          }
+        }}
+        className="w-full resize-y bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 font-mono text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
+      />
+      {error && <div className="text-[10px] text-[var(--ct-red)]">{error}</div>}
+      {!error && field.description && <div className="text-[10px] text-[var(--ct-muted)]">{field.description}</div>}
+    </label>
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function ToggleField({
   label,
   description,
@@ -267,7 +538,7 @@ function ToggleField({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3">
+    <div className="flex items-start justify-between gap-3" data-testid="settings-schema-toggle-row">
       <div className="flex-1">
         <div className="text-xs text-[var(--ct-fg)]">{label}</div>
         {description && (
@@ -276,6 +547,7 @@ function ToggleField({
       </div>
       <button
         type="button"
+        data-testid="settings-schema-toggle"
         onClick={() => onChange(!checked)}
         className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
           checked ? "bg-[var(--ct-accent)]" : "bg-[var(--ct-border)]"
@@ -306,7 +578,7 @@ function InfoField({
     error: "text-[var(--ct-red)]",
   };
   return (
-    <div className={`text-[11px] ${colors[level]} leading-relaxed`}>
+    <div className={`text-[11px] ${colors[level]} leading-relaxed`} data-testid="settings-schema-info" data-settings-level={level}>
       {title && <div className="font-medium mb-1">{title}</div>}
       <div className="whitespace-pre-wrap">{body}</div>
     </div>
@@ -318,12 +590,12 @@ function PathLinkField({ label, path }: { label: string; path: string }) {
     invoke("open_folder", { path }).catch(() => {});
   }, [path]);
   return (
-    <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]">
+    <div className="flex items-center justify-between text-[10px] text-[var(--ct-muted)]" data-testid="settings-schema-path-link">
       <div className="flex items-center gap-2">
         <span>{label}</span>
         <code className="font-mono">{path}</code>
       </div>
-      <button onClick={onClick} className="text-[var(--ct-accent)] hover:underline">
+      <button onClick={onClick} className="text-[var(--ct-accent)] hover:underline" data-testid="settings-schema-open-folder">
         Open folder
       </button>
     </div>
@@ -397,6 +669,7 @@ function BadgeField({
   if (!variant) return null;
   return (
     <span
+      data-testid="settings-schema-badge"
       className={`text-[9px] px-1.5 py-0.5 rounded-full inline-block ${BADGE_COLORS[variant.style]}`}
     >
       {variant.label}
@@ -489,6 +762,7 @@ function ActionField({
 
   return (
     <button
+      data-testid="settings-schema-action"
       onClick={click}
       disabled={busy || justDone}
       className={`w-full py-1.5 text-xs rounded font-medium transition-all duration-300 ${klass}`}

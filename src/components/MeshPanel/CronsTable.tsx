@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { CronRow, CRON_GRID_COLS } from "./CronRow";
 import type { Service } from "./types";
+import type { PeerStatus } from "./useMeshData";
 
 interface Props {
   services: Service[];
+  peers: PeerStatus[];
   thisMachineName: string;
   onServiceClick: (service: Service) => void;
 }
@@ -13,11 +15,22 @@ const SELECT_CLASS =
 
 export function CronsTable({
   services,
+  peers,
   thisMachineName,
   onServiceClick,
 }: Props) {
   const [hostFilter, setHostFilter] = useState<string>("all");
   const crons = useMemo(() => services.filter((s) => s.kind === "cron"), [services]);
+  const peerIssues = useMemo(
+    () =>
+      peers.filter(
+        (p) =>
+          !p.pending &&
+          (p.services_error || p.services_stale) &&
+          (hostFilter === "all" || p.name === hostFilter),
+      ),
+    [peers, hostFilter],
+  );
   const hosts = useMemo(() => {
     const set = new Set<string>([thisMachineName]);
     for (const s of crons) set.add(s.source_peer ?? thisMachineName);
@@ -69,13 +82,22 @@ export function CronsTable({
       </div>
       {filtered.map((s) => (
         <CronRow
-          key={s.id}
+          key={`${s.source_peer_id ?? s.source_peer ?? "local"}:${s.id}`}
           service={s}
           host={s.source_peer ?? thisMachineName}
           onClick={() => onServiceClick(s)}
         />
       ))}
-      {filtered.length === 0 && (
+      {peerIssues.map((p) => (
+        <div
+          key={`cron-issue-${p.instance_id}`}
+          data-testid="cron-peer-unavailable"
+          className="px-4 py-2 border-b border-[var(--ct-border)] text-[11px] text-[var(--ct-yellow)] bg-[var(--ct-titlebar-bg)]/40"
+        >
+          {p.name}: cron services {p.services_error ? `unreachable (${p.services_error})` : "cached / stale"}
+        </div>
+      ))}
+      {filtered.length === 0 && peerIssues.length === 0 && (
         <div className="px-4 py-3 text-center text-[var(--ct-muted)] text-xs">
           No crons.
         </div>

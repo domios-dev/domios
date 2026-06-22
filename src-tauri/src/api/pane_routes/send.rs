@@ -1,0 +1,319 @@
+use axum::{
+    extract::{Path, State as AxumState},
+    http::{HeaderMap, StatusCode},
+    Json,
+};
+use serde::Deserialize;
+
+use crate::api::routes::{check_auth, resolve_pane};
+
+use super::AppState;
+
+pub(super) use self::await_pty_link as wait_for_pty_link;
+
+pub(crate) fn default_true() -> bool {
+    true
+}
+
+#[derive(Deserialize)]
+pub(crate) struct SendTextBody {
+    pub(crate) text: Option<String>,
+    #[serde(default = "default_true")]
+    pub(crate) enter: bool,
+    /// Terminal key/action sequence. When present, optional text is inserted
+    /// first without auto-submit, then actions are written as raw PTY bytes.
+    pub(crate) actions: Option<Vec<SendAction>>,
+    /// Batch: send multiple commands sequentially with optional delays
+    pub(crate) batch: Option<Vec<BatchCommand>>,
+    /// Raw mode: bypass bracket paste, send bytes directly to PTY.
+    /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
+    #[serde(default)]
+    pub(crate) raw: bool,
+    /// Sender's pane id when CLI is invoked from inside CodeTerm. Daemon
+    /// prepends a CodeTerm marker so the recipient knows the return-address.
+    /// Mesh hops and hierarchy reports use the same marker family.
+    #[serde(default)]
+    pub(crate) source_pane: Option<String>,
+    /// Originating peer name, injected by the mesh relay (authenticated from
+    /// the signed token — peers cannot spoof it). Present ⇒ this delivery
+    /// crossed the mesh; the label is peer-qualified `label@peer`.
+    #[serde(default)]
+    pub(crate) source_peer: Option<String>,
+    /// Source agent label + model, threaded from the originating peer (the
+    /// source pane is foreign and cannot be resolved against the local mux).
+    #[serde(default)]
+    pub(crate) source_label: Option<String>,
+    #[serde(default)]
+    pub(crate) source_model: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct BatchCommand {
+    pub(crate) text: String,
+    #[serde(default = "default_true")]
+    pub(crate) enter: bool,
+    pub(crate) delay_ms: Option<u64>,
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub(crate) enum SendAction {
+    Key { key: String },
+    Delay { ms: u64 },
+}
+
+pub(crate) use crate::agent::keys::action_key_bytes as send_action_bytes;
+
+fn action_preview(actions: &[SendAction]) -> String {
+    actions
+        .iter()
+        .map(|a| match a {
+            SendAction::Key { key } => key.clone(),
+            SendAction::Delay { ms } => format!("delay:{ms}ms"),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// PTY init takes ~1-2s after agent_spawn returns; send fired
+/// immediately would otherwise hit "no PTY" unconditionally. Poll for
+/// the link with this short budget so a script can chain spawn → send.
+pub(super) async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
+    // [G] A chatBackend pane has no PTY to link — don't poll for one that never
+    // appears (it would hang the full budget and then fail). It is "ready" the
+    if state.svc.pane_chat_backing(pane_id).is_some() {
+        return true;
+    }
+    for _ in 0..75 {
+        if state.svc.resolve_pty_id(pane_id).is_ok() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    false
+}
+
+fn record_push_activity(state: &AppState, svc_id: &Option<String>, pane_id: &str, text: &str) {
+    use tauri::Emitter;
+    let Some(svc_id) = svc_id else { return };
+    let writer = crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
+    let preview = text.chars().take(200).collect::<String>();
+    let _ = writer.record(crate::service::activity::ActivityEvent::push(
+        svc_id, pane_id, &preview,
+    ));
+    let _ = state.svc.app_handle.emit(
+        "service-pushed",
+        serde_json::json!({"source_id": svc_id, "target": pane_id}),
+    );
+}
+
+pub async fn send_text(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+    Json(body): Json<SendTextBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    let svc_token_match = headers
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| {
+            crate::service::push::validate_push(v, &state.svc.tokens, &state.svc.services_store)
+                .ok()
+                .flatten()
+        });
+
+    if svc_token_match.is_none() {
+        check_auth(&state, &headers)?;
+    }
+    let pane_id = resolve_pane(&state, &raw_pane_id)?;
+
+    let target_is_chat = state.svc.pane_chat_backing(&pane_id).is_some();
+    if !target_is_chat {
+        state
+            .svc
+            .ensure_pane_pty_for_send(&pane_id)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+
+        if !await_pty_link(&state, &pane_id).await {
+            return Err((
+                StatusCode::NOT_FOUND,
+                "Pane not found or PTY did not start within 3s",
+            ));
+        }
+    }
+
+    let source_envelope: Option<crate::service::messenger::MessageEnvelope> =
+        body.source_pane.as_deref().and_then(|src| {
+            match body.source_peer.as_deref().filter(|p| !p.is_empty()) {
+                // Mesh delivery: the source pane is foreign — identity comes from
+                // the body (resolved on the originating peer), peer-qualified here.
+                Some(peer) => {
+                    let label = body
+                        .source_label
+                        .as_deref()
+                        .filter(|s| !s.trim().is_empty())
+                        .unwrap_or(peer);
+                    Some(
+                        crate::service::messenger::MessageEnvelope::pane(label, src)
+                            .model(body.source_model.clone())
+                            .peer(Some(peer.to_string()))
+                            .mesh(Some(peer.to_string())),
+                    )
+                }
+                // Local delivery: resolve the label/model from the local mux.
+                None => {
+                    let mux = state.svc.mux.write();
+                    let resolved = mux.resolve_pane_id(src)?;
+                    let from_label = mux.display_label_for_pane(&resolved);
+                    let model = mux
+                        .get_pane(&resolved)
+                        .and_then(|p| p.agent_session_model.clone());
+                    Some(
+                        crate::service::messenger::MessageEnvelope::pane(from_label, resolved)
+                            .model(model),
+                    )
+                }
+            }
+        });
+    let prepend = |s: &str| -> String {
+        match &source_envelope {
+            Some(envelope) if !target_is_chat => {
+                format!(
+                    "{}{}",
+                    crate::service::messenger::Messenger::pty_prefix(envelope),
+                    s
+                )
+            }
+            None => s.to_string(),
+            Some(_) => s.to_string(),
+        }
+    };
+
+    // Run send-time text stages only at the user-facing seam. Low-level
+    // send_text is also used by system senders and stays transport-clean.
+    let run_stages = crate::chatpipeline::is_user_turn_send(
+        svc_token_match.is_some(),
+        body.source_pane.is_some(),
+        state.svc.pane_has_agent(&pane_id),
+    );
+    let stage = |s: String| -> String {
+        if run_stages {
+            state.svc.run_outbound_stages(&pane_id, s)
+        } else {
+            s
+        }
+    };
+
+    if let Some(actions) = body.actions {
+        if actions.is_empty() {
+            return Err((StatusCode::BAD_REQUEST, "actions cannot be empty"));
+        }
+        let mut writes: Vec<(Option<u64>, Vec<u8>)> = Vec::with_capacity(actions.len());
+        for action in &actions {
+            match action {
+                SendAction::Delay { ms } => writes.push((Some(*ms), Vec::new())),
+                SendAction::Key { key } => {
+                    let Some(bytes) = send_action_bytes(key) else {
+                        return Err((StatusCode::BAD_REQUEST, "unknown action key"));
+                    };
+                    writes.push((None, bytes));
+                }
+            }
+        }
+
+        let raw_text = body.text.clone().unwrap_or_default();
+        let text_was_sent = !raw_text.is_empty();
+        if text_was_sent {
+            let text = prepend(&stage(raw_text.clone()));
+            state
+                .svc
+                .send_text_when_ready(&pane_id, &text, false)
+                .await
+                .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        }
+
+        // Raw terminal key writes are PTY-only; a chatBackend pane has no
+        // terminal, so skip them (the text turn above already routed to the
+        if state.svc.pane_chat_backing(&pane_id).is_none() {
+            let pty_id = state
+                .svc
+                .resolve_pty_id(&pane_id)
+                .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+            let pty = state.svc.pty.clone();
+            tokio::spawn(async move {
+                if text_was_sent {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                for (delay, bytes) in writes {
+                    if let Some(ms) = delay {
+                        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+                        continue;
+                    }
+                    let _ = pty.lock().write(&pty_id, &bytes);
+                }
+            });
+        }
+
+        let preview = if raw_text.is_empty() {
+            format!("<actions:{}>", action_preview(&actions))
+        } else {
+            format!("{} <actions:{}>", raw_text, action_preview(&actions))
+        };
+        record_push_activity(&state, &svc_token_match, &pane_id, &preview);
+        return Ok(Json(serde_json::json!({"ok": true, "actions": true})));
+    }
+
+    if let Some(batch) = body.batch {
+        let preview = batch
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ; ");
+        let items: Vec<crate::service::pty_io::SendBatchItem> = batch
+            .into_iter()
+            .map(|c| crate::service::pty_io::SendBatchItem {
+                text: prepend(&stage(c.text)),
+                enter: c.enter,
+                delay_ms: c.delay_ms,
+            })
+            .collect();
+        state
+            .svc
+            .send_text_batch(&pane_id, items)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        record_push_activity(&state, &svc_token_match, &pane_id, &preview);
+        return Ok(Json(serde_json::json!({"ok": true, "batch": true})));
+    }
+
+    if body.raw {
+        // raw mode bypasses bracket paste — sender prefix is intentionally skipped here too (raw = byte-for-byte keystrokes for TUIs)
+        let raw_text = body.text.clone().unwrap_or_default();
+        let mut buf = raw_text.clone();
+        if body.enter && !buf.ends_with('\r') {
+            buf.push('\r');
+        }
+        state
+            .svc
+            .write_raw(&pane_id, buf.as_bytes())
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+        record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
+        return Ok(Json(serde_json::json!({"ok": true})));
+    }
+
+    let raw_text = body.text.unwrap_or_default();
+    if let Some(envelope) = source_envelope {
+        crate::service::messenger::Messenger::deliver(&state.svc, &pane_id, envelope, &raw_text)
+            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
+        record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
+        return Ok(Json(serde_json::json!({"ok": true})));
+    }
+
+    let text = prepend(&stage(raw_text));
+    state
+        .svc
+        .send_text_when_ready(&pane_id, &text, body.enter)
+        .await
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
+    record_push_activity(&state, &svc_token_match, &pane_id, &text);
+    Ok(Json(serde_json::json!({"ok": true})))
+}

@@ -5,7 +5,6 @@ pub mod auto_extract;
 pub mod dreaming;
 pub mod embed_queue;
 pub mod embeddings;
-pub mod extract;
 pub mod file_sync;
 pub mod graph;
 pub mod graph_layout;
@@ -42,6 +41,7 @@ pub use graph::{Entity, Relation};
 pub use layers::WakeUpOptions;
 #[cfg(feature = "embeddings")]
 pub use reindex::compose_embed_text;
+pub use reindex::{body_is_embeddable, MIN_EMBED_BODY_CHARS};
 pub use search::{SearchHit, SearchQuery};
 pub use store::{MemItem, MemKind, MemScope, NewMemItem};
 

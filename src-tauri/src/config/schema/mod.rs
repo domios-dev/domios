@@ -20,6 +20,11 @@ pub struct AppConfig {
     /// the `agents.<id>.*` paths.
     #[serde(default)]
     pub agents: HashMap<String, ProviderConfig>,
+    /// Per-plugin settings, keyed by plugin id. A generic JSON bag because each
+    /// plugin defines its own settings schema (rendered by SchemaRenderer); the
+    /// plugin reads its own blob via `host.settingsJson()`.
+    #[serde(default)]
+    pub plugins: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub general_agent: GeneralAgentConfig,
     #[serde(default)]
@@ -46,6 +51,7 @@ impl Default for AppConfig {
             agent: AgentConfig::default(),
             api: ApiConfig::default(),
             agents: HashMap::new(),
+            plugins: HashMap::new(),
             general_agent: GeneralAgentConfig::default(),
             memory: MemoryConfig::default(),
             integrations: IntegrationsConfig::default(),
@@ -102,9 +108,6 @@ impl Default for ApiConfig {
             enabled: true,
             // 0.0.0.0 by default because mesh peers connect directly to this
             // host's Tailscale/LAN IP (transport.rs builds http://<ip>:<port>) —
-            // a 127.0.0.1 bind would refuse those and break mesh out of the box
-            // (mesh.enabled defaults true). Security-conscious single-machine
-            // users can set api.host = "127.0.0.1"; start_servers warns on 0.0.0.0.
             host: "0.0.0.0".to_string(),
             #[cfg(debug_assertions)]
             port: 7686,
@@ -231,6 +234,7 @@ impl Default for NotificationConfig {
 #[serde(default)]
 pub struct KeybindingsConfig {
     pub new_tab: String,
+    pub reopen_tab: String,
     pub close_tab: String,
     pub next_tab: String,
     pub prev_tab: String,
@@ -253,6 +257,7 @@ impl Default for KeybindingsConfig {
     fn default() -> Self {
         Self {
             new_tab: "Ctrl+T".to_string(),
+            reopen_tab: "Ctrl+Shift+T".to_string(),
             close_tab: "Ctrl+W".to_string(),
             next_tab: "Ctrl+Tab".to_string(),
             prev_tab: "Ctrl+Shift+Tab".to_string(),
@@ -344,7 +349,7 @@ fn default_worker_timeout_seconds() -> u64 {
 }
 
 fn default_dreaming_timeout_seconds() -> u64 {
-    1800
+    3600
 }
 
 fn default_dedup_threshold() -> f64 {
@@ -445,6 +450,10 @@ pub struct UiConfig {
     pub mesh_tab_enabled: bool,
     #[serde(default)]
     pub default_new_agent_pane_chat: bool,
+    /// Centralized per-user client settings that used to live in each client's
+    /// localStorage (prompt-seen flags, toggles). Pluggable; no Rust field churn.
+    #[serde(flatten)]
+    pub extra: HashMap<String, toml::Value>,
 }
 
 impl Default for UiConfig {
@@ -453,6 +462,7 @@ impl Default for UiConfig {
             memory_tab_enabled: true,
             mesh_tab_enabled: true,
             default_new_agent_pane_chat: false,
+            extra: HashMap::new(),
         }
     }
 }
@@ -592,6 +602,14 @@ pub struct VoiceTranscribeConfig {
     pub fallback_raw_on_error: bool,
     #[serde(default = "default_voice_health_ttl_secs")]
     pub health_check_ttl_secs: u64,
+    /// Id of the active transcriber in the registry. Defaults to the bundled
+    /// `transcriber` plugin (no native engine); another plugin sets its own id.
+    #[serde(default = "default_transcribe_active")]
+    pub active: String,
+}
+
+pub(crate) fn default_transcribe_active() -> String {
+    "transcriber".to_string()
 }
 
 impl Default for VoiceTranscribeConfig {
@@ -603,6 +621,7 @@ impl Default for VoiceTranscribeConfig {
             language: String::new(),
             fallback_raw_on_error: default_voice_fallback_raw(),
             health_check_ttl_secs: default_voice_health_ttl_secs(),
+            active: default_transcribe_active(),
         }
     }
 }

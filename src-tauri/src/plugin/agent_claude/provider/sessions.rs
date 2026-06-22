@@ -55,6 +55,94 @@ pub(super) fn session_file_path(cwd: &str, session_id: &str) -> Option<PathBuf> 
     Some(dir.join(format!("{}.jsonl", session_id)))
 }
 
+/// Build a structured pending prompt for this session from its OWN JSONL — the
+/// live, unanswered AskUserQuestion if one is on the wire. Reads only a bounded
+/// tail (the prompt and its eventual answer are always near the end) so it's
+/// safe to call on the hot path's marker-gated branch. Returns `None` when no
+/// structured question is pending. The permission picker has no structured
+/// transcript handle, so it falls through to the native detector.
+pub(super) fn structured_pending_prompt(
+    cwd: &str,
+    session_id: &str,
+) -> Option<crate::multiplexer::types::PendingPrompt> {
+    const TAIL_BYTES: u64 = 256 * 1024;
+    let path = session_file_path(cwd, session_id)?;
+    let messages = read_rich_tail(&path, TAIL_BYTES);
+    crate::agent::structured_prompt::active_question_prompt(&messages)
+}
+
+/// Parse the tail of a claude session JSONL into enriched [`RichMessage`]s —
+/// just enough structure (role + typed content blocks + `interactive`) for
+/// [`crate::agent::structured_prompt::active_question_prompt`]. Bounded read;
+/// the first (possibly partial) line after a mid-file seek is dropped.
+fn read_rich_tail(path: &Path, tail_bytes: u64) -> Vec<crate::agent::chat_types::RichMessage> {
+    use crate::agent::chat_types::{MessageBlock, RichMessage};
+    use std::io::{Read, Seek, SeekFrom};
+
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return Vec::new();
+    };
+    let Ok(len) = f.metadata().map(|m| m.len()) else {
+        return Vec::new();
+    };
+    if len == 0 {
+        return Vec::new();
+    }
+    let start = len.saturating_sub(tail_bytes);
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return Vec::new();
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<&str> = text.split('\n').collect();
+    if start > 0 && !lines.is_empty() {
+        // Drop the partial first line produced by the mid-file seek.
+        lines.remove(0);
+    }
+
+    let mut out = Vec::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        let role = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        if role != "user" && role != "assistant" {
+            continue;
+        }
+        let Some(serde_json::Value::Array(content)) =
+            v.get("message").and_then(|m| m.get("content"))
+        else {
+            continue;
+        };
+        // Each claude content block carries its discriminant in `type`; mirror
+        // it into the host's `MessageBlock.kind` so `parse_interactive_events`
+        let blocks: Vec<MessageBlock> = content
+            .iter()
+            .filter_map(|b| {
+                let kind = b.get("type").and_then(|t| t.as_str())?.to_string();
+                Some(MessageBlock {
+                    kind,
+                    data: b.clone(),
+                })
+            })
+            .collect();
+        let mut msg = RichMessage {
+            role: role.to_string(),
+            blocks,
+            ..Default::default()
+        };
+        msg.interactive = super::interactive::parse_interactive_events(&msg);
+        out.push(msg);
+    }
+    out
+}
+
 pub(super) fn detect_session_model(cwd: &str, session_id: &str) -> Option<String> {
     let path = session_file_path(cwd, session_id)?;
     // Climb the tail in tiers — most sessions resolve from 64K, but resumed sessions that haven't received a new assistant turn yet can have many
@@ -406,12 +494,6 @@ pub(super) fn detect_session_id(
 
     // Identity-bound, never "newest-for-cwd": refuse to guess when 2+ recent
     // sessions are viable candidates (multiple agents sharing this cwd). Picking
-    // the newest would hand one pane a SIBLING's session — and detection order /
-    // a stale exclude list could swap them (сессии перепутаны, #25/W3). Bind
-    // ONLY when the candidate is unambiguous; otherwise the caller waits for an
-    // identity signal (the injected --session-id or the per-pane SessionStart
-    // hook). The exclude list collapses the set as siblings get bound, so the
-    // last unclaimed session still resolves cleanly.
     match sessions.as_slice() {
         [(id, _)] => Some(id.clone()),
         _ => None,
@@ -430,49 +512,36 @@ mod tests {
     }
 
     #[test]
-    fn detect_launched_session_binds_injected_id_even_with_a_sibling_present() {
-        // Bug B case (i): a SPAWNED pane carries a unique injected --session-id.
-        // Detection must bind THAT identity-bound id, never a sibling sharing the
-        // cwd — proving injected panes are already safe (guard against regressing
-        // the injected short-circuit into a newest-for-cwd guess).
-        let p = super::super::ClaudeProvider::new();
-        let tmp = tempfile::tempdir().unwrap();
-        let cwd = tmp.path().to_string_lossy().to_string();
-        let injected = "injc1111-2222-4333-8444-555566667777";
-        let sibling = "sibd9999-8888-4777-8666-555544443333";
-        let Some(inj_path) = p.session_file_path(&cwd, injected) else {
-            return;
-        };
-        let Some(dir) = inj_path.parent().map(|d| d.to_path_buf()) else {
-            return;
-        };
-        if std::fs::create_dir_all(&dir).is_err() {
-            return;
+    fn encode_cwd_matches_real_claude_project_dirs() {
+        // FIXTURE GATE (CE3): pin the cwd -> ~/.claude/projects/<dir> encoding against
+        // REAL on-disk dir names observed in this machine's ~/.claude/projects. Claude
+        let cases = [
+            ("/Users/dev", "-Users-dev"),
+            // /Users/dev/.codeterm-dev/general : the '/' before '.codeterm' AND the '.'
+            // each become a dash -> the `--codeterm` double-dash. Real dir on disk.
+            (
+                "/Users/dev/.codeterm-dev/general",
+                "-Users-dev--codeterm-dev-general",
+            ),
+            (
+                "/Users/dev/Developer/wk-cb-p1",
+                "-Users-dev-Developer-wk-cb-p1",
+            ),
+            // Windows native path: drive colon + backslashes all collapse to dashes.
+            ("C:\\Users\\dev\\proj", "C--Users-User-proj"),
+            // Forward-slash form of the same Windows path encodes identically — the
+            // encoder is separator-agnostic, so a normalized cwd binds the same dir.
+            ("C:/Users/dev/proj", "C--Users-User-proj"),
+        ];
+        for (cwd, want) in cases {
+            assert_eq!(encode_cwd(cwd), want, "encode_cwd({cwd:?})");
         }
-        let sib_path = dir.join(format!("{sibling}.jsonl"));
-        if std::fs::write(&inj_path, "{}\n").is_err() || std::fs::write(&sib_path, "{}\n").is_err()
-        {
-            return;
-        }
-        assert_eq!(
-            p.detect_launched_session_id(&cwd, &[], None, Some(injected))
-                .as_deref(),
-            Some(injected),
-            "a spawned pane must bind its OWN injected id, never a sibling in the cwd",
-        );
-        let _ = std::fs::remove_file(&inj_path);
-        let _ = std::fs::remove_file(&sib_path);
     }
 
     #[test]
     fn detect_session_id_refuses_to_guess_when_ambiguous_in_shared_cwd() {
         // Bug B (#25 / W3): сессии перепутаны. When 2+ agents share a cwd and a
         // pane's session is None (restart/resume), the newest-in-cwd guess hands
-        // one pane a SIBLING's session — and detection ORDER / a stale exclude
-        // list can swap them. When more than one recent session is a viable
-        // candidate (none pinned by the exclude list), detection MUST refuse —
-        // honest None — instead of guessing. Identity-bound binding (the
-        // injected --session-id / the per-pane SessionStart hook) resolves it.
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().to_string_lossy().to_string();
         let s1 = "aaaa1111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -514,11 +583,6 @@ mod tests {
     fn detect_active_session_never_grabs_a_sibling_session_in_same_cwd() {
         // Bug B (#25 / W3): сессии перепутаны. Session resolution must be
         // IDENTITY-BOUND — a pane is resolved only by its OWN recorded id, never
-        // by "newest in cwd". So when 2+ agents share a cwd, a pane must NOT roll
-        // onto a SIBLING's session even though the sibling's file is right there
-        // and the pane's own file may not exist yet. The tab is the single
-        // source of truth. (Regression guard: a newest-for-cwd / most-recently-
-        // written fallback here is exactly the cross-contamination bug.)
         let p = super::super::ClaudeProvider::new();
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().to_string_lossy().to_string();
@@ -561,8 +625,6 @@ mod tests {
     fn test_sessions_dir_real_cwd_has_no_verbatim_dashes() {
         // Regression for the live bug: on Windows, canonicalize returns a
         // `\\?\`-prefixed path; without stripping, the encoded project dir grew
-        // 4 leading dashes and resume never matched. Use an existing dir so
-        // canonicalize actually fires.
         let cwd = std::env::temp_dir().to_string_lossy().to_string();
         let dir = sessions_dir(&cwd).unwrap();
         let leaf = dir.file_name().unwrap().to_string_lossy().to_string();

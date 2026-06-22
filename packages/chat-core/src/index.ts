@@ -4,11 +4,20 @@ export type {
   NormalizedChatMessage,
   ProviderChatAdapter,
   ChatOrigin,
+  ShellCommandStatus,
   SlashCommand,
   InteractiveElement,
   InteractiveQuestion,
   InteractiveOption,
 } from "./types";
+export {
+  shellCommandMessage,
+  shellSnapshotToMessages,
+  applyShellLifecycle,
+  type ShellCommandSnapshot,
+  type ShellCommandSnapshotItem,
+  type CommandLifecycle,
+} from "./shellCommands";
 export {
   chatMessageFingerprint,
   normalizeChatText,
@@ -16,6 +25,8 @@ export {
 } from "./normalize";
 export { matchedOptimisticEchoes, type OptimisticEcho } from "./dedupe";
 export { mergeTimelineMessages } from "./timeline";
+export { mergeById } from "./merge";
+export { attachToolResults, isRenderableChatMessage } from "./toolResults";
 export { lastSessionResetIndex, trimAfterSessionReset } from "./sessionReset";
 export {
   MARKER_OPEN,
@@ -28,7 +39,9 @@ export {
   markTelegram,
   markMesh,
   markPane,
+  markPluginConfig,
   markReport,
   markHook,
+  markSystemPrompt,
   type ParsedMarker,
 } from "./markers";

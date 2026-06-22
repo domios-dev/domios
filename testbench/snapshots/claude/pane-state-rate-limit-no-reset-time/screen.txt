@@ -1,0 +1,8 @@
+You've reached your usage limit for this session.
+
+What do you want to do?
+
+> 1. Stop and wait for the limit to reset
+  2. Upgrade your plan
+
+Enter to confirm · Esc to cancel

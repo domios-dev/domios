@@ -1,0 +1,214 @@
+[
+  {
+    "t_ms": 0,
+    "event": "capture_start",
+    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/provider_cli_question_probe_v1-question-probe-v1-cursor/raw.cast",
+    "capture_start_result": {
+      "ok": true,
+      "out": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/provider_cli_question_probe_v1-question-probe-v1-cursor/raw.cast",
+      "width": 120,
+      "height": 40
+    }
+  },
+  {
+    "t_ms": 1,
+    "event": "capture_resize",
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 5532,
+    "event": "spawned",
+    "pane": "08406006",
+    "workspace": "3fe7b60d",
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 8677,
+    "event": "send_turn",
+    "turn": 1
+  },
+  {
+    "t_ms": 25075,
+    "event": "turn_settled",
+    "turn": 1,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 10299,
+      "stable_ms": 3087,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 25076,
+    "event": "idle_hold_start",
+    "turn": 1,
+    "duration_ms": 15000
+  },
+  {
+    "t_ms": 25616,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 1
+  },
+  {
+    "t_ms": 26160,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 2
+  },
+  {
+    "t_ms": 26705,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 3
+  },
+  {
+    "t_ms": 27244,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 4
+  },
+  {
+    "t_ms": 40079,
+    "event": "send_turn",
+    "turn": 2
+  },
+  {
+    "t_ms": 47308,
+    "event": "turn_settled",
+    "turn": 2,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 7177,
+      "stable_ms": 3087,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 47308,
+    "event": "idle_hold_start",
+    "turn": 2,
+    "duration_ms": 12000
+  },
+  {
+    "t_ms": 47834,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 1
+  },
+  {
+    "t_ms": 48377,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 2
+  },
+  {
+    "t_ms": 48919,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 3
+  },
+  {
+    "t_ms": 49461,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 4
+  },
+  {
+    "t_ms": 59311,
+    "event": "send_turn",
+    "turn": 3
+  },
+  {
+    "t_ms": 66508,
+    "event": "turn_settled",
+    "turn": 3,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 7154,
+      "stable_ms": 3070,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 66509,
+    "event": "idle_hold_start",
+    "turn": 3,
+    "duration_ms": 12000
+  },
+  {
+    "t_ms": 67048,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 1
+  },
+  {
+    "t_ms": 67585,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 2
+  },
+  {
+    "t_ms": 68126,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 3
+  },
+  {
+    "t_ms": 68664,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 4
+  },
+  {
+    "t_ms": 69209,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 5
+  },
+  {
+    "t_ms": 79047,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 1
+  },
+  {
+    "t_ms": 79580,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 2
+  },
+  {
+    "t_ms": 80121,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 3
+  },
+  {
+    "t_ms": 80665,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 4
+  },
+  {
+    "t_ms": 90523,
+    "event": "capture_stop",
+    "capture_stop_result": {
+      "ok": true,
+      "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/provider_cli_question_probe_v1-question-probe-v1-cursor/raw.cast",
+      "screen": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/provider_cli_question_probe_v1-question-probe-v1-cursor/raw.screen.txt"
+    }
+  }
+]

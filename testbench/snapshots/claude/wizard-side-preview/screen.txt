@@ -1,0 +1,11 @@
+←  ☐ Тип  ☐ Стек  ☐ Фичи  ☐ Глубина  ✔ Submit →
+
+Какой тип проекта собираем?                 ┌─ Preview ───────────────┐
+❯ 1. Web-приложение                         │ Скаффолд: Vite + API    │
+  2. CLI-инструмент                         │ Ядро: команды + config  │
+  3. Библиотека                             │ Тесты: unit + fixtures  │
+  4. Фоновый сервис                         │ Деплой: Docker + systemd│
+  5. Другое                                 │ Notes: press n to add   │
+                                           └─────────────────────────┘
+
+Enter to select · ↑/↓ navigate · n add notes · Tab to switch questions · Esc

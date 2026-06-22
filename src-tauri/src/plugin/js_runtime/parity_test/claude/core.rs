@@ -1,0 +1,537 @@
+//! Claude parity: detection, metadata, slash commands, launch, resume,
+//! session-jsonl path resolution, and settings-json integration hooks.
+
+use super::super::*;
+use super::*;
+
+#[test]
+fn detect_from_title_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    let cases = [
+        ("Claude Code", true),
+        ("claude", true),
+        ("✳ Claude Code", true),
+        ("⠐ General coding session", true),
+        ("Aider", false),
+        ("PS C:\\>", false),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(n.detect_from_title(input), expected, "native: {input}");
+        assert_eq!(j.detect_from_title(input), expected, "js: {input}");
+    }
+}
+
+#[test]
+fn detect_from_output_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    let cases = [
+        ("Do you want to proceed?", true),
+        ("Cogitated for 3s", true),
+        ("Brewed for 12s", true),
+        ("Reasoned for 5s · $0.02 spent", true),
+        ("random text", false),
+        ("$ ls -la", false),
+    ];
+    for (input, expected) in cases {
+        assert_eq!(n.detect_from_output(input), expected, "native: {input}");
+        assert_eq!(j.detect_from_output(input), expected, "js: {input}");
+    }
+}
+
+#[test]
+fn screen_has_tui_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    for s in ["? for shortcuts here", "ctrl+l help", "esc to interrupt"] {
+        assert!(n.screen_has_tui(s), "native: {s}");
+        assert!(j.screen_has_tui(s), "js: {s}");
+    }
+    for s in ["normal shell", "just a $ prompt"] {
+        assert!(!n.screen_has_tui(s));
+        assert!(!j.screen_has_tui(s));
+    }
+}
+
+#[test]
+fn is_output_noise_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    let noisy = [
+        "bypass permissions on",
+        "shift+tab to cycle",
+        "Update available! Run:",
+        "esc to interrupt",
+        "? for shortcuts",
+        "─────────",
+        "═════ ═════",
+        "",
+    ];
+    for s in noisy {
+        assert!(n.is_output_noise(s), "native should drop: {s:?}");
+        assert!(j.is_output_noise(s), "js should drop: {s:?}");
+    }
+    for s in ["meaningful output", "$ pwd", "Reading file foo.rs"] {
+        assert!(!n.is_output_noise(s), "native shouldn't drop: {s:?}");
+        assert!(!j.is_output_noise(s), "js shouldn't drop: {s:?}");
+    }
+}
+
+#[test]
+fn extract_session_name_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    let explicit = "  Session: vivid-bhabha-1234\n  cwd: /tmp\n";
+    assert_eq!(
+        n.extract_session_name(explicit).as_deref(),
+        Some("vivid-bhabha-1234")
+    );
+    assert_eq!(
+        j.extract_session_name(explicit).as_deref(),
+        Some("vivid-bhabha-1234")
+    );
+
+    let bare = "Resuming previous session\n\n  brave-tiger-4242\n\nReady.";
+    assert_eq!(
+        n.extract_session_name(bare).as_deref(),
+        Some("brave-tiger-4242")
+    );
+    assert_eq!(
+        j.extract_session_name(bare).as_deref(),
+        Some("brave-tiger-4242")
+    );
+
+    let prose = "we hit error-code-1234 while parsing — see error-code-5678";
+    assert_eq!(n.extract_session_name(prose), None);
+    assert_eq!(j.extract_session_name(prose), None);
+}
+
+#[test]
+fn slash_commands_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    assert_eq!(n.compact_command(), j.compact_command());
+    assert_eq!(n.exit_command(), j.exit_command());
+    assert_eq!(
+        n.model_switch_command("haiku"),
+        j.model_switch_command("haiku")
+    );
+    assert_eq!(n.auto_approve_flags(), j.auto_approve_flags());
+}
+
+#[test]
+fn metadata_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    assert_eq!(n.id(), j.id());
+    assert_eq!(n.display_name(), j.display_name());
+    assert_eq!(n.binary_name(), j.binary_name());
+    assert_eq!(n.cli_binary(), j.cli_binary());
+    assert_eq!(n.icon_hint(), j.icon_hint());
+    assert_eq!(n.icon_color(), j.icon_color());
+    assert_eq!(
+        n.preserves_context_on_resume(),
+        j.preserves_context_on_resume()
+    );
+    assert_eq!(n.has_hooks(), j.has_hooks());
+    assert_eq!(n.supports_lazy_skills(), j.supports_lazy_skills());
+    assert_eq!(n.status_bar_rows(), j.status_bar_rows());
+}
+
+#[test]
+fn parse_session_messages_parity_on_jsonl_fixture() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    // Realistic Claude JSONL snippet: assistant with array content, user with string content, plus a non-message line that must be dropped by both impls.
+    let jsonl = "{\"type\":\"summary\",\"x\":1}\n\
+            {\"type\":\"user\",\"isMeta\":false,\"message\":{\"role\":\"user\",\"content\":\"please refactor this\"},\"timestamp\":\"2026-05-01T10:00:00Z\"}\n\
+            {\"type\":\"assistant\",\"isMeta\":false,\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Sure, I'll refactor it.\"},{\"type\":\"tool_use\",\"id\":\"x\"}]}}\n\
+            {\"type\":\"user\",\"isMeta\":true,\"message\":{\"role\":\"user\",\"content\":\"<system reminder>\"}}\n";
+
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), jsonl).unwrap();
+
+    let nm = n.parse_session_messages(tmp.path());
+    let jm = j.parse_session_messages(tmp.path());
+
+    assert_eq!(nm.len(), jm.len(), "message count must match");
+    for (i, (a, b)) in nm.iter().zip(jm.iter()).enumerate() {
+        assert_eq!(a.role, b.role, "role @ {i}");
+        assert_eq!(a.text, b.text, "text @ {i}");
+        assert_eq!(a.is_meta, b.is_meta, "is_meta @ {i}");
+        assert_eq!(a.ts, b.ts, "ts @ {i}");
+    }
+}
+
+#[test]
+fn resume_command_carries_session_id_and_skip_flag() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (_n, j) = pair();
+    let cmd = j.build_resume_command("abc-def-123-456", true).unwrap();
+    assert!(cmd.contains("--resume"));
+    assert!(cmd.contains("abc-def-123-456"));
+    assert!(cmd.contains("--dangerously-skip-permissions"));
+}
+
+#[test]
+fn integration_install_creates_all_four_hooks_with_markers() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let provider = claude_in_temp(
+        &dir.path().join("rule.md"),
+        &dir.path().join("settings.json"),
+    );
+
+    // Before install: settings_exists=false.
+    let pre = provider.check_integration();
+    assert_eq!(pre["settings_exists"], false);
+    assert_eq!(pre["hooks_installed"], false);
+
+    // Install.
+    provider.install_integration(7686).expect("install ok");
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.path().join("settings.json")).unwrap())
+            .unwrap();
+    for key in ["Notification", "Stop", "PreCompact", "SessionStart"] {
+        let arr = json["hooks"][key].as_array().expect(key);
+        assert!(
+            arr.iter().any(|e| {
+                e["hooks"].as_array().map_or(false, |inner| {
+                    inner.iter().any(|h| h["_source"] == "codeterm-hook-v2")
+                })
+            }),
+            "missing v2 hook in {key}"
+        );
+        // Curl points to the right port + path.
+        let any_cmd = arr
+            .iter()
+            .flat_map(|e| e["hooks"].as_array().cloned().unwrap_or_default())
+            .find_map(|h| h["command"].as_str().map(String::from))
+            .unwrap();
+        assert!(
+            any_cmd.contains("CODETERM_API_PORT:-7686"),
+            "{key} cmd: {any_cmd}"
+        );
+    }
+
+    // checkIntegration now reports installed.
+    let post = provider.check_integration();
+    assert_eq!(post["settings_exists"], true);
+    assert_eq!(post["hooks_installed"], true);
+    assert_eq!(post["notification_hook"], true);
+    assert_eq!(post["stop_hook"], true);
+    assert_eq!(post["precompact_hook"], true);
+    assert_eq!(post["session_start_hook"], true);
+}
+
+#[test]
+fn integration_install_preserves_unrelated_settings_fields() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let settings = dir.path().join("settings.json");
+    std::fs::write(
+        &settings,
+        r#"{"theme":"dark","permissions":{"allow":["Bash"]},"hooks":{"Notification":[]}}"#,
+    )
+    .unwrap();
+    let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
+    provider.install_integration(7686).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+    // Unrelated fields untouched.
+    assert_eq!(json["theme"], "dark");
+    assert_eq!(json["permissions"]["allow"][0], "Bash");
+}
+
+#[test]
+fn integration_install_replaces_stale_codeterm_entries_not_user_hooks() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let settings = dir.path().join("settings.json");
+    // Pre-existing settings with: a user hook (must survive), a stale codeterm v1 hook (must be removed), and an unrelated key.
+    std::fs::write(
+            &settings,
+            r#"{
+                "hooks":{
+                    "Notification":[
+                        {"matcher":"perm","hooks":[{"type":"command","command":"my-user-script","timeout":1}]},
+                        {"matcher":"perm","hooks":[{"type":"command","command":"curl http://localhost:7686/api/panes/$X/hook/permission","_source":"codeterm"}]}
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+    let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
+    provider.install_integration(7686).unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+    let arr = json["hooks"]["Notification"].as_array().unwrap();
+    // Three entries expected: user hook + new v2 hook. (Stale v1 dropped.)
+    assert_eq!(arr.len(), 2);
+    assert!(
+        arr.iter().any(|e| {
+            e["hooks"][0]["command"]
+                .as_str()
+                .map_or(false, |s| s.contains("my-user-script"))
+        }),
+        "user hook must survive"
+    );
+    assert!(
+        arr.iter().all(|e| {
+            e["hooks"][0]["_source"]
+                .as_str()
+                .map_or(true, |s| s != "codeterm")
+        }),
+        "v1 stale entry must be dropped"
+    );
+    assert!(arr
+        .iter()
+        .any(|e| { e["hooks"][0]["_source"] == "codeterm-hook-v2" }));
+}
+
+#[test]
+fn integration_uninstall_drops_notification_and_stop_keeps_precompact() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let provider = claude_in_temp(
+        &dir.path().join("rule.md"),
+        &dir.path().join("settings.json"),
+    );
+    provider.install_integration(7686).unwrap();
+    provider.uninstall_integration().unwrap();
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.path().join("settings.json")).unwrap())
+            .unwrap();
+    // Mirroring native: Notification + Stop dropped; PreCompact + SessionStart kept (mem continuity).
+    let n = json["hooks"]["Notification"].as_array().unwrap();
+    let s = json["hooks"]["Stop"].as_array().unwrap();
+    let pc = json["hooks"]["PreCompact"].as_array().unwrap();
+    let ss = json["hooks"]["SessionStart"].as_array().unwrap();
+    assert!(n
+        .iter()
+        .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v2"));
+    assert!(s
+        .iter()
+        .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v2"));
+    assert!(pc
+        .iter()
+        .any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v2"));
+    assert!(ss
+        .iter()
+        .any(|e| e["hooks"][0]["_source"] == "codeterm-hook-v2"));
+}
+
+#[test]
+fn integration_ensure_on_startup_is_idempotent() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let provider = claude_in_temp(
+        &dir.path().join("rule.md"),
+        &dir.path().join("settings.json"),
+    );
+    provider.ensure_integration_on_startup(7686);
+    let first = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
+    provider.ensure_integration_on_startup(7686);
+    let second = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
+    // Second pass must NOT duplicate hooks — checkIntegration sees installed=true and skips re-write.
+    assert_eq!(first, second);
+}
+
+/// Bridge-rule install: native impl writes to `~/.claude/rules/codeterm.md`
+/// via `dirs::home_dir()`. The JS plugin gets the SAME functional
+/// guarantee using only `host.expandHome` + `host.writeFile`. Test
+/// builds a synthetic plugin whose `rule.path` points into a temp
+/// dir, then runs `installBridgeRule` through `JsProvider` (same
+/// trait method native uses) and asserts the file landed.
+#[test]
+fn bridge_rule_install_via_host_writes_file() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let rule_path = dir.path().join("rules").join("codeterm.md");
+    let provider = claude_in_temp(&rule_path, &dir.path().join("settings.json"));
+
+    provider
+        .install_bridge_rule("PROTOCOL PAYLOAD v1")
+        .expect("install ok");
+    let written = std::fs::read_to_string(&rule_path).expect("file written");
+    assert_eq!(written, "PROTOCOL PAYLOAD v1");
+    assert!(
+        rule_path.parent().unwrap().exists(),
+        "host.writeFile must create parent dirs"
+    );
+
+    provider.uninstall_bridge_rule().expect("uninstall ok");
+    assert!(!rule_path.exists(), "uninstall removes the file");
+}
+
+#[test]
+fn launch_command_no_task_matches_native_shape() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    let params = AgentLaunchParams {
+        skip_permissions: true,
+        ..Default::default()
+    };
+    let nat = n.build_launch_command(&params);
+    let js = j.build_launch_command(&params);
+    // Same env preamble + same trailing claude invocation. The JS form uses cross-platform host primitives so it should match native byte-for-byte for the no-task case.
+    assert_eq!(nat, js, "native vs js launch mismatch");
+}
+
+#[test]
+fn launch_command_with_task_matches_native_shape() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    let params = AgentLaunchParams {
+        task: Some("count files in repo".into()),
+        skip_permissions: true,
+        ..Default::default()
+    };
+    let nat = n.build_launch_command(&params);
+    let js = j.build_launch_command(&params);
+    for cmd in [&nat, &js] {
+        // Interactive launch only: no -p/stream-json, task delivered as a positional after `--`.
+        assert!(!cmd.contains(" -p"), "no headless -p: {cmd}");
+        assert!(!cmd.contains("--output-format"), "no stream-json: {cmd}");
+        assert!(cmd.contains(" -- "), "task after separator: {cmd}");
+        assert!(cmd.contains(".ct-task-"));
+        assert!(cmd.contains("--dangerously-skip-permissions"));
+    }
+}
+
+#[test]
+fn launch_command_session_id_injected_in_both() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (n, j) = pair();
+    // Interactive launch always injects --session-id, with or without a task (the old -p path that dropped it is gone).
+    for params in [
+        AgentLaunchParams {
+            session_id: Some("my-uuid".into()),
+            skip_permissions: true,
+            ..Default::default()
+        },
+        AgentLaunchParams {
+            task: Some("x".into()),
+            session_id: Some("my-uuid".into()),
+            skip_permissions: true,
+            ..Default::default()
+        },
+    ] {
+        for cmd in [
+            n.build_launch_command(&params),
+            j.build_launch_command(&params),
+        ] {
+            assert!(cmd.contains("--session-id"), "must inject: {cmd}");
+            assert!(cmd.contains("my-uuid"));
+        }
+    }
+}
+
+#[test]
+fn session_jsonl_path_resolves_via_plugin() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let j = load_js("claude");
+    let p = j.session_jsonl_path("/Users/foo/work/proj", "sess-abc-123");
+    assert!(p.is_some(), "should return Some(path)");
+    let p = p.unwrap();
+    let s = p.to_string_lossy();
+    assert!(s.contains("sess-abc-123.jsonl"), "missing session id: {s}");
+    // Dash-encoded cwd — non-alphanumerics become '-'
+    assert!(
+        s.contains("-Users-foo-work-proj"),
+        "dash-encoded cwd missing: {s}"
+    );
+    assert!(
+        s.contains(".claude") && s.contains("projects"),
+        "must hit ~/.claude/projects: {s}"
+    );
+}
+
+#[test]
+fn session_jsonl_path_returns_none_for_empty_sid() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let j = load_js("claude");
+    assert!(
+        j.session_jsonl_path("/proj", "").is_none(),
+        "empty session id must return None"
+    );
+}
+
+/// #163: the tailer reads `session_jsonl_path`, so it must resolve to the
+/// canonical project dir the agent actually writes to. Claude canonicalizes
+/// the cwd (symlinks resolved) before encoding; if the host hands the JS
+/// drop-in a raw symlinked cwd, the tailer watches a dir that never appears
+/// (e.g. `/tmp` vs `/private/tmp` on macOS) and chat never streams live.
+#[cfg(unix)]
+#[test]
+fn session_jsonl_path_canonicalizes_symlinked_cwd() {
+    use std::os::unix::fs::symlink;
+    if require_plugins().is_none() {
+        return;
+    }
+    let base = std::env::temp_dir().join(format!("ct-w3-163-{}", std::process::id()));
+    let real = base.join("real-target");
+    let link = base.join("link-alias");
+    std::fs::create_dir_all(&real).unwrap();
+    let _ = std::fs::remove_file(&link);
+    symlink(&real, &link).unwrap();
+
+    let j = load_js("claude");
+    let p = j
+        .session_jsonl_path(link.to_str().unwrap(), "sess-xyz")
+        .expect("should resolve a path");
+    let s = p.to_string_lossy();
+    // Must encode the canonical (real) target, not the symlink alias —
+    // otherwise the tailer watches a directory claude never writes to.
+    assert!(
+        s.contains("real-target"),
+        "path must encode the canonical symlink target: {s}"
+    );
+    assert!(
+        !s.contains("link-alias"),
+        "path must not encode the raw symlink alias: {s}"
+    );
+
+    std::fs::remove_dir_all(&base).ok();
+}

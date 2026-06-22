@@ -555,26 +555,32 @@ async fn send_media(
 
 /// Build the paste body for an inbound message, transcribing voice
 /// attachments inline when enabled. Pure async — no PTY/lock access.
-pub async fn build_message_body(msg: &InboundMessage, voice_cfg: &VoiceTranscribeConfig) -> String {
+pub async fn build_message_body(
+    msg: &InboundMessage,
+    transcribers: &crate::transcribe::TranscribeRegistry,
+    active_id: &str,
+) -> String {
     let mut parts = Vec::new();
     if !msg.text.is_empty() {
         parts.push(msg.text.clone());
     }
     for att in &msg.attachments {
-        parts.push(format_attachment_line(att, voice_cfg).await);
+        parts.push(format_attachment_line(att, transcribers, active_id).await);
     }
     parts.join("\n")
 }
 
 async fn format_attachment_line(
     att: &InboundAttachment,
-    voice_cfg: &VoiceTranscribeConfig,
+    transcribers: &crate::transcribe::TranscribeRegistry,
+    active_id: &str,
 ) -> String {
     voice_transcribe::format_attachment_line(
         &att.path,
         &att.kind,
         att.filename.as_deref(),
-        voice_cfg,
+        transcribers,
+        active_id,
     )
     .await
 }
@@ -689,7 +695,7 @@ async fn inject_message(
     text_hooks_cfg: &TextHooksConfig,
 ) -> Result<(), String> {
     let (pane_id, agent_type) = {
-        let mux = svc.mux.lock();
+        let mux = svc.mux.write();
         let pid = mux
             .resolve_pane_id(general_agent::GENERAL_ALIAS)
             .ok_or("General Agent not found")?;
@@ -697,7 +703,7 @@ async fn inject_message(
         (pid, at)
     };
 
-    let body = build_message_body(msg, voice_cfg).await;
+    let body = build_message_body(msg, &svc.transcribe_registry, &voice_cfg.active).await;
 
     let body = match run_pre_forward_hook(svc, msg, &pane_id, &body, text_hooks_cfg).await {
         HookOutcome::Forward => body,
@@ -726,6 +732,11 @@ async fn inject_message(
         );
         super::inbound_buffer::push(&pane_id, prefixed);
         return Ok(());
+    }
+
+    // A chatBackend pane has no PTY — deliver the inbound message via the plugin.
+    if let Some((plugin_id, session_id)) = svc.pane_chat_backing(&pane_id) {
+        return svc.chatbackend_send(&plugin_id, &session_id, &prefixed);
     }
 
     let pty_id = svc.resolve_pty_id(&pane_id)?;

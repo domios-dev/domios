@@ -13,13 +13,49 @@ export interface Workspace {
   active_tab_id: string | null;
   cwd: string | null;
   protected?: boolean;
+  /** Sibling ordinal among workspaces; the sidebar sorts by it. */
+  sort_order?: number;
+}
+
+/** A pane that was closed and can be reopened. Mirrors Rust `ClosedPane`
+ *  (serde snake_case). `closed_at` is a UNIX-millisecond timestamp. Now backed
+ *  by the sqlite closed-history store rather than the session snapshot. */
+export interface ClosedPane {
+  pane_id: string;
+  /** Original parent pane id — preserves the orchestration hierarchy for a
+   *  cascade-group reopen. */
+  parent_pane_id?: string | null;
+  title: string;
+  description?: string | null;
+  backing?: PaneBacking;
+  cwd?: string | null;
+  agent_type?: string | null;
+  agent_session_id?: string | null;
+  model?: string | null;
+  closed_at: number;
+  /** Workspace the pane belonged to. Empty string on old records. */
+  workspace_id?: string;
+  workspace_name?: string;
+}
+
+/** A closed pane enriched for the sidebar: the per-workspace reopen `index`, an
+ *  `orphaned` flag (its workspace no longer exists), and the group it belongs
+ *  to. Mirrors Rust `ClosedPaneView` (ClosedPane flattened + these fields). */
+export interface ClosedPaneView extends ClosedPane {
+  index: number;
+  orphaned: boolean;
+  group_id: string;
+  group_kind: "single" | "cascade" | "workspace";
 }
 
 export interface Tab {
   id: string;
   title: string;
+  description?: string | null;
   /** One pane per tab. Split layouts were removed. */
   pane_id: string;
+  /** Per-group sibling ordinal (top-level tabs, or children of one parent). */
+  sort_order?: number;
 }
 
 export type AgentRole = "Orchestrator" | "Worker";
@@ -29,16 +65,58 @@ export interface PromptOption {
   value: string;
 }
 
+export interface PromptSection {
+  label: string;
+  active?: boolean;
+  completed?: boolean;
+}
+
 export interface PendingPrompt {
   question: string;
   options: PromptOption[];
+  sections?: PromptSection[] | null;
+  multi_select?: boolean | null;
+  submit_available?: boolean | null;
+  selected_values?: string[] | null;
+}
+
+/** What backs a pane's I/O — a PTY (terminal) or a plugin chatBackend. Mirrors
+ *  the Rust `PaneBacking` (serde `tag = "kind"`, snake_case). */
+export type PaneBacking =
+  | { kind: "pty" }
+  | { kind: "chat_backend"; plugin_id: string; session_id: string };
+
+/** Backend-computed live agent state. Mirrors the Rust `AgentLiveState` serde
+ *  shape; `subtype` only carries meaning when `state === "question"`. */
+export interface PaneAgentState {
+  state: "working" | "idle" | "question";
+  /** Provider-rendered live status line, e.g. Claude's token/progress row. */
+  status_line?: string | null;
+  /** Provider-rendered completed-turn summary shown while idle. */
+  last_turn_summary?: string | null;
+  /** Provider-derived work phase, e.g. thinking/streaming/tool, when known. */
+  phase?: string | null;
+  /** Parsed elapsed time for the provider status line, in milliseconds. */
+  elapsed_ms?: number | null;
+  subtype?:
+    | "model_choice"
+    | "model_picker"
+    | "permission"
+    | "auth"
+    | "rate_limit"
+    | "update"
+    | "error"
+    | "unknown";
 }
 
 export interface Pane {
   id: string;
   pty_id: string | null;
+  /** Defaults to `{ kind: "pty" }` when absent (pre-field snapshots). */
+  backing?: PaneBacking;
   pane_type: "Terminal";
   title: string;
+  description?: string | null;
   cwd: string | null;
   title_level?: TitleLevel;
   agent_type?: string | null;
@@ -51,6 +129,9 @@ export interface Pane {
   depth?: number;
   chat_view?: boolean;
   pending_prompt?: PendingPrompt | null;
+  /** Live 3-state agent classification from the backend state engine. Drives
+   *  the chat-view AgentStateIndicator. Absent until the backend classifies. */
+  agent_state?: PaneAgentState | null;
   protected?: boolean;
   connected_services?: string[];
   hidden?: boolean;
@@ -63,6 +144,24 @@ export interface MultiplexerState {
   panes: Record<string, Pane>;
   active_workspace_id: string | null;
   focused_pane_id: string | null;
+  /** Monotonic snapshot generation stamped by the backend. The reducer ignores
+   *  any incoming snapshot whose generation is `<=` the one already applied. */
+  generation?: number;
+  /** Bounded newest-first view of the closed-tab history across all
+   *  workspaces (sourced from the sqlite store, not the session snapshot).
+   *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
+   *  and group metadata. */
+  recently_closed?: ClosedPaneView[];
+}
+
+/** Result of the one atomic spawn command (`mux_spawn_pane`). */
+export interface AtomicSpawn {
+  snapshot: MultiplexerState;
+  pane_id: string;
+  tab_id: string;
+  workspace_id: string;
+  launch_command?: string;
+  warning?: string;
 }
 
 export interface WorkspaceInfo {
@@ -97,10 +196,14 @@ export interface NotificationAction {
 
 export interface Notification {
   id: string;
+  key?: string;
   pane_id: string | null;
   workspace_id: string | null;
   title: string;
   body: string | null;
+  icon_svg?: string | null;
+  icon_color?: string | null;
+  icon_hint?: string | null;
   level: "Info" | "Warning" | "Error";
   timestamp: number;
   read: boolean;
@@ -138,6 +241,20 @@ export interface GraphWorkerInfo {
   log_path?: string | null;
   agent_provider?: string | null;
   model?: string | null;
+  session_id?: string | null;
+  cwd?: string | null;
+}
+
+export interface PluginActivity {
+  id: string;
+  pluginId: string;
+  kind: string;
+  label: string;
+  percent?: number | null;
+  status: "running" | "done" | "error";
+  error?: string | null;
+  startedAt: number;
+  updatedAt: number;
 }
 
 export interface SpawnWorkerReq {
@@ -158,6 +275,8 @@ export interface CronRunInfo {
   status: CronRunStatus;
   pane_id: string | null;
   tab_id: string | null;
+  session_id?: string | null;
+  cwd?: string | null;
 }
 
 export interface CronJob {
@@ -182,14 +301,6 @@ export interface CronJob {
    *  default (auto ~10% of interval), `0` = disabled, positive = max ms
    *  added to each scheduled fire. */
   jitter_max_ms: number | null;
-}
-
-export interface GitInfo {
-  branch: string | null;
-  is_dirty: boolean;
-  repo_root: string;
-  added: number;
-  deleted: number;
 }
 
 // Configuration types (matches Rust AppConfig schema)
@@ -238,23 +349,9 @@ export interface NotificationConfig {
 }
 
 export interface KeybindingsConfig {
-  new_tab: string;
-  close_tab: string;
-  next_tab: string;
-  prev_tab: string;
-  close_pane: string;
-  focus_pane_left: string;
-  focus_pane_right: string;
-  focus_pane_up: string;
-  focus_pane_down: string;
-  new_workspace: string;
-  copy: string;
-  paste: string;
-  search: string;
-  zoom_in: string;
-  zoom_out: string;
-  zoom_reset: string;
-  open_settings: string;
+  /** Reopen the most-recently-closed tab in the active workspace — the sole
+   *  app-level keybinding. Everything else was removed deliberately. */
+  reopen_tab?: string;
 }
 
 export interface SocketConfigSettings {
@@ -409,6 +506,12 @@ export interface UiConfig {
   memory_tab_enabled?: boolean;
   mesh_tab_enabled?: boolean;
   default_new_agent_pane_chat?: boolean;
+  // Centralized client settings that used to live in localStorage. Extra keys
+  // persist via the Rust UiConfig flatten map (mirrors ProviderConfig).
+  chat_ui_default_prompted?: boolean;
+  keepawake_display?: boolean;
+  usage_intro_hint_opens?: number;
+  [key: string]: unknown;
 }
 
 export interface AppConfig {
@@ -435,7 +538,32 @@ export interface ModelInfo {
   id: string;
   display_name: string;
   description?: string;
+  // Whether the account can select this model right now. Omitted means "no
+  // info — treat as available"; `false` greys it out in the picker; `true` is
+  available?: boolean | null;
 }
+
+export interface PresetInfo {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+/** Runtime backing a provider — the spawn discriminant (was the `kind` string). */
+export type ProviderTransport = "pty" | "chat_backend";
+
+/** Behavior surface a provider exposes for configuration. Tagged on `model`. */
+export type BehaviorConfig =
+  | { model: "none" }
+  | { model: "own_prompt_set" }
+  | { model: "presets_and_system_prompt" }
+  | { model: "graph" };
+
+/** How a system prompt reaches the provider. */
+export type SystemPromptDelivery =
+  | { cli_flag: string }
+  | "session_config"
+  | "external";
 
 export type NoteLevel = "info" | "warn" | "error";
 export type BadgeStyle = "green" | "orange" | "red" | "gray";
@@ -456,6 +584,23 @@ export type SettingField =
   | { kind: "text"; key: string; label: string; default?: string; placeholder?: string; description?: string }
   | { kind: "number"; key: string; label: string; default?: number; min?: number; max?: number; description?: string }
   | { kind: "select"; key: string; label: string; options: [string, string][]; default?: string; description?: string }
+  | {
+      kind: "array";
+      key: string;
+      label: string;
+      description?: string;
+      item_label?: string;
+      default?: Record<string, unknown>[];
+      item: {
+        kind: "object";
+        fields: Array<
+          | { kind: "text"; key: string; label: string; default?: string; placeholder?: string; description?: string }
+          | { kind: "textarea"; key: string; label: string; default?: string; placeholder?: string; description?: string }
+          | { kind: "number"; key: string; label: string; default?: number; min?: number; max?: number; description?: string }
+          | { kind: "json"; key: string; label: string; default?: Record<string, unknown>; description?: string }
+        >;
+      };
+    }
   | { kind: "api_key"; env_var: string; label: string; link?: string }
   | { kind: "info"; title?: string; body: string; level: NoteLevel }
   | { kind: "path_link"; label: string; path: string; open: PathOpenKind }
@@ -481,6 +626,14 @@ export interface ProviderDescriptor {
   schema_version: number;
   id: string;
   display_name: string;
+  /** Runtime backing — the spawn discriminant (replaces the old `kind` string). */
+  transport: ProviderTransport;
+  /** Behavior surface for configuration. Optional; defaults to `{ model: "none" }`. */
+  behavior_config?: BehaviorConfig;
+  /** Named presets (chat backends); agents default empty. */
+  presets?: PresetInfo[];
+  /** How a system prompt reaches the provider. */
+  system_prompt_delivery: SystemPromptDelivery;
   icon_hint?: string;
   icon_svg?: string;
   icon_color?: string;
@@ -497,6 +650,10 @@ export interface ProviderDescriptor {
   /// Provider can render a pane as chat (JSONL sessions or structured/DB-backed
   /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.
   supports_chat_ui?: boolean;
+  /// Provider exposes a structured prompt source (claude AskUserQuestion in the
+  /// JSONL transcript, opencode SSE bus) so pending prompts come from a handle
+  /// rather than PTY scraping. Informational on the wire today.
+  supports_structured_prompts?: boolean;
   /// Binary name to probe via `which` when checking installation. Optional —
   /// providers without a CLI dependency leave this null.
   cli_binary?: string | null;

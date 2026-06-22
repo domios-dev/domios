@@ -19,6 +19,7 @@ interface PeerCtx {
 interface ServiceCtx {
   kind: "service";
   id: string;
+  sourcePeerId?: string | null;
 }
 export type DrawerState = PeerCtx | ServiceCtx | null;
 
@@ -75,14 +76,20 @@ export function ServiceDrawer({
       <PeerDrawer
         peer={peer}
         isSelf={isSelf}
-        services={services.filter((s) => (isSelf ? !s.source_peer : s.source_peer === state.id))}
+        services={services.filter((s) => (isSelf ? !s.source_peer_id && !s.source_peer : s.source_peer === state.id || s.source_peer_id === peer.instance_id))}
         onClose={onClose}
         onActionDone={onActionDone}
       />
     );
   }
 
-  const service = services.find((s) => s.id === state.id);
+  const service = services.find(
+    (s) =>
+      s.id === state.id &&
+      (state.sourcePeerId == null
+        ? !s.source_peer_id && !s.source_peer
+        : (s.source_peer_id ?? s.source_peer) === state.sourcePeerId),
+  );
   if (!service) return null;
 
   return (
@@ -221,7 +228,7 @@ function PeerDrawer({
               </span>
             )}
             {services.map((s) => (
-              <div key={s.id} className="flex items-center gap-1.5">
+              <div key={`${s.source_peer_id ?? s.source_peer ?? "local"}:${s.id}`} className="flex items-center gap-1.5">
                 <span
                   className="w-1.5 h-1.5 rounded-full"
                   style={{
@@ -295,8 +302,12 @@ function SvcDrawer({
   const serviceActionDangerClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} bg-[var(--ct-red)] text-[var(--ct-bg)] border-none font-medium`;
   const pillClass = "rounded px-1.5 py-0.5 text-[9px]";
   const tokenCardClass = "bg-[var(--ct-bg)] border border-[var(--ct-yellow)] rounded p-2 text-[10px]";
+  const sourcePeerId = service.source_peer_id;
+  const isRemote = !!sourcePeerId;
+  const actionsDisabled = busy || !!service.stale;
 
   const handleProbe = async () => {
+    if (isRemote) return;
     setBusy(true);
     try {
       await invoke("services_probe", { id: service.id });
@@ -309,6 +320,7 @@ function SvcDrawer({
   };
 
   const handleRotate = async () => {
+    if (isRemote) return;
     if (!confirm("Rotate push token? Old token will stop working.")) return;
     setBusy(true);
     try {
@@ -328,7 +340,14 @@ function SvcDrawer({
     if (!confirm(`Delete service "${service.name}"?`)) return;
     setBusy(true);
     try {
-      if (isCron) {
+      if (isRemote && isCron) {
+        throw new Error("Remote cron delete is not wired yet");
+      } else if (isRemote) {
+        await invoke("mesh_peer_service_delete", {
+          instanceId: sourcePeerId,
+          id: service.id,
+        });
+      } else if (isCron) {
         await invoke("cron_delete", { id: serviceIdToCronId(service.id) });
       } else {
         await servicesDelete(service.id);
@@ -370,6 +389,19 @@ function SvcDrawer({
           {service.push_enabled && (
             <span className={`${pillClass} bg-[var(--ct-accent)] text-[var(--ct-bg)] font-medium`}>
               push
+            </span>
+          )}
+          {isRemote && (
+            <span
+              className={`${pillClass} bg-[var(--ct-titlebar-bg)] text-[var(--ct-muted-fg)]`}
+              title={service.source_peer_id ?? undefined}
+            >
+              {service.source_peer ?? "remote"}
+            </span>
+          )}
+          {service.stale && (
+            <span className={`${pillClass} bg-[var(--ct-yellow)] text-[var(--ct-bg)] font-medium`}>
+              cached
             </span>
           )}
           {!service.enabled && (
@@ -465,8 +497,15 @@ function SvcDrawer({
           {!isCron && (
             <button
               onClick={handleProbe}
-              disabled={busy}
+              disabled={actionsDisabled || isRemote}
               className={`${serviceActionBtnClass} flex-1 disabled:opacity-50`}
+              title={
+                service.stale
+                  ? "Cached service state is not actionable"
+                  : isRemote
+                    ? "Remote service probe is not wired yet"
+                    : undefined
+              }
             >
               Probe now
             </button>
@@ -474,16 +513,30 @@ function SvcDrawer({
           {service.push_enabled && (
             <button
               onClick={handleRotate}
-              disabled={busy}
+              disabled={actionsDisabled || isRemote}
               className={`${serviceActionBtnClass} flex-1 disabled:opacity-50`}
+              title={
+                service.stale
+                  ? "Cached service state is not actionable"
+                  : isRemote
+                    ? "Remote token rotation is not wired yet"
+                    : undefined
+              }
             >
               Rotate push token
             </button>
           )}
           <button
             onClick={handleDelete}
-            disabled={busy}
+            disabled={actionsDisabled || (isRemote && isCron)}
             className={`${serviceActionDangerClass} disabled:opacity-50`}
+            title={
+              service.stale
+                ? "Cached service state is not actionable"
+                : isRemote && isCron
+                  ? "Remote cron delete is not wired yet"
+                  : undefined
+            }
           >
             Delete service
           </button>

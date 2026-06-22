@@ -1,36 +1,39 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "./lib/bridge";
 import { IS_WEB } from "./lib/webApi";
+import { getCurrentPaneUiMode } from "./lib/clientPaneUiMode";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
-import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPanel";
+import { SettingsPanel } from "./components/Settings/SettingsPanel";
+import type { SectionId } from "./components/Settings/sections";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
-import { GitPanel } from "./components/GitPanel/GitPanel";
+import { ExtensionsView } from "./components/Extensions/ExtensionsView";
+import { PluginView } from "./components/Extensions/PluginView";
 import { NavigationBackBar } from "./components/Navigation/NavigationBackBar";
 import { navigationStore } from "./components/Navigation/navigationStore";
 import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { CrashReportToast } from "./components/CrashReportToast";
-import { ChatUiDefaultPrompt } from "./components/ChatUiDefaultPrompt";
+import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { HamburgerIcon } from "./components/Icons";
-import { useGitInfo } from "./hooks/useGitInfo";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
+import { usePluginProviderMetaSync } from "./hooks/usePluginProviderMeta";
 import { UpdateProvider } from "./hooks/useUpdate";
+import { usePluginActivity } from "./lib/usePluginActivity";
 import {
   MultiplexerProvider,
   useMultiplexer,
 } from "./store/multiplexer";
-import type { ThemeConfig } from "./lib/types";
-import { matchesBinding, isMac } from "./lib/keybindings";
-import { blendColor, deriveColor } from "./lib/colors";
+import { matchesBinding } from "./lib/keybindings";
+import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { pasteToPane } from "./lib/panePasteRegistry";
+import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
 const MemoizedTabContent = memo(TabContent);
@@ -47,45 +50,10 @@ function useStableJsonValue<T>(value: T): T {
   return ref.current;
 }
 
-/**
- * Derive CSS custom properties from a ThemeConfig so the entire UI
- * can reference them for consistent theming.
- */
-function themeToCSS(theme: ThemeConfig): Record<string, string> {
-  return {
-    "--ct-bg": theme.background,
-    "--ct-fg": theme.foreground,
-    "--ct-cursor": theme.cursor,
-    "--ct-selection": theme.selection,
-    "--ct-sidebar-bg": deriveColor(theme.background, 8),
-    "--ct-titlebar-bg": deriveColor(theme.background, 8),
-    "--ct-border": blendColor(theme.background, theme.bright_black, 0.38),
-    "--ct-hover": deriveColor(theme.background, 14),
-    "--ct-active": deriveColor(theme.background, 22),
-    "--ct-surface": deriveColor(theme.background, 10),
-    "--ct-muted": theme.bright_black,
-    "--ct-muted-fg": blendColor(theme.bright_black, theme.foreground, 0.45),
-    "--ct-accent": theme.blue,
-    "--ct-red": theme.red,
-    "--ct-green": theme.green,
-    "--ct-yellow": theme.yellow,
-    "--ct-orange": theme.red,
-    "--ct-blue": theme.blue,
-    "--ct-magenta": theme.magenta,
-    "--ct-cyan": theme.cyan,
-    "--ct-bright-blue": theme.bright_blue,
-    "--ct-bright-magenta": theme.bright_magenta,
-    "--ct-bright-cyan": theme.bright_cyan,
-    "--ct-bright-green": theme.bright_green,
-    "--ct-bright-yellow": theme.bright_yellow,
-    "--ct-bright-red": theme.bright_red,
-    ...(theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy" ? { "--ct-glow": theme.green + "99" } : {}),
-  };
-}
-
-
 function AppInner() {
   useAgentProviders();
+  usePluginProviderMetaSync();
+  const { activities: pluginActivities, displayMap: pluginActivityDisplayMap } = usePluginActivity();
   // Phones start with the sidebar collapsed; the hamburger opens it as an overlay (see the wrapper at the render site).
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window === "undefined" || window.innerWidth > 640,
@@ -125,21 +93,22 @@ function AppInner() {
     transition: "opacity 200ms ease",
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
-  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "git">("workspace");
-  const [gitRepoCwd, setGitRepoCwd] = useState<string | null>(null);
+  const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions">("workspace");
+  const [pluginViewId, setPluginViewId] = useState<string | null>(null);
+  const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
   const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
-  const [mountedGit, setMountedGit] = useState(false);
+  const [mountedExtensions, setMountedExtensions] = useState(false);
   const [mountedTabIds, setMountedTabIds] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "mesh") setMountedMesh(true);
-    if (mainView === "git") setMountedGit(true);
+    if (mainView === "extensions") setMountedExtensions(true);
   }, [mainView]);
   const setSettingsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
@@ -162,9 +131,12 @@ function AppInner() {
       return open ? "mesh" : "workspace";
     });
   }, []);
-  const openGit = useCallback((repoRoot: string) => {
-    setGitRepoCwd(repoRoot);
-    setMainView("git");
+  const setExtensionsOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
+    setMainView((cur) => {
+      const wasOpen = cur === "extensions";
+      const open = typeof next === "function" ? next(wasOpen) : next;
+      return open ? "extensions" : "workspace";
+    });
   }, []);
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
   const { config, updateConfig, theme } = useConfig();
@@ -172,6 +144,7 @@ function AppInner() {
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
   const stableApiConfig = useStableJsonValue(config.api);
+  const uiFontScale = fontSizeToUiFontScale(stableFontConfig.size);
 
   // Resolve usage-tracking toggle once per config change so every pane's UsageBubble can read it via prop instead of subscribing to config
   // events on its own (the per-bubble `useConfig` was multiplying invokes by pane count and made the webview unresponsive after many resumes).
@@ -184,26 +157,23 @@ function AppInner() {
   }, [config.agents]);
   const usageEnabledByProvider = useStableJsonValue(computedUsageEnabledByProvider);
 
+  // Feed the pane top bar's chat-default flags from this one useConfig as props, so
+  // PaneTopBar/ChatDefaultSuggestion never run a per-pane useConfig (froze switches).
+  const chatPaneDefault = config.ui?.default_new_agent_pane_chat === true;
+  const chatDefaultPrompted = config.ui?.chat_ui_default_prompted === true;
+
   const {
     state,
     createWorkspace,
     createTab,
     closeTab,
+    reopenClosed,
     setActiveTab,
-    closePane,
     setFocusedPane,
     setPanePty,
     dismissToast,
     spawnClaudeTab,
   } = useMultiplexer();
-
-  // Git info for the visible pane — after a restore nothing is focused yet,
-  // so fall back to the active workspace's active tab.
-  const gitWs = state.workspaces.find((w) => w.id === state.active_workspace_id);
-  const activeTabPaneId =
-    gitWs?.tabs.find((t) => t.id === gitWs.active_tab_id)?.pane_id ?? null;
-  const gitPaneId = state.focused_pane_id ?? activeTabPaneId;
-  const { info: focusedGitInfo, refresh: refreshFocusedGitInfo } = useGitInfo(gitPaneId);
 
   // When user focuses any pane (via sidebar click, Ctrl+Tab, etc), return to workspace view
   const lastFocusedRef = useRef(state.focused_pane_id);
@@ -219,6 +189,48 @@ function AppInner() {
   // Keep ref to latest state for keyboard handler closure
   const stateRef = useRef(state);
   stateRef.current = state;
+  const configRef = useRef(config);
+  configRef.current = config;
+
+  // Plugin glance/bubble surfaces ask the host to open a panel via this event
+  // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
+  useEffect(() => {
+    const onOpenPanel = (e: Event) => {
+      const detail = (e as CustomEvent<{
+        panel?: string;
+        cwd?: string | null;
+        memoryState?: MemoryInitialState;
+      }>).detail;
+      const panel = detail?.panel;
+      if (panel?.startsWith("view:")) {
+        const fp = stateRef.current.focused_pane_id
+          ? stateRef.current.panes[stateRef.current.focused_pane_id]
+          : null;
+        setPluginViewCwd(detail?.cwd || fp?.cwd || null);
+        setPluginViewId(panel.slice("view:".length));
+      } else if (panel === "extensions") {
+        setExtensionsOpen(true);
+      } else if (panel === "memory" && import.meta.env.DEV && import.meta.env.VITE_CODETERM_TEST === "1") {
+        setMemoryInitial(detail?.memoryState);
+        setMemoryOpen(true);
+      }
+    };
+    window.addEventListener("codeterm:open-panel", onOpenPanel);
+    return () => window.removeEventListener("codeterm:open-panel", onOpenPanel);
+  }, [setExtensionsOpen]);
+
+  // "Configure with AI" spawns a pane and asks the host to bring it forward —
+  // dismiss any covering Extensions/glance overlay and focus the new pane.
+  useEffect(() => {
+    const onFocusPane = (e: Event) => {
+      const paneId = (e as CustomEvent<{ paneId?: string }>).detail?.paneId;
+      if (!paneId) return;
+      setExtensionsOpen(false);
+      setFocusedPane(paneId);
+    };
+    window.addEventListener("codeterm:focus-pane", onFocusPane);
+    return () => window.removeEventListener("codeterm:focus-pane", onFocusPane);
+  }, [setExtensionsOpen, setFocusedPane]);
 
   const handleBackToMemory = useCallback(() => {
     const ret = navigationStore.get();
@@ -245,8 +257,8 @@ function AppInner() {
   );
 
   const activeTab = useMemo(
-    () => activeWs?.tabs.find((t) => t.id === activeWs.active_tab_id),
-    [activeWs],
+    () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
+    [activeWs, state.activeTabIds],
   );
   useEffect(() => {
     if (!activeTab?.id) return;
@@ -286,12 +298,6 @@ function AppInner() {
       closeTab(activeWs.id, activeTab.id);
     }
   }, [activeWs, activeTab, closeTab]);
-
-  const handleCloseFocusedPane = useCallback(() => {
-    if (state.focused_pane_id) {
-      closePane(state.focused_pane_id);
-    }
-  }, [state.focused_pane_id, closePane]);
 
   const handlePtySpawned = useCallback(
     (paneId: string, ptyId: string) => {
@@ -333,10 +339,7 @@ function AppInner() {
           if (!folder) return;
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
           if (wsId) {
-            let skipPerms = false;
-            try {
-              skipPerms = localStorage.getItem("codeterm-claude-skip-perms") === "true";
-            } catch { /* ignore */ }
+            const skipPerms = configRef.current.agents?.claude?.spawn_skip_permissions === true;
             spawnClaudeTab(wsId, skipPerms, folder);
           }
         },
@@ -354,167 +357,27 @@ function AppInner() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Config-driven bindings (language-independent via e.code)
-      if (matchesBinding(e, kb.new_tab)) { e.preventDefault(); handleNewTab(); return; }
-      if (matchesBinding(e, kb.close_tab)) { e.preventDefault(); handleCloseCurrentTab(); return; }
-      if (matchesBinding(e, kb.close_pane)) { e.preventDefault(); handleCloseFocusedPane(); return; }
-      if (matchesBinding(e, kb.new_workspace)) {
+      // Browser-standard reopen-closed-tab. Most recent = ring index 0.
+      if (matchesBinding(e, kb.reopen_tab ?? "Ctrl+Shift+T")) {
         e.preventDefault();
-        openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
-          .then((folder) => {
-            if (!folder) return;
-            const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
-            createWorkspace(basename, folder);
-          })
-          .catch(() => {});
-        return;
-      }
-      if (matchesBinding(e, kb.copy)) {
-        e.preventDefault();
-        const sel = window.getSelection()?.toString();
-        if (sel) navigator.clipboard.writeText(sel).catch(() => {});
-        return;
-      }
-      // App-wide paste works across titlebar/sidebar/chat as long as the main window is focused.
-      // Target the active terminal tab pane and skip native editable controls to avoid double-paste.
-      const plainPaste = e.code === "KeyV" && !e.shiftKey && !e.altKey
-        && (isMac ? e.metaKey : e.ctrlKey);
-      if (plainPaste || matchesBinding(e, kb.paste)) {
-        const active = document.activeElement;
-        const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
-        const isInputFocused = !isXtermFocused && (
-          active?.tagName === "INPUT"
-          || active?.tagName === "TEXTAREA"
-          || active?.getAttribute("contenteditable") === "true"
-        );
-        if (isXtermFocused || isInputFocused) return;
-
-        // Target the ACTIVE TAB'S pane, not the global focused_pane_id. focused_pane_id can stay set on a pane from a previous tab even after the user
-        // switched tabs — pasting there means the text lands in an invisible terminal. The active tab's pane is what the user perceives as "the selected one" they're looking at.
-        const st = stateRef.current;
-        const ws = st.workspaces.find((w) => w.id === st.active_workspace_id);
-        const tab = ws?.tabs.find((t) => t.id === ws.active_tab_id);
-        const targetId = tab?.pane_id;
-        if (!targetId) return;
-        if (pasteToPane(targetId)) {
-          e.preventDefault();
-        }
-        return;
-      }
-      if (matchesBinding(e, kb.search)) {
-        e.preventDefault();
-        const focusedPaneId = stateRef.current.focused_pane_id;
-        if (focusedPaneId) {
-          window.dispatchEvent(new CustomEvent("codeterm-toggle-search", { detail: { paneId: focusedPaneId } }));
-        }
-        return;
-      }
-      if (matchesBinding(e, kb.zoom_in)) {
-        e.preventDefault();
-        const newSize = Math.min(32, (config.font.size || 14) + 1);
-        updateConfig({ ...config, font: { ...config.font, size: newSize } });
-        return;
-      }
-      if (matchesBinding(e, kb.zoom_out)) {
-        e.preventDefault();
-        const newSize = Math.max(8, (config.font.size || 14) - 1);
-        updateConfig({ ...config, font: { ...config.font, size: newSize } });
-        return;
-      }
-      if (matchesBinding(e, kb.zoom_reset)) {
-        e.preventDefault();
-        updateConfig({ ...config, font: { ...config.font, size: 14 } });
-        return;
-      }
-      if (matchesBinding(e, kb.open_settings)) {
-        e.preventDefault();
-        setSettingsOpen((v) => !v);
-        return;
-      }
-
-      // Memory panel: Cmd+Shift+M / Ctrl+Shift+M
-      if (e.code === "KeyM" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setMemoryOpen((v) => !v);
-        return;
-      }
-
-      // TODO: Swarm overlay — future feature if (matchesBinding(e, "Mod+Shift+G")) { e.preventDefault(); setSwarmVisible((v) => !v); return; }
-
-      // Pane focus navigation (uses config bindings)
-      if (matchesBinding(e, kb.focus_pane_left) || matchesBinding(e, kb.focus_pane_right) ||
-          matchesBinding(e, kb.focus_pane_up) || matchesBinding(e, kb.focus_pane_down)) {
-        e.preventDefault();
-        const dir = matchesBinding(e, kb.focus_pane_left) ? "ArrowLeft"
-          : matchesBinding(e, kb.focus_pane_right) ? "ArrowRight"
-          : matchesBinding(e, kb.focus_pane_up) ? "ArrowUp" : "ArrowDown";
-        const paneEls = Array.from(document.querySelectorAll("[data-pane-id]")) as HTMLElement[];
-        if (paneEls.length < 2) return;
-        const focusedId = stateRef.current.focused_pane_id;
-        const currentEl = paneEls.find((el) => el.dataset.paneId === focusedId);
-        if (!currentEl) return;
-        const currentRect = currentEl.getBoundingClientRect();
-        let bestEl: HTMLElement | null = null;
-        let bestDist = Infinity;
-        for (const el of paneEls) {
-          if (el === currentEl) continue;
-          const r = el.getBoundingClientRect();
-          const dx = (r.left + r.width / 2) - (currentRect.left + currentRect.width / 2);
-          const dy = (r.top + r.height / 2) - (currentRect.top + currentRect.height / 2);
-          let valid = false;
-          if (dir === "ArrowLeft" && dx < -10) valid = true;
-          if (dir === "ArrowRight" && dx > 10) valid = true;
-          if (dir === "ArrowUp" && dy < -10) valid = true;
-          if (dir === "ArrowDown" && dy > 10) valid = true;
-          if (valid) {
-            const dist = Math.abs(dx) + Math.abs(dy);
-            if (dist < bestDist) { bestDist = dist; bestEl = el; }
-          }
-        }
-        if (bestEl?.dataset.paneId) setFocusedPane(bestEl.dataset.paneId);
-        return;
-      }
-
-      // Tab switching: next/prev
-      if (matchesBinding(e, kb.next_tab)) {
-        e.preventDefault();
-        if (activeWs && activeWs.tabs.length > 1) {
-          const idx = activeWs.tabs.findIndex((t) => t.id === activeWs.active_tab_id);
-          setActiveTab(activeWs.id, activeWs.tabs[(idx + 1) % activeWs.tabs.length].id);
-        }
-        return;
-      }
-      if (matchesBinding(e, kb.prev_tab)) {
-        e.preventDefault();
-        if (activeWs && activeWs.tabs.length > 1) {
-          const idx = activeWs.tabs.findIndex((t) => t.id === activeWs.active_tab_id);
-          setActiveTab(activeWs.id, activeWs.tabs[(idx - 1 + activeWs.tabs.length) % activeWs.tabs.length].id);
-        }
-        return;
-      }
-
-      // Mod+1-9: switch tab by number
-      const modKey = isMac ? e.metaKey : e.ctrlKey;
-      if (modKey && !e.shiftKey && !e.altKey && /^Digit[1-9]$/.test(e.code)) {
-        const num = parseInt(e.code.slice(5), 10);
-        if (activeWs) {
-          const tab = activeWs.tabs[num - 1];
-          if (tab) {
-            e.preventDefault();
-            setActiveTab(activeWs.id, tab.id);
-          }
-        }
+        if (activeWs) reopenClosed(activeWs.id, 0);
         return;
       }
 
       // Ignore modifier-only key presses
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
-      // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY
+      // FALLBACK: If xterm.js textarea doesn't have focus, send keys directly to PTY.
+      // Skip when the focused pane is in Chat UI mode — keys shouldn't leak into the PTY.
       const active = document.activeElement;
       const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
       const isInputFocused = active?.tagName === "INPUT" || active?.tagName === "TEXTAREA" || active?.getAttribute("contenteditable") === "true";
       if (!isXtermFocused && !isInputFocused && stateRef.current.focused_pane_id) {
-        const pane = stateRef.current.panes[stateRef.current.focused_pane_id];
+        const focusedPaneId = stateRef.current.focused_pane_id;
+        const paneUiMode = getCurrentPaneUiMode(focusedPaneId)
+          ?? (stateRef.current.panes[focusedPaneId]?.chat_view ? "chat" : "terminal");
+        if (paneUiMode === "chat") return;
+        const pane = stateRef.current.panes[focusedPaneId];
         if (pane?.pty_id) {
           let data = "";
           if (e.ctrlKey && !e.shiftKey && e.key.length === 1) {
@@ -548,9 +411,8 @@ function AppInner() {
     kb,
     handleNewTab,
     handleCloseCurrentTab,
-    handleCloseFocusedPane,
+    reopenClosed,
     createWorkspace,
-    setFocusedPane,
     activeWs,
     setActiveTab,
     config,
@@ -563,16 +425,16 @@ function AppInner() {
 
   // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
   useEffect(() => {
-    const hex = stableTheme.background.replace("#", "");
-    const r = parseInt(hex.substring(0, 2), 16);
-    const g = parseInt(hex.substring(2, 4), 16);
-    const b = parseInt(hex.substring(4, 6), 16);
-    const isLight = (r + g + b) / 3 > 128;
+    const isLight = isLightColor(stableTheme.background);
     document.documentElement.style.colorScheme = isLight ? "light" : "dark";
+    document.documentElement.dataset.ctTheme = isLight ? "light" : "dark";
     for (const [k, v] of Object.entries(themeStyles)) {
       document.documentElement.style.setProperty(k, v);
     }
-  }, [stableTheme.background, themeStyles]);
+    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", stableTheme.background);
+    cacheThemeSnapshot(stableTheme);
+    document.documentElement.style.fontSize = `${stableFontConfig.size + 2}px`;
+  }, [stableTheme.background, themeStyles, stableFontConfig.size]);
 
   return (
     <div
@@ -598,6 +460,8 @@ function AppInner() {
           onNewTab={handleNewTab}
           theme={stableTheme}
           onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
+          onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
+          onOpenExtensions={() => { setExtensionsOpen(true); }}
         />
       )}
       {/* Status-bar scrim: content sliding under the notch fogs into the bg color + a soft blur, fading to clear below. */}
@@ -620,18 +484,21 @@ function AppInner() {
         <button
           data-testid="web-sidebar-open"
           onClick={() => setSidebarOpen(true)}
-          className="fixed left-3 z-50 flex items-center justify-center rounded-full text-white shadow-[0_6px_20px_rgba(31,111,235,0.45)] border border-white/15 active:scale-95"
+          className="fixed left-3 z-50 flex items-center justify-center rounded-full active:scale-95"
           style={{
             // Explicit size, NOT Tailwind h-11/w-11 — the phone button-shrink rule (button.h-11{height!important}) would squash it into an ellipse.
             width: "2.75rem",
             height: "2.75rem",
             aspectRatio: "1 / 1",
-            // Panel views (mesh/memory/settings/git) own a top header bar — slide the burger below it so it never overlaps. Animates between positions for a live feel.
+            // Both views own a top strip — slide the burger just below it so it
+            // never overlaps. Workspace's pane bar is shorter than panel headers.
             top:
               mainView === "workspace"
-                ? "calc(0.5rem + var(--ct-safe-top, 0px))"
+                ? "calc(var(--ct-safe-top, 0px) + 2.6rem)"
                 : "calc(var(--ct-safe-top, 0px) + 3.65rem)",
-            background: "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)",
+            background: "var(--ct-accent)",
+            color: "var(--ct-bg)",
+            border: "1px solid color-mix(in srgb, var(--ct-fg) 18%, transparent)",
             transition: "top 340ms cubic-bezier(0.16, 1, 0.3, 1), transform 120ms ease",
           }}
           title="Open sidebar"
@@ -655,9 +522,11 @@ function AppInner() {
                 onOpenSettings={() => { setSettingsOpen(true); closeSidebarOnMobile(); }}
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
+                onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
                 onNavigateToTab={() => { setMainView("workspace"); closeSidebarOnMobile(); }}
                 mainView={mainView}
                 config={config}
+                uiFontScale={uiFontScale}
               />
             </div>
           </>
@@ -675,12 +544,6 @@ function AppInner() {
                 onUpdateConfig={updateConfig}
                 onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
                 initialSection={settingsSection}
-                onNavigateToTab={(tab) => {
-                  setSettingsOpen(false);
-                  setSettingsSection(undefined);
-                  if (tab === "memory") setMemoryOpen(true);
-                  else if (tab === "mesh") setMeshOpen(true);
-                }}
               />
             </div>
           )}
@@ -709,19 +572,24 @@ function AppInner() {
               />
             </div>
           )}
-          {mountedGit && (
-            <div className="absolute inset-0" style={viewLayerStyle(mainView === "git")}>
-              <GitPanel
-                api={stableApiConfig}
-                cwd={gitRepoCwd}
-                onClose={() => setMainView("workspace")}
+          {mountedExtensions && (
+            <div className="absolute inset-0" style={viewLayerStyle(mainView === "extensions")}>
+              <ExtensionsView
+                visible={mainView === "extensions"}
+                pluginActivities={pluginActivities}
+                pluginActivityDisplayMap={pluginActivityDisplayMap}
               />
+            </div>
+          )}
+          {pluginViewId && (
+            <div className="absolute inset-0 z-30">
+              <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={() => setPluginViewId(null)} />
             </div>
           )}
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
-                const isActiveTab = ws.id === state.active_workspace_id && tab.id === ws.active_tab_id;
+                const isActiveTab = ws.id === state.active_workspace_id && tab.id === state.activeTabIds[ws.id];
                 // Main (protected pane in the protected workspace) is never
                 // lazy — mount it on boot so its chat/SSE state is live.
                 const isMainTab =
@@ -733,6 +601,7 @@ function AppInner() {
               <div
                 key={tab.id}
                 className="absolute inset-0"
+                inert={!isVisible || undefined}
                 style={{
                   zIndex: isVisible ? 1 : 0,
                   opacity: isVisible ? 1 : 0,
@@ -749,11 +618,11 @@ function AppInner() {
                   fontConfig={stableFontConfig}
                   terminalConfig={stableTerminalConfig}
                   usageEnabledByProvider={usageEnabledByProvider}
-                  gitInfo={gitPaneId === tab.pane_id ? focusedGitInfo : null}
-                  onRefreshGitInfo={refreshFocusedGitInfo}
-                  onOpenGit={openGit}
                   api={stableApiConfig}
                   workspaceCwd={ws.cwd ?? null}
+                  uiFontScale={uiFontScale}
+                  chatFirst={chatPaneDefault}
+                  chatDefaultPrompted={chatDefaultPrompted}
                 />
               </div>
                 );
@@ -781,7 +650,7 @@ function AppInner() {
 
       <CrashReportToast />
 
-      <ChatUiDefaultPrompt />
+      <StaleBuildBanner />
 
       <NavigationBackBar onBack={handleBackToMemory} />
 

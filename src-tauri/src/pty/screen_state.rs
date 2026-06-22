@@ -46,6 +46,7 @@ impl PromptSignal {
 pub struct ScreenState {
     parsers: HashMap<String, vt100::Parser>,
     prompt_signals: HashMap<String, Arc<PromptSignal>>,
+    bare_prompt_signals: HashMap<String, Arc<PromptSignal>>,
     agent_signals: HashMap<String, Arc<PromptSignal>>,
 }
 
@@ -54,6 +55,7 @@ impl ScreenState {
         Self {
             parsers: HashMap::new(),
             prompt_signals: HashMap::new(),
+            bare_prompt_signals: HashMap::new(),
             agent_signals: HashMap::new(),
         }
     }
@@ -72,6 +74,11 @@ impl ScreenState {
                 signal.mark_ready();
             }
         }
+        if let Some(signal) = self.bare_prompt_signals.get(pty_id) {
+            if !signal.is_ready() && screen_has_bare_shell_prompt(&screen) {
+                signal.mark_ready();
+            }
+        }
         if let Some(signal) = self.agent_signals.get(pty_id) {
             if !signal.is_ready() && screen_has_agent_tui(&screen) {
                 signal.mark_ready();
@@ -81,6 +88,32 @@ impl ScreenState {
 
     pub fn get_screen_text(&self, pty_id: &str) -> Option<String> {
         self.parsers.get(pty_id).map(|p| p.screen().contents())
+    }
+
+    pub fn native_prompt_input(
+        &self,
+        pty_id: &str,
+    ) -> Option<crate::agent::native_prompt::NativePromptInput> {
+        self.parsers.get(pty_id).map(|p| {
+            let screen = p.screen();
+            crate::agent::native_prompt::NativePromptInput {
+                screen: crate::agent::attributed_screen::AttributedScreen::from_vt100(screen),
+                cursor_hidden: screen.hide_cursor(),
+                alt_screen: screen.alternate_screen(),
+            }
+        })
+    }
+
+    /// VT cursor geometry for the live composer-ready signal: `(alt_screen,
+    /// cursor_visible, cursor_row, rows)`. Mirrors what the offline `SignalExtractor`
+    /// exposes so the live and replay classifiers agree (see `composer_cursor_ready`).
+    pub fn cursor_input_state(&self, pty_id: &str) -> Option<(bool, bool, u16, u16)> {
+        self.parsers.get(pty_id).map(|p| {
+            let screen = p.screen();
+            let (rows, _cols) = screen.size();
+            let (row, _col) = screen.cursor_position();
+            (screen.alternate_screen(), !screen.hide_cursor(), row, rows)
+        })
     }
 
     /// Get screen as escape-coded bytes — preserves colors, cursor position, cursor visibility.
@@ -110,6 +143,31 @@ impl ScreenState {
             }
             h.finalize().into()
         })
+    }
+
+    /// Trimmed per-row screen text plus the tail, derived from the existing
+    /// per-pty vt100 parser — the same view `SignalExtractor` builds, but with no
+    /// second parser. Feeds the live 3-state classifier's text-question /
+    /// ready-prompt fingerprints (`screen_lines`) and picker-subtype fingerprints
+    /// (`tail`). `tail_rows` anchors the tail to the last non-blank row.
+    pub fn lines_and_tail(&self, pty_id: &str, tail_rows: usize) -> Option<(Vec<String>, String)> {
+        let parser = self.parsers.get(pty_id)?;
+        let screen = parser.screen();
+        let (rows, cols) = screen.size();
+        let mut lines = Vec::with_capacity(rows as usize);
+        let mut last_nonblank: Option<usize> = None;
+        for row in 0..rows {
+            let text = screen.contents_between(row, 0, row, cols);
+            let trimmed = text.trim_end().to_string();
+            if !trimmed.is_empty() {
+                last_nonblank = Some(row as usize);
+            }
+            lines.push(trimmed);
+        }
+        let end = last_nonblank.map_or(0, |r| r + 1);
+        let start = end.saturating_sub(tail_rows);
+        let tail = lines[start..end].join("\n");
+        Some((lines, tail))
     }
 
     /// Returns the last `max_rows` non-blank rows of the screen plus all rows
@@ -154,6 +212,24 @@ impl ScreenState {
         signal
     }
 
+    /// Get or create the bare-shell prompt signal for a PTY. Unlike
+    /// `arm_prompt_signal`, this rejects agent TUI composers that also use `❯`.
+    pub fn arm_bare_prompt_signal(&mut self, pty_id: &str) -> Arc<PromptSignal> {
+        let signal = PromptSignal::new();
+        self.bare_prompt_signals
+            .insert(pty_id.to_string(), signal.clone());
+
+        if !signal.is_ready() {
+            if let Some(parser) = self.parsers.get(pty_id) {
+                if screen_has_bare_shell_prompt(&parser.screen().contents()) {
+                    signal.mark_ready();
+                }
+            }
+        }
+
+        signal
+    }
+
     /// Arm a one-shot signal that fires as soon as `screen_has_agent_tui` is true
     /// for this PTY. Fires immediately if a TUI is already on screen at arm-time.
     /// Mirrors `arm_prompt_signal`; callers block with `signal.wait(timeout)`.
@@ -178,6 +254,9 @@ impl ScreenState {
     pub fn remove(&mut self, pty_id: &str) {
         self.parsers.remove(pty_id);
         if let Some(sig) = self.prompt_signals.remove(pty_id) {
+            sig.mark_ready();
+        }
+        if let Some(sig) = self.bare_prompt_signals.remove(pty_id) {
             sig.mark_ready();
         }
         if let Some(sig) = self.agent_signals.remove(pty_id) {
@@ -284,7 +363,7 @@ mod tests {
 
     #[test]
     fn claude_tui_input_cursor_is_recognized() {
-        // Issue #72: idle Claude TUI shows `❯` (U+276F) as the input cursor. `send-text --verify` was timing out with PromptNeverReady because the
+        // Issue #72: idle Claude TUI shows `❯` (U+276F) as the input cursor. `send --verify` was timing out with PromptNeverReady because the
         // matcher only knew POSIX/Windows shell markers.
         assert!(screen_has_shell_prompt("❯ "));
         assert!(screen_has_shell_prompt("❯"));
@@ -455,6 +534,49 @@ mod tests {
         let sig = ss.arm_prompt_signal("pty1");
         ss.process("pty1", b"some regular line without prompt marker");
         assert!(!sig.is_ready());
+    }
+
+    #[test]
+    fn bare_prompt_signal_rejects_agent_tui_prompt() {
+        let mut ss = ScreenState::new();
+        ss.process(
+            "pty1",
+            "╭──────────────────────────╮\n│ ❯                        │".as_bytes(),
+        );
+        let prompt = ss.arm_prompt_signal("pty1");
+        let bare = ss.arm_bare_prompt_signal("pty1");
+        assert!(
+            prompt.is_ready(),
+            "regular prompt signal accepts TUI composer"
+        );
+        assert!(
+            !bare.is_ready(),
+            "restore launch must not treat an agent composer as a bare shell"
+        );
+
+        ss.process("pty1", b"\x1b[2J\x1b[Huser@host:~$ ");
+        assert!(
+            bare.is_ready(),
+            "bare prompt signal fires on real shell prompt"
+        );
+    }
+
+    #[test]
+    fn bare_prompt_signal_does_not_reuse_stale_ready_state() {
+        let mut ss = ScreenState::new();
+        ss.process("pty1", b"user@host:~$ ");
+        let first = ss.arm_bare_prompt_signal("pty1");
+        assert!(first.is_ready());
+
+        ss.process(
+            "pty1",
+            "\x1b[2J\x1b[H╭──────────────────────────╮\n│ ❯                        │".as_bytes(),
+        );
+        let second = ss.arm_bare_prompt_signal("pty1");
+        assert!(
+            !second.is_ready(),
+            "a previous bare shell prompt must not make a later TUI screen ready"
+        );
     }
 
     #[test]

@@ -1,0 +1,59 @@
+[
+  {
+    "provider": "opencode",
+    "scenario": "idle_focus_churn_v1",
+    "run_id": "20260621-idle-focus-v2-rest-opencode-idle_focus_churn_v1-100x30",
+    "geometry": {
+      "cols": 100,
+      "rows": 30
+    },
+    "capture_output": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/idle_focus_churn_v1-20260621-idle-focus-v2-rest-opencode-idle_focus_churn_v1-100x30\n",
+    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/idle_focus_churn_v1-20260621-idle-focus-v2-rest-opencode-idle_focus_churn_v1-100x30",
+    "gate": {
+      "ok": true,
+      "stage": "gate",
+      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/idle_focus_churn_v1-20260621-idle-focus-v2-rest-opencode-idle_focus_churn_v1-100x30/timeline.json (1059 frames @ 75ms, 7 input anchors, window 0..79394ms)\n",
+      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/idle_focus_churn_v1-20260621-idle-focus-v2-rest-opencode-idle_focus_churn_v1-100x30/timeline.json\nsummary: frames=1059 duration_ms=79350 inputs=7\ndetector: states={'idle': 828, 'working': 231} working_frames=231 status_line_frames=83 card_frames=0 native_picker_frames=0 transitions=7 idle_runs=4 short_idle_blips=0\nper_turn:\n  turn=1 frames=137 working_pct=70.1 status_frames=39 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=1 frames=267 working_pct=0.0 status_frames=0 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=2 frames=152 working_pct=71.7 status_frames=41 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=2 frames=333 working_pct=0.0 status_frames=0 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=3 frames=53 working_pct=49.1 status_frames=3 card_frames=0 native_picker_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-szvfklcv/timeline.json (318 frames @ 250ms, 7 input anchors, window 0..79394ms)\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/opencode/idle_focus_churn_v1-20260621-idle-focus-v2-rest-opencode-idle_focus_churn_v1-100x30\ncast: inputs=7 outputs=553 o+b64=0 resize=1 bad=0 last_t=77.394380083\nphases: 6\nscreen_compare: rows=cast cols=cast\ntimeline: frames=1059 working=231 status_line=83 cards=0\nOK replay doctor passed\n"
+    },
+    "ok": true
+  },
+  {
+    "provider": "codex",
+    "scenario": "idle_focus_churn_v1",
+    "run_id": "20260621-idle-focus-v2-rest-codex-idle_focus_churn_v1-100x30",
+    "geometry": {
+      "cols": 100,
+      "rows": 30
+    },
+    "capture_output": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/idle_focus_churn_v1-20260621-idle-focus-v2-rest-codex-idle_focus_churn_v1-100x30\n",
+    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/idle_focus_churn_v1-20260621-idle-focus-v2-rest-codex-idle_focus_churn_v1-100x30",
+    "gate": {
+      "ok": true,
+      "stage": "gate",
+      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/codex/idle_focus_churn_v1-20260621-idle-focus-v2-rest-codex-idle_focus_churn_v1-100x30/timeline.json (1035 frames @ 75ms, 6 input anchors, window 0..77612ms)\n",
+      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/codex/idle_focus_churn_v1-20260621-idle-focus-v2-rest-codex-idle_focus_churn_v1-100x30/timeline.json\nsummary: frames=1035 duration_ms=77550 inputs=6\ndetector: states={'idle': 912, 'working': 123} working_frames=123 status_line_frames=96 card_frames=0 native_picker_frames=0 transitions=7 idle_runs=4 short_idle_blips=0\nper_turn:\n  turn=1 frames=139 working_pct=9.4 status_frames=4 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=1 frames=267 working_pct=0.0 status_frames=0 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=2 frames=124 working_pct=63.7 status_frames=70 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=2 frames=333 working_pct=0.0 status_frames=0 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=3 frames=56 working_pct=55.4 status_frames=22 card_frames=0 native_picker_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-bljjps9n/timeline.json (311 frames @ 250ms, 6 input anchors, window 0..77612ms)\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/codex/idle_focus_churn_v1-20260621-idle-focus-v2-rest-codex-idle_focus_churn_v1-100x30\ncast: inputs=6 outputs=471 o+b64=0 resize=1 bad=0 last_t=75.611606917\nphases: 6\nscreen_compare: rows=cast cols=cast\ntimeline: frames=1035 working=123 status_line=96 cards=0\nOK replay doctor passed\n"
+    },
+    "ok": true
+  },
+  {
+    "provider": "cursor",
+    "scenario": "idle_focus_churn_v1",
+    "run_id": "20260621-idle-focus-v2-rest-cursor-idle_focus_churn_v1-100x30",
+    "geometry": {
+      "cols": 100,
+      "rows": 30
+    },
+    "capture_output": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/idle_focus_churn_v1-20260621-idle-focus-v2-rest-cursor-idle_focus_churn_v1-100x30\n",
+    "replay_dir": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/idle_focus_churn_v1-20260621-idle-focus-v2-rest-cursor-idle_focus_churn_v1-100x30",
+    "gate": {
+      "ok": true,
+      "stage": "gate",
+      "render": "wrote /Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/idle_focus_churn_v1-20260621-idle-focus-v2-rest-cursor-idle_focus_churn_v1-100x30/timeline.json (1513 frames @ 75ms, 6 input anchors, window 0..113462ms)\n",
+      "analyze": "timeline: /Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/idle_focus_churn_v1-20260621-idle-focus-v2-rest-cursor-idle_focus_churn_v1-100x30/timeline.json\nsummary: frames=1513 duration_ms=113400 inputs=6\ndetector: states={'idle': 918, 'working': 595} working_frames=595 status_line_frames=567 card_frames=0 native_picker_frames=0 transitions=7 idle_runs=4 short_idle_blips=0\nper_turn:\n  turn=1 frames=385 working_pct=66.5 status_frames=247 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=1 frames=267 working_pct=0.0 status_frames=0 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=2 frames=316 working_pct=85.1 status_frames=259 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=2 frames=334 working_pct=0.0 status_frames=0 card_frames=0 native_picker_frames=0 timed_out=False\n  turn=3 frames=95 working_pct=73.7 status_frames=61 card_frames=0 native_picker_frames=0 timed_out=False\n",
+      "doctor": "wrote /var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-doctor-sk4kk0qh/timeline.json (454 frames @ 250ms, 6 input anchors, window 0..113462ms)\nWARN final replay frame does not match screen.txt/raw.screen.txt at NonexNone\nreplay: /Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/idle_focus_churn_v1-20260621-idle-focus-v2-rest-cursor-idle_focus_churn_v1-100x30\ncast: inputs=6 outputs=262 o+b64=0 resize=1 bad=0 last_t=111.462093875\nphases: 6\nscreen_compare: rows=cast cols=cast\ntimeline: frames=1513 working=595 status_line=567 cards=0\nOK replay doctor passed\n"
+    },
+    "ok": true
+  }
+]

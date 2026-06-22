@@ -1,0 +1,16 @@
+╭───────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.141.0)                            │
+│                                                       │
+│ model:       gpt-5.5 medium   /model to change        │
+│ directory:   /private/…/T/codeterm-snapshot-testbench │
+│ permissions: YOLO mode                                │
+╰───────────────────────────────────────────────────────╯
+  Tip: Try the Codex App. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+  Select Model and Effort
+  Access legacy models by running codex -m <model_name> or in your config.toml
+› 1. gpt-5.5 (current)    Frontier model for complex coding, research, and real-world work.
+  2. gpt-5.4              Strong model for everyday coding.
+  3. gpt-5.4-mini         Small, fast, and cost-efficient model for simpler coding tasks.
+  4. gpt-5.3-codex-spark  Ultra-fast coding model.
+  Press enter to confirm or esc to go back                                                                              

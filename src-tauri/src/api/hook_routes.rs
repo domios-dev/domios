@@ -18,7 +18,7 @@ struct SessionStartClaim {
 fn ensure_agent_state(state: &AppState, pane_id: &str) {
     log::info!("[ensure_agent_state] called for pane {}", pane_id);
     let agent_type = {
-        let mux = state.svc.mux.lock();
+        let mux = state.svc.mux.write();
         let pane = match mux.get_pane(pane_id) {
             Some(p) => p,
             None => return,
@@ -73,7 +73,14 @@ pub async fn hook_permission(
         if options.is_empty() {
             return None;
         }
-        Some(crate::multiplexer::types::PendingPrompt { question, options })
+        Some(crate::multiplexer::types::PendingPrompt {
+            question,
+            options,
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
+        })
     });
 
     let decision = if let Some(prompt) = explicit_prompt {
@@ -86,13 +93,13 @@ pub async fn hook_permission(
         let pty_id = state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&pane_id)
             .and_then(|p| p.pty_id.clone());
         let agent_type = state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&pane_id)
             .and_then(|p| p.agent_type.clone());
 
@@ -170,7 +177,7 @@ pub async fn hook_permission(
         let title = state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&pane_id)
             .map(|p| p.title.clone());
         if let Some(title) = title {
@@ -194,10 +201,11 @@ pub async fn hook_stop(
     Path(raw_pane_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    log::debug!("[hook_stop] fired for pane {}", pane_id);
     let title = state
         .svc
         .mux
-        .lock()
+        .write()
         .get_pane(&pane_id)
         .map(|p| p.title.clone());
     if let Some(title) = title {
@@ -214,12 +222,18 @@ pub async fn hook_stop(
     // Stop = turn boundary, not exit — agent_type stays; PTY-close clears it.
     state.svc.prompt_detector.lock().clear(&pane_id);
     {
-        let mut mux = state.svc.mux.lock();
+        let mut mux = state.svc.mux.write();
         if let Some(pane) = mux.get_pane_mut(&pane_id) {
             pane.pending_prompt = None;
         }
     }
     state.svc.emit_state_changed();
+
+    // Hidden worker/cron runs (now ordinary interactive claude) finish on Stop if they didn't explicitly report. No-op for visible panes / already-reported runs.
+    state
+        .svc
+        .run_watcher
+        .complete_via_stop_hook(&state.svc, &pane_id);
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -251,6 +265,11 @@ pub async fn hook_session_start(
         .and_then(|v| v.as_str())
         .or_else(|| header_str(&headers, "x-codeterm-agent-provider"))
         .map(|s| s.to_string());
+    let report_nonce = body
+        .get("binding_nonce")
+        .and_then(|v| v.as_str())
+        .or_else(|| header_str(&headers, "x-codeterm-binding-nonce"))
+        .map(|s| s.to_string());
 
     let Some(sid) = session_id else {
         log::warn!(
@@ -267,7 +286,7 @@ pub async fn hook_session_start(
         let existing = state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&pane_id)
             .and_then(|p| p.agent_type.clone());
         provider_id
@@ -276,15 +295,20 @@ pub async fn hook_session_start(
     };
 
     let claim = {
-        let mut mux = state.svc.mux.lock();
+        let mut mux = state.svc.mux.write();
         bind_reported_session(
             &mut mux,
             state.svc.agent_registry.as_ref(),
             &pane_id,
             &provider_id,
             &sid,
+            report_nonce.as_deref(),
         )?
     };
+
+    // Capture the freshly-bound session onto the hidden run's record (worker / cron) immediately, so a LIVE run is renderable in the read-only chat-ui
+    // while it runs — not only after completion.
+    propagate_run_session(&state, &pane_id, &sid);
 
     if !claim.changed {
         return Ok(Json(serde_json::json!({"ok": true, "changed": false})));
@@ -307,17 +331,114 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }
 
+/// Push the just-bound session id (+cwd) onto whatever hidden run owns this pane
+/// (mem worker or cron run), so the read-only chat-ui can render it live.
+fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
+    use tauri::{Emitter, Manager};
+
+    let (worker_id, cwd) = {
+        let mux = state.svc.mux.write();
+        let pane = mux.get_pane(pane_id);
+        (
+            pane.and_then(|p| p.worker_id.clone()),
+            pane.and_then(|p| p.cwd.clone()),
+        )
+    };
+
+    if let Some(wid) = worker_id {
+        state
+            .svc
+            .workers
+            .set_run_session(&wid, sid.to_string(), cwd.clone());
+        if let Some(info) = state.svc.workers.get(&wid) {
+            let _ = state.svc.app_handle.emit("graph-worker-progress", &info);
+        }
+    }
+
+    if let Some(cron_state) = state.svc.app_handle.try_state::<crate::CronState>() {
+        let owner = cron_state
+            .lock()
+            .get_pane_owner(pane_id)
+            .map(|(j, r)| (j.to_string(), r.to_string()));
+        if let Some((job_id, run_id)) = owner {
+            cron_state
+                .lock()
+                .set_run_session(&job_id, &run_id, sid, cwd.as_deref());
+            let _ = state.svc.app_handle.emit("cron-state-changed", ());
+        }
+    }
+}
+
 fn bind_reported_session(
     mux: &mut crate::multiplexer::state::MultiplexerState,
     registry: &crate::agent::registry::AgentRegistry,
     pane_id: &str,
     provider_id: &str,
     sid: &str,
+    report_nonce: Option<&str>,
 ) -> Result<SessionStartClaim, (StatusCode, String)> {
     if registry.with_provider(provider_id, |_| ()).is_none() {
         return Err((
             StatusCode::BAD_REQUEST,
             format!("unknown provider_id '{}'", provider_id),
+        ));
+    }
+
+    // A report carrying a nonce that disagrees with the pane's launch nonce is a stale or foreign reporter (relaunch, /new in another process, reused pane id). A matching nonce is proof we launched this session ourselves — it's authoritative even before the session file lands on disk. A missing report nonce is tolerated only after provider-owned session validation below.
+    let nonce_verified = if let Some(expected) = mux
+        .get_pane(pane_id)
+        .and_then(|p| p.session_binding_nonce.clone())
+    {
+        match report_nonce {
+            Some(got) if got != expected => {
+                log::warn!(
+                    "[hook_session_start] rejecting sid {} for pane {} provider={}: binding nonce mismatch",
+                    sid, pane_id, provider_id,
+                );
+                return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
+            }
+            Some(_) => true,
+            None => false,
+        }
+    } else {
+        false
+    };
+
+    let Some(pane) = mux.get_pane(pane_id) else {
+        return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
+    };
+    if let Some(existing_provider) = pane.agent_type.as_deref() {
+        if existing_provider != provider_id {
+            return Err((
+                StatusCode::CONFLICT,
+                format!(
+                    "pane provider '{}' does not match report provider '{}'",
+                    existing_provider, provider_id
+                ),
+            ));
+        }
+    }
+    let cwd = pane.cwd.clone().unwrap_or_default();
+
+    // A verified launch nonce already proves ownership; the session file just hasn't
+    // been persisted yet (fresh agent spawn at session_start). Only gate nonce-less /
+    let exists = nonce_verified
+        || registry
+            .with_provider(provider_id, |p| p.session_exists(&cwd, sid))
+            .unwrap_or(false);
+    if !exists {
+        log::warn!(
+            "[hook_session_start] rejecting sid {} for pane {} provider={}: session does not belong to provider",
+            sid,
+            pane_id,
+            provider_id,
+        );
+        return Err((
+            StatusCode::CONFLICT,
+            format!(
+                "session_id '{}' is not a known session for provider '{}'",
+                sid, provider_id
+            ),
         ));
     }
 
@@ -342,17 +463,7 @@ fn bind_reported_session(
     let Some(pane) = mux.get_pane_mut(pane_id) else {
         return Err((StatusCode::NOT_FOUND, "pane not found".to_string()));
     };
-    if let Some(existing_provider) = pane.agent_type.as_deref() {
-        if existing_provider != provider_id {
-            return Err((
-                StatusCode::CONFLICT,
-                format!(
-                    "pane provider '{}' does not match report provider '{}'",
-                    existing_provider, provider_id
-                ),
-            ));
-        }
-    } else {
+    if pane.agent_type.is_none() {
         pane.agent_type = Some(provider_id.to_string());
         pane.agent_type_locked = true;
         pane.agent_set_at = Some(std::time::Instant::now());
@@ -368,6 +479,7 @@ fn bind_reported_session(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::path::PathBuf;
     use std::time::Duration;
 
@@ -378,19 +490,22 @@ mod tests {
     use crate::agent::registry::AgentRegistry;
     use crate::multiplexer::state::MultiplexerState;
 
-    struct HookProvider(&'static str);
+    struct HookProvider {
+        id: &'static str,
+        sessions: HashSet<&'static str>,
+    }
 
     impl AgentProvider for HookProvider {
         fn id(&self) -> &str {
-            self.0
+            self.id
         }
 
         fn display_name(&self) -> &str {
-            self.0
+            self.id
         }
 
         fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
-            self.0.to_string()
+            self.id.to_string()
         }
 
         fn readiness_strategy(&self) -> ReadinessStrategy {
@@ -419,25 +534,8 @@ mod tests {
             None
         }
 
-        fn detect_launched_session_id(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<Duration>,
-            _: Option<&str>,
-        ) -> Option<String> {
-            None
-        }
-
-        fn detect_started_session(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<Duration>,
-            _: Option<&str>,
-            _: Option<&str>,
-        ) -> Option<String> {
-            None
+        fn session_exists(&self, _: &str, session_id: &str) -> bool {
+            self.sessions.contains(session_id)
         }
 
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
@@ -450,9 +548,20 @@ mod tests {
     }
 
     fn registry(ids: &[&'static str]) -> AgentRegistry {
+        registry_with_sessions(
+            ids.iter()
+                .map(|id| (*id, vec!["sid-a", "sid-b", "ses_shared"]))
+                .collect(),
+        )
+    }
+
+    fn registry_with_sessions(items: Vec<(&'static str, Vec<&'static str>)>) -> AgentRegistry {
         let registry = AgentRegistry::new();
-        for id in ids {
-            registry.register_provider(Box::new(HookProvider(id)));
+        for (id, sessions) in items {
+            registry.register_provider(Box::new(HookProvider {
+                id,
+                sessions: sessions.into_iter().collect(),
+            }));
         }
         registry
     }
@@ -460,9 +569,11 @@ mod tests {
     #[test]
     fn reported_session_rebinds_same_pane_for_new_conversation() {
         let (mut mux, pane_id) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_id).unwrap().cwd = Some("/tmp/project".into());
         let registry = registry(&["codex"]);
 
-        let first = bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-a").unwrap();
+        let first =
+            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-a", None).unwrap();
         assert_eq!(
             first,
             SessionStartClaim {
@@ -472,7 +583,7 @@ mod tests {
         );
 
         let second =
-            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b").unwrap();
+            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b", None).unwrap();
         assert_eq!(
             second,
             SessionStartClaim {
@@ -486,7 +597,7 @@ mod tests {
         assert!(pane.agent_type_locked);
 
         let unchanged =
-            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b").unwrap();
+            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b", None).unwrap();
         assert_eq!(
             unchanged,
             SessionStartClaim {
@@ -499,12 +610,16 @@ mod tests {
     #[test]
     fn reported_session_rejects_cross_pane_duplicate_claim() {
         let (mut mux, pane_a) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_a).unwrap().cwd = Some("/tmp/project".into());
         let pane_b = mux.create_pane();
+        mux.get_pane_mut(&pane_b).unwrap().cwd = Some("/tmp/project".into());
         let registry = registry(&["opencode"]);
 
-        bind_reported_session(&mut mux, &registry, &pane_a, "opencode", "ses_shared").unwrap();
-        let err = bind_reported_session(&mut mux, &registry, &pane_b, "opencode", "ses_shared")
-            .unwrap_err();
+        bind_reported_session(&mut mux, &registry, &pane_a, "opencode", "ses_shared", None)
+            .unwrap();
+        let err =
+            bind_reported_session(&mut mux, &registry, &pane_b, "opencode", "ses_shared", None)
+                .unwrap_err();
         assert_eq!(err.0, StatusCode::CONFLICT);
         assert_eq!(
             mux.get_pane(&pane_b).unwrap().agent_session_id.as_deref(),
@@ -515,15 +630,215 @@ mod tests {
     #[test]
     fn reported_session_rejects_wrong_provider_for_locked_pane() {
         let (mut mux, pane_id) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_id).unwrap().cwd = Some("/tmp/project".into());
         let registry = registry(&["claude", "codex"]);
 
-        bind_reported_session(&mut mux, &registry, &pane_id, "claude", "sid-a").unwrap();
-        let err =
-            bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b").unwrap_err();
+        bind_reported_session(&mut mux, &registry, &pane_id, "claude", "sid-a", None).unwrap();
+        let err = bind_reported_session(&mut mux, &registry, &pane_id, "codex", "sid-b", None)
+            .unwrap_err();
         assert_eq!(err.0, StatusCode::CONFLICT);
         assert_eq!(
             mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
             Some("sid-a")
         );
+    }
+
+    #[test]
+    fn reported_session_enforces_binding_nonce() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_id).unwrap().cwd = Some("/tmp/project".into());
+        let registry = registry(&["claude"]);
+        mux.get_pane_mut(&pane_id).unwrap().session_binding_nonce = Some("nonce-1".into());
+
+        // Wrong nonce → rejected, no binding.
+        let err = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "sid-a",
+            Some("nope"),
+        )
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        assert_eq!(
+            mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
+            None
+        );
+
+        // Absent nonce → tolerated (un-upgraded hook).
+        bind_reported_session(&mut mux, &registry, &pane_id, "claude", "sid-a", None).unwrap();
+        assert_eq!(
+            mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
+            Some("sid-a")
+        );
+
+        // Matching nonce → bound.
+        let claim = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "sid-b",
+            Some("nonce-1"),
+        )
+        .unwrap();
+        assert!(claim.changed);
+        assert_eq!(
+            mux.get_pane(&pane_id).unwrap().agent_session_id.as_deref(),
+            Some("sid-b")
+        );
+    }
+
+    #[test]
+    fn reported_session_rejects_sid_not_owned_by_provider() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_id).unwrap().cwd = Some("/tmp/project".into());
+        let registry = registry_with_sessions(vec![
+            ("claude", vec!["claude-real"]),
+            ("cursor-agent", vec!["cursor-foreign"]),
+        ]);
+
+        let err = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "cursor-foreign",
+            Some("nonce-1"),
+        )
+        .unwrap_err();
+
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        let pane = mux.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.agent_type.as_deref(), None);
+        assert_eq!(pane.agent_session_id.as_deref(), None);
+    }
+
+    #[test]
+    fn reported_session_binds_sid_owned_by_provider() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_id).unwrap().cwd = Some("/tmp/project".into());
+        let registry = registry_with_sessions(vec![("claude", vec!["claude-real"])]);
+
+        bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "claude-real",
+            Some("nonce-1"),
+        )
+        .unwrap();
+
+        let pane = mux.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.agent_type.as_deref(), Some("claude"));
+        assert_eq!(pane.agent_session_id.as_deref(), Some("claude-real"));
+    }
+
+    #[test]
+    fn fresh_launch_with_matching_nonce_accepts_unpersisted_session() {
+        // P0.2 regression: a session WE just launched carries a valid per-launch
+        // nonce but is not yet on disk at session_start time. A matching nonce is
+        let (mut mux, pane_id) = MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.cwd = Some("/tmp/project".into());
+        pane.session_binding_nonce = Some("launch-nonce".into());
+        // Provider knows of NO persisted session for this sid.
+        let registry = registry_with_sessions(vec![("claude", vec![])]);
+
+        let claim = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "fresh-unpersisted-sid",
+            Some("launch-nonce"),
+        )
+        .expect("fresh launch with matching nonce must be accepted");
+        assert!(claim.changed);
+
+        let pane = mux.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.agent_type.as_deref(), Some("claude"));
+        assert_eq!(
+            pane.agent_session_id.as_deref(),
+            Some("fresh-unpersisted-sid")
+        );
+    }
+
+    #[test]
+    fn pane_with_nonce_but_nonceless_report_rejects_unpersisted_session() {
+        // CB181 preserved: without a matching nonce, an unknown/unpersisted sid is
+        // still gated by session_exists — a nonce-less report is not proof-of-ownership.
+        let (mut mux, pane_id) = MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.cwd = Some("/tmp/project".into());
+        pane.session_binding_nonce = Some("launch-nonce".into());
+        let registry = registry_with_sessions(vec![("claude", vec![])]);
+
+        let err =
+            bind_reported_session(&mut mux, &registry, &pane_id, "claude", "unknown-sid", None)
+                .unwrap_err();
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        let pane = mux.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.agent_session_id.as_deref(), None);
+    }
+
+    #[test]
+    fn fresh_launch_with_matching_nonce_still_rejects_already_claimed_sid() {
+        // A valid nonce skips session_exists, but the already-claimed guard must
+        // still fire — two panes cannot own the same live session.
+        let (mut mux, pane_a) = MultiplexerState::new();
+        mux.get_pane_mut(&pane_a).unwrap().cwd = Some("/tmp/project".into());
+        let pane_b = mux.create_pane();
+        {
+            let pane = mux.get_pane_mut(&pane_b).unwrap();
+            pane.cwd = Some("/tmp/project".into());
+            pane.session_binding_nonce = Some("launch-nonce".into());
+        }
+        let registry = registry_with_sessions(vec![("claude", vec!["ses_shared"])]);
+
+        bind_reported_session(&mut mux, &registry, &pane_a, "claude", "ses_shared", None).unwrap();
+        let err = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_b,
+            "claude",
+            "ses_shared",
+            Some("launch-nonce"),
+        )
+        .unwrap_err();
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        assert_eq!(
+            mux.get_pane(&pane_b).unwrap().agent_session_id.as_deref(),
+            None
+        );
+    }
+
+    #[test]
+    fn reported_session_without_nonce_rejects_foreign_sid() {
+        let (mut mux, pane_id) = MultiplexerState::new();
+        let pane = mux.get_pane_mut(&pane_id).unwrap();
+        pane.cwd = Some("/tmp/project".into());
+        pane.session_binding_nonce = Some("nonce-1".into());
+        let registry = registry_with_sessions(vec![
+            ("claude", vec!["claude-real"]),
+            ("cursor-agent", vec!["cursor-foreign"]),
+        ]);
+
+        let err = bind_reported_session(
+            &mut mux,
+            &registry,
+            &pane_id,
+            "claude",
+            "cursor-foreign",
+            None,
+        )
+        .unwrap_err();
+
+        assert_eq!(err.0, StatusCode::CONFLICT);
+        let pane = mux.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.agent_type.as_deref(), None);
+        assert_eq!(pane.agent_session_id.as_deref(), None);
     }
 }

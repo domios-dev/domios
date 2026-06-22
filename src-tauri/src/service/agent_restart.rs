@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 
 use super::ServiceContext;
-use crate::agent::provider::AgentLaunchParams;
+use crate::agent::provider::{AgentLaunchParams, StructuredPromptServer};
 
 /// Minimum seconds between consecutive restarts for a single pane.
 pub const RESTART_RATE_LIMIT_SECS: u64 = 30;
@@ -114,7 +114,7 @@ impl ServiceContext {
         &self,
         pane_id: &str,
     ) -> Result<PaneRestartSnapshot, AgentRestartError> {
-        let mux = self.mux.lock();
+        let mux = self.mux.write();
         let resolved = mux
             .resolve_pane_id(pane_id)
             .ok_or_else(|| AgentRestartError::NotFound(format!("pane {} not found", pane_id)))?;
@@ -184,12 +184,54 @@ impl ServiceContext {
 /// command. Otherwise fall back to a fresh launch — the spec calls for graceful
 /// degradation on stale ids, not failure.
 fn build_relaunch_command(
+    svc: &ServiceContext,
+    snap: &PaneRestartSnapshot,
+    session_present: bool,
+) -> Option<String> {
+    let provider = &snap.provider;
+    let auto_approve = snap.auto_approve;
+    let session_id = snap.session_id.as_deref();
+    let cwd = snap.cwd.as_deref().unwrap_or_default();
+    let structured_prompt_server = svc
+        .agent_registry
+        .with_provider(provider, |p| p.needs_structured_prompt_server())
+        .unwrap_or(false)
+        .then(|| {
+            crate::service::structured_prompt::ensure_for_spawn(svc, provider, &snap.pane_id, cwd)
+        })
+        .flatten();
+    build_relaunch_command_with_registry(
+        &svc.agent_registry,
+        provider,
+        session_id,
+        auto_approve,
+        session_present,
+        structured_prompt_server,
+    )
+}
+
+fn build_relaunch_command_with_registry(
     registry: &crate::agent::registry::AgentRegistry,
     provider: &str,
     session_id: Option<&str>,
     auto_approve: bool,
     session_present: bool,
+    structured_prompt_server: Option<StructuredPromptServer>,
 ) -> Option<String> {
+    if session_present && structured_prompt_server.is_some() {
+        if let Some(sid) = session_id {
+            return registry.with_provider(provider, |p| {
+                p.build_launch_command(&AgentLaunchParams {
+                    agent_name: None,
+                    task: None,
+                    args: None,
+                    skip_permissions: auto_approve,
+                    session_id: Some(sid.to_string()),
+                    structured_prompt_server: structured_prompt_server.clone(),
+                })
+            });
+        }
+    }
     if session_present {
         if let Some(sid) = session_id {
             if let Some(cmd) = registry
@@ -206,8 +248,8 @@ fn build_relaunch_command(
             task: None,
             args: None,
             skip_permissions: auto_approve,
-            headless: false,
             session_id: None,
+            structured_prompt_server,
         })
     })
 }
@@ -278,13 +320,7 @@ async fn drive_restart(
         return;
     }
 
-    let Some(launch_cmd) = build_relaunch_command(
-        &svc.agent_registry,
-        &snap.provider,
-        snap.session_id.as_deref(),
-        snap.auto_approve,
-        session_present,
-    ) else {
+    let Some(launch_cmd) = build_relaunch_command(&svc, &snap, session_present) else {
         log::error!(
             "[agent_restart] pane={} provider={} returned no launch command — restart aborted",
             snap.pane_id,
@@ -361,16 +397,17 @@ fn bare_shell_prompt_visible(svc: &ServiceContext, pty_id: &str) -> bool {
         .lock()
         .get_screen_text(pty_id)
         .unwrap_or_default();
-    // Shell prompt must be present …
-    if !crate::pty::screen_state::screen_has_shell_prompt(&text) {
-        return false;
-    }
-    // … with no universal TUI glyphs (box-drawing, block chars) …
-    if crate::pty::screen_state::screen_has_agent_tui(&text) {
-        return false;
-    }
-    // … and no provider-specific TUI text patterns.
-    !svc.agent_registry.any_provider_screen_has_tui(&text)
+    // Shell prompt must be present, and no agent TUI may be on screen.
+    crate::pty::screen_state::screen_has_shell_prompt(&text)
+        && !screen_shows_agent_tui(&svc.agent_registry, &text)
+}
+
+pub(crate) fn screen_shows_agent_tui(
+    registry: &crate::agent::registry::AgentRegistry,
+    screen_text: &str,
+) -> bool {
+    crate::pty::screen_state::screen_has_agent_tui(screen_text)
+        || registry.any_provider_screen_has_tui(screen_text)
 }
 
 #[cfg(test)]
@@ -441,7 +478,14 @@ mod tests {
     #[test]
     fn build_relaunch_falls_back_to_fresh_when_session_stale() {
         let reg = registry_with_claude();
-        let cmd = build_relaunch_command(&reg, "claude", Some("ghost-id"), true, false);
+        let cmd = build_relaunch_command_with_registry(
+            &reg,
+            "claude",
+            Some("ghost-id"),
+            true,
+            false,
+            None,
+        );
         let cmd = cmd.expect("fallback launch command");
         assert!(
             !cmd.contains("--resume"),
@@ -458,8 +502,9 @@ mod tests {
     #[test]
     fn build_relaunch_uses_resume_when_session_present() {
         let reg = registry_with_claude();
-        let cmd = build_relaunch_command(&reg, "claude", Some("abc-123"), true, true)
-            .expect("resume command");
+        let cmd =
+            build_relaunch_command_with_registry(&reg, "claude", Some("abc-123"), true, true, None)
+                .expect("resume command");
         assert!(
             cmd.contains("--resume"),
             "resume cmd should contain --resume; got: {}",
@@ -475,13 +520,48 @@ mod tests {
     #[test]
     fn build_relaunch_unknown_provider_returns_none() {
         let reg = registry_with_claude();
-        assert!(build_relaunch_command(&reg, "nonsuch", None, true, false).is_none());
+        assert!(
+            build_relaunch_command_with_registry(&reg, "nonsuch", None, true, false, None)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn screen_shows_agent_tui_catches_provider_text_fingerprint() {
+        let reg = registry_with_claude();
+        let footer = "some assistant output\n⏵⏵ bypass permissions on (shift+tab to cycle)\n❯ ";
+        assert!(
+            !crate::pty::screen_state::screen_has_agent_tui(footer),
+            "footer-only frame has no universal glyphs — the gap the guard closes"
+        );
+        assert!(
+            crate::pty::screen_state::screen_has_shell_prompt(footer),
+            "`❯` still looks shell-ish to the prompt matcher"
+        );
+        assert!(
+            screen_shows_agent_tui(&reg, footer),
+            "provider fingerprint must mark this as an active agent TUI"
+        );
+    }
+
+    #[test]
+    fn screen_shows_agent_tui_catches_universal_glyphs() {
+        let reg = registry_with_claude();
+        let boxed = "╭──────────────────────────╮\n│ ❯                        │\n╰──────────────────────────╯";
+        assert!(screen_shows_agent_tui(&reg, boxed));
+    }
+
+    #[test]
+    fn screen_shows_agent_tui_false_for_bare_shell() {
+        let reg = registry_with_claude();
+        assert!(!screen_shows_agent_tui(&reg, "user@host:~/codeterm$ "));
+        assert!(!screen_shows_agent_tui(&reg, "~/code on  master\n❯ "));
     }
 
     #[test]
     fn build_relaunch_drops_resume_without_session_id() {
         let reg = registry_with_claude();
-        let cmd = build_relaunch_command(&reg, "claude", None, true, true)
+        let cmd = build_relaunch_command_with_registry(&reg, "claude", None, true, true, None)
             .expect("fresh launch when no session id");
         assert!(
             !cmd.contains("--resume"),

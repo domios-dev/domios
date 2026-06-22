@@ -1,0 +1,29 @@
+dev@workstation codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-a83d897c-834c-4af7-824f-a324546c7f84.sh
+╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ The stream-stall hint now reads "Waiting for API response · wi… │
+│                        ▘▘ ▝▝                       │ Improved auto mode safety: destructive git commands (`git rese… │
+│                                                    │ Added a warning when the requested model is deprecated or auto… │
+│ Opus 4.8 with high effort · Claude Team · Team Org A │ /release-notes for more                                         │
+│          /…/T/codeterm-snapshot-testbench          │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Print a numbered questionnaire as plain text and tell me to answer in one line — do NOT open an interactive picker.   
+
+⏺ Here's a quick questionnaire — please answer all of it in a single line (e.g. 1) ... 2) ... 3) ...):
+
+  1. What would you like to build or work on?
+  2. What language / framework / tech stack should it use?
+  3. Where should it live (path, repo, or new project)?
+  4. Any hard constraints or must-haves (deadlines, dependencies, style)?
+  5. How will we know it's done — what does success look like?
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt             Bypass permissions mode was disabled by settings

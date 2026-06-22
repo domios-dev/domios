@@ -19,6 +19,8 @@ import {
 import { IS_WEB, webJson } from "./webApi";
 import { webListen } from "./webEvents";
 import { setClientPaneUiMode } from "./clientPaneUiMode";
+import { checkBuildMismatch } from "./buildMismatchGuard";
+import type { TabInfo } from "./types";
 
 export type UnlistenFn = TauriUnlistenFn;
 export { IS_WEB };
@@ -26,6 +28,11 @@ export { IS_WEB };
 type Args = Record<string, unknown>;
 type Mapper = (args: Args) => Promise<unknown>;
 const webPtyOffsets = new Map<string, number>();
+let invokeForTest: (<T>(cmd: string, args?: Args) => Promise<T>) | null = null;
+
+export function __setInvokeForTest(fn: (<T>(cmd: string, args?: Args) => Promise<T>) | null): void {
+  invokeForTest = fn;
+}
 
 /** Drop the tail cursor so the next read_pty replays retained history from 0. */
 export function resetWebPtyTail(ptyId: string): void {
@@ -37,6 +44,29 @@ const s = (args: Args, key: string): string => String(args[key] ?? "");
 
 /** Commands with a meaningful HTTP equivalent. */
 const HTTP_MAP: Record<string, Mapper> = {
+  // ── extensions / plugins (web-mirror parity) ──
+  plugin_manager_snapshot: () => webJson("GET", "/api/plugins/snapshot"),
+  plugin_manager_action: (a) => webJson("POST", "/api/plugins/action", a.action),
+  plugin_glance: (a) => webJson("POST", "/api/plugins/glance", a),
+  plugin_bubble: (a) => webJson("POST", "/api/plugins/bubble", a),
+  plugin_view_call: (a) => webJson("POST", "/api/plugins/view-call", a),
+  chatbackend_session_info: (a) =>
+    webJson("POST", "/api/plugins/chatbackend/session-info", {
+      pluginId: s(a, "pluginId"),
+      sessionId: s(a, "sessionId"),
+    }),
+  chatbackend_switch_model: (a) =>
+    webJson("POST", "/api/plugins/chatbackend/switch-model", {
+      pluginId: s(a, "pluginId"),
+      sessionId: s(a, "sessionId"),
+      model: s(a, "model"),
+    }),
+  chatbackend_describe_model_switch: (a) =>
+    webJson("POST", "/api/plugins/chatbackend/describe-model-switch", {
+      pluginId: s(a, "pluginId"),
+      sessionId: s(a, "sessionId"),
+      model: s(a, "model"),
+    }),
   // ── config ──
   get_config: () => webJson("GET", "/api/config"),
   // PATCH: the route has no POST; the handler merges top-level keys, so the full config object works as a partial.
@@ -72,11 +102,26 @@ const HTTP_MAP: Record<string, Mapper> = {
       "POST",
       `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/focus`,
     ),
+  mux_set_active_tab_and_workspace: async (a) => {
+    await webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/focus`);
+    return webJson(
+      "POST",
+      `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/focus`,
+    );
+  },
   mux_close_tab: (a) =>
     webJson(
       "POST",
       `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/close`,
     ),
+  mux_reopen_closed_pane: (a) =>
+    webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/reopen-closed`, {
+      index: a.index,
+    }),
+  mux_reopen_closed_group: (a) =>
+    webJson("POST", `/api/closed-groups/${enc(s(a, "groupId"))}/reopen`),
+  mux_restore_orphaned_pane: (a) =>
+    webJson("POST", `/api/mux/restore-orphaned`, { pane_id: s(a, "paneId") }),
   mux_rename_tab: (a) =>
     webJson(
       "POST",
@@ -89,6 +134,18 @@ const HTTP_MAP: Record<string, Mapper> = {
       `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/move`,
       a,
     ),
+  mux_reorder_tab: (a) =>
+    webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/reorder`, {
+      ordered_tab_ids: a.orderedTabIds,
+    }),
+  mux_reorder_child: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "parentPaneId"))}/children/reorder`, {
+      ordered_tab_ids: a.orderedTabIds,
+    }),
+  mux_reorder_workspace: (a) =>
+    webJson("POST", `/api/workspaces/reorder`, {
+      ordered_workspace_ids: a.orderedWorkspaceIds,
+    }),
   mux_set_focused_pane: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/focus`),
   mux_close_pane: (a) => webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/close`),
@@ -120,6 +177,8 @@ const HTTP_MAP: Record<string, Mapper> = {
     );
     return resp.output ?? "";
   },
+  shell_command_snapshot: (a) =>
+    webJson("GET", `/api/panes/${enc(s(a, "paneId"))}/shell-commands`),
 
   // ── chat (raw-JSONL window + tailer — matches the Tauri command shapes, NOT the parsed-snapshot /chat/* routes other consumers use) ──
   chat_start: (a) =>
@@ -131,6 +190,11 @@ const HTTP_MAP: Record<string, Mapper> = {
       before_offset: a.beforeOffset,
       max_bytes: a.maxBytes,
     }),
+  session_transcript: (a) =>
+    webJson(
+      "GET",
+      `/api/sessions/transcript?provider=${enc(s(a, "provider"))}&cwd=${enc(s(a, "cwd"))}&session_id=${enc(s(a, "sessionId"))}`,
+    ),
   chat_send_text: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/send`, {
       text: a.text,
@@ -164,6 +228,21 @@ const HTTP_MAP: Record<string, Mapper> = {
   mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
   mesh_peer_services_list: (a) =>
     webJson("GET", `/api/mesh/peers/${enc(s(a, "instanceId"))}/services`),
+  mesh_peer_service_delete: (a) =>
+    webJson(
+      "DELETE",
+      `/api/mesh/peers/${enc(s(a, "instanceId"))}/services/${enc(s(a, "id"))}`,
+    ),
+  mesh_peer_cron_action: (a) =>
+    webJson(
+      "POST",
+      `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}/${enc(s(a, "action"))}`,
+    ),
+  mesh_peer_cron_history: (a) =>
+    webJson(
+      "GET",
+      `/api/mesh/peers/${enc(s(a, "instanceId"))}/crons/${enc(s(a, "id"))}/history`,
+    ),
   mesh_scan_peers: () => webJson("POST", "/api/mesh/discover"),
   mesh_connect: (a) =>
     webJson("POST", "/api/mesh/connect", { instance_id: a.instanceId }),
@@ -211,6 +290,11 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/write`, {
       data: a.data,
       raw: a.raw !== false,
+    }),
+  interrupt_agent: (a) =>
+    webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/write`, {
+      data: "\x1b",
+      raw: true,
     }),
   resize_pty: (a) => {
     if (!a.clientId) return Promise.resolve({ ok: true, ignored: true });
@@ -301,7 +385,7 @@ const CANNED: Record<string, unknown> = {
   kill_pty: null,
 };
 
-export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
+async function invokeRaw<T>(cmd: string, args?: Args): Promise<T> {
   if (!IS_WEB) {
     return tauriInvoke<T>(cmd, args);
   }
@@ -319,6 +403,74 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
   const msg = `[web] command not available in browser mode: ${cmd}`;
   console.warn(msg, args);
   throw new Error(msg);
+}
+
+const IPC_SLOW_MS = 300;
+type IpcSample = { cmd: string; ms: number; at: number };
+
+// Diagnostic: report any main-thread block (render / term.write / sync JS) >300ms.
+if (typeof PerformanceObserver !== "undefined") {
+  try {
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries()) {
+        if (e.duration >= IPC_SLOW_MS) {
+          // eslint-disable-next-line no-console
+          console.warn(`[LONGTASK] main thread blocked ${e.duration.toFixed(0)}ms`);
+          const w = window as unknown as { __ctPerf?: IpcSample[] };
+          (w.__ctPerf ??= []).push({ cmd: "LONGTASK", ms: e.duration, at: Date.now() });
+        }
+      }
+    }).observe({ entryTypes: ["longtask"] });
+  } catch { /* longtask unsupported */ }
+}
+
+export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
+  const t0 = performance.now();
+  try {
+    return invokeForTest
+      ? await invokeForTest<T>(cmd, args)
+      : await invokeRaw<T>(cmd, args);
+  } catch (err) {
+    if (isCommandNotFoundError(err)) {
+      checkBuildMismatch().catch(() => {});
+    }
+    throw err;
+  } finally {
+    if (!invokeForTest) {
+      const ms = performance.now() - t0;
+      if (ms >= IPC_SLOW_MS) {
+        // eslint-disable-next-line no-console
+        console.warn(`[SLOW-IPC] ${cmd} ${ms.toFixed(0)}ms`, args);
+        const w = window as unknown as { __ctPerf?: IpcSample[] };
+        (w.__ctPerf ??= []).push({ cmd, ms, at: Date.now() });
+        if (w.__ctPerf.length > 200) w.__ctPerf.shift();
+      }
+    }
+  }
+}
+
+function isCommandNotFoundError(err: unknown): boolean {
+  const msg = String(err);
+  return /command.*not found/i.test(msg);
+}
+
+/** Reopen a recently-closed pane in a workspace. `index` selects the ring
+ *  entry (0 = most recent, the default). Works in both Tauri and web modes. */
+export function reopenClosedPane(workspaceId: string, index = 0): Promise<TabInfo> {
+  return invoke<TabInfo>("mux_reopen_closed_pane", { workspaceId, index });
+}
+
+/** Reopen a whole closed group (single / cascade subtree / workspace) by id.
+ *  Recreates the workspace if needed and restores every pane, relinking the
+ *  orchestration hierarchy. Returns workspace + tab ids of the activated tab. */
+export function reopenClosedGroup(groupId: string): Promise<{ workspace_id: string; tab_id: string; pane_id: string }> {
+  return invoke("mux_reopen_closed_group", { groupId });
+}
+
+/** Reopen a pane from the orphaned ring (its workspace was deleted). Recreates
+ *  the workspace automatically. Returns workspace + tab ids. */
+export function restoreOrphanedPane(paneId: string): Promise<{ workspace_id: string; tab_id: string; pane_id: string }> {
+  return invoke("mux_restore_orphaned_pane", { paneId });
 }
 
 export async function listen<T>(

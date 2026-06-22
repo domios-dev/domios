@@ -1,0 +1,30 @@
+  ┃     processing input or simply blocked on I/O.                                                  
+  ┃                                                                                                 
+                                                                                                    
+     + Thought: 432ms                                                                               
+                                                                                                    
+     A blinking cursor is driven by the terminal emulator's timer (typically 530ms on/off) or by    
+     an absolute escape sequence (\e[5 q / \e[ q), not by the agent's execution state. The cursor   
+     continues blinking even when the agent is idle, blocked on a network call, hung, or crashed    
+     — the only reliable indicator of live work is advancing output in the scroll buffer or fresh   
+     writes to the PTY, not the visual blink itself.                                                
+                                                                                                    
+     ▣  Build · DeepSeek V4 Flash Free · 7.6s                                                       
+                                                                                                    
+  ┃                                                                                                 
+  ┃  Say 'done' and nothing else.                                                                   
+  ┃                                                                                                 
+                                                                                                    
+     + Thought: 282ms                                                                               
+                                                                                                    
+     done                                                                                           
+                                                                                                    
+     ▣  Build · DeepSeek V4 Flash Free · 1.4s                                                       
+                                                                                                    
+  ┃                                                                                                 
+  ┃                                                                                                 
+  ┃                                                                                                 
+  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                    
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  
+                                                                       10.0K (5%)  ctrl+p commands  
+                                                                                                    

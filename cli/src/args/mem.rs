@@ -748,6 +748,37 @@ pub enum MemGraphAction {
         #[arg(long, default_value = "user")]
         actor: String,
     },
+    /// Find and (optionally) delete vectors whose mem_item has no real body
+    /// (empty / title-only) — the "bodyless embeddings" that pollute search.
+    #[clap(name = "prune-thin-vectors")]
+    PruneThinVectors {
+        /// Print the thin-body vector ids without deleting anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Collapse parallel membership-synonym edges graph-wide in one pass: per
+    /// node-pair keep ONE of about/applies_to/belongs_to/part_of/documented_in,
+    /// invalidate the rest. Distinct predicates (uses, runs_on, …) untouched.
+    #[clap(name = "collapse-synonym-edges")]
+    CollapseSynonymEdges {
+        /// Print the redundant edge rowids without invalidating anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
+    /// Invalidate dream-diary backlinks into hubs in one pass: every edge from a
+    /// daily diary to a graph entity via a noise predicate (keeps the dreams anchor).
+    #[clap(name = "prune-dream-hub-edges")]
+    PruneDreamHubEdges {
+        /// Print the dream backlink rowids without invalidating anything.
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long, default_value = "user")]
+        actor: String,
+    },
     /// Find and (optionally) delete sha256_*.txt blob files in the mem blobs
     /// directory that no mem_item references. CAS-aware sweep (refcount = 0).
     #[clap(name = "repair-orphan-blobs")]

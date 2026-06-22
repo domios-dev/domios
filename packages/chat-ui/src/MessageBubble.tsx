@@ -5,17 +5,27 @@ import type {
   ChatAttachment as ImageAttachment,
 } from "@codeterm/chat-core";
 import {
-  Download, Image,
+  Bot,
+  CheckCircle2,
+  Clock,
+  Download, FileText, Image,
+  Pencil,
+  Search,
+  Terminal,
   // Origin icons
   ArrowRight,      // pane -> pane
   Send,            // generic chat (telegram / service)
   Network,         // mesh
   ChevronsRight,   // slash-command chip
   CornerUpLeft,    // report (bubbled up to parent)
+  Settings,        // plugin_config (Configure card)
   Info,
 } from "lucide-react";
+import { ShellCommandItem } from "./ShellCommandItem";
 import { recognize } from "./codeterm/recognize";
 import { CodetermCard } from "./codeterm/CodetermCard";
+import { ReminderCard } from "./codeterm/ReminderCard";
+import { messageTimestamp } from "./codeterm/relativeTime";
 import type { PaneNameResolver } from "./codeterm/templates";
 import { CodeBlock, ChevronIcon, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import {
@@ -39,6 +49,7 @@ import {
 import { ToolIcon } from "./toolIcons";
 import { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 import type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
+import { pickUiFontScaleValue } from "./uiFontScale";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -55,12 +66,135 @@ interface MessageBubbleProps {
   onOriginClick?: () => void;
   /** Resolve a pane id/short-id to a tab name for CodeTerm cards (e.g. "Sent to <name>"). */
   resolvePaneName?: PaneNameResolver;
+  fontScale?: number;
+  /** `shell_command` decoration — re-run the command in the pane's PTY. */
+  onRerunShellCommand?: (command: string) => void;
+  /** `shell_command` decoration — surface the command's terminal output. */
+  onJumpToShellCommand?: (message: ChatMessage) => void;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds }: MessageBubbleProps) {
+// Kill switch for interactive AskUserQuestion widgets (all providers). Detection
+// is mistimed — the prompt surfaces AFTER the user has already answered — so the
+const INTERACTIVE_QUESTIONS_ENABLED = false;
+
+type CuratedToolKind = "exec" | "read_file" | "write_file" | "codeterm" | "mem_search" | "spawn_agent";
+type StructuredInboundKind = NonNullable<ChatMessage["inboundKind"]>;
+
+const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
+  pane: "pane",
+  report: "report",
+  reminder: "reminder",
+  mesh: "mesh",
+  telegram: "telegram",
+};
+
+interface StructuredInbound {
+  origin: ChatOrigin;
+  kind: StructuredInboundKind;
+}
+
+function structuredInboundFromMessage(message: ChatMessage): StructuredInbound | null {
+  const fromLabel = message.fromLabel?.trim();
+  if (!fromLabel) return null;
+  const kind = message.inboundKind ?? (message.fromMesh ? "mesh" : "pane");
+  const title = kind === "mesh" && message.fromMesh
+    ? `${fromLabel}@${message.fromMesh}`
+    : fromLabel;
+  return {
+    kind,
+    origin: {
+      kind: "pane",
+      title,
+      paneIdShort: message.fromPane ?? "",
+      model: message.fromModel,
+      mesh: kind === "mesh" ? undefined : message.fromMesh,
+      report: kind === "report",
+    },
+  };
+}
+
+function parsedToolInput(message: ChatMessage): Record<string, unknown> {
+  if (message.toolInput) return message.toolInput;
+  if (!message.toolArgs) return {};
+  try {
+    const parsed = JSON.parse(message.toolArgs);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function textArg(input: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim()) return value;
+    if (Array.isArray(value) && value.length > 0) return value.map(String).join(" ");
+  }
+  return null;
+}
+
+function contentSize(content: string): string {
+  const bytes = new TextEncoder().encode(content).length;
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+function previewLine(text: string, max = 90): string {
+  const line = text.replace(/\r/g, "").split("\n").find((part) => part.trim())?.trim() ?? "";
+  return line.length > max ? `${line.slice(0, max)}...` : line;
+}
+
+function curatedToolKind(name: string | undefined): CuratedToolKind | null {
+  const normalized = (name ?? "").trim().toLowerCase();
+  switch (normalized) {
+    case "exec":
+    case "read_file":
+    case "write_file":
+    case "codeterm":
+    case "mem_search":
+    case "spawn_agent":
+      return normalized;
+    default:
+      return null;
+  }
+}
+
+function hasRenderableValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true;
+}
+
+function hasRenderableText(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isRenderableMessage(message: ChatMessage): boolean {
+  if (message.type === "tool_call") {
+    return (
+      hasRenderableText(message.content) ||
+      hasRenderableText(message.toolName) ||
+      hasRenderableText(message.toolArgs) ||
+      hasRenderableText(message.toolResult) ||
+      hasRenderableValue(message.toolInput) ||
+      Boolean(message.interactive?.length)
+    );
+  }
+
+  if (message.type === "tool_result") {
+    return hasRenderableText(message.content) || hasRenderableText(message.toolResult);
+  }
+
+  return true;
+}
+
+export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   // Auto-expand for Write-style tool input (the file body being written) and
   // for Edit/MultiEdit (always show the diff). A bash/grep result must NOT
-  // force-expand — it shows a compact inline tail under the pill instead.
   const shouldAutoExpand = message.type === "tool_call"
     && (message.toolInput?.content != null || extractEdits(message).length > 0);
   const [expanded, setExpanded] = useState(shouldAutoExpand);
@@ -68,10 +202,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
   const renderedContent = useMemo(() => {
     if (message.type === "assistant") {
-      return <RichMarkdown text={message.content} />;
+      return <RichMarkdown text={message.content} fontScale={fontScale} />;
     }
     return null;
-  }, [message.type, message.content]);
+  }, [message.type, message.content, fontScale]);
 
   const handleImageClick = useCallback((att: ImageAttachment) => {
     setViewingImage(att);
@@ -80,6 +214,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   useEffect(() => {
     if (shouldAutoExpand) setExpanded(true);
   }, [shouldAutoExpand]);
+
+  if (!isRenderableMessage(message)) {
+    return null;
+  }
 
   // Image message (standalone, legacy) — compact placeholder
   if (message.type === "image") {
@@ -93,14 +231,71 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   // User message — right-aligned by default; left-aligned with origin header for injected messages
   if (message.type === "user") {
     const attachments = message.attachments;
+    const userText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
+    const structuredInbound = structuredInboundFromMessage(message);
+    const effectiveOrigin = origin ?? structuredInbound?.origin;
+    const inboundKind = structuredInbound?.kind;
+
+    if (effectiveOrigin?.kind === "system_prompt") {
+      return (
+        <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
+          <div
+            data-testid="chat-system-prompt-card"
+            className="max-w-full min-w-0 rounded-md border"
+            style={{
+              background: "color-mix(in srgb, var(--ct-surface, #161b22) 92%, var(--ct-green, #3fb950) 8%)",
+              borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 32%, transparent)",
+              color: "var(--ct-fg)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:brightness-110"
+              style={{ color: "var(--ct-fg)" }}
+            >
+              <Info size={14} strokeWidth={2} style={{ color: "var(--ct-green, #3fb950)" }} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-xs font-medium">System prompt</span>
+                <span className="block truncate text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
+                  This is the shell system prompt.
+                </span>
+              </span>
+              <ChevronIcon expanded={expanded} className="opacity-60" />
+            </button>
+            {expanded && (
+              <div
+                className={`border-t px-3 py-2 ${userText} ${TEXT_WRAP_CLASS}`}
+                style={{ borderColor: "color-mix(in srgb, var(--ct-green, #3fb950) 22%, transparent)" }}
+              >
+                <RichMarkdown text={message.content} fontScale={fontScale} />
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (effectiveOrigin?.kind === "reminder") {
+      return (
+        <ReminderCard
+          whoSet={effectiveOrigin.whoSet}
+          model={effectiveOrigin.model}
+          setAt={effectiveOrigin.setAt}
+          fireAt={effectiveOrigin.fireAt}
+          id={effectiveOrigin.id}
+          body={message.content}
+        />
+      );
+    }
 
     // Origin header rendered above the bubble when the message came from a
     // codeterm channel (cross-pane, telegram, mesh) or wraps slash-commands.
-    const originHeader = origin ? (() => {
+    const originHeader = effectiveOrigin ? (() => {
       // Cross-pane / report: model-avatar + "from <Name>" + mesh·model subtitle.
-      if (origin.kind === "pane") {
-        const LeadIcon = origin.report ? CornerUpLeft : ArrowRight;
-        const subtitle = [origin.mesh ? `via ${origin.mesh}` : null, origin.model]
+      if (effectiveOrigin.kind === "pane") {
+        const LeadIcon = effectiveOrigin.report ? CornerUpLeft : ArrowRight;
+        const subtitle = [effectiveOrigin.mesh ? `via ${effectiveOrigin.mesh}` : null, effectiveOrigin.model]
           .filter(Boolean)
           .join(" · ");
         return (
@@ -118,7 +313,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             }}
             title={onOriginClick ? "Click to focus source pane" : undefined}
           >
-            {originAvatar ?? <ModelAvatar model={origin.model} />}
+            {originAvatar ?? <ModelAvatar model={effectiveOrigin.model} />}
             <span className="flex flex-col min-w-0" style={{ lineHeight: 1.1 }}>
               <span
                 className="flex items-center gap-1 text-xs uppercase tracking-wider"
@@ -126,9 +321,22 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               >
                 <LeadIcon size={11} style={{ opacity: 0.85 }} />
                 <span className="truncate">
-                  {origin.report ? "report · " : "from "}
-                  {origin.title}
+                  {effectiveOrigin.report ? "report · " : "from "}
+                  {effectiveOrigin.title}
                 </span>
+                {inboundKind && (
+                  <span
+                    data-testid="chat-inbound-kind-badge"
+                    className="rounded px-1 py-px text-[9px] font-mono uppercase"
+                    style={{
+                      background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 16%, transparent)",
+                      color: "var(--ct-muted-fg, #8b949e)",
+                      letterSpacing: 0,
+                    }}
+                  >
+                    {INBOUND_KIND_LABELS[inboundKind]}
+                  </span>
+                )}
               </span>
               {subtitle && (
                 <span
@@ -144,18 +352,20 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       }
 
       const OriginIcon =
-        origin.kind === "mesh"    ? Network :
-        origin.kind === "command" ? ChevronsRight :
+        effectiveOrigin.kind === "mesh"          ? Network :
+        effectiveOrigin.kind === "command"       ? ChevronsRight :
+        effectiveOrigin.kind === "plugin_config" ? Settings :
         Send;
       const label =
-        origin.kind === "telegram"? `Telegram · ${origin.userId.slice(0, 12)}` :
-        origin.kind === "mesh"    ? `Mesh · ${origin.peerId.slice(0, 10)}` :
-        origin.kind === "command" ? (
-          origin.commands.length === 1
-            ? origin.commands[0].name
-            : `${origin.commands.length} commands`
+        effectiveOrigin.kind === "telegram"     ? `Telegram · ${effectiveOrigin.userId.slice(0, 12)}` :
+        effectiveOrigin.kind === "mesh"         ? `Mesh · ${effectiveOrigin.peerId.slice(0, 10)}` :
+        effectiveOrigin.kind === "plugin_config"? `Configure · ${effectiveOrigin.name}` :
+        effectiveOrigin.kind === "command" ? (
+          effectiveOrigin.commands.length === 1
+            ? effectiveOrigin.commands[0].name
+            : `${effectiveOrigin.commands.length} commands`
         ) :
-        `${origin.service} · ${origin.userId.slice(0, 12)}`;
+        `${effectiveOrigin.service} · ${effectiveOrigin.userId.slice(0, 12)}`;
       return (
         <button
           type="button"
@@ -179,25 +389,25 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     })() : null;
 
     return (
-      <div className={`flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${origin ? "justify-start" : "justify-end"}`}>
+      <div className={`group flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
         <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
           {originHeader}
           <div
-            className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 text-sm select-text cursor-text border ${TEXT_WRAP_CLASS}`}
+            className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
             style={{
               // The user voice is the ONE filled element in the feed — a clear accent
               // tint so it never blends with tool traces or assistant prose.
-              background: origin
+              background: effectiveOrigin
                 ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
                 : "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, var(--ct-bg, #0d1117) 78%)",
-              borderColor: origin
+              borderColor: effectiveOrigin
                 ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)"
                 : "color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, transparent)",
               color: "var(--ct-fg)",
             }}
           >
-            {origin?.kind === "command" ? (
-              <CommandBody commands={origin.commands} body={message.content} />
+            {effectiveOrigin?.kind === "command" ? (
+              <CommandBody commands={effectiveOrigin.commands} body={message.content} />
             ) : (
               renderUserContent(message.content)
             )}
@@ -206,6 +416,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                 {attachments.map((att) => (
                   <button
                     key={att.id}
+                    data-testid="chat-image-attachment-button"
                     onClick={() => handleImageClick(att)}
                     className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors hover:brightness-125"
                     style={{
@@ -222,7 +433,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             )}
             {/* Inline image preview */}
             {viewingImage && viewingImage.data && (
-              <div className="mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
+              <div
+                data-testid="chat-image-preview"
+                className="mt-2 pt-2"
+                style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
+              >
                 <img
                   src={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
                   alt="Attached image"
@@ -249,6 +464,19 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               </div>
             )}
           </div>
+          {(() => {
+            const ts = messageTimestamp(message.timestamp);
+            if (!ts) return null;
+            return (
+              <div
+                className={`mt-0.5 text-[10px] opacity-0 transition-opacity duration-150 group-hover:opacity-60 ${effectiveOrigin ? "text-left" : "text-right"}`}
+                style={{ color: "var(--ct-muted-fg)" }}
+                title={ts.full}
+              >
+                {ts.short}
+              </div>
+            );
+          })()}
         </div>
       </div>
     );
@@ -256,10 +484,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
   // Assistant message — left-aligned, NO bubble, clean prose
   if (message.type === "assistant") {
+    const assistantText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
     return (
       <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
         <div
-          className={`min-w-0 max-w-full text-sm leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
+          className={`min-w-0 max-w-full ${assistantText} leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
           style={{ color: "var(--ct-fg)" }}
         >
           {renderedContent}
@@ -316,8 +545,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
   // Interactive prompt — answerable widget rendered in place of the raw
   // tool-call JSON (e.g. AskUserQuestion). Provider-agnostic: the backend
-  // already parsed the tool payload into `interactive`.
-  if (message.interactive && message.interactive.length > 0) {
+  if (INTERACTIVE_QUESTIONS_ENABLED && message.interactive && message.interactive.length > 0) {
     return (
       <div className="w-full">
         {message.interactive.map((el) => (
@@ -392,6 +620,133 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       }
     }
 
+    const curatedKind = curatedToolKind(message.toolName);
+    if (curatedKind) {
+      const input = parsedToolInput(message);
+      const phase = message.toolResult ? "result" : message.toolId ? "running" : "pending";
+      const Icon =
+        curatedKind === "exec" ? Terminal :
+        curatedKind === "read_file" ? FileText :
+        curatedKind === "write_file" ? Pencil :
+        curatedKind === "codeterm" ? Terminal :
+        curatedKind === "mem_search" ? Search :
+        Bot;
+      const PhaseIcon = phase === "result" ? CheckCircle2 : phase === "running" ? Clock : Clock;
+      const commandText =
+        curatedKind === "exec" ? textArg(input, ["cmd", "command"]) :
+        curatedKind === "codeterm" ? textArg(input, ["args", "command"]) :
+        null;
+      const pathText =
+        curatedKind === "read_file" || curatedKind === "write_file"
+          ? textArg(input, ["path", "file_path", "filePath"])
+          : null;
+      const queryText = curatedKind === "mem_search" ? textArg(input, ["query"]) : null;
+      const providerText = curatedKind === "spawn_agent" ? textArg(input, ["provider"]) : null;
+      const taskText = curatedKind === "spawn_agent" ? textArg(input, ["task"]) : null;
+      const workspaceText = curatedKind === "spawn_agent" ? textArg(input, ["workspace"]) : null;
+      const cwdText = curatedKind === "exec" ? textArg(input, ["cwd"]) : null;
+      const contentText = curatedKind === "write_file" ? textArg(input, ["content"]) : null;
+      const title =
+        curatedKind === "exec" ? "exec" :
+        curatedKind === "read_file" ? "read file" :
+        curatedKind === "write_file" ? "write file" :
+        curatedKind === "codeterm" ? "codeterm" :
+        curatedKind === "mem_search" ? "mem search" :
+        "spawn agent";
+      const primary =
+        commandText ?? pathText ?? queryText ?? taskText ?? message.toolArgs ?? message.content;
+      const secondary =
+        curatedKind === "exec" && cwdText ? `cwd ${cwdText}` :
+        curatedKind === "write_file" && contentText ? `${contentSize(contentText)} | ${previewLine(contentText)}` :
+        curatedKind === "spawn_agent"
+          ? [providerText, workspaceText ? `workspace ${workspaceText}` : null].filter(Boolean).join(" | ")
+          : null;
+
+      return (
+        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
+          <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
+            <button
+              data-testid={`chatbackend-tool-${curatedKind}`}
+              onClick={() => setExpanded(!expanded)}
+              className="inline-flex min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
+              style={{
+                background: "transparent",
+                borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+                color: "var(--ct-muted-fg)",
+              }}
+            >
+              <Icon
+                size={13}
+                strokeWidth={2}
+                className="flex-shrink-0"
+                style={{ color: "color-mix(in srgb, var(--ct-green, #3fb950) 75%, var(--ct-fg, #c9d1d9) 25%)" }}
+              />
+              <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>
+                {title}
+              </span>
+              <span className="min-w-0 truncate opacity-70 font-mono text-[11px]">
+                {primary}
+              </span>
+              {secondary && (
+                <span className="hidden min-w-0 truncate opacity-45 font-mono text-[11px] sm:inline">
+                  {secondary}
+                </span>
+              )}
+              <span
+                className="ml-1 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono"
+                style={{
+                  background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 10%, transparent)",
+                  color: phase === "result" ? "var(--ct-green, #3fb950)" : "var(--ct-muted-fg)",
+                }}
+              >
+                <PhaseIcon size={10} strokeWidth={2} />
+                {phase}
+              </span>
+              <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
+            </button>
+
+            {message.toolResult && !expanded && (
+              <button
+                onClick={() => setExpanded(true)}
+                className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
+                style={{ color: "var(--ct-muted-fg)" }}
+                title="Show full output"
+              >
+                <span className="flex-shrink-0 opacity-40">{"->"}</span>
+                <span className="min-w-0 truncate opacity-70">{lastNonEmptyLine(message.toolResult)}</span>
+              </button>
+            )}
+
+            {expanded && (
+              <div
+                className="mt-1 w-full min-w-0 max-w-full rounded-md border border-[var(--ct-border)] p-2 text-xs"
+                style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, black 4%)" }}
+              >
+                {curatedKind === "write_file" && contentText ? (
+                  <CodeBlock text={contentText} language={languageFromPath(pathText)} maxHeight="24rem" />
+                ) : (
+                  <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`} style={{ color: "var(--ct-fg)" }}>
+                    {JSON.stringify(input, null, 2) || message.content}
+                  </pre>
+                )}
+                {message.toolResult && (
+                  <div className="mt-2">
+                    <div
+                      className="mb-1 text-[10px] font-medium uppercase tracking-wide"
+                      style={{ color: "var(--ct-muted-fg)" }}
+                    >
+                      Result
+                    </div>
+                    <PlainOutput text={message.toolResult} maxHeight="12rem" />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     const detailText = message.toolArgs || message.content;
     const codeLanguage = languageFromPath(filePath);
     const resultText = message.toolResult;
@@ -400,6 +755,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
         <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
           <button
+            data-testid="chat-tool-call"
             onClick={() => setExpanded(!expanded)}
             // De-bubbled on purpose: tool activity is a thin terminal trace (hairline border,
             // no fill, green exec glyph) so it visually recedes behind user/assistant voices.
@@ -458,7 +814,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               {toolContent ? (
                 <CodeBlock text={toolContent} language={codeLanguage} maxHeight="24rem" />
               ) : edits.length > 0 ? (
-                <DiffView edits={edits} />
+                <DiffView edits={edits} language={codeLanguage} />
               ) : (
                 <pre
                   className={`${PRE_WRAP_CLASS} m-0 font-mono`}
@@ -561,6 +917,17 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           </div>
         )}
       </div>
+    );
+  }
+
+  // Shell command — first-class command item with VS Code-style decorations.
+  if (message.type === "shell_command") {
+    return (
+      <ShellCommandItem
+        message={message}
+        onRerun={onRerunShellCommand}
+        onJump={onJumpToShellCommand}
+      />
     );
   }
 

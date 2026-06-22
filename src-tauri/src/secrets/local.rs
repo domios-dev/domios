@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use super::factory::SecretBackendFactory;
-use super::keychain::{Keychain, KeychainError};
+use super::secret_file::{SecretFile, SecretFileError};
 use super::{
     validate_name, ListFilter, SaveRequest, SecretError, SecretRef, SecretStore, SecretString,
     SecretValue, StoreStatus, UnlockCredentials,
@@ -164,7 +164,7 @@ impl IndexStorage for MemIndexStorage {
 }
 
 pub struct LocalStore {
-    keychain: Keychain,
+    keychain: SecretFile,
     index: Box<dyn IndexStorage>,
     next_id: AtomicUsize,
     /// Set when the local file backend construction failed. CRUD calls
@@ -176,7 +176,7 @@ pub struct LocalStore {
 impl LocalStore {
     /// Production constructor: local file-backed secret store + real on-disk index.
     pub fn detect_and_build() -> Self {
-        let keychain = Keychain::new(KEYCHAIN_SERVICE);
+        let keychain = SecretFile::new(KEYCHAIN_SERVICE);
         let index: Box<dyn IndexStorage> =
             Box::new(FileIndexStorage::new(FileIndexStorage::default_path()));
         let unavailable = if keychain.is_available() {
@@ -196,7 +196,7 @@ impl LocalStore {
     }
 
     /// Test / DI constructor.
-    pub fn new(keychain: Keychain, index: Box<dyn IndexStorage>) -> Self {
+    pub fn new(keychain: SecretFile, index: Box<dyn IndexStorage>) -> Self {
         Self {
             keychain,
             index,
@@ -230,11 +230,11 @@ impl LocalStore {
         name.to_lowercase()
     }
 
-    fn map_keychain_err(e: KeychainError) -> SecretError {
+    fn map_keychain_err(e: SecretFileError) -> SecretError {
         match e {
-            KeychainError::NotFound => SecretError::NotFound,
-            KeychainError::Unavailable(_) => SecretError::Locked,
-            KeychainError::Other(msg) => SecretError::Backend { message: msg },
+            SecretFileError::NotFound => SecretError::NotFound,
+            SecretFileError::Unavailable(_) => SecretError::Locked,
+            SecretFileError::Other(msg) => SecretError::Backend { message: msg },
         }
     }
 
@@ -456,7 +456,7 @@ mod tests {
 
     fn store() -> LocalStore {
         LocalStore::new(
-            Keychain::in_memory("test"),
+            SecretFile::in_memory("test"),
             Box::new(MemIndexStorage::new()),
         )
     }
@@ -632,7 +632,7 @@ mod tests {
             inner: Mutex::new(LocalIndex::default()),
             captured: captured.clone(),
         };
-        let s = LocalStore::new(Keychain::in_memory("test"), Box::new(storage));
+        let s = LocalStore::new(SecretFile::in_memory("test"), Box::new(storage));
         s.save(req("k", "super-secret-value")).await.unwrap();
 
         let writes = captured.lock();

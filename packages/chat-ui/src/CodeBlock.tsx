@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import * as prismStyles from "react-syntax-highlighter/dist/esm/styles/prism";
+import { themeAwarePrismStyle } from "./syntaxTheme";
 import {
   ensureMermaidInitialized,
   ensureMermaidLoaded,
@@ -14,10 +14,6 @@ import {
   removeMermaidRenderArtifacts,
   setCachedMermaidRender,
 } from "./MermaidBlock";
-
-const vscDarkPlus =
-  ((prismStyles as { vscDarkPlus?: Record<string, React.CSSProperties> }).vscDarkPlus ??
-    (prismStyles as { default?: { vscDarkPlus?: Record<string, React.CSSProperties> } }).default?.vscDarkPlus);
 
 export const PRE_WRAP_CLASS = "whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
 
@@ -127,6 +123,11 @@ export function lineCount(text: string): number {
   return text.split("\n").length;
 }
 
+function isToolTraceLanguage(language: string): boolean {
+  const normalized = language.trim().toLowerCase();
+  return normalized === "tool" || normalized.endsWith("-tool");
+}
+
 type CodeContentProps = {
   fullSize: boolean;
   maxHeight: string;
@@ -171,7 +172,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   if (forcePlainText) {
     return (
       <pre
-        className={`${PRE_WRAP_CLASS} m-0 p-3`}
+        className={`${PRE_WRAP_CLASS} m-0 p-3 font-mono text-xs leading-[1.4]`}
         style={{
           maxHeight: fullSize ? "100%" : maxHeight,
           background: "var(--ct-bg)",
@@ -230,7 +231,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
           )}
           <SyntaxHighlighter
             language={language}
-            style={vscDarkPlus}
+            style={themeAwarePrismStyle}
             PreTag="div"
             customStyle={{
               margin: 0,
@@ -286,7 +287,7 @@ export function CodeBlock({
   const [mermaidLoading, setMermaidLoading] = useState(false);
   const mermaidCandidates = useMemo(() => (mermaidMode ? getMermaidRenderCandidates(normalizedText) : []), [mermaidMode, normalizedText]);
   const mermaidRenderKey = mermaidCandidates.join("\u0000");
-  const shouldUsePlainRenderer = (!mermaidMode && normalizedText.length > CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD)
+  const shouldUsePlainRenderer = (!mermaidMode && (normalizedText.length > CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD || isToolTraceLanguage(language)))
     || (mermaidMode && (mermaidCandidates[0]?.length ?? 0) > MERMAID_RENDER_LENGTH_LIMIT);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenBounds, setFullscreenBounds] = useState<RectLike | null>(null);
@@ -681,7 +682,7 @@ export function CodeBlock({
     : undefined;
 
   return (
-    <div ref={blockRef}>
+    <div ref={blockRef} data-testid="chat-code-block" data-code-language={language}>
       <div className="overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
         <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
           <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>

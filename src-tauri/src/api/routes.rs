@@ -8,10 +8,10 @@ use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, co
 
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, delayed_send_routes,
-    fs_routes, git_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes,
-    network_routes, notification_routes, pane_chat_routes, pane_routes, pasteboard_routes,
-    services_routes, session_routes, theme_routes, updater_routes, usage_routes, web_routes,
-    webhook_routes, workspace_routes,
+    fs_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
+    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, services_routes,
+    session_routes, theme_routes, updater_routes, usage_routes, web_routes, webhook_routes,
+    workspace_routes,
 };
 
 #[derive(Clone)]
@@ -32,15 +32,9 @@ pub struct AppState {
     pub events: crate::api::events::EventBroadcasterState,
     /// Directory holding the built React bundle, served at /web.
     pub web_dist: Option<std::path::PathBuf>,
-    /// Short-lived web tokens for PWA/mirror auth. Maps token → creation instant;
-    /// avoids exposing the permanent master API token outside the daemon.
-    /// Tokens expire after WEB_TOKEN_TTL.
-    pub web_tokens:
-        std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>>,
 }
 
-/// Lifetime of web tokens minted by mesh_web_token. After this period the token
-/// is no longer accepted by the auth middleware and the browser must re-fetch.
+/// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
 pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
 pub fn create_router(state: AppState) -> Router {
@@ -66,8 +60,32 @@ pub fn create_router(state: AppState) -> Router {
             post(workspace_routes::close_workspace),
         )
         .route(
+            "/api/workspaces/{id}/recently-closed",
+            get(workspace_routes::list_recently_closed),
+        )
+        .route(
+            "/api/workspaces/{id}/reopen-closed",
+            post(workspace_routes::reopen_closed_pane),
+        )
+        .route(
+            "/api/closed-groups/{group_id}/reopen",
+            post(workspace_routes::reopen_closed_group),
+        )
+        .route(
+            "/api/workspaces/reorder",
+            post(workspace_routes::reorder_workspaces),
+        )
+        .route(
             "/api/workspaces/{id}/tabs",
             post(workspace_routes::create_tab),
+        )
+        .route(
+            "/api/workspaces/{id}/tabs/reorder",
+            post(workspace_routes::reorder_tabs),
+        )
+        .route(
+            "/api/panes/{id}/children/reorder",
+            post(workspace_routes::reorder_children),
         )
         .route(
             "/api/workspaces/{id}/tabs/{tab_id}/rename",
@@ -86,6 +104,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/focus", post(pane_routes::focus_pane))
         .route("/api/panes/{id}/close", post(pane_routes::close_pane))
         .route("/api/panes/{id}/rename", post(pane_routes::rename_pane))
+        .route("/api/panes/{id}/describe", post(pane_routes::describe_pane))
         .route("/api/panes/{id}/output", get(pane_routes::get_pane_output))
         .route(
             "/api/panes/{id}/output/stream",
@@ -96,8 +115,20 @@ pub fn create_router(state: AppState) -> Router {
             get(pane_routes::agent_run_log),
         )
         .route("/api/panes/{id}/text", get(pane_routes::get_pane_text))
+        .route(
+            "/api/panes/{id}/shell-commands",
+            get(pane_routes::shell_command_snapshot),
+        )
         .route("/api/panes/{id}/usage", get(pane_routes::get_pane_usage))
         .route("/api/panes/{id}/exec", post(pane_routes::exec_in_pane))
+        .route(
+            "/api/panes/{id}/capture/start",
+            post(pane_routes::start_capture),
+        )
+        .route(
+            "/api/panes/{id}/capture/stop",
+            post(pane_routes::stop_capture),
+        )
         .route("/api/panes/{id}/resize", post(pane_routes::resize_pane))
         .route(
             "/api/panes/{id}/resize-owner",
@@ -251,6 +282,18 @@ pub fn create_router(state: AppState) -> Router {
             "/api/mesh/peers/{id}/services",
             get(web_routes::peer_services),
         )
+        .route(
+            "/api/mesh/peers/{id}/services/{service_id}",
+            delete(web_routes::peer_service_delete),
+        )
+        .route(
+            "/api/mesh/peers/{id}/crons/{cron_id}/{action}",
+            post(web_routes::peer_cron_action),
+        )
+        .route(
+            "/api/mesh/peers/{id}/crons/{cron_id}/history",
+            get(web_routes::peer_cron_history),
+        )
         .route("/api/events/stream", get(web_routes::events_stream))
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(
@@ -264,6 +307,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/panes/{id}/chat-raw/backfill",
             post(web_routes::chat_raw_backfill),
+        )
+        .route(
+            "/api/sessions/transcript",
+            get(web_routes::session_transcript),
         )
         .route(
             "/api/upload",
@@ -348,11 +395,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/debug/sign", get(mesh_routes::mesh_debug_sign))
         .route("/api/mesh/status", get(mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(mesh_routes::mesh_peers))
-        .route("/api/mesh/web-token", get(mesh_routes::mesh_web_token))
-        .route(
-            "/api/mesh/peers/{id}/web-token",
-            get(mesh_routes::mesh_peer_web_token),
-        )
+        .route("/api/mesh/relay-to", post(mesh_routes::mesh_relay_to_peer))
         .route("/api/mesh/discover", post(mesh_routes::mesh_discover))
         .route("/api/mesh/connect", post(mesh_routes::mesh_connect_peer))
         .route("/api/mesh/approve", post(mesh_routes::mesh_approve_peer))
@@ -484,6 +527,18 @@ pub fn create_router(state: AppState) -> Router {
             post(mem_routes::mem_graph_repair_orphan_vectors),
         )
         .route(
+            "/api/mem/graph/repair/prune-thin-vectors",
+            post(mem_routes::mem_graph_prune_thin_vectors),
+        )
+        .route(
+            "/api/mem/graph/repair/collapse-synonym-edges",
+            post(mem_routes::mem_graph_collapse_synonym_edges),
+        )
+        .route(
+            "/api/mem/graph/repair/prune-dream-hub-edges",
+            post(mem_routes::mem_graph_prune_dream_hub_edges),
+        )
+        .route(
             "/api/mem/graph/repair/orphan-blobs",
             post(mem_routes::mem_graph_repair_orphan_blobs),
         )
@@ -547,6 +602,20 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mem/workers/{id}/log", get(mem_routes::workers_log))
         .route("/api/mem/sync", post(mem_routes::mem_sync))
         .route("/api/mem/sync/status", get(mem_routes::mem_sync_status))
+        .route("/api/plugins/snapshot", get(web_routes::plugin_snapshot))
+        .route("/api/plugins/action", post(web_routes::plugin_action))
+        .route("/api/plugins/glance", post(web_routes::plugin_glance))
+        .route("/api/plugins/bubble", post(web_routes::plugin_bubble))
+        .route("/api/plugins/view-call", post(web_routes::plugin_view_call))
+        .route(
+            "/api/plugins/chatbackend/session-info",
+            post(web_routes::chatbackend_session_info),
+        )
+        .route(
+            "/api/plugins/chatbackend/switch-model",
+            post(web_routes::chatbackend_switch_model),
+        )
+        .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
         .route("/api/secrets/status", get(crate::secrets::api::status))
         .route("/api/secrets/unlock", post(crate::secrets::api::unlock))
         .route("/api/secrets/lock", post(crate::secrets::api::lock))
@@ -591,29 +660,7 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/logs",
             get(logs_routes::list_logs).delete(logs_routes::delete_logs),
-        )
-        .route("/api/git/graph", get(git_routes::git_graph))
-        .route(
-            "/api/git/commit/{sha}/files",
-            get(git_routes::git_commit_files),
-        )
-        .route(
-            "/api/git/commit/{sha}/diff",
-            get(git_routes::git_commit_diff),
-        )
-        .route("/api/git/workdir-diff", get(git_routes::git_workdir_diff))
-        .route("/api/git/workdir-files", get(git_routes::git_workdir_files))
-        .route("/api/git/revert-file", post(git_routes::git_revert_file))
-        .route("/api/git/stage-file", post(git_routes::git_stage_file))
-        .route("/api/git/unstage-file", post(git_routes::git_unstage_file))
-        .route("/api/git/stage-files", post(git_routes::git_stage_files))
-        .route(
-            "/api/git/unstage-files",
-            post(git_routes::git_unstage_files),
-        )
-        .route("/api/git/commit", post(git_routes::git_commit))
-        .route("/api/git/push", post(git_routes::git_push))
-        .route("/api/git/repos", get(git_routes::git_repos));
+        );
 
     // gzip-scoped snapshot route: 100k-node payloads compress ~4:1. Kept on its
     // own sub-router so compression only runs for this large response.
@@ -713,7 +760,7 @@ pub(crate) fn resolve_pane(
     state: &AppState,
     raw_id: &str,
 ) -> Result<String, (StatusCode, &'static str)> {
-    let mux = state.svc.mux.lock();
+    let mux = state.svc.mux.write();
     mux.resolve_pane_id(raw_id)
         .ok_or((StatusCode::NOT_FOUND, "Pane not found"))
 }

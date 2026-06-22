@@ -1,0 +1,22 @@
+{
+  "scenario": "idle_focus_churn_v1",
+  "title": "Long idle and focus churn after completed turns",
+  "provider": "cursor",
+  "provider_version": "2026.06.19-20-24-33-653a7fb",
+  "codeterm_health": {
+    "status": "ok",
+    "version": "1.4.6",
+    "build": "3c722440",
+    "name": "CodeTerm",
+    "platform": "macos"
+  },
+  "workspace_id": "662e08e2",
+  "pane_id": "eb17cceb",
+  "workspace_dir": "/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-cursor-idle_focus_churn_v1-520ma13m",
+  "captured_at_ms": 1782033169658,
+  "terminal": {
+    "cols": 120,
+    "rows": 32
+  },
+  "source": "testbench/replay-capture.py"
+}

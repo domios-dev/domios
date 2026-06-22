@@ -1,0 +1,376 @@
+[
+  {
+    "t_ms": 0,
+    "event": "capture_start",
+    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/idle_focus_churn_v1-20260621-idle-focus-v2-rest-codex-idle_focus_churn_v1-100x30/raw.cast",
+    "capture_start_result": {
+      "ok": true,
+      "out": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/idle_focus_churn_v1-20260621-idle-focus-v2-rest-codex-idle_focus_churn_v1-100x30/raw.cast",
+      "width": 120,
+      "height": 40
+    }
+  },
+  {
+    "t_ms": 1,
+    "event": "capture_resize",
+    "terminal": {
+      "cols": 100,
+      "rows": 30
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 5533,
+    "event": "spawned",
+    "pane": "54ab1ce3",
+    "workspace": "07418942",
+    "terminal": {
+      "cols": 100,
+      "rows": 30
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 8657,
+    "event": "send_turn",
+    "turn": 1
+  },
+  {
+    "t_ms": 19116,
+    "event": "turn_settled",
+    "turn": 1,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 4114,
+      "stable_ms": 3089,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 19116,
+    "event": "idle_hold_start",
+    "turn": 1,
+    "duration_ms": 20000
+  },
+  {
+    "t_ms": 19653,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 1
+  },
+  {
+    "t_ms": 20195,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 2
+  },
+  {
+    "t_ms": 20740,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 3
+  },
+  {
+    "t_ms": 21289,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 4
+  },
+  {
+    "t_ms": 21840,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 5
+  },
+  {
+    "t_ms": 22390,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 6
+  },
+  {
+    "t_ms": 22932,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 7
+  },
+  {
+    "t_ms": 23482,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 8
+  },
+  {
+    "t_ms": 24021,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 9
+  },
+  {
+    "t_ms": 24557,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 10
+  },
+  {
+    "t_ms": 39121,
+    "event": "send_turn",
+    "turn": 2
+  },
+  {
+    "t_ms": 48405,
+    "event": "turn_settled",
+    "turn": 2,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 9226,
+      "stable_ms": 3074,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 48406,
+    "event": "idle_hold_start",
+    "turn": 2,
+    "duration_ms": 25000
+  },
+  {
+    "t_ms": 48958,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 1
+  },
+  {
+    "t_ms": 49511,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 2
+  },
+  {
+    "t_ms": 50069,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 3
+  },
+  {
+    "t_ms": 50611,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 4
+  },
+  {
+    "t_ms": 51164,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 5
+  },
+  {
+    "t_ms": 51716,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 6
+  },
+  {
+    "t_ms": 52268,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 7
+  },
+  {
+    "t_ms": 52828,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 8
+  },
+  {
+    "t_ms": 53374,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 9
+  },
+  {
+    "t_ms": 53916,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 10
+  },
+  {
+    "t_ms": 54459,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 11
+  },
+  {
+    "t_ms": 55003,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 12
+  },
+  {
+    "t_ms": 73352,
+    "event": "send_turn",
+    "turn": 3
+  },
+  {
+    "t_ms": 79564,
+    "event": "turn_settled",
+    "turn": 3,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 6152,
+      "stable_ms": 3080,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 79564,
+    "event": "idle_hold_start",
+    "turn": 3,
+    "duration_ms": 30000
+  },
+  {
+    "t_ms": 80104,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 1
+  },
+  {
+    "t_ms": 80647,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 2
+  },
+  {
+    "t_ms": 81190,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 3
+  },
+  {
+    "t_ms": 81735,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 4
+  },
+  {
+    "t_ms": 82278,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 5
+  },
+  {
+    "t_ms": 82822,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 6
+  },
+  {
+    "t_ms": 83370,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 7
+  },
+  {
+    "t_ms": 83920,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 8
+  },
+  {
+    "t_ms": 84470,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 9
+  },
+  {
+    "t_ms": 85024,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 10
+  },
+  {
+    "t_ms": 85575,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 11
+  },
+  {
+    "t_ms": 86107,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 12
+  },
+  {
+    "t_ms": 86643,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 13
+  },
+  {
+    "t_ms": 87176,
+    "event": "focus_churn",
+    "label": "turn-3",
+    "cycle": 14
+  },
+  {
+    "t_ms": 110109,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 1
+  },
+  {
+    "t_ms": 110647,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 2
+  },
+  {
+    "t_ms": 111192,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 3
+  },
+  {
+    "t_ms": 111734,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 4
+  },
+  {
+    "t_ms": 112275,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 5
+  },
+  {
+    "t_ms": 112818,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 6
+  },
+  {
+    "t_ms": 113364,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 7
+  },
+  {
+    "t_ms": 113913,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 8
+  },
+  {
+    "t_ms": 129577,
+    "event": "capture_stop",
+    "capture_stop_result": {
+      "ok": true,
+      "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/idle_focus_churn_v1-20260621-idle-focus-v2-rest-codex-idle_focus_churn_v1-100x30/raw.cast",
+      "screen": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/idle_focus_churn_v1-20260621-idle-focus-v2-rest-codex-idle_focus_churn_v1-100x30/raw.screen.txt"
+    }
+  }
+]

@@ -1,0 +1,12 @@
+● Bash(npm test)
+  ⎿  42 passing, 0 failing
+
+● Update(src/router.ts)
+  ⎿  Updated src/router.ts with 12 additions and 3 removals
+
+I'm weighing two ways to wire this up:
+
+> 1. Extend the existing middleware
+  2. Add a dedicated handler
+
+Which approach should I take? Working…

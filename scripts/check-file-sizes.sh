@@ -42,12 +42,13 @@ esac
 # Path-based exclusions for build artifacts, vendored sources, generated code.
 EXCLUDE_PATHS='(/target/|/node_modules/|/dist/|/build/|/gen/|/references/|/vendor/|/pty-fork/|/\.git/)'
 
-# Read the allowlist into an associative array: path -> baseline line count.
+# Read the allowlist into parallel arrays: path -> baseline line count.
 # Lines starting with # are comments; blank lines ignored. Strip trailing \r
 # so CRLF-checked-out allowlists on Windows still parse to integers
 # (otherwise `[ "$lines" -gt "$baseline" ]` aborts with
 #  `integer expression expected` because baseline carries a \r).
-declare -A ALLOW
+ALLOW_PATHS=()
+ALLOW_BASELINES=()
 allow_count=0
 if [ -f "$ALLOWLIST" ]; then
     while IFS=$'\t' read -r path baseline; do
@@ -55,10 +56,24 @@ if [ -f "$ALLOWLIST" ]; then
         baseline="${baseline%$'\r'}"
         [ -z "${path:-}" ] && continue
         case "$path" in '#'*) continue ;; esac
-        ALLOW["$path"]="$baseline"
+        ALLOW_PATHS+=("$path")
+        ALLOW_BASELINES+=("$baseline")
         allow_count=$((allow_count + 1))
     done < "$ALLOWLIST"
 fi
+
+allowlist_baseline() {
+    lookup="$1"
+    i=0
+    while [ "$i" -lt "${#ALLOW_PATHS[@]}" ]; do
+        if [ "${ALLOW_PATHS[$i]}" = "$lookup" ]; then
+            printf '%s\n' "${ALLOW_BASELINES[$i]}"
+            return 0
+        fi
+        i=$((i + 1))
+    done
+    return 1
+}
 
 new_violations=()       # files NOT in allowlist that exceed LIMIT
 regressions=()          # files IN allowlist that grew past their baseline
@@ -79,14 +94,13 @@ while IFS= read -r file; do
     if [ "$lines" -le "$LIMIT" ]; then
         # Allowlist entries that are now under LIMIT should be removed from the
         # allowlist — flag for cleanup (warning only, never fails).
-        if [ -n "${ALLOW[$rel]:-}" ]; then
+        if allowlist_baseline "$rel" >/dev/null; then
             echo "info: $rel ($lines lines) is now under $LIMIT — remove from allowlist"
         fi
         continue
     fi
 
-    if [ -n "${ALLOW[$rel]:-}" ]; then
-        baseline="${ALLOW[$rel]}"
+    if baseline="$(allowlist_baseline "$rel")"; then
         if [ "$lines" -gt "$baseline" ]; then
             regressions+=("${rel}|${lines}|${baseline}")
         fi

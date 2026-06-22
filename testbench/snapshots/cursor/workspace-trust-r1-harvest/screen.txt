@@ -1,0 +1,19 @@
+dev@workstation cursortrust-gate.4KjAF6 % bash /tmp/codeterm-spawn-4b5bfd71-1112-40d3-ae65-4cdcf71fa567.sh
+/tmp/codeterm-spawn-4b5bfd71-1112-40d3-ae65-4cdcf71fa567.sh: line 3: /Users/dev/.cursor/projects/private-tmp-cursortrust-gate-4KjAF6/.workspace-trusted: Permission denied
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                                                  │
+  │  ⚠ Workspace Trust Required                                                                                      │
+  │                                                                                                                  │
+  │  Cursor Agent can execute code and access files in this directory.                                               │
+  │                                                                                                                  │
+  │  Do you trust the contents of this directory?                                                                    │
+  │                                                                                                                  │
+  │    /private/tmp/cursortrust-gate.4KjAF6                                                                          │
+  │                                                                                                                  │
+  │                                                                                                                  │
+  │  ▶ [a] Trust this workspace                                                                                      │
+  │    [q] Quit                                                                                                      │
+  │                                                                                                                  │
+  │  Use arrow keys to navigate, Enter to select, or press the key shown                                             │
+  │                                                                                                                  │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

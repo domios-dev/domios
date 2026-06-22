@@ -14,6 +14,9 @@ interface Props {
   onClick?: () => void;
   offline?: boolean;
   onGoOnline?: () => void;
+  servicesStale?: boolean;
+  servicesError?: string | null;
+  servicesLoaded?: boolean;
 }
 
 const HEALTH_DOT_COLOR: Record<string, string> = {
@@ -36,7 +39,17 @@ function PeerTerminalComponent({
   onClick,
   offline = false,
   onGoOnline,
+  servicesStale = false,
+  servicesError = null,
+  servicesLoaded = true,
 }: Props) {
+  const serviceStateLabel = servicesError
+    ? `services unreachable: ${servicesError}`
+    : servicesStale
+      ? "services cached / stale"
+      : !servicesLoaded
+        ? "services loading"
+        : null;
   return (
     <div
       onClick={onClick}
@@ -88,9 +101,18 @@ function PeerTerminalComponent({
           $ codeterm services list
         </div>
         <div className="flex gap-1 flex-wrap">
+          {serviceStateLabel && (
+            <span
+              data-testid="peer-services-state"
+              className="bg-[var(--ct-titlebar-bg)] border border-[var(--ct-yellow)]/50 px-2 py-0.5 rounded text-[11px] text-[var(--ct-yellow)]"
+              title={serviceStateLabel}
+            >
+              {serviceStateLabel}
+            </span>
+          )}
           {services.slice(0, MAX_SERVICES_ON_CARD).map((s) => (
             <span
-              key={s.id}
+              key={`${s.source_peer_id ?? s.source_peer ?? "local"}:${s.id}`}
               className="bg-[var(--ct-titlebar-bg)] px-2 py-0.5 rounded text-[11px] inline-flex items-center gap-1.5"
               style={{ color: HEALTH_DOT_COLOR[s.health.status] ?? HEALTH_DOT_COLOR.unknown }}
             >
@@ -107,7 +129,7 @@ function PeerTerminalComponent({
               +{services.length - MAX_SERVICES_ON_CARD} more…
             </span>
           )}
-          {services.length === 0 && (
+          {services.length === 0 && !serviceStateLabel && (
             <span className="text-[var(--ct-muted)] italic text-[11px]">
               no services
             </span>

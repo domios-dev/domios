@@ -1,0 +1,10 @@
+{
+  "provider": "codex",
+  "situation": "model-switch-r1",
+  "capturedAtMs": 1781992379108,
+  "paneId": "66877071",
+  "source": "dev-7686",
+  "until": "gpt-5|Select.*model|model|reasoning|high|medium|low|◆|❯|›",
+  "prompt": "/model",
+  "providerCliVersion": "codex-cli 0.141.0"
+}

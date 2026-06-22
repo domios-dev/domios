@@ -44,6 +44,8 @@ export function DreamCard({ entry, onOpen }: { entry: DreamDiaryEntry; onOpen: (
   return (
     <article
       data-dream-card
+      data-testid="memory-dream-card"
+      data-dream-id={entry.id}
       onClick={onOpen}
       className="snap-start shrink-0 w-[260px] h-[280px] rounded-2xl overflow-hidden relative flex flex-col group cursor-pointer transition-[box-shadow] duration-300"
       style={{
@@ -117,6 +119,8 @@ export function DreamCard({ entry, onOpen }: { entry: DreamDiaryEntry; onOpen: (
           visibleTags.map((t) => (
             <span
               key={t}
+              data-testid="memory-dream-card-tag"
+              data-dream-tag={t}
               className="text-[9px] tracking-wide px-1.5 py-0.5 rounded"
               style={{
                 background: "rgba(255,255,255,0.06)",
@@ -191,10 +195,15 @@ export function DreamDetailModal({
       onClick={onClose}
       className="fixed inset-0 z-[70] flex items-center justify-center backdrop-blur-md"
       style={{ background: "rgba(2,4,12,0.78)" }}
+      data-testid="memory-dream-modal-backdrop"
     >
       <div
         onClick={(e) => e.stopPropagation()}
         className="relative flex flex-col rounded-2xl overflow-hidden select-text"
+        data-testid="memory-dream-modal"
+        data-dream-id={entry.id}
+        role="dialog"
+        aria-label={entry.title}
         style={{
           width: "min(720px, 92vw)",
           height: "min(720px, 88vh)",
@@ -250,6 +259,7 @@ export function DreamDetailModal({
           <div className="flex items-start gap-1.5">
             <button
               onClick={copyInsight}
+              data-testid="memory-dream-copy-insight"
               aria-label="Copy insight"
               title="Copy insight"
               className="h-7 px-2 rounded-full flex items-center gap-1 bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-[10px] uppercase tracking-wider"
@@ -260,6 +270,7 @@ export function DreamDetailModal({
             </button>
             <button
               onClick={onClose}
+              data-testid="memory-dream-modal-close"
               aria-label="Close"
               className="w-7 h-7 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer"
               style={{ color: palette.ink, opacity: 0.85 }}
@@ -272,6 +283,7 @@ export function DreamDetailModal({
         {/* Insight — the dream itself, full bleed serif. */}
         <div
           className="relative flex-1 overflow-y-auto px-6 pt-3 pb-2"
+          data-testid="memory-dream-insight"
           style={{ color: palette.ink }}
         >
           <div
@@ -290,6 +302,7 @@ export function DreamDetailModal({
             <div className="mt-6 pt-4 border-t border-white/10">
               <button
                 onClick={() => setLogOpen((v) => !v)}
+                data-testid="memory-dream-log-toggle"
                 className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] bg-transparent border-0 cursor-pointer hover:opacity-100"
                 style={{ color: palette.ink, opacity: 0.6 }}
               >
@@ -301,6 +314,7 @@ export function DreamDetailModal({
               </button>
               {logOpen && (
                 <div
+                  data-testid="memory-dream-log"
                   className="mt-2 px-3 py-2.5 rounded-md font-mono text-[10px] leading-[1.7] whitespace-pre-wrap break-words"
                   style={{
                     background: "rgba(0,0,0,0.25)",
@@ -320,6 +334,8 @@ export function DreamDetailModal({
             visibleTags.map((t) => (
               <span
                 key={t}
+                data-testid="memory-dream-modal-tag"
+                data-dream-tag={t}
                 className="text-[10px] tracking-wide px-2 py-0.5 rounded-full"
                 style={{
                   background: "rgba(255,255,255,0.06)",
@@ -337,6 +353,7 @@ export function DreamDetailModal({
           )}
           <button
             onClick={copyAll}
+            data-testid="memory-dream-copy-raw"
             className="ml-auto h-6 px-2 rounded-full flex items-center gap-1 bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-[9px] uppercase tracking-[0.2em]"
             style={{ color: palette.ink, opacity: 0.7 }}
             title="Copy raw body (insight + log)"

@@ -84,6 +84,15 @@ npx tsx src/lib/colors.test.ts
 ./build.sh test:all   # every non-LLM layer (see Runbook)
 ```
 
+**Windows: cargo test target isolation**
+Running `cargo test` against the app crate while a dev build occupies the same
+`target/` directory fails with `Os error 5` — tauri-build cannot overwrite the
+in-use `.exe`. Isolate with a separate target directory:
+
+```bash
+CARGO_TARGET_DIR=target-test cargo test --manifest-path src-tauri/Cargo.toml --lib
+```
+
 ## E2E tests
 
 Test full stack via REST API against a running dev instance. Create panes, send text, check output, verify prompt lifecycle.
@@ -156,6 +165,39 @@ projects/tags, golden-test policy, web-mirror mode, and prod guards.
 The legacy Tauri WebDriver/WDIO harness was removed; do not add new WebDriver
 tests. For browser-mode `/web` coverage, use the `tests/playwright/suites/12-web`
 suite, which launches a normal browser against the daemon's web mirror.
+
+## Cross-platform test matrix
+
+One command runs the unit layers (rust-unit, cli, ts-unit, plugin) for all three
+OS targets in parallel from a macOS host:
+
+```bash
+./scripts/test-matrix.sh                 # all lanes
+./scripts/test-matrix.sh linux           # single lane
+```
+
+| Lane | Where | What runs | Coverage |
+|------|-------|-----------|----------|
+| `macos` | native host | `cargo test --lib` (src-tauri) + cli tests + `pnpm test:unit` + `pnpm test:plugins` | full execution |
+| `linux` | Docker (ubuntu:24.04, aarch64) | same suites | full execution, isolated |
+| `windows-cross` | Docker + cargo-xwin | `cargo check --target x86_64-pc-windows-msvc --lib --tests` (src-tauri + cli) | compile-level only |
+
+Windows containers cannot run on a macOS Docker host, so full Windows test
+**execution** is delegated to a real Windows machine on the CodeTerm mesh
+(cross-compiled binaries built locally via `cargo xwin test --no-run`, test job
+dispatched to the peer) — or to remote E2E (`CODETERM_API_URL=... pytest`). The
+local `windows-cross` lane still catches `#[cfg(windows)]` compile breakage in
+minutes without leaving the machine.
+
+All lanes run cargo with `--locked`: lanes share one checkout via bind-mount, and
+a lane rewriting `Cargo.lock` while another reads it produces torn reads through
+VirtioFS. Keep the lockfile committed up-to-date or the lanes fail loudly.
+
+Logs land in `$TMPDIR/codeterm-test-matrix/<lane>.log`. Containers shadow
+`src-tauri/target`, `cli/target`, and `node_modules` with named Docker volumes
+(`codeterm-linux-*`, `codeterm-xwin-*`) — the host checkout is never dirtied,
+and warm reruns are incremental. To reclaim disk:
+`docker volume rm $(docker volume ls -q | grep '^codeterm-')`.
 
 ## Logging
 
@@ -320,4 +362,4 @@ UI tests (`prompt-approval.js`) verify button rendering and click behavior.
 
 Before approving a PR, use **`docs/contributing/review-checklist.md`** to verify evidence discipline, test methodology, documentation updates, and code quality.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

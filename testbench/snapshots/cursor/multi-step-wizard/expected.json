@@ -1,0 +1,16 @@
+{
+  "provider": "cursor",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Which migration phases apply to your project?",
+    "options": [
+      "Audit",
+      "Build",
+      "Test",
+      "Rollout",
+      "Other: (type to answer)"
+    ],
+    "selectedIndex": 0,
+    "multiSelect": true
+  }
+}

@@ -275,7 +275,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
                     announce.addresses.iter().map(|a| &a.ip).collect::<Vec<_>>()
                 );
             }
-            Err(e) if *stale_marker.lock() => {
+            Err(_e) if *stale_marker.lock() => {
                 log::warn!(
                     "[mesh/announce] peer {} ({}) too old — no /api/mesh/announce",
                     peer_name,

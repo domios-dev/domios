@@ -1,0 +1,12 @@
+frame 2857 t=214200 state=idle decset={'alt_screen': False, 'cursor_hidden': False, 'bracketed_paste': False} cursor={'row': 34, 'col': 5, 'visible': True} quies={'byte_idle_ms': 5012, 'semantic_idle_ms': 5012, 'volatile_only': False}
+--- bottom 10 screen rows ---
+''
+'     ▣  Build · DeepSeek V4 Flash Free · 2m 1s'
+''
+'  ┃'
+'  ┃'
+'  ┃'
+'  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen'
+'  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀'
+'                                                                                          22.0K (11%)  ctrl+p commands'
+''

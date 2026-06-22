@@ -1,16 +1,9 @@
-//! Background poller that watches the plugin roots for `plugin.js` /
-//! `plugin.json` changes and either hot-reloads the existing VM or
-//! discovers + registers a brand-new plugin folder — all without
-//! restarting the daemon.
-//!
-//! Polling (every 2s) instead of inotify/ReadDirectoryChangesW because
-//! the cross-platform `notify` backend config in this crate currently
-//! only enables macos_fsevent. Polling N files at 2s intervals is
-//! trivially cheap for the volumes here (1-10 plugins).
+//! Background poller for plugin root changes. It hot-reloads modified plugins
+//! and registers or deregisters plugin folders without restarting the daemon.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 
 use parking_lot::Mutex;
@@ -27,6 +20,93 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 struct Tracked {
     manifest_mtime: SystemTime,
     entry_mtime: SystemTime,
+    /// mtime of the per-plugin `config.yaml`; an edit re-stamps `host.settingsJson` into the live VM.
+    config_mtime: SystemTime,
+}
+
+#[derive(Clone)]
+pub struct CapabilityRegistries {
+    pub secret: Arc<crate::secrets::SecretRegistry>,
+    pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
+    pub glance: crate::glance::GlanceRegistryHandle,
+    pub bubble: crate::bubble::BubbleRegistryHandle,
+    pub view: crate::view_host::ViewRegistryHandle,
+    pub chatbackend: crate::chatbackend::ChatBackendRegistryHandle,
+    pub chat_preprocessor: crate::chatpreprocessor::ChatPreprocessorRegistryHandle,
+    pub agent_command: crate::agent_commands::AgentCommandRegistryHandle,
+}
+
+impl CapabilityRegistries {
+    pub fn register_plugin(&self, manifest: &PluginManifest, vm: &Arc<super::PluginVm>) {
+        let id = &manifest.id;
+        let caps = &manifest.capabilities;
+        if caps.transcriber {
+            self.transcribe.register(
+                id.clone(),
+                Arc::new(super::JsTranscriber::new(vm.clone(), id.clone())),
+            );
+        }
+        if caps.secret_backend {
+            self.secret.register(
+                id.clone(),
+                Arc::new(super::JsSecretBackend::new(vm.clone(), id)),
+            );
+        }
+        if caps.glance_view {
+            self.glance.register(
+                id.clone(),
+                Arc::new(super::JsGlanceProvider::new(vm.clone(), id.clone())),
+            );
+        }
+        if caps.status_bubble {
+            self.bubble.register(
+                id.clone(),
+                Arc::new(super::JsBubbleProvider::new(vm.clone(), id.clone())),
+            );
+        }
+        if caps.view {
+            self.view.register(
+                id.clone(),
+                Arc::new(super::JsViewProvider::new(vm.clone(), id.clone())),
+            );
+        }
+        if caps.chat_backend.enabled() {
+            self.chatbackend.register(
+                id.clone(),
+                Arc::new(super::JsChatBackend::from_manifest(vm.clone(), manifest)),
+            );
+        }
+        if caps.chat_preprocessor.enabled() {
+            self.chat_preprocessor.register(
+                id.clone(),
+                Arc::new(super::JsChatPreprocessor::new(vm.clone(), id.clone())),
+            );
+        }
+        if vm.agent_commands_allowed() {
+            self.agent_command.register(
+                id.clone(),
+                Arc::new(super::JsAgentCommandHandler::new(
+                    vm.clone(),
+                    id.clone(),
+                    true,
+                )),
+            );
+        }
+        if caps.transcriber || caps.chat_preprocessor.enabled() {
+            crate::chatpipeline::warn_stage_conflicts(&self.transcribe, &self.chat_preprocessor);
+        }
+    }
+
+    pub fn deregister_plugin(&self, id: &str) {
+        self.transcribe.unregister(id);
+        self.secret.unregister(id);
+        self.glance.unregister(id);
+        self.bubble.unregister(id);
+        self.view.unregister(id);
+        self.chatbackend.unregister(id);
+        self.chat_preprocessor.unregister(id);
+        self.agent_command.unregister(id);
+    }
 }
 
 /// Live registry of discovered JS plugins. Spawn `start` to begin
@@ -34,27 +114,128 @@ struct Tracked {
 pub struct HotReloadRegistry {
     roots: Vec<PathBuf>,
     agent_registry: Arc<AgentRegistry>,
-    /// Plugin id → tracked state. Mutex because the watcher mutates
-    /// from a background thread.
+    caps: CapabilityRegistries,
     state: Mutex<HashMap<String, Tracked>>,
+    vms: Mutex<HashMap<String, std::sync::Weak<super::PluginVm>>>,
+    activated_startup: Mutex<HashSet<String>>,
+    pending_reload: Mutex<HashSet<String>>,
+    service: Mutex<Option<std::sync::Weak<crate::service::ServiceContext>>>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
 }
 
+/// Process-wide handle to the live watcher, so stateless surfaces can query `pending_reload` without threading the Arc.
+static WATCHER: OnceLock<Arc<HotReloadRegistry>> = OnceLock::new();
+
+/// Plugin ids installed after daemon start that need a reload to activate.
+pub fn pending_reload_ids() -> Vec<String> {
+    WATCHER
+        .get()
+        .map(|w| w.pending_reload_ids())
+        .unwrap_or_default()
+}
+
+/// Late-bind the `ServiceContext` into the running watcher (it starts before the service exists). No-op before `start()`.
+pub fn set_watcher_service(svc: std::sync::Weak<crate::service::ServiceContext>) {
+    if let Some(w) = WATCHER.get() {
+        w.set_service_ref(svc);
+    }
+}
+
 impl HotReloadRegistry {
-    pub fn new(roots: Vec<PathBuf>, agent_registry: Arc<AgentRegistry>) -> Arc<Self> {
+    pub fn new(
+        roots: Vec<PathBuf>,
+        agent_registry: Arc<AgentRegistry>,
+        caps: CapabilityRegistries,
+    ) -> Arc<Self> {
         Arc::new(Self {
             roots,
             agent_registry,
+            caps,
             state: Mutex::new(HashMap::new()),
+            vms: Mutex::new(HashMap::new()),
+            activated_startup: Mutex::new(HashSet::new()),
+            pending_reload: Mutex::new(HashSet::new()),
+            service: Mutex::new(None),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
         })
     }
 
+    pub fn set_service_ref(&self, svc: std::sync::Weak<crate::service::ServiceContext>) {
+        *self.service.lock() = Some(svc);
+    }
+
+    fn bind_service(&self, vm: &Arc<super::PluginVm>) -> bool {
+        let svc = self.service.lock().clone();
+        match svc {
+            Some(weak) => vm.set_service(weak),
+            None => false,
+        }
+    }
+
+    pub fn register_vm(&self, id: &str, vm: &Arc<super::PluginVm>) {
+        self.vms.lock().insert(id.to_string(), Arc::downgrade(vm));
+    }
+
+    /// The live VM for `id`, or `None` once the plugin is gone (the caller then rebuilds).
+    fn existing_vm(&self, id: &str) -> Option<Arc<super::PluginVm>> {
+        self.vms.lock().get(id).and_then(std::sync::Weak::upgrade)
+    }
+
+    pub fn seed(&self) {
+        let candidates = self.discover_candidates();
+        let mut state = self.state.lock();
+        let mut activated = self.activated_startup.lock();
+        for paths in candidates.values() {
+            for manifest_path in paths.iter().rev() {
+                let Ok(manifest) = PluginManifest::load(manifest_path) else {
+                    continue;
+                };
+                let Some(entry_path) = manifest.entry_path() else {
+                    continue;
+                };
+                if !entry_path.exists() {
+                    continue;
+                }
+                state.insert(
+                    manifest.id.clone(),
+                    Tracked {
+                        manifest_mtime: mtime_or_epoch(manifest_path),
+                        entry_mtime: mtime_or_epoch(&entry_path),
+                        config_mtime: config_mtime_for(manifest_path),
+                    },
+                );
+                activated.insert(manifest.id);
+                break;
+            }
+        }
+    }
+
+    /// Plugin ids installed after start that need a reload to activate (§1.8).
+    pub fn pending_reload_ids(&self) -> Vec<String> {
+        self.pending_reload.lock().iter().cloned().collect()
+    }
+
+    /// The capability registry handles threaded into the watcher (§1.8).
+    pub fn capability_registries(&self) -> &CapabilityRegistries {
+        &self.caps
+    }
+
+    fn emit_agent_provider_changed(&self) {
+        let svc = self.service.lock().clone().and_then(|w| w.upgrade());
+        if let Some(svc) = svc {
+            svc.events
+                .publish(crate::api::events::SystemEvent::ContributionsChanged {
+                    kind: "agent_provider".to_string(),
+                });
+        }
+    }
+
     /// Spawn the background poller. The handle owns itself — no need
     /// for callers to keep it.
     pub fn start(self: &Arc<Self>) {
+        let _ = WATCHER.set(self.clone());
         let me = self.clone();
         std::thread::Builder::new()
             .name("codeterm-plugin-watcher".into())
@@ -65,8 +246,6 @@ impl HotReloadRegistry {
             .ok();
     }
 
-    /// Run one scan-and-reconcile pass. Public so callers can force a
-    /// rescan (tests; manual reload command).
     pub fn tick(&self) {
         let mut seen: Vec<String> = Vec::new();
         let candidates = self.discover_candidates();
@@ -78,17 +257,32 @@ impl HotReloadRegistry {
                 }
             }
         }
-        // Anything we used to track that's no longer present → unregister.
-        let mut state = self.state.lock();
-        let removed: Vec<String> = state
-            .keys()
-            .filter(|id| !seen.contains(id))
-            .cloned()
-            .collect();
+        // Collect removed ids under a short-held `state` lock, then drop it before
+        // touching registries below it in the load order — holding `state` across them risks a deadlock.
+        let removed: Vec<String> = {
+            let mut state = self.state.lock();
+            let removed: Vec<String> = state
+                .keys()
+                .filter(|id| !seen.contains(id))
+                .cloned()
+                .collect();
+            for id in &removed {
+                state.remove(id);
+            }
+            removed
+        };
+        let mut provider_changed = false;
         for id in removed {
-            state.remove(&id);
-            self.agent_registry.unregister_provider(&id);
+            self.vms.lock().remove(&id);
+            provider_changed |= self.agent_registry.unregister_provider(&id);
+            provider_changed |= self.caps.chatbackend.contains(&id);
+            self.caps.deregister_plugin(&id);
+            self.pending_reload.lock().remove(&id);
+            self.activated_startup.lock().remove(&id);
             log::info!("[plugin-watcher] unregistered {id} (folder removed)");
+        }
+        if provider_changed {
+            self.emit_agent_provider_changed();
         }
     }
 
@@ -143,23 +337,44 @@ impl HotReloadRegistry {
             return None;
         }
         let entry_mtime = mtime_or_epoch(&entry_path);
+        let config_mtime = config_mtime_for(manifest_path);
 
         // Snapshot prior state without holding the lock across I/O or QuickJS work — parking_lot is non-reentrant, and the VM mutex sits below this one in the lock order.
         let prior = self.state.lock().get(&manifest.id).cloned();
         if let Some(prev) = prior {
             let manifest_changed = prev.manifest_mtime != manifest_mtime;
             let entry_changed = prev.entry_mtime != entry_mtime;
-            if !manifest_changed && !entry_changed {
+            let config_changed = prev.config_mtime != config_mtime;
+            if !manifest_changed && !entry_changed && !config_changed {
                 return Some(manifest.id);
             }
-            // Always full-rebuild on any change. In-place `vm.reload` would be faster but adds a second code path that races against any provider call
-            // holding the VM mutex (an idle pane's detect_from_output still runs at PTY-event rate). Throwing the old VM away and constructing a new one is 10-50ms — cheap enough for plugin edits.
+            // A config-only change must NOT rebuild the VM (that wipes in-memory sessions);
+            // re-stamp settings into the existing VM instead. Only a manifest/entry change rebuilds.
+            if config_changed && !manifest_changed && !entry_changed {
+                if let Some(vm) = self.existing_vm(&manifest.id) {
+                    let settings = manifest_path
+                        .parent()
+                        .map(|dir| super::plugin_config::resolve_settings_json(dir, &manifest.id))
+                        .unwrap_or_else(|| "null".to_string());
+                    vm.reload_settings(settings);
+                    if let Some(tracked) = self.state.lock().get_mut(&manifest.id) {
+                        tracked.config_mtime = config_mtime;
+                    }
+                    log::info!(
+                        "[plugin-watcher] {} config-only change — re-stamped settings into live VM (no rebuild, sessions preserved)",
+                        manifest.id
+                    );
+                    return Some(manifest.id);
+                }
+                // No live VM to re-stamp — fall through to a full load.
+            }
+            // Full rebuild on a manifest/entry change: in-place reload would race a provider call holding the VM mutex.
             log::info!(
-                "[plugin-watcher] {} changed (manifest={manifest_changed}, entry={entry_changed}) — reloading",
+                "[plugin-watcher] {} changed (manifest={manifest_changed}, entry={entry_changed}, config={config_changed}) — reloading",
                 manifest.id
             );
         }
-        self.full_load(manifest_path, manifest_mtime, entry_mtime)
+        self.full_load(manifest_path, manifest_mtime, entry_mtime, config_mtime)
     }
 
     fn full_load(
@@ -167,23 +382,59 @@ impl HotReloadRegistry {
         manifest_path: &std::path::Path,
         manifest_mtime: SystemTime,
         entry_mtime: SystemTime,
+        config_mtime: SystemTime,
     ) -> Option<String> {
         match load_one(manifest_path) {
             Ok(mut provider) => {
                 let id = provider.manifest().id.clone();
                 let version = provider.manifest().version.clone();
-                // Registry handle so the (re)loaded JS provider can delegate
-                // unimplemented capabilities to its native fallback.
-                provider.set_registry(self.agent_registry.clone());
-                self.agent_registry.register_provider(Box::new(provider));
+                // Track the VM so a later config-only change can re-stamp settings into it.
+                self.register_vm(&id, provider.vm());
+                // A `requiresReload` plugin installed after start can't hot-activate: mark pending, skip live registration.
+                let activated_at_startup = self.activated_startup.lock().contains(&id);
+                if provider.manifest().requires_reload && !activated_at_startup {
+                    self.pending_reload.lock().insert(id.clone());
+                    self.state.lock().insert(
+                        id.clone(),
+                        Tracked {
+                            manifest_mtime,
+                            entry_mtime,
+                            config_mtime,
+                        },
+                    );
+                    log::info!(
+                        "[plugin-watcher] {id} declares requiresReload — pending until daemon reload"
+                    );
+                    return Some(id);
+                }
+                // Bind the ServiceContext before registering capabilities — host.mem/worker/agent must be live before an adapter can call them.
+                self.bind_service(provider.vm());
+                // Re-register capability adapters live so an installed capability plugin works without a restart.
+                self.caps
+                    .register_plugin(provider.manifest(), provider.vm());
+                // Only agent plugins register as providers; a capability-only plugin must not pollute the agent registry.
+                if provider.manifest().capabilities.agent_provider {
+                    // Registry handle so the JS provider can delegate unimplemented capabilities to its native fallback.
+                    provider.set_registry(self.agent_registry.clone());
+                    self.agent_registry.register_provider(Box::new(provider));
+                    log::info!("[plugin-watcher] registered {id}");
+                    self.emit_agent_provider_changed();
+                } else {
+                    if provider.manifest().capabilities.chat_backend_spawnable() {
+                        self.emit_agent_provider_changed();
+                    }
+                    log::info!(
+                        "[plugin-watcher] {id} capability registered live; not an agent provider — skipped agent registry"
+                    );
+                }
                 self.state.lock().insert(
                     id.clone(),
                     Tracked {
                         manifest_mtime,
                         entry_mtime,
+                        config_mtime,
                     },
                 );
-                log::info!("[plugin-watcher] registered {id}");
                 crate::plugin::audit::append_daemon_reloaded(&id, &version);
                 #[cfg(test)]
                 self.load_count
@@ -217,171 +468,13 @@ fn mtime_or_epoch(p: &std::path::Path) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn write(path: &std::path::Path, contents: &str) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(path, contents).unwrap();
-    }
-
-    fn manifest_for(id: &str) -> String {
-        use crate::plugin::js_runtime::host_api::HOST_API_VERSION;
-        format!(
-            r#"{{
-                "id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
-                "spawn":{{"readinessStrategy":{{"kind":"fixed_delay","durationMs":0}},
-                         "taskDelivery":"pty_input","verifySubmit":{{"kind":"none"}}}},
-                "entry":"plugin.js"
-            }}"#
-        )
-    }
-
-    fn plugin_for(id: &str) -> String {
-        format!(
-            r#"module.exports.default = {{
-                detectFromTitle: function (t) {{ return t.indexOf("{id}") !== -1; }}
-            }};"#
-        )
-    }
-
-    #[test]
-    fn tick_registers_new_plugins_added_after_start() {
-        let root = tempfile::tempdir().unwrap();
-        let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(vec![root.path().to_path_buf()], registry.clone());
-        // First tick: empty root, nothing to register.
-        watcher.tick();
-        assert!(watcher.tracked_ids().is_empty());
-        assert_eq!(registry.provider_count(), 0);
-
-        // Drop a plugin in.
-        let dir = root.path().join("foo");
-        write(&dir.join("plugin.json"), &manifest_for("foo"));
-        write(&dir.join("plugin.js"), &plugin_for("foo"));
-
-        watcher.tick();
-        assert_eq!(watcher.tracked_ids(), vec!["foo".to_string()]);
-        assert_eq!(registry.provider_count(), 1);
-        assert!(registry
-            .with_provider("foo", |p| p.detect_from_title("foo cli"))
-            .unwrap_or(false));
-    }
-
-    #[test]
-    fn tick_hot_reloads_plugin_js_changes() {
-        let root = tempfile::tempdir().unwrap();
-        let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(vec![root.path().to_path_buf()], registry.clone());
-        let dir = root.path().join("bar");
-        write(&dir.join("plugin.json"), &manifest_for("bar"));
-        write(&dir.join("plugin.js"), &plugin_for("v1"));
-        watcher.tick();
-        assert!(registry
-            .with_provider("bar", |p| p.detect_from_title("v1"))
-            .unwrap_or(false));
-        assert!(!registry
-            .with_provider("bar", |p| p.detect_from_title("v2"))
-            .unwrap_or(true));
-
-        // Sleep a tick so mtime resolution can register the change.
-        std::thread::sleep(Duration::from_millis(1100));
-        write(&dir.join("plugin.js"), &plugin_for("v2"));
-        watcher.tick();
-
-        // Same provider Arc<PluginVm> now serves new JS.
-        assert!(registry
-            .with_provider("bar", |p| p.detect_from_title("v2"))
-            .unwrap_or(false));
-        assert!(!registry
-            .with_provider("bar", |p| p.detect_from_title("v1"))
-            .unwrap_or(true));
-    }
-
-    #[test]
-    fn duplicate_roots_only_load_the_winning_plugin() {
-        let workspace = tempfile::tempdir().unwrap();
-        let user = tempfile::tempdir().unwrap();
-        let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(
-            vec![workspace.path().to_path_buf(), user.path().to_path_buf()],
-            registry.clone(),
-        );
-
-        let workspace_dir = workspace.path().join("provider-dupe");
-        write(&workspace_dir.join("plugin.json"), &manifest_for("dupe"));
-        write(&workspace_dir.join("plugin.js"), &plugin_for("workspace"));
-        let user_dir = user.path().join("dupe");
-        write(&user_dir.join("plugin.json"), &manifest_for("dupe"));
-        write(&user_dir.join("plugin.js"), &plugin_for("user"));
-
-        watcher.tick();
-        assert_eq!(watcher.load_count(), 1);
-        assert!(registry
-            .with_provider("dupe", |p| p.detect_from_title("user cli"))
-            .unwrap_or(false));
-        assert!(!registry
-            .with_provider("dupe", |p| p.detect_from_title("workspace cli"))
-            .unwrap_or(true));
-
-        watcher.tick();
-        assert_eq!(
-            watcher.load_count(),
-            1,
-            "unchanged duplicate roots must not ping-pong reload"
-        );
-    }
-
-    #[test]
-    fn duplicate_root_removal_falls_back_to_lower_priority_plugin() {
-        let workspace = tempfile::tempdir().unwrap();
-        let user = tempfile::tempdir().unwrap();
-        let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(
-            vec![workspace.path().to_path_buf(), user.path().to_path_buf()],
-            registry.clone(),
-        );
-
-        let workspace_dir = workspace.path().join("provider-dupe");
-        write(&workspace_dir.join("plugin.json"), &manifest_for("dupe"));
-        write(&workspace_dir.join("plugin.js"), &plugin_for("workspace"));
-        let user_dir = user.path().join("dupe");
-        write(&user_dir.join("plugin.json"), &manifest_for("dupe"));
-        write(&user_dir.join("plugin.js"), &plugin_for("user"));
-
-        watcher.tick();
-        assert!(registry
-            .with_provider("dupe", |p| p.detect_from_title("user cli"))
-            .unwrap_or(false));
-
-        std::fs::remove_dir_all(&user_dir).unwrap();
-        watcher.tick();
-
-        assert!(registry
-            .with_provider("dupe", |p| p.detect_from_title("workspace cli"))
-            .unwrap_or(false));
-        assert!(!registry
-            .with_provider("dupe", |p| p.detect_from_title("user cli"))
-            .unwrap_or(true));
-    }
-
-    #[test]
-    fn tick_unregisters_plugins_after_folder_removal() {
-        let root = tempfile::tempdir().unwrap();
-        let registry = Arc::new(AgentRegistry::new());
-        let watcher = HotReloadRegistry::new(vec![root.path().to_path_buf()], registry.clone());
-        let dir = root.path().join("baz");
-        write(&dir.join("plugin.json"), &manifest_for("baz"));
-        write(&dir.join("plugin.js"), &plugin_for("baz"));
-        watcher.tick();
-        assert_eq!(registry.provider_count(), 1);
-
-        std::fs::remove_dir_all(&dir).unwrap();
-        watcher.tick();
-        assert!(watcher.tracked_ids().is_empty());
-        assert_eq!(registry.provider_count(), 0);
-    }
+/// mtime of the plugin's `config.yaml` sibling, or the epoch when absent — so a later create/edit registers as a change.
+fn config_mtime_for(manifest_path: &std::path::Path) -> SystemTime {
+    manifest_path
+        .parent()
+        .map(|dir| mtime_or_epoch(&super::plugin_config::config_yaml_path(dir)))
+        .unwrap_or(SystemTime::UNIX_EPOCH)
 }
+
+#[cfg(test)]
+mod tests;

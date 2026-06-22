@@ -1,8 +1,13 @@
 pub mod agent;
+pub mod agent_commands;
 mod api;
 pub mod attachments;
 mod autostart;
 pub mod bridge;
+pub mod bubble;
+pub mod chatbackend;
+pub mod chatpipeline;
+pub mod chatpreprocessor;
 mod clipboard_files;
 mod commands;
 mod commands_mesh;
@@ -11,6 +16,7 @@ mod crash;
 pub mod cron;
 pub mod delayed_send;
 pub mod dispatch;
+pub mod glance;
 mod keepawake;
 mod liveness;
 pub mod logs;
@@ -24,6 +30,7 @@ pub mod paths;
 pub mod plugin;
 pub mod process_util;
 pub mod prompts;
+pub mod provider;
 pub mod pty;
 pub mod resize_owner;
 pub mod secrets;
@@ -32,8 +39,12 @@ pub mod session;
 pub mod shell;
 mod socket;
 mod startup;
+pub mod transcribe;
 pub mod update;
 pub mod usage;
+pub mod view;
+pub mod view_host;
+mod webview2_reap;
 
 use std::sync::Arc;
 
@@ -51,6 +62,7 @@ pub type PtyState = Arc<Mutex<PtyManager>>;
 pub type OutputBufferState = Arc<Mutex<OutputBuffer>>;
 pub type ScreenStateHandle = Arc<Mutex<ScreenState>>;
 pub type AgentTrackerState = Arc<Mutex<agent::status::PaneStatusTracker>>;
+pub type ShellCapabilityState = Arc<Mutex<agent::command_detection::ShellCapabilityTracker>>;
 pub type ReportStoreState = Arc<Mutex<agent::reports::ReportStore>>;
 pub type PromptDetectorState = Arc<Mutex<agent::prompt::PromptDetector>>;
 pub use cron::scheduler::{CronState, CronWake};
@@ -74,14 +86,18 @@ pub fn run() {
 
     log::info!("CodeTerm starting...");
 
+    // Reap msedgewebview2.exe orphaned by a prior hard GUI crash, before window init (GH #183).
+    webview2_reap::reap_orphaned_webview2();
+
     // Write shell integration scripts (OSC 7 CWD tracking)
     pty::shell_integration::ensure_scripts();
 
     // Initialize all shared states
     let states = startup::init_states();
 
-    // Seed bundled skills to ~/.codeterm/skills/ (sync watcher mirrors to providers)
+    // Seed canonical ~/.codeterm/skills/, then mirror into provider dirs agents load from (#178).
     commands::seed_bundled_skills();
+    commands::mirror_skills_to_providers();
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -136,16 +152,18 @@ pub fn run() {
             commands::read_pty,
             commands::write_pty,
             commands::write_pty_string,
+            commands::interrupt_agent,
+            commands::write_pty_launch_command,
             commands::get_pane_output,
             commands::get_pane_history_raw,
             commands::get_pane_text,
+            commands::shell_command_snapshot,
             commands::list_agent_providers,
             commands::wait_shell_ready,
             commands::read_session_jsonl,
             commands::resize_pty,
             commands::claim_resize_owner,
             commands::kill_pty,
-            commands::get_pane_git_info,
             commands::suggest_install_pwsh,
             commands::get_shell_diagnostics,
             commands::restart_app,
@@ -158,6 +176,7 @@ pub fn run() {
             commands::report_webgl_status,
             commands::save_clipboard_image,
             commands::save_clipboard_file,
+            commands::materialize_dropped_files,
             clipboard_files::read_clipboard_files,
             clipboard_files::read_clipboard_text,
             commands::save_temp_file,
@@ -176,11 +195,18 @@ pub fn run() {
             multiplexer::commands::mux_close_workspace,
             multiplexer::commands::mux_rename_workspace,
             multiplexer::commands::mux_move_tab,
+            multiplexer::commands::mux_reorder_tab,
+            multiplexer::commands::mux_reorder_child,
+            multiplexer::commands::mux_reorder_workspace,
             multiplexer::commands::mux_create_tab,
             multiplexer::commands::mux_close_tab,
             multiplexer::commands::mux_set_active_tab,
+            multiplexer::commands::mux_set_active_tab_and_workspace,
             multiplexer::commands::mux_rename_tab,
             multiplexer::commands::mux_close_pane,
+            multiplexer::commands::mux_reopen_closed_pane,
+            multiplexer::commands::mux_reopen_closed_group,
+            multiplexer::commands::mux_restore_orphaned_pane,
             multiplexer::commands::mux_set_focused_pane,
             multiplexer::commands::mux_link_pty,
             multiplexer::commands::mux_rename_pane,
@@ -192,9 +218,13 @@ pub fn run() {
             multiplexer::commands::detect_pane_session_id,
             multiplexer::commands::mux_set_claude_session_id,
             commands::chat_start,
+            commands::session_transcript,
             commands::chat_stop,
             commands::chat_backfill,
             commands::chat_send_text,
+            commands::open_chat_backend_pane,
+            commands::chatbackend_session_info,
+            commands::chatbackend_switch_model,
             commands::transcribe_voice_attachment,
             commands::delayed_send_list,
             commands::delayed_send_create,
@@ -205,7 +235,11 @@ pub fn run() {
             commands::install_provider_in_pane,
             commands::plugin_manager_snapshot,
             commands::plugin_manager_action,
+            commands::plugin_glance,
+            commands::plugin_bubble,
+            commands::plugin_view_call,
             multiplexer::commands::build_agent_launch_command,
+            multiplexer::commands::mux_spawn_pane,
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,
             multiplexer::commands::mux_set_can_spawn,
@@ -273,6 +307,9 @@ pub fn run() {
             commands_mesh::mesh_scan_peers,
             commands_mesh::mesh_set_access,
             commands_mesh::mesh_peer_services_list,
+            commands_mesh::mesh_peer_service_delete,
+            commands_mesh::mesh_peer_cron_action,
+            commands_mesh::mesh_peer_cron_history,
             // Keep-awake commands
             keepawake::keepawake_start,
             keepawake::keepawake_stop,
@@ -299,7 +336,45 @@ pub fn run() {
 
             // Bootstrap plugin system — agent-claude is a bundled native plugin
             agent::model_catalog::ensure_readme_installed();
+            // Carry a pre-existing native Bitwarden setup into the plugin's namespace (native Bitwarden is retired).
+            {
+                let mut cfg = states.config.lock();
+                if crate::secrets::migrate_native_bitwarden_to_plugin(&mut cfg) {
+                    let snapshot = cfg.clone();
+                    drop(cfg);
+                    let _ = crate::config::save_config_pub(&snapshot);
+                }
+            }
+
             let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
+            // Capability registries — populated as JS plugins load, then handed to ServiceContext.
+            let secret_registry = Arc::new(crate::secrets::SecretRegistry::new());
+            let transcribe_registry = Arc::new(crate::transcribe::TranscribeRegistry::new());
+            let glance_registry: crate::glance::GlanceRegistryHandle =
+                Arc::new(crate::glance::GlanceRegistry::new());
+            let bubble_registry: crate::bubble::BubbleRegistryHandle =
+                Arc::new(crate::bubble::BubbleRegistry::new());
+            let view_registry: crate::view_host::ViewRegistryHandle =
+                Arc::new(crate::view_host::ViewRegistry::new());
+            let chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle =
+                Arc::new(crate::chatbackend::ChatBackendRegistry::new());
+            let chat_preprocessor_registry: crate::chatpreprocessor::ChatPreprocessorRegistryHandle =
+                Arc::new(crate::chatpreprocessor::ChatPreprocessorRegistry::new());
+            let agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle =
+                Arc::new(crate::agent_commands::AgentCommandRegistry::new());
+            // One bundle of registry handles, shared by the startup loop and the hot-reload watcher (same register_plugin path, no drift).
+            let cap_registries = plugin::js_runtime::CapabilityRegistries {
+                secret: secret_registry.clone(),
+                transcribe: transcribe_registry.clone(),
+                glance: glance_registry.clone(),
+                bubble: bubble_registry.clone(),
+                view: view_registry.clone(),
+                chatbackend: chatbackend_registry.clone(),
+                chat_preprocessor: chat_preprocessor_registry.clone(),
+                agent_command: agent_command_registry.clone(),
+            };
+            // VMs collected as they load, so the `ServiceContext` can be late-bound into each sandbox once it's built below.
+            let mut plugin_vms: Vec<Arc<plugin::js_runtime::PluginVm>> = Vec::new();
             let mut plugin_manager = plugin::PluginManager::new();
             plugin_manager.set_agent_registry(agent_registry.clone());
             plugin_manager.set_event_broadcaster(states.event_broadcaster.clone());
@@ -321,6 +396,7 @@ pub fn run() {
                                 crate::service::sync_watcher::install_bridge_rules_for_all(
                                     &bridge_registry,
                                 );
+                                crate::commands::mirror_skills_to_providers();
                             }
                         }
                     }
@@ -337,25 +413,24 @@ pub fn run() {
                 plugin_manager.activate(plugin::agent_claude::PLUGIN_ID)
                     .expect("agent-claude plugin activation failed");
             }
-            {
-                use plugin::agent_codex::AgentCodexPlugin;
-                let manifest = AgentCodexPlugin::manifest();
-                plugin_manager.register(manifest);
-                plugin_manager.attach_native(Box::new(AgentCodexPlugin::new()))
-                    .expect("agent-codex plugin attach failed");
-                plugin_manager.activate(plugin::agent_codex::PLUGIN_ID)
-                    .expect("agent-codex plugin activation failed");
-            }
-            {
-                use plugin::agent_opencode::AgentOpenCodePlugin;
-                let manifest = AgentOpenCodePlugin::manifest();
-                plugin_manager.register(manifest);
-                plugin_manager.attach_native(Box::new(AgentOpenCodePlugin::new()))
-                    .expect("agent-opencode plugin attach failed");
-                plugin_manager.activate(plugin::agent_opencode::PLUGIN_ID)
-                    .expect("agent-opencode plugin activation failed");
-            }
+            // codex + opencode are JS plugins now (no native bundled providers).
             log::info!("[startup] plugins activated: {:?}", plugin_manager.active());
+
+            // Fan SystemEvents to active plugins' on_event; keep the manager alive in the subscriber task. Exits on bus close.
+            {
+                let plugin_manager = std::sync::Arc::new(plugin_manager);
+                let pm = plugin_manager.clone();
+                let mut sub = states.event_broadcaster.subscribe();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        match sub.recv().await {
+                            Ok(ev) => pm.dispatch_event(&ev),
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
+                });
+            }
 
             // Extract embedded providers on first run for offline/dev-limited setups.
             // Skip in CODETERM_DEV=1 so workspace sources stay authoritative.
@@ -391,6 +466,11 @@ pub fn run() {
                 use crate::agent::provider::AgentProvider;
                 use std::collections::HashSet;
                 use std::path::PathBuf;
+                agent_registry.begin_startup_provider_loading(
+                    crate::plugin::system_plugins::SYSTEM_PLUGIN_HASHES
+                        .iter()
+                        .map(|(id, _)| *id),
+                );
                 let workspace_root: Option<PathBuf> = Some(PathBuf::from(
                     concat!(env!("CARGO_MANIFEST_DIR"), "/..")
                 ));
@@ -423,7 +503,24 @@ pub fn run() {
                     let id = p.id().to_string();
                     let version = p.manifest().version.clone();
                     let trust = p.trust();
-                    log::info!("[js-plugin] {id} trust={:?}", trust);
+                    let caps = p.manifest().capabilities.clone();
+                    // Hold a VM handle so the ServiceContext can be late-bound into its sandbox after service init.
+                    plugin_vms.push(p.vm().clone());
+                    log::info!(
+                        "[js-plugin] {id} trust={:?} caps(agent={} secret={} transcribe={})",
+                        trust,
+                        caps.agent_provider,
+                        caps.secret_backend,
+                        caps.transcriber
+                    );
+
+                    // Same register_plugin seam as the hot-reload watcher; a capability-only plugin is NOT registered as an agent.
+                    cap_registries.register_plugin(p.manifest(), p.vm());
+                    if !caps.agent_provider {
+                        plugin::audit::append_daemon_reloaded(&id, &version);
+                        continue;
+                    }
+
                     if keep_all_native || keep_native.contains(&id) {
                         if !agent_registry.register_provider_if_absent(Box::new(p)) {
                             log::info!(
@@ -434,9 +531,7 @@ pub fn run() {
                             plugin::audit::append_daemon_reloaded(&id, &version);
                         }
                     } else {
-                        // JS takes authority; register_provider preserves the
-                        // displaced native impl as a capability fallback the JS
-                        // provider delegates to for methods it doesn't export.
+                        // JS takes authority; the displaced native impl is preserved as a fallback for unexported methods.
                         p.set_registry(agent_registry.clone());
                         log::info!(
                             "[js-plugin] {id} registered as authoritative \
@@ -446,15 +541,21 @@ pub fn run() {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                     }
                 }
+                agent_registry.finish_startup_provider_loading();
 
                 // Hot-reload watcher: polls the same roots every 2s and (a) discovers new plugin folders dropped into ~/.codeterm/plugins/, (b) reloads
                 // Hot-reload keeps plugin VMs in sync: reload existing plugins and drop vanished plugin dirs.
                 let watcher = plugin::js_runtime::HotReloadRegistry::new(
                     roots.clone(),
                     agent_registry.clone(),
+                    cap_registries.clone(),
                 );
-                // Seed tracked-state for already-registered plugins so the first tick doesn't re-register them.
-                watcher.tick();
+                // Seed tracked-state + mark already-registered plugins activated-at-startup, so the first tick doesn't re-register them.
+                watcher.seed();
+                // Track each plugin's live VM so a later config-only edit re-stamps settings in place instead of rebuilding.
+                for vm in &plugin_vms {
+                    watcher.register_vm(vm.plugin_id(), vm);
+                }
                 watcher.start();
                 log::info!(
                     "[js-plugin] hot-reload watcher started on {} roots",
@@ -465,6 +566,31 @@ pub fn run() {
             // All providers have called `model_catalog::register(...)` in their constructors by now — refresh the `<provider>.example.toml` files so users
             // always see the current build's defaults.
             agent::model_catalog::refresh_example_files();
+
+            // Warm the model catalog: prime each provider's last-known list from disk, then fan out one
+            // background refresh per provider off the async runtime (never gates startup; emits `models-updated`).
+            {
+                let providers = agent_registry.all_provider_arcs();
+                for p in &providers {
+                    agent::model_catalog::prime_from_cache(p.id());
+                }
+                let app_for_models = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    for provider in providers {
+                        let id = provider.id().to_string();
+                        if agent::model_catalog::refresh_models(provider, false)
+                            .await
+                            .is_some()
+                        {
+                            crate::api::events::emit_everywhere(
+                                &app_for_models,
+                                "models-updated",
+                                serde_json::json!({ "provider": id }),
+                            );
+                        }
+                    }
+                });
+            }
 
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
@@ -495,6 +621,10 @@ pub fn run() {
             let input_parser = Arc::new(
                 crate::service::input_parser::InputParser::new(agent_registry.clone()),
             );
+            let provider_registry = Arc::new(crate::provider::ProviderRegistry::new(
+                agent_registry.clone(),
+                chatbackend_registry.clone(),
+            ));
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -504,6 +634,7 @@ pub fn run() {
                 events: states.event_broadcaster.clone(),
                 app_handle: app_handle.clone(),
                 agent_tracker: states.agent_tracker.clone(),
+                shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
                 agent_registry,
                 mem,
@@ -512,6 +643,7 @@ pub fn run() {
                 workers: crate::mem::workers::GraphWorkerRegistry::load(
                     crate::paths::data_dir().join("mem").join("workers.json"),
                 ),
+                plugin_activity: Arc::new(crate::plugin::activity::PluginActivityRegistry::new()),
                 worker_pool: Arc::new(crate::mem::worker_pool::WorkerPool::new(
                     crate::config::memory_config().workers_per_provider,
                 )),
@@ -527,12 +659,22 @@ pub fn run() {
                     crate::paths::data_dir().join("delayed_send.json"),
                 )
                 .expect("delayed_send init"),
+                secret_registry: secret_registry.clone(),
                 secrets: {
                     let cfg_guard = states.config.lock();
                     let cfg = cfg_guard.integrations.secrets.clone();
                     drop(cfg_guard);
-                    crate::secrets::new_state(&cfg)
+                    crate::secrets::new_state(&cfg, &secret_registry)
                 },
+                transcribe_registry: transcribe_registry.clone(),
+                glance_registry: glance_registry.clone(),
+                bubble_registry: bubble_registry.clone(),
+                view_registry: view_registry.clone(),
+                chatbackend_registry: chatbackend_registry.clone(),
+                chatbackend_reopen_guards: Arc::new(Default::default()),
+                provider_registry,
+                chat_preprocessor_registry: chat_preprocessor_registry.clone(),
+                agent_command_registry: agent_command_registry.clone(),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(
                     crate::service::store::ServicesStore::open(
@@ -549,6 +691,12 @@ pub fn run() {
                 usage_poller: Arc::new(parking_lot::Mutex::new(None)),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
+            // Late-bind the ServiceContext into every loaded plugin's sandbox. Weak so VMs never keep the service alive past teardown.
+            for vm in &plugin_vms {
+                vm.set_service(Arc::downgrade(&service_state));
+            }
+            // Same late-bind for the hot-reload watcher, so plugins reloaded after startup get the service too.
+            plugin::js_runtime::set_watcher_service(Arc::downgrade(&service_state));
             app.manage(service_state.clone());
             crate::delayed_send::start_scheduler(service_state.clone());
 
@@ -581,7 +729,6 @@ pub fn run() {
 
             // Graph layout: build the projection once at startup if needed, then
             // tick a debounced cache flush. The heavy projection runs on a
-            // blocking thread so it never stalls the async runtime.
             {
                 let mem = service_state.mem.clone();
                 tauri::async_runtime::spawn(async move {
@@ -648,6 +795,15 @@ pub fn run() {
             }
             startup::build_system_tray(app)?;
 
+            // Catch SIGTERM/SIGINT: run the same graceful cleanup as a Tauri Exit, then exit cleanly. (Windows is covered above.)
+            #[cfg(unix)]
+            {
+                let signal_app = app_handle.clone();
+                crash::shutdown::install_unix_signal_handlers(move || {
+                    graceful_exit_cleanup(&signal_app);
+                });
+            }
+
             // After webview is ready, check for crash reports from a previous session and emit an event the frontend can show as a toast. Delay a tick so
             // the React side has time to attach the listener.
             {
@@ -682,6 +838,11 @@ pub fn run() {
 
             service::sync_watcher::start(crate::paths::data_dir(), service_state.agent_registry.clone());
             startup::start_background_tasks(&app_handle, &states);
+            // Pane-state reactor: classify parked panes and auto-advance via the provider's recommendation.
+            agent::state_reactor::start(service_state.clone());
+            // Live 3-state sweep: drives the chat-view agent-state indicator's
+            // working→idle edge (no output to ride on when a turn settles).
+            agent::live_state::start(service_state.clone());
 
             // PTY read loops are started by spawn_pty command (initiated by frontend)
             Ok(())
@@ -697,7 +858,7 @@ pub fn run() {
                     app.try_state::<MuxState>(),
                     app.try_state::<SessionState>(),
                 ) {
-                    let snapshot = mux.lock().to_session_snapshot();
+                    let snapshot = mux.write().to_session_snapshot();
                     if let Err(e) = session.lock().save(&snapshot) {
                         log::error!("Failed to save session: {}", e);
                     } else {
@@ -724,19 +885,45 @@ pub fn run() {
                 }
             }
 
+            // Mark shutting down the moment exit is requested, so the liveness watchdog doesn't read the imminent API-down as a crash.
+            if let tauri::RunEvent::ExitRequested { .. } = _event {
+                crash::shutdown::mark_shutting_down();
+            }
+
             // On any clean process exit (tray-Quit, Cmd+Q after window close, SIGTERM caught by Tauri), checkpoint+truncate the mem WAL so a stale ~4MB
             // log doesn't survive into the next run. The updater's graceful_shutdown already does this on the in-place upgrade path; this catches every other shutdown route.
             if let tauri::RunEvent::Exit = _event {
-                keepawake::cleanup_active_children_for_exit();
-                if let Some(svc) = _app.try_state::<service::ServiceState>() {
-                    match svc.mem.checkpoint_and_close() {
-                        Ok((busy, log_frames, checkpointed)) => log::info!(
-                            "[shutdown] mem WAL checkpointed busy={} log_frames={} checkpointed={}",
-                            busy, log_frames, checkpointed
-                        ),
-                        Err(e) => log::warn!("[shutdown] mem WAL checkpoint failed: {}", e),
-                    }
-                }
+                graceful_exit_cleanup(_app);
             }
         });
+}
+
+/// Shared graceful-exit cleanup for every clean shutdown route. Marks the process
+/// shutting down (drops the `.clean_exit` sentinel so no crash toast next launch),
+/// then best-effort persists session + checkpoints the mem WAL.
+fn graceful_exit_cleanup(app: &tauri::AppHandle) {
+    crash::shutdown::mark_shutting_down();
+    keepawake::cleanup_active_children_for_exit();
+    webview2_reap::clear_journal_for_exit();
+
+    if let (Some(mux), Some(session)) =
+        (app.try_state::<MuxState>(), app.try_state::<SessionState>())
+    {
+        let snapshot = mux.write().to_session_snapshot();
+        if let Err(e) = session.lock().save(&snapshot) {
+            log::error!("[shutdown] session save failed: {}", e);
+        }
+    }
+
+    if let Some(svc) = app.try_state::<service::ServiceState>() {
+        match svc.mem.checkpoint_and_close() {
+            Ok((busy, log_frames, checkpointed)) => log::info!(
+                "[shutdown] mem WAL checkpointed busy={} log_frames={} checkpointed={}",
+                busy,
+                log_frames,
+                checkpointed
+            ),
+            Err(e) => log::warn!("[shutdown] mem WAL checkpoint failed: {}", e),
+        }
+    }
 }

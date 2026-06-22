@@ -1,0 +1,8 @@
+  Sign in to Codex
+
+  To use Codex you need to sign in with your OpenAI account.
+
+> 1. Sign in with ChatGPT
+  2. Provide your own API key
+
+  Press enter to open your browser and authenticate.

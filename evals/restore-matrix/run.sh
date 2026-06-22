@@ -11,12 +11,10 @@ export VITE_CODETERM_TEST=1
 export CODETERM_TEST_CLOCK=1
 
 # Tunables (env-overridable so the matrix can be debugged one provider/pane at a
-# time and capped in wall-time). Defaults favor a practical run over exhaustive
-# coverage: 2 panes/provider proves same-provider multi-pane isolation, and the
-# materialization gate fails fast instead of hanging minutes on a non-persisting
-# pane (claude's first-turn JSONL flush is not reliably prompt — see README).
-RM_PROVIDERS="${RM_PROVIDERS:-claude codex opencode}"
-RM_PER_PROVIDER="${RM_PER_PROVIDER:-2}"
+# time and capped in wall-time). Three panes/provider proves same-provider
+# multi-pane isolation while still keeping a full 4-provider run practical.
+RM_PROVIDERS="${RM_PROVIDERS:-claude codex opencode cursor}"
+RM_PER_PROVIDER="${RM_PER_PROVIDER:-3}"
 RM_MATERIALIZE_TIMEOUT="${RM_MATERIALIZE_TIMEOUT:-60}"
 
 RUN_ID="$(python - <<'PY'
@@ -82,8 +80,12 @@ PY
 
 replace_slot_field() {
   local provider="$1" idx="$2" field="$3" value="$4"
+  local lock="$SLOTS_TSV.lock"
+  while ! mkdir "$lock" 2>/dev/null; do
+    sleep 0.1
+  done
 PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" "$provider" "$idx" "$field" "$value" <<'PY'
-import pathlib, sys
+import os, pathlib, sys
 path, provider, idx, field, value = sys.argv[1:6]
 fields = ['provider','idx','model','pane_id','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
 col = fields.index(field)
@@ -96,8 +98,13 @@ for line in path.read_text(encoding='utf-8').splitlines():
     if parts[0] == provider and parts[1] == idx:
         parts[col] = value.replace('\t', ' ').replace('\n', ' ')
     rows.append('\t'.join(parts))
-path.write_text('\n'.join(rows) + ('\n' if rows else ''), encoding='utf-8')
+tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+tmp.write_text('\n'.join(rows) + ('\n' if rows else ''), encoding='utf-8')
+os.replace(tmp, path)
 PY
+  local rc=$?
+  rmdir "$lock" 2>/dev/null || true
+  return "$rc"
 }
 
 append_slot() {
@@ -206,6 +213,40 @@ if provider == "opencode":
                 sys.exit(0)
     sys.exit(1)
 
+if provider == "cursor":
+    import re
+    def cursor_slug(value: str) -> str:
+        return re.sub(r"[^a-zA-Z0-9]", "-", value.lstrip("/\\"))
+    project_roots = []
+    for candidate_cwd in (cwd, str(pathlib.Path(cwd).resolve())):
+        project = home / ".cursor" / "projects" / cursor_slug(candidate_cwd)
+        if project not in project_roots:
+            project_roots.append(project)
+    candidates = []
+    trusted = []
+    for project in project_roots:
+        trust = project / ".workspace-trusted"
+        if not trust.exists():
+            continue
+        trusted.append(trust)
+        if sid:
+            candidates.append(project / "agent-transcripts" / sid / f"{sid}.jsonl")
+        transcript_root = project / "agent-transcripts"
+        if transcript_root.exists():
+            candidates.extend(transcript_root.glob("*/*.jsonl"))
+    if not trusted:
+        sys.exit(1)
+    seen = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if contains_marker(path):
+            print(f"{path}; trust={trusted[0]}")
+            sys.exit(0)
+    sys.exit(1)
+
 sys.exit(1)
 PY
 }
@@ -228,6 +269,11 @@ elif provider == "codex":
         evidence = m.group(0)
 elif provider == "claude":
     for name in ("haiku", "sonnet", "opus", "fable"):
+        if name in text:
+            evidence = name
+            break
+elif provider == "cursor":
+    for name in ("composer", "claude", "gpt", "gemini", "grok", "kimi", "auto"):
         if name in text:
             evidence = name
             break
@@ -288,7 +334,11 @@ for r in rows:
         r[6] = pane.get('agent_session_id') or ''
 pathlib.Path(slots_path).write_text('\n'.join('\t'.join(r) for r in rows) + '\n', encoding='utf-8')
 PY
-  while IFS=$'\t' read -r provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model; do
+  local line line_usv provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    line_usv=${line//$'\t'/$'\034'}
+    IFS=$'\034' read -r provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
     if [ -n "${pane_id:-}" ]; then
       replace_slot_field "$provider" "$idx" booted_model "$(detect_booted_model_evidence "$provider" "$pane_id")"
     fi
@@ -310,7 +360,6 @@ spawn_slot() {
     return 1
   fi
   replace_slot_field "$provider" "$idx" pane_id "$pane_id"
-  refresh_slot_pre "$provider" "$idx" 45
   local pane_json
   pane_json=$(pane_json_by_id "$pane_id" 2>/dev/null || true)
   tab_id=$(echo "$pane_json" | json_field "data.get('tab_id')")
@@ -326,21 +375,6 @@ send_marker_and_wait() {
   local provider="$1" idx="$2" pane_id="$3" marker="$4"
   local prompt="Reply with exactly $marker and nothing else."
   local out deadline payload response status body attempt evidence
-
-  deadline=$((SECONDS + 60))
-  while [ $SECONDS -lt $deadline ]; do
-    out=$(dc get-output --pane "$pane_id" --lines 80 2>&1 || true)
-    if echo "$out" | grep -Eiq 'rate-limit-options|session limit|usage limit|upgrade your plan|sign in|login|authenticate'; then
-      replace_slot_field "$provider" "$idx" skipped 1
-      replace_slot_field "$provider" "$idx" reason "auth/rate-limit screen before send"
-      echo "SKIP provider=$provider slot=$idx pane=$pane_id reason=auth/rate-limit screen before send"
-      return 1
-    fi
-    if [ "$(printf '%s' "$out" | wc -c)" -gt 40 ]; then
-      break
-    fi
-    sleep 3
-  done
 
   payload=$(python - "$prompt" <<'PY'
 import json, sys
@@ -389,6 +423,7 @@ provider_model() {
   case "$1" in
     claude) echo haiku ;;
     codex) echo gpt-5.4-mini ;;
+    cursor) echo auto ;;
     opencode)
       local providers_json
       providers_json="$(dev_get /api/agents/providers 2>/dev/null || true)"
@@ -415,49 +450,111 @@ else:
   esac
 }
 
-spawn_provider_group() {
-  local provider="$1" model marker pane_id
-  model="$(provider_model "$provider")"
-  marker="RESTORE-MARKER-$(python - <<'PY'
+new_marker() {
+  python - <<'PY'
 import uuid
-print(uuid.uuid4())
+print("RESTORE-MARKER-" + str(uuid.uuid4()))
 PY
-)"
-  append_slot "$provider" 1 "$model" "$marker"
-  if ! spawn_slot "$provider" 1 "$model" "$marker"; then
-    echo "SKIP provider=$provider reason=probe spawn failed"
-    for idx in 2 3 4 5; do
-      append_slot "$provider" "$idx" "$model" "RESTORE-MARKER-skipped-$provider-$idx"
-      replace_slot_field "$provider" "$idx" skipped 1
-      replace_slot_field "$provider" "$idx" reason "provider probe failed"
-    done
-    return 0
-  fi
-  pane_id=$(awk -F '\t' -v p="$provider" '$1==p && $2=="1" {print $4}' "$SLOTS_TSV")
-  if ! send_marker_and_wait "$provider" 1 "$pane_id" "$marker"; then
-    local reason
-    reason=$(awk -F '\t' -v p="$provider" '$1==p && $2=="1" {print $10}' "$SLOTS_TSV")
-    echo "SKIP provider=$provider reason=$reason"
-    for idx in 2 3 4 5; do
-      append_slot "$provider" "$idx" "$model" "RESTORE-MARKER-skipped-$provider-$idx"
-      replace_slot_field "$provider" "$idx" skipped 1
-      replace_slot_field "$provider" "$idx" reason "provider probe failed: $reason"
-    done
-    return 0
-  fi
+}
 
-  local extra
-  for extra in $(seq 2 "$RM_PER_PROVIDER"); do
-    marker="RESTORE-MARKER-$(python - <<'PY'
-import uuid
-print(uuid.uuid4())
-PY
-)"
-    append_slot "$provider" "$extra" "$model" "$marker"
-    spawn_slot "$provider" "$extra" "$model" "$marker" || exit 1
-    pane_id=$(awk -F '\t' -v p="$provider" -v i="$extra" '$1==p && $2==i {print $4}' "$SLOTS_TSV")
-    send_marker_and_wait "$provider" "$extra" "$pane_id" "$marker" || exit 1
+prepare_slots() {
+  local provider idx model marker
+  for provider in $RM_PROVIDERS; do
+    if ! model="$(provider_model "$provider")"; then
+      model="unknown"
+    fi
+    for idx in $(seq 1 "$RM_PER_PROVIDER"); do
+      marker="$(new_marker)"
+      append_slot "$provider" "$idx" "$model" "$marker"
+    done
   done
+}
+
+spawn_all_slots() {
+  local pids=() line line_usv provider idx model marker _pane _tab _sid_before _sid_after _skipped _reason _booted_model
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    line_usv=${line//$'\t'/$'\034'}
+    IFS=$'\034' read -r provider idx model _pane _tab marker _sid_before _sid_after _skipped _reason _booted_model <<< "$line_usv"
+    (
+      spawn_slot "$provider" "$idx" "$model" "$marker"
+    ) &
+    pids+=("$!")
+  done < "$SLOTS_TSV"
+  for pid in "${pids[@]}"; do
+    wait "$pid" || true
+  done
+}
+
+send_all_markers() {
+  local pids=() line line_usv provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    line_usv=${line//$'\t'/$'\034'}
+    IFS=$'\034' read -r provider idx model pane_id tab_id marker sid_before sid_after skipped reason booted_model <<< "$line_usv"
+    if [ -n "${pane_id:-}" ] && [ "${skipped:-0}" != "1" ]; then
+      (
+        send_marker_and_wait "$provider" "$idx" "$pane_id" "$marker"
+      ) &
+      pids+=("$!")
+    fi
+  done < "$SLOTS_TSV"
+  for pid in "${pids[@]}"; do
+    wait "$pid" || true
+  done
+}
+
+assert_post_chat_isolation() {
+  PYTHONIOENCODING=utf-8 python - "$SLOTS_TSV" <<'PY'
+import json, os, pathlib, re, sys, urllib.error, urllib.request
+slots_path = pathlib.Path(sys.argv[1])
+token = os.environ.get("CODETERM_API_TOKEN", "")
+fields = ['provider','idx','model','pane_id','tab_id','marker','sid_before','sid_after','skipped','reason','booted_model']
+rows = []
+for line in slots_path.read_text(encoding="utf-8").splitlines():
+    if not line.strip():
+        continue
+    parts = line.split("\t")
+    while len(parts) < len(fields):
+        parts.append("")
+    rows.append(dict(zip(fields, parts)))
+
+active = [r for r in rows if r["skipped"] != "1"]
+markers = [r["marker"] for r in active]
+
+def clean(text):
+    return re.sub(r"[^A-Za-z0-9]", "", text).lower()
+
+def api_get(path):
+    req = urllib.request.Request(
+        "http://127.0.0.1:7686" + path,
+        headers={"Authorization": "Bearer " + token},
+    )
+    with urllib.request.urlopen(req, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+for row in active:
+    pane_id = row["pane_id"]
+    marker = row["marker"]
+    if not pane_id:
+        raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']}: missing pane_id")
+    try:
+        payload = api_get(f"/api/panes/{pane_id}/chat")
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']} pane={pane_id}: HTTP {exc.code}: {body[:300]}")
+    text = json.dumps(payload.get("messages", []), ensure_ascii=False)
+    norm = clean(text)
+    own = clean(marker)
+    if own not in norm:
+        raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']} pane={pane_id}: marker missing from /chat marker={marker}")
+    for other in markers:
+        if other == marker:
+            continue
+        if clean(other) in norm:
+            raise SystemExit(f"FAIL chat provider={row['provider']} slot={row['idx']} pane={pane_id}: /chat contains other marker {other}")
+    print(f"PASS chat provider={row['provider']} slot={row['idx']} pane={pane_id} marker={marker}")
+PY
 }
 
 refresh_post_sids_and_assert_api() {
@@ -534,10 +631,14 @@ echo "== create matrix workspace $WORKSPACE_NAME"
 WORKSPACE_ID=$(new_workspace "$WORKSPACE_NAME" "$WORKSPACE_CWD")
 [ -n "$WORKSPACE_ID" ] || { echo "FAIL could not create workspace"; exit 1; }
 
-for provider in $RM_PROVIDERS; do
-  echo "== provider probe/group $provider"
-  spawn_provider_group "$provider"
-done
+echo "== prepare slots providers=[$RM_PROVIDERS] per_provider=$RM_PER_PROVIDER"
+prepare_slots
+
+echo "== parallel spawn all slots"
+spawn_all_slots
+
+echo "== parallel marker sends and pre-kill materialization gates"
+send_all_markers
 
 echo "== refresh pre-restart pane/session/model evidence"
 refresh_all_slots_pre || exit 1
@@ -567,6 +668,9 @@ sleep 5
 echo "== API post-restore assertions"
 refresh_post_sids_and_assert_api || exit 1
 write_manifest post-api
+
+echo "== post-restore /chat isolation assertions"
+assert_post_chat_isolation || exit 1
 
 echo "== Playwright UI-visible marker oracle"
 if ! (

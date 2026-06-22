@@ -1,20 +1,31 @@
 import { memo, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { SpawnWorkerReq } from "../../lib/types";
+import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
+import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 
 interface Props {
   onSpawn: (req: SpawnWorkerReq) => Promise<void>;
   onClose: () => void;
 }
 
-const AGENTS = ["claude"] as const;
-
 function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
+  // Spawnable agents resolve from the provider registry by capability (PTY
+  // transport), never a hardcoded vendor list.
+  const agents = useAgentDescriptors().filter((p) => p.transport === "pty");
   const [intent, setIntent] = useState("");
   const [task, setTask] = useState("");
-  const [agent, setAgent] = useState<string>("claude");
+  const [agent, setAgent] = useState<string>(() => defaultSpawnProviderId());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Once the registry loads, keep the selection valid (default may have been a
+  // load-time fallback before descriptors arrived).
+  useEffect(() => {
+    if (agents.length && !agents.some((p) => p.id === agent)) {
+      setAgent(agents[0].id);
+    }
+  }, [agents, agent]);
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -60,15 +71,20 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
     <div
       className="fixed inset-0 z-[1050] flex items-center justify-center bg-black/60"
       onClick={onClose}
+      data-testid="memory-worker-dialog-backdrop"
     >
       <div
         className="bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg p-5 w-[480px] max-w-[90%] text-[var(--ct-fg)]"
         onClick={(e) => e.stopPropagation()}
+        data-testid="memory-worker-dialog"
+        role="dialog"
+        aria-label="Spawn graph worker"
       >
         <h3 className="m-0 mb-4 text-sm">Spawn Graph Worker</h3>
         <div className="mb-3">
           <label className={labelClass}>Intent</label>
           <input
+            data-testid="memory-worker-intent-input"
             className={fieldClass}
             value={intent}
             onChange={(e) => setIntent(e.target.value)}
@@ -79,6 +95,7 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
         <div className="mb-3">
           <label className={labelClass}>Task</label>
           <textarea
+            data-testid="memory-worker-task-input"
             className={`${fieldClass} resize-y min-h-[120px]`}
             value={task}
             onChange={(e) => setTask(e.target.value)}
@@ -89,34 +106,36 @@ function MemorySpawnWorkerDialogImpl({ onSpawn, onClose }: Props) {
         <div className="mb-3">
           <label className={labelClass}>Agent</label>
           <select
+            data-testid="memory-worker-agent-select"
             className={fieldClass}
             value={agent}
             onChange={(e) => setAgent(e.target.value)}
           >
-            {AGENTS.map((a) => (
-              <option key={a} value={a}>
-                {a}
+            {agents.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.display_name}
               </option>
             ))}
           </select>
         </div>
         <div className="mb-4">
           <label className={labelClass}>Parent</label>
-          <input className={fieldClass} value="user:memory-panel" readOnly disabled />
+          <input className={fieldClass} value="user:memory-panel" readOnly disabled data-testid="memory-worker-parent-input" />
         </div>
         {error && (
-          <div className="mb-3 px-2.5 py-1.5 bg-[var(--ct-red)] text-white rounded text-[11px]">
+          <div className="mb-3 px-2.5 py-1.5 bg-[var(--ct-red)] text-white rounded text-[11px]" data-testid="memory-worker-dialog-error" role="alert">
             {error}
           </div>
         )}
         <div className="flex justify-end gap-2">
-          <button className={btnClass} onClick={onClose} disabled={submitting}>
+          <button className={btnClass} onClick={onClose} disabled={submitting} data-testid="memory-worker-cancel">
             Cancel
           </button>
           <button
             className={`${btnClass} !bg-[var(--ct-accent)] !border-[var(--ct-accent)] !text-white`}
             onClick={handleSpawn}
             disabled={submitting}
+            data-testid="memory-worker-spawn-submit"
           >
             {submitting ? "Spawning…" : "Spawn"}
           </button>

@@ -7,6 +7,7 @@ pub fn cron_id_to_service_id(cron_id: &str) -> String {
     format!("{}{}", CRON_ID_PREFIX, cron_id)
 }
 
+#[allow(dead_code)] // inverse of cron_id_to_service_id; kept as a symmetric pair
 pub fn service_id_to_cron_id(service_id: &str) -> &str {
     service_id
         .strip_prefix(CRON_ID_PREFIX)

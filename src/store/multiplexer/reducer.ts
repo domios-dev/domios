@@ -19,6 +19,8 @@ export type Action =
   | { type: "CLOSE_WORKSPACE"; id: string }
   | { type: "RENAME_WORKSPACE"; id: string; name: string }
   | { type: "MOVE_TAB"; tabId: string; fromWorkspaceId: string; toWorkspaceId: string }
+  | { type: "REORDER_TABS"; orderedTabIds: string[] }
+  | { type: "REORDER_WORKSPACES"; orderedWorkspaceIds: string[] }
   | { type: "ADD_TAB"; workspaceId: string; tab: Tab; pane: Pane }
   | { type: "CLOSE_TAB"; workspaceId: string; tabId: string; removedPaneIds: string[] }
   | { type: "SET_ACTIVE_TAB"; workspaceId: string; tabId: string }
@@ -31,6 +33,7 @@ export type Action =
   | { type: "SET_FOCUSED_PANE"; paneId: string }
   | { type: "SET_PANE_PTY"; paneId: string; ptyId: string }
   | { type: "ADD_NOTIFICATION"; notification: Notification }
+  | { type: "UPSERT_TOAST"; toast: Notification }
   | { type: "MARK_READ"; id: string }
   | { type: "MARK_ALL_READ" }
   | { type: "CLEAR_NOTIFICATIONS" }
@@ -43,6 +46,12 @@ export type Action =
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
     case "SET_STATE": {
+      // Monotonic guard: drop a stale snapshot (older generation) that resolved
+      // after a newer one — kills the spawn-then-blink race where a pre-pane
+      const incomingGen = action.state.generation;
+      if (typeof incomingGen === "number" && incomingGen <= state.generation) {
+        return state;
+      }
       // Backend is authoritative; one pane per tab means no split ratio.
       const mergedWorkspaces = action.state.workspaces;
       const mergedPanes = { ...action.state.panes };
@@ -77,13 +86,32 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           });
         }
       }
-      // `focused_pane_id` comes only from backend `pane-focused` events.
+      const activeTabIds: Record<string, string> = {};
+      for (const w of mergedWorkspaces) {
+        if (w.active_tab_id) activeTabIds[w.id] = w.active_tab_id;
+      }
+      // Adopt incoming focus when it names a live pane; otherwise fall back to
+      // the prior focus only if that pane still exists in the merged set.
+      const incomingFocus = action.state.focused_pane_id;
+      const focused_pane_id =
+        incomingFocus && mergedPanes[incomingFocus]
+          ? incomingFocus
+          : state.focused_pane_id && mergedPanes[state.focused_pane_id]
+            ? state.focused_pane_id
+            : null;
       return {
         ...state,
         workspaces: mergedWorkspaces,
         panes: mergedPanes,
+        focused_pane_id,
         active_workspace_id: action.state.active_workspace_id,
         toasts: [...state.toasts, ...newToasts],
+        activeTabIds,
+        // Backend-authoritative, sqlite-sourced closed-tab history; carry it
+        // from the incoming snapshot or the list silently stays empty.
+        recently_closed: action.state.recently_closed ?? state.recently_closed,
+        generation:
+          typeof incomingGen === "number" ? incomingGen : state.generation,
       };
     }
 
@@ -109,12 +137,15 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         delete newStatuses[pid];
       }
       const remaining = state.workspaces.filter((w) => w.id !== action.id);
+      const newActiveTabIds = { ...state.activeTabIds };
+      delete newActiveTabIds[action.id];
       // keep focused_pane_id untouched; close_workspace emits fallback focus separately.
       return {
         ...state,
         workspaces: remaining,
         panes: newPanes,
         paneStatuses: newStatuses,
+        activeTabIds: newActiveTabIds,
         active_workspace_id:
           state.active_workspace_id === action.id
             ? (remaining[0]?.id ?? null)
@@ -135,6 +166,19 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       const fromWs = state.workspaces.find((w) => w.id === action.fromWorkspaceId);
       const tab = fromWs?.tabs.find((t) => t.id === action.tabId);
       if (!fromWs || !tab || fromWs.tabs.length <= 1) return state;
+
+      const newActiveTabIds = { ...state.activeTabIds };
+      const fromActiveTabId = newActiveTabIds[action.fromWorkspaceId];
+      if (fromActiveTabId === action.tabId) {
+        const remaining = fromWs.tabs.filter((t) => t.id !== action.tabId);
+        const fallback = remaining[remaining.length - 1]?.id;
+        if (fallback) {
+          newActiveTabIds[action.fromWorkspaceId] = fallback;
+        } else {
+          delete newActiveTabIds[action.fromWorkspaceId];
+        }
+      }
+      newActiveTabIds[action.toWorkspaceId] = action.tabId;
 
       return {
         ...state,
@@ -158,7 +202,38 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           }
           return ws;
         }),
+        activeTabIds: newActiveTabIds,
         active_workspace_id: action.toWorkspaceId,
+      };
+    }
+
+    case "REORDER_TABS": {
+      // Optimistic: assign sort_order = position within the dragged group.
+      // Reconciled by the next backend SET_STATE (authoritative). Other groups
+      // keep their values; cross-group collisions are harmless (each group is
+      // sorted independently in the sidebar).
+      const orderById = new Map(action.orderedTabIds.map((id, i) => [id, i]));
+      return {
+        ...state,
+        workspaces: state.workspaces.map((ws) => {
+          if (!ws.tabs.some((t) => orderById.has(t.id))) return ws;
+          return {
+            ...ws,
+            tabs: ws.tabs.map((t) =>
+              orderById.has(t.id) ? { ...t, sort_order: orderById.get(t.id)! } : t,
+            ),
+          };
+        }),
+      };
+    }
+
+    case "REORDER_WORKSPACES": {
+      const orderById = new Map(action.orderedWorkspaceIds.map((id, i) => [id, i]));
+      return {
+        ...state,
+        workspaces: state.workspaces.map((ws) =>
+          orderById.has(ws.id) ? { ...ws, sort_order: orderById.get(ws.id)! } : ws,
+        ),
       };
     }
 
@@ -172,6 +247,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             : ws,
         ),
         panes: { ...state.panes, [action.pane.id]: action.pane },
+        activeTabIds: { ...state.activeTabIds, [action.workspaceId]: action.tab.id },
       };
     }
 
@@ -182,12 +258,22 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         delete newPanes[pid];
         delete newStatuses[pid];
       }
+      const newActiveTabIds = { ...state.activeTabIds };
       // focused_pane_id intentionally untouched — see CLOSE_WORKSPACE comment.
       return {
         ...state,
         workspaces: state.workspaces.map((ws) => {
           if (ws.id !== action.workspaceId) return ws;
           const remaining = ws.tabs.filter((t) => t.id !== action.tabId);
+          const currentActive = newActiveTabIds[action.workspaceId];
+          if (currentActive === action.tabId) {
+            const fallback = remaining[remaining.length - 1]?.id;
+            if (fallback) {
+              newActiveTabIds[action.workspaceId] = fallback;
+            } else {
+              delete newActiveTabIds[action.workspaceId];
+            }
+          }
           return {
             ...ws,
             tabs: remaining,
@@ -199,17 +285,14 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         }),
         panes: newPanes,
         paneStatuses: newStatuses,
+        activeTabIds: newActiveTabIds,
       };
     }
 
     case "SET_ACTIVE_TAB":
       return {
         ...state,
-        workspaces: state.workspaces.map((ws) =>
-          ws.id === action.workspaceId
-            ? { ...ws, active_tab_id: action.tabId }
-            : ws,
-        ),
+        activeTabIds: { ...state.activeTabIds, [action.workspaceId]: action.tabId },
       };
 
     case "CLOSE_PANE": {
@@ -290,6 +373,18 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         notifications: [...state.notifications, action.notification],
         toasts: [...state.toasts, action.notification],
       };
+
+    case "UPSERT_TOAST": {
+      const existingIndex = action.toast.key
+        ? state.toasts.findIndex((toast) => toast.key === action.toast.key)
+        : state.toasts.findIndex((toast) => toast.id === action.toast.id);
+      if (existingIndex === -1) {
+        return { ...state, toasts: [...state.toasts, action.toast] };
+      }
+      const toasts = [...state.toasts];
+      toasts[existingIndex] = action.toast;
+      return { ...state, toasts };
+    }
 
     case "MARK_READ":
       return {

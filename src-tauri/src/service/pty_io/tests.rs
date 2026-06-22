@@ -15,6 +15,50 @@ fn send_created_agent_pty_uses_bounded_width() {
 }
 
 #[test]
+fn restored_agent_with_valid_session_needs_resume_materialization() {
+    assert_eq!(
+        restored_agent_materialization(true, false, Some("codex"), Some("session-1"), true),
+        Some(RestoredAgentMaterialization::Resume)
+    );
+}
+
+#[test]
+fn restored_agent_without_valid_session_needs_fresh_materialization() {
+    assert_eq!(
+        restored_agent_materialization(true, false, Some("codex"), Some("missing"), false),
+        Some(RestoredAgentMaterialization::Fresh)
+    );
+    assert_eq!(
+        restored_agent_materialization(true, false, Some("codex"), None, false),
+        Some(RestoredAgentMaterialization::Fresh)
+    );
+}
+
+#[test]
+fn live_agent_send_skips_materialization() {
+    assert_eq!(
+        restored_agent_materialization(false, false, Some("codex"), Some("session-1"), true),
+        None
+    );
+}
+
+#[test]
+fn plain_shell_send_skips_materialization() {
+    assert_eq!(
+        restored_agent_materialization(true, false, None, None, false),
+        None
+    );
+}
+
+#[test]
+fn protected_agent_send_skips_materialization() {
+    assert_eq!(
+        restored_agent_materialization(true, true, Some("codex"), Some("session-1"), true),
+        None
+    );
+}
+
+#[test]
 fn enter_true_appends_cr_when_missing() {
     assert_eq!(apply_enter("ls -la", true), "ls -la\r");
 }

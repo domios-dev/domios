@@ -1,10 +1,11 @@
 import { invoke } from "../../lib/bridge";
 import { useEffect, useState } from "react";
-import type { CronRunInfo } from "../../lib/types";
+import type { CronJob, CronRunInfo } from "../../lib/types";
 import { serviceIdToCronId } from "./types";
 import { describeSchedule, formatFuture, formatTime } from "../../lib/formatters";
 import type { Service } from "./types";
 import { UI_BUTTON, UI_INPUT, UI_PANEL } from "../shared/design";
+import { RunChatPopup } from "../AgentRun/RunChatPopup";
 
 interface Props {
   service: Service;
@@ -16,7 +17,12 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const [scheduleInput, setScheduleInput] = useState(service.schedule ?? "");
   const [runs, setRuns] = useState<CronRunInfo[]>([]);
   const [busy, setBusy] = useState(false);
+  const [agent, setAgent] = useState<string>("claude");
+  const [openRun, setOpenRun] = useState<CronRunInfo | null>(null);
   const cronId = serviceIdToCronId(service.id);
+  const sourcePeerId = service.source_peer_id;
+  const isRemote = !!sourcePeerId;
+  const actionsDisabled = busy || !!service.stale;
   const scheduleInputClass = `${UI_INPUT.full} flex-1 font-mono outline-none border border-[var(--ct-accent)] text-[10px]`;
   const scheduleBtnClass = `${UI_BUTTON.compact} ${UI_BUTTON.base} border-[var(--ct-border)] text-[var(--ct-muted)]`;
   const sectionMetaClass = "text-[10px] text-[var(--ct-fg)] flex flex-col gap-0.5";
@@ -24,20 +30,35 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    invoke<CronRunInfo[]>("cron_history", { id: cronId })
+    invoke<CronRunInfo[]>(
+      isRemote ? "mesh_peer_cron_history" : "cron_history",
+      isRemote ? { instanceId: sourcePeerId, id: cronId } : { id: cronId },
+    )
       .then((r) => {
         if (!cancelled) setRuns(Array.isArray(r) ? r.slice(-5).reverse() : []);
       })
       .catch(() => {});
+    if (!isRemote) {
+      invoke<CronJob>("cron_get", { id: cronId })
+        .then((j) => {
+          if (!cancelled && j?.agent) setAgent(j.agent);
+        })
+        .catch(() => {});
+    }
     return () => {
       cancelled = true;
     };
-  }, [cronId]);
+  }, [cronId, isRemote, sourcePeerId]);
 
   const handleTrigger = async () => {
     setBusy(true);
     try {
-      await invoke("cron_trigger", { id: cronId });
+      await invoke(
+        isRemote ? "mesh_peer_cron_action" : "cron_trigger",
+        isRemote
+          ? { instanceId: sourcePeerId, id: cronId, action: "trigger" }
+          : { id: cronId },
+      );
       onUpdate();
     } catch (e) {
       alert(`Trigger failed: ${e}`);
@@ -49,7 +70,16 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
   const handleToggle = async () => {
     setBusy(true);
     try {
-      await invoke("cron_toggle", { id: cronId, enabled: !service.enabled });
+      await invoke(
+        isRemote ? "mesh_peer_cron_action" : "cron_toggle",
+        isRemote
+          ? {
+              instanceId: sourcePeerId,
+              id: cronId,
+              action: service.enabled ? "disable" : "enable",
+            }
+          : { id: cronId, enabled: !service.enabled },
+      );
       onUpdate();
     } catch (e) {
       alert(`Toggle failed: ${e}`);
@@ -85,7 +115,7 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
             />
             <button
               onClick={handleSaveSchedule}
-              disabled={busy}
+              disabled={actionsDisabled}
               className={`${UI_BUTTON.primary} ${UI_BUTTON.compact} disabled:opacity-50`}
             >
               Save
@@ -107,7 +137,15 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
             </span>
             <button
               onClick={() => setEditingSchedule(true)}
+              disabled={isRemote || !!service.stale}
               className={`${UI_BUTTON.base} ${UI_BUTTON.compact} text-[var(--ct-muted)] border-none`}
+              title={
+                service.stale
+                  ? "Cached cron state is not editable"
+                  : isRemote
+                    ? "Remote cron schedule editing is not wired yet"
+                    : "Edit schedule"
+              }
             >
               Edit
             </button>
@@ -119,15 +157,17 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
         <div className="flex gap-1.5">
           <button
             onClick={handleTrigger}
-            disabled={busy}
+            disabled={actionsDisabled}
             className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`}
+            title={service.stale ? "Cached cron state is not actionable" : undefined}
           >
             ▶ Trigger now
           </button>
           <button
             onClick={handleToggle}
-            disabled={busy}
+            disabled={actionsDisabled}
             className={`${UI_BUTTON.ghost} ${UI_BUTTON.compact} flex-1 disabled:opacity-50`}
+            title={service.stale ? "Cached cron state is not actionable" : undefined}
           >
             {service.enabled ? "⏸ Pause" : "▶ Resume"}
           </button>
@@ -152,21 +192,42 @@ export function CronDrawerSection({ service, onUpdate }: Props) {
       {runs.length > 0 && (
         <Section label="Recent runs">
           <div className="flex flex-col gap-0.5 max-h-28 overflow-y-auto">
-            {runs.map((run) => (
-              <div key={run.run_id} className="flex items-center gap-2 text-[10px]">
-                <span className={runColor(run.status)}>{runIcon(run.status)}</span>
-                <span className="text-[var(--ct-muted)] flex-1">
-                  {formatTime(run.started_at)}
-                </span>
-                {run.finished_at && (
-                  <span className={runsMetaClass}>
-                    {Math.round((run.finished_at - run.started_at) / 1000)}s
-                  </span>
-                )}
-              </div>
-            ))}
+            {runs.map((run) => {
+              const inspectable = !!run.session_id;
+              return (
+                <button
+                  key={run.run_id}
+                  type="button"
+                  disabled={!inspectable}
+                  onClick={() => inspectable && setOpenRun(run)}
+                  title={inspectable ? "View run transcript" : "No transcript for this run"}
+                  className={`flex items-center gap-2 text-[10px] bg-transparent border-0 p-0 text-left ${inspectable ? "cursor-pointer hover:brightness-125" : "cursor-default opacity-80"}`}
+                >
+                  <span className={runColor(run.status)}>{runIcon(run.status)}</span>
+                  <span className="text-[var(--ct-muted)] flex-1">{formatTime(run.started_at)}</span>
+                  {run.finished_at && (
+                    <span className={runsMetaClass}>
+                      {Math.round((run.finished_at - run.started_at) / 1000)}s
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </Section>
+      )}
+
+      {openRun && openRun.session_id && (
+        <RunChatPopup
+          title={`cron:${service.name}`}
+          subtitle={formatTime(openRun.started_at)}
+          status={openRun.status}
+          provider={agent}
+          cwd={openRun.cwd ?? ""}
+          sessionId={openRun.session_id}
+          live={openRun.status === "Running"}
+          onClose={() => setOpenRun(null)}
+        />
       )}
     </>
   );

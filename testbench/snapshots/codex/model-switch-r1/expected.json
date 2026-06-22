@@ -1,0 +1,15 @@
+{
+  "provider": "codex",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Select Model and Effort",
+    "options": [
+      "gpt-5.5 (current) Frontier model for complex coding, research, and real-world work.",
+      "gpt-5.4 Strong model for everyday coding.",
+      "gpt-5.4-mini Small, fast, and cost-efficient model for simpler coding tasks.",
+      "gpt-5.3-codex-spark Ultra-fast coding model."
+    ],
+    "selectedIndex": 0,
+    "multiSelect": false
+  }
+}

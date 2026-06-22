@@ -1,3 +1,9 @@
 *.sh text eol=lf
 docs/CLI.md text eol=lf
 docs/cli-manifest.json text eol=lf
+
+# Pane-state classifier fixtures match structural patterns on \n boundaries.
+# Force LF so checkouts are deterministic across OS (a stray CRLF would skew
+# the golden expectations on Windows). CRLF-robustness itself is covered by the
+# classify-pane-state CRLF regression tests, which synthesize \r\n at runtime.
+plugins/**/tests/fixtures/pane-state/*.txt text eol=lf

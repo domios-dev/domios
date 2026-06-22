@@ -1,0 +1,20 @@
+• Ran codeterm pane status --pane $CODETERM_PANE_ID
+  └ pane:    ffa85297
+    agent:   codex
+    … +2 lines (ctrl + t to view transcript)
+    prompt:  no
+    chat:    false
+• Ran codeterm get-output --pane $CODETERM_PANE_ID | tail -80
+  └ ;2;242;242;242;49mrking•Working•WorkingWorking•orking•rking
+    • I’m checking the active pane state first so I can avoid sending keystrokes blindly if there is no prompt
+    open.•king
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+• No provider-native question or choice UI was open, so I did not send any keyboard input.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+› Negative case: write plain text only with three lines: A) Alpha, B) Beta, C) Gamma. Do not open any real menu or
+  choice UI.
+• A) Alpha
+  B) Beta
+  C) Gamma
+› Improve documentation in @filename
+  gpt-5.5 medium · /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-codex-provider_cli_question_probe…

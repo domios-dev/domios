@@ -1,0 +1,48 @@
+    ▎+ import unittest                                                                                              
+    ▎ 
+    ▎+ from fib import fib                                                                                          
+    ▎+                                                                                                              
+    ▎+                                                                                                              
+    ▎+ class TestFib(unittest.TestCase):                                                                            
+    ▎+     def test_known_values(self):                                                                             
+    ▎+         cases = [(0, 0), (1, 1), (2, 1), (10, 55)]                                                           
+    ▎+         for n, expected in cases:                                                                            
+    ▎+             with self.subTest(n=n):                                                                          
+    ▎+                 self.assertEqual(fib(n), expected)                                                           
+    ▎+                                                                                                              
+    ▎ … truncated (11 more lines) · ctrl+r to review
+
+  $ cd /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-state-capture-cursor-working-idle-2-54181 &&
+    python -m unittest test_fib.py -v exit 127 • 443ms
+    (eval):1: command not found: python
+
+  $ cd /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-state-capture-cursor-working-idle-2-54181 &&
+    python3 -m unittest test_fib.py -v 841ms
+    … 5 output lines hidden · ctrl+o to expand
+    OK
+
+  Here’s what changed:
+
+  fib.py — input validation before computing:
+  • TypeError if n is not an integer (including floats, strings, and booleans)
+  • ValueError if n is negative
+
+  test_fib.py — two tests:
+  1. test_known_values — checks fib(0), fib(1), fib(2), and fib(10)
+  2. test_rejects_invalid_input — checks that negative numbers and non-integers raise the right errors
+
+  Both tests pass:
+
+  test_known_values ... ok
+  test_rejects_invalid_input ... ok
+  Ran 2 tests in 0.000s
+  OK
+
+
+
+                                                                                                                       
+  → Add a follow-up                                                                                                    
+                                                                                                                       
+
+  Composer 2.5 · 7.8% · 2 files edited                                                                  Run Everything
+  /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-state-capture-cursor-working-idle-2-54181

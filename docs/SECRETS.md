@@ -177,7 +177,7 @@ There is intentionally no public registration API for plugins outside the binary
 
 ## Trade-off / threat model
 
-Honest summary. The full audit lives in `docs/plans/secrets-store.md`.
+Honest summary.
 
 - **Local + release builds.** Same protection as Chrome / Slack / 1Password CLI. Bytes are encrypted at rest by the OS keychain; require an unlocked login session to read. An attacker with disk access cannot recover values from the index alone — the index never contains secret material.
 - **Local + dev builds.** Plaintext on disk gated by Unix `0600`. The keychain file is at `~/.codeterm-dev/keychain/codeterm-secrets.json`. Treat the dev keychain like an `.env` file. We chose this over signed-binary-changes-on-rebuild macOS prompts because the prompts make iterative work impossible; the trade-off is conscious.
@@ -186,4 +186,4 @@ Honest summary. The full audit lives in `docs/plans/secrets-store.md`.
 - **Mesh.** Secrets do not cross the mesh. The CLI rejects `--mesh PEER mem secret …` with exit code `7`; the dispatch layer refuses to relay `/api/secrets/*` over mesh transport. Each peer holds its own vault scoped to its own keychain.
 - **Same-UID adversary.** A process running as your UID can read your OS keychain — that is a same-UID trust boundary, not a CodeTerm one. Same as `git`, `ssh`, and every other CLI on your machine.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

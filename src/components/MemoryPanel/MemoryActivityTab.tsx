@@ -4,19 +4,18 @@ import {
   Activity as ActivityIcon,
   PlusCircle,
   Cpu,
-  Library,
-  Files,
   RefreshCw,
 } from "lucide-react";
-import type { ApiConfig, GraphWorkerInfo, GraphWorkerStatus } from "../../lib/types";
+import type { ApiConfig, GraphWorkerInfo } from "../../lib/types";
 import type { MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
 import type { MemActivityEvent } from "./useActivityPulses";
-import { colorForSource } from "./useActivityPulses";
 import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
 import { useGraphWorkers } from "./useGraphWorkers";
 import { MemorySpawnWorkerDialog } from "./MemorySpawnWorkerDialog";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
+import { RunChatPopup } from "../AgentRun/RunChatPopup";
+import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 
 interface Props {
   api: ApiConfig;
@@ -34,29 +33,7 @@ const OP_COLORS: Record<string, string> = {
   dream: "#c084fc",
 };
 
-const STATUS_COLORS: Record<GraphWorkerStatus, string> = {
-  starting: "#9ca3af",
-  reading: "#60a5fa",
-  analyzing: "#60a5fa",
-  writing: "#fbbf24",
-  done: "#34d399",
-  error: "#f87171",
-  orphaned: "#6b7280",
-};
-
 const MAX_EVENTS = 500;
-
-interface MemoryConfig {
-  dreaming_agent: string;
-  dreaming_model: string;
-  file_sync_enabled: boolean;
-  file_sync_interval_minutes: number;
-}
-
-interface SyncStatus {
-  tracked_files: number;
-  stale_files: number;
-}
 
 function formatTime(ts: number): string {
   const d = new Date(ts);
@@ -82,13 +59,10 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   const [events, setEvents] = useState<MemActivityEvent[]>([]);
   const [opFilter, setOpFilter] = useState<string>("");
   const [autoScroll, setAutoScroll] = useState(true);
-  const [isLive, setIsLive] = useState(false);
   const eventsScrollRef = useRef<HTMLDivElement>(null);
   const newCountRef = useRef(0);
   const [newCount, setNewCount] = useState(0);
 
-  const [memCfg, setMemCfg] = useState<MemoryConfig | null>(null);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const mountedRef = useRef(true);
 
   const { workers, loading: workersLoading, spawn, kill, refresh: refreshWorkers } = useGraphWorkers(api);
@@ -134,38 +108,11 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
         .then((fn) => {
           if (!active) { fn(); return; }
           unlisten = fn;
-          setIsLive(true);
         })
         .catch(() => {});
     }
     return () => { active = false; if (unlisten) unlisten(); };
   }, [api, autoScroll]);
-
-  const fetchMeta = useCallback(() => {
-    fetch(`${baseUrl(api)}/api/config?key=memory`, { headers: authHeaders(api) })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d?.value && mountedRef.current) setMemCfg(d.value); })
-      .catch(() => {});
-    fetch(`${baseUrl(api)}/api/mem/sync/status`, { headers: authHeaders(api) })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (d && mountedRef.current) setSyncStatus(d); })
-      .catch(() => {});
-  }, [api]);
-  useEffect(() => { fetchMeta(); }, [fetchMeta]);
-
-  const toggleSync = useCallback(
-    (enabled: boolean) => {
-      if (!memCfg) return;
-      const next = { ...memCfg, file_sync_enabled: enabled };
-      setMemCfg(next);
-      fetch(`${baseUrl(api)}/api/config`, {
-        method: "PATCH",
-        headers: { ...authHeaders(api), "Content-Type": "application/json" },
-        body: JSON.stringify({ key: "memory", value: next }),
-      }).catch(() => {});
-    },
-    [api, memCfg],
-  );
 
   const filtered = opFilter ? events.filter((e) => e.op === opFilter) : events;
 
@@ -205,19 +152,13 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
   let lastDay = "";
 
   return (
-    <div className="absolute inset-0 flex flex-col">
+    <div className="absolute inset-0 flex flex-col" data-testid="memory-activity-tab">
       {/* Header / global filters */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-[var(--ct-border)]">
         <ActivityIcon size={14} className="text-[var(--ct-muted-fg)]" />
         <span className="text-xs font-semibold text-[var(--ct-fg)]">Activity</span>
         <span className="text-[10px] text-[var(--ct-muted-fg)]">
           live signals from memory + workers
-        </span>
-        <span className="ml-auto flex items-center gap-1 text-[10px] text-[var(--ct-muted-fg)]">
-          <span
-            className={`w-1.5 h-1.5 rounded-full ${isLive ? "bg-[#34d399] animate-pulse" : "bg-[#fbbf24]"}`}
-          />
-          {isLive ? "live" : "polling"}
         </span>
       </div>
 
@@ -228,6 +169,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--ct-border)]">
             <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">Stream</span>
             <select
+              data-testid="memory-activity-op-filter"
               className="bg-transparent border border-[var(--ct-border)] rounded px-2 py-0.5 text-[10px] text-[var(--ct-fg)] cursor-pointer ml-2"
               value={opFilter}
               onChange={(e) => setOpFilter(e.target.value)}
@@ -241,6 +183,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             </select>
             {opFilter && (
               <button
+                data-testid="memory-activity-clear-filter"
                 onClick={() => setOpFilter("")}
                 className="text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] cursor-pointer bg-transparent border-0"
               >
@@ -252,6 +195,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             </span>
             <label className="flex items-center gap-1 cursor-pointer text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)]">
               <input
+                data-testid="memory-activity-follow"
                 type="checkbox"
                 checked={autoScroll}
                 onChange={(e) => setAutoScroll(e.target.checked)}
@@ -261,10 +205,11 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             </label>
           </div>
 
-          <div ref={eventsScrollRef} className="flex-1 overflow-y-auto" onScroll={handleScroll}>
+          <div ref={eventsScrollRef} className="flex-1 overflow-y-auto" onScroll={handleScroll} data-testid="memory-activity-stream">
             {newCount > 0 && !autoScroll && (
               <div className="sticky top-0 z-10 flex justify-center py-1">
                 <button
+                  data-testid="memory-activity-new-events"
                   onClick={scrollToTop}
                   className="px-3 py-1 rounded-full bg-[var(--ct-accent)] text-white text-[10px] cursor-pointer shadow-lg border-0"
                 >
@@ -273,7 +218,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
               </div>
             )}
             {filtered.length === 0 && (
-              <div className="text-xs text-[var(--ct-muted-fg)] text-center py-8">
+              <div className="text-xs text-[var(--ct-muted-fg)] text-center py-8" data-testid="memory-activity-empty">
                 No activity yet
               </div>
             )}
@@ -282,7 +227,6 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
               const showDay = day !== lastDay;
               lastDay = day;
               const opColor = OP_COLORS[ev.op] || "#888";
-              const srcColor = colorForSource(ev.source);
               return (
                 <div key={`${ev.ts_ms}-${i}`}>
                   {showDay && (
@@ -293,7 +237,11 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                       <span className="flex-1 h-px bg-[var(--ct-border)]" />
                     </div>
                   )}
-                  <div className="flex items-start gap-2.5 px-3 py-1.5 border-b border-white/[0.04] hover:bg-[var(--ct-hover-bg)] transition-colors duration-75">
+                  <div
+                    className="flex items-start gap-2.5 px-3 py-1.5 border-b border-white/[0.04] hover:bg-[var(--ct-hover-bg)] transition-colors duration-75"
+                    data-testid="memory-activity-event"
+                    data-memory-op={ev.op}
+                  >
                     <span className="w-[56px] shrink-0 text-[10px] font-mono tabular-nums text-[var(--ct-muted-fg)]">
                       {formatTime(ev.ts_ms)}
                     </span>
@@ -319,6 +267,8 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                               </span>
                             )}
                             <span
+                              data-testid="memory-activity-item-link"
+                              data-memory-id={id}
                               className="text-[11px] text-[var(--ct-fg)] truncate cursor-pointer hover:underline hover:decoration-[var(--ct-accent)]"
                               onClick={() => onNavigateToItem(id)}
                             >
@@ -336,7 +286,6 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
                         <span className="text-[11px] text-[var(--ct-fg)] italic">search query</span>
                       )}
                       <div className="text-[9px] text-[var(--ct-muted-fg)] mt-0.5 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: srcColor }} />
                         <span>
                           src: {ev.source.worker_id || ev.source.pane_id?.slice(0, 8) || ev.source.kind}
                         </span>
@@ -355,12 +304,8 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
           <div className="flex items-center gap-2 px-3 py-1.5 border-b border-[var(--ct-border)]">
             <Cpu size={12} className="text-[var(--ct-muted-fg)]" />
             <span className="text-[10px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">Workers</span>
-            {live.length > 0 && (
-              <span className="text-[9px] px-1.5 py-px rounded-full bg-[#34d399]/20 text-[#34d399] tracking-wider">
-                {live.length} live
-              </span>
-            )}
             <button
+              data-testid="memory-worker-spawn-open"
               onClick={() => setSpawnOpen(true)}
               className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[10px] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] border border-[var(--ct-border)] hover:border-[var(--ct-fg)] bg-transparent cursor-pointer"
               title="Spawn worker"
@@ -369,6 +314,7 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
               spawn
             </button>
             <button
+              data-testid="memory-workers-refresh"
               onClick={() => refreshWorkers()}
               className="px-1.5 py-0.5 rounded text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] bg-transparent border-0 cursor-pointer"
               title="Refresh"
@@ -377,12 +323,12 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3">
+          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3" data-testid="memory-workers-list">
             {workersLoading && (
-              <div className="text-[11px] text-[var(--ct-muted-fg)]">loading…</div>
+              <div className="text-[11px] text-[var(--ct-muted-fg)]" data-testid="memory-workers-loading">loading…</div>
             )}
             {!workersLoading && live.length === 0 && recent.length === 0 && (
-              <div className="text-[11px] text-[var(--ct-muted-fg)] text-center py-6">
+              <div className="text-[11px] text-[var(--ct-muted-fg)] text-center py-6" data-testid="memory-workers-empty">
                 No workers running. Spawn one or wait for the next dreaming session.
               </div>
             )}
@@ -421,58 +367,6 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
               </div>
             )}
 
-            {/* Librarian status */}
-            <div className="pt-1">
-              <div className="text-[9px] uppercase tracking-[0.25em] text-[var(--ct-muted-fg)] mb-1.5">
-                Librarian
-              </div>
-              <div className="flex items-center gap-3 px-3 py-2 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-hover-bg)]/40">
-                <div
-                  className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
-                  style={{
-                    background: memCfg?.file_sync_enabled
-                      ? "rgba(96,165,250,0.15)"
-                      : "rgba(156,163,175,0.10)",
-                    color: memCfg?.file_sync_enabled ? "#60a5fa" : "#9ca3af",
-                  }}
-                >
-                  <Library size={14} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-[var(--ct-fg)]">File sync</div>
-                  <div className="text-[10px] text-[var(--ct-muted-fg)] flex items-center gap-1.5">
-                    <Files size={10} />
-                    <span className="tabular-nums">
-                      {syncStatus?.tracked_files ?? 0} files
-                    </span>
-                    {syncStatus && syncStatus.stale_files > 0 && (
-                      <span className="text-[#fbbf24]">
-                        · {syncStatus.stale_files} stale
-                      </span>
-                    )}
-                    <span className="opacity-50">·</span>
-                    <span>every {memCfg?.file_sync_interval_minutes ?? 60}m</span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={!!memCfg?.file_sync_enabled}
-                  onClick={() => toggleSync(!memCfg?.file_sync_enabled)}
-                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-all border-0 cursor-pointer ${
-                    memCfg?.file_sync_enabled
-                      ? "bg-[#60a5fa] shadow-[0_0_10px_rgba(96,165,250,0.4)]"
-                      : "bg-[var(--ct-border)]"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-                      memCfg?.file_sync_enabled ? "translate-x-4" : "translate-x-0.5"
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
           </div>
         </div>
       </div>
@@ -483,9 +377,22 @@ function MemoryActivityTabImpl({ api, nodes, onNavigateToItem }: Props) {
           onClose={() => setSpawnOpen(false)}
         />
       )}
-      {logWorker && (
-        <AgentRunLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
-      )}
+      {logWorker &&
+        (logWorker.session_id ? (
+          <RunChatPopup
+            title={logWorker.intent.replace(/^extract:/, "")}
+            subtitle={[logWorker.agent_provider, logWorker.model].filter(Boolean).join(" / ")}
+            status={logWorker.status}
+            report={logWorker.report}
+            provider={logWorker.agent_provider ?? defaultSpawnProviderId()}
+            cwd={logWorker.cwd ?? ""}
+            sessionId={logWorker.session_id}
+            live={!["done", "error", "orphaned"].includes(logWorker.status)}
+            onClose={() => setLogWorker(null)}
+          />
+        ) : (
+          <AgentRunLogPopup worker={logWorker} api={api} onClose={() => setLogWorker(null)} />
+        ))}
     </div>
   );
 }
@@ -499,7 +406,6 @@ interface WorkerCardProps {
 function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
   const isDone =
     worker.status === "done" || worker.status === "error" || worker.status === "orphaned";
-  const color = STATUS_COLORS[worker.status];
   const elapsed = (() => {
     const end = isDone && worker.done_at ? worker.done_at : Date.now();
     const diff = end - worker.spawned_at;
@@ -512,16 +418,12 @@ function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
   return (
     <div
       onClick={onOpen}
+      data-testid="memory-worker-card"
+      data-worker-id={worker.worker_id}
+      data-worker-status={worker.status}
       className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/60 hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
       title={isDone ? "View log" : "View live output"}
     >
-      <span
-        className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{
-          background: color,
-          boxShadow: !isDone ? `0 0 8px ${color}` : undefined,
-        }}
-      />
       <span className="flex-1 text-[11px] truncate text-[var(--ct-fg)]">{intent}</span>
       {worker.model && (
         <span className="text-[9px] text-[var(--ct-muted-fg)] shrink-0 truncate max-w-[80px]">
@@ -529,14 +431,9 @@ function WorkerCard({ worker, onOpen, onKill }: WorkerCardProps) {
         </span>
       )}
       <span className="text-[9px] tabular-nums text-[var(--ct-muted-fg)] shrink-0">{elapsed}</span>
-      <span
-        className="text-[8px] uppercase tracking-wider px-1.5 py-px rounded-full shrink-0"
-        style={{ background: `${color}22`, color }}
-      >
-        {worker.status}
-      </span>
       {onKill && (
         <button
+          data-testid="memory-worker-kill"
           onClick={(e) => {
             e.stopPropagation();
             onKill();

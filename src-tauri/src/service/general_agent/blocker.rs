@@ -106,6 +106,10 @@ mod tests {
                 .into_iter()
                 .map(|(label, value)| PromptOption { label, value })
                 .collect(),
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
         }
     }
 
@@ -168,6 +172,10 @@ Enter to confirm · Esc to cancel";
                     value: "2".into(),
                 },
             ],
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
         };
         assert_eq!(
             classify(

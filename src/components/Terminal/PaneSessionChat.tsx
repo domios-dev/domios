@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
@@ -7,14 +8,23 @@ import { useMultiplexer } from "../../store/multiplexer";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
+import { PendingPromptCard } from "./PendingPromptCard";
+import { AgentStateIndicator } from "./AgentStateIndicator";
+import type { AgentState } from "./AgentStateIndicator";
 import { useAttachments } from "./useAttachments";
 import { useChatSession } from "./useChatSession";
+import { ChatModelBubble } from "../Extensions/ChatModelBubble";
+import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 
 interface Props {
   paneId: string;
   onError?: (msg: string) => void;
   onOpenTerminalFallback?: () => void;
-  onToggleTerminalFallback?: () => void;
+  uiFontScale?: number;
+  /** Pane is backed by a plugin chatBackend (no PTY). Sends route through the
+   *  pane send seam, and PTY-only affordances (terminal fallback, screen poll)
+   *  are suppressed. */
+  chatBackend?: boolean;
 }
 
 function isMicrophonePermissionError(message: string): boolean {
@@ -53,23 +63,42 @@ export function PaneSessionChat({
   paneId,
   onError,
   onOpenTerminalFallback,
-  onToggleTerminalFallback,
+  uiFontScale,
+  chatBackend = false,
 }: Props) {
   const touchMode = useTouchOptimizedUi();
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const terminalTextRef = useRef<string | null>(null);
   const terminalActiveTimerRef = useRef<number | null>(null);
+  const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const [terminalActive, setTerminalActive] = useState(false);
+  const [longIdle, setLongIdle] = useState(false);
+  // Shows only when scrolled FAR up — the threshold keeps it clear of the
+  // bottom-pinned agent indicator/composer, so it never overlaps streaming output.
+  const [showScrollDown, setShowScrollDown] = useState(false);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    atBottomRef.current = true;
+    setShowScrollDown(false);
+  }, []);
 
   const { state: muxState, setFocusedPane, addNotification } = useMultiplexer();
   const pane = muxState.panes[paneId];
   const paneProvider = pane?.agent_type ?? null;
   const agentSessionId = pane?.agent_session_id ?? null;
   const currentPtyId = pane?.pty_id ?? null;
+  const chatBacking = pane?.backing?.kind === "chat_backend" ? pane.backing : null;
+  // Derive from live pane state so a restored chatBackend pane with a stale
+  // prop (e.g. old snapshot defaulted backing to Pty before chatbackend fields
+  // were persisted) still routes sends correctly.
+  const effectiveChatBackend = chatBackend || chatBacking !== null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
-  const terminalHasAttention = terminalActive || Boolean(pendingPrompt);
+  const isActive = muxState.focused_pane_id === paneId;
 
   const showComposerError = useCallback((message: string) => {
     addNotification({
@@ -95,11 +124,60 @@ export function PaneSessionChat({
   } = useChatSession({ paneId, agentSessionId, onError });
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
+  // Optimistically hide the prompt card once answered/cancelled; the backend
+  // clears pane.pending_prompt shortly after on the next state poll.
+  const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
+  const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
+  const inlinePrompt = effectiveChatBackend ? activePrompt : null;
 
-  // Route an interactive-widget answer back to the agent through the SAME send
-  // path the composer uses: write_pty_string with raw=false → backend bracket
-  // paste + delayed CR, which handles the TUI-menu / long-message no-auto-submit
-  // case (#155). We echo the answer optimistically so it appears as a user turn.
+  useEffect(() => {
+    if (!pendingPrompt) setAnsweredPromptQuestion(null);
+  }, [pendingPrompt]);
+
+  const handleRespondPrompt = useCallback(
+    (value: string) => {
+      if (pendingPrompt) setAnsweredPromptQuestion(pendingPrompt.question);
+      void invoke("mux_respond_prompt", { paneId, value }).catch((e) =>
+        showComposerError(e instanceof Error ? e.message : String(e)),
+      );
+    },
+    [pendingPrompt, paneId, showComposerError],
+  );
+
+  // Shell-command decoration: re-run sends the command back through the same PTY
+  // input path the composer uses; jump surfaces the live terminal output.
+  const handleRerunShellCommand = useCallback((command: string) => {
+    if (!currentPtyId) {
+      showComposerError("Pane has no PTY");
+      return;
+    }
+    void invoke("write_pty_string", { ptyId: currentPtyId, data: command + "\r", raw: false }).catch(
+      (e) => showComposerError(e instanceof Error ? e.message : String(e)),
+    );
+  }, [currentPtyId, showComposerError]);
+
+  const handleJumpToShellCommand = useCallback(() => {
+    onOpenTerminalFallback?.();
+  }, [onOpenTerminalFallback]);
+
+  const handleStopAgent = useCallback(() => {
+    if (!currentPtyId) {
+      showComposerError("Pane has no PTY");
+      return;
+    }
+    const now = Date.now();
+    if (now - lastStopAtRef.current < 2000) {
+      return;
+    }
+    lastStopAtRef.current = now;
+    void invoke("interrupt_agent", { ptyId: currentPtyId }).catch((e) =>
+      showComposerError(e instanceof Error ? e.message : String(e)),
+    );
+  }, [currentPtyId, showComposerError]);
+
+  // Route an interactive-widget answer back to the agent through the verified PTY
+  // injector, bypassing chatPreprocessor because this is a menu answer, not a
+  // fresh Chat UI user prompt.
   const handleAnswerInteractive = useCallback<InteractiveAnswerHandler>(
     async (text, element) => {
       const answer = text.trim();
@@ -189,12 +267,52 @@ export function PaneSessionChat({
     };
   }, [currentPtyId, paneId]);
 
+  // Long-idle ('resting') nuance: once the pane has gone quiet — no terminal
+  // activity, no open prompt — for a stretch, soften the indicator from
+  // 'your turn' to a dormant treatment. Any activity resets it immediately.
+  useEffect(() => {
+    if (terminalActive || pendingPrompt) {
+      setLongIdle(false);
+      return;
+    }
+    const id = window.setTimeout(() => setLongIdle(true), 90_000);
+    return () => window.clearTimeout(id);
+  }, [terminalActive, pendingPrompt]);
+
+  const backendState = pane?.agent_state ?? null;
+
   useEffect(() => {
     if (!scrollRef.current) return;
     if (atBottomRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [allMessages]);
+  }, [allMessages, inlinePrompt?.question, backendState?.state]);
+
+  // Backend state engine is the source of truth (working / idle / question +
+  // subtype). Fall back to the terminal-activity heuristic only until the first
+  // classification arrives. `longIdle` stays frontend-timed and applies only
+  // while idle.
+  const liveAgentState: AgentState = useMemo(() => {
+    const kind = backendState?.state ?? (terminalActive ? "working" : "idle");
+    return {
+      state: kind,
+      subtype: backendState?.subtype,
+      status_line: backendState?.status_line,
+      last_turn_summary: backendState?.last_turn_summary,
+      phase: backendState?.phase,
+      elapsed_ms: backendState?.elapsed_ms,
+      longIdle: kind === "idle" && !terminalActive && longIdle,
+    };
+  }, [
+    backendState?.state,
+    backendState?.status_line,
+    backendState?.last_turn_summary,
+    backendState?.phase,
+    backendState?.elapsed_ms,
+    backendState?.subtype,
+    terminalActive,
+    longIdle,
+  ]);
 
   if (error) {
     return (
@@ -218,6 +336,8 @@ export function PaneSessionChat({
     <div
       ref={chatRootRef}
       className="w-full h-full flex flex-col relative"
+      data-testid="pane-session-chat"
+      data-pane-id={paneId}
       style={{
         background: "var(--ct-bg, #0d1117)",
         color: "var(--ct-fg, #c9d1d9)",
@@ -236,14 +356,17 @@ export function PaneSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
+      <div className="relative flex-1 min-h-0">
       <div
         ref={scrollRef}
         onScroll={(e) => {
           const el = e.currentTarget;
           const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
           atBottomRef.current = dist < 50;
+          setShowScrollDown(dist > 240);
         }}
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3"
+        className="absolute inset-0 overflow-y-auto overscroll-contain p-3"
+        data-testid="pane-session-chat-messages"
       >
         {touchMode && (
           <div
@@ -253,9 +376,10 @@ export function PaneSessionChat({
           />
         )}
         {hiddenMessageCount > 0 && (
-          <div className="sticky top-0 z-10 flex justify-center pb-2">
+          <div className="flex justify-center pb-2 pt-1">
             <button
               type="button"
+              data-testid="chat-load-older"
               onClick={() => void loadOlder()}
               className="rounded px-2.5 py-1 text-xs font-mono hover:brightness-125 disabled:opacity-50"
               style={{
@@ -268,13 +392,12 @@ export function PaneSessionChat({
             </button>
           </div>
         )}
-        {enrichedMessages.length === 0 && (
-          <div className="opacity-50 text-center py-8 text-sm">
+        {enrichedMessages.length === 0 && !inlinePrompt && liveAgentState.state !== "question" && (
+          <div className="opacity-50 text-center py-8 text-sm" data-testid="chat-empty-state">
             No messages yet.
           </div>
         )}
         {enrichedMessages.map(({ msg, origin }) => {
-          const isPending = msg.id.startsWith("opt-");
           let onOriginClick: (() => void) | undefined;
           let originProviderId: string | null | undefined;
           if (origin?.kind === "pane") {
@@ -290,15 +413,16 @@ export function PaneSessionChat({
               key={msg.id}
               data-testid="chat-message"
               data-message-role={msg.type}
-              style={isPending ? { opacity: 0.55 } : undefined}
-              title={isPending ? "sending… (clears when the agent echoes it back)" : undefined}
             >
               <MessageBubble
                 message={msg}
                 origin={origin}
                 resolvePaneName={resolvePaneName}
+                fontScale={uiFontScale}
                 onAnswerInteractive={handleAnswerInteractive}
                 answeredInteractiveIds={answeredInteractiveIds}
+                onRerunShellCommand={handleRerunShellCommand}
+                onJumpToShellCommand={onOpenTerminalFallback ? handleJumpToShellCommand : undefined}
                 originAvatar={
                   origin?.kind === "pane" && originProviderId
                     ? <OriginProviderAvatar providerId={originProviderId} />
@@ -309,13 +433,40 @@ export function PaneSessionChat({
             </div>
           );
         })}
+        {!inlinePrompt && (enrichedMessages.length > 0 || liveAgentState.state === "question") && (
+          // Same centered column as the message rows so the indicator sits flush
+          // with the message text instead of the far-left container edge.
+          <div className="w-full max-w-4xl min-w-0 mx-auto">
+            <AgentStateIndicator
+              state={liveAgentState}
+              onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+              onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+              onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+            />
+          </div>
+        )}
+        <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
+      </div>
+      {showScrollDown && (
+        <button
+          type="button"
+          data-testid="chat-scroll-bottom"
+          onClick={scrollToBottom}
+          title="Scroll to latest"
+          className="absolute right-4 bottom-4 z-10 flex h-8 w-8 items-center justify-center rounded-full text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
+          style={{ background: "var(--ct-surface)", border: "1px solid var(--ct-border)" }}
+        >
+          <ChevronDown size={16} strokeWidth={2.2} />
+        </button>
+      )}
       </div>
       <ChatComposer
         paneId={paneId}
         paneProvider={paneProvider}
         currentPtyId={currentPtyId}
+        chatBackend={effectiveChatBackend}
+        isActive={isActive}
         pendingPrompt={pendingPrompt}
-        terminalHasAttention={terminalHasAttention}
         attachments={attachments}
         addAttachments={addAttachments}
         removeAttachment={removeAttachment}
@@ -324,8 +475,13 @@ export function PaneSessionChat({
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
         showComposerError={showComposerError}
-        onOpenTerminalFallback={onOpenTerminalFallback}
-        onToggleTerminalFallback={onToggleTerminalFallback}
+        onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+        modelBubble={effectiveChatBackend && chatBacking ? (
+          <>
+            <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
+            <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
+          </>
+        ) : undefined}
       />
     </div>
   );

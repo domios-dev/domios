@@ -26,8 +26,9 @@ export function LogsListRow({
   }, [row.context_json]);
 
   return (
-    <div className="px-3 py-1.5 hover:bg-[var(--ct-hover)]/40 transition-colors">
+    <div className="px-3 py-1.5 hover:bg-[var(--ct-hover)]/40 transition-colors" data-testid="settings-log-row" data-log-id={row.id} data-log-level={lvl}>
       <button
+        data-testid="settings-log-row-toggle"
         onClick={onToggle}
         className="w-full flex items-center gap-2 text-left text-[11px]"
       >

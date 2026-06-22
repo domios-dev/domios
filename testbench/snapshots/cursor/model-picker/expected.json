@@ -1,0 +1,21 @@
+{
+  "provider": "cursor",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Available models",
+    "options": [
+      "Auto",
+      "Composer 2.5",
+      "Opus 4.8",
+      "GPT-5.5",
+      "Sonnet 4.6",
+      "Codex 5.3",
+      "Opus 4.7",
+      "Grok Build 0.1",
+      "GPT-5.4",
+      "Opus 4.6"
+    ],
+    "selectedIndex": 1,
+    "multiSelect": false
+  }
+}

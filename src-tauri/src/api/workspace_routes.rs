@@ -103,6 +103,57 @@ pub async fn close_workspace(
     Ok(Json(result.into_json()))
 }
 
+pub async fn list_recently_closed(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let cmd = crate::dispatch::Command::WorkspaceRecentlyClosed { workspace_id: id };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to list recently closed",
+        )
+    })?;
+    Ok(Json(result.into_json()))
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct ReopenClosedBody {
+    #[serde(default)]
+    index: Option<usize>,
+}
+
+pub async fn reopen_closed_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    body: Option<Json<ReopenClosedBody>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let index = body.and_then(|Json(b)| b.index);
+    let cmd = crate::dispatch::Command::WorkspaceReopenClosedPane {
+        workspace_id: id,
+        index,
+    };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+        .map_err(|_| (StatusCode::NOT_FOUND, "No recently closed pane"))?;
+    Ok(Json(result.into_json()))
+}
+
+pub async fn reopen_closed_group(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(group_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let cmd = crate::dispatch::Command::WorkspaceReopenClosedGroup { group_id };
+    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+        .map_err(|_| (StatusCode::NOT_FOUND, "No closed group"))?;
+    Ok(Json(result.into_json()))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct MoveTabBody {
     to_workspace_id: String,
@@ -119,6 +170,57 @@ pub async fn move_tab(
         .svc
         .move_tab(&tab_id, &workspace_id, &body.to_workspace_id)
         .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to move tab"))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ReorderTabsBody {
+    ordered_tab_ids: Vec<String>,
+}
+
+pub async fn reorder_tabs(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(workspace_id): Path<String>,
+    Json(body): Json<ReorderTabsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state
+        .svc
+        .reorder_tab(&workspace_id, &body.ordered_tab_ids)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder tabs"))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn reorder_children(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(parent_pane_id): Path<String>,
+    Json(body): Json<ReorderTabsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state
+        .svc
+        .reorder_child(&parent_pane_id, &body.ordered_tab_ids)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder children"))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ReorderWorkspacesBody {
+    ordered_workspace_ids: Vec<String>,
+}
+
+pub async fn reorder_workspaces(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ReorderWorkspacesBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state
+        .svc
+        .reorder_workspace(&body.ordered_workspace_ids)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder workspaces"))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -164,7 +266,7 @@ pub async fn create_tab(
         state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&pane_id)
             .and_then(|p| p.pty_id.clone())
     } else {
@@ -173,7 +275,7 @@ pub async fn create_tab(
     let title = state
         .svc
         .mux
-        .lock()
+        .write()
         .get_workspace(&workspace_id)
         .and_then(|ws| ws.tabs.iter().find(|tab| tab.id == tab_id))
         .map(|tab| tab.title.clone())

@@ -53,6 +53,7 @@ console.log("servicesView tests");
     [svc("local1", "local")],
     [
       {
+        peerId: "peer-rollacode",
         peerName: "rollacode-bot",
         view: view({
           services: [svc("r1", "remote-a"), svc("r2", "remote-b")],
@@ -74,6 +75,10 @@ console.log("servicesView tests");
     remote.every((s) => s.peer_online === false),
   );
   assert(
+    "cached services retain source peer id",
+    remote.every((s) => s.source_peer_id === "peer-rollacode"),
+  );
+  assert(
     "local services not flagged",
     merged.find((s) => s.id === "local1")?.stale === undefined,
   );
@@ -84,8 +89,9 @@ console.log("servicesView tests");
   const merged = mergeServicesView(
     [svc("local1", "local")],
     [
-      { peerName: "dead-peer", view: null },
+      { peerId: "peer-dead", peerName: "dead-peer", view: null },
       {
+        peerId: "peer-live",
         peerName: "live-peer",
         view: view({ services: [svc("r1", "remote-a")] }),
       },
@@ -101,9 +107,9 @@ console.log("servicesView tests");
 // Fetch errors surface per peer instead of disappearing.
 {
   const errors = collectPeerErrors([
-    { peerName: "a", view: view({ error: "all addresses failed" }) },
-    { peerName: "b", view: view({}) },
-    { peerName: "c", view: null },
+    { peerId: "peer-a", peerName: "a", view: view({ error: "all addresses failed" }) },
+    { peerId: "peer-b", peerName: "b", view: view({}) },
+    { peerId: "peer-c", peerName: "c", view: null },
   ]);
   assert("errors collected with peer prefix", errors.length === 1);
   assert(

@@ -1,0 +1,21 @@
+⠰⠳ Editing  127 tokens
+    Tip: Use /config to customize Cursor settings and behavior.
+                                                                                                                         ⠠⠛ Editing  127 tokens
+    Tip: Use /config to customize Cursor settings and behavior.
+                                                                                                                         ⠀⠞ Editing  127 tokens
+    Tip: Use /config to customize Cursor settings and behavior.
+                                                                                                                         ⠠⠜ Editing  127 tokens
+    Tip: Use /config to customize Cursor settings and behavior.
+ ⠰⠰ Editing  129 tokens
+    Tip: Use /config to customize Cursor settings and behavior.
+                                                                                                                         ⠰⠰ Composing  129 tokens
+    Tip: Use /config to customize Cursor settings and behavior.
+                                                                                                                            Edited geometry-smoke-notes.md                                                                                                                     +1 -1
+    ▎-                                                                                                                                                      
+    ▎+ Geometry smoke verifies that terminal replay preserves row/column size and cursor position after resize and wrap ev ...                              
+  geometry smoke done
+ ⠰⠰ Composing  129 tokens
+    Tip: Use /config to customize Cursor settings and behavior.
+  → Add a follow-up                                                                                                                                            
+  Composer 2.5 · 7.4% · 1 file edited                                                                                                           Run Everything
+  /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-cursor-geometry_smoke_v1-q515rft8

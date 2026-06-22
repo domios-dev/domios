@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import type { MemEdge, MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
@@ -72,35 +72,53 @@ export function MemoryNodeDetail({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [loadingBody, setLoadingBody] = useState(false);
+  // Local body cache — the source of truth for display. Decoupled from the
+  // parent `node`, so a no-op onUpdate (graph canvas) can't trap this in a
+  const [bodyText, setBodyText] = useState<string | null>(node.body ?? null);
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
 
   useEffect(() => {
     setEdit(buildEditState(node));
     setEditing(false);
     setSaveError(null);
     setTucked(false);
+    setBodyText(node.body ?? null);
   }, [node.id]);
 
+  // Keep local cache in sync if the parent supplies the body later.
   useEffect(() => {
-    if (node.body != null || !node.has_body) return;
+    if (node.body != null) setBodyText(node.body);
+  }, [node.body]);
+
+  // Lazy-load the body exactly once. Don't gate on `has_body` — the API can
+  // return it null even when a body exists; a 404 (graph entity) resolves to "".
+  useEffect(() => {
+    if (bodyText != null) return;
     let cancelled = false;
     setLoadingBody(true);
     fetchItemFull(api, node.id)
       .then((item) => {
         if (cancelled) return;
-        onUpdate(node.id, {
-          body: item.body,
+        const b = item.body ?? "";
+        setBodyText(b);
+        setEdit((e) => ({ ...e, body: b }));
+        onUpdateRef.current(node.id, {
+          body: b,
           created_at: item.created_at,
           updated_at: item.updated_at,
         });
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setBodyText("");
+      })
       .finally(() => {
         if (!cancelled) setLoadingBody(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [api, node.id, node.body, node.has_body, onUpdate]);
+  }, [api, node.id, bodyText]);
 
   const handleSave = useCallback(async () => {
     const patch: ItemPatch = {};
@@ -189,6 +207,7 @@ export function MemoryNodeDetail({
     <>
       {tucked && (
         <button
+          data-testid="memory-node-detail-show"
           onClick={() => setTucked(false)}
           aria-label="Show details"
           title="Show details"
@@ -198,13 +217,16 @@ export function MemoryNodeDetail({
         </button>
       )}
     <div
+      data-testid="memory-node-detail"
+      data-memory-id={node.id}
+      data-memory-kind={node.kind}
       className="absolute top-0 right-0 bottom-0 w-[360px] p-4 z-10 overflow-y-auto flex flex-col gap-2.5 text-xs bg-[var(--ct-surface)] border-l border-[var(--ct-border)] text-[var(--ct-fg)] transition-transform duration-200 ease-out"
       style={{ transform: tucked ? "translateX(100%)" : "translateX(0)" }}
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
       {saveError && (
-        <div className="bg-[#ef4444] text-white px-2 py-1.5 rounded">{saveError}</div>
+        <div className="bg-[#ef4444] text-white px-2 py-1.5 rounded" data-testid="memory-node-detail-error" role="alert">{saveError}</div>
       )}
 
       <div className="flex items-start gap-2">
@@ -214,6 +236,7 @@ export function MemoryNodeDetail({
         />
         {editing ? (
           <input
+            data-testid="memory-node-title-input"
             className={`${inputClass} text-sm font-semibold`}
             value={edit.title}
             onChange={(e) => setEdit((s) => ({ ...s, title: e.target.value }))}
@@ -222,6 +245,7 @@ export function MemoryNodeDetail({
           <strong className="text-sm flex-1 break-words">{node.title}</strong>
         )}
         <button
+          data-testid="memory-node-detail-tuck"
           onClick={() => setTucked(true)}
           aria-label="Tuck panel"
           title="Tuck panel"
@@ -248,6 +272,7 @@ export function MemoryNodeDetail({
         {editing ? (
           <textarea
             rows={3}
+            data-testid="memory-node-summary-input"
             className={`${inputClass} resize-y`}
             value={edit.summary}
             onChange={(e) => setEdit((s) => ({ ...s, summary: e.target.value }))}
@@ -264,13 +289,17 @@ export function MemoryNodeDetail({
         {editing ? (
           <textarea
             rows={10}
+            data-testid="memory-node-body-input"
             className={`${inputClass} resize-y font-mono`}
             value={edit.body}
             onChange={(e) => setEdit((s) => ({ ...s, body: e.target.value }))}
           />
         ) : (
-          <pre className="m-0 whitespace-pre-wrap font-mono text-[11px] bg-[var(--ct-bg)] p-2 rounded max-h-[240px] overflow-y-auto">
-            {node.body ?? ""}
+          <pre
+            data-testid="memory-node-body-preview"
+            className="m-0 whitespace-pre-wrap font-mono text-[11px] bg-[var(--ct-bg)] p-2 rounded max-h-[240px] overflow-y-auto"
+          >
+            {bodyText ?? (loadingBody ? "" : "—")}
           </pre>
         )}
       </div>
@@ -279,6 +308,7 @@ export function MemoryNodeDetail({
         <div>
           <div className={sectionLabelClass}>Area</div>
           <input
+            data-testid="memory-node-area-input"
             className={inputClass}
             value={edit.area}
             onChange={(e) => setEdit((s) => ({ ...s, area: e.target.value }))}
@@ -293,6 +323,7 @@ export function MemoryNodeDetail({
         {editing ? (
           <input
             type="range"
+            data-testid="memory-node-importance-input"
             min={0}
             max={10}
             step={0.1}
@@ -314,6 +345,8 @@ export function MemoryNodeDetail({
               {t}
               {editing && (
                 <button
+                  data-testid="memory-node-tag-remove"
+                  data-memory-tag={t}
                   onClick={() => removeTag(t)}
                   className="bg-transparent border-0 text-inherit p-0 text-xs leading-none cursor-pointer"
                 >
@@ -325,6 +358,7 @@ export function MemoryNodeDetail({
           {editing && (
             <input
               placeholder="add tag…"
+              data-testid="memory-node-tag-input"
               value={tagInput}
               onChange={(e) => setTagInput(e.target.value)}
               onKeyDown={onTagKeyDown}
@@ -347,6 +381,9 @@ export function MemoryNodeDetail({
               {neighbors.map((nb, i) => (
                 <button
                   key={`${nb.dir}-${nb.id}-${nb.rel}-${i}`}
+                  data-testid="memory-node-related-item"
+                  data-memory-id={nb.id}
+                  data-memory-rel={nb.rel}
                   onClick={() => onSelectNode(nb.id)}
                   className={`${rowButtonClass} cursor-pointer`}
                   title={nb.id}
@@ -407,25 +444,26 @@ export function MemoryNodeDetail({
       <div className="flex gap-1.5 mt-auto flex-wrap">
         {editing ? (
           <>
-            <button onClick={handleSave} className={`${btnClass} !bg-[#3b82f6] !border-[#3b82f6]`}>
+            <button onClick={handleSave} className={`${btnClass} !bg-[#3b82f6] !border-[#3b82f6]`} data-testid="memory-node-save">
               Save
             </button>
-            <button onClick={handleCancel} className={btnClass}>
+            <button onClick={handleCancel} className={btnClass} data-testid="memory-node-cancel">
               Cancel
             </button>
           </>
         ) : (
           <>
-            <button onClick={() => setEditing(true)} className={btnClass}>
+            <button onClick={() => setEditing(true)} className={btnClass} data-testid="memory-node-edit">
               Edit
             </button>
             <button
               onClick={handleDelete}
+              data-testid="memory-node-delete"
               className={`${btnClass} !text-[#ef4444] !border-[#ef4444]`}
             >
               Delete
             </button>
-            <button onClick={handleCopyId} className={btnClass}>
+            <button onClick={handleCopyId} className={btnClass} data-testid="memory-node-copy-id">
               {copied ? "Copied!" : "Copy ID"}
             </button>
           </>

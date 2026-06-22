@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 
 use crate::config::{self, ConfigState};
 use crate::multiplexer::commands::MuxState;
@@ -51,8 +51,18 @@ pub(crate) fn init_states() -> AppStates {
     let screen_state: ScreenStateHandle = Arc::new(Mutex::new(ScreenState::new()));
     let agent_tracker: AgentTrackerState =
         Arc::new(Mutex::new(agent::status::PaneStatusTracker::new()));
-    let report_store: ReportStoreState =
-        Arc::new(Mutex::new(agent::reports::ReportStore::new(200)));
+    // Durable orchestration ledger backs the report store so worker state
+    // survives daemon restart. If the db can't be opened, fall back to an
+    let report_store: ReportStoreState = {
+        let store = match agent::ledger::OrchestrationLedger::open(&crate::paths::data_dir()) {
+            Ok(ledger) => agent::reports::ReportStore::with_ledger(200, Arc::new(ledger)),
+            Err(e) => {
+                log::warn!("[ledger] open failed: {} — reports will not persist", e);
+                agent::reports::ReportStore::new(200)
+            }
+        };
+        Arc::new(Mutex::new(store))
+    };
     let event_broadcaster: api::events::EventBroadcasterState =
         Arc::new(api::events::EventBroadcaster::new());
     let resize_owner: ResizeOwnerState = Arc::new(Mutex::new(
@@ -127,6 +137,26 @@ pub(crate) fn init_states() -> AppStates {
     let general_config = config_state.lock().general_agent.clone();
     #[allow(unused_mut)]
     let mut mux_state_inner = mux_state_inner;
+
+    // Attach the durable closed-tab history store so reopen survives restarts.
+    // On failure keep the in-memory default (history just won't persist).
+    match crate::multiplexer::state::ClosedPanesStore::open(&crate::paths::data_dir()) {
+        Ok(store) => mux_state_inner.attach_closed_store(store),
+        Err(e) => log::warn!(
+            "[closed-history] open failed: {} — history will not persist",
+            e
+        ),
+    }
+    // Session restore (kill + restart) re-creates panes outside the fresh-spawn
+    // default logic, so re-apply the chat-UI default here. The dynamic plugin
+    if config_state.lock().ui.default_new_agent_pane_chat {
+        let capable: std::collections::HashSet<String> = BUNDLED_CHAT_UI_PROVIDERS
+            .iter()
+            .map(|id| id.to_string())
+            .collect();
+        mux_state_inner.apply_default_chat_view_for_capable(&capable);
+    }
+
     if general_config.enabled {
         service::general_agent::ensure_directories();
         service::general_agent::generate_instructions(&general_config.agent_provider, None);
@@ -137,7 +167,7 @@ pub(crate) fn init_states() -> AppStates {
         service::general_agent::ensure_general_workspace(&mut mux_state_inner, default_chat_view);
     }
 
-    let mux_state: MuxState = Arc::new(Mutex::new(mux_state_inner));
+    let mux_state: MuxState = Arc::new(RwLock::new(mux_state_inner));
 
     AppStates {
         config: config_state,
@@ -165,16 +195,22 @@ fn default_chat_view_for_general_agent(default_enabled: bool, provider_id: &str)
     )
 }
 
+/// Startup bootstrap allowlist of chat-UI-capable bundled providers.
+///
+/// This is documented debt, not a leak we can close yet. The honest capability
+/// (`AgentProvider::supports_chat_ui`) is derived at RUNTIME from a loaded
+/// plugin VM (`has_js("sessionJsonlPath") || uses_structured_chat() || …`), so
+/// it cannot be computed statically. And `init_states` runs (lib.rs) *before*
+/// the agent registry is created and the embedded plugins are bootstrapped to
+/// disk and loaded — so there is no provider to query here. Until chat-view
+/// defaulting is deferred to a post-registry startup hook (see the loop notes),
+/// this single list is the one source of truth, cross-checked against the
+/// embedded plugin set by the test below so it can't name a provider we no
+/// longer ship.
+const BUNDLED_CHAT_UI_PROVIDERS: &[&str] = &["claude", "codex", "opencode", "cursor"];
+
 fn bundled_agent_provider_supports_chat_ui(provider_id: &str) -> bool {
-    let registry = agent::registry::AgentRegistry::new();
-    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
-    registry.register_provider(Box::new(crate::plugin::agent_codex::CodexProvider::new()));
-    registry.register_provider(Box::new(
-        crate::plugin::agent_opencode::OpenCodeProvider::new(),
-    ));
-    registry
-        .with_provider(provider_id, |provider| provider.supports_chat_ui())
-        .unwrap_or(false)
+    BUNDLED_CHAT_UI_PROVIDERS.contains(&provider_id)
 }
 
 #[cfg(test)]
@@ -192,5 +228,22 @@ mod tests {
     #[test]
     fn general_agent_chat_default_on_unknown_provider_stays_terminal() {
         assert!(!super::default_chat_view_for_general_agent(true, "unknown"));
+    }
+
+    /// Drift guard: every provider in the startup chat-UI bootstrap allowlist
+    /// must actually ship as an embedded plugin (`provider-<id>`). This uses
+    /// the one capability source available before the registry loads — the
+    /// statically-embedded plugin set — so the allowlist can't silently
+    /// reference a provider that was removed from the build (which would
+    /// default panes to a chat view no loaded provider serves).
+    #[test]
+    fn chat_ui_allowlist_entries_are_all_embedded_plugins() {
+        let embedded = crate::plugin::embedded::ids();
+        for id in super::BUNDLED_CHAT_UI_PROVIDERS {
+            assert!(
+                embedded.contains(id),
+                "chat-UI allowlist names '{id}' but it is not an embedded plugin (embedded: {embedded:?})"
+            );
+        }
     }
 }

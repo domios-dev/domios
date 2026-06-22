@@ -125,15 +125,11 @@ async fn backend_read_loop(
                     }
                 }
 
-                // Answer CSI 6n so PowerShell doesn't hang. Visible frontend
-                // panes let xterm.js answer (double-answering races and leaks
-                // the second response into the terminal as input). Hidden panes
-                // never get an xterm. Headless spawns (orchestrator/GA/API)
-                // answer only until a frontend xterm claims resize ownership —
-                // a background tab may stay unmounted forever.
+                // Answer CSI 6n only for hidden/headless panes. Visible panes let
+                // xterm answer with the REAL cursor position — answering here with a
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
                     let is_hidden = {
-                        let mux = svc.mux.lock();
+                        let mux = svc.mux.write();
                         mux.pane_id_for_pty(&pty_id)
                             .and_then(|pid| mux.get_pane(&pid).map(|p| p.hidden))
                             .unwrap_or(false)
@@ -155,7 +151,7 @@ async fn backend_read_loop(
                 let _ = frontend_tx.try_send(data.clone());
 
                 if now != prev {
-                    let pane_id = svc.mux.lock().pane_id_for_pty(&pty_id);
+                    let pane_id = svc.mux.read().pane_id_for_pty(&pty_id);
                     if let Some(ref pid) = pane_id {
                         crate::api::events::emit_everywhere(
                             &svc.app_handle,
@@ -194,8 +190,9 @@ async fn backend_read_loop(
 
 /// Mark PTY as dead and emit events — mirrors the Err branch in read_pty.
 fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
-    let pane_id = svc.mux.lock().pane_id_for_pty(pty_id);
+    let pane_id = svc.mux.read().pane_id_for_pty(pty_id);
     svc.agent_tracker.lock().set_dead(pty_id);
+    svc.shell_caps.lock().remove(pty_id);
 
     if let Some(ref pid) = pane_id {
         crate::api::events::emit_everywhere(
@@ -210,9 +207,10 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
         // Cron fallback: if agent died without calling cron complete, mark as failed.
         use tauri::Manager;
         if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
-            let owner = cron_state.lock().get_pane_owner(pid).cloned();
+            // Hold the cron lock ACROSS owner-lookup and the read/write below.
+            let mut store = cron_state.lock();
+            let owner = store.get_pane_owner(pid).cloned();
             if let Some((job_id, run_id)) = owner {
-                let mut store = cron_state.lock();
                 if store.read_log(&job_id, &run_id).is_none() {
                     let text = svc.output_buf.lock().get_text(pty_id).unwrap_or_default();
                     let clean = crate::pty::ansi::clean_terminal_output(&text);
@@ -230,6 +228,24 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
                     run_id
                 );
                 let _ = svc.app_handle.emit("cron-state-changed", ());
+            }
+        }
+
+        // Worker-death watchdog (parallel to the cron fallback): a hierarchy
+        // worker whose PTY dies WITHOUT having emitted a report leaves its
+        let watchdog = {
+            let mux = svc.mux.read();
+            let store = svc.report_store.lock();
+            crate::service::hierarchy::worker_death_report(&mux, &store, pid)
+        };
+        if let Some((target_id, msg)) = watchdog {
+            match svc.submit_report(pid, &msg, Default::default()) {
+                Ok(_) => log::info!(
+                    "[worker-death] synthesized dead-report for worker {} -> {}",
+                    pid,
+                    target_id
+                ),
+                Err(e) => log::warn!("[worker-death] synthetic report failed for {}: {}", pid, e),
             }
         }
     }

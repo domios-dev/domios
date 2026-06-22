@@ -38,7 +38,7 @@ pub fn start_general_agent(
     // cosmetically restored — verify with screen markers and tear down the bare shell if no agent is running.
     {
         let (pane_id_opt, current_agent, current_pty_id) = {
-            let m = mux.lock();
+            let m = mux.write();
             match m.resolve_pane_id(GENERAL_ALIAS) {
                 Some(pid) => {
                     let pane = m.get_pane(&pid);
@@ -56,8 +56,6 @@ pub fn start_general_agent(
                     if alive {
                         // Grace-poll markers: after a daemon restart the live PTY
                         // is up but the screen isn't rehydrated yet, so a one-shot
-                        // check would kill a healthy Main. Bail the instant markers
-                        // appear; only a genuinely bare shell survives the window.
                         let mut agent_visible = false;
                         for _ in 0..10 {
                             let screen = screen_state.lock().get_screen_text(&pty_id);
@@ -70,13 +68,30 @@ pub fn start_general_agent(
                             std::thread::sleep(std::time::Duration::from_millis(300));
                         }
                         if agent_visible {
+                            // Reused PTY across a restart: if the in-memory binding didn't
+                            // survive, restore it from durable state so chat finds the
+                            let unbound = mux
+                                .write()
+                                .get_pane(&pid)
+                                .and_then(|p| p.agent_session_id.clone())
+                                .is_none();
+                            if unbound {
+                                if let Some(sid) = state::load_session_id(
+                                    &svc.agent_registry,
+                                    provider_name,
+                                    &general_cwd,
+                                ) {
+                                    svc.set_agent_session_id(&pid, Some(sid.clone()));
+                                    log::info!("[general-agent] Restored durable session {} onto reused PTY {}", sid, pty_id);
+                                }
+                            }
                             log::info!("[general-agent] Already running (pane={}, pty={}, provider={}) — skipping", pid, pty_id, current_agent);
                             return;
                         }
                         log::info!("[general-agent] Pane has live PTY {} but no agent markers after 3s grace — killing bare shell and relaunching", pty_id);
                         let _ = pty.lock().kill(&pty_id);
                         svc.set_pane_agent_type(&pid, None);
-                        if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                        if let Some(pane) = mux.write().get_pane_mut(&pid) {
                             pane.pty_id = None;
                         }
                         std::thread::sleep(std::time::Duration::from_millis(300));
@@ -86,7 +101,7 @@ pub fn start_general_agent(
                             "[general-agent] Clearing stale pty_id {} (session not in PtyManager)",
                             pty_id
                         );
-                        if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                        if let Some(pane) = mux.write().get_pane_mut(&pid) {
                             pane.pty_id = None;
                         }
                     }
@@ -103,7 +118,7 @@ pub fn start_general_agent(
                 svc.set_pane_agent_type(&pid, None);
                 svc.set_agent_session_id(&pid, None);
                 state::clear_session_id();
-                if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+                if let Some(pane) = mux.write().get_pane_mut(&pid) {
                     pane.pty_id = None;
                 }
                 std::thread::sleep(std::time::Duration::from_millis(300));
@@ -113,7 +128,7 @@ pub fn start_general_agent(
 
     // Find General pane (already created by ensure_general_workspace in init_states)
     let (pane_id, snapshot_session_id) = {
-        let m = mux.lock();
+        let m = mux.write();
         let pane = m.resolve_pane_id(GENERAL_ALIAS).or_else(|| {
             m.list_workspaces()
                 .iter()
@@ -144,8 +159,7 @@ pub fn start_general_agent(
     } else {
         // If no session_id from snapshot or durable GA state, try detecting a GA-marked session from filesystem (covers first launch, new
         // machine, or wiped session store). This is intentionally stricter than generic provider detection so worker JSONLs in the GA cwd
-        // cannot win by recency.
-        let exclude = mux.lock().other_session_ids(&pane_id);
+        let exclude = mux.write().other_session_ids(&pane_id);
         let detected = state::detect_owned_session_id(
             &svc.agent_registry,
             provider_name,
@@ -176,7 +190,7 @@ pub fn start_general_agent(
             log::info!("[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh", id, provider_name);
             svc.set_agent_session_id(&pane_id, None);
             state::clear_session_id();
-            let exclude = mux.lock().other_session_ids(&pane_id);
+            let exclude = mux.write().other_session_ids(&pane_id);
             let fresh = state::detect_owned_session_id(
                 &svc.agent_registry,
                 provider_name,
@@ -201,26 +215,8 @@ pub fn start_general_agent(
     // 5. Spawn PTY
     let cols = 120u16;
     let rows = 40u16;
-    let env_vars = {
-        let mut env = std::collections::HashMap::new();
-        env.insert("CODETERM_PANE_ID".to_string(), pane_id.clone());
-        env.insert(
-            "CODETERM_SOCKET_PATH".to_string(),
-            crate::socket::server::socket_display_path(),
-        );
-        env.insert("CODETERM_ROLE".to_string(), "Orchestrator".to_string());
-        if let Ok(port) = std::env::var("CODETERM_API_PORT") {
-            env.insert("CODETERM_API_PORT".to_string(), port);
-        }
-        // Hook callbacks POST to our REST API. Without the token they'd 401 on any non-loopback bind and silently swallow the failure via `curl … || true`, so set it unconditionally.
-        let tok: Option<String> = config.lock().api.token.clone();
-        if let Some(tok) = tok {
-            if !tok.is_empty() {
-                env.insert("CODETERM_API_TOKEN".to_string(), tok);
-            }
-        }
-        env
-    };
+    let env_vars =
+        general_agent_env_vars(&pane_id, svc.ensure_session_binding_nonce(&pane_id), config);
 
     let pty_id = {
         let mut manager = pty.lock();
@@ -234,7 +230,7 @@ pub fn start_general_agent(
     };
 
     let displaced = {
-        let mut m = mux.lock();
+        let mut m = mux.write();
         let d = m.link_pty(&pane_id, pty_id.clone());
         if let Some(pane) = m.get_pane_mut(&pane_id) {
             pane.auto_approve = true;
@@ -337,13 +333,26 @@ pub fn start_general_agent(
         } else {
             None
         };
+        // Capability-gated structured-prompt server via the shared chokepoint
+        // (allocate+register+subscribe). No-op for providers that don't need it.
+        let ga_cwd = svc
+            .mux
+            .read()
+            .get_pane(&pane_id)
+            .and_then(|p| p.cwd.clone())
+            .unwrap_or_default();
         let params = crate::agent::provider::AgentLaunchParams {
             agent_name: None,
             task: None,
             args: None,
             skip_permissions: true,
-            headless: false,
             session_id: pre_session_id,
+            structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
+                svc,
+                provider_name,
+                &pane_id,
+                &ga_cwd,
+            ),
         };
         match svc
             .agent_registry
@@ -363,9 +372,6 @@ pub fn start_general_agent(
     log::info!("[general-agent] Launching on PTY {}: {}", pty_id, cmd);
     // Windows ConPTY: writing the launch command before the shell prompt is
     // rendered races the first byte (drop/duplicate → mangled command like
-    // `c codex` → CommandNotFoundException). Wait for the prompt so PSReadLine's
-    // bracketed-paste handler is armed first. Bounded + best-effort; no-op on
-    // native PTYs (macOS/Linux don't exhibit the race).
     #[cfg(windows)]
     crate::service::pty_io::poll_shell_prompt(
         screen_state,
@@ -413,6 +419,23 @@ pub fn start_general_agent(
         }
     }
 
+    // Persist whatever the session-start hook binds (Claude self-assigns its id; we
+    // no longer inject --session-id), so the next restart can resume this exact session.
+    if !use_resume {
+        for _ in 0..20 {
+            let bound = mux
+                .write()
+                .get_pane(&pane_id)
+                .and_then(|p| p.agent_session_id.clone());
+            if let Some(sid) = bound {
+                state::persist_session_id(provider_name, &sid);
+                log::info!("[general-agent] Persisted hook-bound session {}", sid);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+
     svc.emit_state_changed();
     log::info!(
         "[general-agent] Started successfully (pane={}, pty={})",
@@ -435,7 +458,7 @@ pub fn restart_general_agent(
 
     // Find general pane and kill its PTY
     {
-        let m = mux.lock();
+        let m = mux.write();
         if let Some(pid) = m.resolve_pane_id(GENERAL_ALIAS) {
             if let Some(pane) = m.get_pane(&pid) {
                 if let Some(ref pty_id) = pane.pty_id {
@@ -447,7 +470,7 @@ pub fn restart_general_agent(
             svc.set_pane_agent_type(&pid, None);
             svc.set_agent_session_id(&pid, None);
             state::clear_session_id();
-            if let Some(pane) = mux.lock().get_pane_mut(&pid) {
+            if let Some(pane) = mux.write().get_pane_mut(&pid) {
                 pane.pty_id = None;
             }
         }
@@ -492,5 +515,73 @@ pub(super) fn poll_agent_started(
             return true;
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+fn general_agent_env_vars(
+    pane_id: &str,
+    session_binding_nonce: String,
+    config: &crate::config::ConfigState,
+) -> std::collections::HashMap<String, String> {
+    let mut env = std::collections::HashMap::new();
+    env.insert("CODETERM_PANE_ID".to_string(), pane_id.to_string());
+    // Per-launch binding nonce so the session-start hook report can prove it owns this pane.
+    env.insert(
+        "CODETERM_SESSION_BINDING_NONCE".to_string(),
+        session_binding_nonce,
+    );
+    env.insert(
+        "CODETERM_SOCKET_PATH".to_string(),
+        crate::socket::server::socket_display_path(),
+    );
+    env.insert("CODETERM_ROLE".to_string(), "Orchestrator".to_string());
+    // Use the daemon config, not a parent CodeTerm env leak.
+    env.insert(
+        "CODETERM_API_PORT".to_string(),
+        config.lock().api.port.to_string(),
+    );
+    // Hook callbacks POST to our REST API. Without the token they'd 401 on any non-loopback bind and silently swallow the failure via `curl … || true`.
+    let tok: Option<String> = config.lock().api.token.clone();
+    if let Some(tok) = tok {
+        if !tok.is_empty() {
+            env.insert("CODETERM_API_TOKEN".to_string(), tok);
+        }
+    }
+    env
+}
+
+#[cfg(test)]
+mod tests {
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+
+    #[test]
+    fn general_agent_env_uses_configured_api_port_not_parent_env() {
+        let original_port = std::env::var_os("CODETERM_API_PORT");
+        unsafe {
+            std::env::set_var("CODETERM_API_PORT", "7685");
+        }
+        let mut config = crate::config::schema::AppConfig::default();
+        config.api.port = 7686;
+        config.api.token = Some("test-token".to_string());
+        let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
+
+        let env = super::general_agent_env_vars("pane-1", "nonce-1".to_string(), &config);
+        unsafe {
+            if let Some(original_port) = original_port {
+                std::env::set_var("CODETERM_API_PORT", original_port);
+            } else {
+                std::env::remove_var("CODETERM_API_PORT");
+            }
+        }
+
+        assert_eq!(
+            env.get("CODETERM_API_PORT").map(String::as_str),
+            Some("7686")
+        );
+        assert_eq!(
+            env.get("CODETERM_API_TOKEN").map(String::as_str),
+            Some("test-token")
+        );
     }
 }

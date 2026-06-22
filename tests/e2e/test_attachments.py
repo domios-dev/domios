@@ -1,6 +1,7 @@
 """File attachment tests — sending files via chat API."""
 
 import os
+import sys
 import hashlib
 import time
 import tempfile
@@ -10,8 +11,11 @@ from helpers import unique_name
 
 
 def _identity_command(path: str, proof: str) -> str:
+    # Use the interpreter running the suite — `python` is not on PATH on every
+    # platform (e.g. macOS ships only `python3`), which would silently 127.
+    py = sys.executable or "python3"
     return (
-        "python -c \"import pathlib,hashlib; "
+        f"'{py}' -c \"import pathlib,hashlib; "
         f"p=r'{path}'; "
         "b=pathlib.Path(p).read_bytes(); "
         f"print('{proof}_%d_%s' % (len(b), hashlib.sha256(b).hexdigest()[:16]))\""
@@ -31,7 +35,7 @@ class TestFileAttachment:
         proof = unique_name("ATTACH_TXT")
         try:
             expected = f"{proof}_{len(content.encode())}_{digest}"
-            api.send_text(shared_eager_pane, text=f"{_identity_command(path, proof)} # [attached: {path}]")
+            api.send_text(shared_eager_pane, text=f'{_identity_command(path, proof)} ; : "[attached: {path}]"')
             output = api.wait_for_output(shared_eager_pane, pattern=expected, timeout=10)
             assert expected in output
         finally:
@@ -47,7 +51,7 @@ class TestFileAttachment:
         proof = unique_name("ATTACH_PDF")
         try:
             expected = f"{proof}_{len(content)}_{digest}"
-            api.send_text(shared_eager_pane, text=f"{_identity_command(path, proof)} # [attached: {path}]")
+            api.send_text(shared_eager_pane, text=f'{_identity_command(path, proof)} ; : "[attached: {path}]"')
             output = api.wait_for_output(shared_eager_pane, pattern=expected, timeout=10)
             assert expected in output
         finally:

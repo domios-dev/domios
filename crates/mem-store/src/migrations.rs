@@ -103,9 +103,6 @@ fn create_graph_purge_log(conn: &Connection) -> MemStoreResult<()> {
 }
 
 // Dedup active edges + add a partial UNIQUE index so future INSERT OR IGNORE no-ops.
-// Pre-existing UNIQUE(from_id, relation_type, to_id, valid_from) never fires because
-// valid_from is a fresh timestamp on each write (issue #116). Historical (valid_to NOT NULL)
-// rows are preserved as edge-history.
 fn add_active_relations_unique_index(conn: &Connection) -> MemStoreResult<()> {
     let already: i64 = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master \

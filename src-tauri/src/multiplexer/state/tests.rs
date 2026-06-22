@@ -1,5 +1,5 @@
 use super::*;
-use crate::multiplexer::types::{AgentRole, Orientation, PaneType};
+use crate::multiplexer::types::{AgentRole, PaneType};
 
 #[test]
 fn test_new_state_has_default_workspace() {
@@ -271,7 +271,7 @@ fn test_close_tab() {
 
 #[test]
 fn test_set_focused_pane() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
+    let (mut state, _initial_pane_id) = MultiplexerState::new();
     let new_pane_id = state.create_pane();
 
     assert!(state.set_focused_pane(&new_pane_id).is_ok());
@@ -657,23 +657,32 @@ fn test_session_snapshot_derives_agent_type_from_title_when_missing() {
                 active_tab_id: Some("tab-1".to_string()),
                 cwd: None,
                 protected: false,
+                sort_order: 0,
                 tabs: vec![TabSnapshot {
                     id: "tab-1".to_string(),
                     title: "Tab".to_string(),
+                    description: None,
+                    sort_order: 0,
                     split_tree: SplitNodeSnapshot::Leaf {
                         pane_id: "pane-1".to_string(),
                         cwd: None,
                         title: Some(title.to_string()),
+                        description: None,
                         title_level: None,
                         agent_type: None,
                         agent_type_locked: false,
                         claude_session_id: None,
                         role: None,
                         parent_pane_id: None,
+                        spawned_by_pane_id: None,
+                        report_target_pane_id: None,
                         can_spawn: false,
                         depth: 0,
                         chat_view: None,
                         auto_approve: false,
+                        agent_session_model: None,
+                        chatbackend_plugin_id: None,
+                        chatbackend_session_id: None,
                     },
                 }],
             }],
@@ -707,23 +716,32 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
             active_tab_id: Some("tab-1".to_string()),
             cwd: None,
             protected: false,
+            sort_order: 0,
             tabs: vec![TabSnapshot {
                 id: "tab-1".to_string(),
                 title: "Tab".to_string(),
+                description: None,
+                sort_order: 0,
                 split_tree: SplitNodeSnapshot::Leaf {
                     pane_id: "pane-1".to_string(),
                     cwd: None,
                     title: Some("~/repo — zsh".to_string()),
+                    description: None,
                     title_level: None,
                     agent_type: None,
                     agent_type_locked: false,
                     claude_session_id: None,
                     role: None,
                     parent_pane_id: None,
+                    spawned_by_pane_id: None,
+                    report_target_pane_id: None,
                     can_spawn: false,
                     depth: 0,
                     chat_view: None,
                     auto_approve: false,
+                    agent_session_model: None,
+                    chatbackend_plugin_id: None,
+                    chatbackend_session_id: None,
                 },
             }],
         }],
@@ -763,23 +781,32 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
             active_tab_id: Some("tab-1".to_string()),
             cwd: None,
             protected: false,
+            sort_order: 0,
             tabs: vec![TabSnapshot {
                 id: "tab-1".to_string(),
                 title: "Tab".to_string(),
+                description: None,
+                sort_order: 0,
                 split_tree: SplitNodeSnapshot::Leaf {
                     pane_id: "pane-1".to_string(),
                     cwd: None,
                     title: None,
+                    description: None,
                     title_level: None,
                     agent_type: Some("claude".to_string()),
                     agent_type_locked: false,
                     claude_session_id: None,
                     role: None,
                     parent_pane_id: None,
+                    spawned_by_pane_id: None,
+                    report_target_pane_id: None,
                     can_spawn: false,
                     depth: 0,
                     chat_view: None,
                     auto_approve: false,
+                    agent_session_model: None,
+                    chatbackend_plugin_id: None,
+                    chatbackend_session_id: None,
                 },
             }],
         }],
@@ -846,7 +873,7 @@ fn test_protected_workspace_cannot_close() {
 
 #[test]
 fn test_protected_pane_cannot_close() {
-    let (mut state, initial_pane_id) = MultiplexerState::new();
+    let (mut state, _initial_pane_id) = MultiplexerState::new();
     let new_pane_id = state.create_pane();
     state.get_pane_mut(&new_pane_id).unwrap().protected = true;
 

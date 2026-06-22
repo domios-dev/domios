@@ -1,0 +1,150 @@
+[
+  {
+    "t_ms": 0,
+    "event": "capture_start",
+    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-preflight-v1b-cursor-cursor-geometry_smoke_v1-100x30/raw.cast",
+    "capture_start_result": {
+      "ok": true,
+      "out": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-preflight-v1b-cursor-cursor-geometry_smoke_v1-100x30/raw.cast",
+      "width": 120,
+      "height": 40
+    }
+  },
+  {
+    "t_ms": 1,
+    "event": "capture_resize",
+    "terminal": {
+      "cols": 100,
+      "rows": 30
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 5529,
+    "event": "spawned",
+    "pane": "784d6470",
+    "workspace": "f9926b93",
+    "terminal": {
+      "cols": 100,
+      "rows": 30
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 7627,
+    "event": "send_turn",
+    "turn": 1
+  },
+  {
+    "t_ms": 41714,
+    "event": "turn_settled",
+    "turn": 1,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 26726,
+      "stable_ms": 2058,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 41715,
+    "event": "idle_hold_start",
+    "turn": 1,
+    "duration_ms": 5000
+  },
+  {
+    "t_ms": 42158,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 1
+  },
+  {
+    "t_ms": 42600,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 2
+  },
+  {
+    "t_ms": 43044,
+    "event": "focus_churn",
+    "label": "turn-1",
+    "cycle": 3
+  },
+  {
+    "t_ms": 46717,
+    "event": "send_turn",
+    "turn": 2
+  },
+  {
+    "t_ms": 56015,
+    "event": "turn_settled",
+    "turn": 2,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 9239,
+      "stable_ms": 2060,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 56016,
+    "event": "idle_hold_start",
+    "turn": 2,
+    "duration_ms": 6000
+  },
+  {
+    "t_ms": 56459,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 1
+  },
+  {
+    "t_ms": 56907,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 2
+  },
+  {
+    "t_ms": 57354,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 3
+  },
+  {
+    "t_ms": 57809,
+    "event": "focus_churn",
+    "label": "turn-2",
+    "cycle": 4
+  },
+  {
+    "t_ms": 62454,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 1
+  },
+  {
+    "t_ms": 62899,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 2
+  },
+  {
+    "t_ms": 63342,
+    "event": "focus_churn",
+    "label": "final-idle",
+    "cycle": 3
+  },
+  {
+    "t_ms": 67025,
+    "event": "capture_stop",
+    "capture_stop_result": {
+      "ok": true,
+      "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-preflight-v1b-cursor-cursor-geometry_smoke_v1-100x30/raw.cast",
+      "screen": "/Users/dev/Developer/codeterm-alpha/testbench/replays/cursor/geometry_smoke_v1-20260621-preflight-v1b-cursor-cursor-geometry_smoke_v1-100x30/raw.screen.txt"
+    }
+  }
+]

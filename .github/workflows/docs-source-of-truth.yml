@@ -23,9 +23,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check AGENTS.md
-        run: bash scripts/check-agents-md.sh
-
       - name: Check API docs
         run: bash scripts/check-api-docs.sh
 

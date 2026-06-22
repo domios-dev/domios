@@ -20,7 +20,11 @@ pub struct PaneStatusTracker {
 struct PaneStatusEntry {
     status: PaneStatus,
     last_output_hash: [u8; 32],
+    /// Semantic clock origin: reset only when the (status-bar-excluded) screen
+    /// content changes. Feeds `semantic_idle_ms`.
     last_output_time: Instant,
+    /// Byte clock origin: reset on every output chunk. Feeds `byte_idle_ms`.
+    last_byte_time: Instant,
     #[allow(dead_code)]
     last_check_time: Instant,
 }
@@ -45,8 +49,12 @@ impl PaneStatusTracker {
                 status: PaneStatus::Working,
                 last_output_hash: [0u8; 32],
                 last_output_time: now,
+                last_byte_time: now,
                 last_check_time: now,
             });
+
+        // Byte clock resets on every chunk regardless of content change.
+        entry.last_byte_time = now;
 
         if screen_hash != entry.last_output_hash {
             entry.last_output_hash = screen_hash;
@@ -86,6 +94,21 @@ impl PaneStatusTracker {
                 entry.status = PaneStatus::Idle;
             }
         }
+    }
+
+    /// Two-clock quiescence for the live 3-state classifier: `(byte_idle_ms,
+    /// semantic_idle_ms)` measured from `now`. `None` if the pty is untracked.
+    /// Byte idle grows whenever no output arrives; semantic idle grows whenever
+    /// the (status-bar-excluded) content is unchanged — mirrors
+    /// `SignalExtractor`'s `Quiescence` without a second parser.
+    pub fn quiescence(&self, pty_id: &str, now: Instant) -> Option<(u64, u64)> {
+        self.statuses.get(pty_id).map(|e| {
+            (
+                now.saturating_duration_since(e.last_byte_time).as_millis() as u64,
+                now.saturating_duration_since(e.last_output_time)
+                    .as_millis() as u64,
+            )
+        })
     }
 
     pub fn get_status(&self, pty_id: &str) -> PaneStatus {

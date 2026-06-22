@@ -101,6 +101,43 @@ fn test_spawn_agent_params_normalizes_msys_converted_title() {
 }
 
 #[test]
+fn pane_description_validation_accepts_200_and_rejects_201() {
+    let ok = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS);
+    let too_long = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS + 1);
+
+    assert_eq!(
+        crate::service::normalize_pane_description(&ok).unwrap(),
+        Some(ok)
+    );
+    assert!(crate::service::normalize_pane_description(&too_long).is_err());
+    assert_eq!(
+        crate::service::normalize_pane_description("  \t  ").unwrap(),
+        None
+    );
+    assert_eq!(
+        crate::service::normalize_pane_description("  running tests  ").unwrap(),
+        Some("running tests".into())
+    );
+}
+
+#[test]
+fn spawn_agent_params_from_json_validates_description() {
+    let ok = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS);
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "description": format!("  {}  ", ok)
+    }))
+    .unwrap();
+    assert_eq!(params.description.as_deref(), Some(ok.as_str()));
+
+    let too_long = "x".repeat(crate::service::MAX_PANE_DESCRIPTION_CHARS + 1);
+    let err = SpawnAgentParams::from_json(&serde_json::json!({
+        "description": too_long
+    }))
+    .unwrap_err();
+    assert!(err.contains("description must be 200 characters or fewer"));
+}
+
+#[test]
 fn test_json_str() {
     let v = serde_json::json!({"name": "test", "count": 5});
     assert_eq!(json_str(&v, "name"), Some("test".to_string()));
@@ -122,4 +159,41 @@ fn test_batch_op_no_id() {
     let op: BatchOp = serde_json::from_str(json).unwrap();
     assert_eq!(op.method, "send");
     assert!(op.id.is_none());
+}
+
+// `emit_state_changed` coalesces emits over a 50ms window. The snapshot that
+// gets emitted MUST be read AFTER the window so a fast follow-up mutation that
+#[test]
+fn coalesce_snapshot_reflects_latest_mutation_in_window() {
+    use crate::multiplexer::state::MultiplexerState;
+    use parking_lot::RwLock;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let mux: MuxState = Arc::new(RwLock::new(MultiplexerState::empty()));
+    let pending = Arc::new(AtomicBool::new(true));
+
+    let mux_clone = mux.clone();
+    let pending_clone = pending.clone();
+    let handle = std::thread::spawn(move || {
+        ServiceContext::coalesce_snapshot(&mux_clone, &pending_clone, Duration::from_millis(80))
+    });
+
+    // Both mutations land well inside the single coalesce window.
+    mux.write().create_workspace("first".to_string(), None);
+    mux.write().create_workspace("second".to_string(), None);
+
+    let snapshot = handle.join().unwrap();
+
+    // Read happened AFTER the window, so the payload reflects BOTH mutations —
+    // the latest being "second".
+    assert_eq!(
+        snapshot.workspaces.len(),
+        2,
+        "snapshot reflects both in-window mutations"
+    );
+    assert_eq!(snapshot.workspaces.last().unwrap().name, "second");
+    // Pending flag cleared so a mutation after the window starts a fresh one.
+    assert!(!pending.load(Ordering::Acquire));
 }

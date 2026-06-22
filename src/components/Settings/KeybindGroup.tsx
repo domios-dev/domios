@@ -22,11 +22,18 @@ export function KeybindGroup({
           const value = (config.keybindings as unknown as Record<string, string>)[key] || "";
           const isEditing = editingKey === key;
           return (
-            <div key={key} className="flex items-center justify-between py-0.5">
+            <div
+              key={key}
+              className="flex items-center justify-between py-0.5"
+              data-testid="settings-keybinding-row"
+              data-keybinding-key={key}
+            >
               <span className="text-xs text-[var(--ct-muted-fg)]">{label}</span>
               {isEditing ? (
                 <input
                   type="text"
+                  data-testid="settings-keybinding-input"
+                  data-keybinding-key={key}
                   autoFocus
                   value={value}
                   onChange={(e) => {
@@ -39,6 +46,8 @@ export function KeybindGroup({
                 />
               ) : (
                 <button
+                  data-testid="settings-keybinding-display"
+                  data-keybinding-key={key}
                   onClick={() => setEditingKey(key)}
                   className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--ct-hover)] transition-colors"
                   title="Click to edit"

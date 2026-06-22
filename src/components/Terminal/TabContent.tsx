@@ -1,5 +1,8 @@
 import { TerminalPane } from "./TerminalPane";
+import { PaneSessionChat } from "./PaneSessionChat";
+import { PaneTopBar } from "./PaneTopBar";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type {
   ApiConfig,
   Pane,
@@ -7,24 +10,23 @@ import type {
   FontConfig,
   TerminalConfigSettings,
 } from "../../lib/types";
-import { UsageBubble } from "../Usage/UsageBubble";
-import { GitBubble } from "../GitPanel/GitBubble";
-import type { GitInfo } from "../../hooks/useGitInfo";
 
 interface TabContentProps {
   pane: Pane | undefined;
   isFocused: boolean;
   onFocusPane: (paneId: string) => void;
   onPtySpawned: (paneId: string, ptyId: string) => void;
-  theme?: ThemeConfig;
+  theme: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
   usageEnabledByProvider?: Record<string, boolean>;
-  gitInfo?: GitInfo | null;
-  onRefreshGitInfo?: () => void;
-  onOpenGit?: (repoRoot: string) => void;
   api?: ApiConfig;
   workspaceCwd?: string | null;
+  uiFontScale?: number;
+  /** From App's single useConfig — chat is the default view (leads the picker). */
+  chatFirst: boolean;
+  /** From App's single useConfig — chat-default nudge already answered. */
+  chatDefaultPrompted: boolean;
 }
 
 export function TabContent({
@@ -36,50 +38,58 @@ export function TabContent({
   fontConfig,
   terminalConfig,
   usageEnabledByProvider,
-  gitInfo,
-  onRefreshGitInfo,
-  onOpenGit,
-  api,
   workspaceCwd,
+  uiFontScale,
+  chatFirst,
+  chatDefaultPrompted,
 }: TabContentProps) {
+  const descriptor = useAgentDescriptor(pane?.agent_type);
+
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
 
-  const usageProvider = pane.agent_type ?? null;
+  const isChatBackend = pane.backing?.kind === "chat_backend";
+  // The switch only applies to PTY agent panes that can render both surfaces;
+  // chatBackend panes are chat-only (no terminal), so they get pills but no switch.
+  const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
+  const usageProvider = !isChatBackend ? (pane.agent_type ?? null) : null;
   const usageVisible = !!usageProvider && usageEnabledByProvider?.[usageProvider] === true;
+  const cwd = pane.cwd ?? workspaceCwd ?? null;
+
+  const body = isChatBackend ? (
+    <PaneSessionChat paneId={pane.id} chatBackend uiFontScale={uiFontScale} />
+  ) : (
+    <TerminalPane
+      key={pane.id}
+      paneId={pane.id}
+      ptyId={pane.pty_id}
+      isFocused={isFocused}
+      hasSplits={false}
+      onFocus={onFocusPane}
+      onPtySpawned={onPtySpawned}
+      theme={theme}
+      fontConfig={fontConfig}
+      terminalConfig={terminalConfig}
+      uiFontScale={uiFontScale}
+    />
+  );
 
   return (
     <PaneWrapper paneId={pane.id}>
-      <div className="relative w-full h-full" style={{ background: theme?.background ?? "transparent" }}>
-        <TerminalPane
-          key={pane.id}
+      <div className="flex h-full w-full flex-col">
+        <PaneTopBar
           paneId={pane.id}
-          ptyId={pane.pty_id}
-          isFocused={isFocused}
-          hasSplits={false}
-          onFocus={onFocusPane}
-          onPtySpawned={onPtySpawned}
-          theme={theme}
-          fontConfig={fontConfig}
-          terminalConfig={terminalConfig}
+          cwd={cwd}
+          showSwitch={showSwitch}
+          chatFirst={chatFirst}
+          chatDefaultPrompted={chatDefaultPrompted}
+          usageProvider={usageProvider}
+          usageVisible={usageVisible}
         />
+        <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
+          {body}
+        </div>
       </div>
-      {/* Tab chrome, not focus chrome — the tab is only visible when active. */}
-      {onOpenGit && api && (
-        <GitBubble
-          info={gitInfo ?? null}
-          cwd={pane.cwd ?? workspaceCwd ?? null}
-          api={api}
-          onRefresh={onRefreshGitInfo}
-          onClick={onOpenGit}
-        />
-      )}
-      {usageProvider && (
-        <UsageBubble
-          provider={usageProvider}
-          trackingEnabled={usageVisible}
-        />
-      )}
     </PaneWrapper>
   );
 }

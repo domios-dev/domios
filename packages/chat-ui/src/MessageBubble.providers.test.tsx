@@ -3,10 +3,12 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { MessageBubble } from "./MessageBubble";
+import { attachToolResults } from "@codeterm/chat-core";
 import {
   providerTranscriptFixtures,
   type ProviderTranscriptFixture,
 } from "./providerTranscriptFixtures.testdata";
+import type { NormalizedChatMessage } from "@codeterm/chat-core";
 
 type TestCase = {
   name: string;
@@ -91,6 +93,26 @@ async function renderTranscript(fixture: ProviderTranscriptFixture): Promise<{
     root.render(
       <div>
         {fixture.messages.map((message) => (
+          <MessageBubble key={message.id} message={message} />
+        ))}
+      </div>,
+    );
+  });
+  await waitForEffects();
+  return { host, root };
+}
+
+async function renderMessages(messages: NormalizedChatMessage[]): Promise<{
+  host: HTMLElement;
+  root: Root;
+}> {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <div>
+        {attachToolResults(messages).map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
       </div>,
@@ -202,6 +224,228 @@ for (const fixture of providerTranscriptFixtures) {
     }
   });
 }
+
+test("chatBackend exec tool_call renders command card and attached result", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "cb-tool-call-1",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "exec",
+      toolId: "call-1",
+      toolInput: { cmd: "npm test -- --runInBand", cwd: "/repo/app" },
+      toolArgs: JSON.stringify({ cmd: "npm test -- --runInBand", cwd: "/repo/app" }),
+    },
+    {
+      id: "cb-tool-result-1",
+      provider: "lmstudio",
+      type: "tool_result",
+      content: "Exit code: 0\nTests passed",
+      toolResult: "Exit code: 0\nTests passed",
+      toolId: "call-1",
+    },
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chatbackend-tool-exec"]'), "expected exec card");
+    assertIncludes(host, "npm test -- --runInBand", "exec card command");
+    assertIncludes(host, "cwd /repo/app", "exec card cwd");
+    assertIncludes(host, "result", "exec card phase");
+    assertIncludes(host, "Tests passed", "exec card result preview");
+    assert(
+      !buttons(host).some((button) => (button.textContent ?? "").includes("Exit code: 0")),
+      "paired tool_result should not render as a separate result button",
+    );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("codex sparse tool_call rows between exec commands do not render ghost buttons", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "codex-exec-1",
+      provider: "codex",
+      type: "tool_call",
+      content: "",
+      toolName: "exec_command",
+      toolId: "call-1",
+      toolInput: { cmd: "npm test" },
+      toolArgs: "npm test",
+    },
+    {
+      id: "codex-ghost-1",
+      provider: "codex",
+      type: "tool_call",
+      content: "",
+    },
+    {
+      id: "codex-empty-result",
+      provider: "codex",
+      type: "tool_result",
+      content: "",
+    },
+    {
+      id: "codex-exec-2",
+      provider: "codex",
+      type: "tool_call",
+      content: "",
+      toolName: "exec_command",
+      toolId: "call-2",
+      toolInput: { cmd: "npm run build" },
+      toolArgs: "npm run build",
+    },
+  ]);
+  try {
+    assertIncludes(host, "npm test", "first codex exec command");
+    assertIncludes(host, "npm run build", "second codex exec command");
+    const toolButtons = Array.from(host.querySelectorAll('[data-testid="chat-tool-call"]'));
+    assert(
+      toolButtons.length === 2,
+      `only real codex exec rows should render tool buttons (${toolButtons.length}: ${toolButtons.map((button) => button.textContent ?? "").join(" | ")})`,
+    );
+    assert(
+      toolButtons.every((button) => (button.textContent ?? "").trim()),
+      "sparse codex rows should not render chevron-only buttons",
+    );
+    assert(
+      toolButtons.filter((button) => (button.textContent ?? "").includes("exec_command")).length === 2,
+      "real codex exec rows still render",
+    );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("chatBackend read_file and write_file render file cards", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "cb-read-file",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "read_file",
+      toolId: "read-1",
+      toolInput: { path: "src/main.ts" },
+      toolArgs: JSON.stringify({ path: "src/main.ts" }),
+    },
+    {
+      id: "cb-write-file",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "write_file",
+      toolId: "write-1",
+      toolInput: { path: "src/out.ts", content: "export const ready = true;\n" },
+      toolArgs: JSON.stringify({ path: "src/out.ts" }),
+    },
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chatbackend-tool-read_file"]'), "expected read_file card");
+    assert(host.querySelector('[data-testid="chatbackend-tool-write_file"]'), "expected write_file card");
+    assertIncludes(host, "src/main.ts", "read_file path");
+    assertIncludes(host, "src/out.ts", "write_file path");
+    assertIncludes(host, "export const ready = true;", "write_file preview");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("chatBackend unknown tool falls back gracefully", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "cb-unknown-tool",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "mystery_tool({\"value\":1})",
+      toolName: "mystery_tool",
+      toolId: "unknown-1",
+      toolInput: { value: 1 },
+      toolArgs: JSON.stringify({ value: 1 }),
+    },
+  ]);
+  try {
+    assert(!host.querySelector('[data-testid^="chatbackend-tool-"]'), "unknown tool should not use curated card");
+    assertToolIcon(host, "mystery_tool");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("chatBackend structured inbound renders sender header and kind badge", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "inbound-pane-1",
+      provider: "lmstudio",
+      type: "user",
+      content: "Please inspect the last run.",
+      fromLabel: "Worker A",
+      fromPane: "abc12345",
+      fromModel: "gpt-5",
+      inboundKind: "pane",
+    },
+  ]);
+  try {
+    assertIncludes(host, "from Worker A", "structured inbound sender");
+    assertIncludes(host, "gpt-5", "structured inbound model");
+    const badge = host.querySelector('[data-testid="chat-inbound-kind-badge"]');
+    assert(badge, "expected inbound kind badge");
+    assert((badge.textContent ?? "").includes("pane"), "expected pane badge");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("chatBackend structured mesh inbound renders peer in sender header", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "inbound-mesh-1",
+      provider: "lmstudio",
+      type: "user",
+      content: "Remote status is green.",
+      fromLabel: "Edison",
+      fromPane: "mesh1234",
+      fromModel: "sonnet",
+      fromMesh: "BLACKSTAR",
+      inboundKind: "mesh",
+    },
+  ]);
+  try {
+    assertIncludes(host, "from Edison@BLACKSTAR", "structured mesh sender");
+    assertIncludes(host, "sonnet", "structured mesh model");
+    const badge = host.querySelector('[data-testid="chat-inbound-kind-badge"]');
+    assert(badge, "expected mesh inbound kind badge");
+    assert((badge.textContent ?? "").includes("mesh"), "expected mesh badge");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("normal user message does not render inbound sender affordance", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "normal-user-1",
+      provider: "lmstudio",
+      type: "user",
+      content: "Plain local prompt",
+    },
+  ]);
+  try {
+    assertIncludes(host, "Plain local prompt", "normal user content");
+    assert(!host.querySelector('[data-testid="chat-inbound-kind-badge"]'), "normal user should not have inbound badge");
+    assert(!textOf(host).includes("from Plain"), "normal user should not have from header");
+    assert(host.querySelector(".justify-end"), "normal user should keep right alignment");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
 async function run() {
   const startedAt = performance.now();

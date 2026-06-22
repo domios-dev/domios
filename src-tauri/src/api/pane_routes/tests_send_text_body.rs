@@ -173,3 +173,21 @@ fn send_text_body_ignores_legacy_verify_field() {
     let body: SendTextBody = serde_json::from_str(json).unwrap();
     assert_eq!(body.text.as_deref(), Some("hi"));
 }
+
+#[test]
+fn create_pane_body_parses_chat_backend_and_config() {
+    // P1: the REST contract for opening a plugin-driven chat pane via
+    // `POST /api/panes`. chat_backend + config map to PaneCommand::ChatBackend.
+    let json = r#"{"chat_backend": "local-shell", "config": {"model": "llama"}}"#;
+    let body: CreateShellPaneBody = serde_json::from_str(json).unwrap();
+    assert_eq!(body.chat_backend.as_deref(), Some("local-shell"));
+    assert_eq!(body.config.unwrap()["model"], "llama");
+}
+
+#[test]
+fn create_pane_body_defaults_to_shell() {
+    let json = r#"{"title": "scratch"}"#;
+    let body: CreateShellPaneBody = serde_json::from_str(json).unwrap();
+    assert!(body.chat_backend.is_none(), "no chat_backend → shell pane");
+    assert!(body.config.is_none());
+}

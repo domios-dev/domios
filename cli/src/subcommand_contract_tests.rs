@@ -149,6 +149,13 @@ fn plugin_subcommands_parse() {
     ));
 
     assert!(matches!(
+        parse_plugin(&["channel", "ensure-default"]),
+        PluginAction::Channel {
+            command: PluginChannelAction::EnsureDefault
+        }
+    ));
+
+    assert!(matches!(
         parse_plugin(&["channel", "remove", "codeterm-core", "--force"]),
         PluginAction::Channel {
             command: PluginChannelAction::Remove { name, force: true }
@@ -179,6 +186,47 @@ fn data_root_ignores_relative_env_override() {
 fn top_level_docs_parse() {
     let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
     assert!(matches!(parsed.command, Commands::Docs { .. }));
+}
+
+#[test]
+fn pane_new_chat_backend_parses() {
+    // P1: `codeterm pane new --chat-backend <id> --config <json>` is the CLI
+    // entry point that opens a plugin-driven chat pane.
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "pane",
+        "new",
+        "--chat-backend",
+        "local-shell",
+        "--config",
+        r#"{"model":"llama"}"#,
+    ])
+    .expect("pane new --chat-backend parses");
+    match parsed.command {
+        Commands::Pane {
+            action:
+                PaneAction::New {
+                    chat_backend,
+                    config,
+                    ..
+                },
+        } => {
+            assert_eq!(chat_backend.as_deref(), Some("local-shell"));
+            assert_eq!(config.as_deref(), Some(r#"{"model":"llama"}"#));
+        }
+        _ => panic!("expected pane new"),
+    }
+}
+
+#[test]
+fn pane_new_without_chat_backend_defaults_to_none() {
+    let parsed = Cli::try_parse_from(["codeterm", "pane", "new"]).expect("plain pane new parses");
+    match parsed.command {
+        Commands::Pane {
+            action: PaneAction::New { chat_backend, .. },
+        } => assert!(chat_backend.is_none()),
+        _ => panic!("expected pane new"),
+    }
 }
 
 #[test]

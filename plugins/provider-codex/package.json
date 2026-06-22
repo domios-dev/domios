@@ -1,6 +1,6 @@
 {
   "name": "@codeterm/provider-codex",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "private": true,
   "type": "module",
   "description": "CodeTerm provider plugin for OpenAI Codex CLI.",
@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@codeterm/chat-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@codeterm/plugin-sdk": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0"

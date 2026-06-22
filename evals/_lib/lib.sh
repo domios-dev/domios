@@ -281,7 +281,7 @@ reset_dev_state_hard() {
   rm -f "$(python -c "import os; print(os.path.join(os.path.expanduser('~'), '.codeterm-dev', 'sessions', 'last.json'))")"
   rm -rf "$(python -c "import os; print(os.path.join(os.path.expanduser('~'), '.codeterm-dev', 'sessions', 'backups'))")"
   dev_start_bg
-  dev_wait_ready 180
+  dev_wait_ready 600
   sleep 3
 }
 

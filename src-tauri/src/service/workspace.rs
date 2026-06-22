@@ -1,11 +1,41 @@
 //! Workspace & tab operations.
 
+use std::collections::HashSet;
+
+use tauri::Manager;
+
 use super::ServiceContext;
 use crate::multiplexer::state::WorkspaceInfo;
+use crate::multiplexer::types::ClosedPane;
 
 impl ServiceContext {
+    /// Chat-UI-capable provider ids — but only when the
+    /// `default_new_agent_pane_chat` preference is on (empty set otherwise).
+    /// Restoring a pane is a creation path too, so a reopened chat-capable agent
+    /// pane re-applies the same default a fresh spawn would. Computed off the
+    /// live registry (queried at runtime, not startup) so drop-in providers are
+    /// covered automatically. Built before taking the mux lock to keep the
+    /// config + registry locks off the mux critical section.
+    fn restore_chat_capable_providers(&self) -> HashSet<String> {
+        let enabled = self
+            .app_handle
+            .state::<crate::config::ConfigState>()
+            .lock()
+            .ui
+            .default_new_agent_pane_chat;
+        if !enabled {
+            return HashSet::new();
+        }
+        self.agent_registry
+            .list_descriptors()
+            .into_iter()
+            .filter(|d| d.supports_chat_ui)
+            .map(|d| d.id)
+            .collect()
+    }
+
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
-        self.mux.lock().list_workspaces()
+        self.mux.read().list_workspaces()
     }
 
     pub fn create_workspace(
@@ -15,10 +45,10 @@ impl ServiceContext {
         activate: bool,
     ) -> WorkspaceInfo {
         if let Some(cwd_str) = cwd.as_deref() {
-            let existing = self.mux.lock().find_workspace_info_by_cwd(cwd_str);
+            let existing = self.mux.write().find_workspace_info_by_cwd(cwd_str);
             if let Some(ws) = existing {
                 if activate {
-                    let _ = self.mux.lock().set_active_workspace(&ws.id);
+                    let _ = self.mux.write().set_active_workspace(&ws.id);
                 }
                 log::info!(
                     "[workspace] reused existing workspace '{}' ({}) for cwd={}",
@@ -33,30 +63,30 @@ impl ServiceContext {
             }
         }
 
-        let ws = self.mux.lock().create_workspace(name, cwd);
+        let ws = self.mux.write().create_workspace(name, cwd);
         if activate {
-            let _ = self.mux.lock().set_active_workspace(&ws.id);
+            let _ = self.mux.write().set_active_workspace(&ws.id);
         }
         self.emit_state_changed();
         ws
     }
 
     pub fn focus_workspace(&self, id: &str) -> Result<(), String> {
-        self.mux.lock().set_active_workspace(id)?;
+        self.mux.write().set_active_workspace(id)?;
         self.emit_state_changed();
         Ok(())
     }
 
     pub fn rename_workspace(&self, id: &str, name: &str) -> Result<(), String> {
-        self.mux.lock().rename_workspace(id, name)?;
+        self.mux.write().rename_workspace(id, name)?;
         self.emit_state_changed();
         Ok(())
     }
 
     pub fn close_workspace(&self, id: &str) -> Result<(), String> {
-        let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
-        let pty_ids = self.mux.lock().close_workspace(id)?;
-        let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
+        let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
+        let pty_ids = self.mux.write().close_workspace(id)?;
+        let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.emit_state_changed();
         if pre_focus != post_focus {
@@ -74,8 +104,41 @@ impl ServiceContext {
         to_workspace_id: &str,
     ) -> Result<(), String> {
         self.mux
-            .lock()
+            .write()
             .move_tab(tab_id, from_workspace_id, to_workspace_id)?;
+        self.emit_state_changed();
+        Ok(())
+    }
+
+    /// Reorder the top-level tabs of a workspace to match `ordered_tab_ids`.
+    pub fn reorder_tab(
+        &self,
+        workspace_id: &str,
+        ordered_tab_ids: &[String],
+    ) -> Result<(), String> {
+        self.mux
+            .write()
+            .reorder_tabs(workspace_id, ordered_tab_ids)?;
+        self.emit_state_changed();
+        Ok(())
+    }
+
+    /// Reorder the children of `parent_pane_id` to match `ordered_tab_ids`.
+    pub fn reorder_child(
+        &self,
+        parent_pane_id: &str,
+        ordered_tab_ids: &[String],
+    ) -> Result<(), String> {
+        self.mux
+            .write()
+            .reorder_children(parent_pane_id, ordered_tab_ids)?;
+        self.emit_state_changed();
+        Ok(())
+    }
+
+    /// Reorder workspaces to match `ordered_workspace_ids`.
+    pub fn reorder_workspace(&self, ordered_workspace_ids: &[String]) -> Result<(), String> {
+        self.mux.write().reorder_workspaces(ordered_workspace_ids)?;
         self.emit_state_changed();
         Ok(())
     }
@@ -90,7 +153,7 @@ impl ServiceContext {
         activate: bool,
     ) -> Result<(String, String), String> {
         let result = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let (tab_id, pane_id) = mux.create_tab(workspace_id)?;
             if activate {
                 let _ = mux.set_active_tab(workspace_id, &tab_id);
@@ -102,9 +165,9 @@ impl ServiceContext {
     }
 
     pub fn close_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
-        let pre_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
-        let pty_ids = self.mux.lock().close_tab(workspace_id, tab_id)?;
-        let post_focus = self.mux.lock().get_focused_pane_id().map(str::to_string);
+        let pre_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
+        let pty_ids = self.mux.write().close_tab(workspace_id, tab_id)?;
+        let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
         self.emit_state_changed();
         if pre_focus != post_focus {
@@ -116,14 +179,87 @@ impl ServiceContext {
     }
 
     pub fn set_active_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
-        self.mux.lock().set_active_tab(workspace_id, tab_id)?;
+        self.mux.write().set_active_tab(workspace_id, tab_id)?;
+        self.emit_state_changed();
+        Ok(())
+    }
+
+    /// Atomically set active workspace and active tab in one lock acquisition,
+    /// emitting a single mux-state-changed instead of two sequential ones.
+    pub fn set_active_tab_and_workspace(
+        &self,
+        workspace_id: &str,
+        tab_id: &str,
+    ) -> Result<(), String> {
+        {
+            let mut mux = self.mux.write();
+            mux.set_active_workspace(workspace_id)?;
+            mux.set_active_tab(workspace_id, tab_id)?;
+        }
         self.emit_state_changed();
         Ok(())
     }
 
     pub fn rename_tab(&self, workspace_id: &str, tab_id: &str, title: &str) -> Result<(), String> {
-        self.mux.lock().rename_tab(workspace_id, tab_id, title)?;
+        self.mux.write().rename_tab(workspace_id, tab_id, title)?;
         self.emit_state_changed();
         Ok(())
+    }
+
+    /// Snapshot of a workspace's recently-closed ring (newest first).
+    pub fn list_recently_closed(&self, workspace_id: &str) -> Vec<ClosedPane> {
+        self.mux.read().list_recently_closed(workspace_id)
+    }
+
+    /// Reopen a recently-closed pane (browser-style). `index` picks the ring
+    /// entry (newest = 0, default). Re-materializes the pane with its original
+    /// backing in a fresh, activated tab; the restore path then resumes a PTY
+    /// agent or lazily reloads a chatBackend transcript. Returns (tab_id, pane_id).
+    pub fn reopen_closed_pane(
+        &self,
+        workspace_id: &str,
+        index: Option<usize>,
+    ) -> Result<(String, String), String> {
+        let chat_capable = self.restore_chat_capable_providers();
+        let (tab_id, pane_id) = {
+            let mut mux = self.mux.write();
+            let result = mux.reopen_closed_pane(workspace_id, index, &chat_capable)?;
+            let _ = mux.set_active_tab(workspace_id, &result.0);
+            result
+        };
+        self.emit_state_changed();
+        Ok((tab_id, pane_id))
+    }
+
+    /// Reopen a whole closed group (single / cascade subtree / workspace) by id.
+    /// Recreates the workspace if needed, restores every pane in the group,
+    /// relinks the hierarchy, and activates the resulting tab/workspace.
+    /// Returns (workspace_id, tab_id, first_pane_id).
+    pub fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String, String), String> {
+        let chat_capable = self.restore_chat_capable_providers();
+        let result = {
+            let mut mux = self.mux.write();
+            let r = mux.reopen_closed_group(group_id, &chat_capable)?;
+            let _ = mux.set_active_workspace(&r.0);
+            let _ = mux.set_active_tab(&r.0, &r.1);
+            r
+        };
+        self.emit_state_changed();
+        Ok(result)
+    }
+
+    /// Reopen a pane from the orphaned ring. Recreates the workspace and
+    /// activates it. Returns (workspace_id, tab_id, pane_id).
+    pub fn reopen_orphaned_pane(&self, pane_id: &str) -> Result<(String, String, String), String> {
+        let chat_capable = self.restore_chat_capable_providers();
+        let result = {
+            let mut mux = self.mux.write();
+            let r = mux.reopen_orphaned_pane(pane_id, &chat_capable)?;
+            let _ = mux.set_active_workspace(&r.0);
+            let _ = mux.set_active_tab(&r.0, &r.1);
+            r
+        };
+        self.emit_state_changed();
+        Ok(result)
     }
 }

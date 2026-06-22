@@ -1,8 +1,18 @@
-//! Invisible shell integration: OSC 7 CWD tracking via env vars.
+//! Invisible shell integration: inject per-shell scripts so the shell emits
+//! OSC 633 semantic markers (A/B prompt, C command-start, D[;exit] command-end,
+//! E;<cmd>;<nonce> command line, P;Cwd) plus OSC 7 cwd. Scripts are written once
+//! at startup and wired in via env at PTY creation, so the shell sources them
+//! during its normal startup — no visible commands injected after spawn.
 //!
-//! Instead of injecting visible commands into the terminal after spawn,
-//! we set up env vars at PTY creation time so the shell sources our hooks
-//! silently during its normal startup.
+//! Adapted from VS Code's shell-integration scripts (MIT). We COMPOSE with the
+//! user's config (source it first, chain PROMPT_COMMAND / DEBUG trap / events)
+//! rather than clobber, and a hook failure must never break shell startup.
+//!
+//! The per-session nonce arrives as $CODETERM_SHELL_NONCE; the script stamps it
+//! onto 633;E and unsets the env. The marker consumer (OSC3) validates it to
+//! reject command-line text forged by untrusted output. Command/property values
+//! are escaped with VS Code's __vsc_escape_value scheme (backslash doubled,
+//! `;` -> \x3b, control bytes -> \xHH) — OSC3 decodes with the same scheme.
 
 use portable_pty::CommandBuilder;
 use std::path::PathBuf;
@@ -12,8 +22,11 @@ fn integration_dir() -> PathBuf {
     crate::paths::data_dir().join("shell-integration")
 }
 
-/// Ensure shell integration scripts exist on disk.
-/// Called once at app startup.
+const ZSH_HOOKS: &str = include_zsh_hooks();
+const BASH_RC: &str = include_bash_rc();
+const FISH_CONF: &str = include_fish_conf();
+
+/// Ensure shell integration scripts exist on disk. Called once at app startup.
 pub fn ensure_scripts() {
     let dir = integration_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
@@ -21,11 +34,11 @@ pub fn ensure_scripts() {
         return;
     }
 
-    // zsh integration.
-    // this.zshrc sources the user's real config then adds our hook.
+    // zsh: ZDOTDIR points here. .zshrc restores the user's ZDOTDIR, sources
+    // their startup files, then installs the OSC 633 precmd/preexec hooks last.
     let zshrc = dir.join(".zshrc");
-    let zshrc_content = r#"# CodeTerm shell integration — do not edit
-# Restore original ZDOTDIR and source user config
+    let zshrc_content = format!(
+        r#"# CodeTerm shell integration — do not edit
 if [[ -n "$CODETERM_ORIG_ZDOTDIR" ]]; then
   ZDOTDIR="$CODETERM_ORIG_ZDOTDIR"
   unset CODETERM_ORIG_ZDOTDIR
@@ -33,19 +46,16 @@ else
   ZDOTDIR="$HOME"
 fi
 
-# Source all standard zsh startup files from original ZDOTDIR
-[[ -f "$ZDOTDIR/.zshenv" ]]  && source "$ZDOTDIR/.zshenv"
+[[ -f "$ZDOTDIR/.zshenv" ]]   && source "$ZDOTDIR/.zshenv"
 [[ -f "$ZDOTDIR/.zprofile" ]] && source "$ZDOTDIR/.zprofile"
-[[ -f "$ZDOTDIR/.zshrc" ]]   && source "$ZDOTDIR/.zshrc"
+[[ -f "$ZDOTDIR/.zshrc" ]]    && source "$ZDOTDIR/.zshrc"
 
-# OSC 7 CWD tracking hook (invisible)
-__ct_osc7() { printf '\033]7;file://%s%s\033\\' "${HOST:-$(hostname)}" "$PWD" }
-autoload -Uz add-zsh-hook 2>/dev/null
-add-zsh-hook precmd __ct_osc7
-"#;
+{ZSH_HOOKS}
+"#
+    );
     let _ = std::fs::write(&zshrc, zshrc_content);
 
-    // Also create .zshenv to handle non-interactive shells
+    // .zshenv: pass through to the user's .zshenv (covers non-interactive shells).
     let zshenv = dir.join(".zshenv");
     let zshenv_content = r#"# CodeTerm — pass through to user's .zshenv
 if [[ -n "$CODETERM_ORIG_ZDOTDIR" ]]; then
@@ -56,35 +66,33 @@ fi
 "#;
     let _ = std::fs::write(&zshenv, zshenv_content);
 
-    // bash integration.
-    // Sourced via BASH_ENV for non-login, or via --rcfile trick.
+    // bash: sourced via --rcfile (interactive) / BASH_ENV (non-interactive).
+    // Sources ~/.bashrc first, then installs the hooks last so they survive.
     let bashrc = dir.join("bashrc");
-    let bashrc_content = r#"# CodeTerm shell integration — do not edit
-# Source user's bashrc first
-[[ -f "$HOME/.bashrc" ]] && source "$HOME/.bashrc"
+    let _ = std::fs::write(&bashrc, BASH_RC);
 
-# OSC 7 CWD tracking hook
-__ct_osc7() { printf '\033]7;file://%s%s\033\\' "$(hostname)" "$PWD"; }
-PROMPT_COMMAND="__ct_osc7${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
-"#;
-    let _ = std::fs::write(&bashrc, bashrc_content);
+    // fish: auto-sourced from $XDG_DATA_DIRS/fish/vendor_conf.d on interactive start.
+    let fish_dir = dir.join("fish").join("vendor_conf.d");
+    if let Err(e) = std::fs::create_dir_all(&fish_dir) {
+        log::warn!("Failed to create fish vendor_conf.d dir: {}", e);
+    } else {
+        let _ = std::fs::write(fish_dir.join("00-codeterm.fish"), FISH_CONF);
+    }
 
     log::info!("Shell integration scripts ready at {}", dir.display());
 }
 
-/// Apply shell integration env vars to a CommandBuilder based on detected shell.
+/// Apply shell integration wiring (env + args) to a CommandBuilder for the shell.
 pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
     let dir = integration_dir();
 
     #[cfg(not(target_os = "windows"))]
     {
         if shell.contains("zsh") {
-            // Save original ZDOTDIR (if any) and point to our integration dir
             let orig = std::env::var("ZDOTDIR").unwrap_or_default();
             if !orig.is_empty() {
                 cmd.env("CODETERM_ORIG_ZDOTDIR", &orig);
             } else {
-                // Explicitly set to HOME so our .zshrc knows where to look
                 cmd.env(
                     "CODETERM_ORIG_ZDOTDIR",
                     std::env::var("HOME").unwrap_or_else(|_| "/".to_string()),
@@ -92,18 +100,25 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
             }
             cmd.env("ZDOTDIR", dir.to_string_lossy().as_ref());
         } else if shell.contains("bash") {
-            // For bash: set PROMPT_COMMAND directly as env var for login shells, and BASH_ENV for non-interactive subshells
             let bashrc_path = dir.join("bashrc");
             if bashrc_path.exists() {
+                // --rcfile drives interactive non-login bash; BASH_ENV covers non-interactive.
+                cmd.arg("--rcfile");
+                cmd.arg(bashrc_path.to_string_lossy().as_ref());
                 cmd.env("BASH_ENV", bashrc_path.to_string_lossy().as_ref());
-                // For interactive login bash, BASH_ENV isn't sourced. We use ENV as a fallback marker; the --rcfile approach won't work with login shells. Instead, set PROMPT_COMMAND directly.
-                cmd.env(
-                    "PROMPT_COMMAND",
-                    r#"printf '\033]7;file://%s%s\033\\' "$(hostname)" "$PWD""#,
-                );
             }
+        } else if shell.contains("fish") {
+            // Prepend our dir so fish picks up fish/vendor_conf.d/00-codeterm.fish.
+            let existing = std::env::var("XDG_DATA_DIRS")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| "/usr/local/share:/usr/share".to_string());
+            cmd.env(
+                "XDG_DATA_DIRS",
+                format!("{}:{}", dir.to_string_lossy(), existing),
+            );
         } else {
-            // Other POSIX shells: set PROMPT_COMMAND equivalent via ENV
+            // Other POSIX shells: best-effort OSC 7 cwd only.
             cmd.env(
                 "PROMPT_COMMAND",
                 r#"printf '\033]7;file://%s%s\033\\' "$(hostname)" "$PWD""#,
@@ -113,10 +128,9 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
 
     #[cfg(target_os = "windows")]
     {
+        // Windows pwsh injection is owned by the ROG track; leave it untouched.
         let shell_lower = shell.to_lowercase();
         if shell_lower.contains("pwsh") || shell_lower.contains("powershell") {
-            // Inline `function prompt {...}` as a constant `-Command` for AMSI cache reuse.
-            // Dot-source commands force extra AMSI/policy logging each spawn, so avoid them.
             cmd.arg("-NoExit");
             cmd.arg("-Command");
             cmd.arg(
@@ -124,6 +138,251 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
                  \"$([char]27)]7;file:///$f$([char]7)PS $pwd> \" }",
             );
         }
-        let _ = dir; // suppress unused warning
+        let _ = dir;
     }
+}
+
+/// zsh OSC 633 hooks (precmd/preexec + PS1 wrap). Appended after user config.
+const fn include_zsh_hooks() -> &'static str {
+    r####"# CodeTerm OSC 633 shell integration
+if [[ -z "$CODETERM_SHELL_INTEGRATION" ]]; then
+  CODETERM_SHELL_INTEGRATION=1
+  __ct_nonce="$CODETERM_SHELL_NONCE"; unset CODETERM_SHELL_NONCE
+
+  __ct_escape_value() {
+    builtin emulate -L zsh
+    builtin local LC_ALL=C str="$1" i byte token out='' val
+    for (( i = 0; i < ${#str}; ++i )); do
+      byte="${str:$i:1}"
+      val=$(builtin printf '%d' "'$byte")
+      if (( val < 31 )); then token=$(builtin printf '\\\\x%02x' "'$byte")
+      elif [ "$byte" = "\\" ]; then token="\\\\"
+      elif [ "$byte" = ";" ]; then token="\\x3b"
+      else token="$byte"; fi
+      out+="$token"
+    done
+    builtin print -r -- "$out"
+  }
+  __ct_osc7() { builtin printf '\033]7;file://%s%s\033\\' "${HOST:-$(hostname)}" "$PWD"; }
+  __ct_in_cmd="1"; __ct_current_command=""
+  __ct_prompt_start() { builtin printf '\e]633;A\a'; }
+  __ct_prompt_end()   { builtin printf '\e]633;B\a'; }
+  __ct_update_cwd() {
+    builtin printf '\e]633;P;Cwd=%s\a' "$(__ct_escape_value "$PWD")"
+    __ct_osc7
+  }
+  __ct_output_start() {
+    builtin printf '\e]633;E;%s;%s\a' "$(__ct_escape_value "$__ct_current_command")" "$__ct_nonce"
+    builtin printf '\e]633;C\a'
+  }
+  __ct_command_complete() {
+    if [[ -z "$__ct_current_command" ]]; then builtin printf '\e]633;D\a'
+    else builtin printf '\e]633;D;%s\a' "$__ct_status"; fi
+    __ct_update_cwd
+  }
+  __ct_update_prompt() {
+    __ct_prior_ps1="$PS1"
+    __ct_in_cmd=""
+    PS1="%{$(__ct_prompt_start)%}$PS1%{$(__ct_prompt_end)%}"
+  }
+  __ct_precmd() {
+    __ct_status="$?"
+    if [[ -z "$__ct_in_cmd" ]]; then __ct_output_start; fi
+    __ct_command_complete
+    __ct_current_command=""
+    if [[ -n "$__ct_in_cmd" ]]; then __ct_update_prompt; fi
+  }
+  __ct_preexec() {
+    PS1="$__ct_prior_ps1"
+    __ct_in_cmd="1"
+    __ct_current_command="$1"
+    __ct_output_start
+  }
+  builtin autoload -Uz add-zsh-hook 2>/dev/null
+  add-zsh-hook precmd __ct_precmd
+  add-zsh-hook preexec __ct_preexec
+fi
+"####
+}
+
+/// bash OSC 633 rc: sources ~/.bashrc, then installs DEBUG-trap preexec +
+/// PROMPT_COMMAND precmd + PS1 wrap (macOS ships bash 3.2 which lacks PS0; the
+/// DEBUG trap is the portable preexec and composes with any existing trap).
+const fn include_bash_rc() -> &'static str {
+    r####"# CodeTerm shell integration — do not edit
+[ -r ~/.bashrc ] && . ~/.bashrc
+
+if [ -z "${CODETERM_SHELL_INTEGRATION:-}" ]; then
+  CODETERM_SHELL_INTEGRATION=1
+  __ct_nonce="$CODETERM_SHELL_NONCE"; unset CODETERM_SHELL_NONCE
+
+  __ct_escape_value() {
+    builtin local LC_ALL=C str="${1}" i val byte token out=''
+    for (( i=0; i < "${#str}"; ++i )); do
+      byte="${str:$i:1}"
+      builtin printf -v val '%d' "'$byte"
+      if (( val < 31 )); then builtin printf -v token '\\x%02x' "'$byte"
+      elif (( val == 92 )); then token="\\\\"
+      elif (( val == 59 )); then token="\\x3b"
+      else token="$byte"; fi
+      out+="$token"
+    done
+    builtin printf '%s' "$out"
+  }
+  __ct_osc7() { builtin printf '\033]7;file://%s%s\033\\' "$(hostname)" "$PWD"; }
+  __ct_in_command_execution="1"
+  __ct_current_command=""
+  __ct_prompt_start() { builtin printf '\e]633;A\a'; }
+  __ct_prompt_end()   { builtin printf '\e]633;B\a'; }
+  __ct_update_cwd()   { builtin printf '\e]633;P;Cwd=%s\a' "$(__ct_escape_value "$PWD")"; __ct_osc7; }
+  __ct_output_start() {
+    if [ -z "${__ct_first_prompt-}" ]; then return; fi
+    builtin printf '\e]633;E;%s;%s\a' "$(__ct_escape_value "${__ct_current_command}")" "$__ct_nonce"
+    builtin printf '\e]633;C\a'
+  }
+  __ct_command_complete() {
+    if [ -z "${__ct_first_prompt-}" ]; then __ct_update_cwd; return; fi
+    if [ "$__ct_current_command" = "" ]; then builtin printf '\e]633;D\a'
+    else builtin printf '\e]633;D;%s\a' "$__ct_status"; fi
+    __ct_update_cwd
+  }
+  __ct_update_prompt() {
+    if [ "$__ct_in_command_execution" = "1" ]; then
+      if [ "${__ct_custom_PS1:-}" = "" ] || [ "${__ct_custom_PS1:-}" != "$PS1" ]; then
+        __ct_original_PS1="$PS1"
+        __ct_custom_PS1="\[$(__ct_prompt_start)\]$__ct_original_PS1\[$(__ct_prompt_end)\]"
+        PS1="$__ct_custom_PS1"
+      fi
+      __ct_in_command_execution="0"
+    fi
+  }
+  __ct_precmd() {
+    __ct_command_complete "$__ct_status"
+    __ct_current_command=""
+    __ct_first_prompt=1
+    __ct_update_prompt
+  }
+  __ct_preexec() {
+    if [[ ! "$BASH_COMMAND" == __ct_* ]]; then
+      __ct_current_command="$BASH_COMMAND"
+    else
+      __ct_current_command=""
+    fi
+    __ct_output_start
+  }
+  __ct_get_trap() {
+    builtin local -a terms
+    builtin eval "terms=( $(trap -p "${1:-DEBUG}") )"
+    builtin printf '%s' "${terms[2]:-}"
+  }
+  __ct_dbg_trap="$(__ct_get_trap DEBUG)"
+  if [ -z "$__ct_dbg_trap" ]; then
+    __ct_preexec_only() {
+      if [ "$__ct_in_command_execution" = "0" ]; then
+        __ct_in_command_execution="1"
+        __ct_preexec
+      fi
+    }
+    trap '__ct_preexec_only "$_"' DEBUG
+  elif [[ "$__ct_dbg_trap" != '__ct_preexec'* ]]; then
+    __ct_preexec_all() {
+      if [ "$__ct_in_command_execution" = "0" ]; then
+        __ct_in_command_execution="1"
+        __ct_preexec
+        builtin eval "${__ct_dbg_trap}"
+      fi
+    }
+    trap '__ct_preexec_all "$_"' DEBUG
+  fi
+  __ct_update_prompt
+  __ct_restore_exit_code() { return "$1"; }
+  __ct_prompt_cmd_original() {
+    __ct_status="$?"
+    builtin local cmd
+    __ct_restore_exit_code "${__ct_status}"
+    for cmd in "${__ct_original_prompt_command[@]}"; do eval "${cmd:-}"; done
+    __ct_precmd
+  }
+  __ct_prompt_cmd() { __ct_status="$?"; __ct_precmd; }
+  __ct_original_prompt_command=${PROMPT_COMMAND:-}
+  if [[ -n "${__ct_original_prompt_command:-}" && "${__ct_original_prompt_command:-}" != "__ct_prompt_cmd" ]]; then
+    PROMPT_COMMAND=__ct_prompt_cmd_original
+  else
+    PROMPT_COMMAND=__ct_prompt_cmd
+  fi
+fi
+"####
+}
+
+/// fish OSC 633 conf: wraps fish_prompt for A/B and uses preexec/postexec/prompt
+/// events for E/C/D and cwd. Composes with the user's fish_prompt.
+const fn include_fish_conf() -> &'static str {
+    r####"# CodeTerm shell integration — do not edit
+status is-interactive; or exit
+set -q CODETERM_SHELL_INTEGRATION; and exit
+set --global CODETERM_SHELL_INTEGRATION 1
+
+if set -q CODETERM_SHELL_NONCE
+  set --global __ct_nonce $CODETERM_SHELL_NONCE
+  set -e CODETERM_SHELL_NONCE
+end
+
+function __ct_esc
+  builtin printf "\e]633;%s\a" (string join ";" -- $argv)
+end
+
+function __ct_escape_value
+  echo $argv | string replace --all '\\' '\\\\' | string replace --all ';' '\\x3b'
+end
+
+function __ct_cmd_executed --on-event fish_preexec
+  __ct_esc E (__ct_escape_value "$argv") $__ct_nonce
+  __ct_esc C
+end
+
+function __ct_cmd_finished --on-event fish_postexec
+  __ct_esc D $status
+end
+
+function __ct_update_cwd --on-event fish_prompt
+  __ct_esc P Cwd=(__ct_escape_value "$PWD")
+  builtin printf '\e]7;file://%s%s\e\\' (hostname) "$PWD"
+end
+
+function __ct_fish_prompt_start
+  __ct_esc A
+end
+
+function __ct_fish_cmd_start
+  __ct_esc B
+end
+
+function __preserve_ct_fish_prompt --on-event fish_prompt
+  if functions --query fish_prompt
+    if functions --query __ct_fish_prompt
+      functions --erase __ct_fish_prompt
+    end
+    functions --copy fish_prompt __ct_fish_prompt
+    functions --erase __preserve_ct_fish_prompt
+    __init_ct_shell_integration
+  else
+    functions --erase __preserve_ct_fish_prompt
+    function __ct_fish_prompt
+      echo -n (whoami)@(prompt_hostname) (prompt_pwd) '> '
+    end
+    __init_ct_shell_integration
+  end
+end
+
+function __init_ct_shell_integration
+  function fish_prompt
+    __ct_fish_prompt_start
+    __ct_fish_prompt
+    __ct_fish_cmd_start
+  end
+end
+
+__ct_esc P HasRichCommandDetection=True
+__preserve_ct_fish_prompt
+"####
 }

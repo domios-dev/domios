@@ -1,0 +1,286 @@
+[
+  {
+    "t_ms": 0,
+    "event": "capture_start",
+    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_v1-20260621-snake-matrix-v1-codex-snake_incremental_build_browser_v1-120x32/raw.cast",
+    "capture_start_result": {
+      "ok": true,
+      "out": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_v1-20260621-snake-matrix-v1-codex-snake_incremental_build_browser_v1-120x32/raw.cast",
+      "width": 120,
+      "height": 40
+    }
+  },
+  {
+    "t_ms": 1,
+    "event": "capture_resize",
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 5511,
+    "event": "spawned",
+    "pane": "11ce938b",
+    "workspace": "147e1120",
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 8666,
+    "event": "send_turn",
+    "turn": 1
+  },
+  {
+    "t_ms": 19184,
+    "event": "turn_settled",
+    "turn": 1,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 4142,
+      "stable_ms": 3108,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 19185,
+    "event": "send_turn",
+    "turn": 2
+  },
+  {
+    "t_ms": 95338,
+    "event": "turn_settled",
+    "turn": 2,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 76101,
+      "stable_ms": 3105,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 95339,
+    "event": "send_turn",
+    "turn": 3
+  },
+  {
+    "t_ms": 190028,
+    "event": "turn_settled",
+    "turn": 3,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 94619,
+      "stable_ms": 3100,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 190029,
+    "event": "send_turn",
+    "turn": 4
+  },
+  {
+    "t_ms": 210674,
+    "event": "turn_settled",
+    "turn": 4,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 20584,
+      "stable_ms": 3090,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 210675,
+    "event": "send_turn",
+    "turn": 5
+  },
+  {
+    "t_ms": 283731,
+    "event": "turn_settled",
+    "turn": 5,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 72997,
+      "stable_ms": 3101,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 283732,
+    "event": "send_turn",
+    "turn": 6
+  },
+  {
+    "t_ms": 313582,
+    "event": "turn_settled",
+    "turn": 6,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 29794,
+      "stable_ms": 3076,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 313582,
+    "event": "send_turn",
+    "turn": 7
+  },
+  {
+    "t_ms": 350601,
+    "event": "turn_settled",
+    "turn": 7,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 36967,
+      "stable_ms": 3093,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 350602,
+    "event": "send_turn",
+    "turn": 8
+  },
+  {
+    "t_ms": 361988,
+    "event": "turn_settled",
+    "turn": 8,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 11322,
+      "stable_ms": 3088,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 361989,
+    "event": "send_turn",
+    "turn": 9
+  },
+  {
+    "t_ms": 411402,
+    "event": "turn_settled",
+    "turn": 9,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 49346,
+      "stable_ms": 3088,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 411402,
+    "event": "send_turn",
+    "turn": 10
+  },
+  {
+    "t_ms": 456747,
+    "event": "turn_settled",
+    "turn": 10,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 45283,
+      "stable_ms": 3105,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 456748,
+    "event": "send_turn",
+    "turn": 11
+  },
+  {
+    "t_ms": 637528,
+    "event": "turn_settled",
+    "turn": 11,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 180719,
+      "stable_ms": 0,
+      "timed_out": true
+    }
+  },
+  {
+    "t_ms": 637528,
+    "event": "send_turn",
+    "turn": 12
+  },
+  {
+    "t_ms": 676613,
+    "event": "turn_settled",
+    "turn": 12,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 39031,
+      "stable_ms": 3081,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 676614,
+    "event": "send_turn",
+    "turn": 13
+  },
+  {
+    "t_ms": 724976,
+    "event": "turn_settled",
+    "turn": 13,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 48300,
+      "stable_ms": 3096,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 724976,
+    "event": "send_turn",
+    "turn": 14
+  },
+  {
+    "t_ms": 743567,
+    "event": "turn_settled",
+    "turn": 14,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 18525,
+      "stable_ms": 3100,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 743568,
+    "event": "send_turn",
+    "turn": 15
+  },
+  {
+    "t_ms": 775535,
+    "event": "turn_settled",
+    "turn": 15,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 31899,
+      "stable_ms": 3104,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 778549,
+    "event": "capture_stop",
+    "capture_stop_result": {
+      "ok": true,
+      "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_v1-20260621-snake-matrix-v1-codex-snake_incremental_build_browser_v1-120x32/raw.cast",
+      "screen": "/Users/dev/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_v1-20260621-snake-matrix-v1-codex-snake_incremental_build_browser_v1-120x32/raw.screen.txt"
+    }
+  }
+]

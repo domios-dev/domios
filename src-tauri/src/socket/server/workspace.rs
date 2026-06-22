@@ -78,7 +78,7 @@ pub(super) fn dispatch(
                         message: e,
                     })?;
                 svc.mux
-                    .lock()
+                    .write()
                     .get_pane(&pane_id)
                     .and_then(|p| p.pty_id.clone())
             } else {
@@ -94,7 +94,7 @@ pub(super) fn dispatch(
         "workspace.focus" => {
             let id = get_string_param(params, "workspace_id")?;
             {
-                let mut mux = mux.lock();
+                let mut mux = mux.write();
                 mux.set_active_workspace(&id).map_err(|e| JsonRpcError {
                     code: -32602,
                     message: e,
@@ -136,12 +136,59 @@ pub(super) fn dispatch(
             })
         }
 
+        "workspace.recently_closed" => {
+            let workspace_id = get_string_param(params, "workspace_id")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::WorkspaceRecentlyClosed { workspace_id },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e,
+            })
+        }
+
+        "workspace.reopen_closed" => {
+            let workspace_id = get_string_param(params, "workspace_id")?;
+            let index = params
+                .as_ref()
+                .and_then(|p| p.get("index"))
+                .and_then(|v| v.as_u64())
+                .map(|n| n as usize);
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::WorkspaceReopenClosedPane {
+                    workspace_id,
+                    index,
+                },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError {
+                code: -32602,
+                message: e,
+            })
+        }
+
+        "workspace.reopen_closed_group" => {
+            let group_id = get_string_param(params, "group_id")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::WorkspaceReopenClosedGroup { group_id },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError {
+                code: -32602,
+                message: e,
+            })
+        }
+
         "workspace.move_tab" => {
             let tab_id = get_string_param(params, "tab_id")?;
             let from_id = get_string_param(params, "from_workspace_id")?;
             let to_id = get_string_param(params, "to_workspace_id")?;
             {
-                let mut mux = mux.lock();
+                let mut mux = mux.write();
                 mux.move_tab(&tab_id, &from_id, &to_id)
                     .map_err(|e| JsonRpcError {
                         code: -32602,

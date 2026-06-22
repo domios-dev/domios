@@ -1,0 +1,16 @@
+{
+  "provider": "claude",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Which beverage would you like to start your day with?",
+    "options": [
+      "Coffee",
+      "Tea",
+      "Fresh juice",
+      "Type something.",
+      "Chat about this"
+    ],
+    "selectedIndex": 0,
+    "multiSelect": false
+  }
+}

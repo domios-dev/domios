@@ -1,0 +1,253 @@
+[
+  {
+    "t_ms": 5008,
+    "event": "spawned",
+    "pane": "320f8daf",
+    "workspace": "c62caf3f"
+  },
+  {
+    "t_ms": 0,
+    "event": "capture_start",
+    "cast": "/Users/dev/Developer/codeterm-alpha/testbench/replays/claude/snake_incremental_build_browser_v1-canonical-20260621-085835/raw.cast"
+  },
+  {
+    "t_ms": 0,
+    "event": "send_turn",
+    "turn": 1
+  },
+  {
+    "t_ms": 53581,
+    "event": "turn_settled",
+    "turn": 1,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 53533,
+      "stable_ms": 3094,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 53582,
+    "event": "send_turn",
+    "turn": 2
+  },
+  {
+    "t_ms": 83502,
+    "event": "turn_settled",
+    "turn": 2,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 29876,
+      "stable_ms": 3101,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 83502,
+    "event": "send_turn",
+    "turn": 3
+  },
+  {
+    "t_ms": 120592,
+    "event": "turn_settled",
+    "turn": 3,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 37046,
+      "stable_ms": 3084,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 120593,
+    "event": "send_turn",
+    "turn": 4
+  },
+  {
+    "t_ms": 155574,
+    "event": "turn_settled",
+    "turn": 4,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 34934,
+      "stable_ms": 3080,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 155575,
+    "event": "send_turn",
+    "turn": 5
+  },
+  {
+    "t_ms": 335803,
+    "event": "turn_settled",
+    "turn": 5,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 180180,
+      "stable_ms": 1026,
+      "timed_out": true
+    }
+  },
+  {
+    "t_ms": 335804,
+    "event": "send_turn",
+    "turn": 6
+  },
+  {
+    "t_ms": 449794,
+    "event": "turn_settled",
+    "turn": 6,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 113939,
+      "stable_ms": 3084,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 449794,
+    "event": "send_turn",
+    "turn": 7
+  },
+  {
+    "t_ms": 552748,
+    "event": "turn_settled",
+    "turn": 7,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 102904,
+      "stable_ms": 3089,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 552749,
+    "event": "send_turn",
+    "turn": 8
+  },
+  {
+    "t_ms": 576509,
+    "event": "turn_settled",
+    "turn": 8,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 23705,
+      "stable_ms": 3091,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 576510,
+    "event": "send_turn",
+    "turn": 9
+  },
+  {
+    "t_ms": 750562,
+    "event": "turn_settled",
+    "turn": 9,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 173992,
+      "stable_ms": 3104,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 750563,
+    "event": "send_turn",
+    "turn": 10
+  },
+  {
+    "t_ms": 915243,
+    "event": "turn_settled",
+    "turn": 10,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 164627,
+      "stable_ms": 3087,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 915244,
+    "event": "send_turn",
+    "turn": 11
+  },
+  {
+    "t_ms": 1095498,
+    "event": "turn_settled",
+    "turn": 11,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 180204,
+      "stable_ms": 0,
+      "timed_out": true
+    }
+  },
+  {
+    "t_ms": 1095498,
+    "event": "send_turn",
+    "turn": 12
+  },
+  {
+    "t_ms": 1275692,
+    "event": "turn_settled",
+    "turn": 12,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 180173,
+      "stable_ms": 1028,
+      "timed_out": true
+    }
+  },
+  {
+    "t_ms": 1275693,
+    "event": "send_turn",
+    "turn": 13
+  },
+  {
+    "t_ms": 1455957,
+    "event": "turn_settled",
+    "turn": 13,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 180216,
+      "stable_ms": 1028,
+      "timed_out": true
+    }
+  },
+  {
+    "t_ms": 1455957,
+    "event": "send_turn",
+    "turn": 14
+  },
+  {
+    "t_ms": 1636071,
+    "event": "turn_settled",
+    "turn": 14,
+    "wait": {
+      "state": "Working",
+      "elapsed_ms": 180058,
+      "stable_ms": 2059,
+      "timed_out": true
+    }
+  },
+  {
+    "t_ms": 1636072,
+    "event": "send_turn",
+    "turn": 15
+  },
+  {
+    "t_ms": 1689699,
+    "event": "turn_settled",
+    "turn": 15,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 53576,
+      "stable_ms": 3091,
+      "timed_out": false
+    }
+  }
+]

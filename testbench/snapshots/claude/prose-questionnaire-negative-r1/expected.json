@@ -1,0 +1,7 @@
+{
+  "provider": "claude",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "detectPicker": null
+  }
+}

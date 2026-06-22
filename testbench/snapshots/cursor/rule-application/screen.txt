@@ -1,0 +1,22 @@
+dev@workstation codeterm-cursor-picker-trust2 % bash /tmp/codeterm-spawn-8178c090-a581-4011-93cd-c5978212a918.sh
+
+
+  Cursor Agent
+  v2026.06.19-20-24-33-653a7fb
+  Use /skills to give Cursor specialized knowledge for tasks.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Create New Rule
+
+ When should this rule be applied?
+
+  → Always Apply
+      Apply to every chat session
+    Apply Intelligently
+      Agent decides based on description
+    Apply to Specific Files
+      When file matches a pattern
+    Apply Manually
+      Only when @-mentioned in chat
+
+ ↑/↓ to navigate • Enter to confirm • Esc to cancel

@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "at_ms": 38,
+      "action": "send coding task",
+      "expect": "working"
+    },
+    {
+      "at_ms": 15665,
+      "action": "settled ready composer",
+      "expect": "idle"
+    }
+  ],
+  "segments": [
+    {
+      "from_ms": 38,
+      "to_ms": 15665,
+      "state": "working"
+    },
+    {
+      "from_ms": 15665,
+      "to_ms": 16799,
+      "state": "idle"
+    }
+  ]
+}

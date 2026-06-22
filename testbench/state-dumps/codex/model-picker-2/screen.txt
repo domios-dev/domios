@@ -1,0 +1,23 @@
+
+
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.141.0)                               │
+│                                                          │
+│ model:       gpt-5.5 medium   /model to change           │
+│ directory:   /private/var/folders/5w/…/T/…picker-2-60963 │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Try the Codex App. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+
+  Select Reasoning Level for gpt-5.5
+
+  1. Low                         Fast responses with lighter reasoning
+› 2. Medium (default) (current)  Balances speed and reasoning depth for everyday tasks
+  3. High                        Greater reasoning depth for complex problems
+  4. Extra high                  Extra high reasoning depth for complex problems
+
+  Press enter to confirm or esc to go back                                                                              

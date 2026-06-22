@@ -1,0 +1,10 @@
+{
+  "provider": "cursor",
+  "situation": "multi-step-wizard",
+  "capturedAtMs": 1781983771906,
+  "paneId": "faea6ce0",
+  "source": "dev-7686",
+  "until": "(Question 1 of|этап|choose all|select all|\\[[ xX]\\]).*(Space|space|enter|←|→|esc)",
+  "prompt": "Ask me a multi-step multi-select setup wizard. Use the native question UI if available. First question: choose all migration phases that apply, with options Audit, Build, Test, Rollout. Do not answer it yourself; ask me.",
+  "providerCliVersion": "Error: No Cursor IDE installation found. Use 'cursor agent' or 'agent' to run the agent."
+}

@@ -19,7 +19,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 app_handle.try_state::<MuxState>(),
                 app_handle.try_state::<SessionState>(),
             ) {
-                let snapshot = mux.lock().to_session_snapshot();
+                let snapshot = mux.write().to_session_snapshot();
                 if let Err(e) = session.lock().save(&snapshot) {
                     log::warn!("Auto-save failed: {}", e);
                 }
@@ -419,7 +419,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 }; // tracker lock released here
 
                 for (pty_id, status) in changed {
-                    let pane_id = mux.lock().pane_id_for_pty(&pty_id);
+                    let pane_id = mux.write().pane_id_for_pty(&pty_id);
                     if let Some(pid) = pane_id {
                         log::info!(
                             "[idle-poll] {} {:?} (pane={})",

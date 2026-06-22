@@ -1,0 +1,26 @@
+✻ I need a decision before I can continue.
+
+  Which database should back the cache layer?
+
+> 1. Redis — in-memory, fastest reads
+  2. Postgres — durable, transactional
+  3. SQLite — embedded, zero-ops
+
+  Enter to confirm · Esc to cancel
+
+● User answered Claude's questions:
+  └ · Which database should back the cache layer? → Redis
+
+● Recorded the answers and continued.
+
+- Language: Python
+- Runtime: quiet
+
+The picker worked and the answers came back correctly. Should I run another pass?
+
+✻ Brewed for 15s
+
+────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

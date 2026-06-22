@@ -29,7 +29,7 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
     *svc.bridge_outbound_rx.lock() = None;
 
     {
-        let mut mux = svc.mux.lock();
+        let mut mux = svc.mux.write();
         if let Some(pid) = mux.resolve_pane_id(service::general_agent::GENERAL_ALIAS) {
             if let Some(pane) = mux.get_pane_mut(&pid) {
                 if !pane.connected_services.contains(&"telegram".to_string()) {
@@ -66,7 +66,7 @@ pub async fn start_telegram_bridge(svc: &ServiceState) -> Result<(), String> {
 /// pane / service tag is missing — silent no-op.
 pub fn unmark_pane_connected_service(svc: &ServiceState, service: &str) {
     let removed = {
-        let mut mux = svc.mux.lock();
+        let mut mux = svc.mux.write();
         let Some(pid) = mux.resolve_pane_id(service::general_agent::GENERAL_ALIAS) else {
             return;
         };
