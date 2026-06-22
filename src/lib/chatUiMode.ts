@@ -4,6 +4,26 @@ import { setUiSettings } from "./clientSettings";
 import type { AppConfig, PaneBacking } from "./types";
 
 export const CHAT_UI_DEFAULT_KEY = "codeterm-chat-ui-default-enabled";
+// Sync mirror of the chat-default so the FIRST render resolves the right view
+// before the async get_config warms the cache — kills the terminal→chat flash.
+const CHAT_DEFAULT_SYNC_KEY = "codeterm:chat-default-new-agent-pane";
+
+function readChatDefaultSync(): boolean | null {
+  try {
+    const value = localStorage.getItem(CHAT_DEFAULT_SYNC_KEY);
+    return value === null ? null : value === "true";
+  } catch {
+    return null;
+  }
+}
+
+function persistChatDefaultSync(enabled: boolean): void {
+  try {
+    localStorage.setItem(CHAT_DEFAULT_SYNC_KEY, enabled ? "true" : "false");
+  } catch {
+    // localStorage may be unavailable; the in-memory cache still serves this session.
+  }
+}
 
 export type PaneUiMode = "terminal" | "chat";
 
@@ -24,7 +44,7 @@ export function shouldDefaultNewAgentPaneToChat(
   return cachedDefaultNewAgentPaneChat;
 }
 
-let cachedDefaultNewAgentPaneChat = false;
+let cachedDefaultNewAgentPaneChat = readChatDefaultSync() ?? false;
 let configLoad: Promise<boolean> | null = null;
 
 /** Synchronous read of the cached "new agent panes open in chat" setting.
@@ -71,6 +91,7 @@ export function loadDefaultNewAgentPaneChat(): Promise<boolean> {
     const legacy = readLegacyDefault();
     if (legacy !== null) {
       cachedDefaultNewAgentPaneChat = legacy;
+      persistChatDefaultSync(legacy);
       await invoke("update_config", {
         config: {
           ...config,
@@ -84,6 +105,7 @@ export function loadDefaultNewAgentPaneChat(): Promise<boolean> {
       return legacy;
     }
     cachedDefaultNewAgentPaneChat = config.ui?.default_new_agent_pane_chat === true;
+    persistChatDefaultSync(cachedDefaultNewAgentPaneChat);
     return cachedDefaultNewAgentPaneChat;
   })().catch((err) => {
     configLoad = null;
@@ -95,6 +117,7 @@ export function loadDefaultNewAgentPaneChat(): Promise<boolean> {
 export async function setDefaultNewAgentPaneToChat(enabled: boolean): Promise<void> {
   await writeDefaultToConfig(enabled);
   cachedDefaultNewAgentPaneChat = enabled;
+  persistChatDefaultSync(enabled);
   configLoad = Promise.resolve(enabled);
   await markChatDefaultPrompted();
 }
