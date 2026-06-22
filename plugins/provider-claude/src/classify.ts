@@ -196,12 +196,12 @@ interface ClarifyScore { confidence: number; questions: string[] }
 // numbered menu + question line + confirm footer together, so a lone in-stream
 // question stays sub-threshold. Only surfaced, never auto-answered.
 function scoreClarifyingQuestion(screen: string): ClarifyScore {
-  const options = parseClaudeMenuOptions(screen);
-  const questions = extractQuestions(screen);
+  const block = activeClarifyingPromptBlock(screen);
+  const options = block?.options ?? [];
+  const questions = block?.questions ?? [];
   const sigMenu = options.length >= 2;                                  // 0.35
   const sigQuestion = questions.length > 0;                             // 0.30
-  const sigConfirmFooter =
-    /\bto (?:confirm|submit|select)\b/i.test(screen);                   // 0.35
+  const sigConfirmFooter = !!block;                                     // 0.35
 
   let confidence = 0;
   if (sigMenu) confidence += 0.35;
@@ -211,15 +211,79 @@ function scoreClarifyingQuestion(screen: string): ClarifyScore {
   return { confidence: confidence, questions: questions };
 }
 
-// Lines ending in a question mark — the surfaced payload for a clarifying prompt.
-function extractQuestions(screen: string): string[] {
+interface ClarifyingPromptBlock {
+  questions: string[];
+  options: ClaudeMenuOption[];
+}
+
+function activeClarifyingPromptBlock(screen: string): ClarifyingPromptBlock | null {
   const lines = String(screen || "").split("\n");
+  for (let footerIdx = lines.length - 1; footerIdx >= 0; footerIdx--) {
+    if (!isClarifyingConfirmFooter(lines[footerIdx])) continue;
+
+    const lastContentIdx = lastMeaningfulLineIndex(lines);
+    if (lastContentIdx > footerIdx) {
+      return null;
+    }
+
+    const options = contiguousOptionsAbove(lines, footerIdx);
+    if (options.length < 2) continue;
+
+    const questions = questionsAbove(lines, footerIdx);
+    if (questions.length === 0) continue;
+
+    return { questions, options };
+  }
+  return null;
+}
+
+function isClarifyingConfirmFooter(line: string): boolean {
+  return /\bto (?:confirm|submit|select)\b/i.test(line);
+}
+
+function lastMeaningfulLineIndex(lines: string[]): number {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (isDividerLine(line)) continue;
+    return i;
+  }
+  return -1;
+}
+
+function isDividerLine(line: string): boolean {
+  const stripped = line.replace(/\s/g, "");
+  return stripped.length >= 8 && /^[─━═-]+$/.test(stripped);
+}
+
+function contiguousOptionsAbove(lines: string[], footerIdx: number): ClaudeMenuOption[] {
+  const options: ClaudeMenuOption[] = [];
+  for (let i = footerIdx - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) {
+      if (options.length > 0) break;
+      continue;
+    }
+    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
+    if (!m) {
+      if (options.length > 0) break;
+      continue;
+    }
+    options.push({ highlighted: !!m[1], label: m[3] });
+  }
+  return options.reverse();
+}
+
+// Lines ending in a question mark above the active option block — the surfaced payload.
+function questionsAbove(lines: string[], footerIdx: number): string[] {
   const out: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = footerIdx - 1; i >= 0; i--) {
     const line = lines[i].trim();
     if (line.length > 1 && line.charAt(line.length - 1) === "?") out.push(line);
+    if (out.length > 0 && CLAUDE_MENU_OPTION_RE.test(line)) continue;
+    if (out.length > 0 && !line) break;
   }
-  return out;
+  return out.reverse();
 }
 
 // Auth ensemble, weighted so no lone casual mention fires. Leans inclusive: a false positive only surfaces, never auto-acts.
