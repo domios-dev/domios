@@ -133,8 +133,22 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
             let _ = si.write_all(s.as_bytes());
         }
     }
-    let mut stdout = child.stdout.take();
-    let mut stderr = child.stderr.take();
+    // Drain pipes on threads BEFORE waiting: output past the ~64KB OS pipe buffer
+    // would block the child on write() while we wait, deadlocking until timeout.
+    let out_reader = child.stdout.take().map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = String::new();
+            let _ = s.read_to_string(&mut buf);
+            buf
+        })
+    });
+    let err_reader = child.stderr.take().map(|mut s| {
+        std::thread::spawn(move || {
+            let mut buf = String::new();
+            let _ = s.read_to_string(&mut buf);
+            buf
+        })
+    });
     let timeout = Duration::from_millis(opts.timeout_ms.unwrap_or(30_000).max(1));
     let (status_code, timeout_error) = match child.wait_timeout(timeout) {
         Ok(Some(status)) => (status.code().unwrap_or(-1), None),
@@ -152,14 +166,12 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         }
         Err(e) => return err(&format!("wait {}: {e}", opts.bin)),
     };
-    let mut out = String::new();
-    if let Some(mut s) = stdout.take() {
-        let _ = s.read_to_string(&mut out);
-    }
-    let mut errout = String::new();
-    if let Some(mut s) = stderr.take() {
-        let _ = s.read_to_string(&mut errout);
-    }
+    let out = out_reader
+        .map(|h| h.join().unwrap_or_default())
+        .unwrap_or_default();
+    let errout = err_reader
+        .map(|h| h.join().unwrap_or_default())
+        .unwrap_or_default();
     let mut value = serde_json::json!({
         "code": status_code,
         "stdout": out,
@@ -499,6 +511,36 @@ mod tests {
             "too many exec jobs"
         );
         drop_plugin_jobs("cap-plugin");
+    }
+
+    #[test]
+    fn run_drains_output_larger_than_pipe_buffer_without_deadlock() {
+        // 200KB > the ~64KB OS pipe buffer. A read-after-wait impl deadlocks the
+        // child on write() and only returns once the timeout kills it (truncated);
+        // concurrent draining returns the full output fast.
+        #[cfg(windows)]
+        let opts = serde_json::json!({
+            "bin": "powershell",
+            "args": ["-NoProfile", "-Command", "[Console]::Out.Write('x' * 200000)"],
+            "timeoutMs": 10000,
+        });
+        #[cfg(not(windows))]
+        let opts = serde_json::json!({
+            "bin": "sh",
+            "args": ["-c", "head -c 200000 /dev/zero | tr '\\0' x"],
+            "timeoutMs": 10000,
+        });
+
+        let started = Instant::now();
+        let out: serde_json::Value = serde_json::from_str(&run(&opts.to_string())).unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "drained slowly ({:?}) — pipe deadlock not fixed",
+            started.elapsed()
+        );
+        assert!(out.get("error").is_none(), "unexpected error: {out}");
+        assert_eq!(out["code"], 0);
+        assert_eq!(out["stdout"].as_str().map(str::len), Some(200_000));
     }
 
     #[test]
