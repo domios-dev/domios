@@ -38,12 +38,6 @@ impl PaneReopenGuards {
     }
 }
 
-/// Gate outbound preprocessor stages on agent-ness, mirroring the PTY
-/// `is_user_turn_send` gate — a plain shell chatBackend owns its own prompt.
-fn chatbackend_should_stage(pane_has_agent: bool) -> bool {
-    pane_has_agent
-}
-
 /// `openSession` runs without the mux lock, so re-verify the pane is still the
 /// same restored chatBackend before committing — else we'd attach to a dead pane.
 fn chatbackend_reopen_still_valid(
@@ -101,14 +95,8 @@ impl PaneTransport for ChatBackendTransport<'_> {
             .chatbackend_reopen_if_restored(&self.pane_id)
             .unwrap_or(None)
             .unwrap_or_else(|| self.session_id.clone());
-        let staged = if chatbackend_should_stage(self.svc.pane_has_agent(&self.pane_id)) {
-            self.svc
-                .run_outbound_stages(&self.pane_id, text.to_string())
-        } else {
-            text.to_string()
-        };
         self.svc
-            .chatbackend_send(&self.plugin_id, &session_id, &staged)
+            .chatbackend_send(&self.plugin_id, &session_id, text)
     }
 
     fn send_batch(&self, batch: Vec<SendBatchItem>) -> Result<(), String> {
@@ -303,8 +291,7 @@ impl ServiceContext {
         let (plugin_id, session_id) = self
             .pane_chat_backing(pane_id)
             .ok_or("chatBackend pane lost its backing")?;
-        let staged = self.run_outbound_stages(pane_id, text.to_string());
-        self.chatbackend_send(&plugin_id, &session_id, &staged)
+        self.chatbackend_send(&plugin_id, &session_id, text)
     }
 
     /// Advance an async chatBackend's in-flight work; called each poll tick, best-effort.
@@ -518,18 +505,6 @@ mod tests {
             spawned.load(Ordering::SeqCst),
             0,
             "no poll loop spawned for a dead pane"
-        );
-    }
-
-    #[test]
-    fn chatbackend_send_is_gated_on_agent_pane() {
-        assert!(
-            !super::chatbackend_should_stage(false),
-            "shell chatBackend send must skip outbound stages"
-        );
-        assert!(
-            super::chatbackend_should_stage(true),
-            "agent chatBackend send still runs outbound stages"
         );
     }
 

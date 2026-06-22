@@ -230,6 +230,10 @@ impl AgentProvider for ClaudeProvider {
         Some("/exit")
     }
 
+    fn stop_keystroke(&self) -> Option<&str> {
+        Some("\u{1b}")
+    }
+
     fn supports_lazy_skills(&self) -> bool {
         true
     }

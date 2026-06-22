@@ -32,6 +32,9 @@ jobs:
       - name: Run TS unit tests
         run: pnpm test:unit
 
+      - name: Check generated plugin bundles
+        run: pnpm check:plugin-bundles
+
       - name: Run plugin tests
         run: pnpm test:plugins
 

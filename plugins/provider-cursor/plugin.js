@@ -119,7 +119,11 @@ var plugin = {
     return (p.skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    const parts = ["cursor-agent", "--resume", host.shell.quote(String(sessionId || ""))];
+    const parts = [
+      "cursor-agent",
+      "--resume",
+      host.shell.quoteFor(String(sessionId || ""), host.platform())
+    ];
     if (skipPermissions) parts.push("--force");
     return (skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },

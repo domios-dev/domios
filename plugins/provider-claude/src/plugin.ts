@@ -153,7 +153,7 @@ function parseWizardOptions(body: string): ParsedOptionState[] {
 
 function parseNumberedOptions(text: string): ParsedOptionState[] {
   const options: ParsedOptionState[] = [];
-  const re = /(?:^|[\s❯>])(\d+)\.\s*([\s\S]*?)(?=(?:[\s❯>]\d+\.\s*)|Enter\s*to\s*select|$)/g;
+  const re = /^\s*[❯>]?\s*(\d+)\.\s*([^\r\n]*)/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const label = cleanOptionLabel(m[2]);
@@ -170,7 +170,7 @@ function parseNumberedOptions(text: string): ParsedOptionState[] {
 
 function parseCheckboxOptions(text: string): ParsedOptionState[] {
   const options: ParsedOptionState[] = [];
-  const re = /(?:^|[\s❯>])((?:\[[ xX]\])|☐|☑|☒|✔)\s*([\s\S]*?)(?=(?:[\s❯>](?:\[[ xX]\]|☐|☑|☒|✔)\s*)|Enter\s*to\s*select|$)/g;
+  const re = /^\s*[❯>]?\s*((?:\[[ xX]\])|☐|☑|☒|✔)\s*([^\r\n]*)/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     const label = cleanOptionLabel(m[2]);
