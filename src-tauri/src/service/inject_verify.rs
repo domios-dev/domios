@@ -53,6 +53,9 @@ pub enum InjectionError {
     PtyClosed {
         pty_id: String,
     },
+    AgentTuiPresent {
+        pty_id: String,
+    },
 }
 
 impl std::fmt::Display for InjectionError {
@@ -82,6 +85,13 @@ impl std::fmt::Display for InjectionError {
                 )
             }
             Self::PtyClosed { pty_id } => write!(f, "pty {} is closed", pty_id),
+            Self::AgentTuiPresent { pty_id } => {
+                write!(
+                    f,
+                    "agent TUI present on pty {} - launch write refused",
+                    pty_id
+                )
+            }
         }
     }
 }
