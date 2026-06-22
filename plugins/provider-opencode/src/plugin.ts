@@ -157,7 +157,30 @@ const plugin: PluginModule = {
     return parts.join(" ");
   },
 
-  detectSessionId(_cwd: string, _exclude?: string, _maxAgeMs?: number): string | null {
+  // Fallback for when the session-binding hook doesn't fire (e.g. CODETERM_PANE_ID
+  // absent from opencode's env, or event field structure changed in a new release).
+  // Scans the sqlite DB for the most-recently-created session within the max-age
+  // window. strftime('%s','now')*1000 supplies current unix-ms inside SQLite so
+  // QuickJS never needs Date.now(). Hook wins when it fires first because
+  // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
+  detectSessionId(_cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 300000;
+    const excludeList: string[] = Array.isArray(exclude)
+      ? (exclude as string[])
+      : (typeof exclude === "string" && exclude ? [exclude] : []);
+    const rows = host.fs.sqliteQuery<{ id: string }>(
+      db,
+      "SELECT id FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) ORDER BY time_created DESC LIMIT 5",
+      [windowMs]
+    );
+    for (let i = 0; i < rows.length; i++) {
+      const id = rows[i].id;
+      if (typeof id !== "string" || !id.startsWith("ses_")) continue;
+      if (excludeList.indexOf(id) !== -1) continue;
+      return id;
+    }
     return null;
   },
 

@@ -536,35 +536,46 @@ impl ServiceContext {
     /// poll the provider's `detect_session_id` here (where the agent is already
     /// detected from output) until it resolves, then pin it — otherwise
     /// `chat_start` stays "pending" forever and the chat view renders empty even
-    /// though the TUI works. Bounded: skips once the id is set, throttled to 1/s.
+    /// though the TUI works.
+    ///
+    /// Also handles session re-detection after /new: when a pinned session is stale
+    /// (a newer session for this cwd appeared, e.g. cursor created a fresh session
+    /// after the user ran /new), the pinned id is evicted and the new one is bound.
+    /// Only runs for hookless providers (cursor); hook-based providers update via
+    /// the hook endpoint, never by polling. Throttled to 1/s.
     fn maybe_detect_agent_session(&self, pane_id: &str, agent_type: &str) {
-        let (cwd, set_at_elapsed) = {
+        let (cwd, set_at_elapsed, current_session) = {
             let mux = self.mux.read();
             let Some(pane) = mux.get_pane(pane_id) else {
                 return;
             };
-            if pane.agent_session_id.is_some() {
-                return;
-            }
             let cwd = pane.cwd.clone().unwrap_or_default();
             let elapsed = pane
                 .agent_set_at
                 .map(|t| t.elapsed().as_secs())
                 .unwrap_or(0);
-            (cwd, elapsed)
+            let sid = pane.agent_session_id.clone();
+            (cwd, elapsed, sid)
         };
         if cwd.is_empty() {
             return;
         }
-        // Only hookless + non-injecting providers need on-disk detection.
+        // On-disk/db detection for providers with no session injection path.
+        // Enabled for:
+        //   - providers without hooks (e.g. cursor) — original path
+        //   - providers WITH hooks that use a structured DB (e.g. opencode) — fallback
+        //     when the hook doesn't fire. Safe: hook-bound sessions are excluded by
+        //     the stale check's exclude list, so a successful hook always wins.
+        // NOT enabled for hook-capable PTY providers (claude, codex): they use
+        // file-based sessions and their hooks are reliable, so no fallback is needed.
         let needs = self
             .agent_registry
             .with_provider(agent_type, |p| {
-                !p.has_hooks()
-                    && matches!(
-                        p.session_id_injection(),
-                        crate::agent::provider::SessionIdInjection::None
-                    )
+                let inj = matches!(
+                    p.session_id_injection(),
+                    crate::agent::provider::SessionIdInjection::None
+                );
+                inj && (!p.has_hooks() || p.uses_structured_chat())
             })
             .unwrap_or(false);
         if !needs {
@@ -581,8 +592,44 @@ impl ServiceContext {
             }
             cd.insert(pane_id.to_string(), now);
         }
-        // Window the search to sessions touched since the agent was detected (+30s
-        // slack) so a reused cwd's older sessions can't shadow the fresh one.
+
+        if let Some(old_sid) = current_session {
+            // Stale-session check: after /new, the provider (e.g. cursor) creates a
+            // fresh session directory while the old one stops receiving writes. Search
+            // for a session modified in the last 30s, excluding the currently-pinned
+            // session and all other panes' sessions so we only find THIS pane's new
+            // session. Steady-state: no candidate is found (only session is old_sid,
+            // which is excluded) → no eviction. After /new: new session dir is fresh
+            // → evict old, bind new.
+            let mut stale_exclude = self.mux.read().other_session_ids(pane_id);
+            stale_exclude.push(old_sid.clone());
+            let new_sid = self
+                .agent_registry
+                .with_provider(agent_type, |p| {
+                    p.detect_session_id(
+                        &cwd,
+                        &stale_exclude,
+                        Some(std::time::Duration::from_secs(30)),
+                    )
+                })
+                .flatten();
+            if let Some(sid) = new_sid {
+                log::info!(
+                    "[output] stale session evicted {} → {} for pane {} ({})",
+                    old_sid,
+                    sid,
+                    pane_id,
+                    agent_type
+                );
+                self.set_agent_session_id(pane_id, Some(sid));
+                self.emit_state_changed();
+            }
+            return;
+        }
+
+        // Initial detection: window the search to sessions touched since the agent
+        // was detected (+30s slack) so a reused cwd's older sessions can't shadow
+        // the fresh one.
         let exclude = self.mux.read().other_session_ids(pane_id);
         let max_age = std::time::Duration::from_secs(set_at_elapsed + 30);
         let found = self
