@@ -176,6 +176,59 @@ fn cursor_composer_arrow_returns_idle_promptly() {
     );
 }
 
+#[test]
+fn claude_stale_status_above_ready_prompt_returns_idle_after_grace() {
+    let screen = lines(&[
+        "  Done with the requested changes.",
+        "",
+        "❯ Summarize everything that changed.",
+        "",
+        "✻ Swooping… (12m 57s · ↑ 53.9k tokens)",
+        "",
+        "────────────────────────────────────────────────────────",
+        "❯",
+        "────────────────────────────────────────────────────────",
+        "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.byte_idle_ms = 2000;
+    input.semantic_idle_ms = 2000;
+
+    let verdict = classify_state(&input, working());
+
+    assert_eq!(
+        verdict.state,
+        TimelineState::Idle,
+        "stale claude status must not pin a ready composer in Working"
+    );
+}
+
+#[test]
+fn claude_recent_status_near_ready_prompt_stays_working_during_grace() {
+    let screen = lines(&[
+        "  Generating the answer.",
+        "",
+        "✢ Swooping… (12m 55s · ↓ 53.7k tokens)",
+        "",
+        "❯ Summarize everything that changed.",
+        "────────────────────────────────────────────────────────",
+        "❯ Press up to edit queued messages",
+        "────────────────────────────────────────────────────────",
+        "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.byte_idle_ms = 900;
+    input.semantic_idle_ms = 900;
+
+    let verdict = classify_state(&input, working());
+
+    assert_eq!(
+        verdict.state,
+        TimelineState::Working,
+        "fresh claude status remains active during working grace"
+    );
+}
+
 // Opencode full-screen composer: no glyph, but a visible cursor parked in the
 // bottom input region of an alt-screen ⇒ composer_ready ⇒ Idle promptly.
 #[test]
@@ -320,6 +373,14 @@ fn active_turn_footer_silent_on_idle_and_completed_screens() {
     assert!(!super::active_turn_footer(&lines(&[
         "⏵⏵ bypass permissions on (shift+tab to cycle)",
     ])));
+    assert!(!super::active_turn_footer(&lines(&[
+        "⏵⏵ auto mode on (shift+tab to cycle) · + for agents",
+    ])));
+    // claude IDLE mode footer can still advertise the interrupt key; the
+    // mode-cycle footer itself is not active turn evidence.
+    assert!(!super::active_turn_footer(&lines(&[
+        "⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt",
+    ])));
     // completed turn: elapsed timer present, but the interrupt hint is gone.
     assert!(!super::active_turn_footer(&lines(&[
         "✓ Done (3m 54s · 17.0k tokens)",
@@ -328,4 +389,27 @@ fn active_turn_footer_silent_on_idle_and_completed_screens() {
     assert!(!super::active_turn_footer(&lines(&["■■■■──────  100%"])));
     // plain shell.
     assert!(!super::active_turn_footer(&lines(&["$ ls", "file.txt"])));
+}
+
+#[test]
+fn claude_auto_mode_footer_does_not_mask_active_spinner() {
+    let screen = lines(&[
+        "  Updating the code.",
+        "",
+        "✶ Working… (3s · esc to interrupt)",
+        "",
+        "────────────────────────────────────────────────────────",
+        "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.byte_idle_ms = 2000;
+    input.semantic_idle_ms = 2000;
+
+    let verdict = classify_state(&input, working());
+
+    assert_eq!(
+        verdict.state,
+        TimelineState::Working,
+        "excluding the idle mode footer must not hide the real active spinner"
+    );
 }

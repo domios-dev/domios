@@ -26,6 +26,14 @@ fn is_braille_spinner(c: char) -> bool {
     ('\u{2800}'..='\u{28ff}').contains(&c)
 }
 
+fn looks_like_path_only_status_text(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    trimmed.starts_with('/')
+        || trimmed.starts_with("~/")
+        || trimmed.starts_with("./")
+        || trimmed.starts_with("../")
+}
+
 pub fn extract_status_line(screen_lines: &[String]) -> Option<StatusLine> {
     if let Some(status) = extract_opencode_status_line(screen_lines) {
         return Some(status);
@@ -109,6 +117,9 @@ fn extract_braille_status_row(row: &str) -> Option<StatusLine> {
     if line.is_empty() || line.len() > 80 {
         return None;
     }
+    if looks_like_path_only_status_text(line) {
+        return None;
+    }
     Some(StatusLine {
         line: compact_status_message(line),
         phase: Some("work".to_string()),
@@ -156,6 +167,9 @@ fn extract_opencode_status_line(screen_lines: &[String]) -> Option<StatusLine> {
             continue;
         };
         if trimmed.is_empty() || trimmed.len() > 80 {
+            continue;
+        }
+        if looks_like_path_only_status_text(trimmed) {
             continue;
         }
         let status = StatusLine {
@@ -270,4 +284,32 @@ pub fn extract_completion_summary(screen_lines: &[String]) -> Option<StatusLine>
         });
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_status_line;
+
+    fn lines(rows: &[&str]) -> Vec<String> {
+        rows.iter().map(|row| (*row).to_string()).collect()
+    }
+
+    #[test]
+    fn braille_path_footer_is_not_status_line() {
+        let screen = lines(&[
+            "Tool output",
+            "⠂ /.codeterm-dev/general",
+            "→ Working (ctrl+c to stop)",
+        ]);
+
+        assert_eq!(extract_status_line(&screen), None);
+    }
+
+    #[test]
+    fn braille_action_row_is_status_line() {
+        let screen = lines(&["Tool output", "⠞ Composing", "→ Working (ctrl+c to stop)"]);
+
+        let status = extract_status_line(&screen).expect("status line");
+        assert_eq!(status.line, "Composing");
+    }
 }

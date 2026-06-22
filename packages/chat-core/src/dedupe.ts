@@ -46,8 +46,17 @@ function markerEchoMatchesParsed(echoContent: string, parsedContent: string): bo
   return echoFile === parsedFile || fileName(echoFile) === fileName(parsedFile);
 }
 
+function matchableContent(content: string): string {
+  return parseMarker(content)?.payload ?? content;
+}
+
+function isFileIdentityMarker(content: string): boolean {
+  const marker = parseMarker(content);
+  return marker?.kind === "voice" || marker?.kind === "photo" || marker?.kind === "file";
+}
+
 function coverageTokens(content: string): CoverageToken[] {
-  return normalizeChatText(content)
+  return normalizeChatText(matchableContent(content))
     .toLowerCase()
     .split(/\s+/)
     .filter(Boolean)
@@ -55,7 +64,7 @@ function coverageTokens(content: string): CoverageToken[] {
 }
 
 function tokenNeedle(content: string): string[] {
-  return normalizeChatText(content).toLowerCase().split(/\s+/).filter(Boolean);
+  return normalizeChatText(matchableContent(content)).toLowerCase().split(/\s+/).filter(Boolean);
 }
 
 function isPathLikeToken(token: string): boolean {
@@ -66,7 +75,7 @@ function isPathLikeToken(token: string): boolean {
 // Tokens that carry meaning for matching — attachment paths are dropped so a
 // bubble's appended raw path never blocks a match against its chip-rendered echo.
 function meaningfulTokens(content: string): string[] {
-  return normalizeChatText(content)
+  return normalizeChatText(matchableContent(content))
     .toLowerCase()
     .split(/\s+/)
     .filter((token) => token.length > 0 && !isPathLikeToken(token));
@@ -130,7 +139,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   const coveredMatched = new Set<string>();
   const pendingIds: string[] = [];
   for (const echo of optimistic) {
-    const wanted = normalizeChatText(echo.content).toLowerCase();
+    const wanted = normalizeChatText(matchableContent(echo.content)).toLowerCase();
     let hit = -1;
     if (wanted) {
       for (let i = 0; i < parsedUsers.length; i++) {
@@ -138,7 +147,12 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
         const candidate = parsedUsers[i];
         if (candidate.type !== "user") continue;
         const markerMatch = markerEchoMatchesParsed(echo.content, candidate.content);
-        if (!markerMatch && normalizeChatText(candidate.content).toLowerCase() !== wanted) continue;
+        if (
+          !markerMatch
+          && normalizeChatText(matchableContent(candidate.content)).toLowerCase() !== wanted
+        ) {
+          continue;
+        }
         const ts = timestampMs(candidate.timestamp);
         if (!markerMatch && ts != null && ts < echo.sentAtMs - ECHO_SKEW_MS) continue;
         hit = i;
@@ -177,7 +191,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   const fuzzyMatched = new Set<string>();
   for (const echo of optimistic) {
     if (exactMatched.has(echo.id) || coveredMatched.has(echo.id)) continue;
-    if (parseMarker(echo.content)) continue;
+    if (isFileIdentityMarker(echo.content)) continue;
     const echoTokens = meaningfulTokens(echo.content);
     if (echoTokens.length === 0) continue;
     const echoText = echoTokens.join(" ");
@@ -186,7 +200,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     for (let i = 0; i < parsedUsers.length; i++) {
       if (consumed[i] || coverageClaimed.has(i)) continue;
       const candidate = parsedUsers[i];
-      if (candidate.type !== "user" || parseMarker(candidate.content)) continue;
+      if (candidate.type !== "user" || isFileIdentityMarker(candidate.content)) continue;
       const ts = timestampMs(candidate.timestamp);
       if (ts != null && ts < echo.sentAtMs - ECHO_SKEW_MS) continue;
       const candidateTokens = meaningfulTokens(candidate.content);

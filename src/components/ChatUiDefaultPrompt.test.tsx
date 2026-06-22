@@ -111,6 +111,21 @@ test("no path marks prompted only", async () => {
   await act(async () => root.unmount());
 });
 
+test("missing prompt host does not mark prompted", async () => {
+  localStorage.clear();
+  const writes: boolean[] = [];
+  __setChatUiDefaultConfigWriterForTest(async (enabled) => {
+    writes.push(enabled);
+  });
+
+  await maybeAskDefaultNewAgentPaneToChat();
+
+  assert(writes.length === 0, "unhandled prompt should not write config");
+  assert(localStorage.getItem(CHAT_UI_DEFAULT_PROMPTED_KEY) !== "true", "unhandled prompt must not suppress future prompts");
+
+  __setChatUiDefaultConfigWriterForTest(null);
+});
+
 test("yes path does not mark prompted when config write fails", async () => {
   localStorage.clear();
   __setChatUiDefaultConfigWriterForTest(async () => {

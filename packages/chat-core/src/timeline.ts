@@ -11,6 +11,9 @@ export function mergeTimelineMessages<T extends NormalizedChatMessage>(
     ...pending.map((message, index) => ({ message, index: confirmed.length + index })),
   ]
     .sort((a, b) => {
+      const ao = a.message.clientOrder;
+      const bo = b.message.clientOrder;
+      if (ao != null && bo != null && ao !== bo) return ao - bo;
       const at = timestampMs(a.message.timestamp);
       const bt = timestampMs(b.message.timestamp);
       if (at != null && bt != null && at !== bt) return at - bt;

@@ -122,9 +122,10 @@ function applyChatMsgEvent(
   payload: ChatMsgEvent,
   paneId: string,
   setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
+  nextOrder: () => number,
 ): void {
   if (payload.pane_id !== paneId) return;
-  const incoming = payload.messages;
+  const incoming = withClientOrder(payload.messages, nextOrder);
   if (!incoming?.length) return;
   setStructured((prev) => mergeById(prev ?? [], incoming));
 }
@@ -132,13 +133,14 @@ function applyChatMsgEvent(
 function listenForTestChatReplies(
   paneId: string,
   setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
+  nextOrder: () => number,
 ): (() => void) | null {
   if (!isCodeTermFrontendTestMode() || typeof window === "undefined") return null;
   installCodeTermTestChatHandle();
   const handler = (event: Event) => {
     const detail = (event as CustomEvent<TestChatReplyDetail>).detail;
     if (!detail || detail.paneId !== paneId) return;
-    applyChatMsgEvent(testChatReplyPayload(detail), paneId, setStructured);
+    applyChatMsgEvent(testChatReplyPayload(detail), paneId, setStructured, nextOrder);
   };
   window.addEventListener(TEST_CHAT_REPLY_EVENT, handler);
   return () => window.removeEventListener(TEST_CHAT_REPLY_EVENT, handler);
@@ -146,6 +148,12 @@ function listenForTestChatReplies(
 
 function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
   return msgs.map((m) => ({ id: m.id, content: m.content, sentAtMs: Number(m.timestamp) || 0 }));
+}
+
+function withClientOrder(messages: ChatMessage[], nextOrder: () => number): ChatMessage[] {
+  return messages.map((message) => (
+    message.clientOrder == null ? { ...message, clientOrder: nextOrder() } : message
+  ));
 }
 
 // Mirrors chat-core/time.ts: scale Unix-seconds stamps (codex floors to
@@ -179,6 +187,12 @@ export function useChatSession({
   const [error, setError] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const onErrorRef = useRef(onError);
+  const nextClientOrderRef = useRef(0);
+  const nextClientOrder = useCallback(() => {
+    const value = nextClientOrderRef.current;
+    nextClientOrderRef.current += 1;
+    return value;
+  }, []);
 
   useEffect(() => {
     onErrorRef.current = onError;
@@ -195,14 +209,15 @@ export function useChatSession({
         setError(null);
         setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
         setLoading(false);
-        unlistenTest = listenForTestChatReplies(paneId, setStructured);
+        nextClientOrderRef.current = 0;
+        unlistenTest = listenForTestChatReplies(paneId, setStructured, nextClientOrder);
         if (res.pending) return;
-        setStructured(res.messages ?? []);
+        setStructured(withClientOrder(res.messages ?? [], nextClientOrder));
         unlisten = await listen<ChatMsgEvent>(
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (cancelled) return;
-            applyChatMsgEvent(ev.payload, paneId, setStructured);
+            applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder);
           },
         );
       } catch (e) {
@@ -219,7 +234,7 @@ export function useChatSession({
       unlistenTest?.();
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
-  }, [paneId, agentSessionId]);
+  }, [paneId, agentSessionId, nextClientOrder]);
 
   useEffect(() => {
     if (error?.includes("chat_send_raw")) setError(null);
@@ -304,10 +319,11 @@ export function useChatSession({
         type: "user",
         content,
         timestamp: String(Date.now()),
+        clientOrder: nextClientOrder(),
       },
     ]);
     return id;
-  }, []);
+  }, [nextClientOrder]);
 
   /** Replace an optimistic bubble's content in place — used to morph a
    * "transcribing…" placeholder into the final transcript (or an error)

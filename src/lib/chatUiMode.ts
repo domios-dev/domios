@@ -8,6 +8,7 @@ export const CHAT_UI_DEFAULT_PROMPT_EVENT = "codeterm-chat-ui-default-prompt";
 
 export type PaneUiMode = "terminal" | "chat";
 export type ChatUiDefaultPromptChoice = "yes" | "no";
+type ChatUiDefaultPromptResult = ChatUiDefaultPromptChoice | "unhandled";
 export type ChatUiDefaultPromptDetail = {
   handled: boolean;
   choose: (choice: ChatUiDefaultPromptChoice) => void;
@@ -113,7 +114,7 @@ export async function setDefaultNewAgentPaneToChat(enabled: boolean): Promise<vo
   markPrompted();
 }
 
-function askDefaultNewAgentPaneToChat(): Promise<ChatUiDefaultPromptChoice> {
+function askDefaultNewAgentPaneToChat(): Promise<ChatUiDefaultPromptResult> {
   return new Promise((resolve) => {
     const detail: ChatUiDefaultPromptDetail = {
       handled: false,
@@ -121,7 +122,7 @@ function askDefaultNewAgentPaneToChat(): Promise<ChatUiDefaultPromptChoice> {
     };
     window.dispatchEvent(new CustomEvent(CHAT_UI_DEFAULT_PROMPT_EVENT, { detail }));
     if (!detail.handled) {
-      resolve("no");
+      resolve("unhandled");
     }
   });
 }
@@ -133,6 +134,7 @@ export async function maybeAskDefaultNewAgentPaneToChat(): Promise<void> {
     return;
   }
   const choice = await askDefaultNewAgentPaneToChat();
+  if (choice === "unhandled") return;
   if (choice === "yes") {
     await setDefaultNewAgentPaneToChat(true);
   } else {

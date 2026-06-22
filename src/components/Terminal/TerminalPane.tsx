@@ -112,6 +112,7 @@ export const TerminalPane = memo(function TerminalPane({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
+  const wasTerminalVisibleRef = useRef(terminalVisible);
   const terminalOwnsLivePty = !IS_WEB || terminalVisible;
   const resizeClientId = useMemo(() => getResizeClientId(), []);
   const claimTerminalOwnership = useCallback((force = false) => {
@@ -289,13 +290,18 @@ export const TerminalPane = memo(function TerminalPane({
 
   // Refit xterm when the terminal layout changes so rows match the actual terminal box.
   useEffect(() => {
-    if (!terminalVisible || !termReady) return;
+    const openingTerminal = terminalVisible && !wasTerminalVisibleRef.current;
+    if (!terminalVisible || !termReady) {
+      if (!terminalVisible) wasTerminalVisibleRef.current = false;
+      return;
+    }
     const raf = requestAnimationFrame(() => {
       const term = termRef.current;
       const fit = fitAddonRef.current;
       if (!term || !fit) return;
       try {
         fit.fit();
+        if (openingTerminal) term.scrollToBottom();
         term.refresh(0, term.rows - 1);
         const ptyId = connectedPtyRef.current;
         if (ptyId && term.cols > 0 && term.rows > 0) {
@@ -310,35 +316,10 @@ export const TerminalPane = memo(function TerminalPane({
         }
       } catch { /* ignore */ }
       termRef.current?.focus();
+      wasTerminalVisibleRef.current = terminalVisible;
     });
     return () => cancelAnimationFrame(raf);
   }, [terminalVisible, showTerminalKeyBar, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
-
-  useEffect(() => {
-    if (!terminalFallbackOpen || !termReady) return;
-    const raf = requestAnimationFrame(() => {
-      const term = termRef.current;
-      const fit = fitAddonRef.current;
-      if (!term || !fit) return;
-      try {
-        fit.fit();
-        term.refresh(0, term.rows - 1);
-        const ptyId = connectedPtyRef.current;
-        if (ptyId && term.cols > 0 && term.rows > 0) {
-          void claimResizeOwner(paneId, ptyId, resizeClientId, term.cols, term.rows)
-            .then(() => invoke("resize_pty", {
-              ptyId,
-              cols: term.cols,
-              rows: term.rows,
-              clientId: resizeClientId,
-            }))
-            .catch(() => {});
-        }
-      } catch { /* ignore */ }
-      term.focus();
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [terminalFallbackOpen, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;
