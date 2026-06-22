@@ -226,9 +226,8 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     let options_block = looks_like_options_block(input.screen_lines);
     let ready_prompt_visible = !options_block && ready_prompt_glyph(input.screen_lines);
-    let stale_working_status_at_prompt = ready_prompt_visible
-        && input.byte_idle_ms >= WORKING_GRACE_MS
-        && input.semantic_idle_ms >= WORKING_GRACE_MS;
+    let stale_working_status_at_prompt =
+        ready_prompt_visible && input.semantic_idle_ms >= WORKING_GRACE_MS;
 
     // 2. Structurally active turn -> working. Do not treat raw PTY bytes as work:
     // composer redraws and bracketed-paste echoes are PTY output too.
