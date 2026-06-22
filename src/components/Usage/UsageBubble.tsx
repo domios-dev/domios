@@ -20,7 +20,9 @@ const ONE_HOUR_MS = 60 * 60 * 1000;
 const STALE_MS = 20 * 60 * 1000;
 
 export function UsageBubble({ provider, accountId = null, trackingEnabled = false }: UsageBubbleProps) {
-  const { snapshot, refresh, refetch } = useUsageSnapshot({ provider, accountId });
+  // Gate fetch+listener on tracking: a disabled pane must not invoke usage_latest
+  // nor register a usage-snapshot-updated listener (was a per-pane IPC fan-out).
+  const { snapshot, refresh, refetch } = useUsageSnapshot({ provider, accountId, enabled: trackingEnabled });
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [flipUp, setFlipUp] = useState(false);
