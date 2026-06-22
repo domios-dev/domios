@@ -134,6 +134,18 @@ const HTTP_MAP: Record<string, Mapper> = {
       `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/${enc(s(a, "tabId"))}/move`,
       a,
     ),
+  mux_reorder_tab: (a) =>
+    webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs/reorder`, {
+      ordered_tab_ids: a.orderedTabIds,
+    }),
+  mux_reorder_child: (a) =>
+    webJson("POST", `/api/panes/${enc(s(a, "parentPaneId"))}/children/reorder`, {
+      ordered_tab_ids: a.orderedTabIds,
+    }),
+  mux_reorder_workspace: (a) =>
+    webJson("POST", `/api/workspaces/reorder`, {
+      ordered_workspace_ids: a.orderedWorkspaceIds,
+    }),
   mux_set_focused_pane: (a) =>
     webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/focus`),
   mux_close_pane: (a) => webJson("POST", `/api/panes/${enc(s(a, "paneId"))}/close`),

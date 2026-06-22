@@ -327,6 +327,31 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "MOVE_TAB", tabId, fromWorkspaceId, toWorkspaceId });
   }, []);
 
+  const reorderTabs = useCallback(
+    (args: { workspaceId?: string; parentPaneId?: string; orderedTabIds: string[] }) => {
+      // Optimistic local order so the dragged item stays put until the
+      // authoritative SET_STATE (mux-state-changed) arrives.
+      dispatch({ type: "REORDER_TABS", orderedTabIds: args.orderedTabIds });
+      if (args.parentPaneId) {
+        invoke("mux_reorder_child", {
+          parentPaneId: args.parentPaneId,
+          orderedTabIds: args.orderedTabIds,
+        }).catch(() => {});
+      } else if (args.workspaceId) {
+        invoke("mux_reorder_tab", {
+          workspaceId: args.workspaceId,
+          orderedTabIds: args.orderedTabIds,
+        }).catch(() => {});
+      }
+    },
+    [],
+  );
+
+  const reorderWorkspaces = useCallback((orderedWorkspaceIds: string[]) => {
+    dispatch({ type: "REORDER_WORKSPACES", orderedWorkspaceIds });
+    invoke("mux_reorder_workspace", { orderedWorkspaceIds }).catch(() => {});
+  }, []);
+
   const spawnAgentTab = useCallback(async (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => {
     // Web UI delegates full agent spawn to the daemon (REST path, unchanged).
     if (IS_WEB) {
@@ -539,6 +564,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       closeWorkspace,
       renameWorkspace,
       moveTab,
+      reorderTabs,
+      reorderWorkspaces,
       createTab,
       closeTab,
       reopenClosed,
@@ -568,6 +595,8 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       closeWorkspace,
       renameWorkspace,
       moveTab,
+      reorderTabs,
+      reorderWorkspaces,
       createTab,
       closeTab,
       reopenClosed,
