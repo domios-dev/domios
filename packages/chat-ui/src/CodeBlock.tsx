@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import * as prismStyles from "react-syntax-highlighter/dist/esm/styles/prism";
+import { themeAwarePrismStyle } from "./syntaxTheme";
 import {
   ensureMermaidInitialized,
   ensureMermaidLoaded,
@@ -14,10 +14,6 @@ import {
   removeMermaidRenderArtifacts,
   setCachedMermaidRender,
 } from "./MermaidBlock";
-
-const vscDarkPlus =
-  ((prismStyles as { vscDarkPlus?: Record<string, React.CSSProperties> }).vscDarkPlus ??
-    (prismStyles as { default?: { vscDarkPlus?: Record<string, React.CSSProperties> } }).default?.vscDarkPlus);
 
 export const PRE_WRAP_CLASS = "whitespace-pre-wrap break-words [overflow-wrap:anywhere]";
 
@@ -235,7 +231,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
           )}
           <SyntaxHighlighter
             language={language}
-            style={vscDarkPlus}
+            style={themeAwarePrismStyle}
             PreTag="div"
             customStyle={{
               margin: 0,

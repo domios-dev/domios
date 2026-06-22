@@ -4,6 +4,7 @@ import { ExtensionsIcon } from "../Icons";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import { GlancePopover, type GlanceAnchor } from "../Extensions/GlancePopover";
 import { derivePinned, selectExtension, type TrayPluginData } from "./extensionsTrayLogic";
+import { UI_TRAY_BTN } from "../shared/design";
 
 type TrayPlugin = TrayPluginData;
 interface Snapshot {
@@ -64,8 +65,7 @@ export function ExtensionsTray({ onOpen }: { onOpen: () => void }) {
     [open],
   );
 
-  const iconBtn =
-    "flex items-center justify-center w-7 h-7 rounded-md transition-colors hover:bg-[var(--ct-hover)] text-[var(--ct-muted)] hover:text-[var(--ct-fg)]";
+  const iconBtn = UI_TRAY_BTN;
 
   const popover = glance && (
     <GlancePopover

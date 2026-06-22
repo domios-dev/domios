@@ -349,25 +349,8 @@ export interface NotificationConfig {
 }
 
 export interface KeybindingsConfig {
-  new_tab: string;
-  close_tab: string;
-  next_tab: string;
-  prev_tab: string;
-  close_pane: string;
-  focus_pane_left: string;
-  focus_pane_right: string;
-  focus_pane_up: string;
-  focus_pane_down: string;
-  new_workspace: string;
-  copy: string;
-  paste: string;
-  search: string;
-  zoom_in: string;
-  zoom_out: string;
-  zoom_reset: string;
-  open_settings: string;
-  /** Reopen the most-recently-closed tab in the active workspace. Optional so
-   *  configs predating this field don't break the keydown handler. */
+  /** Reopen the most-recently-closed tab in the active workspace — the sole
+   *  app-level keybinding. Everything else was removed deliberately. */
   reopen_tab?: string;
 }
 

@@ -82,12 +82,11 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
     <div
       ref={wrapRef}
       className="ct-usage"
-      style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+      style={{ position: "relative", display: "inline-flex" }}
     >
       <button
         ref={btnRef}
         type="button"
-        style={{ pointerEvents: "auto" }}
         className={bubbleClass}
         aria-label={`usage session ${formatPct(snapshot.session_pct)} weekly ${formatPct(snapshot.weekly_pct)}`}
         onClick={(e) => {

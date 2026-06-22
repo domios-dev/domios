@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Clock3, Paperclip, Terminal, X } from "lucide-react";
+import { Clock3, Paperclip, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
 import { invoke, listen } from "../../lib/bridge";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
@@ -90,9 +90,6 @@ function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void
 function ComposerBubbleRow({
   attachments,
   onRemove,
-  onToggleTerminalFallback,
-  terminalActive,
-  pendingPrompt,
   queuedCount,
   failedCount,
   onOpenDelayedQueue,
@@ -100,15 +97,12 @@ function ComposerBubbleRow({
 }: {
   attachments: string[];
   onRemove: (path: string) => void;
-  onToggleTerminalFallback?: () => void;
-  terminalActive: boolean;
-  pendingPrompt?: PendingPrompt | null;
   queuedCount: number;
   failedCount: number;
   onOpenDelayedQueue: () => void;
   modelBubble?: ReactNode;
 }) {
-  if (attachments.length === 0 && !onToggleTerminalFallback && queuedCount === 0 && failedCount === 0 && !modelBubble) return null;
+  if (attachments.length === 0 && queuedCount === 0 && failedCount === 0 && !modelBubble) return null;
   const visible = attachments.slice(0, 4);
   const overflow = attachments.length - visible.length;
   return (
@@ -117,42 +111,6 @@ function ComposerBubbleRow({
       className="mb-2 flex max-h-[3.6rem] flex-wrap items-center gap-1 overflow-visible"
     >
       {modelBubble}
-      {onToggleTerminalFallback && (
-        <button
-          type="button"
-          data-testid="terminal-fallback-bubble"
-          data-terminal-fallback-toggle="true"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onToggleTerminalFallback()}
-          className="inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
-          style={{
-            background: "var(--ct-bg-elev, var(--ct-surface, #161b22))",
-            borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
-            color: "var(--ct-muted-fg)",
-          }}
-          title="Toggle terminal fallback"
-        >
-          <Terminal size={12} />
-          <span>terminal</span>
-          {terminalActive && !pendingPrompt && (
-            <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{ background: "var(--ct-green, #3fb950)" }}
-            />
-          )}
-          {pendingPrompt && (
-            <span
-              className="ml-1 rounded px-1 py-0.5 text-[10px]"
-              style={{
-                background: "color-mix(in srgb, var(--ct-yellow, #d29922) 18%, transparent)",
-                color: "var(--ct-yellow, #d29922)",
-              }}
-            >
-              waiting
-            </span>
-          )}
-        </button>
-      )}
       {(queuedCount > 0 || failedCount > 0) && (
         <button
           type="button"
@@ -244,7 +202,6 @@ export function ChatComposer({
   paneProvider,
   currentPtyId,
   pendingPrompt,
-  terminalHasAttention,
   attachments,
   addAttachments,
   removeAttachment,
@@ -254,7 +211,6 @@ export function ChatComposer({
   updateOptimistic,
   showComposerError,
   onOpenTerminalFallback,
-  onToggleTerminalFallback,
   modelBubble,
   chatBackend = false,
   isActive = true,
@@ -270,7 +226,6 @@ export function ChatComposer({
    *  from stealing focus after an async send completes. */
   isActive?: boolean;
   pendingPrompt: PendingPrompt | null;
-  terminalHasAttention: boolean;
   attachments: string[];
   addAttachments: (paths: string[]) => void;
   removeAttachment: (path: string) => void;
@@ -280,7 +235,6 @@ export function ChatComposer({
   updateOptimistic: (id: string, content: string) => void;
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
-  onToggleTerminalFallback?: () => void;
   modelBubble?: ReactNode;
 }) {
   const isActiveRef = useRef(isActive);
@@ -761,9 +715,6 @@ export function ChatComposer({
       <ComposerBubbleRow
         attachments={attachments}
         onRemove={removeAttachment}
-        onToggleTerminalFallback={onToggleTerminalFallback}
-        terminalActive={terminalHasAttention}
-        pendingPrompt={pendingPrompt}
         queuedCount={queuedCount}
         failedCount={failedCount}
         modelBubble={modelBubble}

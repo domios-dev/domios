@@ -5,16 +5,12 @@ import { File, Image, Info, Mic, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
-import * as prismStyles from "react-syntax-highlighter/dist/esm/styles/prism";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
+import { themeAwarePrismStyle } from "./syntaxTheme";
 import { pickUiFontScaleValue } from "./uiFontScale";
 
 export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
-
-const vscDarkPlus =
-  ((prismStyles as { vscDarkPlus?: Record<string, React.CSSProperties> }).vscDarkPlus ??
-    (prismStyles as { default?: { vscDarkPlus?: Record<string, React.CSSProperties> } }).default?.vscDarkPlus);
 
 /** Above this many diff lines we skip per-token Prism highlighting and render
  *  plain (still colored +/- rows) — tokenizing a huge hunk is wasteful. */
@@ -223,15 +219,15 @@ function diffRowStyle(kind: DiffLineKind): React.CSSProperties {
   return {
     background:
       kind === "del"
-        ? "color-mix(in srgb, var(--ct-red, #f85149) 14%, transparent)"
-        : "color-mix(in srgb, var(--ct-green, #3fb950) 14%, transparent)",
+        ? "var(--ct-diff-del-bg, color-mix(in srgb, var(--ct-red, #f85149) 12%, var(--ct-bg, transparent)))"
+        : "var(--ct-diff-add-bg, color-mix(in srgb, var(--ct-green, #3fb950) 12%, var(--ct-bg, transparent)))",
     color: "var(--ct-fg)",
   };
 }
 
 function diffGutter(kind: DiffLineKind) {
   return (
-    <span style={{ color: kind === "del" ? "var(--ct-red, #f85149)" : "var(--ct-green, #3fb950)" }}>
+    <span style={{ color: kind === "del" ? "var(--ct-diff-del-fg, var(--ct-red, #f85149))" : "var(--ct-diff-add-fg, var(--ct-green, #3fb950))" }}>
       {kind === "del" ? "- " : "+ "}
     </span>
   );
@@ -270,7 +266,7 @@ export const DiffView = React.memo(function DiffView({
       {highlight ? (
         <SyntaxHighlighter
           language={language}
-          style={vscDarkPlus}
+          style={themeAwarePrismStyle}
           PreTag="div"
           CodeTag="div"
           customStyle={{

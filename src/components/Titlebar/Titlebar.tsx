@@ -6,9 +6,10 @@ import logoUrl from "../../assets/logo.png";
 
 import { isMac } from "../../lib/keybindings";
 import { UI_BUTTON } from "../shared/design";
-import { UpdateBadge } from "../UpdateBadge";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
+import { SettingsMenu } from "./SettingsMenu";
+import type { SectionId } from "../Settings/sections";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -16,6 +17,7 @@ interface TitlebarProps {
   theme: ThemeConfig;
   onOpenSettingsAbout?: () => void;
   onOpenExtensions?: () => void;
+  onOpenSettings?: (section?: SectionId) => void;
 }
 
 export function Titlebar({
@@ -23,6 +25,7 @@ export function Titlebar({
   theme: _theme,
   onOpenSettingsAbout,
   onOpenExtensions,
+  onOpenSettings,
 }: TitlebarProps) {
   void _theme;
   void _onToggleSidebar;
@@ -69,10 +72,15 @@ export function Titlebar({
 
       <div className="flex-1" data-tauri-drag-region />
 
-      <div className="flex items-center h-full gap-1">
-        <UpdateBadge />
+      <div className="flex items-center h-full gap-1 pr-1.5">
         {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
         <KeepAwakeTray />
+        {onOpenSettings && (
+          <>
+            <span className="w-px h-4 mx-0.5 bg-[var(--ct-border-subtle,rgba(255,255,255,0.12))]" />
+            <SettingsMenu onOpenSection={onOpenSettings} />
+          </>
+        )}
       </div>
 
       {/* Windows/Linux: controls on the right */}

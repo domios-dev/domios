@@ -1,6 +1,8 @@
 import { TerminalPane } from "./TerminalPane";
 import { PaneSessionChat } from "./PaneSessionChat";
+import { PaneTopBar } from "./PaneTopBar";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type {
   ApiConfig,
   Pane,
@@ -8,8 +10,6 @@ import type {
   FontConfig,
   TerminalConfigSettings,
 } from "../../lib/types";
-import { UsageBubble } from "../Usage/UsageBubble";
-import { PluginBubbles } from "../Extensions/PluginBubbles";
 
 interface TabContentProps {
   pane: Pane | undefined;
@@ -37,51 +37,51 @@ export function TabContent({
   workspaceCwd,
   uiFontScale,
 }: TabContentProps) {
+  const descriptor = useAgentDescriptor(pane?.agent_type);
+
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
 
-  // A chatBackend pane has no PTY — render the chat UI directly and never mount
-  // TerminalPane, so its xterm/usePtyConnection hooks never run (Appendix B1.1#6).
-  if (pane.backing?.kind === "chat_backend") {
-    return (
-      <PaneWrapper paneId={pane.id}>
-        <div className="relative w-full h-full" style={{ background: theme.background }}>
-          <PaneSessionChat paneId={pane.id} chatBackend uiFontScale={uiFontScale} />
-        </div>
-        <PluginBubbles cwd={pane.cwd ?? workspaceCwd ?? null} paneId={pane.id} />
-      </PaneWrapper>
-    );
-  }
-
-  const usageProvider = pane.agent_type ?? null;
+  const isChatBackend = pane.backing?.kind === "chat_backend";
+  // The switch only applies to PTY agent panes that can render both surfaces;
+  // chatBackend panes are chat-only (no terminal), so they get pills but no switch.
+  const showSwitch = !isChatBackend && descriptor?.supports_chat_ui === true;
+  const usageProvider = !isChatBackend ? (pane.agent_type ?? null) : null;
   const usageVisible = !!usageProvider && usageEnabledByProvider?.[usageProvider] === true;
+  const cwd = pane.cwd ?? workspaceCwd ?? null;
+
+  const body = isChatBackend ? (
+    <PaneSessionChat paneId={pane.id} chatBackend uiFontScale={uiFontScale} />
+  ) : (
+    <TerminalPane
+      key={pane.id}
+      paneId={pane.id}
+      ptyId={pane.pty_id}
+      isFocused={isFocused}
+      hasSplits={false}
+      onFocus={onFocusPane}
+      onPtySpawned={onPtySpawned}
+      theme={theme}
+      fontConfig={fontConfig}
+      terminalConfig={terminalConfig}
+      uiFontScale={uiFontScale}
+    />
+  );
 
   return (
     <PaneWrapper paneId={pane.id}>
-      <div className="relative w-full h-full" style={{ background: theme.background }}>
-        <TerminalPane
-          key={pane.id}
+      <div className="flex h-full w-full flex-col">
+        <PaneTopBar
           paneId={pane.id}
-          ptyId={pane.pty_id}
-          isFocused={isFocused}
-          hasSplits={false}
-          onFocus={onFocusPane}
-          onPtySpawned={onPtySpawned}
-          theme={theme}
-          fontConfig={fontConfig}
-          terminalConfig={terminalConfig}
-          uiFontScale={uiFontScale}
+          cwd={cwd}
+          showSwitch={showSwitch}
+          usageProvider={usageProvider}
+          usageVisible={usageVisible}
         />
+        <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
+          {body}
+        </div>
       </div>
-      {/* Tab chrome, not focus chrome — the tab is only visible when active. */}
-      {usageProvider && (
-        <UsageBubble
-          provider={usageProvider}
-          trackingEnabled={usageVisible}
-        />
-      )}
-      {/* Plugin-contributed status pills (Git, …) — next to the usage stats. */}
-      <PluginBubbles cwd={pane.cwd ?? workspaceCwd ?? null} paneId={pane.id} />
     </PaneWrapper>
   );
 }

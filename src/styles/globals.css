@@ -585,6 +585,27 @@ button,
   -webkit-backdrop-filter: blur(var(--ct-blur-overlay));
 }
 
+/* Top-right anchored menu pop — scales out of the trigger corner */
+.ct-menu-pop {
+  transform-origin: top right;
+  animation: ct-menu-pop 160ms var(--ct-ease-out-expo) both;
+}
+@keyframes ct-menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-menu-pop {
+    animation: none;
+  }
+}
+
 /* =========================================================================
    CRT / Pip-Boy effects — activated by .crt-mode on root container
    ========================================================================= */

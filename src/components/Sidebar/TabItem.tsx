@@ -4,7 +4,6 @@ import { X, Pencil, UserMinus, MessageSquare, SquareTerminal } from "lucide-reac
 import {
   emitPaneUiMode,
   isChatUiSupported,
-  maybeAskDefaultNewAgentPaneToChat,
   shouldDefaultNewAgentPaneToChat,
 } from "../../lib/chatUiMode";
 import { usePaneProvider, useShellSessionModel } from "../../lib/usePaneProvider";
@@ -137,7 +136,6 @@ function TabItemInner({
           setChatView(nextChatView);
           setClientPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
           emitPaneUiMode(pane.id, nextChatView ? "chat" : "terminal");
-          if (nextChatView) void maybeAskDefaultNewAgentPaneToChat();
         },
       });
     }
