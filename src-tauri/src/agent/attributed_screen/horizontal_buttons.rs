@@ -41,6 +41,8 @@ pub(super) fn detect_horizontal_button_row(
             options,
             selected_index: selected,
             multi_select: false,
+            top_row: row.row,
+            bottom_row: row.row,
         };
         if best.as_ref().is_none_or(|(prev, _)| score > *prev) {
             best = Some((score, detection));

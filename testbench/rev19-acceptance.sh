@@ -51,10 +51,20 @@ done < <(find testbench/replays -name raw.cast)
 echo "regen done -> $SCRATCH/regen"
 
 say "OFFLINE 1/3 — transition-latency --gate (expect GREEN, 0 safety-net)"
-python3 testbench/transition-latency.py "$SCRATCH/regen" --gate 2>&1 | tail -7 || true
+python3 testbench/transition-latency.py "$SCRATCH/regen" --gate >"$SCRATCH/transition-latency.log" 2>&1
+TRANSITION=$?
+tail -7 "$SCRATCH/transition-latency.log"
 say "OFFLINE 2/3 — strobe-metric (watch opencode question<->working)"
-python3 testbench/strobe-metric.py "$SCRATCH/regen" --glob '*.json' 2>&1 | tail -2 || true
+python3 testbench/strobe-metric.py "$SCRATCH/regen" --glob '*.json' --gate >"$SCRATCH/strobe-metric.log" 2>&1
+STROBE=$?
+tail -12 "$SCRATCH/strobe-metric.log"
 say "OFFLINE 3/3 — permission-guard-check (synthetic raw-grid; FAIL until classifier guard)"
-./testbench/permission-guard-check.sh 2>&1 | tail -3 || true
+./testbench/permission-guard-check.sh >"$SCRATCH/permission-guard.log" 2>&1
+PERMISSION=$?
+tail -5 "$SCRATCH/permission-guard.log"
 
 say "DONE — report before/after vs baselines: cli FAIL->PASS, rest PASS, structured state=question, stop non-vacuous, latency GREEN, permission per guard status"
+if [ "$TRANSITION" = 0 ] && [ "$STROBE" = 0 ] && [ "$PERMISSION" = 0 ]; then
+  exit 0
+fi
+exit 1
