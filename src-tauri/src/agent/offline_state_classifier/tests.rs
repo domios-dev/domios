@@ -204,6 +204,33 @@ fn claude_stale_status_above_ready_prompt_returns_idle_after_grace() {
 }
 
 #[test]
+fn claude_spinner_repaint_after_completion_does_not_flip_back_to_working() {
+    let screen = lines(&[
+        "  Final answer text.",
+        "",
+        "• Crunched for 7s",
+        "",
+        "✻ Evaporating… (7s · ↓ 165 tokens)",
+        "",
+        "────────────────────────────────────────────────────────",
+        "❯",
+        "────────────────────────────────────────────────────────",
+        "  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.byte_idle_ms = 250;
+    input.semantic_idle_ms = 2000;
+
+    let verdict = classify_state(&input, working());
+
+    assert_eq!(
+        verdict.state,
+        TimelineState::Idle,
+        "status-bar animation bytes must not resurrect Working after semantic idle"
+    );
+}
+
+#[test]
 fn claude_recent_status_near_ready_prompt_stays_working_during_grace() {
     let screen = lines(&[
         "  Generating the answer.",
