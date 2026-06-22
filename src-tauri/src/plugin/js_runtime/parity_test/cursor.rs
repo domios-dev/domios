@@ -196,6 +196,5 @@ fn cursor_stays_on_native_prompt_detector() {
     }
     // cursor's ACP structured channel is not reachable in interactive-PTY mode,
     // so cursor has no structured prompt handle — pickers come from the native
-    // attributed-grid detector. Documents the deliberate "no work" call.
     assert!(!cursor().supports_structured_prompts());
 }

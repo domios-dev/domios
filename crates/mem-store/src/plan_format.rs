@@ -163,7 +163,6 @@ fn iter_yaml_fences(md: &str) -> Vec<YamlFence> {
             } else if trimmed.is_empty() {
                 // Blank line ends rationale accumulation. Don't reset
                 // current_rationale yet — the fence about to open should still
-                // see it, but a fresh ### Cluster: will reset on its own.
             }
         } else if trimmed == "```" {
             fences.push(YamlFence {

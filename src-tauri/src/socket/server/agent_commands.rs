@@ -106,8 +106,6 @@ pub(super) fn dispatch(
 
     // C2 MINOR-2: a worker the plugin spawned (`spawned_by == plugin:<id>`) is
     // confined to the verbs the plugin declared via `host.agent.spawn(commands)`.
-    // A non-plugin caller (orchestrator agent, etc.) is gated by the plugin-level
-    // grant only.
     let sid = session_id(params);
     let scope = if sid.is_empty() {
         None

@@ -57,7 +57,6 @@ const plugin: PluginModule = {
 
   // Cheap incremental gate: a selector glyph, a keyboard footer, or a
   // trust/approval keyword means a prompt frame might be on screen → let the
-  // host read the full screen and run parsePrompt (the authoritative gate).
   hasEventMarkers(chunk: string): boolean {
     return chunkHasPromptSignal(String(chunk || ""));
   },
@@ -69,17 +68,12 @@ const plugin: PluginModule = {
 
   // Read cursor's alt-screen menu (permission / workspace-trust / model picker)
   // into {question, options}. Returns null on non-menu output so normal chat
-  // never surfaces a phantom card. The host navigates via buildPromptResponse.
   parsePrompt(text: string): ParsedPrompt | null {
     return parseCursorPrompt(String(text || ""));
   },
 
   // Cursor menus are vertical lists navigated with ↑/↓ + Enter. The highlight is
   // NOT the top row — the /model picker lands the → selector on the CURRENT model —
-  // so navigate RELATIVE to the live highlight (delta = target − current), not from
-  // the top. `screen` is the cleaned terminal text the host passes for this reason;
-  // absent it, fall back to top-start. Esc-cancel is the host's separate path.
-  // Base64 byte steps: down=ESC[B, up=ESC[A, enter=\r.
   buildPromptResponse(optionIndex: number, screen?: string): string[] {
     const DOWN = "G1tC"; // ESC [ B
     const UP = "G1tB"; // ESC [ A
@@ -165,9 +159,6 @@ const plugin: PluginModule = {
       if (!meta && !host.fs.fileExists(e.path + sep + "store.db")) continue;
       // Current cursor builds write only store.db (no meta.json), so meta
       // timestamps are absent. Fall back to the session dir's mtime — without a
-      // timestamp every session has ts=0, the maxAge window can't filter, and 2+
-      // sessions in a reused cwd make detection refuse (chat never binds). With
-      // mtime, only the just-spawned session falls inside maxAge.
       const ts = meta ? (meta.updatedAtMs || meta.createdAtMs || 0) : (e.modifiedMs || 0);
       if (maxAge && now && (!ts || (now - ts) > maxAge)) continue;
       candidates.push({ id: sid, ts: ts });
@@ -414,7 +405,6 @@ function projectsRoot(): string | null {
 
 // Cursor hashes the cwd in its OWN native separator (backslash on Windows). The host hands
 // plugins forward-slash paths, so on Windows we must restore backslashes before md5 — else the
-// hash misses cursor's dir and the session never binds (chat stays empty). No-op on Unix.
 function toNativeCwd(cwd: string): string {
   const s = String(cwd || "");
   return host.platform() === "windows" ? s.replace(/\//g, "\\") : s;
@@ -442,7 +432,6 @@ function cursorSlug(cwd: string): string {
 
 // ~/.cursor/projects/<slug>/agent-transcripts/<uuid>/<uuid>.jsonl. Prefer the slug
 // path, else scan project dirs for the unique uuid; returns the slug path even when
-// absent so the tailer can watch for it to appear.
 function cursorTranscriptPath(cwd: string, sessionId: string): string | null {
   if (!sessionId) return null;
   const root = projectsRoot();
@@ -536,7 +525,6 @@ function cleanPromptLine(line: string): string {
 
 // Quick chunk-level signal that a prompt frame may be present (gates the
 // expensive full-screen parse). Liberal by design — parseCursorPrompt is the
-// real gate, so a false hit only costs one cheap parse that returns null.
 function chunkHasPromptSignal(chunk: string): boolean {
   for (let i = 0; i < PROMPT_SELECTORS.length; i++) {
     if (chunk.indexOf(PROMPT_SELECTORS[i]) !== -1) return true;
@@ -571,15 +559,12 @@ function findPromptQuestion(lines: string[], firstIdx: number): string {
 
 // Numbered menus (trust gate, command approval) parse via the host's universal
 // shape; the /model picker is a non-numbered list cursor draws instead → try that
-// fallback so both layouts surface a card.
 function parseCursorPrompt(text: string): ParsedPrompt | null {
   return parseCursorNumberedMenu(text) || parseCursorListMenu(text);
 }
 
 // Parse the active vertical menu near the bottom of cursor's screen. Mirrors the
 // host's universal numbered-picker shape (so numbered menus never regress) and
-// requires a selector glyph or keyboard footer near the options so a plain
-// numbered list in prose is not mistaken for a prompt.
 interface NumberedCluster { question: string; cluster: { value: string; label: string; idx: number; sel: boolean }[] }
 function collectCursorNumberedMenu(text: string): NumberedCluster | null {
   const lines = String(text || "").split("\n").map(cleanPromptLine);
@@ -634,9 +619,6 @@ function parseCursorNumberedMenu(text: string): ParsedPrompt | null {
 
 // Cursor's /model picker is a NON-numbered vertical list: a selector glyph (→)
 // marks the highlight, labels carry trailing metadata after a 2-space gap, and a
-// "Type to filter • Enter to select" footer gates it. The host's numbered reader
-// can't see it. Works on RAW lines (no whitespace collapse) so the 2-space gap that
-// separates a label from its metadata survives. Footer-gated, so prose never cards.
 interface ListMenu { question: string; rows: { label: string; sel: boolean }[] }
 function collectCursorListMenu(text: string): ListMenu | null {
   const raw = String(text || "").split("\n");
@@ -689,8 +671,6 @@ function parseCursorListMenu(text: string): ParsedPrompt | null {
 
 // 0-based screen-order index of the highlighted (→) row in the active menu, or
 // -1 when none is detectable. Mirrors parseCursorPrompt's numbered-then-list
-// precedence so the index lines up with the option ordering the card received —
-// buildPromptResponse navigates relative to it instead of assuming a top start.
 function cursorHighlightIndex(text: string): number {
   const n = collectCursorNumberedMenu(text);
   if (n) return n.cluster.findIndex((o) => o.sel);

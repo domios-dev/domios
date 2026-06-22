@@ -88,9 +88,6 @@ function msg(id: string, opts: Partial<M> = {}): M {
 
 // ── codex REAL rollout pairs (ms-precision ISO, user precedes its assistant by
 //    1.5–3.8s, plus a same-second context-injection user). Verbatim timestamps
-//    mined from a live rollout (round 7). Fed shuffled to prove the SORT (not
-//    arrival) keeps user-before-assistant — the ChatUI "assistant above user"
-//    report is NOT a comparator bug at the data layer.
 {
   const incoming = [
     msg("ctx", { type: "user", timestamp: "2026-06-21T08:35:53.795Z", seq: 0 }),

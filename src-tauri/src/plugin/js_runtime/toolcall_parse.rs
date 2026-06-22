@@ -760,7 +760,6 @@ mod tests {
     fn gemma_premature_close_with_dangling_pane_repairs() {
         // The live Gemma-26B failure: inner string closed one quote early, leaving
         // `--pane 70d3bacd` dangling before the close. The disciplined repair
-        // absorbs the dangling run back into the string and re-validates.
         let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" --pane 70d3bacd}}";
         let out = out_value(raw);
         // Per spec: either a correct repair OR an honest malformed — never a
@@ -778,7 +777,6 @@ mod tests {
     fn unparseable_tool_block_is_malformed_not_silent() {
         // Tool-call-shaped (`"tool"` + `"args"`) but JSON cannot be recovered
         // (unterminated string). Must signal malformed so the caller retries,
-        // instead of the legacy silent null.
         let raw = "{\"tool\":\"exec\",\"args\":{\"cmd\":\"ls";
         let out = out_value(raw);
         assert_eq!(out["status"], "malformed", "expected malformed for {raw:?}");
@@ -796,7 +794,6 @@ mod tests {
     fn ambiguous_repair_never_fabricates_a_command() {
         // Dangling run after the premature close itself contains a quote: the
         // repair is ambiguous, so we refuse it. Result must NOT be `ok` (a
-        // mis-repaired send to the wrong pane is worse than an honest fail).
         let raw = "{\"tool\":\"codeterm\",\"args\":{\"args\":\"send \\\"hi\\\"\" \"--pane\" 70d3}}";
         let out = out_value(raw);
         assert_ne!(out["status"], "ok", "must not guess a command: {raw:?}");

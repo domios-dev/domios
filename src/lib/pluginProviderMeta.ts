@@ -2,11 +2,6 @@ import type { ModelInfo } from "./types";
 
 // Per-plugin identity sourced from `plugin_manager_snapshot` (CB-P1 exposes
 // icon/display-name/models per plugin). Shell panes have no `agent_type`, so the
-// pane resolver looks identity up here by `backing.plugin_id` instead.
-//
-// React-free store (mirrors agentDescriptorCache) so the resolver and its unit
-// tests can read it without pulling in React. The hook lives in
-// `usePaneProvider.ts`.
 export interface PluginProviderMeta {
   id: string;
   displayName: string;

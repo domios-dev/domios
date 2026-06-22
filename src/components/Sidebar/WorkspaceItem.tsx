@@ -219,7 +219,6 @@ function WorkspaceItemInner({
 
 // Workspace objects are new references after every SET_STATE. Compare by value
 // for display-relevant fields so a pane-status tick on a different workspace
-// does not re-render this component.
 function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps): boolean {
   return (
     prev.isActive === next.isActive &&

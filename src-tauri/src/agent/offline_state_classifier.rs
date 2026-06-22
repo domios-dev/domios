@@ -230,12 +230,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         ready_prompt_visible && input.semantic_idle_ms >= WORKING_GRACE_MS;
 
     // 2. Structurally active turn -> working. Do not treat raw PTY bytes as work:
-    // composer redraws and bracketed-paste echoes are PTY output too.
-    // NOTE: the `motion` arm is currently DEAD — both callers (live `recompute_
-    // agent_state` and offline `classify_signals`) pass `Motion::Still` so replay
-    // and live agree (live cannot compute motion). Retained, explicitly gated, for
-    // a future motion-aware caller; today working is decided purely by the status
-    // widget / active-turn footer, which covers the corpus (verified byte-identical).
     if !stale_working_status_at_prompt
         && (extract_status_line(input.screen_lines).is_some()
             || active_turn_footer(input.screen_lines)
@@ -249,7 +243,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     // Working-grace BEFORE PTY-only questions and idle fast-paths: both terminal
     // menu parsing and prompt glyphs can false-fire on a single repaint frame.
-    // Structured prompts already returned above and remain immediate.
     if previous.state == TimelineState::Working && input.semantic_idle_ms < WORKING_GRACE_MS {
         return PaneVerdict {
             state: TimelineState::Working,
@@ -275,9 +268,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
     }
 
     // A horizontal/vertical options block at the bottom (e.g. `❯ Yes  No  Always`)
-    // is a (possibly uncaught) question surface, NOT a composer — it must not be
-    // read as Idle by either the glyph fast-path or composer_ready below. Computed
-    // once; vetoes both idle paths so a real PTY question is never masked as Idle.
     if ready_prompt_visible {
         return PaneVerdict {
             state: TimelineState::Idle,
@@ -287,8 +277,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     // Weaker structural idle: a visible cursor parked in the bottom input region
     // (full-screen OR primary-screen TUI composer with no glyph, e.g. opencode).
-    // Gated AFTER grace and vetoed when the bottom looks like an (uncaught) options
-    // block, so it can neither pre-empt working-grace nor mask a real PTY question.
     if input.composer_ready && !options_block {
         return PaneVerdict {
             state: TimelineState::Idle,
@@ -298,11 +286,6 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
 
     // Safety net against "stuck Working": reaching here means none of the active
     // signals fired (no status widget, no active-turn footer, no motion, no
-    // picker/question, no recognized ready-prompt). A Working pane that has gone
-    // fully silent on BOTH clocks past the stuck threshold is not working — never
-    // inherit Working indefinitely just because the composer glyph was not matched.
-    // Requiring byte-silence too means an animating spinner (volatile, byte_idle≈0)
-    // never trips this.
     if previous.state == TimelineState::Working
         && input.byte_idle_ms >= STUCK_WORKING_IDLE_MS
         && input.semantic_idle_ms >= STUCK_WORKING_IDLE_MS
@@ -426,12 +409,6 @@ pub fn classify_signals(
 ) -> PaneVerdict {
     // Fidelity gate: live `recompute_agent_state` takes its picker question ONLY
     // from a STRUCTURED handle (output.rs hard-restriction) — never from native
-    // grid parsing. Offline has no SSE stream, so `detect_picker` is the stand-in,
-    // but it must fire ONLY while the picker is structurally ACTIVE (`picker_active`
-    // is a narrow hidden-cursor/still-screen signal, not alt-screen alone).
-    // Otherwise a picker's options
-    // left rendered in the transcript after it was answered (e.g. cursor's inline
-    // "AskQuestion" poll) keep matching the grid and strand the pane in Question.
     let attributed = extractor.attributed_screen();
     let active_working_chrome = extract_status_line(&signals.screen.lines).is_some()
         || active_turn_footer(&signals.screen.lines);
@@ -450,10 +427,6 @@ pub fn classify_signals(
             semantic_idle_ms: signals.quiescence.semantic_idle_ms,
             // Parity with the live path, which cannot compute motion and always
             // passes `Still`: feeding the replay's real motion here would let the
-            // oracle reach Working via a signal the live classifier never sees.
-            // Verified redundant — status_line / active_turn_footer / composer_ready
-            // cover every working frame in the corpus, so forcing `Still` leaves all
-            // replay verdicts byte-identical while keeping replay==live.
             motion: Motion::Still,
             cursor_hidden: signals.input_mode.cursor_hidden,
             composer_ready: composer_cursor_ready(
@@ -498,10 +471,6 @@ pub fn classify_terminal_menu_question(
     }
     // A confirm-style key-hint footer (enter + esc + a nav/choose hint) is a strong
     // active-choice signal on its own, so options + that footer classify Question
-    // EVEN WITH A VISIBLE CURSOR — otherwise a permission/choice box with a visible
-    // cursor would be false-idled by composer_ready (which runs later). Without that
-    // footer we still require the hidden-cursor interactive-mode signal to avoid
-    // turning plain numbered prose into a question.
     let confirm_footer = confirm_style_footer(screen_lines);
     let has_options = numbered >= 2 || checkbox >= 2;
     if has_options && confirm_footer {
@@ -598,8 +567,6 @@ fn classify_question_subtype(_tail: &str, question: &str) -> QuestionSubtype {
     let question_text = question.to_lowercase();
     // Subtype is keyed ONLY off the picker's QUESTION (never the tail): a structured
     // picker's tail often carries unrelated output ("failed", "error", "permissions:")
-    // that would mislabel it. A picker is one of model_choice/model_picker/permission/
-    // auth — never rate_limit/update/error (those are text-question states, not pickers).
     if contains_any(
         &question_text,
         &[
@@ -649,9 +616,6 @@ fn classify_question_subtype(_tail: &str, question: &str) -> QuestionSubtype {
 fn classify_text_question(screen_lines: &[String]) -> Option<QuestionSubtype> {
     // HARD RESTRICTION: only the two console question states we are confident about,
     // with STRICT notice/prompt phrasings that do not occur in ordinary agent output.
-    // Everything else (model / permission / error / update / generic) is NEVER inferred
-    // from raw console text — those come only from structured handles (API/SSE), or not
-    // at all. This is gated by the caller to run ONLY when the pane is quiescent.
     let text = screen_lines.join("\n").to_lowercase();
     if contains_any(
         &text,
@@ -700,7 +664,6 @@ fn ready_prompt_glyph(screen_lines: &[String]) -> bool {
 fn ready_prompt_glyph_row(screen_lines: &[String]) -> Option<u16> {
     // Last 4 NON-EMPTY rows: a full-height grid leaves blank padding rows below
     // the composer, so counting raw rows would push the prompt glyph out of the
-    // window and strand the pane in its previous (often Working) verdict.
     screen_lines
         .iter()
         .enumerate()
@@ -710,9 +673,6 @@ fn ready_prompt_glyph_row(screen_lines: &[String]) -> Option<u16> {
         .find_map(|(idx, line)| {
             let line = line.trim();
             // Input-prompt glyphs: ❯/› (claude/codex), → (cursor's composer arrow).
-            // Structural input indicators, not prose. ready_prompt only runs when
-            // not actively working (guarded above), so cursor's working footer
-            // `→ … ctrl+c to stop` is caught by active_turn_footer first.
             (line.starts_with('❯') || line.starts_with('›') || line.starts_with('→'))
                 .then_some(idx as u16)
         })

@@ -38,7 +38,6 @@ fn find_duplicate_relations_groups_by_exact_key() {
 fn find_duplicate_relations_members_expose_per_rowid_predicate() {
     // Parallel edges: same node-pair, different predicates (about + applies_to +
     // runs_on). Grouping by node-pair must surface each member's relation_type so
-    // a caller can collapse synonyms (about/applies_to) yet keep the distinct one.
     let conn = fresh_conn();
     insert_relation(
         &conn,

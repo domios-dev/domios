@@ -59,7 +59,6 @@ fn ignores_terminal_choice_shape_when_cursor_is_visible() {
 
 // Permission/choice box with a VISIBLE cursor + a confirm-style key-hint footer
 // (`… Enter to confirm, Esc to cancel`) must be Question — not false-idled by
-// composer_ready. Mirrors synthetic permission_box_visible_cursor_v1.
 #[test]
 fn permission_box_with_visible_cursor_and_confirm_footer_is_question() {
     let screen = lines(&[
@@ -141,11 +140,6 @@ fn quiescent_input(screen: &[String]) -> ClassifyInput<'_> {
 }
 
 // The codex idle composer: a `›` prompt line followed by the model/cwd footer.
-// ready_prompt must recognize it as idle even when the TUI leaves blank
-// padding rows below the footer (real grids are full-height with trailing
-// blanks). Regression: `.rev().take(4)` over raw rows let >=2 trailing blanks
-// push the `›` line out of the window, so a previously-Working pane stuck
-// Working forever.
 #[test]
 fn idle_composer_with_trailing_blank_padding_returns_idle() {
     let screen = lines(&[
@@ -166,7 +160,6 @@ fn idle_composer_with_trailing_blank_padding_returns_idle() {
 
 // Safety net: even when no provider-specific ready-prompt glyph is on screen,
 // a long-quiescent pane with no active-work evidence (no status widget, no
-// active-turn footer, no motion) must not stay Working indefinitely.
 #[test]
 fn long_quiescent_unknown_layout_does_not_stay_working_forever() {
     let screen = lines(&["some completed assistant output", "with no composer glyph"]);
@@ -413,7 +406,6 @@ fn options_block_horizontal_only_not_vertical_or_idle_box() {
     ])));
     // Vertical numbered menu is NOT vetoed here (handled by
     // classify_terminal_menu_question when active; answered ones sit above the
-    // composer and must still resolve Idle).
     assert!(!super::looks_like_options_block(&lines(&[
         "┃ 1. Alpha",
         "┃ 2. Beta",
@@ -433,15 +425,6 @@ fn options_block_horizontal_only_not_vertical_or_idle_box() {
 }
 
 // ── active_turn_footer copy-fragility gate ──────────────────────────────────
-// `active_turn_footer` intentionally keys off the literal interrupt-affordance
-// copy ("esc to interrupt" / "ctrl+c to stop"). That copy is the load-bearing
-// SEMANTIC signal — the interrupt hint is the only thing the TUI shows *only
-// while a turn is active*; the surrounding structural shapes (⏵⏵ marker,
-// progress meter, elapsed timer) ALSO appear on idle/completed screens, so they
-// cannot disambiguate active-vs-idle on their own. These tests pin both halves:
-// the literal must still fire on real active footers, and the structural shapes
-// must NOT fire without it. If a vendor renames the hint, this gate goes red
-// (loud) instead of the classifier silently mis-reading "working" vs "done".
 
 #[test]
 fn active_turn_footer_fires_on_real_active_footers() {

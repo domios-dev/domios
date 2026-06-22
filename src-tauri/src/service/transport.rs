@@ -99,10 +99,6 @@ impl AgentTransport for PtyTransport {
         .unwrap_or_default();
         // Desktop/CLI spawn path: allocate + register + subscribe the structured-
         // prompt server via the SAME shared chokepoint the REST `spawn_agent` uses,
-        // so a capability provider (opencode) gets server-mode out of the box here
-        // too. Capability-gated inside the helper; None for providers that don't
-        // need it. cwd is read from the pane (set before launch) for the SSE
-        // `directory` query; brief read lock, no other lock held here.
         let cwd = svc
             .mux
             .read()

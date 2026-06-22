@@ -60,14 +60,10 @@ pub async fn create_shell_pane(
     use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
     // P1: a chatBackend pane is the production entry point for plugin-driven
     // chat. Build PaneCommand::ChatBackend so spawn routes through
-    // spawn_chatbackend_impl (no PTY, plugin session, poll loop); otherwise a
-    // plain shell pane.
     let command = match body.chat_backend {
         Some(plugin_id) => {
             // Validate the id BEFORE building the pane. The old path accepted any
             // string and 200'd even for unknown / non-spawnable backends; the async
-            // openSession then closed the freshly-opened tab. Mirror
-            // /api/agents/spawn and reject up-front with 400.
             validate_chat_backend_spawn(&state.svc.provider_registry, &plugin_id)
                 .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
             let mut config = body.config.unwrap_or(serde_json::Value::Null);
@@ -194,9 +190,6 @@ pub async fn stop_pane(
     }
     // Real interrupt key. No built-in provider declares `stop_keystroke()` (trait
     // default is None), so without a fallback the REST/CLI stop would send NOTHING
-    // and the agent keeps generating — the state flip alone is a 1500ms illusion.
-    // Fall back to ESC, mirroring the UI `interrupt_agent` path (which sends "\x1b"
-    // for every provider); a JS drop-in may override via manifest `stop_key`.
     let key: String = state
         .svc
         .agent_registry
@@ -205,8 +198,6 @@ pub async fn stop_pane(
         .unwrap_or_else(|| "\x1b".to_string());
     // Stop/Cancel is a user intent to halt: force Idle + clear any pending question
     // immediately (with the suppression window). write_raw bypasses the manual-Esc
-    // interrupt hook, so do it explicitly here — invariant: Stop must force Idle and
-    // clear the pending prompt for ALL providers.
     if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_pane_id) {
         state.svc.mark_agent_interrupted(&pty_id);
     }
@@ -464,7 +455,6 @@ pub async fn stream_pane_output(
     check_auth(&state, &headers)?;
     // A chatBackend pane has no PTY output buffer — it streams transcript via the
     // `pane-chat-msg-{id}` Tauri event (StructuredSink), not this SSE. Keep the
-    // connection alive but emit nothing rather than erroring "no PTY" (B1.2 [T]).
     let chat = state.svc.pane_chat_backing(&raw_pane_id).is_some();
     let pty_id = if chat {
         String::new()

@@ -249,8 +249,6 @@ impl JsProvider {
         let leaf = match cfg.cwd_encoding {
             // Agents (e.g. claude) canonicalize the cwd before encoding the
             // project dir — on macOS `/var/...` resolves to `/private/var/...`,
-            // so a raw cwd would encode to a dir that doesn't exist. Match it
-            // (verbatim-prefix stripped on Windows, see `canonical_cwd`).
             super::CwdEncoding::DashEncoded => encode_cwd_dashed(&crate::paths::canonical_cwd(cwd)),
             super::CwdEncoding::None => cwd.to_string(),
         };
@@ -472,9 +470,6 @@ impl AgentProvider for JsProvider {
     ) -> Option<String> {
         // Plugin can do its own detection (sqlite, filename heuristics, whatever its provider needs). Falls back to the generic dir walk driven by
         // manifest.sessions.* when the plugin doesn't implement `detectSessionId`.
-        // None means "default recency window" (300s, same as native providers) —
-        // never 0/unlimited: plugins treat 0 as "no cutoff", which let any stale
-        // rollout in the cwd win the latch.
         let max_age_ms = max_age.map(|d| d.as_millis() as i64).unwrap_or(300_000);
         if let Some(v) = self.try_call::<Option<String>>(
             "detectSessionId",
@@ -518,10 +513,6 @@ impl AgentProvider for JsProvider {
         }
         // Identity-bound, never "newest-for-cwd" (capability rule #3): mirror
         // Claude's native guard. When 2+ recent sessions are viable candidates
-        // (none pinned by the exclude list), refuse — handing the pane the
-        // newest would bind it to a SIBLING's session. The exclude list
-        // collapses the set as siblings get bound, so the last unclaimed
-        // session still resolves cleanly.
         match candidates.as_slice() {
             [(id, _)] => Some(id.clone()),
             _ => None,
@@ -631,8 +622,6 @@ impl AgentProvider for JsProvider {
         }
         // The sandboxed JS encodes the cwd but can't touch the FS, so canonicalize
         // here first — same as `sessions_dir`. Without this the tailer watches a
-        // symlink alias dir (e.g. `/tmp`) while the agent writes to the resolved
-        // one (`/private/tmp`), so live deltas never fire. (#163)
         let resolved = match self.manifest.sessions.as_ref().map(|s| s.cwd_encoding) {
             Some(super::CwdEncoding::DashEncoded) => crate::paths::canonical_cwd(cwd),
             _ => cwd.to_string(),

@@ -454,9 +454,6 @@ fn build_resume_command_dispatches_to_js_with_two_args() {
 fn generic_detect_session_id_refuses_to_guess_when_ambiguous() {
     // Capability rule #3: the generic manifest-driven fallback (no JS
     // detectSessionId) must mirror Claude's native guard — when 2+ recent
-    // sessions are viable candidates for the cwd, return None instead of
-    // handing the pane the newest (a SIBLING's session). Excluding the sibling
-    // collapses the set to one → that unique candidate binds.
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().to_string_lossy().to_string();
     let json = format!(

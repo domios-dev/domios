@@ -6,9 +6,6 @@ use crate::agent::provider::{
 
 pub(super) fn builtin_models() -> Vec<ModelInfo> {
     // Stable alias ids — the CLI resolves them to the latest concrete version.
-    // Version labels here are the offline seed; live discovery (DM4) corrects
-    // them against `/v1/models`. `fable` ships disabled until live discovery
-    // confirms the account can use it, then auto-enables.
     vec![
         ModelInfo {
             id: "opus".into(),

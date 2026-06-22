@@ -112,7 +112,6 @@ fn parse_session_delta_maps_response_items() {
     );
     // Codex must forward the raw ISO timestamp (parity with claude): RichMessage.timestamp ->
     // ChatMsg.timestamp is what the optimistic-echo matcher keys on. Emitting only `ts` (seconds)
-    // left codex echoes timeless, forcing content-only dedupe (the CE1 "codex null-ts" finding).
     assert_eq!(
         m0.timestamp.as_deref(),
         Some("2026-05-01T10:00:00Z"),
@@ -182,7 +181,6 @@ fn detect_session_id_and_active_session_are_null() {
     let j = codex();
     // Codex binds sessions via the SessionStart hook (not file-scan detection),
     // so both detection hooks intentionally return None — assert the JS path
-    // exercises and round-trips that null, not a guessed sibling session.
     assert_eq!(j.detect_session_id("/work/proj", &[], None), None);
     assert_eq!(j.detect_active_session("/work/proj", "current-sid"), None);
 }
@@ -246,6 +244,5 @@ fn codex_stays_on_native_prompt_detector() {
     }
     // codex's app-server structured channel is not reachable in interactive-PTY
     // mode, so codex has no structured prompt handle — pickers come from the
-    // native attributed-grid detector. Documents the deliberate "no work" call.
     assert!(!codex().supports_structured_prompts());
 }

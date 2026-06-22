@@ -113,7 +113,6 @@ pub fn load_one(manifest_path: &Path) -> Result<JsProvider, String> {
 
     // Validate-before-load: refuse to instantiate a non-conforming third-party
     // drop-in. Doing it BEFORE the VM spins means untrusted, incompatible code
-    // never runs (#16).
     if let Err(reason) = validate_conformance(&manifest, &trust) {
         log::warn!("[plugin/{}] {reason}", manifest.id);
         return Err(reason);
@@ -143,8 +142,6 @@ fn compute_sandbox(
 
     // Dev is a trusted developer environment AND it force-marks every plugin
     // ThirdParty (so live edits don't trip the hash verifier) — confining there
-    // would wrongly sandbox the dev-edited bundled plugins. System = hash-verified
-    // bundled; never confine those. Only confine an unverified user drop-in.
     let dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
     let user_plugins = crate::paths::data_dir().join("plugins");
     let is_user_dropin = std::fs::canonicalize(bundle_dir)
@@ -169,14 +166,11 @@ fn compute_sandbox(
 
     // The plugin's user-configured settings, delivered to the VM via
     // host.settingsJson(). Per §1.7 storage is the per-plugin `config.yaml`
-    // (parsed YAML → JSON), falling back to the legacy `config.plugins.<id>`
-    // bag. Read at load; a config.yaml edit triggers a hot-reload that re-stamps.
     let settings_json =
         crate::plugin::js_runtime::plugin_config::resolve_settings_json(bundle_dir, &manifest.id);
 
     // Effective perms = manifest request OR the user's persisted grants (§1.10
     // grant persistence): a user-edited grant/revocation in the per-plugin dir
-    // survives and is what the host actually enforces.
     let mut perms = manifest.permissions.clone();
     crate::plugin::js_runtime::grants::apply_persisted(&mut perms, bundle_dir);
 

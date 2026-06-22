@@ -100,8 +100,6 @@ function WebAccessSection() {
     : null;
 
   // The exact-command preview only flips to a real mutation on the SECOND click:
-  // first click reveals `confirming`; "Confirm & Enable" is the deliberate
-  // second action that actually invokes the consent-gated backend command.
   async function runEnable() {
     setBusy(true);
     setResultMsg(null);

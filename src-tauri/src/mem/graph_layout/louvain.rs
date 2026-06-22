@@ -257,7 +257,6 @@ mod tests {
     fn disconnected_community_is_split() {
         // Force a pathological label set via a graph where modularity merges
         // can't happen: two separate cliques, no bridge. Louvain should give
-        // two communities anyway; the split pass guarantees it.
         let mut edges = clique_edges(&[0, 1, 2]);
         edges.extend(clique_edges(&[3, 4, 5]));
         let labels = louvain(6, &edges);

@@ -291,7 +291,6 @@ mod tests {
     fn test_parse_codex_model_picker() {
         // Live-captured codex `/model` ratatui menu: numbered options, a › selector on
         // the highlight, and an enter/esc footer. This is the path codex relies on
-        // (no plugin parsePrompt) — the universal parser must extract it.
         let text = "Select Model and Effort\n\
             Access legacy models by running codex -m <model_name> or in your config.toml\n\
             \u{203A} 1. gpt-5.5 (current)    Frontier model for complex coding\n\

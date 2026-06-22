@@ -46,7 +46,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "SET_STATE": {
       // Monotonic guard: drop a stale snapshot (older generation) that resolved
       // after a newer one — kills the spawn-then-blink race where a pre-pane
-      // `mux_get_state` clobbers the just-created tab.
       const incomingGen = action.state.generation;
       if (typeof incomingGen === "number" && incomingGen <= state.generation) {
         return state;
@@ -91,8 +90,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       }
       // Adopt incoming focus when it names a live pane; otherwise fall back to
       // the prior focus only if that pane still exists in the merged set.
-      // Clearing to null when the prior focus is gone prevents a ghost
-      // focused_pane_id targeting a closed/rolled-back pane.
       const incomingFocus = action.state.focused_pane_id;
       const focused_pane_id =
         incomingFocus && mergedPanes[incomingFocus]

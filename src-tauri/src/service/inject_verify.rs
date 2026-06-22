@@ -274,11 +274,6 @@ pub fn wait_for_submit_tui_drained(
         };
         // Drained == the composer no longer shows the submitted text. Reuse the
         // suffix/placeholder-aware presence check from echo verify: a plain
-        // `tail.contains(full_text)` can never match a multi-KB paste whose head
-        // scrolled out of the tail window, so it falsely reported "drained" the
-        // instant the paste landed — submit-verify then passed after a single
-        // \r that the still-ingesting TUI swallowed, and the message sat unsent
-        // (#155). An empty submission has nothing to drain — treat as done.
         if submitted_text.is_empty() || !screen_contains_echo(&t, submitted_text) {
             break t;
         }
@@ -607,7 +602,6 @@ mod tests {
 
     // #155: a long paste whose full text can't fit the tail window must NOT be
     // reported as "drained" the instant it lands — that false-positive let
-    // submit-verify pass after a single swallowed \r, so the message sat unsent.
     #[test]
     fn wait_for_submit_tui_drained_long_paste_not_falsely_drained() {
         let h = handle();

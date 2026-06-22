@@ -189,8 +189,6 @@ impl ServiceContext {
     pub fn send_launch_command_to_pty(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
         // Wait for the prompt (arms PSReadLine's bracketed-paste handler). If it
         // never renders the shell is likely stuck on an unanswered CSI 6n — xterm
-        // claimed resize ownership before it could reply, so the read loop's
-        // no_owner answer didn't fire. Answer it ourselves and re-poll.
         #[cfg(windows)]
         {
             use std::time::Duration;

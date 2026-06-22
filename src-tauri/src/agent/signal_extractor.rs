@@ -205,7 +205,6 @@ impl SignalExtractor {
 
         // Append == the change is confined to the tail (prior last-nonblank row and
         // below): new rows, or an extension of the line being typed. A change to an
-        // EARLIER row is an in-place overwrite, not growth.
         let appended = match self.prev.as_ref().map(|p| p.last_nonblank) {
             Some(Some(ln)) => !changed_rows.is_empty() && changed_rows.iter().all(|&r| r >= ln),
             Some(None) => !changed_rows.is_empty(),

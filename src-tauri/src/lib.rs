@@ -726,7 +726,6 @@ pub fn run() {
 
             // Graph layout: build the projection once at startup if needed, then
             // tick a debounced cache flush. The heavy projection runs on a
-            // blocking thread so it never stalls the async runtime.
             {
                 let mem = service_state.mem.clone();
                 tauri::async_runtime::spawn(async move {

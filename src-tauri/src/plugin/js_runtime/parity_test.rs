@@ -496,9 +496,6 @@ mod no_native_fallback_recursion;
 
 // JS-only provider parity. Codex/cursor/opencode have NO native Rust
 // counterpart, so "parity" here means: the real bundled plugin.js, driven
-// through `JsProvider` (the exact trait surface core calls), produces output
-// that round-trips into the native types — exercised + stable against
-// realistic fixtures. Without these, a JS drop-in capability silently drifts.
 mod codex;
 mod cursor;
 mod opencode;

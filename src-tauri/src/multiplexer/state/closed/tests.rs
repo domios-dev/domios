@@ -98,9 +98,6 @@ fn reopen_recreates_pane_with_same_backing() {
 fn reopen_chatbackend_pane_opens_in_chat() {
     // MED inconsistency fix: a chatBackend pane carries agent_type=None, so the
     // old chat_view-from-agent_type rule left it terminal on reopen while the
-    // spawn path (service/transport.rs, spawn_chatbackend.rs) opens it in chat.
-    // Reopen must mirror spawn: backing == ChatBackend ⇒ chat_view = true, even
-    // with the chat-default preference OFF (empty capable set).
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
     let (tab_id, pane_id) = state.create_tab(&wsid).unwrap();

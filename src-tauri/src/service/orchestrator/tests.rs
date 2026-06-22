@@ -181,7 +181,6 @@ fn test_build_claude_with_extra_args() {
 fn test_build_with_model_uses_provider_specific_flag() {
     // claude → `--model X`. codex/opencode model-flag syntax is JS-plugin logic now
     // (covered in plugins/provider-*/tests); here we verify the orchestrator
-    // delegates model selection to the native claude provider.
     let reg = AgentRegistry::new();
     reg.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
 

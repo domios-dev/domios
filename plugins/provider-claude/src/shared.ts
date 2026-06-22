@@ -1,6 +1,5 @@
 // Manifest access shared across the Claude provider modules. The host exposes
 // the plugin's manifest.json as a string; every module that needs configured
-// paths/models parses it through here.
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 
 export interface Manifest {

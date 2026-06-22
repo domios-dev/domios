@@ -1,8 +1,5 @@
 // Run: npx tsx src/lib/paneProvider.test.ts
-//
 // resolvePaneProvider unifies pane identity across the two sources the UI has:
-// agent panes carry an `agent_type` resolved via the ProviderDescriptor cache,
-// shell panes carry `backing.plugin_id` resolved via the plugin-snapshot cache.
 
 import { setAgentDescriptors } from "./agentDescriptorCache";
 import { setPluginProviderMeta } from "./pluginProviderMeta";

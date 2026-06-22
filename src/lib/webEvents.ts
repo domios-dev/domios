@@ -21,8 +21,6 @@ let started = false;
 
 // Refresh-signal events only — handlers ignore the payload and refetch. The 5s
 // mux refetch already carries pane statuses, so pane-status-changed (which is
-// payload-bearing and arrives with real data over SSE) must NOT be polled here:
-// a null poll payload would throw in its handler.
 export const POLL_EVENTS = ["mux-state-changed", "mesh-state-changed"];
 const POLL_INTERVAL_MS = 5_000;
 

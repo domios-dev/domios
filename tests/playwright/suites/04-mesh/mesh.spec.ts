@@ -31,7 +31,6 @@ async function pairedPeer(api: { get<T>(p: string): Promise<T> }, id: string): P
 test("@golden stub peer: pair → online → wedged → offline (hysteresis) → recovered, in API and Mesh-tab UI", async ({ api, ui }) => {
   // Liveness transitions ride the 15s health loop with a 2-miss threshold;
   // the full cycle needs several loop rounds. The Mesh tab polls every 5s,
-  // so UI assertions piggyback on the same waits.
   test.setTimeout(420_000);
 
   const mesh = await api.get<{ enabled: boolean }>("/mesh/status");
@@ -93,7 +92,6 @@ test("@golden stub peer: pair → online → wedged → offline (hysteresis) →
 
     // Wedge: TCP accepts, nothing answers — the #130 scenario. The flag
     // must flip offline (2 consecutive missed rounds ≈ 30-45s), and must
-    // do so without wedging the daemon itself.
     stub.mode = "wedged";
     await pollUntil(
       async () => (await pairedPeer(api, peerId!))?.online === false,

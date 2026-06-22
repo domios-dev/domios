@@ -1,8 +1,5 @@
 // Model discovery for the Claude provider. API-key users get the live
 // /v1/models list mapped ONTO the curated aliases (opus/sonnet/haiku/fable):
-// each alias keeps its stable id + curated description but takes its version
-// label and availability from the matching live model. OAuth accounts have no
-// cheap model-list probe → null → caller falls back to the curated manifest.
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 
@@ -50,7 +47,6 @@ function fetchLiveModels(key: string): AnthropicModel[] | null {
 
 // For each curated alias, find its matching live model: present → version label
 // from live + available; absent → keep the curated label and mark unavailable
-// (e.g. fable until the account can use it). The alias SET stays curated.
 function mapAliasesToLive(aliases: ModelInfo[], live: AnthropicModel[]): ModelInfo[] {
   const out: ModelInfo[] = [];
   for (let i = 0; i < aliases.length; i++) {

@@ -31,8 +31,6 @@ impl MultiplexerState {
             generation,
             // Bounded indexed query against the local sqlite store — cheap, not
             // the multi-second blocking work the hot-path rule warns about, and
-            // strictly leaner than the old per-workspace+orphaned rings this
-            // replaces (which serialized up to thousands of entries per call).
             recently_closed: self.recent_closed_view(),
         }
     }
@@ -195,7 +193,6 @@ impl MultiplexerState {
 
             // Re-attach a chatBackend backing so the pane restores as a chat
             // shell (not a PTY). On first send the transport lazily re-opens the
-            // plugin session (R3 restore-gap fix).
             let restored_backing = match (chatbackend_plugin_id, chatbackend_session_id) {
                 (Some(plugin_id), Some(session_id)) => PaneBacking::ChatBackend {
                     plugin_id: plugin_id.clone(),
@@ -246,8 +243,6 @@ impl MultiplexerState {
                     pty_id: None,
                     // R3 restore-gap fix: `backing` is persisted now, so a
                     // chatBackend (shell) pane restores as a chatBackend and
-                    // lazily re-opens its plugin session on first send instead of
-                    // wrongly spawning a PTY.
                     backing: restored_backing,
                     pane_type: PaneType::Terminal,
                     title: restored_title,
@@ -502,7 +497,6 @@ mod tests {
     fn spawned_by_and_report_target_restore_intact_not_none() {
         // Regression for the snapshot.rs gap that hardcoded
         // spawned_by_pane_id: None / report_target_pane_id: None on restore,
-        // erasing a recovered orchestrator's parent/child map.
         let leaf = SplitNodeSnapshot::Leaf {
             pane_id: "worker-1".into(),
             cwd: None,

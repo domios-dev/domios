@@ -127,9 +127,6 @@ async fn backend_read_loop(
 
                 // Answer CSI 6n only for hidden/headless panes. Visible panes let
                 // xterm answer with the REAL cursor position — answering here with a
-                // fixed 1;1 would corrupt running TUIs (wrong cursor -> garbled
-                // layout). The launch-time race is handled by the one-shot nudge in
-                // send_launch_command_to_pty instead.
                 if data.windows(4).any(|w| w == b"\x1b[6n") {
                     let is_hidden = {
                         let mux = svc.mux.write();
@@ -211,8 +208,6 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
         use tauri::Manager;
         if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
             // Hold the cron lock ACROSS owner-lookup and the read/write below.
-            // Acquiring it twice (lookup, then re-lock) opens a TOCTOU window in
-            // which a concurrent unregister makes (job_id, run_id) stale.
             let mut store = cron_state.lock();
             let owner = store.get_pane_owner(pid).cloned();
             if let Some((job_id, run_id)) = owner {
@@ -238,10 +233,6 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
 
         // Worker-death watchdog (parallel to the cron fallback): a hierarchy
         // worker whose PTY dies WITHOUT having emitted a report leaves its
-        // orchestrator blind — it only learns by polling. Synthesize a
-        // dead-report and route it up the same chain submit_report resolves
-        // (parent -> report_target -> spawner). Decision is computed under the
-        // locks, guards dropped before submit_report re-acquires them.
         let watchdog = {
             let mux = svc.mux.read();
             let store = svc.report_store.lock();

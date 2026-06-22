@@ -222,7 +222,6 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
     }
     // Resolve the source agent's label/model locally so the remote can render
     // `label@PEER` — the source pane is foreign to the peer and unresolvable
-    // there. Best-effort: on any failure the relay falls back to the peer name.
     let body = if matches!(cli.command, Commands::SendText { .. }) {
         body.map(|b| enrich_send_body_with_local_source(&http, &base, &token, b))
     } else {

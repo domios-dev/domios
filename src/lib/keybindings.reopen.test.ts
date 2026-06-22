@@ -1,8 +1,5 @@
 // Run: npx tsx src/lib/keybindings.reopen.test.ts
-//
 // The reopen-closed-tab shortcut is Cmd/Ctrl+Shift+T. It must be unambiguous
-// against new_tab (now Cmd/Ctrl+T) so App's keydown handler fires reopen — not
-// a new tab — on the browser-standard combo.
 
 import { matchesBinding } from "./keybindings";
 

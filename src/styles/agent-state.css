@@ -18,7 +18,7 @@
 
 .ct-agent-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   padding: 4px 0;
 }
@@ -58,9 +58,10 @@
    debounced upstream so it can't strobe. */
 .ct-phase-dots {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 3px;
-  height: 16px;
+  align-self: baseline;
+  height: 0.72em;
   flex: 0 0 auto;
   color: var(--ct-accent, #58a6ff);
   transition: color 0.6s ease;
@@ -71,57 +72,58 @@
   border-radius: 50%;
   background: currentColor;
   display: block;
-  animation: ct-dots-breathe 1.9s ease-in-out infinite;
+  transform-origin: 50% 100%;
+  animation: ct-dots-squash-jump 1.05s cubic-bezier(0.22, 0.9, 0.25, 1) infinite;
   transition: opacity 0.45s ease, transform 0.45s ease;
+}
+[data-agent-state="working"] .ct-phase-dots i:nth-child(2) {
+  animation-delay: 0.12s;
+}
+[data-agent-state="working"] .ct-phase-dots i:nth-child(3) {
+  animation-delay: 0.24s;
 }
 [data-agent-phase="thinking"] .ct-phase-dots {
   color: var(--ct-think, #a371f7);
 }
 [data-agent-phase="thinking"] .ct-phase-dots i {
-  animation: ct-dots-breathe 2.4s ease-in-out infinite;
+  animation-duration: 1.35s;
 }
 [data-agent-phase="thinking"] .ct-phase-dots i:nth-child(2) {
-  animation-delay: 0.3s;
+  animation-delay: 0.16s;
 }
 [data-agent-phase="thinking"] .ct-phase-dots i:nth-child(3) {
-  animation-delay: 0.6s;
+  animation-delay: 0.32s;
 }
 /* streaming reuses the SAME breathe keyframe, just faster + a tighter stagger —
    that reads as a left→right wave, and because the motion is identical to the
    other phases a phase change only shifts speed/stagger/hue (all eased), never
    snapping the dots. */
 [data-agent-phase="streaming"] .ct-phase-dots i {
-  animation: ct-dots-breathe 1s ease-in-out infinite;
+  animation-duration: 0.88s;
 }
 [data-agent-phase="streaming"] .ct-phase-dots i:nth-child(2) {
-  animation-delay: 0.18s;
+  animation-delay: 0.1s;
 }
 [data-agent-phase="streaming"] .ct-phase-dots i:nth-child(3) {
-  animation-delay: 0.36s;
+  animation-delay: 0.2s;
 }
-@keyframes ct-dots-breathe {
-  0%, 100% { opacity: 0.4; transform: scale(0.82); }
-  50% { opacity: 1; transform: scale(1); }
+@keyframes ct-dots-squash-jump {
+  0%, 70%, 100% { opacity: 0.64; transform: translateY(0) scaleX(1) scaleY(1); }
+  10% { opacity: 0.9; transform: translateY(0.5px) scaleX(1.2) scaleY(0.72); }
+  24% { opacity: 1; transform: translateY(-3px) scaleX(0.92) scaleY(1.1); }
+  42% { opacity: 0.95; transform: translateY(0.25px) scaleX(1.14) scaleY(0.78); }
+  54% { opacity: 0.78; transform: translateY(0) scaleX(1) scaleY(1); }
 }
 
-/* Going idle: the dots SETTLE into the first one — it stays put and dims to
-   rest, the other two fade out (opacity:0 keeps their layout width, so the
-   message never shifts left). Eased, so working ↔ idle is one continuous motion,
-   never an icon swap or a horizontal jump. */
+/* Going idle: the three-dot slot stays intact and settles into a static,
+   muted state, so working ↔ idle never shifts the message. */
 [data-agent-state="idle"] .ct-phase-dots {
   color: var(--ct-muted-fg, #8b949e);
 }
 [data-agent-state="idle"] .ct-phase-dots i {
   animation: none;
-}
-[data-agent-state="idle"] .ct-phase-dots i:nth-child(1) {
-  opacity: 0.55;
+  opacity: 0.42;
   transform: scale(0.9);
-}
-[data-agent-state="idle"] .ct-phase-dots i:nth-child(2),
-[data-agent-state="idle"] .ct-phase-dots i:nth-child(3) {
-  opacity: 0;
-  transform: scale(0.4);
 }
 
 /* The message: full-weight while working, muted while idle, with a soft fade-in

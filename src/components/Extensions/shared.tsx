@@ -1,6 +1,5 @@
 // Small shared bits for the Extensions surface (labels, API base, error parsing,
 // icon adapter). Kept here so the list/detail/secret-backend views don't each
-// re-roll them.
 import type { CatalogEntry } from "./pluginCatalog";
 import type { PluginIconData } from "./PluginIcon";
 import { daemonHttpBase, daemonAuthToken } from "../../lib/webApi";

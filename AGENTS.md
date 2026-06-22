@@ -222,7 +222,7 @@ User-scoped or cross-project skills (not codeterm-specific) live in `~/.codeterm
 
 ## Code style
 
-SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structure carry meaning. Only comment WHY (non-obvious invariant, OS quirk, deliberate workaround). One line max. Detailed Rust + TypeScript guidance and architecture guardrails: **`docs/contributing/style.md`**.
+SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structure carry meaning. Only comment WHY (non-obvious invariant, OS quirk, deliberate workaround), never WHAT. **Hard limit: 2 lines per comment, strictly.** No multi-line narrative comment blocks — if a WHY needs more than 2 lines, the code needs a better name or a smaller function, not more prose. Giant explanatory comment blocks are forbidden and get removed on sight. (Applies to inline `//` comments; license/file headers and public-API doc comments are exempt but must still stay terse.) Detailed Rust + TypeScript guidance and architecture guardrails: **`docs/contributing/style.md`**.
 
 ## Architecture (agent providers, detection)
 

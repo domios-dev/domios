@@ -1,6 +1,5 @@
 // SPIKE (throwaway): can we recover picker question/options/SELECTED from raw.cast via the
 // vt100 ATTRIBUTED grid (bgcolor/fgcolor/inverse), where flattened text shows no marker?
-// Proves/disproves the attribute-parsing mechanic on the hardest case (cursor: bg-only selection).
 use codeterm_lib::agent::attributed_screen::{detect_picker, AttributedScreen};
 use serde_json::Value;
 use std::collections::BTreeMap;

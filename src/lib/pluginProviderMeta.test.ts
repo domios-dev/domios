@@ -1,8 +1,5 @@
 // Run: npx tsx src/lib/pluginProviderMeta.test.ts
-//
 // The plugin-snapshot (`plugin_manager_snapshot`) carries per-plugin identity in
-// snake_case. pluginProviderMetaFromSnapshot maps it into the camelCase shape the
-// resolver consumes, and setPluginProviderMeta/getPluginProviderMeta cache it.
 
 import {
   getPluginProviderMeta,

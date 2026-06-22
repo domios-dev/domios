@@ -179,11 +179,6 @@ pub(super) fn bin_of(opts_json: &str) -> Option<String> {
 }
 
 // ── Async exec (job-id + poll) ──────────────────────────────────────────────
-// Mirrors `host.fetch.stream`/`streamPoll`/`streamClose` in host_net.rs. The
-// blocking `run` above holds the per-plugin VM mutex for the command's whole
-// duration — one slow tool exec freezes every sibling pane sharing the VM. This
-// path spawns the command on a background thread and buffers the terminal
-// result, so the VM lock is held only for the sub-ms `start`/`poll` calls.
 
 #[derive(Default)]
 struct ExecJob {
@@ -481,7 +476,6 @@ mod tests {
 
         // The whole point: start spawns the command on a background thread and
         // returns sub-ms, so the VM lock held across this call is released long
-        // before the 2s command finishes.
         assert!(
             elapsed < Duration::from_millis(500),
             "start blocked for {elapsed:?} — VM lock would be held for the exec duration"

@@ -1,6 +1,5 @@
 // Humanize an epoch-ms timestamp (string or number) into a short relative
 // label like "5m ago" / "in 2h" / "just now". Returns null for unparseable
-// input so callers can fall back to omitting the affordance.
 export function relativeTime(value: string | number | undefined, now: number = Date.now()): string | null {
   if (value == null) return null;
   const ms = typeof value === "number" ? value : Number(value);

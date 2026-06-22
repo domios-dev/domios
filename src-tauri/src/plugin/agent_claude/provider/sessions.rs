@@ -122,7 +122,6 @@ fn read_rich_tail(path: &Path, tail_bytes: u64) -> Vec<crate::agent::chat_types:
         };
         // Each claude content block carries its discriminant in `type`; mirror
         // it into the host's `MessageBlock.kind` so `parse_interactive_events`
-        // (tool_use) and answer detection (tool_result) see the same shape.
         let blocks: Vec<MessageBlock> = content
             .iter()
             .filter_map(|b| {
@@ -495,12 +494,6 @@ pub(super) fn detect_session_id(
 
     // Identity-bound, never "newest-for-cwd": refuse to guess when 2+ recent
     // sessions are viable candidates (multiple agents sharing this cwd). Picking
-    // the newest would hand one pane a SIBLING's session — and detection order /
-    // a stale exclude list could swap them (сессии перепутаны, #25/W3). Bind
-    // ONLY when the candidate is unambiguous; otherwise the caller waits for an
-    // identity signal (the injected --session-id or the per-pane SessionStart
-    // hook). The exclude list collapses the set as siblings get bound, so the
-    // last unclaimed session still resolves cleanly.
     match sessions.as_slice() {
         [(id, _)] => Some(id.clone()),
         _ => None,
@@ -522,10 +515,6 @@ mod tests {
     fn encode_cwd_matches_real_claude_project_dirs() {
         // FIXTURE GATE (CE3): pin the cwd -> ~/.claude/projects/<dir> encoding against
         // REAL on-disk dir names observed in this machine's ~/.claude/projects. Claude
-        // collapses every non-alphanumeric (/, \, ., _, -, space) to '-', so a leading
-        // '/' and a hidden-dir '.' BOTH contribute a dash (note the `--` runs). A
-        // path/separator regression here silently empties the chat (session never binds),
-        // so these mappings are load-bearing — never "optimize" them without updating this.
         let cases = [
             ("/Users/dev", "-Users-dev"),
             // /Users/dev/.codeterm-dev/general : the '/' before '.codeterm' AND the '.'
@@ -553,11 +542,6 @@ mod tests {
     fn detect_session_id_refuses_to_guess_when_ambiguous_in_shared_cwd() {
         // Bug B (#25 / W3): сессии перепутаны. When 2+ agents share a cwd and a
         // pane's session is None (restart/resume), the newest-in-cwd guess hands
-        // one pane a SIBLING's session — and detection ORDER / a stale exclude
-        // list can swap them. When more than one recent session is a viable
-        // candidate (none pinned by the exclude list), detection MUST refuse —
-        // honest None — instead of guessing. Identity-bound binding (the
-        // injected --session-id / the per-pane SessionStart hook) resolves it.
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().to_string_lossy().to_string();
         let s1 = "aaaa1111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -599,11 +583,6 @@ mod tests {
     fn detect_active_session_never_grabs_a_sibling_session_in_same_cwd() {
         // Bug B (#25 / W3): сессии перепутаны. Session resolution must be
         // IDENTITY-BOUND — a pane is resolved only by its OWN recorded id, never
-        // by "newest in cwd". So when 2+ agents share a cwd, a pane must NOT roll
-        // onto a SIBLING's session even though the sibling's file is right there
-        // and the pane's own file may not exist yet. The tab is the single
-        // source of truth. (Regression guard: a newest-for-cwd / most-recently-
-        // written fallback here is exactly the cross-contamination bug.)
         let p = super::super::ClaudeProvider::new();
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().to_string_lossy().to_string();
@@ -646,8 +625,6 @@ mod tests {
     fn test_sessions_dir_real_cwd_has_no_verbatim_dashes() {
         // Regression for the live bug: on Windows, canonicalize returns a
         // `\\?\`-prefixed path; without stripping, the encoded project dir grew
-        // 4 leading dashes and resume never matched. Use an existing dir so
-        // canonicalize actually fires.
         let cwd = std::env::temp_dir().to_string_lossy().to_string();
         let dir = sessions_dir(&cwd).unwrap();
         let leaf = dir.file_name().unwrap().to_string_lossy().to_string();

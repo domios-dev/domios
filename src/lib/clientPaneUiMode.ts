@@ -3,10 +3,6 @@ import type { PaneUiMode } from "./chatUiMode";
 const PREFIX = "codeterm:pane-ui-mode:";
 // Two channels on purpose. EVENT carries EXPLICIT choices (user toggle, spawn
 // default, remote-control) — TerminalPane records those as user overrides.
-// EVENT_CURRENT is a status broadcast of a pane's computed mode (for tab
-// labels etc.); routing it through EVENT made TerminalPane hear its own
-// mount-time "terminal" echo and lock it as an override, freezing panes in
-// terminal before descriptors/backend state arrived.
 const EVENT = "codeterm-client-pane-ui-mode";
 const EVENT_CURRENT = "codeterm-client-pane-ui-mode-current";
 const currentModes = new Map<string, PaneUiMode>();

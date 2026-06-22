@@ -152,12 +152,6 @@ pub fn spawn_tailer(
             if !path.exists() {
                 // The session JSONL may not exist YET: a fresh agent creates it
                 // only on its first completed turn (seconds out on a slow first
-                // turn / model spin-up). Keep watching — never permanently give
-                // up — so the chat populates the moment the file appears. The
-                // registry's stop flag (chat_stop / handle drop) bounds this
-                // thread's lifetime, so a session that never materializes does
-                // not spin forever. (Was: gave up after 10 missing polls → "No
-                // messages yet" forever even after claude wrote the file.)
                 thread::sleep(cfg.poll_interval);
                 continue;
             }
@@ -214,7 +208,6 @@ pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> Taile
             }
             // A fresh session's JSONL lags the session id (first write lands
             // with the first reply) — keep waiting; the registry's stop flag
-            // bounds this thread's lifetime.
             if !cfg.path.exists() {
                 thread::sleep(cfg.poll_interval);
                 continue;
@@ -238,11 +231,6 @@ pub fn spawn_raw_tailer(cfg: RawTailConfig, sink: Arc<dyn RawTextSink>) -> Taile
                     .unwrap_or(0);
                 // The segment AFTER the last newline may already be a COMPLETE
                 // JSON object the provider just hasn't newline-terminated yet —
-                // cursor writes a turn's final line (the assistant reply) without
-                // a trailing \n until the next turn begins. Without this the latest
-                // reply is stuck out of the chat until the user sends again. Emit
-                // it too once it parses as JSON, and advance the offset so the
-                // eventual \n can't re-emit it.
                 let tail = &slice[nl_consumed..];
                 let tail_end = tail.iter().rposition(|&b| !b.is_ascii_whitespace());
                 let tail_complete = tail_end

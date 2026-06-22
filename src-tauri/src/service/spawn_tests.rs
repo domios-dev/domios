@@ -842,7 +842,6 @@ impl ChatBackendProvider for BackendOnlyShell {
 fn spawn_agent_params_for_non_spawnable_chatbackend_does_not_route_to_chatbackend() {
     // A registered-but-not-spawnable backend (bare `chatBackend: true`, e.g. the
     // NPC plugin) must NOT be opened as a ChatBackend pane. It falls through to
-    // the Agent path, where validation rejects it as not user-spawnable.
     let registry = crate::chatbackend::ChatBackendRegistry::new();
     registry.register("npc", Arc::new(BackendOnlyShell));
 

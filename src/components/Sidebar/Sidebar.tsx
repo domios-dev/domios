@@ -8,6 +8,7 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
+import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
 import { Check, ChevronDown, Plus } from "lucide-react";
@@ -105,14 +106,15 @@ export function Sidebar({
     initialPath?: string | null;
     onSelect: (path: string) => void;
   } | null>(null);
-  const [claudeSkipPerms, setClaudeSkipPerms] = useState(() => {
-    try { return localStorage.getItem("codeterm-claude-skip-perms") === "true"; } catch { return false; }
-  });
-  const [claudeRememberChoice, setClaudeRememberChoice] = useState(() => {
-    try { return localStorage.getItem("codeterm-claude-remember") === "true"; } catch { return false; }
-  });
+  const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
+  const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
   const { providers } = useAgentProviders();
   const agentsConfig = config?.agents;
+  // Skip-permissions "remember" choice is centralized in backend config so it
+  // carries across the desktop app and every web client (not per-localStorage).
+  const claudeConfig = agentsConfig?.claude;
+  const claudeSkipRemembered = claudeConfig?.spawn_skip_permissions_remembered === true;
+  const claudeSavedSkipPerms = claudeConfig?.spawn_skip_permissions === true;
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
@@ -133,8 +135,8 @@ export function Sidebar({
           title: `Project folder for ${provider?.displayName ?? agentId}`,
           initialPath: workspaceCwd,
           onSelect: (path) => {
-            if (claudeRememberChoice) {
-              spawnAgentTab(workspaceId, agentId, claudeSkipPerms, path);
+            if (claudeSkipRemembered) {
+              spawnAgentTab(workspaceId, agentId, claudeSavedSkipPerms, path);
             } else {
               setAgentSpawnModal({ folder: path, agentId, workspaceId });
             }
@@ -156,20 +158,20 @@ export function Sidebar({
       if (!folder) return;
     }
     // If user chose "remember", skip the modal and spawn directly
-    if (claudeRememberChoice) {
-      spawnAgentTab(workspaceId, agentId, claudeSkipPerms, folder);
+    if (claudeSkipRemembered) {
+      spawnAgentTab(workspaceId, agentId, claudeSavedSkipPerms, folder);
       return;
     }
     setAgentSpawnModal({ folder, agentId, workspaceId });
-  }, [spawnAgentTab, claudeRememberChoice, claudeSkipPerms]);
+  }, [spawnAgentTab, claudeSkipRemembered, claudeSavedSkipPerms]);
 
   const handleClaudeConfirm = useCallback(() => {
     if (!agentSpawnModal) return;
     if (claudeRememberChoice) {
-      try {
-        localStorage.setItem("codeterm-claude-skip-perms", String(claudeSkipPerms));
-        localStorage.setItem("codeterm-claude-remember", "true");
-      } catch { /* ignore */ }
+      void setProviderSettings("claude", {
+        spawn_skip_permissions: claudeSkipPerms,
+        spawn_skip_permissions_remembered: true,
+      });
     }
     spawnAgentTab(
       agentSpawnModal.workspaceId,
@@ -408,14 +410,13 @@ export function Sidebar({
         className="relative overflow-visible shrink-0 h-full"
         style={{
           width: visibleSidebarWidth,
-          boxShadow: "inset -1px 0 0 var(--ct-border-default)",
           transition: sidebarDragging.current ? undefined : "width 180ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         >
         <aside
           ref={sidebarRef}
           data-touch-mode={touchMode ? "true" : "false"}
-          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] flex flex-col select-none overflow-visible overflow-y-hidden relative"
+          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-visible overflow-y-hidden relative"
           style={{ width: visibleSidebarWidth }}
         >
           {!isSidebarCollapsed && (
@@ -660,11 +661,11 @@ export function Sidebar({
                             const trigger = (
                               <button
                                 disabled={newSessionItems.length === 0}
-                                className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                                className="flex items-center gap-2 min-w-0 max-w-full mx-2 mt-1 mb-0.5 px-3 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
                                 title={newSessionItems.length === 0 ? "No visible agent providers" : "New session in this workspace"}
                               >
-                                <Plus size={10} strokeWidth={1.5} />
-                                <span className={sidebarActionText}>New session</span>
+                                <Plus size={10} strokeWidth={1.5} className="shrink-0" />
+                                <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
                               </button>
                             );
                             return newSessionItems.length === 0 ? (
@@ -735,6 +736,7 @@ export function Sidebar({
                   onReopenGroup={reopenGroup}
                   touchMode={touchMode}
                   uiFontScale={uiFontScale}
+                  headerTextClass={touchMode ? sidebarNavTouchText : sidebarNavText}
                 />
               );
             })()}
@@ -799,7 +801,7 @@ export function Sidebar({
                 title="Plugins"
               >
                 <ExtensionsIcon size={touchMode ? 18 : 14} className="shrink-0" />
-                {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Plugins</span>}
+                {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Plugins</span>}
               </button>
               <button
                 data-testid="nav-settings"

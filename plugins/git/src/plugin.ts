@@ -1,7 +1,5 @@
 // Git plugin — CodeTerm's local-git presence, authored in TypeScript against
 // @codeterm/plugin-sdk and compiled to QuickJS-compatible plugin.js by
-// scripts/build-plugin.mjs. Contributes a pane-footer status bubble, a glance
-// popover, and the full Git view ops the iframe UI drives via window.ct.invoke.
 import type {
   ExecOpts,
   ExecResult,
@@ -121,7 +119,6 @@ function renderGlance(ctx: PaneContext): GlanceView {
 
 // --- view ops: faithful port of the former native git_routes.rs ---
 // The plugin's iframe UI (ui/) calls these via window.ct.invoke(method, args).
-// Every op shells `git -C <cwd>` and reproduces the exact REST output shapes.
 
 const FS = "\x1f"; // field separator inside the graph pretty-format
 const RS = "\x1e"; // record separator between commits

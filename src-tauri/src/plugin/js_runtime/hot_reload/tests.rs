@@ -17,7 +17,6 @@ fn test_caps() -> CapabilityRegistries {
 fn watcher_holds_threaded_capability_registries() {
     // C0: the watcher must carry the existing capability registry handles so
     // a later track can re-register a (re)loaded plugin's non-agent
-    // capabilities live (plan §1.8). Prove the *same* handles are threaded in.
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
     let caps = test_caps();
@@ -39,7 +38,6 @@ fn watcher_holds_threaded_capability_registries() {
 fn watcher_binds_service_into_freshly_loaded_vm() {
     // P4: a plugin installed/reloaded AFTER daemon start must get the
     // ServiceContext late-bound into its VM, or host.mem/worker/agent are
-    // dead for it — only the startup loop bound the service before this fix.
     use std::sync::Weak;
     let watcher = HotReloadRegistry::new(vec![], Arc::new(AgentRegistry::new()), test_caps());
     watcher.set_service_ref(Weak::new());
@@ -119,7 +117,6 @@ fn capability_manifest_full(id: &str, cap_field: &str, requires_reload: bool) ->
 fn requires_reload_plugin_installed_live_is_pending_not_active() {
     // §1.8 P1: a plugin declaring requiresReload cannot hot-activate. A fresh
     // install after daemon start is marked pending_reload and its capability
-    // is NOT registered live — the banner/CLI tell the user to reload.
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
     let caps = test_caps();
@@ -333,7 +330,6 @@ fn duplicate_root_removal_falls_back_to_lower_priority_plugin() {
 fn tick_registers_capability_plugin_live_without_restart() {
     // §1.8 P1: installing a capability-only plugin must re-register its
     // capability registry live, so e.g. a status bubble appears without a
-    // daemon restart (the git-bubble-dark-until-restart symptom).
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
     let caps = test_caps();
@@ -392,8 +388,6 @@ fn tick_deregisters_capability_on_folder_removal() {
 fn chat_preprocessor_plugin_mutates_outbound_text() {
     // Regression gate: a JS chatPreprocessor plugin installed via hot-reload
     // must intercept outbound text through run_text_stages and mutate it before
-    // delivery. Proves the full path: install → CapabilityRegistries →
-    // chat_preprocessor registry → run_text_stages.
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
     let caps = test_caps();
@@ -541,10 +535,6 @@ fn chat_preprocessor_deregisters_on_uninstall() {
 fn config_yaml_edit_restamps_settings_without_vm_rebuild() {
     // HIGH-2 (CRITICAL): editing the per-plugin config.yaml must NOT rebuild
     // the VM — a rebuild wipes the plugin's module-scope in-memory sessions,
-    // silently bricking every open chatBackend shell. Instead the watcher
-    // re-stamps host.settingsJson() into the EXISTING VM. Assert: a
-    // config-only change does NOT increment load_count (no rebuild), AND the
-    // live VM observes the new settings on its next read.
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
     let watcher = HotReloadRegistry::new(
@@ -628,13 +618,6 @@ fn tick_unregisters_plugins_after_folder_removal() {
 fn concurrent_tick_and_reload_does_not_deadlock() {
     // Lock-fix regression: tick()'s removal path used to hold the `state`
     // mutex across vms/pending_reload/activated_startup ops AND the
-    // agent/capability registry calls — inverting the load order and risking a
-    // non-reentrant-mutex deadlock. The fix collects removed ids under a
-    // short-held `state` lock, drops it, THEN unregisters. Hammer tick() from
-    // several threads while a churner installs/removes a plugin: if `state` is
-    // still held across the registry ops, the interleaving wedges and this
-    // test hangs (caught by the harness timeout). Reaching the asserts proves
-    // the guard is released before the registry work.
     use std::sync::atomic::{AtomicBool, Ordering};
     let root = tempfile::tempdir().unwrap();
     let registry = Arc::new(AgentRegistry::new());
@@ -681,7 +664,6 @@ fn concurrent_tick_and_reload_does_not_deadlock() {
 
     // Quiesce: with the churn dir gone, a final tick must leave nothing tracked
     // and no provider registered — proving the removal path ran to completion
-    // (not wedged) and stayed consistent under concurrency.
     std::fs::remove_dir_all(&dir).ok();
     watcher.tick();
     assert!(watcher.tracked_ids().is_empty());

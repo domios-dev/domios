@@ -158,8 +158,6 @@ function withClientOrder(messages: ChatMessage[], nextOrder: () => number): Chat
 
 // Mirrors chat-core/time.ts: scale Unix-seconds stamps (codex floors to
 // seconds; RichMessage.ts is documented in seconds) up to ms so reset-cutoff
-// comparisons use the same unit as the ms send-time. Kept local rather than
-// imported from chat-core to avoid widening this package's public surface.
 const MS_EPOCH_FLOOR = 1e12;
 function timestampMs(ts: string | undefined): number | null {
   if (!ts) return null;
@@ -260,13 +258,10 @@ export function useChatSession({
   const allMessages = useMemo(() => {
     // OSC4 shell-command timeline merge disabled — it regressed chat rendering
     // (empty-entry "(no command captured)" + agent-message dropout). Re-enable
-    // after the snapshot-filter + merge fix lands with integration testing.
     const grouped = attachToolResults(resetParsed);
     if (liveOptimistic.length === 0) return grouped;
     // Render every real user turn (mergeById already dedupes by stable id — no
     // content-collapse that would swallow a legitimately repeated message).
-    // A bubble is hidden once the provider transcript positively claims it,
-    // either exactly or as part of a combined TUI-submitted user turn.
     const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
     const matched = new Set(matchedIds);
@@ -339,7 +334,6 @@ export function useChatSession({
 
   // Garbage-collect bubbles whose real echo has landed or whose pre-reset
   // history is no longer visible. If the echo never arrives the bubble stays
-  // visible; combined transcript turns can still claim several quick sends.
   useEffect(() => {
     if (optimistic.length === 0) return;
     const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");

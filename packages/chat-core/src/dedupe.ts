@@ -187,7 +187,6 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   }
   // Fuzzy fallback for echoes that diverged from their real counterpart by a
   // stray leaked prefix or an attachment path. Runs last so exact and coverage
-  // claims win; only touches parsed turns neither pass already consumed.
   const fuzzyMatched = new Set<string>();
   for (const echo of optimistic) {
     if (exactMatched.has(echo.id) || coveredMatched.has(echo.id)) continue;

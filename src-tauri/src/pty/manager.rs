@@ -295,10 +295,6 @@ pub fn build_session(
     }
 
     // Env vars stripped from every interactive pane PTY. CLAUDECODE / CLAUDE_CODE_*:
-    // Claude 2.1.x treats them as "I'm a sub-session" and writes no transcript.
-    // CI / CONTINUOUS_INTEGRATION: an interactive pane is never a CI job, and an
-    // inherited CI=true makes TUIs (cursor-agent etc.) go non-interactive and hide
-    // their input bar even though stdout is a real TTY. NO_COLOR: we want color.
     for key in STRIPPED_PTY_ENV {
         cmd.env_remove(key);
     }

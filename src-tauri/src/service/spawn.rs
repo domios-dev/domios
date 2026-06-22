@@ -861,8 +861,6 @@ impl ServiceContext {
 
             // headless:false → ordinary interactive claude, task delivered as a positional after `--` (same launch a visible agent gets). Completion comes
             // from the standard agent rails, not a stream-json result event.
-            // Capability-gated structured-prompt server via the shared chokepoint
-            // (allocate+register+subscribe). No-op for providers that don't need it.
             let hidden_cwd = svc_outer
                 .mux
                 .read()

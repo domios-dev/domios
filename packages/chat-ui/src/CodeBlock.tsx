@@ -127,6 +127,11 @@ export function lineCount(text: string): number {
   return text.split("\n").length;
 }
 
+function isToolTraceLanguage(language: string): boolean {
+  const normalized = language.trim().toLowerCase();
+  return normalized === "tool" || normalized.endsWith("-tool");
+}
+
 type CodeContentProps = {
   fullSize: boolean;
   maxHeight: string;
@@ -171,7 +176,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   if (forcePlainText) {
     return (
       <pre
-        className={`${PRE_WRAP_CLASS} m-0 p-3`}
+        className={`${PRE_WRAP_CLASS} m-0 p-3 font-mono text-xs leading-[1.4]`}
         style={{
           maxHeight: fullSize ? "100%" : maxHeight,
           background: "var(--ct-bg)",
@@ -286,7 +291,7 @@ export function CodeBlock({
   const [mermaidLoading, setMermaidLoading] = useState(false);
   const mermaidCandidates = useMemo(() => (mermaidMode ? getMermaidRenderCandidates(normalizedText) : []), [mermaidMode, normalizedText]);
   const mermaidRenderKey = mermaidCandidates.join("\u0000");
-  const shouldUsePlainRenderer = (!mermaidMode && normalizedText.length > CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD)
+  const shouldUsePlainRenderer = (!mermaidMode && (normalizedText.length > CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD || isToolTraceLanguage(language)))
     || (mermaidMode && (mermaidCandidates[0]?.length ?? 0) > MERMAID_RENDER_LENGTH_LIMIT);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenBounds, setFullscreenBounds] = useState<RectLike | null>(null);

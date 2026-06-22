@@ -1,6 +1,5 @@
 // Pure catalog logic for the Extensions surface: merge the installed inventory
 // and the channel marketplace into one normalized list, then search/filter it.
-// View-free so it can be unit-tested with plain tsx (no React import chain).
 import type {
   InstalledPlugin,
   MarketplaceRow,

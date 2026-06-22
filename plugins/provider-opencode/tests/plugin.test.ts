@@ -194,7 +194,6 @@ console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
   const dbPath = "~/.local/share/opencode/opencode.db";
   // The session row carries no assistant message → the per-session scan finds
   // nothing. A cwd-wide scan WOULD find a sibling's model — we assert it does
-  // not run by failing loudly if any query omits the session_id binding.
   let cwdScanRan = false;
   const p = loadOpencodeWithHost(ocHost({
     fs: {

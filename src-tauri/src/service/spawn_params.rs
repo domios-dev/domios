@@ -13,8 +13,6 @@ impl SpawnPaneSpec {
     ) -> Self {
         let provider = params.agent.clone().unwrap_or_default();
         // Route to the ChatBackend pane path only for a USER-SPAWNABLE shell.
-        // A bare `chatBackend: true` backend (e.g. the NPC plugin) is registered
-        // but not user-openable, so it must not be spawned as a pane here.
         let spawnable = !provider.is_empty()
             && chatbackends
                 .get(&provider)

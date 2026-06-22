@@ -603,9 +603,6 @@ pub async fn write_pty_string(
         write_pty_string_core(&svc, pty_id, data)
     } else {
         // Bracketed paste with sacrificial space on Windows — see build_spawn_dispatch.
-        // Trailing \r is stripped and submitted as Enter; agent panes go through
-        // the verified injector (drain-checked Enter retry), which blocks — keep
-        // it off the async runtime.
         let svc = svc.inner().clone();
         tokio::task::spawn_blocking(move || {
             let text_stripped = data.trim_end_matches('\r');

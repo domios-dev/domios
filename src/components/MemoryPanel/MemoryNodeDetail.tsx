@@ -74,7 +74,6 @@ export function MemoryNodeDetail({
   const [loadingBody, setLoadingBody] = useState(false);
   // Local body cache — the source of truth for display. Decoupled from the
   // parent `node`, so a no-op onUpdate (graph canvas) can't trap this in a
-  // refetch loop and the fetched body still renders.
   const [bodyText, setBodyText] = useState<string | null>(node.body ?? null);
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;

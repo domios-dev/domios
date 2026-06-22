@@ -1,6 +1,5 @@
 // Session JSONL types, validators, file-path resolution, and model-label
 // helpers — the shared substrate behind detectSessionModel / parseSessionMessages
-// / parseSessionDelta / sessionJsonlPath in the provider facade.
 import { manifest } from "./shared";
 
 export interface ClaudeContentBlock { type?: string; text?: string; [k: string]: unknown }

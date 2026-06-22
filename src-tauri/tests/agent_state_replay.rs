@@ -19,8 +19,6 @@ use serde_json::Value;
 
 // Reference liveness gate over the SignalExtractor two-clock quiescence. NOT a
 // lifecycle state — it stands in for today's coarse "is the turn done / parked"
-// signal so the scorecard can count its false positives. P2 replaces it with the
-// semantic-veto gate; the eval re-measures and must drive these counts down.
 const TICK_MS: u64 = 250; // sample cadence injected into idle gaps to surface stalls
 const WAIT_MS: u64 = 800; // byte-idle past this with no settle => "Waiting"
 const DONE_MS: u64 = 1500; // semantic-idle past this => the turn looks finished
@@ -431,8 +429,6 @@ fn agent_state_replay_eval() {
 
     // Real captures (gating:false) are MEASURED, never fatal. Their failures
     // are the baseline findings (real classifier false-positives) — surfaced
-    // loudly as P2 targets, but they do NOT fail CI. Never weaken the oracle to
-    // hide one. Only curated seed fixtures (gating:true) gate the build.
     let baseline_findings: Vec<&FixtureResult> = results
         .iter()
         .filter(|r| !r.gating && !r.failures.is_empty())
@@ -544,7 +540,6 @@ fn print_scorecard(results: &[FixtureResult]) {
     }
     // Convergence-latency summary over fixtures that DID settle on truth — the
     // empirical basis for any future latency hard-gate (currently diagnostic
-    // only, never fatal).
     let mut convs: Vec<u64> = results.iter().filter_map(|r| r.convergence_ms).collect();
     if !convs.is_empty() {
         convs.sort_unstable();

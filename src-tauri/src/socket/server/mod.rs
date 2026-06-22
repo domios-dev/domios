@@ -369,7 +369,6 @@ fn dispatch(
 
     // Domain prefix → submodule. Each submodule owns its own per-method match (and returns Method-not-found for anything within its prefix it
     // doesn't know). The split also breaks on `:` so the reserved `plugin:<id>.<verb>`
-    // inverse-seam namespace (F5) yields the `plugin` prefix.
     let prefix = method.split(['.', ':']).next().unwrap_or("");
     match prefix {
         "workspace" => workspace::dispatch(method, &params, mux, app, svc),

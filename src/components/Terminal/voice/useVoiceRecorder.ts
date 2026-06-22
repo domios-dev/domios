@@ -107,9 +107,6 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
 
   // iOS standalone PWAs re-prompt for mic access on EVERY getUserMedia call —
   // they don't persist the grant the way Safari tabs do. So acquire the stream
-  // ONCE and keep it warm: reuse it across recordings, only stopping the tracks
-  // on real teardown (unmount). The mic-in-use indicator stays on between
-  // takes, which is the accepted trade for not re-prompting every ~1-2 min.
   async function acquireWarmStream(): Promise<MediaStream> {
     const warm = streamRef.current;
     if (warm && warm.getAudioTracks().some((t) => t.readyState === "live")) {
@@ -212,7 +209,6 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
 
     // The Permissions API is reliable in browsers; the macOS WKWebView can report
     // "denied" spuriously, so on native we skip the gate and let getUserMedia — which
-    // wry grants at the webview layer, then the OS prompts via TCC — be the truth.
     if (IS_WEB && "permissions" in navigator && typeof navigator.permissions?.query === "function") {
       try {
         const permission = await navigator.permissions.query({ name: "microphone" as PermissionName });

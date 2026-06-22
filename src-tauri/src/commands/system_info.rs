@@ -52,8 +52,6 @@ pub fn get_network_info(
     let port = state.lock().api.port;
     // Live probe, but fall back to the value the periodic refresh cached when the
     // Tailscale CLI was last reachable. The macOS App-Store GUI CLI intermittently
-    // fails (exit 0 + "GUI failed to start") when its Aqua session isn't reachable
-    // from this process; the cache keeps a known-good serve URL across those blips.
     let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port)
         .or_else(|| mesh.lock().local_https_url.clone());
     Ok(serde_json::json!({
@@ -78,7 +76,6 @@ pub fn get_serve_status(
     let mut status = crate::mesh::probe_serve_status(port);
     // Fall back to the periodic refresh's cached serve URL when the live probe
     // comes back empty (intermittent macOS GUI-CLI failures), so the panel keeps
-    // showing the HTTPS link instead of flipping to the raw-IP affordance.
     if status.https_url.is_none() {
         if let Some(cached) = mesh.lock().local_https_url.clone() {
             status.https_url = Some(cached);

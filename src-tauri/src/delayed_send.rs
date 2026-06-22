@@ -411,9 +411,6 @@ pub fn start_scheduler(svc: ServiceState) {
 async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
     // Route through the storage-aware Messenger gateway at fire time: a PTY
     // recipient gets the reminder text prefix, a chatBackend recipient gets a
-    // structured inbound (canonical marker + sender fields) — same chokepoint
-    // as a live send. Messenger::deliver is synchronous and may block (PTY
-    // boot/link waits, chatBackend transcript IO), so keep it off the runtime.
     let envelope = reminder_envelope(&msg);
     let svc_for_deliver = svc.clone();
     let pane_id = msg.pane_id.clone();

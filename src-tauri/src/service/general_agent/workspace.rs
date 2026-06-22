@@ -42,7 +42,6 @@ pub fn ensure_general_workspace(
             let _ = mux.rename_pane(&pid, GENERAL_PANE_TITLE);
             // The sidebar reads tab.title, which create_tab seeded with a
             // random scientist name — pin the GA tab to "Main" too so the
-            // user's anchor pane never shows up as "Edison"/"Yang"/etc.
             if let Some(tab_id) = mux.find_tab_for_pane(&pid) {
                 let ws_id = ws.id.clone();
                 let _ = mux.rename_tab(&ws_id, &tab_id, GENERAL_PANE_TITLE);

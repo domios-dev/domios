@@ -232,5 +232,4 @@ mod tests {
 
     // NOTE: Bitwarden-specific behaviour (bw CLI envelopes, cipher shape, error
     // mapping) is tested on the PLUGIN side — see plugins/bitwarden/plugin.test.cjs.
-    // Core only tests the JsSecretBackend seam, with inline fixtures, above.
 }

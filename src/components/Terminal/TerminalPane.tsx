@@ -72,8 +72,6 @@ export const TerminalPane = memo(function TerminalPane({
   const agentType = pane?.agent_type;
   // No session-readiness gate: PaneSessionChat renders an empty chat for fresh
   // panes and binds the session when the mux reports its id.
-  // Reactive descriptor read — descriptors load async after mount; a plain
-  // cache read would freeze chatSupported=false for panes rendered first.
   const agentDescriptor = useAgentDescriptor(agentType);
   const chatSupported = agentDescriptor?.supports_chat_ui === true;
   const [mobileWebDefaultChat, setMobileWebDefaultChat] = useState(() =>
@@ -99,7 +97,6 @@ export const TerminalPane = memo(function TerminalPane({
 
   // --- UI state ---
   // Mode priority: explicit client-local choice > backend chat_view (set via
-  // the REST remote-control endpoint) > spawn/mobile default.
   const backendDefault = pane?.chat_view ? "chat" : undefined;
   const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
     chatSupported
@@ -191,9 +188,6 @@ export const TerminalPane = memo(function TerminalPane({
 
   // chat_start/chat_stop are owned exclusively by useChatSession's mount/
   // unmount (PaneSessionChat is mounted iff uiMode === "chat"). A second
-  // chat_stop here used to double-decrement the tailer refcount under
-  // StrictMode/HMR churn, shutting the live tailer down while chat was still
-  // mounted — sent bubbles then never got their real echo. Keep it 1:1.
 
   useEffect(() => {
     if (isFocused && terminalOwnsLivePty) {
@@ -235,8 +229,6 @@ export const TerminalPane = memo(function TerminalPane({
 
   // The client-mode store records EXPLICIT choices only (user toggles, spawn
   // default, bridge requests). Persisting every computed uiMode here used to
-  // erase the spawn-flow's "chat" with the pre-agent_type "terminal" and its
-  // echo got recorded as a user override — pinning new panes to terminal.
   useEffect(() => {
     publishCurrentPaneUiMode(paneId, uiMode);
   }, [paneId, uiMode]);

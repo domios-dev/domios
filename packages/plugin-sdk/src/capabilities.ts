@@ -186,9 +186,6 @@ export interface Transcriber {
 }
 
 // ── chatBackend (non-PTY chat transport; mirrors the ChatBackendProvider trait) ──
-// A plugin that *is* a pane's chat source/transport. The host adapter calls these
-// via call_json (mirror src-tauri/src/plugin/js_runtime/transcriber.rs) and pushes
-// `poll` output into the existing StructuredSink / `pane-chat-msg` path.
 
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
 export interface NormalizedChatMessage {
@@ -258,8 +255,6 @@ export interface ChatBackend {
 }
 
 // ── chatPreprocessor (compose/send-time outbound stage) ──
-// A stage in the outbound message pipeline. `match` is the slot it grabs; two
-// stages claiming the same slot are flagged as a conflict at install time.
 
 export interface ChatPreprocessor {
   match: "text";
@@ -273,8 +268,6 @@ export interface ChatPreprocessor {
 }
 
 // ── onAgentCommand (the inverse seam) ──
-// A spawned agent calls `codeterm plugin <id> <verb> …`; the socket dispatch routes
-// `plugin:<id>.<verb>` to the owning plugin's handler (requires the agent_commands grant).
 
 export interface AgentCommandCtx {
   sessionId: string;
