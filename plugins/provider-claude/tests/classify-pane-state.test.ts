@@ -146,8 +146,14 @@ console.log("\n--- auth guard: login screen → waiting_on_auth, NEVER auto-acte
   assert(!r?.action?.keys, "auth prompt carries NO key action (never auto-pressed)", JSON.stringify(r?.action));
 }
 
-console.log("\n--- negatives: normal output never fires (no false positives) ---\n");
-for (const f of ["normal-working.txt", "tool-call-list.txt", "diff-and-shell.txt", "prose-limit-mention.txt"]) {
+console.log("\n--- negatives: normal/resolved output never fires (no false positives) ---\n");
+for (const f of [
+  "normal-working.txt",
+  "tool-call-list.txt",
+  "diff-and-shell.txt",
+  "prose-limit-mention.txt",
+  "answered-clarifying-question.txt",
+]) {
   const r = classify(plugin, fixture(f));
   const state = r?.state ?? "unknown";
   assert(state !== "rate_limited", `${f}: not classified rate_limited`, `state=${state}`);

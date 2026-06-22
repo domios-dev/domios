@@ -493,11 +493,12 @@ function parseResetClock(screen, nowMs) {
   return usageParseTodayClock(m[1], nowMs);
 }
 function scoreClarifyingQuestion(screen) {
-  const options = parseClaudeMenuOptions(screen);
-  const questions = extractQuestions(screen);
+  const block = activeClarifyingPromptBlock(screen);
+  const options = block?.options ?? [];
+  const questions = block?.questions ?? [];
   const sigMenu = options.length >= 2;
   const sigQuestion = questions.length > 0;
-  const sigConfirmFooter = /\bto (?:confirm|submit|select)\b/i.test(screen);
+  const sigConfirmFooter = !!block;
   let confidence = 0;
   if (sigMenu) confidence += 0.35;
   if (sigQuestion) confidence += 0.3;
@@ -505,14 +506,64 @@ function scoreClarifyingQuestion(screen) {
   if (confidence > 1) confidence = 1;
   return { confidence, questions };
 }
-function extractQuestions(screen) {
+function activeClarifyingPromptBlock(screen) {
   const lines = String(screen || "").split("\n");
+  for (let footerIdx = lines.length - 1; footerIdx >= 0; footerIdx--) {
+    if (!isClarifyingConfirmFooter(lines[footerIdx])) continue;
+    const lastContentIdx = lastMeaningfulLineIndex(lines);
+    if (lastContentIdx > footerIdx) {
+      return null;
+    }
+    const options = contiguousOptionsAbove(lines, footerIdx);
+    if (options.length < 2) continue;
+    const questions = questionsAbove(lines, footerIdx);
+    if (questions.length === 0) continue;
+    return { questions, options };
+  }
+  return null;
+}
+function isClarifyingConfirmFooter(line) {
+  return /\bto (?:confirm|submit|select)\b/i.test(line);
+}
+function lastMeaningfulLineIndex(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (isDividerLine(line)) continue;
+    return i;
+  }
+  return -1;
+}
+function isDividerLine(line) {
+  const stripped = line.replace(/\s/g, "");
+  return stripped.length >= 8 && /^[─━═-]+$/.test(stripped);
+}
+function contiguousOptionsAbove(lines, footerIdx) {
+  const options = [];
+  for (let i = footerIdx - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) {
+      if (options.length > 0) break;
+      continue;
+    }
+    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
+    if (!m) {
+      if (options.length > 0) break;
+      continue;
+    }
+    options.push({ highlighted: !!m[1], label: m[3] });
+  }
+  return options.reverse();
+}
+function questionsAbove(lines, footerIdx) {
   const out = [];
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = footerIdx - 1; i >= 0; i--) {
     const line = lines[i].trim();
     if (line.length > 1 && line.charAt(line.length - 1) === "?") out.push(line);
+    if (out.length > 0 && CLAUDE_MENU_OPTION_RE.test(line)) continue;
+    if (out.length > 0 && !line) break;
   }
-  return out;
+  return out.reverse();
 }
 function scoreAuthPrompt(screen) {
   const s = String(screen || "");
