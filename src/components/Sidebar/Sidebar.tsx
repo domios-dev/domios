@@ -420,6 +420,11 @@ export function Sidebar({
     () => sortedWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
     [sortedWorkspaces],
   );
+  // The General (protected) workspace is pinned to the top and never reorders.
+  const pinnedWorkspaceIds = useMemo(
+    () => sortedWorkspaces.filter((ws) => ws.protected).map((ws) => `${WS_PREFIX}${ws.id}`),
+    [sortedWorkspaces],
+  );
   const dndHandlers = useMemo(
     () => ({ reorderTabs, reorderWorkspaces }),
     [reorderTabs, reorderWorkspaces],
@@ -566,7 +571,8 @@ export function Sidebar({
                   <div key={ws.id}>
                     <SortableRow
                       id={`${WS_PREFIX}${ws.id}`}
-                      data={{ group: "workspace", groupKey: "workspaces", items: workspaceSortIds }}
+                      disabled={ws.protected}
+                      data={{ group: "workspace", groupKey: "workspaces", items: workspaceSortIds, pinnedIds: pinnedWorkspaceIds }}
                     >
                     <WorkspaceItem
                       workspace={ws}
@@ -614,6 +620,7 @@ export function Sidebar({
                               group: "tab" | "child",
                               groupKey: string,
                               items: string[],
+                              pinnedIds: string[],
                             ): React.ReactNode => {
                               const tabPids = collectPaneIds(tab, state.panes);
                               const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
@@ -634,7 +641,8 @@ export function Sidebar({
                                 <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
                                   <SortableRow
                                     id={`${TAB_PREFIX}${tab.id}`}
-                                    data={{ group, groupKey, items }}
+                                    disabled={firstPane?.protected}
+                                    data={{ group, groupKey, items, pinnedIds }}
                                   >
                                   <TabItem
                                     tab={tab}
@@ -667,7 +675,7 @@ export function Sidebar({
                                   {childTabs.length > 0 && firstPane && (
                                     <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
                                       {childTabs.map((ct, ci) =>
-                                        renderTab(ct, ci, depth + 1, "child", firstPane.id, childIds),
+                                        renderTab(ct, ci, depth + 1, "child", firstPane.id, childIds, []),
                                       )}
                                     </SortableContext>
                                   )}
@@ -683,10 +691,14 @@ export function Sidebar({
                               return true;
                             });
                             const topLevelIds = topLevel.map((t) => `${TAB_PREFIX}${t.id}`);
+                            // Pin the General (protected) tab to the top of this group.
+                            const pinnedTabIds = topLevel
+                              .filter((t) => state.panes[t.pane_id]?.protected)
+                              .map((t) => `${TAB_PREFIX}${t.id}`);
                             return (
                               <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
                                 {topLevel.map((tab, index) =>
-                                  renderTab(tab, index, 0, "tab", ws.id, topLevelIds),
+                                  renderTab(tab, index, 0, "tab", ws.id, topLevelIds, pinnedTabIds),
                                 )}
                               </SortableContext>
                             );
