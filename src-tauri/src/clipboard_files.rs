@@ -155,9 +155,9 @@ fn read_macos() -> Vec<String> {
 fn file_url_to_path(url: &str) -> Option<String> {
     use objc2_foundation::{NSString, NSURL};
     let ns = NSString::from_str(url);
-    let nsurl = unsafe { NSURL::URLWithString(&ns) }?;
-    let resolved = unsafe { nsurl.filePathURL() }.unwrap_or(nsurl);
-    let path = unsafe { resolved.path() }?;
+    let nsurl = NSURL::URLWithString(&ns)?;
+    let resolved = nsurl.filePathURL().unwrap_or(nsurl);
+    let path = resolved.path()?;
     Some(path.to_string())
 }
 
