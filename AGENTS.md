@@ -235,6 +235,28 @@ The provider/plugin boundary is the project's load-bearing seam. It stays clean 
 
 Full rationale + the boundary map: **`docs/contributing/architecture.md`**.
 
+## Dev tooling: tree-sitter code navigation
+
+`tooling/code-nav/` is a **dev-only** tree-sitter CLI for **structural** questions about the source tree. It is standalone (its own Cargo project, never built by `build.sh`, never linked into the product) and **parse-on-demand** — no index, no cache, results always current, nothing to refresh or gitignore beyond its `target/`.
+
+Build once, then use it instead of grep-spelunking for structure:
+
+```bash
+cargo build --release --manifest-path tooling/code-nav/Cargo.toml
+CN=tooling/code-nav/target/release/code-nav
+$CN outline src-tauri/src/service/orchestrator.rs   # one file's symbols (kind/name/line; --json for machine use)
+$CN def   src-tauri/src spawn_agent                  # where a symbol is DEFINED (no call sites)
+$CN impls src-tauri/src AgentProvider                # every impl block + the methods it defines
+$CN query <file> '<scm>'                             # arbitrary tree-sitter query escape hatch
+```
+
+**When to reach for it (structural — it ignores comments/strings/call-sites):**
+- "Where is `X` *defined*?" → `def` returns the 1–2 real definitions, not the dozens of textual hits `grep` mixes in.
+- "Who implements trait `Y`, and which methods?" → `impls`. Pairs with the **Native+JS parity** rule above: diff the `AgentProvider` trait surface against a given impl to see which methods rely on defaults.
+- "What's in this file?" → `outline` for a symbol map before reading 800 lines.
+
+**When NOT to — use ripgrep instead:** flat text questions (does this string occur, count occurrences, find a literal, list every `#[tauri::command]` in a uniformly-formatted tree). There ripgrep is faster and the structural precision buys nothing. Honest trade-off: `code-nav` wins on *structure*, `rg` wins on *text*; it is not a type-aware resolver (no cross-file binding/inference — that's rust-analyzer's job). Details: `tooling/code-nav/README.md`.
+
 ## Mem self-repair primitives (Dreamer interface)
 
 Graph cleanup goes through `src-tauri/src/mem/graph_repair.rs` — whitelist-bounded typed primitives, never raw SQL. The Dreamer chains these via the prompt at `src-tauri/prompts/dreaming_rem.md` Stage A.4.
