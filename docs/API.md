@@ -50,15 +50,56 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/workspaces/{id}/focus` | — | Switch to workspace |
 | POST | `/api/workspaces/{id}/rename` | `{name}` | Rename workspace |
 | POST | `/api/workspaces/{id}/close` | — | Delete workspace |
+| GET | `/api/workspaces/{id}/recently-closed` | — | List recently-closed pane entries for this workspace. Returns `ClosedPane[]` (see [Closed History & Restore](#closed-history--restore)). |
+| POST | `/api/workspaces/{id}/reopen-closed` | `{index?}` | Reopen a recently-closed pane (browser Ctrl+Shift+T). `index` selects the ring entry (0 = most recent, default). Returns `TabInfo {id, title, pane_id}`. |
 | POST | `/api/workspaces/{id}/tabs` | — | Create tab |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/rename` | `{name}` | Rename tab |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/move` | `{to_workspace_id}` | Move tab between workspaces |
+
+#### Closed History & Restore
+
+Closed panes and workspaces are recorded in a persistent ring. Every close action is bucketed into a *group* — a `single` tab close, a `cascade` (orchestrator + its spawned subtree), or a `workspace` close. Groups are identified by an opaque `group_id` (ULID). The ring is bounded (`RECENTLY_CLOSED_CAP` entries); oldest entries are evicted first.
+
+| Method | Path | Body / Query | Description |
+|--------|------|------|-------------|
+| POST | `/api/closed-groups/{group_id}/reopen` | — | Reopen an entire closed group by its `group_id` (from the `recently_closed` snapshot). Recreates the workspace if it no longer exists; if a live workspace already exists at the same `cwd` it is reused — no duplicate is created. Returns `{workspace_id, tab_id, pane_id}` for the activated tab. |
+
+**Path-match restore behavior.** When reopening any group or orphaned pane that records a `cwd`, CodeTerm calls `find_workspace_by_cwd` (normalised via `paths::normalize_cwd` — trailing slashes and case-folded) before creating a new workspace. If a live workspace already points at the same folder the pane(s) are inserted there instead of spawning a duplicate. This applies to `reopen_closed_group`, `reopen_closed_pane`, and `mux_restore_orphaned_pane` (commit 6115030e).
+
+**`ClosedPane` fields** (returned by `GET /api/workspaces/{id}/recently-closed`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pane_id` | `string` | Original pane id |
+| `title` | `string` | Tab title at close time |
+| `description` | `string?` | Pane description at close time |
+| `cwd` | `string?` | Working directory at close time |
+| `backing` | `string` | `"pty"` or `"chat_backend"` |
+| `agent_type` | `string?` | Agent provider at close time (e.g. `"claude"`) |
+| `agent_session_id` | `string?` | Provider session id for resume |
+| `model` | `string?` | Model in use at close time |
+| `closed_at` | `u64` | Unix milliseconds |
+| `workspace_id` | `string` | Workspace the pane belonged to when closed |
+| `workspace_name` | `string` | Human-readable workspace name |
+| `parent_pane_id` | `string?` | Parent pane in hierarchy (preserved for cascade restore) |
+
+**`ClosedPaneView` fields** — `ClosedPane` enriched for the sidebar. Returned in `mux_get_state` → `recently_closed[]` and in the `GET /api/mux/state` snapshot:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| *(all ClosedPane fields above)* | | Flattened via `#[serde(flatten)]` |
+| `index` | `number` | Position in the per-workspace reopen ring (`0` = most recent) |
+| `orphaned` | `bool` | `true` when the original workspace no longer exists |
+| `group_id` | `string` | Opaque group identifier (ULID) — pass to reopen-group endpoints |
+| `group_kind` | `string` | `"single"` \| `"cascade"` \| `"workspace"` |
+
+**`mux_get_state` / `GET /api/mux/state` snapshot** now includes a top-level `recently_closed: ClosedPaneView[]` field. The list is the union of all groups across all workspaces, sorted newest-first, with `orphaned` computed live against the current workspace set. Sidebar and web-mirror clients consume this field to render the closed-history panel.
 
 #### Panes
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/panes` | — | List all panes |
-| POST | `/api/panes` | `{title?, cwd?, workspace_id?, cmd?, eager?}` | Create a shell pane. When `cmd` is provided, CodeTerm sends it to the fresh pane through the same verified send path used by `/api/panes/{id}/send`, with Enter appended. |
+| POST | `/api/panes` | `{title?, description?, cwd?, workspace_id?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create a shell pane. `description` is trimmed, empty clears it, and values over 200 chars are rejected. When `cmd` is provided, CodeTerm sends it to the fresh pane through the same verified send path used by `/api/panes/{id}/send`, with Enter appended. When `chat_backend` names an installed `chatBackend` plugin id, an **open agent shell** pane is created instead of a PTY: `system_prompt` overrides the resolved preset's prompt, `preset` selects one (omit → the plugin's `defaultPreset`), `model` picks a model. These three are only meaningful with `chat_backend`. |
 | POST | `/api/panes/{id}/send` | `{text?, enter?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, enter?, delay_ms?}], source_pane?}` | Send text or terminal actions to PTY. Fire-and-forget — returns `{ok:true}` as soon as bytes are written or queued. `actions` supports keys (`enter`, `esc`, arrows, `tab`, `backspace`, `delete`, `home/end`, `pageup/pagedown`, `space`, `ctrl-c`) and millisecond delays. Verification fields were removed in v1.2.3 (#101): TUI agents (Claude/Codex) intercept input and don't echo per-character, so the old `verify` flag couldn't deliver on its name. For agent request/response, a future `codeterm agent send` will hook into provider semantics. |
 | POST | `/api/panes/{id}/stop` | — | Stop the pane's PTY process |
 | POST | `/api/panes/{id}/exec` | `{command, timeout_ms?, strip_ansi?}` | Send command + wait for output |
@@ -70,6 +111,7 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/focus` | — | Focus pane |
 | POST | `/api/panes/{id}/close` | — | Close pane + kill PTY |
 | POST | `/api/panes/{id}/rename` | `{title}` | Rename pane/tab (pinned) |
+| POST | `/api/panes/{id}/describe` | `{description}` | Set or clear the pane/tab description. Server trims whitespace, treats empty as clear, and rejects values over 200 chars. |
 | POST | `/api/panes/{id}/resize` | `{cols, rows}` | Resize terminal |
 | GET | `/api/panes/{id}/chat` | — | Chat snapshot for the pane |
 | POST | `/api/panes/{id}/chat/start` | — | Start chat JSONL tailing |
@@ -97,9 +139,9 @@ Then: `Authorization: Bearer your-secret-token`
 | POST | `/api/panes/{id}/agent-type` | `{agent_type}` | Mark a pane as running a specific agent provider |
 | POST | `/api/panes/{id}/prompt/respond` | `{response}` | Respond to a pending permission prompt |
 | POST | `/api/panes/{id}/prompt/clear` | — | Clear a pending permission prompt |
-| GET | `/api/agents/providers` | — | List registered agent providers as `Vec<ProviderDescriptor>`. Each descriptor carries `id`, `display_name`, `available_models`, `default_model`, `settings_schema`, etc. Single source of truth for "what agents and models does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
+| GET | `/api/agents/providers` | — | List registered agent providers **and open agent shells**. Each entry carries `id`, `display_name`, `available_models`, `default_model`, `settings_schema`, etc. plus a **`kind`** field: `"agent"` (PTY providers — claude/codex/opencode) or `"shell"` (installed `chatBackend` plugins, e.g. lmstudio). Shell entries also carry `presets` and `supports_chat_ui: true`. Single source of truth for "what agents and shells does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
 | GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
-| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?}` | One-call agent spawn (see below) |
+| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, system_prompt? (alias `system`), preset?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as pane describe. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` into the shell's `openSession` ctx); otherwise the PTY agent path. An unknown id errors with the available agent **and** shell ids. |
 
 #### Interactive chat prompts (#162)
 
@@ -138,6 +180,7 @@ Fields returned by `GET /api/panes` for each pane:
 | `pty_id` | `string` | Associated PTY process ID |
 | `pane_type` | `string` | `"Terminal"` or `"Browser"` (canvas for visualizations) |
 | `title` | `string` | Display title (user-pinned or auto-detected) |
+| `description` | `string?` | Short pane/tab summary, max 200 chars. Shown in the sidebar tooltip/subtitle and persisted in session snapshots. |
 | `cwd` | `string?` | Current working directory (updated via OSC 7) |
 | `url` | `string?` | URL for canvas panes (localhost, data URLs) |
 | `agent_type` | `string?` | Agent running in pane, e.g. `"claude"` |
@@ -714,7 +757,7 @@ Response:
 
 Errors: `404` if the session id isn't found; `400` if the located session has no `project_path` (can't decide cwd); `500` on workspace create / agent spawn failure.
 
-Implementation plan + Codex schema audit live in `docs/plans/session-tracking.md`.
+Session binding model: `docs/contributing/architecture.md` §3 (provider-reported binding).
 
 #### Configuration
 | Method | Path | Body / Query | Description |
@@ -1037,6 +1080,9 @@ Newline-delimited JSON:
 | `workspace.focus` | `{workspace_id}` | Focus workspace |
 | `workspace.rename` | `{workspace_id, name}` | Rename workspace |
 | `workspace.close` | `{workspace_id}` | Close workspace |
+| `workspace.recently_closed` | `{workspace_id}` | List recently-closed pane entries for a workspace. Returns `ClosedPane[]`. |
+| `workspace.reopen_closed` | `{workspace_id, index?}` | Reopen the nth recently-closed pane in a workspace (`index` 0 = most recent). Returns `TabInfo`. |
+| `workspace.reopen_closed_group` | `{group_id}` | Reopen a closed group by `group_id`. Returns `{workspace_id, tab_id, pane_id}`. |
 | `workspace.move_tab` | `{tab_id, from_workspace_id, to_workspace_id}` | Move tab |
 | `pane.list` | — | List panes |
 | `pane.focus` | `{pane_id}` | Focus pane |
@@ -1090,6 +1136,9 @@ These are Tauri IPC commands (invoked from frontend via `invoke()`), not REST en
 
 | Command | Params | Description |
 |---------|--------|-------------|
+| `mux_reopen_closed_pane` | `workspace_id: String, index: Option<usize>` | Reopen the nth recently-closed pane in a workspace (`index` 0 = most recent, default). Returns `TabInfo {id, title, pane_id}`. |
+| `mux_reopen_closed_group` | `group_id: String` | Reopen a closed group (single/cascade/workspace) by `group_id` from the snapshot. Returns `{workspace_id, tab_id, pane_id}`. |
+| `mux_restore_orphaned_pane` | `pane_id: String` | Reopen a pane from the orphaned ring (its original workspace was deleted). Reuses a live workspace at the same `cwd` if one exists, else recreates from the stored name + cwd. Returns `{workspace_id, tab_id, pane_id}`. Desktop (Tauri) only — no REST route; in web mode bridged via `mux_restore_orphaned_pane` invoke alias. |
 | `mux_update_pane_cwd` | `pane_id, cwd` | Updates pane's current working directory (called by OSC 7 handler in frontend) |
 | `mux_set_pane_agent_type` | `pane_id, agent_type` | Marks pane as running an agent (e.g. `"claude"`) |
 | `detect_claude_session_id` | `cwd, exclude?, max_age_secs?` | Finds Claude Code session ID by scanning `~/.claude/projects/` directory structure |
@@ -1131,6 +1180,29 @@ CodeTerm automatically detects Claude Code and other agents:
 
 Skills for Claude Code are in `skills/` directory. Install via Settings → Agents & Skills.
 
+### Open agent shells (`chatBackend`)
+
+Beyond PTY agents, a pane can host an **open agent shell** — a non-PTY chat pane
+driven by a `chatBackend` plugin that talks to a local LLM, runs its own ReAct
+tool loop inside the plugin sandbox, and renders its active system prompt as an
+observable first-message card. Shells are discovered and spawned through the same
+surfaces as agents:
+
+- **Discover:** `GET /api/agents/providers` (CLI `codeterm agent providers`) lists
+  installed shells alongside PTY agents, tagged `kind: "shell"`. There is no
+  hardcoded shell list — core enumerates the `chatBackend` registry.
+- **Spawn:** `codeterm agent spawn <shell-id> [--system TEXT] [--preset ID] [--model M]`
+  (or `POST /api/agents/spawn`) routes by capability to the shell. `--system`
+  overrides the preset's system prompt for that session, `--preset` picks a preset,
+  no flag → the plugin's `defaultPreset`.
+- **Open directly:** `POST /api/panes {chat_backend, system_prompt?, preset?, model?}`.
+- **Observe:** the shell emits a `system_prompt` marker message rendered as a
+  collapsible "System prompt" card; tool-call / tool-result messages render via the
+  existing chat-UI message rendering.
+
+Authoring a `chatBackend` plugin, the open-shell loop, presets, the curated text
+tool protocol, and the worked lmstudio example: see **`docs/PLUGINS.md`**.
+
 ## Command Palette
 
 `Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, splits, settings, and theme switching.
@@ -1160,4 +1232,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 62 -->
+<!-- revision: 66 -->

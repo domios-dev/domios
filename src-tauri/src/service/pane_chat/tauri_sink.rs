@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::agent::chat_types::RichMessage;
 use crate::service::pane_chat::DeltaSink;

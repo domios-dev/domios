@@ -1,4 +1,5 @@
 pub mod ansi;
+pub mod capture;
 pub mod manager;
 pub mod screen_state;
 pub mod shell_integration;

@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 3 -->
+<!-- revision: 7 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -24,6 +24,12 @@ Toggle whether a pane can spawn children
 Compact agent context (sends /compact to Claude)
 
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm agent ledger`
+
+List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model / status / last-seen, one row per worker
+
+- `--pane` — Orchestrator pane ID (default: current focused pane)
 
 #### `codeterm agent link`
 
@@ -53,8 +59,15 @@ List available agent providers (claude, codex, ...) with their display names, de
 
 Send a report to your parent in the hierarchy
 
+- `--branch` — Git branch the work landed on
+- `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `<message>` — Report message (also accepts --message alias)
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--sha` — Commit SHA produced
+- `--skipped` — Anything deliberately skipped
+- `--status` — Task outcome: done | blocked | partial
+- `--test_cmd` — Test command that was run
+- `--test_result` — Result of the test command (e.g. "42 passed")
 
 #### `codeterm agent reports`
 
@@ -86,10 +99,14 @@ Spawn a new agent (creates tab in workspace, linked in hierarchy)
 - `--args` — Extra args for the agent
 - `--can_spawn` — Allow spawning children
 - `--cwd` — Working directory
+- `--description` — Short pane description (max 200 chars)
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--parent` — Parent pane ID (for Workers)
+- `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--role` — Role: Orchestrator, Worker
+- `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
+- `--task_file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
 - `--title` — Tab title
 - `--workspace` — Target workspace ID (default: parent's workspace or active workspace)
 
@@ -442,6 +459,13 @@ Patch properties on an existing entity (audit-logged)
 - `--id` — Entity id (e.g. person_andrey)
 - `--patch` — JSON object of properties to merge in (e.g. '{"city":"Riga"}')
 
+#### `codeterm mem graph collapse-synonym-edges`
+
+Collapse parallel membership-synonym edges graph-wide in one pass: per node-pair keep ONE of about/applies_to/belongs_to/part_of/documented_in, invalidate the rest. Distinct predicates (uses, runs_on, …) untouched
+
+- `--actor` — 
+- `--dry_run` — Print the redundant edge rowids without invalidating anything
+
 #### `codeterm mem graph create`
 
 Create a graph entity
@@ -547,6 +571,20 @@ Shortest path between two entities
 - `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
 - `--max_hops` — 
 - `--to` — 
+
+#### `codeterm mem graph prune-dream-hub-edges`
+
+Invalidate dream-diary backlinks into hubs in one pass: every edge from a daily diary to a graph entity via a noise predicate (keeps the dreams anchor)
+
+- `--actor` — 
+- `--dry_run` — Print the dream backlink rowids without invalidating anything
+
+#### `codeterm mem graph prune-thin-vectors`
+
+Find and (optionally) delete vectors whose mem_item has no real body (empty / title-only) — the "bodyless embeddings" that pollute search
+
+- `--actor` — 
+- `--dry_run` — Print the thin-body vector ids without deleting anything
 
 #### `codeterm mem graph purge-invalidated`
 
@@ -1018,6 +1056,23 @@ Send a notification
 
 Pane management
 
+#### `codeterm pane capture`
+
+Dev-only: tee a pane's raw PTY output into an asciicast v2 `.cast` file
+
+#### `codeterm pane capture start`
+
+Arm capture: tee raw PTY output (ANSI intact) + timestamps to `--out`
+
+- `--out` — Path of the `.cast` file to write
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+
+#### `codeterm pane capture stop`
+
+Disarm capture: flush/close the `.cast` and write a sibling `screen.txt`
+
+- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
+
 #### `codeterm pane chat`
 
 Read a pane's parsed chat transcript (text/thinking/tool calls/results)
@@ -1036,6 +1091,13 @@ Close a pane by ID
 Print the current (focused) pane ID — no JSON parsing needed
 
 - `--last` — Return the last pane instead of the focused one
+
+#### `codeterm pane describe`
+
+Set a short pane description (empty clears it)
+
+- `--pane` — Pane ID to describe (default: current focused pane)
+- `<summary>` — Short summary, max 200 chars
 
 #### `codeterm pane exec`
 
@@ -1068,7 +1130,9 @@ List all panes as a workspace-grouped tree. `--agents` filters to agent panes on
 
 Plain shell pane. For an AI pane use `codeterm agent spawn` instead
 
+- `--chat_backend` — Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`get-output` then route to the plugin, not a shell
 - `--cmd` — Command to run on pane start (e.g. `"poetry run backend"`). Sent into the PTY after the shell is ready
+- `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new pane
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
 - `--title` — Tab title
@@ -1152,6 +1216,10 @@ Compare installed plugins against a channel without installing
 
 - `<name>` — 
 
+#### `codeterm plugin channel ensure-default`
+
+Register the default marketplace channel (codeterm-plugins) if missing. Register-only: nothing is installed. Best-effort/offline-tolerant
+
 #### `codeterm plugin channel list`
 
 List registered channels
@@ -1168,6 +1236,22 @@ Remove a channel cache and registry entry
 
 - `--force` — Allow removing the protected system channel registration
 - `<name>` — 
+
+#### `codeterm plugin config`
+
+Configure a plugin by editing its self-documenting config.yaml (comments preserved, validated against the settings schema). Non-secret fields are written to the YAML; secret fields are reported for routing to the secret store (never written plaintext). Reload is live
+
+- `--grant` — Grant a permission, persisted to the plugin's grants.yaml so the decision survives (e.g. --grant spawn_agents). Repeatable. Takes effect on the plugin's next reload
+- `<id>` — 
+- `--revoke` — Revoke a previously granted permission (repeatable)
+- `--set` — Set a field: --set key=value (repeatable)
+- `--values_json` — Set multiple fields from a JSON object (named --values-json so it does not collide with the global --json output flag)
+
+#### `codeterm plugin get`
+
+Show a plugin's agent-facing config: its self-documenting config.yaml (secret values redacted), settings schema, and installed/configured/ reload state. The agent's discover handle (§1.7)
+
+- `<id>` — 
 
 #### `codeterm plugin install`
 
@@ -1188,6 +1272,7 @@ Remove an installed plugin
 
 - `--force` — Allow removing a verified/system plugin folder
 - `<id>` — 
+- `--remove_data` — Also remove plugin-owned downloaded data
 
 #### `codeterm plugin update`
 

@@ -1,0 +1,38 @@
+❯ Think hard about the best data structure for the snake body (array vs linked list vs deque) for this game, weigh the  
+  tradeoffs, and explain your reasoning before changing anything.                                                       
+⏺ The fuzz harness is clearly broken (it reports even no-op combos like Up+Up as deaths — impossible in one tick
+  mid-board), so I'm discarding it. The direct positional capture is authoritative, and it shows two important things:
+  - A single opposite press (Left while moving right) is already correctly ignored — head went 9,10→10,10→11,10, snake
+  stayed alive. So there is no direct 180° reversal bug; changeDir blocks it.
+  - But Up+Left in one tick made the snake turn up and silently drop the Left.
+  The cause
+  The real defect is in how queued turns are validated. changeDir validates each new direction against the committed
+  direction dir and stores only one pending turn (nextDir):
+  function changeDir(x, y) {
+    if (x === -dir.x && y === -dir.y) return;  // checks the CURRENT facing
+    nextDir = { x, y };                         // single slot, overwritten
+  }
+  Because the snake only takes one step per tick but the game runs many animation frames per tick, a player rounding a
+  corner naturally presses two keys within one tick (e.g. moving right: Up then Left). The Left is validated against the
+  still-committed dir (right), where it reads as a reversal, so it's thrown away — even though after the Up step it
+  would be a perfectly legal turn. The intended quick corner gets lost, the snake keeps going straight into the
+  wall/itself, and it feels like the controls reversed/betrayed you.
+  The fix is a small input queue: validate each press against the last pending direction (not the stale committed one),
+  buffer up to two, and apply one per tick. This honors fast corner turns and makes a 180° reversal impossible by
+  construction.
+⏺ Update(snake.html)
+  ⎿  Added 1 line, removed 1 line
+      271    // ============================================================
+      272    // State — the mutable game model + its transitions
+      273    // ============================================================
+      274 -  let snake, dir, nextDir, food, score, acc, last;                                                    
+      274 +  let snake, dir, dirQueue, food, score, acc, last;                                                   
+      275    let best = Number(localStorage.getItem('snake-best') || 0);
+      276    let difficulty = 'normal'; // remembered between rounds
+      277    let wrap = false;          // wall-wrap mode, captured from the checkbox at game start
+❯ Summarize everything that changed and give exact steps to open and play snake.html.                                   
+✻ Swooping… (12m 57s · ↑ 53.9k tokens)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt

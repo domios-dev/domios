@@ -3,7 +3,6 @@ use std::io::Read;
 use tauri::{AppHandle, Emitter};
 
 use crate::multiplexer::commands::MuxState;
-use crate::service::pty_io::build_spawn_dispatch;
 use crate::service::ServiceState;
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
@@ -25,7 +24,7 @@ pub async fn spawn_pty(
     // Protected panes reuse their backend PTY; wait briefly to avoid duplicate launch.
     if let Some(ref pid) = pane_id {
         let (is_protected, existing) = {
-            let m = mux_state.lock();
+            let m = mux_state.read();
             let p = m.get_pane(pid);
             (
                 p.map(|p| p.protected).unwrap_or(false),
@@ -48,7 +47,7 @@ pub async fn spawn_pty(
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             loop {
                 if let Some(existing) = mux_state
-                    .lock()
+                    .read()
                     .get_pane(pid)
                     .and_then(|p| p.pty_id.clone())
                 {
@@ -82,8 +81,18 @@ pub async fn spawn_pty(
     let mut env_vars: HashMap<String, String> = HashMap::new();
     if let Some(ref pid) = pane_id {
         env_vars.insert("CODETERM_PANE_ID".to_string(), pid.clone());
+        // Binding nonce so the agent's session_start hook can claim this pane (parity with pane_env).
+        env_vars.insert(
+            "CODETERM_SESSION_BINDING_NONCE".to_string(),
+            svc.ensure_session_binding_nonce(pid),
+        );
+        // Per-session shell-integration nonce — the injected shell script stamps it onto OSC 633;E.
+        env_vars.insert(
+            "CODETERM_SHELL_NONCE".to_string(),
+            svc.ensure_shell_integration_nonce(pid),
+        );
         // Pass role/parent info so agents know their place in hierarchy
-        let mux = mux_state.lock();
+        let mux = mux_state.read();
         if let Some(pane) = mux.get_pane(pid) {
             if let Some(ref role) = pane.role {
                 env_vars.insert("CODETERM_ROLE".to_string(), format!("{:?}", role));
@@ -142,8 +151,8 @@ pub async fn spawn_pty(
 
     // Auto-resume pane session after shell is ready.
     if let Some(ref pid) = pane_id {
-        let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type) = {
-            let m = mux_state.lock();
+        let (session_id, is_protected, pane_cwd, restored_from_snapshot, agent_type, pane_model) = {
+            let m = mux_state.read();
             let pane = m.get_pane(pid);
             (
                 pane.and_then(|p| p.agent_session_id.clone()),
@@ -151,6 +160,7 @@ pub async fn spawn_pty(
                 pane.and_then(|p| p.cwd.clone()),
                 pane.map(|p| p.restored_from_snapshot).unwrap_or(false),
                 pane.and_then(|p| p.agent_type.clone()),
+                pane.and_then(|p| p.agent_session_model.clone()),
             )
         };
         let mut should_fresh_launch =
@@ -189,19 +199,40 @@ pub async fn spawn_pty(
                 let pc = crate::config::provider_config(&provider_id);
                 let _ = config_state; // global lock no longer needed for these fields
                 let resume_enabled = pc.resume_sessions.unwrap_or(true);
+                // The global "resume with --dangerously-skip-permissions" toggle is the user's explicit intent for restored agents; per-pane auto_approve is unreliable across spawn paths, so do NOT gate on it.
                 let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
                 let resume_cmd = svc
                     .agent_registry
                     .with_provider(&provider_id, |p| {
-                        p.build_resume_command(&session_id, skip_perms)
+                        let base = p.build_resume_command(&session_id, skip_perms)?;
+                        // Preserve the pane's model across restart — bare resume otherwise drops it to the provider default.
+                        match pane_model.as_deref().filter(|m| !m.trim().is_empty()) {
+                            Some(m) => {
+                                let margs = p.model_launch_args(m);
+                                Some(if margs.is_empty() {
+                                    base
+                                } else {
+                                    format!("{} {}", base, margs.join(" "))
+                                })
+                            }
+                            None => Some(base),
+                        }
                     })
                     .flatten();
 
                 if let Some(cmd) = resume_cmd {
-                    let pty_clone = state.inner().clone();
                     let pty_id_for_poll = pty_id.clone();
-                    let pty_id_for_write = pty_id.clone();
+                    let pty_id_for_launch = pty_id.clone();
                     let screen_state_clone = screen_state.inner().clone();
+                    let svc_for_launch = svc.inner().clone();
+                    let pane_id_for_boot = pid.clone();
+                    let submit_strategy = svc
+                        .agent_registry
+                        .with_provider(&provider_id, |p| p.verify_submit_strategy())
+                        .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+                            timeout: std::time::Duration::from_secs(15),
+                        });
+                    svc.clear_pane_restored_flag(pid);
                     tokio::spawn(async move {
                         if !resume_enabled {
                             return;
@@ -209,7 +240,7 @@ pub async fn spawn_pty(
 
                         // Wait up to 60s for shell readiness before writing resume command.
                         let ready = tokio::task::spawn_blocking(move || {
-                            crate::service::pty_io::poll_shell_prompt(
+                            crate::service::pty_io::poll_bare_shell_prompt(
                                 &screen_state_clone,
                                 &pty_id_for_poll,
                                 std::time::Duration::from_secs(60),
@@ -227,15 +258,41 @@ pub async fn spawn_pty(
                         }
 
                         log::info!("[resume] sending: {}", cmd);
-                        match build_spawn_dispatch(&cmd) {
-                            Ok(bytes) => {
-                                let _ = pty_clone.lock().write(&pty_id_for_write, &bytes);
+                        if let Some(pane) =
+                            svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                        {
+                            pane.agent_booting = true;
+                        }
+                        let svc_for_blocking = svc_for_launch.clone();
+                        let launch_result = tokio::task::spawn_blocking(move || {
+                            let opts = crate::service::inject_verify::VerifyOpts {
+                                require_prompt_first: false,
+                                verify_echo: true,
+                                verify_submit: true,
+                                prompt_timeout: std::time::Duration::from_secs(0),
+                                echo_timeout: std::time::Duration::from_secs(3),
+                                submit_timeout: std::time::Duration::from_secs(15),
+                            };
+                            svc_for_blocking.send_shell_spawn_verified(
+                                &pty_id_for_launch,
+                                &cmd,
+                                submit_strategy,
+                                opts,
+                            )
+                        })
+                        .await;
+                        if let Some(pane) =
+                            svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot)
+                        {
+                            pane.agent_booting = false;
+                        }
+                        match launch_result {
+                            Ok(Ok(_)) => {}
+                            Ok(Err(e)) => {
+                                log::error!("[resume] verified launch failed: {}", e);
                             }
                             Err(e) => {
-                                log::error!(
-                                    "[resume] spawn dispatch build failed: {} — skipping launch",
-                                    e
-                                );
+                                log::error!("[resume] verified launch task failed: {}", e);
                             }
                         }
                     });
@@ -251,20 +308,33 @@ pub async fn spawn_pty(
             let pc = crate::config::provider_config(&provider_id);
             let skip_perms = pc.resume_skip_permissions.unwrap_or(true);
             let launch_cmd = svc.agent_registry.with_provider(&provider_id, |p| {
+                let args = pane_model
+                    .as_deref()
+                    .filter(|m| !m.trim().is_empty())
+                    .map(|m| p.model_launch_args(m))
+                    .filter(|a| !a.is_empty());
                 p.build_launch_command(&crate::agent::provider::AgentLaunchParams {
                     skip_permissions: skip_perms,
+                    args,
                     ..Default::default()
                 })
             });
             if let Some(cmd) = launch_cmd {
-                let pty_clone = state.inner().clone();
                 let pty_id_for_poll = pty_id.clone();
-                let pty_id_for_write = pty_id.clone();
+                let pty_id_for_launch = pty_id.clone();
                 let screen_state_clone = screen_state.inner().clone();
                 let provider_label = provider_id.clone();
+                let svc_for_launch = svc.inner().clone();
+                let pane_id_for_boot = pid.clone();
+                let submit_strategy = svc
+                    .agent_registry
+                    .with_provider(&provider_id, |p| p.verify_submit_strategy())
+                    .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
+                        timeout: std::time::Duration::from_secs(15),
+                    });
                 tokio::spawn(async move {
                     let ready = tokio::task::spawn_blocking(move || {
-                        crate::service::pty_io::poll_shell_prompt(
+                        crate::service::pty_io::poll_bare_shell_prompt(
                             &screen_state_clone,
                             &pty_id_for_poll,
                             std::time::Duration::from_secs(60),
@@ -284,13 +354,43 @@ pub async fn spawn_pty(
                         provider_label,
                         cmd
                     );
-                    match build_spawn_dispatch(&cmd) {
-                        Ok(bytes) => {
-                            let _ = pty_clone.lock().write(&pty_id_for_write, &bytes);
+                    if let Some(pane) = svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot) {
+                        pane.agent_booting = true;
+                    }
+                    let svc_for_blocking = svc_for_launch.clone();
+                    let launch_result = tokio::task::spawn_blocking(move || {
+                        let opts = crate::service::inject_verify::VerifyOpts {
+                            require_prompt_first: false,
+                            verify_echo: true,
+                            verify_submit: true,
+                            prompt_timeout: std::time::Duration::from_secs(0),
+                            echo_timeout: std::time::Duration::from_secs(3),
+                            submit_timeout: std::time::Duration::from_secs(15),
+                        };
+                        svc_for_blocking.send_shell_spawn_verified(
+                            &pty_id_for_launch,
+                            &cmd,
+                            submit_strategy,
+                            opts,
+                        )
+                    })
+                    .await;
+                    if let Some(pane) = svc_for_launch.mux.write().get_pane_mut(&pane_id_for_boot) {
+                        pane.agent_booting = false;
+                    }
+                    match launch_result {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(e)) => {
+                            log::error!(
+                                "[restore-fresh] verified launch failed for {} pane: {}",
+                                provider_label,
+                                e
+                            );
                         }
                         Err(e) => {
                             log::error!(
-                                "[restore-fresh] spawn dispatch build failed: {} — skipping launch",
+                                "[restore-fresh] verified launch task failed for {} pane: {}",
+                                provider_label,
                                 e
                             );
                         }
@@ -416,7 +516,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
 
             // Emit status change event to frontend
             if now != prev {
-                let pane_id = mux.lock().pane_id_for_pty(&pty_id);
+                let pane_id = mux.read().pane_id_for_pty(&pty_id);
                 if let Some(ref pid) = pane_id {
                     crate::api::events::emit_everywhere(
                         &app,
@@ -434,7 +534,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
         Err(e) => {
             // PTY died
             tracker.lock().set_dead(&pty_id);
-            let pane_id = mux.lock().pane_id_for_pty(&pty_id);
+            let pane_id = mux.write().pane_id_for_pty(&pty_id);
             if let Some(ref pid) = pane_id {
                 crate::api::events::emit_everywhere(
                     &app,
@@ -503,9 +603,6 @@ pub async fn write_pty_string(
         write_pty_string_core(&svc, pty_id, data)
     } else {
         // Bracketed paste with sacrificial space on Windows — see build_spawn_dispatch.
-        // Trailing \r is stripped and submitted as Enter; agent panes go through
-        // the verified injector (drain-checked Enter retry), which blocks — keep
-        // it off the async runtime.
         let svc = svc.inner().clone();
         tokio::task::spawn_blocking(move || {
             let text_stripped = data.trim_end_matches('\r');
@@ -515,6 +612,28 @@ pub async fn write_pty_string(
         .await
         .map_err(|e| format!("send task failed: {e}"))?
     }
+}
+
+#[tauri::command]
+pub async fn interrupt_agent(
+    svc: tauri::State<'_, ServiceState>,
+    pty_id: String,
+) -> Result<(), String> {
+    write_pty_string_core(&svc, pty_id, "\x1b".to_string())
+}
+
+/// Deliver an agent's initial launch command via the no-verify launch writer
+/// (no agent TUI exists pre-boot). poll_shell_prompt blocks → off the runtime.
+#[tauri::command]
+pub async fn write_pty_launch_command(
+    svc: tauri::State<'_, ServiceState>,
+    pty_id: String,
+    command: String,
+) -> Result<(), String> {
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.send_launch_command_to_pty(&pty_id, &command))
+        .await
+        .map_err(|e| format!("launch task failed: {e}"))?
 }
 
 /// Shared by the Tauri command and the web mirror's POST /api/pty/{id}/write.
@@ -532,6 +651,12 @@ pub fn write_pty_string_core(
     let bytes = data.into_bytes();
     parse_pty_input(svc, &svc.mux, &pty_id, &bytes);
     mark_user_activity(svc, &svc.mux, &pty_id);
+    crate::pty::capture::CaptureRegistry::global().tap_input(
+        &pty_id,
+        "write_pty_string_core",
+        &bytes,
+    );
+    mark_manual_agent_interrupt(svc, &pty_id, &bytes);
     session.write_queue.send(bytes)
 }
 
@@ -551,7 +676,15 @@ pub async fn write_pty(
     };
     parse_pty_input(&svc, &mux_state, &pty_id, &data);
     mark_user_activity(&svc, &mux_state, &pty_id);
+    crate::pty::capture::CaptureRegistry::global().tap_input(&pty_id, "write_pty", &data);
+    mark_manual_agent_interrupt(&svc, &pty_id, &data);
     session.write_queue.send(data)
+}
+
+fn mark_manual_agent_interrupt(svc: &ServiceState, pty_id: &str, bytes: &[u8]) {
+    if bytes == b"\x1b" {
+        svc.mark_agent_interrupted(pty_id);
+    }
 }
 
 fn mark_user_activity(
@@ -559,7 +692,7 @@ fn mark_user_activity(
     mux: &crate::multiplexer::commands::MuxState,
     pty_id: &str,
 ) {
-    let pane_id = mux.lock().pane_id_for_pty(pty_id);
+    let pane_id = mux.read().pane_id_for_pty(pty_id);
     if let Some(pid) = pane_id {
         svc.usage_activity.mark(&pid);
     }
@@ -575,7 +708,7 @@ fn parse_pty_input(
     bytes: &[u8],
 ) {
     let (pane_id, locked) = {
-        let m = mux.lock();
+        let m = mux.read();
         let pid = m.pane_id_for_pty(pty_id);
         let locked = pid
             .as_ref()
@@ -658,6 +791,7 @@ pub fn resize_pty_core(
     };
 
     let _ = session.resize(cols, rows)?;
+    crate::pty::capture::CaptureRegistry::global().tap_resize(&pty_id, cols, rows);
     Ok(())
 }
 
@@ -670,7 +804,7 @@ pub async fn kill_pty(
     // Protected panes (General Agent) own backend PTYs. Ignore kill_pty
     // if it targets an already-owned PTY to avoid tearing GA down mid-launch.
     let owned_by_protected = {
-        let mux = mux_state.lock();
+        let mux = mux_state.read();
         mux.pane_id_for_pty(&pty_id)
             .and_then(|pid| mux.get_pane(&pid).map(|p| p.protected))
             .unwrap_or(false)

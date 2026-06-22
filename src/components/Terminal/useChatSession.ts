@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke, listen, type UnlistenFn } from "../../lib/bridge";
 import {
+  attachToolResults,
   lastSessionResetIndex,
+  mergeById,
   mergeTimelineMessages,
   matchedOptimisticEchoes,
   trimAfterSessionReset,
@@ -12,6 +14,13 @@ import { detectChatPrefix, splitChatPrefixedMessages, type ChatOrigin } from "..
 
 const INITIAL_VISIBLE_MESSAGES = 220;
 const VISIBLE_MESSAGE_STEP = 160;
+export const TEST_CHAT_REPLY_EVENT = "codeterm:test-chat-reply";
+const TEST_CHAT_BASE_TIME_MS = 1_700_000_000_000;
+
+type FrontendTestEnv = {
+  DEV?: boolean;
+  VITE_CODETERM_TEST?: string;
+};
 
 interface ChatStartResult {
   text: string;
@@ -28,50 +37,137 @@ interface ChatMsgEvent {
   cursor?: string;
 }
 
-function mergeById(prev: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
-  const map = new Map<string, ChatMessage>();
-  for (const m of prev) map.set(m.id, m);
-  for (const m of incoming) map.set(m.id, m);
-  return Array.from(map.values()).sort(
-    (a, b) => Number(a.timestamp ?? 0) - Number(b.timestamp ?? 0),
-  );
+export interface TestChatReplyDetail {
+  paneId: string;
+  content?: string;
+  id?: string;
+  timestamp?: string;
+  type?: ChatMessage["type"];
+  provider?: string;
+  messages?: ChatMessage[];
+}
+
+export interface TestChatHandle {
+  reply: (paneId: string, content: string, options?: Omit<TestChatReplyDetail, "paneId" | "content" | "messages">) => void;
+  pushMessages: (paneId: string, messages: ChatMessage[]) => void;
+  resetClock: () => void;
+}
+
+declare global {
+  interface Window {
+    __codetermTestChat?: TestChatHandle;
+  }
+}
+
+let testChatSequence = 0;
+
+function importEnv(): FrontendTestEnv | undefined {
+  return (import.meta as { env?: FrontendTestEnv }).env;
+}
+
+export function isCodeTermFrontendTestMode(env: FrontendTestEnv | undefined = importEnv()): boolean {
+  return env?.VITE_CODETERM_TEST === "1";
+}
+
+export function resetTestChatClockForCodeTerm(): void {
+  testChatSequence = 0;
+}
+
+function nextTestChatTimestamp(): string {
+  const value = TEST_CHAT_BASE_TIME_MS + testChatSequence;
+  testChatSequence += 1;
+  return String(value);
+}
+
+export function testChatReplyPayload(detail: TestChatReplyDetail): ChatMsgEvent {
+  if (detail.messages) {
+    return { pane_id: detail.paneId, messages: detail.messages };
+  }
+  return {
+    pane_id: detail.paneId,
+    messages: [
+      {
+        id: detail.id ?? `test-assistant-${detail.paneId}-${testChatSequence}`,
+        type: detail.type ?? "assistant",
+        content: detail.content ?? "",
+        timestamp: detail.timestamp ?? nextTestChatTimestamp(),
+        provider: detail.provider ?? "test",
+      },
+    ],
+  };
+}
+
+export function installCodeTermTestChatHandle(testMode = isCodeTermFrontendTestMode()): void {
+  if (!testMode || typeof window === "undefined" || window.__codetermTestChat) return;
+  window.__codetermTestChat = {
+    reply(paneId, content, options = {}) {
+      window.dispatchEvent(
+        new CustomEvent(TEST_CHAT_REPLY_EVENT, {
+          detail: { ...options, paneId, content } satisfies TestChatReplyDetail,
+        }),
+      );
+    },
+    pushMessages(paneId, messages) {
+      window.dispatchEvent(
+        new CustomEvent(TEST_CHAT_REPLY_EVENT, {
+          detail: { paneId, messages } satisfies TestChatReplyDetail,
+        }),
+      );
+    },
+    resetClock: resetTestChatClockForCodeTerm,
+  };
+}
+
+function applyChatMsgEvent(
+  payload: ChatMsgEvent,
+  paneId: string,
+  setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
+  nextOrder: () => number,
+): void {
+  if (payload.pane_id !== paneId) return;
+  const incoming = withClientOrder(payload.messages, nextOrder);
+  if (!incoming?.length) return;
+  setStructured((prev) => mergeById(prev ?? [], incoming));
+}
+
+function listenForTestChatReplies(
+  paneId: string,
+  setStructured: Dispatch<SetStateAction<ChatMessage[] | null>>,
+  nextOrder: () => number,
+): (() => void) | null {
+  if (!isCodeTermFrontendTestMode() || typeof window === "undefined") return null;
+  installCodeTermTestChatHandle();
+  const handler = (event: Event) => {
+    const detail = (event as CustomEvent<TestChatReplyDetail>).detail;
+    if (!detail || detail.paneId !== paneId) return;
+    applyChatMsgEvent(testChatReplyPayload(detail), paneId, setStructured, nextOrder);
+  };
+  window.addEventListener(TEST_CHAT_REPLY_EVENT, handler);
+  return () => window.removeEventListener(TEST_CHAT_REPLY_EVENT, handler);
 }
 
 function toEchoes(msgs: ChatMessage[]): OptimisticEcho[] {
   return msgs.map((m) => ({ id: m.id, content: m.content, sentAtMs: Number(m.timestamp) || 0 }));
 }
 
+function withClientOrder(messages: ChatMessage[], nextOrder: () => number): ChatMessage[] {
+  return messages.map((message) => (
+    message.clientOrder == null ? { ...message, clientOrder: nextOrder() } : message
+  ));
+}
+
+// Mirrors chat-core/time.ts: scale Unix-seconds stamps (codex floors to
+// seconds; RichMessage.ts is documented in seconds) up to ms so reset-cutoff
+const MS_EPOCH_FLOOR = 1e12;
 function timestampMs(ts: string | undefined): number | null {
   if (!ts) return null;
   const numeric = Number(ts);
-  if (Number.isFinite(numeric)) return numeric;
+  if (Number.isFinite(numeric)) {
+    if (numeric <= 0) return null;
+    return numeric < MS_EPOCH_FLOOR ? numeric * 1000 : numeric;
+  }
   const parsed = Date.parse(ts);
   return Number.isNaN(parsed) ? null : parsed;
-}
-
-function groupToolResults(messages: ChatMessage[]): ChatMessage[] {
-  const grouped: ChatMessage[] = [];
-  const toolIndex = new Map<string, number>();
-  for (const message of messages) {
-    if (message.type === "tool_call" && message.toolId) {
-      toolIndex.set(message.toolId, grouped.length);
-      grouped.push(message);
-      continue;
-    }
-    if (message.type === "tool_result" && message.toolId) {
-      const index = toolIndex.get(message.toolId);
-      if (index != null) {
-        const existing = grouped[index];
-        const toolResult = existing.toolResult
-          ? `${existing.toolResult}\n${message.content}`
-          : message.content;
-        grouped[index] = { ...existing, toolResult };
-        continue;
-      }
-    }
-    grouped.push(message);
-  }
-  return grouped;
 }
 
 export function useChatSession({
@@ -89,6 +185,12 @@ export function useChatSession({
   const [error, setError] = useState<string | null>(null);
   const [optimistic, setOptimistic] = useState<ChatMessage[]>([]);
   const onErrorRef = useRef(onError);
+  const nextClientOrderRef = useRef(0);
+  const nextClientOrder = useCallback(() => {
+    const value = nextClientOrderRef.current;
+    nextClientOrderRef.current += 1;
+    return value;
+  }, []);
 
   useEffect(() => {
     onErrorRef.current = onError;
@@ -97,6 +199,7 @@ export function useChatSession({
   useEffect(() => {
     let cancelled = false;
     let unlisten: UnlistenFn | null = null;
+    let unlistenTest: (() => void) | null = null;
     (async () => {
       try {
         const res = await invoke<ChatStartResult>("chat_start", { paneId });
@@ -104,15 +207,15 @@ export function useChatSession({
         setError(null);
         setVisibleMessageCount(INITIAL_VISIBLE_MESSAGES);
         setLoading(false);
+        nextClientOrderRef.current = 0;
+        unlistenTest = listenForTestChatReplies(paneId, setStructured, nextClientOrder);
         if (res.pending) return;
-        setStructured(res.messages ?? []);
+        setStructured(withClientOrder(res.messages ?? [], nextClientOrder));
         unlisten = await listen<ChatMsgEvent>(
           `pane-chat-msg-${paneId}`,
           (ev) => {
             if (cancelled) return;
-            const incoming = ev.payload.messages;
-            if (!incoming?.length) return;
-            setStructured((prev) => mergeById(prev ?? [], incoming));
+            applyChatMsgEvent(ev.payload, paneId, setStructured, nextClientOrder);
           },
         );
       } catch (e) {
@@ -126,9 +229,13 @@ export function useChatSession({
     return () => {
       cancelled = true;
       unlisten?.();
+      unlistenTest?.();
+      // Pre-reset optimistics are invalid in the new session; drop them now so
+      // /new and /clear pills don't stick when the session boundary changes.
+      setOptimistic([]);
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
-  }, [paneId, agentSessionId]);
+  }, [paneId, agentSessionId, nextClientOrder]);
 
   useEffect(() => {
     if (error?.includes("chat_send_raw")) setError(null);
@@ -149,13 +256,13 @@ export function useChatSession({
   }, [optimistic, resetCutoffMs]);
 
   const allMessages = useMemo(() => {
-    const grouped = groupToolResults(resetParsed);
+    // OSC4 shell-command timeline merge disabled — it regressed chat rendering
+    // (empty-entry "(no command captured)" + agent-message dropout). Re-enable
+    const grouped = attachToolResults(resetParsed);
     if (liveOptimistic.length === 0) return grouped;
     // Render every real user turn (mergeById already dedupes by stable id — no
     // content-collapse that would swallow a legitimately repeated message).
-    // A bubble is hidden once the provider transcript positively claims it,
-    // either exactly or as part of a combined TUI-submitted user turn.
-    const parsedUsers = resetParsed.filter((m) => m.type === "user");
+    const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
     const matched = new Set(matchedIds);
     const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
@@ -210,10 +317,11 @@ export function useChatSession({
         type: "user",
         content,
         timestamp: String(Date.now()),
+        clientOrder: nextClientOrder(),
       },
     ]);
     return id;
-  }, []);
+  }, [nextClientOrder]);
 
   /** Replace an optimistic bubble's content in place — used to morph a
    * "transcribing…" placeholder into the final transcript (or an error)
@@ -226,10 +334,9 @@ export function useChatSession({
 
   // Garbage-collect bubbles whose real echo has landed or whose pre-reset
   // history is no longer visible. If the echo never arrives the bubble stays
-  // visible; combined transcript turns can still claim several quick sends.
   useEffect(() => {
     if (optimistic.length === 0) return;
-    const parsedUsers = resetParsed.filter((m) => m.type === "user");
+    const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
     const matched = new Set(matchedIds);
     setOptimistic((prev) => {

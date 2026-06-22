@@ -1,0 +1,26 @@
+name: comment-length
+
+# Inline comment length discipline: scripts/check-comment-length.sh.
+# Runs in --fail mode. No allowlist entries currently — all clean.
+# Add to scripts/comment-length-allowlist.txt for any file that needs
+# a grace period, with a baseline count that must shrink, not grow.
+
+on:
+  pull_request:
+    paths:
+      - '**/*.rs'
+      - '**/*.ts'
+      - '**/*.tsx'
+      - 'scripts/comment-length-allowlist.txt'
+      - 'scripts/check-comment-length.sh'
+      - '.github/workflows/comment-length.yml'
+  push:
+    branches: [develop, master]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run comment-length discipline check
+        run: bash scripts/check-comment-length.sh --fail

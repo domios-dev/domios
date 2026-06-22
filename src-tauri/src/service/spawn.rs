@@ -3,11 +3,12 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
-use super::orchestrator::{build_agent_command, launch_agent_in_background, SpawnAgentParams};
+use super::orchestrator::{build_agent_command, launch_agent_in_background};
 use super::ServiceContext;
 use crate::agent::registry::AgentRegistry;
 
 pub(crate) use super::spawn_cli::{cli_binary_on_path, provider_cli_install_warning};
+pub(crate) use super::spawn_params::chatbackend_spawn_config;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct SpawnPaneSpec {
@@ -19,6 +20,8 @@ pub struct SpawnPaneSpec {
     pub cwd: Option<String>,
     #[serde(default)]
     pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
     #[serde(default)]
     pub visibility: PaneVisibility,
     #[serde(default)]
@@ -34,17 +37,19 @@ pub enum PaneVisibility {
     Hidden,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PaneCommand {
+    #[default]
     Shell,
     Agent(AgentSpawnSpec),
-}
-
-impl Default for PaneCommand {
-    fn default() -> Self {
-        PaneCommand::Shell
-    }
+    /// A pane driven by a plugin's `chatBackend` capability — no PTY, no shell.
+    ChatBackend {
+        plugin_id: String,
+        #[serde(default)]
+        config: serde_json::Value,
+    },
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -110,69 +115,11 @@ pub struct PaneHandle {
     pub pty_id: Option<String>,
     pub workspace_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub worker_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
-}
-
-impl SpawnPaneSpec {
-    pub fn from_agent_params(params: SpawnAgentParams) -> Self {
-        Self {
-            workspace_id: params.workspace_id.clone(),
-            parent_pane_id: params.parent_pane_id.clone(),
-            cwd: params.cwd.clone(),
-            title: params.title.clone(),
-            visibility: PaneVisibility::Visible,
-            eager: false,
-            command: PaneCommand::Agent(AgentSpawnSpec {
-                provider: params.agent.clone().unwrap_or_default(),
-                model: params.model.clone(),
-                task: params.task.clone(),
-                agent_name: params.agent_name.clone(),
-                extra_args: params.args.clone().unwrap_or_default(),
-                role: params.role.clone(),
-                can_spawn: params.can_spawn,
-                auto_approve: params.skip_permissions.unwrap_or(true),
-                report_target_pane_id: params.report_target_pane_id.clone(),
-                worker_id: None,
-                extra_env: Default::default(),
-                task_preamble: None,
-                spawned_by: None,
-                spawned_by_pane_id: params.spawned_by_pane_id.clone(),
-                resume_session_id: params.resume_session_id.clone(),
-                activate: params.activate,
-            }),
-        }
-    }
-
-    pub(crate) fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
-        let agent = match &self.command {
-            PaneCommand::Agent(a) => a,
-            PaneCommand::Shell => {
-                return Err("to_agent_params called on Shell spec".into());
-            }
-        };
-        let args = agent.extra_args.clone();
-        Ok(SpawnAgentParams {
-            agent: Some(agent.provider.clone()),
-            agent_name: agent.agent_name.clone(),
-            args: if args.is_empty() { None } else { Some(args) },
-            cwd: self.cwd.clone(),
-            title: self.title.clone(),
-            role: agent.role.clone(),
-            parent_pane_id: self.parent_pane_id.clone(),
-            can_spawn: agent.can_spawn,
-            task: agent.task.clone(),
-            workspace_id: self.workspace_id.clone(),
-            force_tab: None,
-            report_target_pane_id: agent.report_target_pane_id.clone(),
-            skip_permissions: Some(agent.auto_approve),
-            spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
-            model: agent.model.clone(),
-            resume_session_id: agent.resume_session_id.clone(),
-            activate: agent.activate,
-        })
-    }
 }
 
 impl ServiceContext {
@@ -192,6 +139,12 @@ impl ServiceContext {
             (PaneVisibility::Hidden, PaneCommand::Agent(_)) => self.spawn_hidden_agent_impl(spec),
             (PaneVisibility::Visible, PaneCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (PaneVisibility::Hidden, PaneCommand::Shell) => self.spawn_hidden_shell_impl(spec),
+            (PaneVisibility::Visible, PaneCommand::ChatBackend { .. }) => {
+                self.spawn_chatbackend_impl(spec)
+            }
+            (PaneVisibility::Hidden, PaneCommand::ChatBackend { .. }) => {
+                self.spawn_chatbackend_impl(spec)
+            }
         }
     }
 }
@@ -201,36 +154,30 @@ pub(crate) fn validate_agent_model(
     provider_id: &str,
     model: Option<&str>,
 ) -> Result<(), String> {
-    let Some(model) = model.map(str::trim).filter(|m| !m.is_empty()) else {
-        return Ok(());
-    };
-    let models = registry
-        .with_provider(provider_id, |p| p.available_models())
-        .unwrap_or_default();
-    if models.is_empty() {
-        return Ok(());
+    let _ = registry;
+    if model.map(str::trim).is_some_and(|m| !m.is_empty()) {
+        let _ = crate::agent::model_catalog::resolve_model(provider_id, model);
     }
-    if models.iter().any(|m| m.id == model) {
-        return Ok(());
-    }
+    Ok(())
+}
 
-    let suffix_matches: Vec<&str> = models
-        .iter()
-        .filter_map(|m| {
-            m.id.rsplit_once('/')
-                .map(|(_, suffix)| (m.id.as_str(), suffix))
-        })
-        .filter_map(|(id, suffix)| (suffix == model).then_some(id))
-        .collect();
-    let suggestion = if suffix_matches.len() == 1 {
-        format!(" Did you mean '{}'?", suffix_matches[0])
-    } else {
-        String::new()
-    };
-    Err(format!(
-        "Invalid model '{}' for provider '{}'.{} Run `codeterm agent models {}` to see available models.",
-        model, provider_id, suggestion, provider_id
-    ))
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ModelFallbackNotice {
+    pub requested: String,
+    pub using: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FreshAgentModelResolution {
+    pub model: Option<String>,
+    pub fallback_notice: Option<ModelFallbackNotice>,
+}
+
+pub(crate) fn model_fallback_notice_title(notice: &ModelFallbackNotice) -> String {
+    format!(
+        "model {} unavailable -> using {}",
+        notice.requested, notice.using
+    )
 }
 
 pub(crate) fn resolve_fresh_agent_model(
@@ -239,18 +186,52 @@ pub(crate) fn resolve_fresh_agent_model(
     requested: Option<String>,
     resume_session_id: Option<&str>,
 ) -> Option<String> {
+    resolve_fresh_agent_model_with_notice(registry, provider_id, requested, resume_session_id).model
+}
+
+pub(crate) fn resolve_fresh_agent_model_with_notice(
+    registry: &AgentRegistry,
+    provider_id: &str,
+    requested: Option<String>,
+    resume_session_id: Option<&str>,
+) -> FreshAgentModelResolution {
     if resume_session_id.is_some() {
-        return requested.and_then(non_empty_model);
+        return FreshAgentModelResolution {
+            model: requested.and_then(non_empty_model),
+            fallback_notice: None,
+        };
     }
     if let Some(model) = requested.and_then(non_empty_model) {
-        return Some(model);
+        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
+        let fallback_notice = if resolved.fell_back {
+            log::warn!(
+                "[spawn] requested model '{}' unavailable for provider '{}'; using '{}'",
+                model,
+                provider_id,
+                resolved.id
+            );
+            Some(ModelFallbackNotice {
+                requested: model,
+                using: resolved.id.clone(),
+            })
+        } else {
+            None
+        };
+        return FreshAgentModelResolution {
+            model: non_empty_model(resolved.id),
+            fallback_notice,
+        };
     }
     if let Some(model) = crate::config::provider_config(provider_id)
         .default_model
         .and_then(non_empty_model)
     {
-        if model_is_advertised(registry, provider_id, &model) {
-            return Some(model);
+        let resolved = crate::agent::model_catalog::resolve_model(provider_id, Some(&model));
+        if !resolved.fell_back {
+            return FreshAgentModelResolution {
+                model: non_empty_model(resolved.id),
+                fallback_notice: None,
+            };
         }
         log::warn!(
             "[spawn] ignoring stale default model '{}' for provider '{}'",
@@ -258,22 +239,21 @@ pub(crate) fn resolve_fresh_agent_model(
             provider_id
         );
     }
-    registry
+    let provider_default = registry
         .with_provider(provider_id, |p| p.default_model())
         .flatten()
-        .and_then(non_empty_model)
+        .and_then(non_empty_model);
+    let resolved =
+        crate::agent::model_catalog::resolve_model(provider_id, provider_default.as_deref());
+    FreshAgentModelResolution {
+        model: non_empty_model(resolved.id),
+        fallback_notice: None,
+    }
 }
 
 fn non_empty_model(model: String) -> Option<String> {
     let trimmed = model.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
-}
-
-fn model_is_advertised(registry: &AgentRegistry, provider_id: &str, model: &str) -> bool {
-    registry
-        .with_provider(provider_id, |p| p.available_models())
-        .map(|models| models.is_empty() || models.iter().any(|m| m.id == model))
-        .unwrap_or(false)
 }
 
 impl ServiceContext {
@@ -298,28 +278,22 @@ impl ServiceContext {
             agent.provider.clone()
         };
 
-        if self
-            .agent_registry
-            .with_provider(&agent_cmd, |_| ())
-            .is_none()
-        {
-            let available = self.agent_registry.provider_ids().join(", ");
-            return Err(format!(
-                "Unknown agent provider: '{}'. Available: [{}]",
-                agent_cmd, available
-            ));
-        }
+        self.require_agent_provider_ready(&agent_cmd)?;
         let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
-        let launch_model = resolve_fresh_agent_model(
+        let model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent_cmd,
             agent.model.clone(),
             agent.resume_session_id.as_deref(),
         );
+        let launch_model = model_resolution.model;
         validate_agent_model(&self.agent_registry, &agent_cmd, launch_model.as_deref())?;
+        if let Some(ref notice) = model_resolution.fallback_notice {
+            self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
+        }
 
         let title = spec
             .title
@@ -328,7 +302,7 @@ impl ServiceContext {
             .unwrap_or_else(|| agent_cmd.clone());
 
         let (ws_id, ws_cwd) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let from_parent = spec
                 .parent_pane_id
                 .as_ref()
@@ -360,7 +334,7 @@ impl ServiceContext {
         );
 
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             // Apply explicit --title to tab.title up-front (mirrors REST path).
             if let Some(ref t) = spec.title {
@@ -372,6 +346,9 @@ impl ServiceContext {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.cwd = Some(dir.clone());
                 }
+            }
+            if let Some(ref description) = spec.description {
+                let _ = mux.set_pane_description(&result.1, Some(description.clone()));
             }
             if let Some(ref rtid) = agent.report_target_pane_id {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
@@ -443,7 +420,7 @@ impl ServiceContext {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
         if let Some(ref model) = launch_model {
-            if let Some(pane) = self.mux.lock().get_pane_mut(&pane_id) {
+            if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
                 pane.agent_session_model = Some(model.clone());
             }
         }
@@ -467,9 +444,22 @@ impl ServiceContext {
                 _ => preamble_wrapped,
             }
         });
+        // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
+        let role_suffixed_task =
+            role_suffixed_task.map(|t| match self.spawn_task_prefix(&pane_id) {
+                Some(pfx) => format!("{}{}", pfx, t),
+                None => t,
+            });
 
         let mut legacy_params = spec.to_agent_params()?;
         legacy_params.model = launch_model;
+        legacy_params.structured_prompt_server =
+            crate::service::structured_prompt::ensure_for_spawn(
+                self,
+                &agent_cmd,
+                &pane_id,
+                &resolved_cwd.clone().unwrap_or_default(),
+            );
         let launch_cmd = build_agent_command(
             &agent_cmd,
             &legacy_params,
@@ -493,6 +483,7 @@ impl ServiceContext {
             tab_id,
             pty_id: None,
             workspace_id: ws_id,
+            description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning,
         })
@@ -503,7 +494,7 @@ impl ServiceContext {
         spec: SpawnPaneSpec,
     ) -> Result<PaneHandle, String> {
         let (ws_id, ws_cwd) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let from_parent = spec
                 .parent_pane_id
                 .as_ref()
@@ -519,12 +510,15 @@ impl ServiceContext {
         let (resolved_cwd, warning) = Self::resolve_agent_cwd(&spec.cwd, &ws_cwd);
 
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             if let Some(ref dir) = resolved_cwd {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.cwd = Some(dir.clone());
                 }
+            }
+            if let Some(ref description) = spec.description {
+                let _ = mux.set_pane_description(&result.1, Some(description.clone()));
             }
             if let Some(ref title) = spec.title {
                 if let Err(e) = mux.rename_pane(&result.1, title) {
@@ -539,7 +533,7 @@ impl ServiceContext {
         let pty_id = if spec.eager {
             self.ensure_pane_pty_for_send(&pane_id)?;
             self.mux
-                .lock()
+                .write()
                 .get_pane(&pane_id)
                 .and_then(|p| p.pty_id.clone())
         } else {
@@ -551,6 +545,7 @@ impl ServiceContext {
             tab_id,
             pty_id,
             workspace_id: ws_id,
+            description: spec.description,
             worker_id: None,
             warning,
         })
@@ -563,7 +558,7 @@ impl ServiceContext {
         use std::collections::HashMap;
 
         let ws_id = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             spec.workspace_id
                 .clone()
                 .or_else(|| mux.snapshot().active_workspace_id.clone())
@@ -571,13 +566,13 @@ impl ServiceContext {
                 .ok_or("No workspace for hidden shell")?
         };
         let ws_cwd = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
         };
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
 
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             if let Some(pane) = mux.get_pane_mut(&result.1) {
                 pane.hidden = true;
@@ -591,6 +586,10 @@ impl ServiceContext {
 
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+        env_vars.insert(
+            "CODETERM_SESSION_BINDING_NONCE".into(),
+            self.ensure_session_binding_nonce(&pane_id),
+        );
         env_vars.insert(
             "CODETERM_SOCKET_PATH".into(),
             crate::socket::server::socket_display_path(),
@@ -614,7 +613,7 @@ impl ServiceContext {
             pty.spawn(None, resolved_cwd, 120, 40, env_vars)
                 .map(|(id, _)| id)?
         };
-        if let Some(orphan) = self.mux.lock().link_pty(&pane_id, pty_id.clone()) {
+        if let Some(orphan) = self.mux.write().link_pty(&pane_id, pty_id.clone()) {
             self.kill_ptys(&[orphan]);
         }
         self.emit_state_changed();
@@ -645,6 +644,7 @@ impl ServiceContext {
             tab_id,
             pty_id: Some(pty_id),
             workspace_id: ws_id,
+            description: spec.description,
             worker_id: None,
             warning: None,
         })
@@ -664,35 +664,29 @@ impl ServiceContext {
         if agent.provider.is_empty() {
             return Err("AgentSpawnSpec.provider is required for hidden spawns".into());
         }
-        if self
-            .agent_registry
-            .with_provider(&agent.provider, |_| ())
-            .is_none()
-        {
-            let available = self.agent_registry.provider_ids().join(", ");
-            return Err(format!(
-                "Unknown agent provider: '{}'. Available: [{}]",
-                agent.provider, available
-            ));
-        }
+        self.require_agent_provider_ready(&agent.provider)?;
         let cli_warning = provider_cli_install_warning(&self.agent_registry, &agent.provider)?;
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
         }
-        let launch_model = resolve_fresh_agent_model(
+        let model_resolution = resolve_fresh_agent_model_with_notice(
             &self.agent_registry,
             &agent.provider,
             agent.model.clone(),
             agent.resume_session_id.as_deref(),
         );
+        let launch_model = model_resolution.model;
         validate_agent_model(
             &self.agent_registry,
             &agent.provider,
             launch_model.as_deref(),
         )?;
+        if let Some(ref notice) = model_resolution.fallback_notice {
+            self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
+        }
 
         let ws_id = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             spec.workspace_id
                 .clone()
                 .or_else(|| mux.snapshot().active_workspace_id.clone())
@@ -700,13 +694,13 @@ impl ServiceContext {
                 .ok_or("No workspace for hidden spawn")?
         };
         let ws_cwd = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             mux.get_workspace(&ws_id).and_then(|ws| ws.cwd.clone())
         };
         let resolved_cwd = spec.cwd.clone().or(ws_cwd);
 
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             if let Some(pane) = mux.get_pane_mut(&result.1) {
                 pane.hidden = true;
@@ -737,6 +731,10 @@ impl ServiceContext {
 
         let mut env_vars: HashMap<String, String> = HashMap::new();
         env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+        env_vars.insert(
+            "CODETERM_SESSION_BINDING_NONCE".into(),
+            self.ensure_session_binding_nonce(&pane_id),
+        );
         if let Some(ref wid) = agent.worker_id {
             env_vars.insert("CODETERM_WORKER_ID".into(), wid.clone());
         }
@@ -761,21 +759,21 @@ impl ServiceContext {
             env_vars.insert(k.clone(), v.clone());
         }
 
-        // Wide PTY: ConPTY wrapping at col 120 corrupts claude stream-json mid-line.
+        // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
         let pty_id = {
             let mut pty = self.pty.lock();
-            pty.spawn(None, resolved_cwd, 9999, 40, env_vars)
+            pty.spawn(None, resolved_cwd, 120, 40, env_vars)
                 .map(|(id, _)| id)?
         };
 
-        if let Some(orphan) = self.mux.lock().link_pty(&pane_id, pty_id.clone()) {
+        if let Some(orphan) = self.mux.write().link_pty(&pane_id, pty_id.clone()) {
             self.kill_ptys(&[orphan]);
         }
         self.agent_run_pty_map
             .lock()
             .insert(pane_id.clone(), pty_id.clone());
-        // Register run for auto-complete via stream-json result event / idle / timeout. Cron kind is resolved later (after the cron registry links
-        // pane→run).
+        // Register run for auto-complete via the standard agent rails: `mem worker report` / Stop hook / idle / timeout backstop. Cron kind is resolved
+        // later (after the cron registry links pane→run).
         if let Some(ref worker_id) = agent.worker_id {
             // Dreamer (REM phase) needs a longer timeout than the default worker — hub decomposition + diary + classification all in one session takes a
             // while. Pick by intent: any worker whose intent starts with "dreaming:" gets the dreaming-specific timeout.
@@ -861,6 +859,14 @@ impl ServiceContext {
                 std::time::Duration::from_secs(10),
             );
 
+            // headless:false → ordinary interactive claude, task delivered as a positional after `--` (same launch a visible agent gets). Completion comes
+            // from the standard agent rails, not a stream-json result event.
+            let hidden_cwd = svc_outer
+                .mux
+                .read()
+                .get_pane(&pane_id_outer)
+                .and_then(|p| p.cwd.clone())
+                .unwrap_or_default();
             let launch_params = crate::agent::provider::AgentLaunchParams {
                 agent_name: None,
                 task: task_for_thread,
@@ -870,8 +876,13 @@ impl ServiceContext {
                     Some(model_args)
                 },
                 skip_permissions: true,
-                headless: true,
                 session_id: None,
+                structured_prompt_server: crate::service::structured_prompt::ensure_for_spawn(
+                    &svc_outer,
+                    &provider,
+                    &pane_id_outer,
+                    &hidden_cwd,
+                ),
             };
             let launch_cmd = svc_outer
                 .agent_registry
@@ -898,6 +909,7 @@ impl ServiceContext {
             tab_id,
             pty_id: Some(pty_id),
             workspace_id: ws_id,
+            description: spec.description,
             worker_id: agent.worker_id.clone(),
             warning: cli_warning,
         })

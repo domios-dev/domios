@@ -1,0 +1,19 @@
+{
+  "provider": "cursor",
+  "unit": "provider_screen",
+  "expected": {
+    "hasEventMarkers": true,
+    "detectEvents": [
+      "PermissionRequest"
+    ],
+    "parsePrompt": {
+      "question": "Rules (0 rules)",
+      "options": [
+        {
+          "label": "+ Create new rule",
+          "value": "1"
+        }
+      ]
+    }
+  }
+}

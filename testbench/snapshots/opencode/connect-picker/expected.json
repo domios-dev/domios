@@ -1,0 +1,22 @@
+{
+  "provider": "opencode",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Connect a provider",
+    "options": [
+      "OpenCode Zen (Recommended)",
+      "OpenCode Go Low cost subscription for everyone",
+      "OpenAI (ChatGPT Plus/Pro or API key)",
+      "GitHub Copilot",
+      "Anthropic (API key)",
+      "Google",
+      "302.AI",
+      "Abacus",
+      "abliteration.ai",
+      "AIHubMix",
+      "Alibaba"
+    ],
+    "selectedIndex": 0,
+    "multiSelect": false
+  }
+}

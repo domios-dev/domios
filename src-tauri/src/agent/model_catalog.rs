@@ -3,8 +3,8 @@
 //! ## Lookup precedence
 //!   1. `<data_dir>/models/<provider>.toml` — user override, replaces the
 //!      registered list entirely. Persists across upgrades.
-//!   2. Plugin-registered list (set once at startup via `register`) — what
-//!      ships with the current CodeTerm build. Bumped with each release.
+//!   2. Live discovery snapshot (when available), otherwise plugin-registered
+//!      seed list.
 //!
 //! ## How plugins integrate
 //!
@@ -24,12 +24,13 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-use crate::agent::provider::ModelInfo;
+use crate::agent::provider::{AgentProvider, ModelInfo};
 
 /// One model entry as read from the TOML file. Matches `ModelInfo` plus an
 /// optional alias field, kept ergonomic so the user file feels light.
@@ -39,6 +40,8 @@ struct CatalogModel {
     display_name: String,
     #[serde(default)]
     description: Option<String>,
+    #[serde(default)]
+    available: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,8 +69,57 @@ pub struct RegisteredDefaults {
     pub default: Option<String>,
 }
 
-fn registry() -> &'static RwLock<HashMap<String, RegisteredDefaults>> {
-    static REG: OnceLock<RwLock<HashMap<String, RegisteredDefaults>>> = OnceLock::new();
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resolved {
+    pub id: String,
+    pub display: String,
+    pub fell_back: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    Seed,
+    Live,
+}
+
+#[derive(Debug, Clone)]
+struct ProviderModels {
+    models: Vec<ModelInfo>,
+    default: Option<String>,
+    source: Source,
+    /// Wall-clock fetch time (not `Instant`) so the TTL survives a restart via the on-disk cache.
+    fetched_at: Option<SystemTime>,
+}
+
+impl ProviderModels {
+    fn seed(defaults: RegisteredDefaults) -> Self {
+        Self {
+            models: defaults.models,
+            default: defaults.default,
+            source: Source::Seed,
+            fetched_at: None,
+        }
+    }
+
+    fn live(models: Vec<ModelInfo>, default: Option<String>, fetched_at: SystemTime) -> Self {
+        Self {
+            models,
+            default,
+            source: Source::Live,
+            fetched_at: Some(fetched_at),
+        }
+    }
+
+    fn as_defaults(&self) -> RegisteredDefaults {
+        RegisteredDefaults {
+            models: self.models.clone(),
+            default: self.default.clone(),
+        }
+    }
+}
+
+fn registry() -> &'static RwLock<HashMap<String, ProviderModels>> {
+    static REG: OnceLock<RwLock<HashMap<String, ProviderModels>>> = OnceLock::new();
     REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
@@ -76,7 +128,151 @@ fn registry() -> &'static RwLock<HashMap<String, RegisteredDefaults>> {
 /// hot-reloaded plugin updates and for tests). The data here is what CodeTerm
 /// ships with for the current build; bump it alongside upstream releases.
 pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
-    registry().write().insert(provider_id.to_string(), defaults);
+    registry()
+        .write()
+        .insert(provider_id.to_string(), ProviderModels::seed(defaults));
+}
+
+/// Default freshness window for live discovery. A snapshot younger than this
+/// is reused; older (or absent) triggers a background refresh.
+pub const DEFAULT_TTL: Duration = Duration::from_secs(6 * 3600);
+
+/// Hard cap on a single `discover_models` probe — it may shell out / hit the
+/// network, so it must never hang the refresh task.
+pub const DISCOVER_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// Publish a live discovery snapshot for `provider_id` and persist it to the
+/// on-disk cache so it survives a restart.
+pub fn put_live(provider_id: &str, models: Vec<ModelInfo>, default: Option<String>) {
+    put_live_at(provider_id, models, default, SystemTime::now());
+}
+
+fn put_live_at(
+    provider_id: &str,
+    models: Vec<ModelInfo>,
+    default: Option<String>,
+    fetched_at: SystemTime,
+) {
+    let snapshot = ProviderModels::live(models, default, fetched_at);
+    persist_cache(provider_id, &snapshot);
+    registry().write().insert(provider_id.to_string(), snapshot);
+}
+
+/// Load a persisted live snapshot into the registry at startup so the picker shows
+/// the last-known list instantly. Won't overwrite an already-live snapshot; no-op without a cache file.
+pub fn prime_from_cache(provider_id: &str) {
+    let Some(cached) = read_cache(provider_id) else {
+        return;
+    };
+    let Some(fetched_at) = cached.fetched_at_system() else {
+        return;
+    };
+    {
+        let reg = registry().read();
+        if reg.get(provider_id).map(|s| s.source) == Some(Source::Live) {
+            return;
+        }
+    }
+    registry().write().insert(
+        provider_id.to_string(),
+        ProviderModels::live(cached.models, cached.default, fetched_at),
+    );
+}
+
+/// Returns true when the provider has no live snapshot or the snapshot is older
+/// than `ttl` at the caller-provided time.
+pub fn is_stale(provider_id: &str, ttl: Duration, now: SystemTime) -> bool {
+    let registered = registry().read();
+    let Some(snapshot) = registered.get(provider_id) else {
+        return true;
+    };
+    if snapshot.source != Source::Live {
+        return true;
+    }
+    let Some(fetched_at) = snapshot.fetched_at else {
+        return true;
+    };
+    now.duration_since(fetched_at).is_ok_and(|age| age >= ttl)
+}
+
+/// TTL-gated refresh: skip when a fresh snapshot exists unless `force`. Returns the
+/// new list on success, `None` when skipped or failed (the prior snapshot/seed stays active).
+pub async fn refresh_models(
+    provider: Arc<dyn AgentProvider>,
+    force: bool,
+) -> Option<Vec<ModelInfo>> {
+    let provider_id = provider.id().to_string();
+    if !force && !is_stale(&provider_id, DEFAULT_TTL, SystemTime::now()) {
+        log::debug!("[model_catalog] {provider_id} live cache fresh — skipping refresh");
+        return None;
+    }
+    refresh_live(provider, DISCOVER_TIMEOUT).await
+}
+
+/// Refresh live models off the async runtime. On timeout / opt-out / failure — or an
+/// empty post-sanitize result — the previous snapshot stays active (the list never goes empty).
+pub async fn refresh_live(
+    provider: Arc<dyn AgentProvider>,
+    timeout_duration: Duration,
+) -> Option<Vec<ModelInfo>> {
+    let provider_id = provider.id().to_string();
+    let default = provider.default_model();
+    // `discover_models` may run synchronous JS under the VM lock, so run it all on the
+    // blocking pool. Use an independent executor, not `Handle::block_on` (deadlocks nested in spawn_blocking).
+    let task = tokio::task::spawn_blocking(move || {
+        let models = futures_executor::block_on(provider.discover_models())?;
+        let models = sanitize_live(models);
+        if models.is_empty() {
+            log::warn!(
+                "[model_catalog] {provider_id} discovery returned no usable models — keeping seed"
+            );
+            return None;
+        }
+        let default = resolve_live_default(&models, default);
+        put_live(&provider_id, models.clone(), default);
+        Some(models)
+    });
+    match tokio::time::timeout(timeout_duration, task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) | Err(_) => None,
+    }
+}
+
+/// Provider-agnostic cleanup of a discovery list: drop empty ids and non-chat
+/// models, dedupe by id. Purely content heuristics, no provider-id branching.
+fn sanitize_live(models: Vec<ModelInfo>) -> Vec<ModelInfo> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(models.len());
+    for m in models {
+        let id = m.id.trim();
+        if id.is_empty() || is_non_chat_id(id) {
+            continue;
+        }
+        let key = id.to_lowercase();
+        if seen.insert(key) {
+            out.push(m);
+        }
+    }
+    out
+}
+
+/// Heuristic: ids that name an embedding / non-chat model. Conservative — only
+/// well-known non-chat markers, so a real chat model is never dropped.
+fn is_non_chat_id(id: &str) -> bool {
+    let lower = id.to_lowercase();
+    lower.contains("embed") || lower.contains("embedding") || lower.contains("text-moderation")
+}
+
+/// If the seed default still names a model present in the live list, keep it;
+/// otherwise fall back to the first live model so a vanished hardcoded default
+/// doesn't dangle. `None` when the list is empty.
+fn resolve_live_default(models: &[ModelInfo], seed_default: Option<String>) -> Option<String> {
+    if let Some(d) = seed_default {
+        if models.iter().any(|m| m.id.eq_ignore_ascii_case(&d)) {
+            return Some(d);
+        }
+    }
+    models.first().map(|m| m.id.clone())
 }
 
 /// Read-side: returns the resolved model list using these rules —
@@ -115,6 +311,66 @@ pub fn resolve_default(provider_id: &str) -> Option<String> {
         .and_then(|d| d.default.clone())
 }
 
+pub fn resolve_model(provider_id: &str, requested: Option<&str>) -> Resolved {
+    let models = resolve_models(provider_id);
+    let requested = requested.map(str::trim).filter(|m| !m.is_empty());
+
+    if let Some(requested) = requested {
+        if let Some(model) = find_model(&models, requested) {
+            return resolved_from_model(model, false);
+        }
+    }
+
+    if let Some(default) = resolve_default(provider_id).and_then(|id| non_empty(id.as_str())) {
+        if let Some(model) = find_model(&models, &default) {
+            return resolved_from_model(model, requested.is_some());
+        }
+        return Resolved {
+            id: default.clone(),
+            display: default,
+            fell_back: requested.is_some(),
+        };
+    }
+
+    if let Some(requested) = requested {
+        return Resolved {
+            id: requested.to_string(),
+            display: requested.to_string(),
+            fell_back: false,
+        };
+    }
+
+    Resolved {
+        id: String::new(),
+        display: String::new(),
+        fell_back: false,
+    }
+}
+
+pub fn resolve_family_model(provider_id: &str, family: &str) -> Option<String> {
+    let family = family.trim();
+    if family.is_empty() {
+        return None;
+    }
+    let family_lower = family.to_lowercase();
+    let models = resolve_models(provider_id);
+    let matches: Vec<&ModelInfo> = models
+        .iter()
+        .filter(|m| m.id.to_lowercase().contains(&family_lower))
+        .collect();
+    match matches.as_slice() {
+        [] => None,
+        [model] => Some(model.id.clone()),
+        many => resolve_default(provider_id)
+            .and_then(|default| {
+                many.iter()
+                    .find(|m| m.id.eq_ignore_ascii_case(&default))
+                    .map(|m| m.id.clone())
+            })
+            .or_else(|| Some(family.to_string())),
+    }
+}
+
 /// Like `resolve_models` but returns `None` when no user override file is
 /// present. Use this when the plugin has custom default-resolution logic
 /// (e.g. dynamic CLI probing) that should keep running unless the user
@@ -144,6 +400,71 @@ pub fn models_dir() -> PathBuf {
 
 fn override_path(provider_id: &str) -> PathBuf {
     models_dir().join(format!("{}.toml", provider_id))
+}
+
+fn cache_path(provider_id: &str) -> PathBuf {
+    models_dir().join(format!("{}.cache.json", provider_id))
+}
+
+/// On-disk persisted live snapshot. `fetched_at_unix` is wall-clock seconds so
+/// the TTL survives a restart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CachedSnapshot {
+    fetched_at_unix: u64,
+    #[serde(default)]
+    default: Option<String>,
+    models: Vec<ModelInfo>,
+}
+
+impl CachedSnapshot {
+    fn fetched_at_system(&self) -> Option<SystemTime> {
+        Some(UNIX_EPOCH + Duration::from_secs(self.fetched_at_unix))
+    }
+}
+
+/// Write a live snapshot to disk (best-effort — a failed write only loses the
+/// next-boot warm start, never the in-memory list).
+fn persist_cache(provider_id: &str, snapshot: &ProviderModels) {
+    let Some(fetched_at) = snapshot.fetched_at else {
+        return;
+    };
+    let Ok(secs) = fetched_at.duration_since(UNIX_EPOCH) else {
+        return;
+    };
+    let payload = CachedSnapshot {
+        fetched_at_unix: secs.as_secs(),
+        default: snapshot.default.clone(),
+        models: snapshot.models.clone(),
+    };
+    let path = cache_path(provider_id);
+    match serde_json::to_string_pretty(&payload) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&path, json) {
+                log::warn!("[model_catalog] could not write {}: {}", path.display(), e);
+            }
+        }
+        Err(e) => log::warn!(
+            "[model_catalog] could not serialize {} cache: {}",
+            provider_id,
+            e
+        ),
+    }
+}
+
+fn read_cache(provider_id: &str) -> Option<CachedSnapshot> {
+    let path = cache_path(provider_id);
+    let raw = std::fs::read_to_string(&path).ok()?;
+    match serde_json::from_str::<CachedSnapshot>(&raw) {
+        Ok(c) => Some(c),
+        Err(e) => {
+            log::warn!(
+                "[model_catalog] {} parse error — ignoring cache: {}",
+                path.display(),
+                e
+            );
+            None
+        }
+    }
 }
 
 /// In-memory cache of parsed override files, keyed by provider id. Each
@@ -192,7 +513,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
     let parsed_arc: Option<std::sync::Arc<ProviderOverrideOwned>> = {
         let raw = match std::fs::read_to_string(&path) {
             Ok(s) => s,
-            Err(_) => None.into_iter().next().unwrap_or_else(|| String::new()),
+            Err(_) => None.into_iter().next().unwrap_or_else(String::new),
         };
         if raw.is_empty() {
             None
@@ -223,6 +544,7 @@ fn load_override(provider_id: &str) -> Option<ProviderOverride> {
                             id: m.id,
                             display_name: m.display_name,
                             description: m.description,
+                            available: m.available,
                         })
                         .collect(),
                 })),
@@ -271,6 +593,25 @@ fn merge_models(builtin: &[ModelInfo], overrides: &[ModelInfo]) -> Vec<ModelInfo
     merged
 }
 
+fn find_model<'a>(models: &'a [ModelInfo], needle: &str) -> Option<&'a ModelInfo> {
+    models
+        .iter()
+        .find(|m| m.id.eq_ignore_ascii_case(needle) || m.display_name.eq_ignore_ascii_case(needle))
+}
+
+fn resolved_from_model(model: &ModelInfo, fell_back: bool) -> Resolved {
+    Resolved {
+        id: model.id.clone(),
+        display: model.display_name.clone(),
+        fell_back,
+    }
+}
+
+fn non_empty(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
 /// Auto-install the README documenting the catalog format. Called once on
 /// startup so the user discovers the directory naturally.
 pub fn ensure_readme_installed() {
@@ -299,7 +640,7 @@ pub fn refresh_example_files() {
     let snapshot: Vec<(String, RegisteredDefaults)> = registry()
         .read()
         .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
+        .map(|(k, v)| (k.clone(), v.as_defaults()))
         .collect();
     for (id, defaults) in snapshot {
         let path = dir.join(format!("{}.example.toml", id));
@@ -447,132 +788,4 @@ See `docs/MODELS.md` in the CodeTerm repository for the long-form reference
 "#;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // The registry is a process-global static — tests run in parallel against it. Use a unique provider id per test (and clean up after) so no
-    // test depends on the registry being empty or seeing another test's writes.
-
-    #[test]
-    fn register_and_read_back() {
-        let id = "test-register-read-back";
-        register(
-            id,
-            RegisteredDefaults {
-                models: vec![ModelInfo {
-                    id: "m1".into(),
-                    display_name: "Model One".into(),
-                    description: None,
-                }],
-                default: Some("m1".into()),
-            },
-        );
-        let models = resolve_models(id);
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0].id, "m1");
-        assert_eq!(resolve_default(id).as_deref(), Some("m1"));
-        registry().write().remove(id);
-    }
-
-    #[test]
-    fn unregistered_provider_returns_empty() {
-        assert!(resolve_models("ghost-never-registered").is_empty());
-        assert!(resolve_default("ghost-never-registered").is_none());
-    }
-
-    #[test]
-    fn merge_replaces_same_id_keeps_position_and_appends_new() {
-        // Built-ins: opus, sonnet, haiku in that order. User override: re-titles sonnet, adds custom finetune. Expectation: order [opus, sonnet-renamed, haiku, my-finetune].
-        let builtin = vec![
-            ModelInfo {
-                id: "opus".into(),
-                display_name: "Opus 4.7".into(),
-                description: None,
-            },
-            ModelInfo {
-                id: "sonnet".into(),
-                display_name: "Sonnet 4.6".into(),
-                description: None,
-            },
-            ModelInfo {
-                id: "haiku".into(),
-                display_name: "Haiku 4.5".into(),
-                description: None,
-            },
-        ];
-        let overrides = vec![
-            ModelInfo {
-                id: "sonnet".into(),
-                display_name: "My Sonnet".into(),
-                description: None,
-            },
-            ModelInfo {
-                id: "my-finetune".into(),
-                display_name: "Mine".into(),
-                description: None,
-            },
-        ];
-        let merged = merge_models(&builtin, &overrides);
-        assert_eq!(merged.len(), 4);
-        assert_eq!(merged[0].id, "opus");
-        assert_eq!(merged[1].id, "sonnet");
-        assert_eq!(merged[1].display_name, "My Sonnet"); // override won
-        assert_eq!(merged[2].id, "haiku");
-        assert_eq!(merged[3].id, "my-finetune");
-    }
-
-    #[test]
-    fn merge_with_empty_override_is_builtin_verbatim() {
-        let builtin = vec![ModelInfo {
-            id: "a".into(),
-            display_name: "A".into(),
-            description: None,
-        }];
-        let merged = merge_models(&builtin, &[]);
-        assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0].id, "a");
-    }
-
-    #[test]
-    fn merge_with_empty_builtin_is_override_verbatim() {
-        let overrides = vec![ModelInfo {
-            id: "x".into(),
-            display_name: "X".into(),
-            description: None,
-        }];
-        let merged = merge_models(&[], &overrides);
-        assert_eq!(merged.len(), 1);
-        assert_eq!(merged[0].id, "x");
-    }
-
-    #[test]
-    fn register_twice_replaces() {
-        let id = "test-register-twice-replaces";
-        register(
-            id,
-            RegisteredDefaults {
-                models: vec![ModelInfo {
-                    id: "a".into(),
-                    display_name: "A".into(),
-                    description: None,
-                }],
-                default: Some("a".into()),
-            },
-        );
-        register(
-            id,
-            RegisteredDefaults {
-                models: vec![ModelInfo {
-                    id: "b".into(),
-                    display_name: "B".into(),
-                    description: None,
-                }],
-                default: Some("b".into()),
-            },
-        );
-        let models = resolve_models(id);
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0].id, "b");
-        registry().write().remove(id);
-    }
-}
+mod tests;

@@ -1,0 +1,32 @@
+kandrey@ROC-6W49K3GN codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-b150f315-a4c7-42e9-b8d5-fb351bc00e4c.sh
+╭─── Claude Code v2.1.185 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ The stream-stall hint now reads "Waiting for API response · wi… │
+│                        ▘▘ ▝▝                       │ Improved auto mode safety: destructive git commands (`git rese… │
+│                                                    │ Added a warning when the requested model is deprecated or auto… │
+│ Opus 4.8 with high effort · Claude Team · 8x8 RD 2 │ /release-notes for more                                         │
+│          /…/T/codeterm-snapshot-testbench          │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Print a numbered questionnaire as plain text and tell me to answer in one line — do NOT open an interactive picker.   
+
+⏺ Here's the questionnaire — please reply with your answers on a single line (e.g., 1:a 2:foo 3:yes ...):
+
+  1. What's the topic or goal you want help with?
+  2. What's the target language, framework, or environment?
+  3. What's the expected output format (code, doc, plan, review)?
+  4. Are there any constraints or things to avoid?
+  5. What does "done" look like for you?
+
+  Answer all of them in one line.
+
+✻ Cooked for 6s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents                                                 ● high · /effort

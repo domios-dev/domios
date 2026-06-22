@@ -1,0 +1,58 @@
+# Real-prompt corpus (Round 2). Source: Andrey's actual prompts mined from live
+# panes Twain (codex 2bace0d6), Dickens (opencode 40c87bb3), Verne (cursor
+# bd97717e) on 2026-06-21. The exact casual A/B/C "poll" prompt is the generator
+# ONLY — never hardcode it into the detector. Unlike provider_cli_question_probe_v1
+# this does NOT push the provider toward a CLI UI: each provider chooses its own
+# surface (codex answered in PROSE, opencode rendered a real interactive menu).
+# This exercises the untested path: a normal PROSE answer with no blocking
+# question must return to Idle (the live "stuck Working" regression), while a real
+# interactive menu must classify Question.
+id: real_abc_poll_v1
+title: Real casual A/B/C poll request (prose vs native menu divergence)
+providers: [codex, opencode, cursor]
+first_capture: codex
+workspace_setup:
+  files:
+    - path: README.md
+      content: |
+        # Real A/B/C poll workspace
+        Records the provider surface produced by Andrey's real casual poll prompt.
+  terminal: { cols: 120, rows: 32 }
+
+pacing:
+  strategy: adaptive_stability
+  min_dwell_ms: 1200
+  stability_quiet_ms: 2500
+  max_wait_ms: 180000
+  tolerate_volatile_rows: true
+
+focus_churn:
+  enabled: true
+  cycles: 4
+  delay_ms: 250
+
+turns:
+  - n: 1
+    user: "а ты можешь мне послать допустим в виде опросника A B C варианты как ты умеешь внутри интерфейса"
+    expect: { phases: [working, idle], card: none, target: casual_abc_request_provider_choice }
+    idle_after_ms: 15000
+    focus_churn: { enabled: true, cycles: 4, delay_ms: 250 }
+  - n: 2
+    user: "еще раз а ты можешь мне послать допустим в виде опросника A B C варианты как ты умеешь внутри"
+    expect: { phases: [working, idle], card: none, target: casual_abc_request_repeat }
+    idle_after_ms: 15000
+    focus_churn: { enabled: true, cycles: 4, delay_ms: 250 }
+  - n: 3
+    user: "круто"
+    expect: { phases: [working, idle], card: none, negative: ack_must_return_idle }
+    idle_after_ms: 12000
+    focus_churn: { enabled: true, cycles: 5, delay_ms: 250 }
+
+stop:
+  after_final_idle_ms: 15000
+  focus_churn: true
+
+oracle:
+  forbid_card_on_all_negative_frames: true
+  require_no_working_during_idle_holds: true
+  allow_state_question_without_card: true

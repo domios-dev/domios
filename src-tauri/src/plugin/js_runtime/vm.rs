@@ -50,6 +50,9 @@ const PLUGIN_PREAMBLE: &str = r#"
     quote:    host.shellQuote,
     quoteFor: host.shellQuoteFor,
   };
+  host.toolcall = {
+    parse: host.toolcallParse,
+  };
   // Normalize/slurp path variants (native vs forwarded slash forms) before comparisons.
   // Session detection depends on semantic equality, not raw string equality.
   host.path = {
@@ -68,6 +71,37 @@ const PLUGIN_PREAMBLE: &str = r#"
     },
   };
   host.manifest = function () { return parseJson(host.manifestJson()); };
+
+  // host compute base — all binds are synchronous (worker/agent are job-id/poll,
+  // sync per step). Not Promise-wrapped: QuickJS can't drain a Promise in a sync `call_json` dispatch.
+  host.mem = {
+    search: function (opts) { return parseJson(host.memSearch(JSON.stringify(opts))) || { hits: [] }; },
+  };
+  host.workspace = {
+    ensure: function (opts) { return parseJson(host.workspaceEnsure(JSON.stringify(opts))); },
+    panes:  function (workspaceId) { return parseJson(host.workspacePanes(workspaceId)) || []; },
+  };
+  host.worker = {
+    start: function (opts) { return parseJson(host.workerStart(JSON.stringify(opts))); },
+    poll:  function (jobId) { return parseJson(host.workerPoll(jobId)); },
+  };
+  host.progress = function (opts) { return host.progressRaw(JSON.stringify(opts || {})); };
+  host.agent = {
+    spawn:  function (workspaceId, opts) { return parseJson(host.agentSpawn(workspaceId, JSON.stringify(opts))); },
+    resume: function (workspaceId, sessionId) { return parseJson(host.agentResume(workspaceId, sessionId)); },
+    get:    function (workspaceId, key) { return parseJson(host.agentGet(workspaceId, key)); },
+    send:   function (sessionId, text) { return parseJson(host.agentSend(sessionId, text)); },
+    poll:   function (ticket) { return parseJson(host.agentPoll(ticket)); },
+    reap:   function (sessionId) { host.agentReap(sessionId); },
+    usage:  function (sessionId) { return parseJson(host.agentUsage(sessionId)); },
+  };
+  host.fetch.stream = function (opts) { return parseJson(host.fetchStream(JSON.stringify(opts))); };
+  host.fetch.streamPoll = function (jobId) { return parseJson(host.fetchStreamPoll(jobId)); };
+  host.fetch.streamClose = function (jobId) { host.fetchStreamClose(jobId); };
+  // Async exec (job-id + poll) so a slow tool call never holds the shared VM lock for its whole duration.
+  host.exec.start = function (opts) { return parseJson(host.execStart(JSON.stringify(opts))); };
+  host.exec.poll = function (jobId) { return parseJson(host.execPoll(jobId)); };
+  host.exec.close = function (jobId) { host.execClose(jobId); };
 })();
 "#;
 
@@ -155,7 +189,7 @@ impl PluginVm {
     /// Like `load_with_manifest` but with an explicit sandbox policy. Used by
     /// the loader, which knows whether the plugin is bundled (unrestricted) or
     /// a user drop-in (confined).
-    pub fn load_with_manifest_sandboxed(
+    pub(super) fn load_with_manifest_sandboxed(
         plugin_id: &str,
         plugin_js_path: &Path,
         manifest_json: String,
@@ -207,7 +241,7 @@ impl PluginVm {
         )
     }
 
-    pub fn from_source_sandboxed(
+    pub(super) fn from_source_sandboxed(
         plugin_id: &str,
         bundle_source: String,
         manifest_json: Option<String>,
@@ -262,6 +296,22 @@ impl PluginVm {
         &self.plugin_id
     }
 
+    /// Late-bind the host `ServiceContext` (the VM is built before it exists). First write wins.
+    pub fn set_service(&self, svc: std::sync::Weak<crate::service::ServiceContext>) -> bool {
+        self.inner.lock().sandbox.set_service(svc)
+    }
+
+    /// Whether this plugin holds the `agent_commands` grant — drives inverse-seam handler registration.
+    pub fn agent_commands_allowed(&self) -> bool {
+        self.inner.lock().sandbox.agent_commands_allowed()
+    }
+
+    /// Re-stamp the plugin's settings into the existing sandbox without rebuilding the
+    /// VM, so a config-only reload preserves in-memory state (open chatBackend sessions).
+    pub fn reload_settings(&self, settings_json: String) {
+        self.inner.lock().sandbox.set_settings(settings_json);
+    }
+
     /// Re-load the plugin from a fresh source string. Used by the
     /// hot-reload path when `plugin.js` changes on disk.
     pub fn reload(&self, new_source: String) -> Result<(), VmError> {
@@ -301,6 +351,13 @@ impl PluginVm {
     }
 }
 
+impl Drop for PluginVm {
+    fn drop(&mut self) {
+        super::host_net::drop_plugin_jobs(&self.plugin_id);
+        super::host_exec::drop_plugin_jobs(&self.plugin_id);
+    }
+}
+
 /// Call a method on the plugin's default export.
 ///
 /// Arguments are serialized as JSON strings on the Rust side, parsed
@@ -318,8 +375,6 @@ pub fn call_json<R: serde::de::DeserializeOwned>(
 ) -> Result<R, VmError> {
     // Untrusted code runs below this point. Contain a plugin-side panic so one
     // bad drop-in can't unwind through the host and take the daemon down (#16).
-    // (A native stack overflow is NOT catchable here — that class is prevented
-    // upstream in the registry/loader, not rescued by catch_unwind.)
     let run = std::panic::AssertUnwindSafe(|| call_json_inner::<R>(vm, method, args));
     match std::panic::catch_unwind(run) {
         Ok(res) => res,
@@ -345,7 +400,7 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
         let plugin_obj = plugin_obj
             .as_object()
             .ok_or_else(|| VmError::Script("__plugin__ is not an object".into()))?;
-        let func: Function = plugin_obj
+        let _func: Function = plugin_obj
             .get(method)
             .catch(&ctx)
             .map_err(|_| VmError::MissingFunction(method.to_string()))?;
@@ -569,6 +624,155 @@ mod tests {
         assert_eq!(id.as_deref(), Some("X"));
         let q: String = call_json(&vm, "wrap", &[json!("can't")]).unwrap();
         assert_eq!(q, "'can'\\''t'");
+    }
+
+    #[test]
+    fn preamble_exposes_host_toolcall_parse() {
+        let vm = fixture(
+            r#"
+            module.exports.default = {
+                parse(raw, schema) { return host.toolcall.parse(raw, schema); }
+            };
+            "#,
+        );
+        let schema = r#"{
+            "tools":[{"name":"exec","args":["cmd"]}],
+            "aliases":{"command":"cmd"}
+        }"#;
+        let raw = r#"```codeterm-tool
+{"tool":"exec","args":{"command":"ls"}}
+```"#;
+
+        let via_host: String = call_json(&vm, "parse", &[json!(raw), json!(schema)]).unwrap();
+        let native = super::super::toolcall_parse::parse_to_json(raw, schema);
+        assert_eq!(via_host, native);
+        let parsed: serde_json::Value = serde_json::from_str(&via_host).unwrap();
+        assert_eq!(parsed["tool"], "exec");
+        assert_eq!(parsed["args"]["cmd"], "ls");
+    }
+
+    #[test]
+    fn preamble_compute_is_fully_synchronous() {
+        // All compute binds return their result directly, never a Promise (undrainable in a sync dispatch). Assert the shape.
+        let vm = fixture(
+            r#"
+            module.exports.default = {
+                shape() {
+                    var mem = host.mem.search({ query: "q" });
+                    var start = host.worker.start({ task: "t" });
+                    var send = host.agent.send("s", "t");
+                    return {
+                        memIsFn:       typeof host.mem.search === "function",
+                        wsEnsureIsFn:  typeof host.workspace.ensure === "function",
+                        wsPanesIsFn:   typeof host.workspace.panes === "function",
+                        // every result is a plain object, NOT a thenable.
+                        memSync:       mem !== null && typeof mem === "object" && mem.then === undefined,
+                        memError:      typeof mem.error === "string",
+                        workerSync:    start !== null && typeof start === "object" && start.then === undefined,
+                        agentSync:     send !== null && typeof send === "object" && send.then === undefined,
+                    };
+                }
+            };
+            "#,
+        );
+        let v: serde_json::Value = call_json(&vm, "shape", &[]).unwrap();
+        assert_eq!(v["memIsFn"], true);
+        assert_eq!(v["wsEnsureIsFn"], true);
+        assert_eq!(v["wsPanesIsFn"], true);
+        assert_eq!(v["memSync"], true, "host.mem.search must be synchronous");
+        assert_eq!(
+            v["memError"], true,
+            "svc-absent must surface an error envelope"
+        );
+        assert_eq!(
+            v["workerSync"], true,
+            "host.worker.start must be synchronous (no Promise wrapper)"
+        );
+        assert_eq!(
+            v["agentSync"], true,
+            "host.agent.send must be synchronous (no Promise wrapper)"
+        );
+    }
+
+    #[test]
+    fn host_compute_perms_gate_workspace_and_agent() {
+        // host.workspace* needs manage_workspaces, host.agent* needs spawn_agents: without the grant the bind denies; with it, the gate is crossed.
+        use crate::plugin::js_runtime::host_api::PluginSandbox;
+        use crate::plugin::js_runtime::manifest::PermissionsConfig;
+        use std::sync::Arc;
+        const SRC: &str = r#"
+            module.exports.default = {
+                ws() { return host.workspaceEnsure("{}"); },
+                ag() { return host.agentSpawn("w", "{}"); }
+            };
+        "#;
+
+        let denied = Arc::new(
+            PluginSandbox::restricted(vec![], vec![])
+                .with_identity_and_perms("p", &PermissionsConfig::default()),
+        );
+        let vm = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, denied).unwrap();
+        let ws: String = call_json(&vm, "ws", &[]).unwrap();
+        assert!(ws.contains("manage_workspaces permission required"), "{ws}");
+        let ag: String = call_json(&vm, "ag", &[]).unwrap();
+        assert!(ag.contains("spawn_agents permission required"), "{ag}");
+
+        let perms = PermissionsConfig {
+            manage_workspaces: true,
+            spawn_agents: true,
+            ..Default::default()
+        };
+        let granted = Arc::new(
+            PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms("p", &perms),
+        );
+        let vm2 = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, granted).unwrap();
+        let ws2: String = call_json(&vm2, "ws", &[]).unwrap();
+        assert!(
+            ws2.contains("host service unavailable"),
+            "granted ws: {ws2}"
+        );
+        let ag2: String = call_json(&vm2, "ag", &[]).unwrap();
+        assert!(
+            ag2.contains("host service unavailable"),
+            "granted ag: {ag2}"
+        );
+    }
+
+    #[test]
+    fn fetch_stream_preamble_is_sync_and_uses_fetch_allowlist() {
+        use crate::plugin::js_runtime::host_api::PluginSandbox;
+        use crate::plugin::js_runtime::manifest::PermissionsConfig;
+        use std::sync::Arc;
+
+        const SRC: &str = r#"
+            module.exports.default = {
+                shape() {
+                    var result = host.fetch.stream({ url: "http://blocked.example.test/stream" });
+                    return {
+                        streamIsFn: typeof host.fetch.stream === "function",
+                        pollIsFn: typeof host.fetch.streamPoll === "function",
+                        closeIsFn: typeof host.fetch.streamClose === "function",
+                        sync: !(result && typeof result.then === "function"),
+                        error: result && result.error,
+                    };
+                }
+            };
+        "#;
+
+        let sandbox = Arc::new(
+            PluginSandbox::restricted(vec![], vec![])
+                .with_identity_and_perms("p", &PermissionsConfig::default()),
+        );
+        let vm = PluginVm::from_source_sandboxed("p", SRC.to_string(), None, sandbox).unwrap();
+        let shape: serde_json::Value = call_json(&vm, "shape", &[]).unwrap();
+        assert_eq!(shape["streamIsFn"], true);
+        assert_eq!(shape["pollIsFn"], true);
+        assert_eq!(shape["closeIsFn"], true);
+        assert_eq!(shape["sync"], true);
+        assert_eq!(
+            shape["error"], "fetch denied: blocked.example.test",
+            "stream must share host.fetch's network allowlist denial"
+        );
     }
 
     #[test]

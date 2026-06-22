@@ -1,0 +1,108 @@
+{
+  "events": [
+    {
+      "t_ms": 7655,
+      "kind": "input",
+      "turn": 1,
+      "text": "Create a tiny TODO/checklist if your UI supports it, then answer with exactly two short bullets about terminal replay fidelity. Then stop."
+    },
+    {
+      "t_ms": 19142,
+      "kind": "idle_hold",
+      "turn": 1,
+      "duration_ms": 5000
+    },
+    {
+      "t_ms": 24152,
+      "kind": "input",
+      "turn": 2,
+      "text": "Write geometry-smoke-notes.md with one sentence, then say 'geometry smoke done' in chat. Do not open any picker or menu."
+    },
+    {
+      "t_ms": 31420,
+      "kind": "idle_hold",
+      "turn": 2,
+      "duration_ms": 6000
+    }
+  ],
+  "phases": [
+    {
+      "from_ms": 7655,
+      "to_ms": 19141,
+      "turn": 1,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "quick_geometry_smoke"
+      },
+      "pacing": {
+        "state": "Working",
+        "elapsed_ms": 4110,
+        "stable_ms": 2058,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 19142,
+      "to_ms": 24151,
+      "turn": 1,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 5000,
+        "stable_ms": 5000,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 24152,
+      "to_ms": 31419,
+      "turn": 2,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "file_write_smoke"
+      },
+      "pacing": {
+        "state": "Working",
+        "elapsed_ms": 7203,
+        "stable_ms": 2063,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 31420,
+      "to_ms": 37427,
+      "turn": 2,
+      "expected": {
+        "phases": [
+          "idle"
+        ],
+        "card": "none",
+        "negative": "idle_hold"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 6000,
+        "stable_ms": 6000,
+        "timed_out": false
+      }
+    }
+  ],
+  "oracle": {
+    "forbid_card_on_all_negative_frames": true,
+    "require_no_working_during_idle_holds": true
+  }
+}

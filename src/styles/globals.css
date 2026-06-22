@@ -1,6 +1,7 @@
 @import "./tokens.css";
 @import "tailwindcss";
 @import "@xterm/xterm/css/xterm.css";
+@import "./agent-state.css";
 
 :root {
   font-family: var(--ct-font-ui);
@@ -100,8 +101,13 @@ body {
   box-shadow: none !important;
 }
 
-/* Kill the ugly default border on xterm viewport */
+/* Kill the ugly default border on xterm viewport. The vendor stylesheet hardcodes
+   background-color: #000; the viewport covers the full .xterm box while the canvas
+   is only rows*cellHeight tall, so the FitAddon's sub-row remainder at the bottom
+   exposed that black strip. Drive it from the active theme (--ct-bg == theme.background,
+   same color the xterm canvas paints) so the remainder blends seamlessly. */
 .xterm .xterm-viewport {
+  background-color: var(--ct-bg, #0d1117) !important;
   border: none !important;
   outline: none !important;
   scrollbar-width: none; /* hide native scrollbar — using div-based */
@@ -223,7 +229,7 @@ body {
   }
 
   .ct-composer-input-shell {
-    min-height: 3rem !important;
+    min-height: 2.5rem !important;
   }
 
 }
@@ -276,6 +282,9 @@ body {
     animation: none;
   }
 }
+
+/* Agent state indicator styles live in src/styles/agent-state.css (imported at
+   the top of this file) — shared verbatim with the replay player. */
 
 /* ── Mobile sidebar overlay: slide + backdrop fade ─────────────────── */
 .ct-sidebar-backdrop {
@@ -576,6 +585,27 @@ button,
   -webkit-backdrop-filter: blur(var(--ct-blur-overlay));
 }
 
+/* Top-right anchored menu pop — scales out of the trigger corner */
+.ct-menu-pop {
+  transform-origin: top right;
+  animation: ct-menu-pop 160ms var(--ct-ease-out-expo) both;
+}
+@keyframes ct-menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-menu-pop {
+    animation: none;
+  }
+}
+
 /* =========================================================================
    CRT / Pip-Boy effects — activated by .crt-mode on root container
    ========================================================================= */
@@ -649,8 +679,13 @@ button,
 /* Model badge — visible by default, fades out on tab hover so the
    3-dot menu can take its slot without shifting layout. */
 .sidebar-tab-badge {
+  display: inline-block;
+  max-width: min(7.5rem, 38cqw);
+  overflow: hidden;
   opacity: 1;
+  text-overflow: ellipsis;
   transition: opacity 150ms ease;
+  white-space: nowrap;
 }
 .sidebar-tab:hover .sidebar-tab-badge {
   opacity: 0;
@@ -868,4 +903,8 @@ button,
 @keyframes ct-backdrop-in {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+@keyframes ct-fb-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "codeterm"
-version = "1.4.5"
+version = "1.4.6"
 edition = "2021"
 default-run = "codeterm"
 
@@ -21,6 +21,7 @@ portable-pty = { path = "pty-fork" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 uuid = { version = "1", features = ["v4", "serde"] }
 log = "0.4"
 fern = "0.7"
@@ -41,6 +42,8 @@ git2 = { version = "0.19", features = ["vendored-openssl"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
 async-stream = "0.3"
 futures-core = "0.3"
+futures-util = "0.3"
+futures-executor = "0.3"
 png = "0.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 cron = "0.13"
@@ -64,12 +67,13 @@ ulid = "1"
 async-trait = "0.1"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 which = "7"
-keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native-sync-persistent", "sync-secret-service"], optional = true }
+wait-timeout = "0.2"
 sqlite-vec = { version = "0.1.9", optional = true }
 fastembed = { version = "5", optional = true }
 ndarray = { version = "0.17", optional = true }
 hnsw_rs = { version = "0.3", optional = true }
 codeterm-mem-store = { path = "../crates/mem-store" }
+codeterm-plugins = { path = "../crates/codeterm-plugins" }
 crash-handler = "0.6"
 crash-context = "0.6"
 minidump-writer = "0.10"
@@ -81,14 +85,11 @@ default = ["embeddings"]
 # link time. Declared in the macOS target section below.
 embeddings = ["dep:sqlite-vec", "dep:fastembed", "dep:annembed", "dep:ndarray", "dep:hnsw_rs"]
 dev-updater-allowlocal = []
-# OS-keychain persistence for the secret-store layer (macOS Security
-# framework, Windows Credential Manager, Linux libsecret). Disable for
-# headless Linux builds without libsecret.
-secrets-keyring = ["dep:keyring"]
 
 # macOS uses the system Accelerate framework for the annembed LAPACK path.
 [target.'cfg(target_os = "macos")'.dependencies]
 annembed = { version = "0.1.6", optional = true, default-features = false, features = ["macos-accelerate"] }
+libc = "0.2"
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSPasteboard"] }
 objc2-foundation = "0.3"
@@ -109,6 +110,7 @@ tempfile = "3"
 mockito = "1"
 filetime = "0.2.29"
 tower = "0.5"
+vt100 = "0.16"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

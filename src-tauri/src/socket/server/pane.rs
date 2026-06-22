@@ -1,7 +1,7 @@
 //! `pane.*`, `agents.list_providers`, and `browser.open` JSON-RPC handlers.
 
 use serde_json::Value;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
@@ -12,7 +12,7 @@ pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
     mux: &MuxState,
-    app: &AppHandle,
+    _app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     match method {
@@ -110,56 +110,47 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("enter"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(true);
-            // Resolve target via the alias-aware lookup so short ids (`--pane ce9bce56`) and tab labels both work. get_pane() takes only exact UUIDs, so
-            // prior to this we'd silently drop the [from...] prefix whenever the user passed a short id.
-            let (resolved_target, target_has_agent) = {
-                let m = mux.lock();
-                let resolved = m
-                    .resolve_pane_id(&raw_pane_id)
-                    .unwrap_or_else(|| raw_pane_id.clone());
-                let has = m
-                    .get_pane(&resolved)
-                    .map(|p| p.agent_type.is_some())
-                    .unwrap_or(false);
-                (resolved, has)
+            // Resolve target via the alias-aware lookup so short ids (`--pane ce9bce56`) and tab labels both work.
+            let resolved_target = {
+                let m = mux.write();
+                m.resolve_pane_id(&raw_pane_id)
+                    .unwrap_or_else(|| raw_pane_id.clone())
             };
             let source_pane = params
                 .as_ref()
                 .and_then(|p| p.get("source_pane"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
-                .and_then(|s| mux.lock().resolve_pane_id(&s));
-            // Local delivery: resolve the source label/model from the mux, then
-            // route through the one canonical prefix builder (peer = None).
-            let text = match source_pane.as_deref() {
-                Some(src) => {
-                    let (from_label, model) = {
-                        let m = mux.lock();
-                        (
-                            m.display_label_for_pane(src),
-                            m.get_pane(src).and_then(|p| p.agent_session_model.clone()),
-                        )
-                    };
-                    match crate::service::msg_prefix::delivery_prefix(
-                        target_has_agent,
-                        src,
-                        &resolved_target,
-                        &from_label,
-                        model.as_deref(),
-                        None,
-                    ) {
-                        Some(prefix) => format!("{}{}", prefix, raw_text),
-                        None => raw_text,
-                    }
-                }
-                None => raw_text,
-            };
-            svc.as_ref()
-                .send_text(&resolved_target, &text, enter)
+                .and_then(|s| mux.write().resolve_pane_id(&s));
+            if let Some(src) = source_pane.as_deref() {
+                let (from_label, model) = {
+                    let m = mux.write();
+                    (
+                        m.display_label_for_pane(src),
+                        m.get_pane(src).and_then(|p| p.agent_session_model.clone()),
+                    )
+                };
+                let envelope =
+                    crate::service::messenger::MessageEnvelope::pane(from_label, src.to_string())
+                        .model(model);
+                crate::service::messenger::Messenger::deliver(
+                    svc.as_ref(),
+                    &resolved_target,
+                    envelope,
+                    &raw_text,
+                )
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
                 })?;
+            } else {
+                svc.as_ref()
+                    .send_text(&resolved_target, &raw_text, enter)
+                    .map_err(|e| JsonRpcError {
+                        code: -32603,
+                        message: e,
+                    })?;
+            }
             Ok(serde_json::json!({"ok": true}))
         }
 
@@ -198,6 +189,23 @@ pub(super) fn dispatch(
             let title = get_string_param(params, "title")?;
             crate::dispatch::dispatch(
                 &crate::dispatch::Command::PaneRename { pane_id, title },
+                svc.as_ref(),
+            )
+            .map(|r| r.into_json())
+            .map_err(|e| JsonRpcError {
+                code: -32602,
+                message: e,
+            })
+        }
+
+        "pane.describe" => {
+            let pane_id = get_string_param(params, "pane_id")?;
+            let description = get_string_param(params, "description")?;
+            crate::dispatch::dispatch(
+                &crate::dispatch::Command::PaneDescribe {
+                    pane_id,
+                    description,
+                },
                 svc.as_ref(),
             )
             .map(|r| r.into_json())

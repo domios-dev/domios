@@ -198,7 +198,6 @@ mod tests {
 
     // Every `codeterm <subcmd...>` head referenced in the prompt must resolve in
     // the clap tree. Conservative: only flags a line whose command head matches
-    // no real command at all.
     #[test]
     fn prompt_cli_commands_exist() {
         let root = build();

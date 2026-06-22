@@ -4,20 +4,9 @@
  * fix in useVoiceRecorder.ts: iOS standalone re-prompts on every getUserMedia,
  * so two consecutive recordings must trigger exactly ONE getUserMedia call.
  */
-import { chromium, expect, test, type Browser, type Page } from "@playwright/test";
-import { ApiClient, readDevToken } from "../../helpers/api-client";
-import { API_BASE } from "../../helpers/dev-console";
+import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
 const WEB_URL = `${API_BASE}/web/`;
-const api = new ApiClient();
-let browser: Browser;
-
-test.beforeAll(async () => {
-  browser = await chromium.launch({ channel: "msedge" });
-});
-test.afterAll(async () => {
-  await browser.close();
-});
 
 // Counts getUserMedia calls on window.__gumCalls; returns a stream whose audio
 // track stays "live" so acquireWarmStream() reuses it on the second record.
@@ -47,34 +36,30 @@ async function holdVoice(page: Page): Promise<void> {
   if (!box) throw new Error("voice button has no box");
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(400);
+  await expect(page.locator('[data-testid="composer-voice-live-waveform"]')).toBeVisible({
+    timeout: 5_000,
+  });
   await page.mouse.up();
 }
 
-test("@golden mic stream is warm: two recordings → getUserMedia called exactly once", async () => {
+test("@golden mic stream is warm: two recordings → getUserMedia called exactly once", async ({ api, webBrowser, paneCleanup, spawnAgent, mediaMocks }) => {
   test.setTimeout(180_000);
-  const ctx = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  const ctx = await webBrowser.newContext({ viewport: { width: 375, height: 812 } });
   const page = await ctx.newPage();
-  await page.addInitScript(FAKE_MEDIA);
-  await page.route("**/api/upload", (r) =>
-    r.fulfill({ contentType: "application/json", body: JSON.stringify({ path: "/tmp/pw-voice.ogg", size: 8192 }) }),
-  );
-  await page.route("**/api/transcribe-voice", (r) =>
-    r.fulfill({ contentType: "application/json", body: JSON.stringify({ line: "warm mic transcript" }) }),
-  );
+  await mediaMocks.installVoiceRecorder(page, FAKE_MEDIA);
+  await mediaMocks.mockUpload(page);
+  await mediaMocks.mockTranscription(page, { line: "warm mic transcript" });
 
   // Close stale panes so exactly one chat composer mounts.
-  for (const pane of await api.panes()) {
-    if (!pane.protected) await api.closePane(pane.id).catch(() => {});
-  }
+  await paneCleanup.closeUnprotectedPanes();
   await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
   await page.locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]').first().waitFor({ timeout: 20_000 });
 
-  const inbox = (await api.createPane({ title: "pw-warmmic-inbox" })) as { id: string };
+  const inbox = await paneCleanup.createPane({ title: "pw-warmmic-inbox" });
   let agentPaneId: string | undefined;
   try {
     await api.post(`/panes/${inbox.id}/role`, { role: "Orchestrator" });
-    const spawned = await api.post<{ pane_id: string }>("/agents/spawn", {
+    const spawned = await spawnAgent({
       agent: "claude",
       model: "sonnet",
       role: "Worker",
@@ -97,11 +82,12 @@ test("@golden mic stream is warm: two recordings → getUserMedia called exactly
 
     // Second recording — must REUSE the warm stream, no new getUserMedia.
     await holdVoice(page);
-    await page.waitForTimeout(1500);
+    await expect(
+      page.locator('[data-testid="chat-message"]', { hasText: "warm mic transcript" }),
+    ).toHaveCount(2, { timeout: 8_000 });
     expect(await page.evaluate(() => (window as unknown as { __gumCalls: number }).__gumCalls)).toBe(1);
   } finally {
-    if (agentPaneId) await api.closePane(agentPaneId).catch(() => {});
-    await api.closePane(inbox.id).catch(() => {});
+    if (agentPaneId) paneCleanup.track(agentPaneId);
     await ctx.close();
   }
 });

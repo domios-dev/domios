@@ -1,406 +1,630 @@
-// OpenCode (sst/opencode) provider: detect, slash commands, schema.
+"use strict";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
+// plugins/provider-opencode/src/plugin.ts
+var plugin_exports = {};
+__export(plugin_exports, {
+  default: () => plugin_default
+});
+module.exports = __toCommonJS(plugin_exports);
 var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v2";
 var CODETERM_OPENCODE_PLUGIN_FILE = "codeterm-session-binding.js";
 var TITLE_RE = /opencode/i;
-// Two-part fingerprint: opencode mention + TUI/prompt signal to avoid false positives.
 var OUTPUT_MARKERS = ["opencode", "OpenCode", "OpenCode Zen"];
 var OUTPUT_SIGNALS = [
   "Permission required",
   "Allow this tool call",
   "Approve this command",
-  "█▀▀█",
-  "Build · ",
-  "┃",
-  "╹",
+  "\u2588\u2580\u2580\u2588",
+  "Build \xB7 ",
+  "\u2503",
+  "\u2579"
 ];
 var TUI_FRAGMENTS = ["tab agents", "ctrl+p commands"];
-
-module.exports.default = {
-  detectFromTitle: function (title) {
+var QUESTION_MENU_RE = /^\s*(?:[>❯▶➤→●]\s*)?(\d+)[.)]\s+(.+?)\s*$/;
+var QUESTION_MENU_SELECTORS = [">", "\u276F", "\u25B6", "\u27A4", "\u2192", "\u25CF"];
+var PICKER_TITLE_RE = /^(Select model|Connect a provider)\b.*\besc\b/i;
+var lastPromptShape = "horizontal";
+var plugin = {
+  detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
   },
-
-  detectFromOutput: function (text) {
-    var t = String(text || "");
-    var hasMarker = false;
-    for (var i = 0; i < OUTPUT_MARKERS.length; i++) {
-      if (t.indexOf(OUTPUT_MARKERS[i]) !== -1) { hasMarker = true; break; }
+  detectFromOutput(text) {
+    const t = String(text || "");
+    let hasMarker = false;
+    for (let i = 0; i < OUTPUT_MARKERS.length; i++) {
+      if (t.indexOf(OUTPUT_MARKERS[i]) !== -1) {
+        hasMarker = true;
+        break;
+      }
     }
     if (!hasMarker) return false;
-    for (var j = 0; j < OUTPUT_SIGNALS.length; j++) {
+    for (let j = 0; j < OUTPUT_SIGNALS.length; j++) {
       if (t.indexOf(OUTPUT_SIGNALS[j]) !== -1) return true;
     }
     return false;
   },
-
-  screenHasTui: function (screen) {
-    var lower = String(screen || "").toLowerCase();
-    for (var i = 0; i < TUI_FRAGMENTS.length; i++) {
+  screenHasTui(screen) {
+    const lower = String(screen || "").toLowerCase();
+    for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
     return false;
   },
-
-  isOutputNoise: function (text) {
-    var trimmed = String(text || "").trim();
+  isOutputNoise(text) {
+    const trimmed = String(text || "").trim();
     if (!trimmed) return true;
-    for (var i = 0; i < trimmed.length; i++) {
-      var c = trimmed[i];
-      if (
-        c !== "─" && c !== "━" && c !== "═" && c !== "█" && c !== "▀" &&
-        c !== " " && c !== "\t" && c !== "\n" && c !== "\r"
-      ) {
+    for (let i = 0; i < trimmed.length; i++) {
+      const c = trimmed[i];
+      if (c !== "\u2500" && c !== "\u2501" && c !== "\u2550" && c !== "\u2588" && c !== "\u2580" && c !== " " && c !== "	" && c !== "\n" && c !== "\r") {
         return false;
       }
     }
     return true;
   },
-
-  hasEventMarkers: function (chunk) {
-    var c = String(chunk || "");
-    return c.indexOf("Permission required") !== -1 || c.indexOf("approve") !== -1;
+  hasEventMarkers(chunk) {
+    const c = String(chunk || "");
+    const lc = c.toLowerCase();
+    return c.indexOf("Permission required") !== -1 || lc.indexOf("approve") !== -1 || chunkHasQuestionMenuRow(c) || findModalPickerTitle(c) >= 0 || lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
   },
-
-  detectEvents: function (text) {
-    var t = String(text || "");
-    var events = [];
-    if (
-      t.indexOf("Permission required") !== -1 ||
-      t.indexOf("Allow this tool call") !== -1 ||
-      t.indexOf("Approve this command") !== -1
-    ) {
+  detectEvents(text) {
+    const t = String(text || "");
+    const events = [];
+    if (t.indexOf("Permission required") !== -1 || t.indexOf("Allow this tool call") !== -1 || t.indexOf("Approve this command") !== -1 || parseQuestionMenuPrompt(t) || parseModalPickerPrompt(t)) {
       events.push("permission_request");
     }
     return events;
   },
-
-  // Parse opencode's permission box. Its options are a single horizontal row
-  // ("Allow once  Allow always  Reject") rather than a numbered list, so the
-  // host's universal picker can't read it — the plugin owns its own format.
-  // Returns { question, options: [[label, value]] } with value = 1-based index,
-  // or null. The host navigates to the option via build_prompt_response(index).
-  parsePrompt: function (text) {
-    // Strip box borders / decorations so labels and the question stay clean
-    // regardless of how opencode frames the dialog.
-    function clean(line) {
-      return String(line)
-        .replace(/[│┃|╎╏┆┊]/g, " ")
-        .replace(/^[\s←⚠»·]+/, "")
-        .replace(/[\s·»]+$/, "")
-        .trim();
-    }
-    var lines = String(text || "").split("\n").map(clean);
-    var permIdx = -1;
-    for (var i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].indexOf("Permission required") !== -1) { permIdx = i; break; }
-    }
-    if (permIdx < 0) return null;
-
-    // Options row: the line with the action words below the prompt.
-    var optLine = null;
-    for (var j = permIdx; j < lines.length; j++) {
-      var lc = lines[j].toLowerCase();
-      if (
-        (lc.indexOf("allow") !== -1 || lc.indexOf("reject") !== -1 || lc.indexOf("deny") !== -1) &&
-        lc.indexOf("permission required") === -1
-      ) { optLine = lines[j]; break; }
-    }
-    if (!optLine) return null;
-    var labels = optLine.split(/\s{2,}/).map(function (s) { return s.trim(); }).filter(Boolean);
-    if (labels.length < 2) return null;
-    var options = labels.map(function (label, idx) { return [label, String(idx + 1)]; });
-
-    // Question: first meaningful line after the prompt, skipping the
-    // "Patterns" label and blank/decoration-only lines.
-    var question = "";
-    for (var k = permIdx + 1; k < lines.length; k++) {
-      var q = lines[k];
-      if (q && q.toLowerCase() !== "patterns") { question = q; break; }
-    }
-    if (!question) question = "Permission required";
-    return { question: question, options: options };
+  // OpenCode exposes `opencode models`; host-side caching keeps this sync probe
+  // off hot reads. If the CLI is absent/offline, use the manifest seed.
+  discoverModels() {
+    return discoverOpencodeModels() || manifestModels();
   },
-
-  buildLaunchCommand: function (params) {
-  // `--dangerously-skip-permissions` is run-only; include only for headless tasks.
-    var p = params || {};
-    var parts = ["opencode"];
-    if (p.headless && p.task) {
-      parts = ["opencode", "run"];
-      if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
-      parts.push("--format");
-      parts.push("json");
-      parts.push(host.shell.quote(p.task));
+  // Parse opencode prompt boxes into host cards; the plugin remembers the shape
+  // because response bytes depend on horizontal vs vertical navigation.
+  parsePrompt(text) {
+    const screen = String(text || "");
+    return parseQuestionMenuPrompt(screen) || parseModalPickerPrompt(screen) || parsePermissionPrompt(screen);
+  },
+  // opencode has both horizontal permission rows and vertical question menus.
+  buildPromptResponse(optionIndex, screen) {
+    const DOWN = "G1tC";
+    const UP = "G1tB";
+    const RIGHT = "G1tD";
+    const ENTER = "DQ==";
+    const steps = [];
+    const target = optionIndex > 0 ? optionIndex : 0;
+    const promptShape = screen && isVerticalPrompt(String(screen)) ? "vertical" : lastPromptShape;
+    if (promptShape === "vertical") {
+      const current = screen ? verticalPromptHighlightIndex(String(screen)) : -1;
+      const start = current >= 0 ? current : 0;
+      const delta = target - start;
+      const move = delta >= 0 ? DOWN : UP;
+      for (let i = 0; i < Math.abs(delta); i++) steps.push(move);
+    } else {
+      for (let i = 0; i < target; i++) steps.push(RIGHT);
+    }
+    steps.push(ENTER);
+    return steps;
+  },
+  buildLaunchCommand(params) {
+    const p = params || {};
+    const parts = ["opencode"];
+    const sps = p.structuredPromptServer;
+    if (sps && sps.port) {
+      const platform = host.platform();
+      parts.push("--hostname", host.shell.quoteFor(String(sps.hostname || "127.0.0.1"), platform));
+      parts.push("--port", host.shell.quoteFor(String(sps.port), platform));
+    }
+    if (p.sessionId) {
+      parts.push("--session", host.shell.quoteFor(String(p.sessionId), host.platform()));
     }
     if (p.args && p.args.length > 0) {
-      // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
-      for (var i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     return parts.join(" ");
   },
-
-  buildResumeCommand: function (sessionId, skipPermissions) {
-  // Resume uses the normal TUI path; permission rules come from saved session config.
-    var _ = skipPermissions;
-    var parts = ["opencode", "--session", host.shell.quote(sessionId)];
+  buildResumeCommand(sessionId, skipPermissions) {
+    void skipPermissions;
+    const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
     return parts.join(" ");
   },
-
-  detectSessionId: function (cwd, exclude, maxAgeMs) {
+  // Fallback for when the session-binding hook doesn't fire (e.g. CODETERM_PANE_ID
+  // absent from opencode's env, or event field structure changed in a new release).
+  // Scans the sqlite DB for the most-recently-created session within the max-age
+  // window. strftime('%s','now')*1000 supplies current unix-ms inside SQLite so
+  // QuickJS never needs Date.now(). Hook wins when it fires first because
+  // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
+  detectSessionId(_cwd, exclude, maxAgeMs) {
+    const db = opencodeDbPath();
+    if (!db || !host.fs.fileExists(db)) return null;
+    const windowMs = maxAgeMs != null && maxAgeMs > 0 ? maxAgeMs : 3e5;
+    const excludeList = Array.isArray(exclude) ? exclude : typeof exclude === "string" && exclude ? [exclude] : [];
+    const rows = host.fs.sqliteQuery(
+      db,
+      "SELECT id FROM session WHERE time_created > (strftime('%s','now') * 1000 - ?1) ORDER BY time_created DESC LIMIT 5",
+      [windowMs]
+    );
+    for (let i = 0; i < rows.length; i++) {
+      const id = rows[i].id;
+      if (typeof id !== "string" || !id.startsWith("ses_")) continue;
+      if (excludeList.indexOf(id) !== -1) continue;
+      return id;
+    }
     return null;
   },
-
-  checkIntegration: function () {
-    var cfg = opencodeConfigPath();
-    var plugin = opencodeBindingPluginPath();
-    var pluginExists = !!plugin && host.fs.fileExists(plugin);
-    var pluginCurrent = pluginExists &&
-      String(host.fs.readFile(plugin) || "").indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1;
+  checkIntegration() {
+    const cfg = opencodeConfigPath();
+    const pluginPath = opencodeBindingPluginPath();
+    const pluginExists = !!pluginPath && host.fs.fileExists(pluginPath);
+    const pluginBody = pluginExists ? String(host.fs.readFile(pluginPath) || "") : "";
+    const pluginCurrent = pluginExists && pluginBody.indexOf(CODETERM_OPENCODE_PLUGIN_MARKER) !== -1 && pluginBody.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
     if (!cfg || !host.fs.fileExists(cfg)) {
       return {
         config_file_exists: false,
         plugin_file_exists: pluginExists,
         plugin_file_current: pluginCurrent,
-        plugin_installed: false,
+        plugin_installed: false
       };
     }
-    var json = host.fs.readJson(cfg);
+    const json = host.fs.readJson(cfg);
     if (!json) {
       return {
         config_file_exists: true,
         plugin_file_exists: pluginExists,
         plugin_file_current: pluginCurrent,
-        plugin_installed: false,
+        plugin_installed: false
       };
     }
-    var target = opencodePluginEntry();
-    var entries = json.plugin;
-    var installed = Array.isArray(entries) && entries.some(function (entry) {
+    const target = opencodePluginEntry();
+    const entries = json.plugin;
+    const installed = Array.isArray(entries) && entries.some((entry) => {
       return opencodePluginEntryMatches(entry, target);
     });
     return {
       config_file_exists: true,
       plugin_file_exists: pluginExists,
       plugin_file_current: pluginCurrent,
-      plugin_installed: installed,
+      plugin_installed: installed
     };
   },
-
-  installIntegration: function (apiPort) {
-    var cfg = opencodeConfigPath();
-    var plugin = opencodeBindingPluginPath();
-    var target = opencodePluginEntry();
-    if (!cfg || !plugin || !target) return { ok: false, error: "could not resolve opencode config path" };
-
-    var json = host.fs.fileExists(cfg)
-      ? (host.fs.readJson(cfg) || { "$schema": "https://opencode.ai/config.json" })
-      : { "$schema": "https://opencode.ai/config.json" };
+  installIntegration(apiPort) {
+    const cfg = opencodeConfigPath();
+    const pluginPath = opencodeBindingPluginPath();
+    const target = opencodePluginEntry();
+    if (!cfg || !pluginPath || !target) return { ok: false, error: "could not resolve opencode config path" };
+    const json = host.fs.fileExists(cfg) ? host.fs.readJson(cfg) || { "$schema": "https://opencode.ai/config.json" } : { "$schema": "https://opencode.ai/config.json" };
     if (!json || typeof json !== "object" || Array.isArray(json)) {
       return { ok: false, error: "opencode.json root must be an object" };
     }
     if (!Array.isArray(json.plugin)) json.plugin = [];
-    json.plugin = json.plugin.filter(function (entry) {
-      return !opencodePluginEntryMatches(entry, target);
-    });
+    json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
     json.plugin.push(target);
-
-    if (!host.fs.writeFile(plugin, opencodeBindingPluginSource(apiPort | 0))) {
-      return { ok: false, error: "writeFile failed for " + plugin };
+    if (!host.fs.writeFile(pluginPath, opencodeBindingPluginSource(apiPort | 0))) {
+      return { ok: false, error: "writeFile failed for " + pluginPath };
     }
     if (!host.fs.writeJson(cfg, json)) {
       return { ok: false, error: "writeJson failed for " + cfg };
     }
-    host.log("info", "[opencode-plugin] session binding plugin installed at " + plugin);
+    host.log("info", "[opencode-plugin] session binding plugin installed at " + pluginPath);
     return { ok: true };
   },
-
-  uninstallIntegration: function () {
-    var cfg = opencodeConfigPath();
-    var plugin = opencodeBindingPluginPath();
-    var target = opencodePluginEntry();
+  uninstallIntegration() {
+    const cfg = opencodeConfigPath();
+    const pluginPath = opencodeBindingPluginPath();
+    const target = opencodePluginEntry();
     if (cfg && host.fs.fileExists(cfg)) {
-      var json = host.fs.readJson(cfg);
+      const json = host.fs.readJson(cfg);
       if (json && typeof json === "object" && Array.isArray(json.plugin)) {
-        json.plugin = json.plugin.filter(function (entry) {
-          return !opencodePluginEntryMatches(entry, target);
-        });
+        json.plugin = json.plugin.filter((entry) => !opencodePluginEntryMatches(entry, target));
         if (!host.fs.writeJson(cfg, json)) {
           return { ok: false, error: "writeJson failed for " + cfg };
         }
       }
     }
-    if (plugin && host.fs.fileExists(plugin) && !host.fs.removeFile(plugin)) {
-      return { ok: false, error: "removeFile failed for " + plugin };
+    if (pluginPath && host.fs.fileExists(pluginPath) && !host.fs.removeFile(pluginPath)) {
+      return { ok: false, error: "removeFile failed for " + pluginPath };
     }
     return { ok: true };
   },
-
-  ensureIntegrationOnStartup: function (apiPort) {
-    var status = this.checkIntegration();
+  ensureIntegrationOnStartup(apiPort) {
+    const status = this.checkIntegration();
     if (status && status.plugin_installed && status.plugin_file_exists && status.plugin_file_current) return { ok: true };
     return this.installIntegration(apiPort);
   },
-
-  sessionExists: function (_cwd, sessionId) {
-    var db = opencodeDbPath();
+  sessionExists(_cwd, sessionId) {
+    const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return false;
-    var rows = host.fs.sqliteQuery(
+    const rows = host.fs.sqliteQuery(
       db,
       "SELECT 1 AS one FROM session WHERE id = ?1 LIMIT 1",
       [sessionId]
     );
     return rows.length > 0;
   },
-
   // Session creation time (unix ms). Lets the host apply its launch-window
   // birth-time guard to sqlite-backed sessions, which have no per-session file.
-  sessionCreatedMs: function (_cwd, sessionId) {
-    var db = opencodeDbPath();
+  sessionCreatedMs(_cwd, sessionId) {
+    const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
-    var rows = host.fs.sqliteQuery(
+    const rows = host.fs.sqliteQuery(
       db,
       "SELECT time_created FROM session WHERE id = ?1 LIMIT 1",
       [sessionId]
     );
     if (!rows.length) return null;
-    var tc = rows[0].time_created;
+    const tc = rows[0].time_created;
     return typeof tc === "number" ? tc : null;
   },
-
-  detectActiveSession: function (cwd, _currentSid) {
+  detectActiveSession(_cwd, _currentSid) {
     return null;
   },
-
-  detectSessionModel: function (cwd, sessionId) {
-    var db = opencodeDbPath();
+  // Detection keys off the pane's OWN session (capability rule #3): read only
+  // the model recorded against this session_id. No "latest model in cwd"
+  // fallback — that would hand the pane a SIBLING agent's model. Unknown → null.
+  detectSessionModel(_cwd, sessionId) {
+    const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return null;
-  // Prefer explicit session model; fall back to latest model in cwd.
-    if (sessionId) {
-      var model = scanMessagesForModel(db,
-        "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
-        [sessionId]);
-      if (model) return model;
-    }
-    return scanMessagesForModel(db,
-      "SELECT m.data AS data FROM message m " +
-        "JOIN session s ON s.id = m.session_id " +
-        "WHERE (s.directory = ?1 OR s.directory = ?2) " +
-        "ORDER BY m.time_created DESC LIMIT 50",
-      [cwd.replace(/\\/g, "/"), cwd.replace(/\//g, "\\")]);
+    if (!sessionId) return null;
+    return scanMessagesForModel(
+      db,
+      "SELECT data FROM message WHERE session_id = ?1 ORDER BY time_created DESC LIMIT 20",
+      [sessionId]
+    );
   },
-
   // opencode keeps chat in opencode.db (part JOIN message), not a JSONL the
   // host can tail — so the chat UI reads it structured. cursor is the max
   // part.time_created seen, passed back to fetch only newer parts next poll.
-  usesStructuredChat: function () { return true; },
-
-  readStructuredChat: function (_cwd, sessionId, cursor) {
-    var db = opencodeDbPath();
+  usesStructuredChat() {
+    return true;
+  },
+  readStructuredChat(_cwd, sessionId, cursor) {
+    const db = opencodeDbPath();
     if (!db || !host.fs.fileExists(db)) return { messages: [], cursor: cursor || null };
-    var sinceMs = cursor ? (parseInt(cursor, 10) || 0) : 0;
-    var rows = host.fs.sqliteQuery(
+    const sinceMs = cursor ? parseInt(cursor, 10) || 0 : 0;
+    const rows = host.fs.sqliteQuery(
       db,
-      "SELECT p.id AS id, p.time_created AS ts, p.data AS part, m.data AS msg " +
-        "FROM part p JOIN message m ON m.id = p.message_id " +
-        "WHERE p.session_id = ?1 AND p.time_created >= ?2 " +
-        "ORDER BY p.time_created ASC, p.id ASC",
+      "SELECT p.id AS id, p.time_created AS ts, p.data AS part, m.data AS msg FROM part p JOIN message m ON m.id = p.message_id WHERE p.session_id = ?1 AND p.time_created >= ?2 ORDER BY p.time_created ASC, p.id ASC",
       [sessionId, sinceMs]
     );
-    var messages = [];
-    var maxTs = sinceMs;
-    for (var i = 0; i < rows.length; i++) {
-      var ts = rows[i].ts || 0;
+    const messages = [];
+    let maxTs = sinceMs;
+    for (let i = 0; i < rows.length; i++) {
+      const ts = rows[i].ts || 0;
       if (ts > maxTs) maxTs = ts;
-      var part = safeJson(rows[i].part);
+      const part = safeJson(rows[i].part);
       if (!part) continue;
-      var role = "assistant";
-      var msg = safeJson(rows[i].msg);
+      let role = "assistant";
+      const msg = safeJson(rows[i].msg);
       if (msg && msg.role) role = msg.role;
-      var cm = partToChatMsg(part, role, String(rows[i].id), ts);
+      const cm = partToChatMsg(part, role, String(rows[i].id), ts);
       if (cm) messages.push(cm);
     }
-    return { messages: messages, cursor: String(maxTs) };
-  },
+    return { messages, cursor: String(maxTs) };
+  }
 };
-
-function safeJson(s) {
-  try { return JSON.parse(s); } catch (_) { return null; }
+function parsePermissionPrompt(text) {
+  const lines = String(text || "").split("\n").map(cleanPromptLine);
+  let permIdx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].indexOf("Permission required") !== -1) {
+      permIdx = i;
+      break;
+    }
+  }
+  if (permIdx < 0) return null;
+  let optLine = null;
+  for (let j = permIdx; j < lines.length; j++) {
+    const lc = lines[j].toLowerCase();
+    if ((lc.indexOf("allow") !== -1 || lc.indexOf("reject") !== -1 || lc.indexOf("deny") !== -1) && lc.indexOf("permission required") === -1) {
+      optLine = lines[j];
+      break;
+    }
+  }
+  if (!optLine) return null;
+  const labels = optLine.split(/\s{2,}/).map((s) => s.trim()).filter(Boolean);
+  if (labels.length < 2) return null;
+  let question = "";
+  for (let k = permIdx + 1; k < lines.length; k++) {
+    const q = lines[k];
+    if (q && q.toLowerCase() !== "patterns") {
+      question = q;
+      break;
+    }
+  }
+  lastPromptShape = "horizontal";
+  return {
+    question: question || "Permission required",
+    options: labels.map((label, idx) => [label, String(idx + 1)])
+  };
 }
-
-// Map one opencode `part` blob to a ChatMsg (camelCase, matching the Rust
-// serde shape). text→user/assistant, reasoning→thinking, tool→tool_call.
+function collectQuestionMenuPrompt(text) {
+  const lines = String(text || "").split("\n").map(cleanPromptLine);
+  const start = Math.max(0, lines.length - 30);
+  const rows = [];
+  for (let i = start; i < lines.length; i++) {
+    const line = lines[i];
+    const m = QUESTION_MENU_RE.exec(line);
+    if (m && m[2].trim()) {
+      rows.push({ value: m[1], label: m[2].trim(), idx: i, sel: isQuestionMenuSelected(line) });
+    }
+  }
+  if (rows.length < 2) return null;
+  const cluster = [];
+  let prev = rows[rows.length - 1].idx;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (prev - rows[i].idx <= 2 || cluster.length === 0) {
+      cluster.unshift(rows[i]);
+      prev = rows[i].idx;
+    } else break;
+  }
+  if (cluster.length < 2 || !hasQuestionMenuFooter(lines, cluster[cluster.length - 1].idx)) return null;
+  let question = "";
+  for (let i = cluster[0].idx - 1; i >= start && cluster[0].idx - i <= 6; i--) {
+    const q = lines[i];
+    if (q && q.charAt(0) !== "#" && !isQuestionMenuFooter(q)) {
+      question = q;
+      break;
+    }
+  }
+  return { question: question || "Select an option", cluster };
+}
+function parseQuestionMenuPrompt(text) {
+  const c = collectQuestionMenuPrompt(text);
+  if (!c) return null;
+  lastPromptShape = "vertical";
+  return {
+    question: c.question,
+    options: c.cluster.map((row) => [row.label, row.value])
+  };
+}
+function collectModalPickerPrompt(text) {
+  const rawLines = String(text || "").split("\n");
+  const titleIdx = findModalPickerTitle(text);
+  if (titleIdx < 0) return null;
+  const searchIdx = findModalSearchLine(rawLines, titleIdx);
+  if (searchIdx < 0) return null;
+  const modalCol = rawLines[searchIdx].indexOf("Search");
+  if (modalCol < 0) return null;
+  const question = cleanPromptLine(rawLines[titleIdx].slice(modalCol)).replace(/\s+esc$/i, "").trim();
+  const rows = [];
+  let nextValue = 1;
+  for (let i = searchIdx + 1; i < Math.min(rawLines.length, searchIdx + 22); i++) {
+    const raw = rawLines[i];
+    const label = modalPickerLabel(raw, modalCol);
+    if (!label) continue;
+    if (isModalPickerSection(label)) continue;
+    rows.push({
+      value: String(nextValue++),
+      label,
+      idx: i,
+      sel: raw.slice(Math.max(0, modalCol - 4), modalCol + 2).indexOf("\u25CF") !== -1
+    });
+  }
+  if (rows.length < 2) return null;
+  return { question: question || "Select an option", cluster: rows };
+}
+function parseModalPickerPrompt(text) {
+  const c = collectModalPickerPrompt(text);
+  if (!c) return null;
+  lastPromptShape = "vertical";
+  return {
+    question: c.question,
+    options: c.cluster.map((row) => [row.label, row.value])
+  };
+}
+function cleanPromptLine(line) {
+  return String(line).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[│┃|╎╏┆┊╭╮╯╰╹▀]/g, " ").replace(/^[\s←⚠»·]+/, "").replace(/[\s·»]+$/, "").trim();
+}
+function chunkHasQuestionMenuRow(chunk) {
+  const lines = String(chunk || "").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (QUESTION_MENU_RE.test(cleanPromptLine(lines[i]))) return true;
+  }
+  return false;
+}
+function questionMenuHighlightIndex(text) {
+  const c = collectQuestionMenuPrompt(text);
+  if (!c) return -1;
+  return c.cluster.findIndex((row) => row.sel);
+}
+function verticalPromptHighlightIndex(text) {
+  const modal = collectModalPickerPrompt(text);
+  if (modal) return modal.cluster.findIndex((row) => row.sel);
+  return questionMenuHighlightIndex(text);
+}
+function isVerticalPrompt(text) {
+  return !!collectQuestionMenuPrompt(text) || !!collectModalPickerPrompt(text);
+}
+function isQuestionMenuSelected(line) {
+  const first = String(line || "").trim().charAt(0);
+  return QUESTION_MENU_SELECTORS.indexOf(first) !== -1;
+}
+function findModalPickerTitle(text) {
+  const lines = String(text || "").split("\n");
+  const start = Math.max(0, lines.length - 40);
+  for (let i = lines.length - 1; i >= start; i--) {
+    if (PICKER_TITLE_RE.test(cleanPromptLine(lines[i]))) return i;
+  }
+  return -1;
+}
+function findModalSearchLine(lines, titleIdx) {
+  for (let i = titleIdx + 1; i < Math.min(lines.length, titleIdx + 8); i++) {
+    if (cleanPromptLine(lines[i]) === "Search") return i;
+  }
+  return -1;
+}
+function modalPickerLabel(rawLine, modalCol) {
+  const cropped = rawLine.slice(modalCol, modalCol + 54);
+  const label = cleanPromptLine(cropped).replace(/\s+/g, " ").trim();
+  if (!label) return "";
+  if (/^\/.+\b\d+\.\d+\.\d+\b/.test(label)) return "";
+  return label;
+}
+function isModalPickerSection(label) {
+  const lc = label.toLowerCase();
+  return lc === "search" || lc === "popular" || lc === "providers" || lc === "popular providers" || lc.indexOf("view all providers") === 0;
+}
+function hasQuestionMenuFooter(lines, lastOptionIdx) {
+  for (let i = lastOptionIdx + 1; i < Math.min(lines.length, lastOptionIdx + 7); i++) {
+    if (isQuestionMenuFooter(lines[i])) return true;
+  }
+  return false;
+}
+function isQuestionMenuFooter(line) {
+  const lc = String(line || "").toLowerCase();
+  return lc.indexOf("select") !== -1 && lc.indexOf("submit") !== -1 && lc.indexOf("dismiss") !== -1;
+}
+function discoverOpencodeModels() {
+  const raw = host.exec(JSON.stringify({
+    bin: "opencode",
+    args: ["models"],
+    timeoutMs: 3e3
+  }));
+  const result = safeJson(raw);
+  if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
+  const lines = result.stdout.split("\n");
+  const models = [];
+  for (let i = 0; i < lines.length; i++) {
+    const id = lines[i].trim();
+    if (!isModelId(id)) continue;
+    if (isNonChatModel(id)) continue;
+    models.push({ id, displayName: displayNameFromId(id) });
+  }
+  return models.length ? models : null;
+}
+function isModelId(value) {
+  return /^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(value);
+}
+var NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
+function isNonChatModel(id) {
+  const leaf = (id.split("/").pop() || id).toLowerCase();
+  const toks = leaf.split(/[-_.]/);
+  for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
+  return false;
+}
+function manifestModels() {
+  try {
+    const m = JSON.parse(host.manifestJson() || "null");
+    return Array.isArray(m && m.models) ? m.models : [];
+  } catch (_) {
+    return [];
+  }
+}
+function safeJson(s) {
+  try {
+    return JSON.parse(String(s || "null"));
+  } catch (_) {
+    return null;
+  }
+}
+function displayNameFromId(id) {
+  const slash = id.split("/");
+  const provider = slash.length > 1 ? slash[0] : "";
+  const leaf = slash[slash.length - 1] || id;
+  const words = prettyLeaf(leaf);
+  if (provider.toLowerCase() === "opencode") return "OpenCode Zen " + words;
+  return words;
+}
+function prettyLeaf(leaf) {
+  const parts = leaf.split("-").filter(Boolean);
+  const out = [];
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (/^\d+$/.test(p) && out.length && /\d$/.test(out[out.length - 1])) {
+      out[out.length - 1] = out[out.length - 1] + "." + p;
+    } else {
+      out.push(capitalizeToken(p));
+    }
+  }
+  return out.join(" ");
+}
+function capitalizeToken(token) {
+  if (!token) return token;
+  if (token === "gpt") return "GPT";
+  if (token === "ai") return "AI";
+  return token.charAt(0).toUpperCase() + token.substring(1);
+}
 function partToChatMsg(part, role, id, tsMs) {
-  var timestamp = String(tsMs);
-  var type = part && part.type;
+  const timestamp = String(tsMs);
+  const type = part && part.type;
   if (type === "text") {
-    var txt = (part.text || "");
+    const txt = part.text || "";
     if (!txt.trim()) return null;
-    return { id: id, type: role === "user" ? "user" : "assistant", content: txt, timestamp: timestamp };
+    return { id, type: role === "user" ? "user" : "assistant", content: txt, timestamp };
   }
   if (type === "reasoning") {
-    var rtxt = (part.text || "");
+    const rtxt = part.text || "";
     if (!rtxt.trim()) return null;
-    return { id: id, type: "thinking", content: rtxt, timestamp: timestamp };
+    return { id, type: "thinking", content: rtxt, timestamp };
   }
   if (type === "tool") {
-    var tool = part.tool || "tool";
-    var state = part.state || {};
-    var out = { id: id, type: "tool_call", content: "", timestamp: timestamp, toolName: tool };
-    if (state.input !== undefined) out.toolInput = state.input;
+    const tool = part.tool || "tool";
+    const state = part.state || {};
+    const out = { id, type: "tool_call", content: "", timestamp, toolName: tool };
+    if (state.input !== void 0) out.toolInput = state.input;
     if (typeof state.output === "string") out.toolResult = state.output;
     return out;
   }
   return null;
 }
-
 function opencodeDbPath() {
-  var base = host.envGet("XDG_DATA_HOME");
+  let base = host.envGet("XDG_DATA_HOME");
   if (!base) base = host.expandHome("~/.local/share");
   if (!base) return null;
-  var sep = host.platform() === "windows" ? "\\" : "/";
+  const sep = host.platform() === "windows" ? "\\" : "/";
   return base + sep + "opencode" + sep + "opencode.db";
 }
-
 function opencodeConfigDir() {
-  var override = host.envGet("OPENCODE_CONFIG_DIR");
+  const override = host.envGet("OPENCODE_CONFIG_DIR");
   if (override) return override;
   return host.expandHome("~/.config/opencode");
 }
-
 function opencodeConfigPath() {
-  var dir = opencodeConfigDir();
+  const dir = opencodeConfigDir();
   if (!dir) return null;
-  var sep = host.platform() === "windows" ? "\\" : "/";
+  const sep = host.platform() === "windows" ? "\\" : "/";
   return dir + sep + "opencode.json";
 }
-
 function opencodeBindingPluginPath() {
-  var dir = opencodeConfigDir();
+  const dir = opencodeConfigDir();
   if (!dir) return null;
-  var sep = host.platform() === "windows" ? "\\" : "/";
+  const sep = host.platform() === "windows" ? "\\" : "/";
   return dir + sep + CODETERM_OPENCODE_PLUGIN_FILE;
 }
-
 function opencodePluginEntry() {
-  var path = opencodeBindingPluginPath();
+  const path = opencodeBindingPluginPath();
   return path ? path.replace(/\\/g, "/") : null;
 }
-
 function opencodePluginEntryMatches(entry, target) {
   if (!target) return false;
-  var value = null;
+  let value = null;
   if (typeof entry === "string") value = entry;
   else if (Array.isArray(entry) && typeof entry[0] === "string") value = entry[0];
   if (!value) return false;
   return value.replace(/\\/g, "/") === target;
 }
-
 function opencodeBindingPluginSource(apiPort) {
   return [
     "// " + CODETERM_OPENCODE_PLUGIN_MARKER,
-    "const PROVIDER_ID = \"opencode\";",
-    "const FALLBACK_PORT = \"" + String(apiPort || 7686) + "\";",
+    'const PROVIDER_ID = "opencode";',
+    'const FALLBACK_PORT = "' + String(apiPort || 7686) + '";',
     "",
     "function endpoint() {",
     "  const pane = process.env.CODETERM_PANE_ID;",
@@ -412,7 +636,7 @@ function opencodeBindingPluginSource(apiPort) {
     "}",
     "",
     "function normalizeSessionID(value) {",
-    "  return typeof value === \"string\" && value.startsWith(\"ses_\") ? value : null;",
+    '  return typeof value === "string" && value.startsWith("ses_") ? value : null;',
     "}",
     "",
     "function firstSessionID(...values) {",
@@ -429,14 +653,17 @@ function opencodeBindingPluginSource(apiPort) {
     "  const url = endpoint();",
     "  if (!url) return;",
     "  const headers = {",
-    "    \"content-type\": \"application/json\",",
-    "    \"x-codeterm-agent-provider\": PROVIDER_ID,",
+    '    "content-type": "application/json",',
+    '    "x-codeterm-agent-provider": PROVIDER_ID,',
     "  };",
+    "  if (process.env.CODETERM_SESSION_BINDING_NONCE) {",
+    '    headers["x-codeterm-binding-nonce"] = process.env.CODETERM_SESSION_BINDING_NONCE;',
+    "  }",
     "  if (process.env.CODETERM_API_TOKEN) {",
     "    headers.authorization = `Bearer ${process.env.CODETERM_API_TOKEN}`;",
     "  }",
     "  await fetch(url, {",
-    "    method: \"POST\",",
+    '    method: "POST",',
     "    headers,",
     "    body: JSON.stringify({",
     "      provider_id: PROVIDER_ID,",
@@ -478,44 +705,43 @@ function opencodeBindingPluginSource(apiPort) {
     "  return {",
     "    async event({ event }) {",
     "      if (",
-    "        event?.type === \"session.created\" ||",
-    "        event?.type === \"session.updated\" ||",
-    "        event?.type === \"tui.session.select\" ||",
-    "        event?.type === \"message.updated\" ||",
-    "        event?.type === \"message.part.updated\"",
+    '        event?.type === "session.created" ||',
+    '        event?.type === "session.updated" ||',
+    '        event?.type === "tui.session.select" ||',
+    '        event?.type === "message.updated" ||',
+    '        event?.type === "message.part.updated"',
     "      ) {",
     "        await report(eventSessionID(event), event.type, eventDirectory(event, directory));",
     "      }",
     "    },",
-    "    async \"chat.message\"(input) {",
-    "      await report(input?.sessionID, \"chat.message\", directory);",
+    '    async "chat.message"(input) {',
+    '      await report(input?.sessionID, "chat.message", directory);',
     "    },",
-    "    async \"tool.execute.before\"(input) {",
-    "      await report(input?.sessionID, \"tool.execute.before\", directory);",
+    '    async "tool.execute.before"(input) {',
+    '      await report(input?.sessionID, "tool.execute.before", directory);',
     "    },",
-    "    async \"shell.env\"(input, output) {",
-    "      await report(input?.sessionID, \"shell.env\", input?.cwd || directory);",
+    '    async "shell.env"(input, output) {',
+    '      await report(input?.sessionID, "shell.env", input?.cwd || directory);',
     "      return output;",
     "    },",
     "  };",
     "}",
-    "",
+    ""
   ].join("\n");
 }
-
 function scanMessagesForModel(db, sql, params) {
-  var rows = host.fs.sqliteQuery(db, sql, params);
-  for (var i = 0; i < rows.length; i++) {
-    var raw = rows[i].data;
+  const rows = host.fs.sqliteQuery(db, sql, params);
+  for (let i = 0; i < rows.length; i++) {
+    const raw = rows[i].data;
     if (!raw) continue;
     try {
-      var v = JSON.parse(raw);
+      const v = JSON.parse(raw);
       if (v && v.role === "assistant" && typeof v.modelID === "string" && v.modelID) {
         return v.modelID;
       }
     } catch (_) {
-      // skip malformed row
     }
   }
   return null;
 }
+var plugin_default = plugin;

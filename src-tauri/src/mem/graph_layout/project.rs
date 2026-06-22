@@ -332,8 +332,6 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
 
     // Primary clustering: Louvain communities over the relation graph — the
     // drawn edges define the clusters. Nodes without relations join the
-    // community their embedding kNN neighbors vote for; still-unattached
-    // nodes fall back to kNN label propagation communities.
     let relation_edges: Vec<super::louvain::LouvainEdge> = edges
         .iter()
         .filter(|e| e.weight > 0.5)

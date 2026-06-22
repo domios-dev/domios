@@ -122,7 +122,8 @@ impl ServiceContext {
     fn batch_report(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
         let pane_id = json_str(params, "pane_id").ok_or("pane_id required")?;
         let message = json_str(params, "message").ok_or("message required")?;
-        let result = self.submit_report(&pane_id, &message)?;
+        let details = serde_json::from_value(params.clone()).unwrap_or_default();
+        let result = self.submit_report(&pane_id, &message, details)?;
         Ok(serde_json::json!({"ok": true, "report_id": result.report_id}))
     }
 }
@@ -136,19 +137,22 @@ pub struct SpawnResult {
     pub pty_id: String,
     pub agent: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub role: Option<String>,
     /// Warning when agent cwd differs from workspace cwd
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct SpawnAgentParams {
     pub agent: Option<String>,
     pub agent_name: Option<String>,
     pub args: Option<Vec<String>>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    pub description: Option<String>,
     pub role: Option<String>,
     pub parent_pane_id: Option<String>,
     pub can_spawn: Option<bool>,
@@ -164,8 +168,15 @@ pub struct SpawnAgentParams {
     pub spawned_by_pane_id: Option<String>,
     /// Provider decides flag syntax via `AgentProvider::model_launch_args`.
     pub model: Option<String>,
+    pub system_prompt: Option<String>,
+    pub preset: Option<String>,
     pub resume_session_id: Option<String>,
     pub activate: Option<bool>,
+    /// Host-set, never from the wire: the fixed structured-prompt server the
+    /// host allocated for a `needs_structured_prompt_server` provider. Threaded
+    /// into the launch command so the agent binds its SSE bus there.
+    #[serde(default, skip)]
+    pub structured_prompt_server: Option<crate::agent::provider::StructuredPromptServer>,
 }
 
 impl SpawnAgentParams {
@@ -180,6 +191,10 @@ impl SpawnAgentParams {
             }),
             cwd: json_str(params, "cwd"),
             title: super::spawn_title::normalize_agent_title(json_str(params, "title")),
+            description: json_str(params, "description")
+                .map(|s| crate::service::normalize_pane_description(&s))
+                .transpose()?
+                .flatten(),
             role: json_str(params, "role"),
             parent_pane_id: json_str(params, "parent_pane_id")
                 .or_else(|| json_str(params, "parent")),
@@ -191,8 +206,11 @@ impl SpawnAgentParams {
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
             spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
             model: json_str(params, "model"),
+            system_prompt: json_str(params, "system_prompt").or_else(|| json_str(params, "system")),
+            preset: json_str(params, "preset"),
             resume_session_id: json_str(params, "resume_session_id"),
             activate: params.get("activate").and_then(|v| v.as_bool()),
+            structured_prompt_server: None,
         })
     }
 }
@@ -266,7 +284,13 @@ impl ServiceContext {
             .clone()
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
-        let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params(params);
+        // Reject non-spawnable backends / unknown ids cleanly before building the
+        // spec, so the socket-RPC path errors identically to the HTTP path
+        self.classify_spawn_target(&agent)?;
+        let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
+            self.chatbackend_registry.as_ref(),
+            params,
+        );
         let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
         Ok(SpawnResult {
             pane_id: handle.pane_id,
@@ -274,6 +298,7 @@ impl ServiceContext {
             pty_id: handle.pty_id.unwrap_or_default(),
             agent,
             title,
+            description: handle.description,
             role,
             warning: handle.warning,
         })
@@ -290,18 +315,33 @@ impl ServiceContext {
             .agent
             .clone()
             .unwrap_or_else(|| default_provider.clone());
-        // Validate against the registry — reject unknown provider ids upfront.
-        if self
-            .agent_registry
-            .with_provider(&agent_cmd, |_| ())
-            .is_none()
-        {
-            let available = self.agent_registry.provider_ids().join(", ");
-            return Err(format!(
-                "Unknown agent provider: '{}'. Available: [{}]",
-                agent_cmd, available
-            ));
+        // Classify once: spawnable shell → ChatBackend path, ordinary agent →
+        // PTY path, anything else (non-spawnable backend or unknown id) → clean
+        let is_shell = self.classify_spawn_target(&agent_cmd)?;
+        if is_shell {
+            let role = params.role.clone();
+            let title = params
+                .title
+                .clone()
+                .or_else(|| params.agent_name.clone())
+                .unwrap_or_else(|| agent_cmd.clone());
+            let spec = crate::service::spawn::SpawnPaneSpec::from_agent_params_with_chatbackends(
+                self.chatbackend_registry.as_ref(),
+                params,
+            );
+            let handle = self.spawn_pane_with_ready(spec, ready_tx)?;
+            return Ok(SpawnResult {
+                pane_id: handle.pane_id,
+                tab_id: handle.tab_id,
+                pty_id: handle.pty_id.unwrap_or_default(),
+                agent: agent_cmd,
+                title,
+                description: handle.description,
+                role,
+                warning: handle.warning,
+            });
         }
+
         let cli_warning =
             crate::service::spawn::provider_cli_install_warning(&self.agent_registry, &agent_cmd)?;
         if let Some(ref warning) = cli_warning {
@@ -336,7 +376,7 @@ impl ServiceContext {
 
         // 1. Find workspace — lock once, resolve everything
         let (ws_id, ws_cwd) = {
-            let mux = self.mux.lock();
+            let mux = self.mux.write();
             let from_parent = params
                 .parent_pane_id
                 .as_ref()
@@ -376,7 +416,7 @@ impl ServiceContext {
 
         // 2. Create new tab in the workspace (each agent gets its own tab)
         let (tab_id, pane_id) = {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
             // Pin the sidebar label up-front (rename_pane sync runs later too).
             if let Some(ref t) = params.title {
@@ -427,7 +467,7 @@ impl ServiceContext {
 
         // 3b. Set auto_approve if spawned with skip_permissions
         if params.skip_permissions.unwrap_or(true) {
-            let mut mux = self.mux.lock();
+            let mut mux = self.mux.write();
             if let Some(pane) = mux.get_pane_mut(&pane_id) {
                 pane.auto_approve = true;
             }
@@ -460,16 +500,30 @@ impl ServiceContext {
             self.set_agent_session_id(&pane_id, Some(sid.clone()));
         }
         if let Some(model) = params.model.as_ref().filter(|m| !m.trim().is_empty()) {
-            if let Some(pane) = self.mux.lock().get_pane_mut(&pane_id) {
+            if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
                 pane.agent_session_model = Some(model.trim().to_string());
             }
         }
+
+        // 4d. Structured-prompt server: capability-gated allocate + register +
+        // subscribe via the ONE shared chokepoint (also used by the desktop/CLI
+        params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
+            self,
+            &agent_cmd,
+            &pane_id,
+            &params.cwd.clone().unwrap_or_default(),
+        );
 
         // 5. Launch agent in background thread
         let bg_task = params.task.as_ref().map(|t| match params.role.as_deref() {
             Some("Worker") => format!("{}{}", t, crate::prompts::WORKER_SUFFIX),
             Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
             _ => t.clone(),
+        });
+        // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
+        let bg_task = bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
+            Some(pfx) => format!("{}{}", pfx, t),
+            None => t,
         });
         let launch_cmd = build_agent_command(
             &agent_cmd,
@@ -489,15 +543,43 @@ impl ServiceContext {
             ready_tx,
         );
 
+        // (subscriber already started inside ensure_for_spawn above)
+
         Ok(SpawnResult {
             pane_id,
             tab_id,
             pty_id: String::new(), // PTY not yet assigned — happens async
             agent: agent_cmd,
             title,
+            description: params.description,
             role: params.role,
             warning,
         })
+    }
+
+    /// Origin prefix for a spawned agent's first task, derived from the target pane's recorded spawner (spawned_by/parent) — same canonical attribution as cross-pane sends. None for raw spawns (no spawner).
+    pub(crate) fn spawn_task_prefix(&self, target_pane: &str) -> Option<String> {
+        let mux = self.mux.write();
+        let src = mux.get_pane(target_pane).and_then(|p| {
+            p.spawned_by_pane_id
+                .clone()
+                .or_else(|| p.parent_pane_id.clone())
+        })?;
+        if src.is_empty() {
+            return None;
+        }
+        let label = mux.display_label_for_pane(&src);
+        let model = mux
+            .get_pane(&src)
+            .and_then(|p| p.agent_session_model.clone());
+        crate::service::messenger::delivery_prefix(
+            true,
+            &src,
+            target_pane,
+            &label,
+            model.as_deref(),
+            None,
+        )
     }
 }
 
@@ -506,6 +588,7 @@ pub(crate) use crate::agent::registry::AgentRegistry;
 
 /// Shared background thread logic for launching agents in a PTY.
 /// Uses the AgentRegistry to determine readiness strategy and task delivery.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn launch_agent_in_background(
     svc: ServiceContext,
     pane_id: String,
@@ -519,12 +602,12 @@ pub(crate) fn launch_agent_in_background(
     let registry = svc.agent_registry.clone();
     // A booting TUI silently swallows bracket-paste — gate sends (send_text_when_ready) until the background launch clears this. Set BEFORE the
     // thread spawns: callers get the pane id immediately and may send right away.
-    if let Some(p) = svc.mux.lock().get_pane_mut(&pane_id) {
+    if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
         p.agent_booting = true;
     }
     std::thread::spawn(move || {
         let set_booting = |value: bool| {
-            if let Some(p) = svc.mux.lock().get_pane_mut(&pane_id) {
+            if let Some(p) = svc.mux.write().get_pane_mut(&pane_id) {
                 p.agent_booting = value;
             }
         };
@@ -533,7 +616,7 @@ pub(crate) fn launch_agent_in_background(
         let pty_id = loop {
             if let Some(pid) = svc
                 .mux
-                .try_lock()
+                .try_write()
                 .and_then(|m| m.get_pane(&pane_id).and_then(|p| p.pty_id.clone()))
             {
                 break pid;
@@ -543,12 +626,16 @@ pub(crate) fn launch_agent_in_background(
                 log::info!("launch_agent: backend PTY spawn for {}", pane_id);
                 let cwd = svc
                     .mux
-                    .lock()
+                    .write()
                     .get_pane(&pane_id)
                     .and_then(|p| p.cwd.clone());
                 let mut env_vars: std::collections::HashMap<String, String> =
                     std::collections::HashMap::new();
                 env_vars.insert("CODETERM_PANE_ID".into(), pane_id.clone());
+                env_vars.insert(
+                    "CODETERM_SESSION_BINDING_NONCE".into(),
+                    svc.ensure_session_binding_nonce(&pane_id),
+                );
                 env_vars.insert(
                     "CODETERM_SOCKET_PATH".into(),
                     crate::socket::server::socket_display_path(),
@@ -568,7 +655,7 @@ pub(crate) fn launch_agent_in_background(
                 }
                 match svc.pty.lock().spawn(None, cwd, 120, 40, env_vars) {
                     Ok((pid, _)) => {
-                        if let Some(orphan) = svc.mux.lock().link_pty(&pane_id, pid.clone()) {
+                        if let Some(orphan) = svc.mux.write().link_pty(&pane_id, pid.clone()) {
                             svc.kill_ptys(&[orphan]);
                         }
                         // Start backend reader
@@ -736,9 +823,10 @@ pub(crate) fn build_agent_command(
     let mut args: Vec<String> = params.args.clone().unwrap_or_default();
     if let Some(ref model) = params.model {
         if !model.is_empty() {
+            let resolved = crate::agent::model_catalog::resolve_model(agent_cmd, Some(model));
             let model_args = registry
-                .with_provider(agent_cmd, |p| p.model_launch_args(model))
-                .unwrap_or_else(|| vec!["--model".into(), model.clone()]);
+                .with_provider(agent_cmd, |p| p.model_launch_args(&resolved.id))
+                .unwrap_or_else(|| vec!["--model".into(), resolved.id]);
             args.extend(model_args);
         }
     }
@@ -752,8 +840,8 @@ pub(crate) fn build_agent_command(
             Some(args.clone())
         },
         skip_permissions: params.skip_permissions.unwrap_or(true),
-        headless: false,
         session_id: injected_session_id.map(std::string::ToString::to_string),
+        structured_prompt_server: params.structured_prompt_server.clone(),
     };
     let cmd = registry
         .with_provider(agent_cmd, |p| p.build_launch_command(&launch_params))

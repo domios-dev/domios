@@ -1,0 +1,85 @@
+# Detection replay scenario — first canonical capture.
+# Realistic ~15-turn coding dialogue: build a single-file browser Snake game and
+# iterate. NO external deps (no pygame/display), so dependency/display failures
+# never dominate the recording. NO interactive picker turns (cards live in a
+# separate card-focused scenario) — this scenario isolates the working/idle +
+# status-line signal with rich natural negatives (code blocks, numbered lists,
+# menu-like strings in prose). The recording is the deterministic artifact; this
+# script is only how we GENERATE it.
+id: snake_incremental_build_browser_v1
+title: Build and iterate a single-file browser Snake game (status-line slice)
+providers: [claude, opencode, codex, cursor]
+first_capture: claude            # claude's thinking widget is the prime status line to learn
+workspace_setup:
+  files: []
+  terminal: { cols: 120, rows: 32 }
+
+# Pacing is a RECORDING device only, never a correctness signal: after each turn
+# wait for content stability with a min dwell and a max cap, tolerating volatile
+# status/spinner rows so animation can't block progress forever.
+pacing:
+  strategy: adaptive_stability    # content-stable OR live idle; fixed delay is fallback only
+  min_dwell_ms: 1200
+  stability_quiet_ms: 2500        # rolling window of no MEANINGFUL screen change
+  max_wait_ms: 180000             # hard cap per turn
+  tolerate_volatile_rows: true    # spinner/elapsed/token row churn doesn't reset stability
+
+turns:
+  - n: 1
+    user: "Create a minimal but complete browser Snake game in a single self-contained snake.html file (inline CSS + JS, canvas, no external assets or libraries). Just create the file."
+    expect: { phases: [working, idle], card: none }   # long streaming codegen + file write
+  - n: 2
+    user: "Add arrow-key and WASD controls and a visible score in the top-left."
+    expect: { phases: [working, idle], card: none }
+  - n: 3
+    user: "Add pause/resume on the spacebar and a restart button below the canvas."
+    expect: { phases: [working, idle], card: none }
+  - n: 4
+    user: "Make the snake speed up a little every 5 points."
+    expect: { phases: [working, idle], card: none }
+  - n: 5
+    user: "Add a start screen with three difficulty buttons: Easy, Normal, Hard."
+    expect: { phases: [working, idle], card: none }
+  - n: 6
+    user: "Add an optional wall-wrap mode toggled by a checkbox on the start screen."
+    expect: { phases: [working, idle], card: none }
+  - n: 7
+    user: "Persist the high score in localStorage and show it next to the current score."
+    expect: { phases: [working, idle], card: none }
+  - n: 8
+    # Negative pressure: asks for an explanation that will contain a numbered list
+    # and menu-like prose ("Would you like", "1.", "2.") that must NOT become a card.
+    user: "Before coding more, explain in prose the options you'd consider for mobile controls. Give a numbered list and end by asking which I'd like — but do not open any interactive menu, just plain text."
+    expect: { phases: [working, idle], card: none, negative: prose_question_and_list }
+  - n: 9
+    user: "Add on-screen touch controls (swipe or buttons) for mobile, your choice from that list."
+    expect: { phases: [working, idle], card: none }
+  - n: 10
+    user: "Add a sound on/off toggle using only the Web Audio API — no external sound files."
+    expect: { phases: [working, idle], card: none }
+  - n: 11
+    user: "Refactor the JS into clear functions (input, update, render, state) inside the same file; keep it one file."
+    expect: { phases: [working, idle], card: none }
+  - n: 12
+    # Negative pressure: a deliberate bug-fix turn whose output describes an error
+    # in prose (error text must NOT become a card / error state).
+    user: "There's a bug: pressing the opposite direction quickly reverses the snake into itself. Describe the cause, then fix it."
+    expect: { phases: [working, idle], card: none, negative: error_in_prose }
+  - n: 13
+    user: "Make the canvas responsive so it scales to the window while staying square."
+    expect: { phases: [working, idle], card: none }
+  - n: 14
+    # Thinking-widget stress turn — the money frames for the status-line extractor.
+    user: "Think hard about the best data structure for the snake body (array vs linked list vs deque) for this game, weigh the tradeoffs, and explain your reasoning before changing anything."
+    expect: { phases: [working_thinking, working, idle], card: none, target: status_line }
+  - n: 15
+    user: "Summarize everything that changed and give exact steps to open and play snake.html."
+    expect: { phases: [working, idle], card: none }
+
+stop:
+  after_final_idle_ms: 3000        # keep recording 3s past the last return-to-idle
+
+oracle:
+  forbid_card_on_all_negative_frames: true   # zero cards on ANY frame in this scenario
+  require_status_line_during_working: true    # a live status line must be inspectable while working
+  expected_status_phases: [working, working_thinking]

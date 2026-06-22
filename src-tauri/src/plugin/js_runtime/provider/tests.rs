@@ -110,7 +110,7 @@ fn build_launch_command_passes_params_to_js() {
                     let s = 'demo';
                     if (p.skipPermissions) s += ' --yolo';
                     if (p.task) s += ' --task ' + JSON.stringify(p.task);
-                    if (p.headless) s += ' --headless';
+                    if (p.sessionId) s += ' --session-id ' + p.sessionId;
                     return s;
                 }
             };
@@ -119,11 +119,11 @@ fn build_launch_command_passes_params_to_js() {
     let params = AgentLaunchParams {
         task: Some("hello world".into()),
         skip_permissions: true,
-        headless: true,
+        session_id: Some("sid-1".into()),
         ..Default::default()
     };
     let cmd = p.build_launch_command(&params);
-    assert_eq!(cmd, "demo --yolo --task \"hello world\" --headless");
+    assert_eq!(cmd, "demo --yolo --task \"hello world\" --session-id sid-1");
 }
 
 #[test]
@@ -213,10 +213,14 @@ fn parse_prompt_decodes_options() {
             };
         "#;
     let p = load(MIN_MANIFEST, js);
-    let (q, opts) = p.parse_prompt("anything").unwrap();
-    assert_eq!(q, "Allow?");
+    let prompt = p.parse_prompt("anything").unwrap();
+    assert_eq!(prompt.question, "Allow?");
     assert_eq!(
-        opts,
+        prompt
+            .options
+            .iter()
+            .map(|o| (o.label.clone(), o.value.clone()))
+            .collect::<Vec<_>>(),
         vec![("y".into(), "Yes".into()), ("n".into(), "No".into())]
     );
 }
@@ -238,10 +242,14 @@ fn real_opencode_plugin_parses_permission_box() {
         "ctrl+f fullscreen  ⇅ select  enter confirm",
     ]
     .join("\n");
-    let (q, opts) = p.parse_prompt(&box_text).expect("permission box parses");
-    assert_eq!(q, "Access external directory /tmp");
+    let prompt = p.parse_prompt(&box_text).expect("permission box parses");
+    assert_eq!(prompt.question, "Access external directory /tmp");
     assert_eq!(
-        opts,
+        prompt
+            .options
+            .iter()
+            .map(|o| (o.label.clone(), o.value.clone()))
+            .collect::<Vec<_>>(),
         vec![
             ("Allow once".into(), "1".into()),
             ("Allow always".into(), "2".into()),
@@ -266,7 +274,7 @@ fn build_prompt_response_decodes_base64_steps() {
             };
         "#;
     let p = load(MIN_MANIFEST, js);
-    let steps = p.build_prompt_response(2);
+    let steps = p.build_prompt_response(2, "");
     assert_eq!(steps, vec![b"j".to_vec(), b"j".to_vec(), b"\r".to_vec()]);
 }
 
@@ -314,7 +322,7 @@ fn settings_schema_falls_back_to_manifest_when_plugin_silent() {
 }
 
 #[test]
-fn available_models_round_trip_through_manifest() {
+fn available_models_reads_catalog_snapshot_not_static_manifest() {
     let json = r#"{
             "id": "am",
             "version": "0.1.0",
@@ -330,9 +338,47 @@ fn available_models_round_trip_through_manifest() {
             ]
         }"#;
     let p = load(json, "module.exports.default = {};");
+    crate::agent::model_catalog::put_live(
+        "am",
+        vec![crate::agent::provider::ModelInfo {
+            id: "live".into(),
+            display_name: "Live".into(),
+            description: Some("from catalog".into()),
+            available: None,
+        }],
+        Some("live".into()),
+    );
+
     let ms = p.available_models();
+    assert_eq!(ms.len(), 1);
+    assert_eq!(ms[0].id, "live");
+    assert_eq!(ms[0].description.as_deref(), Some("from catalog"));
+}
+
+#[tokio::test]
+async fn discover_models_delegates_to_optional_js_export() {
+    let js = r#"
+            module.exports.default = {
+                discoverModels() {
+                    return [
+                        { id: 'live-a', displayName: 'Live A' },
+                        { id: 'live-b', displayName: 'Live B', description: 'second' }
+                    ];
+                }
+            };
+        "#;
+    let p = load(MIN_MANIFEST, js);
+    let ms = p.discover_models().await.expect("discoverModels result");
     assert_eq!(ms.len(), 2);
+    assert_eq!(ms[0].id, "live-a");
+    assert_eq!(ms[0].display_name, "Live A");
     assert_eq!(ms[1].description.as_deref(), Some("second"));
+}
+
+#[tokio::test]
+async fn discover_models_missing_export_returns_none() {
+    let p = load(MIN_MANIFEST, "module.exports.default = {};");
+    assert_eq!(p.discover_models().await, None);
 }
 
 #[test]
@@ -401,6 +447,57 @@ fn build_resume_command_dispatches_to_js_with_two_args() {
     assert_eq!(
         p.build_resume_command("S1", false),
         Some("demo --resume S1".into())
+    );
+}
+
+#[test]
+fn generic_detect_session_id_refuses_to_guess_when_ambiguous() {
+    // Capability rule #3: the generic manifest-driven fallback (no JS
+    // detectSessionId) must mirror Claude's native guard — when 2+ recent
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_string_lossy().to_string();
+    let json = format!(
+        r#"{{
+            "id": "ds",
+            "version": "0.1.0",
+            "displayName": "DS",
+            "spawn": {{
+                "readinessStrategy": {{ "kind": "fixed_delay", "durationMs": 0 }},
+                "taskDelivery": "pty_input",
+                "verifySubmit": {{ "kind": "none" }}
+            }},
+            "sessions": {{
+                "rootDir": "{}",
+                "cwdEncoding": "none",
+                "fileExtension": "jsonl"
+            }}
+        }}"#,
+        root.replace('\\', "\\\\")
+    );
+    // No detectSessionId export → falls through to the generic dir walk.
+    let p = load(&json, "module.exports.default = {};");
+
+    let cwd = "proj";
+    let dir = tmp.path().join(cwd);
+    std::fs::create_dir_all(&dir).unwrap();
+    let s1 = "aaaa1111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    let s2 = "bbbb2222-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    std::fs::write(dir.join(format!("{s1}.jsonl")), "{}\n").unwrap();
+    std::fs::write(dir.join(format!("{s2}.jsonl")), "{}\n").unwrap();
+
+    // Two recent sibling sessions, nothing excluded → ambiguous → refuse.
+    assert_eq!(
+        p.detect_session_id(cwd, &[], Some(Duration::from_secs(300))),
+        None,
+        "must refuse to guess when 2+ sibling sessions are viable candidates",
+    );
+
+    // Excluding the sibling disambiguates → the unique candidate binds.
+    assert_eq!(
+        p.detect_session_id(cwd, &[s2.to_string()], Some(Duration::from_secs(300)))
+            .as_deref(),
+        Some(s1),
+        "with the sibling excluded there is exactly one candidate → bind it",
     );
 }
 

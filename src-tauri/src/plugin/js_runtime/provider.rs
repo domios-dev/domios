@@ -23,6 +23,8 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+mod prompt_parse;
+
 /// CamelCase mirror of `SessionMetadata` so plugin authors can return
 /// `{ sessionId, projectPath, ... }` instead of snake_case.
 #[derive(Debug, Deserialize)]
@@ -90,7 +92,10 @@ use crate::agent::provider::{
     VerifySubmitStrategy,
 };
 
-use super::{call_json, manifest_settings_sections, PluginManifest, PluginVm, VmError};
+use super::{
+    call_json, manifest_settings_sections, PluginManifest, PluginVm, SerdeModelInfo, VmError,
+};
+use crate::multiplexer::types::PendingPrompt;
 
 /// One generic provider per plugin bundle.
 pub struct JsProvider {
@@ -244,8 +249,6 @@ impl JsProvider {
         let leaf = match cfg.cwd_encoding {
             // Agents (e.g. claude) canonicalize the cwd before encoding the
             // project dir — on macOS `/var/...` resolves to `/private/var/...`,
-            // so a raw cwd would encode to a dir that doesn't exist. Match it
-            // (verbatim-prefix stripped on Windows, see `canonical_cwd`).
             super::CwdEncoding::DashEncoded => encode_cwd_dashed(&crate::paths::canonical_cwd(cwd)),
             super::CwdEncoding::None => cwd.to_string(),
         };
@@ -265,11 +268,12 @@ fn launch_params_to_json(p: &AgentLaunchParams) -> Value {
         "task": p.task,
         "args": p.args,
         "skipPermissions": p.skip_permissions,
-        "headless": p.headless,
         "sessionId": p.session_id,
+        "structuredPromptServer": p.structured_prompt_server,
     })
 }
 
+#[async_trait::async_trait]
 impl AgentProvider for JsProvider {
     fn id(&self) -> &str {
         &self.manifest.id
@@ -327,6 +331,21 @@ impl AgentProvider for JsProvider {
             .flatten()
     }
 
+    fn classify_pane_state(
+        &self,
+        snapshot: &crate::agent::pane_state::PaneStateSnapshot,
+    ) -> Option<crate::agent::pane_state::PaneStateClassification> {
+        if !self.has_js("classifyPaneState") {
+            return self.native().and_then(|n| n.classify_pane_state(snapshot));
+        }
+        let arg = serde_json::to_value(snapshot).ok()?;
+        self.try_call::<Option<crate::agent::pane_state::PaneStateClassification>>(
+            "classifyPaneState",
+            &[arg],
+        )
+        .flatten()
+    }
+
     fn is_output_noise(&self, text: &str) -> bool {
         self.try_call::<bool>("isOutputNoise", &[json!(text)])
             .unwrap_or(false)
@@ -366,34 +385,20 @@ impl AgentProvider for JsProvider {
         out
     }
 
-    fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
+    fn parse_prompt(&self, text: &str) -> Option<PendingPrompt> {
         // Plugin returns `{question, options: [[id, label]]}` or null.
         if let Some(v) = self.try_call::<Option<Value>>("parsePrompt", &[json!(text)]) {
-            if let Some(obj) = v {
-                let question = obj.get("question").and_then(|q| q.as_str())?.to_string();
-                let options = obj.get("options").and_then(|o| o.as_array())?;
-                let mut parsed = Vec::new();
-                for opt in options {
-                    let pair = opt.as_array()?;
-                    if pair.len() != 2 {
-                        return None;
-                    }
-                    let id = pair[0].as_str()?.to_string();
-                    let label = pair[1].as_str()?.to_string();
-                    parsed.push((id, label));
-                }
-                return Some((question, parsed));
-            }
-            return None;
+            return v.and_then(prompt_parse::parsed_prompt_from_js);
         }
         // Fallback to universal detector if plugin doesn't implement.
         crate::agent::detector::parse_permission_prompt(text)
+            .map(|(question, options)| crate::agent::prompt::build_prompt(question, options))
     }
 
-    fn build_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
-        // Plugin returns a list of base64-encoded byte strings, one per PTY write step. Lets plugins emit vim j/k, arrow keys, escape sequences — whatever the TUI expects.
-        if let Some(steps) =
-            self.try_call::<Vec<String>>("buildPromptResponse", &[json!(option_index)])
+    fn build_prompt_response(&self, option_index: usize, screen: &str) -> Vec<Vec<u8>> {
+        // Plugin returns a list of base64-encoded byte strings, one per PTY write step. Lets plugins emit vim j/k, arrow keys, escape sequences — whatever the TUI expects. `screen` lets a plugin navigate relative to the live highlight (cursor /model).
+        if let Some(steps) = self
+            .try_call::<Vec<String>>("buildPromptResponse", &[json!(option_index), json!(screen)])
         {
             use base64::Engine;
             let engine = base64::engine::general_purpose::STANDARD;
@@ -435,6 +440,7 @@ impl AgentProvider for JsProvider {
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
         self.try_call::<Option<String>>("detectSessionModel", &[json!(cwd), json!(session_id)])
             .flatten()
+            .map(|model| crate::agent::model_catalog::resolve_model(self.id(), Some(&model)).id)
     }
 
     fn session_created_at(&self, cwd: &str, session_id: &str) -> Option<std::time::SystemTime> {
@@ -464,9 +470,6 @@ impl AgentProvider for JsProvider {
     ) -> Option<String> {
         // Plugin can do its own detection (sqlite, filename heuristics, whatever its provider needs). Falls back to the generic dir walk driven by
         // manifest.sessions.* when the plugin doesn't implement `detectSessionId`.
-        // None means "default recency window" (300s, same as native providers) —
-        // never 0/unlimited: plugins treat 0 as "no cutoff", which let any stale
-        // rollout in the cwd win the latch.
         let max_age_ms = max_age.map(|d| d.as_millis() as i64).unwrap_or(300_000);
         if let Some(v) = self.try_call::<Option<String>>(
             "detectSessionId",
@@ -508,64 +511,12 @@ impl AgentProvider for JsProvider {
             let sort_key = meta.created().or_else(|_| meta.modified()).ok()?;
             candidates.push((stem.to_string(), sort_key));
         }
-        candidates.sort_by(|a, b| b.1.cmp(&a.1));
-        candidates.into_iter().next().map(|(id, _)| id)
-    }
-
-    fn detect_launched_session_id(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String> {
-        if let Some(session_id) = injected_session_id {
-            if self.session_exists(cwd, session_id) {
-                return Some(session_id.to_string());
-            }
+        // Identity-bound, never "newest-for-cwd" (capability rule #3): mirror
+        // Claude's native guard. When 2+ recent sessions are viable candidates
+        match candidates.as_slice() {
+            [(id, _)] => Some(id.clone()),
+            _ => None,
         }
-        let sid = self.detect_session_id(cwd, exclude, max_age)?;
-        // This detector answers "which session did THIS launch create". A foreign
-        // session in the same cwd (e.g. another codeterm instance's agent in the
-        // same repo) is constantly written, so it passes any mtime recency window
-        // and would steal the latch. A file created before our launch window can
-        // never be ours. Unknown birth time → trust the plugin's own filtering.
-        if let Some(age) = max_age {
-            let window_start = std::time::SystemTime::now() - age;
-            // File-based providers read the JSONL birth time; sqlite-backed ones
-            // (opencode) have no session file, so fall back to the provider's
-            // own creation timestamp. Without this a fresh pane polled the
-            // instant its agent type is set (age≈0) steals the most-recent
-            // pre-existing session in the cwd.
-            let created = self
-                .session_file_path(cwd, &sid)
-                .and_then(|p| std::fs::metadata(p).ok())
-                .and_then(|m| m.created().or_else(|_| m.modified()).ok())
-                .or_else(|| self.session_created_at(cwd, &sid));
-            if let Some(ts) = created {
-                if ts <= window_start {
-                    return None;
-                }
-            }
-        }
-        Some(sid)
-    }
-
-    fn detect_started_session(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String> {
-        self.detect_started_session_with_markers(
-            cwd,
-            exclude,
-            max_age,
-            injected_session_id,
-            screen_text,
-        )
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
@@ -671,8 +622,6 @@ impl AgentProvider for JsProvider {
         }
         // The sandboxed JS encodes the cwd but can't touch the FS, so canonicalize
         // here first — same as `sessions_dir`. Without this the tailer watches a
-        // symlink alias dir (e.g. `/tmp`) while the agent writes to the resolved
-        // one (`/private/tmp`), so live deltas never fire. (#163)
         let resolved = match self.manifest.sessions.as_ref().map(|s| s.cwd_encoding) {
             Some(super::CwdEncoding::DashEncoded) => crate::paths::canonical_cwd(cwd),
             _ => cwd.to_string(),
@@ -819,6 +768,25 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.has_hooks
     }
 
+    fn supports_structured_prompts(&self) -> bool {
+        self.manifest.spawn.supports_structured_prompts
+            || self
+                .native()
+                .is_some_and(|n| n.supports_structured_prompts())
+    }
+
+    fn structured_pending_prompt(&self, cwd: &str, session_id: &str) -> Option<PendingPrompt> {
+        self.native()
+            .and_then(|n| n.structured_pending_prompt(cwd, session_id))
+    }
+
+    fn needs_structured_prompt_server(&self) -> bool {
+        self.manifest.spawn.structured_prompt_server
+            || self
+                .native()
+                .is_some_and(|n| n.needs_structured_prompt_server())
+    }
+
     fn auto_approve_flags(&self) -> Vec<String> {
         self.manifest.commands.auto_approve_flags.clone()
     }
@@ -899,7 +867,12 @@ impl AgentProvider for JsProvider {
     }
 
     fn available_models(&self) -> Vec<ModelInfo> {
-        self.manifest.models.iter().map(ModelInfo::from).collect()
+        crate::agent::model_catalog::resolve_models(&self.manifest.id)
+    }
+
+    async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
+        self.try_call::<Vec<SerdeModelInfo>>("discoverModels", &[])
+            .map(|models| models.iter().map(ModelInfo::from).collect())
     }
 
     fn default_model(&self) -> Option<String> {

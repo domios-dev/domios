@@ -1,0 +1,32 @@
+  ┃  # Questions                                                                                                        
+  ┃                                                                                                                     
+  ┃  Which option do you choose?                                                                                        
+  ┃  A                                                                                                                  
+  ┃                                                                                                                     
+                                                                                                                        
+     + Thought: 329ms                                                                                                   
+                                                                                                                        
+     Yes, I support a real blocking CLI choice UI — you just saw it. You picked A.                                      
+                                                                                                                        
+     ▣  Build · DeepSeek V4 Flash Free · 22.8s                                                                          
+                                                                                                                        
+  ┃                                                                                                                     
+  ┃  Negative case: write plain text only with three lines: A) Alpha, B) Beta, C) Gamma. Do not open any real menu or   
+  ┃  choice UI.                                                                                                         
+  ┃                                                                                                                     
+                                                                                                                        
+     + Thought: 430ms                                                                                                   
+                                                                                                                        
+     A) Alpha                                                                                                           
+     B) Beta                                                                                                            
+     C) Gamma                                                                                                           
+                                                                                                                        
+     ▣  Build · DeepSeek V4 Flash Free · 1.7s                                                                           
+                                                                                                                        
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                                        
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  
+                                                                                            9.5K (5%)  ctrl+p commands  
+                                                                                                                        

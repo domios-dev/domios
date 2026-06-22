@@ -1,0 +1,174 @@
+[
+  {
+    "t_ms": 0,
+    "event": "capture_start",
+    "cast": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-codex-snake_incremental_build_browser_short_v1-120x32/raw.cast",
+    "capture_start_result": {
+      "ok": true,
+      "out": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-codex-snake_incremental_build_browser_short_v1-120x32/raw.cast",
+      "width": 120,
+      "height": 40
+    }
+  },
+  {
+    "t_ms": 1,
+    "event": "capture_resize",
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 5511,
+    "event": "spawned",
+    "pane": "8135373f",
+    "workspace": "79c2c50a",
+    "terminal": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  {
+    "t_ms": 8683,
+    "event": "send_turn",
+    "turn": 1
+  },
+  {
+    "t_ms": 18920,
+    "event": "turn_settled",
+    "turn": 1,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 4115,
+      "stable_ms": 3085,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 18921,
+    "event": "send_turn",
+    "turn": 2
+  },
+  {
+    "t_ms": 86706,
+    "event": "turn_settled",
+    "turn": 2,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 67755,
+      "stable_ms": 3077,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 86707,
+    "event": "send_turn",
+    "turn": 3
+  },
+  {
+    "t_ms": 127887,
+    "event": "turn_settled",
+    "turn": 3,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 41122,
+      "stable_ms": 3107,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 127888,
+    "event": "send_turn",
+    "turn": 4
+  },
+  {
+    "t_ms": 159886,
+    "event": "turn_settled",
+    "turn": 4,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 31921,
+      "stable_ms": 3102,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 159887,
+    "event": "send_turn",
+    "turn": 5
+  },
+  {
+    "t_ms": 197975,
+    "event": "turn_settled",
+    "turn": 5,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 38029,
+      "stable_ms": 3098,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 197975,
+    "event": "send_turn",
+    "turn": 6
+  },
+  {
+    "t_ms": 244307,
+    "event": "turn_settled",
+    "turn": 6,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 46269,
+      "stable_ms": 3087,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 244308,
+    "event": "send_turn",
+    "turn": 7
+  },
+  {
+    "t_ms": 268031,
+    "event": "turn_settled",
+    "turn": 7,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 23661,
+      "stable_ms": 3088,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 268031,
+    "event": "send_turn",
+    "turn": 8
+  },
+  {
+    "t_ms": 277366,
+    "event": "turn_settled",
+    "turn": 8,
+    "wait": {
+      "state": "Idle",
+      "elapsed_ms": 9264,
+      "stable_ms": 3090,
+      "timed_out": false
+    }
+  },
+  {
+    "t_ms": 280376,
+    "event": "capture_stop",
+    "capture_stop_result": {
+      "ok": true,
+      "cast": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-codex-snake_incremental_build_browser_short_v1-120x32/raw.cast",
+      "screen": "/Users/kandrey/Developer/codeterm-alpha/testbench/replays/codex/snake_incremental_build_browser_short_v1-20260621-snake-short-v1-codex-snake_incremental_build_browser_short_v1-120x32/raw.screen.txt"
+    }
+  }
+]

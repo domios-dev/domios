@@ -1,0 +1,16 @@
+{
+  "provider": "claude",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Какой тип проекта собираем?",
+    "options": [
+      "Web-приложение",
+      "CLI-инструмент",
+      "Библиотека",
+      "Фоновый сервис",
+      "Другое"
+    ],
+    "selectedIndex": 0,
+    "multiSelect": false
+  }
+}

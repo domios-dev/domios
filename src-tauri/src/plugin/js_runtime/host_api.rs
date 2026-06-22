@@ -1,60 +1,77 @@
-//! `host` global injected into every plugin VM.
+//! `host` global injected into every plugin VM — the generic FS / sqlite /
+//! shell-quoting / env / logging primitives that let all per-provider logic
+//! live in TS.
 //!
-//! This is the bridge that lets plugins do everything the native
-//! Rust providers used to: filesystem I/O, sqlite reads, OS-aware
-//! shell quoting, env, logging. The whole point of the JS plugin
-//! architecture is that **all per-provider logic lives in TS**;
-//! anything Rust still does has to be a generic primitive that ANY
-//! plugin can call, not provider-specific helpers.
+//! Contract: all functions are synchronous (QuickJS blocks their VM, so nothing
+//! here may block on the hot path); complex data is returned as a JSON string;
+//! errors are signalled by `null` (no exceptions across the FFI boundary).
 //!
-//! All functions are **synchronous** — QuickJS calls block their VM,
-//! so do not call anything here that blocks for noticeable time on
-//! the hot path. File reads of session JSONs (kilobytes) and sqlite
-//! point-queries fit. Network calls do not — they belong elsewhere.
-//!
-//! Return shapes:
-//! * primitives (string / bool / i64) are returned directly
-//! * complex data is returned as a JSON string the plugin parses with
-//!   `JSON.parse(host.readDirJson(...))` — keeps the bridge boring.
-//!
-//! Errors are signalled by `null` returns (no exceptions across the
-//! FFI boundary). If a plugin needs the failure reason, surface it
-//! via a sibling `host.lastError()` accessor later.
-//!
-//! Safety: bundled + in-workspace plugins (ship with the app / dev repo) get
-//! the full surface. A plugin dropped into `~/.codeterm/plugins/` is confined
-//! by a `PluginSandbox` — FS/sqlite scoped to its own dir + declared session
-//! root, `envGet` blocked for secret-looking names. Per-permission grants
-//! (`permissions.fs.read` in `plugin.json`) can refine this later.
+//! Safety: bundled/in-workspace plugins get the full surface; a drop-in under
+//! `~/.codeterm/plugins/` is confined by `PluginSandbox` (FS/sqlite scoped to
+//! its own dir + declared session root, secret-looking env vars blocked).
 
-/// Version of the plugin/host contract this build implements. Third-party
-/// drop-ins must declare a matching `hostApi` in their manifest or they are
-/// skipped at load (`loader::validate_conformance`) instead of being registered
-/// against an interface they don't conform to (#16). Bump on any
-/// breaking change to the host surface or the `AgentProvider` capability set.
-pub const HOST_API_VERSION: u32 = 1;
+/// Version of the plugin/host contract; a drop-in must declare a matching `hostApi`
+/// or it's skipped at load. Bump on any breaking change to the host or `AgentProvider` surface.
+pub const HOST_API_VERSION: u32 = 2;
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 
 use rquickjs::function::Func;
 use rquickjs::{CatchResultExt, Ctx};
 
 use super::manifest::PluginManifest;
 use super::vm::VmError;
+use crate::service::ServiceContext;
 
-/// Filesystem/env policy applied to a plugin's `host.*` calls. Bundled and
-/// in-workspace plugins (ship with the app / the dev repo) are `unrestricted`.
-/// A plugin dropped into the user plugins dir (`~/.codeterm/plugins/`) is
-/// confined: it may only read/walk/sqlite under `read_roots` (its own dir +
-/// the session dir it declares), only write under `write_roots`, and `envGet`
-/// is blocked for secret-looking names — so an untrusted drop-in can't slurp
-/// `~/.ssh`, the API token from config, or cloud-key env vars, nor write
-/// autostart/integration files.
+/// A write-once, weakly-held ref populated after construction — the VM is built
+/// before the `ServiceContext` exists, so it can't be a constructor argument.
+/// `Weak` so a sandbox outliving teardown can't pin the service alive.
+pub(super) struct LateRef<T>(OnceLock<Weak<T>>);
+
+impl<T> LateRef<T> {
+    pub(super) fn new() -> Self {
+        Self(OnceLock::new())
+    }
+
+    /// Populate the ref. First write wins (OnceLock); returns whether this call
+    /// set it (`false` if it was already populated).
+    pub(super) fn set(&self, weak: Weak<T>) -> bool {
+        self.0.set(weak).is_ok()
+    }
+
+    /// Resolve to a live `Arc`, or `None` before population / after the target is dropped.
+    pub(super) fn get(&self) -> Option<Arc<T>> {
+        self.0.get().and_then(Weak::upgrade)
+    }
+}
+
+/// FS/env policy for a plugin's `host.*` calls. Bundled/workspace plugins are
+/// unrestricted; a user drop-in is confined to `read_roots`/`write_roots` with
+/// secret-looking `envGet` names blocked, so it can't slurp `~/.ssh` or the API token.
 pub(super) struct PluginSandbox {
     unrestricted: bool,
     read_roots: Vec<PathBuf>,
     write_roots: Vec<PathBuf>,
+    /// Plugin id — namespaces the per-plugin secret bucket, so `host.secret*` is isolated.
+    plugin_id: String,
+    /// `host.exec` binary allowlist (host_api v2). Empty unless declared.
+    exec_allow: Vec<String>,
+    /// `host.fetch` host allowlist (host_api v2). Empty unless declared.
+    net_allow: Vec<String>,
+    /// Whether `host.secret*` is permitted.
+    secrets_allowed: bool,
+    /// `agent_commands` grant — gates routing a spawned agent's `codeterm plugin <id> <verb>` to `onAgentCommand`.
+    agent_commands_allowed: bool,
+    /// Whether `host.workspace*` is permitted (`manage_workspaces` grant).
+    manage_workspaces_allowed: bool,
+    /// Whether `host.agent*` is permitted (`spawn_agents` grant).
+    spawn_agents_allowed: bool,
+    /// The plugin's settings blob, returned by `host.settingsJson()`. Interior-mutable
+    /// so a config-only hot-reload re-stamps it in place without a VM rebuild (which would wipe in-memory sessions).
+    settings_json: parking_lot::Mutex<String>,
+    /// Late-bound handle to the host `ServiceContext` (the VM is built before it exists).
+    svc: LateRef<ServiceContext>,
 }
 
 impl PluginSandbox {
@@ -64,6 +81,15 @@ impl PluginSandbox {
             unrestricted: true,
             read_roots: Vec::new(),
             write_roots: Vec::new(),
+            plugin_id: String::new(),
+            exec_allow: Vec::new(),
+            net_allow: Vec::new(),
+            secrets_allowed: true,
+            agent_commands_allowed: true,
+            manage_workspaces_allowed: true,
+            spawn_agents_allowed: true,
+            settings_json: parking_lot::Mutex::new("null".to_string()),
+            svc: LateRef::new(),
         }
     }
 
@@ -72,7 +98,100 @@ impl PluginSandbox {
             unrestricted: false,
             read_roots,
             write_roots,
+            plugin_id: String::new(),
+            exec_allow: Vec::new(),
+            net_allow: Vec::new(),
+            secrets_allowed: false,
+            agent_commands_allowed: false,
+            manage_workspaces_allowed: false,
+            spawn_agents_allowed: false,
+            settings_json: parking_lot::Mutex::new("null".to_string()),
+            svc: LateRef::new(),
         }
+    }
+
+    /// Stamp the plugin identity + its effective permissions (manifest request
+    /// merged with the user's persisted grants) onto a base sandbox.
+    pub(super) fn with_identity_and_perms(
+        mut self,
+        plugin_id: &str,
+        perms: &super::manifest::PermissionsConfig,
+    ) -> Self {
+        self.plugin_id = plugin_id.to_string();
+        self.exec_allow = perms.subprocess.allow.clone();
+        self.net_allow = perms.network.allow.clone();
+        self.secrets_allowed = self.unrestricted || perms.secrets;
+        self.agent_commands_allowed = self.unrestricted || perms.agent_commands;
+        self.manage_workspaces_allowed = self.unrestricted || perms.manage_workspaces;
+        self.spawn_agents_allowed = self.unrestricted || perms.spawn_agents;
+        self
+    }
+
+    pub(super) fn plugin_id(&self) -> &str {
+        &self.plugin_id
+    }
+
+    /// May the plugin run `bin` via `host.exec`?
+    pub(super) fn can_exec(&self, bin: &str) -> bool {
+        self.unrestricted || self.exec_allow.iter().any(|b| b == bin)
+    }
+
+    /// May the plugin reach `host` (host or `host:port`) via `host.fetch`?
+    pub(super) fn can_reach(&self, host: &str) -> bool {
+        if self.unrestricted {
+            return true;
+        }
+        let host = host.trim();
+        self.net_allow.iter().any(|allowed| {
+            allowed == host
+                // allow `host` to match an `host:port` rule and vice-versa
+                || host.split(':').next() == Some(allowed.as_str())
+                || allowed.split(':').next() == Some(host)
+        })
+    }
+
+    pub(super) fn secrets_allowed(&self) -> bool {
+        self.secrets_allowed
+    }
+
+    /// Whether the plugin holds the `agent_commands` grant (inverse-seam routing).
+    pub(super) fn agent_commands_allowed(&self) -> bool {
+        self.agent_commands_allowed
+    }
+
+    /// Whether the plugin may create/manage workspaces (`host.workspace*`).
+    pub(super) fn manage_workspaces_allowed(&self) -> bool {
+        self.manage_workspaces_allowed
+    }
+
+    /// Whether the plugin may spawn/drive agents (`host.agent*`).
+    pub(super) fn spawn_agents_allowed(&self) -> bool {
+        self.spawn_agents_allowed
+    }
+
+    /// Attach the plugin's settings blob (`config.yaml` → JSON) at load.
+    pub(super) fn with_settings(self, settings_json: String) -> Self {
+        *self.settings_json.lock() = settings_json;
+        self
+    }
+
+    /// Re-stamp the settings blob in place on a config-only hot-reload, so a live VM picks it up without a rebuild.
+    pub(super) fn set_settings(&self, settings_json: String) {
+        *self.settings_json.lock() = settings_json;
+    }
+
+    pub(super) fn settings_json(&self) -> String {
+        self.settings_json.lock().clone()
+    }
+
+    /// Late-bind the host `ServiceContext` (see [`LateRef`]). First write wins.
+    pub(super) fn set_service(&self, svc: Weak<ServiceContext>) -> bool {
+        self.svc.set(svc)
+    }
+
+    /// Resolve the host `ServiceContext`, or `None` if not yet populated / gone.
+    pub(super) fn service(&self) -> Option<Arc<ServiceContext>> {
+        self.svc.get()
     }
 
     fn path_under(roots: &[PathBuf], path: &str) -> bool {
@@ -243,10 +362,13 @@ pub(super) fn install(
      -> Option<String> {
         write_temp_file(&contents, suffix.as_deref())
     });
+    bind!("toolcallParse", |raw_text: String,
+                            schema_json: String|
+     -> String {
+        super::toolcall_parse::parse_to_json(&raw_text, &schema_json)
+    });
 
     // Crypto helpers.
-    // MD5 hex digest of a string. Use case: cursor stores chats under
-    // `~/.cursor/chats/<md5(cwd)>/...`, so the plugin needs MD5 to resolve which chat dir belongs to the current pane's cwd.
     bind!("md5", |s: String| -> String {
         use md5::{Digest, Md5};
         let mut h = Md5::new();
@@ -283,8 +405,99 @@ pub(super) fn install(
         }
     });
 
+    // ── host_api v2: subprocess / network / per-plugin secrets ──────
+    // Each is gated by the manifest permission baked into the sandbox.
+    let sb = sandbox.clone();
+    bind!("settingsJson", move || -> String { sb.settings_json() });
+
+    let sb = sandbox.clone();
+    bind!("exec", move |opts_json: String| -> String {
+        let bin = super::host_exec::bin_of(&opts_json).unwrap_or_default();
+        if !sb.can_exec(&bin) {
+            log::warn!("[plugin] denied exec({bin}) — not in subprocess.allow");
+            return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
+        }
+        super::host_exec::run_with_host_env(&opts_json, &super::host_exec::current_host_env())
+    });
+
+    // Async exec (job-id + poll): same gate as `exec`, but the command runs off-thread so the VM lock is held only per start/poll.
+    let sb = sandbox.clone();
+    bind!("execStart", move |opts_json: String| -> String {
+        let bin = super::host_exec::bin_of(&opts_json).unwrap_or_default();
+        if !sb.can_exec(&bin) {
+            log::warn!("[plugin] denied exec.start({bin}) — not in subprocess.allow");
+            return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
+        }
+        super::host_exec::start_with_host_env(
+            sb.plugin_id(),
+            &opts_json,
+            &super::host_exec::current_host_env(),
+        )
+    });
+    let sb = sandbox.clone();
+    bind!("execPoll", move |job_id: String| -> String {
+        super::host_exec::poll(sb.plugin_id(), &job_id)
+    });
+    let sb = sandbox.clone();
+    bind!("execClose", move |job_id: String| {
+        super::host_exec::close(sb.plugin_id(), &job_id);
+    });
+
+    let sb = sandbox.clone();
+    bind!("fetch", move |opts_json: String| -> String {
+        let host = super::host_net::host_of(&opts_json).unwrap_or_default();
+        if !sb.can_reach(&host) {
+            log::warn!("[plugin] denied fetch({host}) — not in network.allow");
+            return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
+        }
+        super::host_net::run(&opts_json)
+    });
+    let sb = sandbox.clone();
+    bind!("fetchStream", move |opts_json: String| -> String {
+        let host = super::host_net::host_of(&opts_json).unwrap_or_default();
+        // Egress-equivalent to host.fetch: use the exact same network.allow gate.
+        if !sb.can_reach(&host) {
+            log::warn!("[plugin] denied fetch.stream({host}) — not in network.allow");
+            return serde_json::json!({ "error": format!("fetch denied: {host}") }).to_string();
+        }
+        super::host_net::stream(sb.plugin_id(), &opts_json)
+    });
+    let sb = sandbox.clone();
+    bind!("fetchStreamPoll", move |job_id: String| -> String {
+        super::host_net::stream_poll(sb.plugin_id(), &job_id)
+    });
+    let sb = sandbox.clone();
+    bind!("fetchStreamClose", move |job_id: String| {
+        super::host_net::stream_close(sb.plugin_id(), &job_id);
+    });
+
+    let sb = sandbox.clone();
+    bind!("secretGet", move |name: String| -> Option<String> {
+        if !sb.secrets_allowed() {
+            return None;
+        }
+        super::host_secret::get(sb.plugin_id(), &name)
+    });
+    let sb = sandbox.clone();
+    bind!("secretSet", move |name: String, value: String| -> bool {
+        if !sb.secrets_allowed() {
+            return false;
+        }
+        super::host_secret::set(sb.plugin_id(), &name, &value)
+    });
+    let sb = sandbox.clone();
+    bind!("secretDelete", move |name: String| -> bool {
+        if !sb.secrets_allowed() {
+            return false;
+        }
+        super::host_secret::delete(sb.plugin_id(), &name)
+    });
+
+    // host compute base (host.worker/agent/workspace/mem) — lives in `host_compute` to keep this bind table flat.
+    super::host_compute::install_handles(&host, &sandbox)?;
+
     ctx.globals()
-        .set("host", host)
+        .set(HOST_GLOBAL, host)
         .catch(ctx)
         .map_err(|e| VmError::Script(format!("set host global: {e:?}")))?;
     Ok(())
@@ -473,353 +686,8 @@ fn sqlite_query_all_json(db_path: &str, sql: &str, params_json: Option<&str>) ->
     serde_json::to_string(&rows).ok()
 }
 
-// Re-exported for VM bootstrap to know the host object is installed.
-#[allow(dead_code)]
+// Name of the global the host object is installed under (see install above).
 pub(super) const HOST_GLOBAL: &str = "host";
 
-#[allow(dead_code)]
-fn _link_path_buf_unused(_: PathBuf) {}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::plugin::js_runtime::vm::PluginVm;
-    use serde_json::json;
-
-    fn vm_with(plugin_src: &str) -> PluginVm {
-        PluginVm::from_source("test", plugin_src.to_string()).expect("vm")
-    }
-
-    #[test]
-    fn sandbox_unrestricted_allows_everything() {
-        let sb = PluginSandbox::unrestricted();
-        assert!(sb.can_read("/etc/passwd"));
-        assert!(sb.can_write("/anywhere"));
-        assert!(sb.can_env("AWS_SECRET_ACCESS_KEY"));
-    }
-
-    #[test]
-    fn sandbox_restricted_scopes_fs_and_blocks_secret_env() {
-        let tmp = tempfile::tempdir().unwrap();
-        let allowed = tmp.path().join("sessions");
-        std::fs::create_dir_all(&allowed).unwrap();
-        let sb = PluginSandbox::restricted(vec![allowed.clone()], vec![allowed.clone()]);
-
-        // Inside the allowed root → ok.
-        let inside = allowed.join("a.jsonl");
-        std::fs::write(&inside, "{}").unwrap();
-        assert!(sb.can_read(inside.to_str().unwrap()));
-        assert!(sb.can_write(allowed.join("b.jsonl").to_str().unwrap()));
-
-        // Outside → denied (incl. traversal attempts).
-        assert!(!sb.can_read("/etc/passwd"));
-        assert!(!sb.can_read(allowed.join("../../../../etc/passwd").to_str().unwrap()));
-        assert!(!sb.can_write("/tmp/evil"));
-
-        // envGet: path-ish vars allowed, secret-named blocked.
-        assert!(sb.can_env("XDG_DATA_HOME"));
-        assert!(sb.can_env("HOME"));
-        assert!(!sb.can_env("CODETERM_API_TOKEN"));
-        assert!(!sb.can_env("AWS_SECRET_ACCESS_KEY"));
-        assert!(!sb.can_env("ANTHROPIC_API_KEY"));
-        assert!(!sb.can_env("GITHUB_PASSWORD"));
-    }
-
-    #[test]
-    fn host_platform_matches_native() {
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                getPlatform() { return host.platform(); }
-            };
-        "#,
-        );
-        let p: String = crate::plugin::js_runtime::vm::call_json(&vm, "getPlatform", &[]).unwrap();
-        assert_eq!(p, std::env::consts::OS);
-    }
-
-    #[test]
-    fn host_home_dir_returns_path() {
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                getHome() { return host.homeDir(); }
-            };
-        "#,
-        );
-        let p: Option<String> =
-            crate::plugin::js_runtime::vm::call_json(&vm, "getHome", &[]).unwrap();
-        assert_eq!(
-            p,
-            dirs::home_dir().map(|p| p.to_string_lossy().into_owned())
-        );
-    }
-
-    #[test]
-    fn host_expand_home_resolves_tilde() {
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                expand(p) { return host.expandHome(p); }
-            };
-        "#,
-        );
-        let p: Option<String> =
-            crate::plugin::js_runtime::vm::call_json(&vm, "expand", &[json!("~/foo/bar")]).unwrap();
-        if let Some(home) = dirs::home_dir() {
-            assert_eq!(p, Some(home.join("foo/bar").to_string_lossy().into_owned()));
-        }
-    }
-
-    #[test]
-    fn host_write_then_read_file_round_trip() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("hello.txt").to_string_lossy().into_owned();
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                write(p, c) { return host.writeFile(p, c); },
-                read(p) { return host.readFile(p); },
-                exists(p) { return host.fileExists(p); }
-            };
-        "#,
-        );
-        let ok: bool = crate::plugin::js_runtime::vm::call_json(
-            &vm,
-            "write",
-            &[json!(path), json!("plugin wrote this")],
-        )
-        .unwrap();
-        assert!(ok);
-        let exists: bool =
-            crate::plugin::js_runtime::vm::call_json(&vm, "exists", &[json!(path)]).unwrap();
-        assert!(exists);
-        let body: Option<String> =
-            crate::plugin::js_runtime::vm::call_json(&vm, "read", &[json!(path)]).unwrap();
-        assert_eq!(body.as_deref(), Some("plugin wrote this"));
-    }
-
-    #[test]
-    fn host_write_file_creates_parent_dirs() {
-        let dir = tempfile::tempdir().unwrap();
-        let nested = dir
-            .path()
-            .join("a/b/c/hello.txt")
-            .to_string_lossy()
-            .into_owned();
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                write(p, c) { return host.writeFile(p, c); }
-            };
-        "#,
-        );
-        let ok: bool = crate::plugin::js_runtime::vm::call_json(
-            &vm,
-            "write",
-            &[json!(nested), json!("nested")],
-        )
-        .unwrap();
-        assert!(ok);
-        assert_eq!(
-            std::fs::read_to_string(&nested).unwrap(),
-            "nested".to_string()
-        );
-    }
-
-    #[test]
-    fn host_read_dir_json_lists_entries() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("a.txt"), "a").unwrap();
-        std::fs::write(dir.path().join("b.txt"), "bb").unwrap();
-        std::fs::create_dir(dir.path().join("sub")).unwrap();
-        let path = dir.path().to_string_lossy().into_owned();
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                list(p) {
-                    const j = host.readDirJson(p);
-                    return JSON.parse(j).map(e => ({name: e.name, isDir: e.isDir}))
-                        .sort((x, y) => x.name.localeCompare(y.name));
-                }
-            };
-        "#,
-        );
-        let entries: Vec<serde_json::Value> =
-            crate::plugin::js_runtime::vm::call_json(&vm, "list", &[json!(path)]).unwrap();
-        assert_eq!(entries.len(), 3);
-        assert_eq!(entries[0]["name"], "a.txt");
-        assert_eq!(entries[0]["isDir"], false);
-        assert_eq!(entries[2]["name"], "sub");
-        assert_eq!(entries[2]["isDir"], true);
-    }
-
-    #[test]
-    fn host_walk_dir_json_depth_bounded() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("a/b/c")).unwrap();
-        std::fs::write(dir.path().join("a/x.txt"), "x").unwrap();
-        std::fs::write(dir.path().join("a/b/y.txt"), "y").unwrap();
-        std::fs::write(dir.path().join("a/b/c/z.txt"), "z").unwrap();
-        let path = dir.path().to_string_lossy().into_owned();
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                walk(p, d) { return JSON.parse(host.walkDirJson(p, d)).map(e => e.name); }
-            };
-        "#,
-        );
-        let names1: Vec<String> =
-            crate::plugin::js_runtime::vm::call_json(&vm, "walk", &[json!(path), json!(1)])
-                .unwrap();
-        // depth=1 should see "a", and immediate children ("b","x.txt").
-        assert!(names1.contains(&"a".into()));
-        assert!(names1.contains(&"x.txt".into()));
-        assert!(
-            !names1.contains(&"z.txt".into()),
-            "depth=1 must not reach z.txt"
-        );
-
-        let names_deep: Vec<String> =
-            crate::plugin::js_runtime::vm::call_json(&vm, "walk", &[json!(path), json!(5)])
-                .unwrap();
-        assert!(names_deep.contains(&"z.txt".into()));
-    }
-
-    #[test]
-    fn host_shell_quote_posix_escapes_single_quote() {
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                q(s) { return host.shellQuote(s); }
-            };
-        "#,
-        );
-        let out: String =
-            crate::plugin::js_runtime::vm::call_json(&vm, "q", &[json!("don't")]).unwrap();
-        assert_eq!(out, "'don'\\''t'");
-    }
-
-    #[test]
-    fn host_shell_quote_for_windows_uses_double_single_quote() {
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                q(s) { return host.shellQuoteFor(s, "windows"); }
-            };
-        "#,
-        );
-        let out: String =
-            crate::plugin::js_runtime::vm::call_json(&vm, "q", &[json!("can't")]).unwrap();
-        assert_eq!(out, "'can''t'");
-    }
-
-    #[test]
-    fn host_write_temp_file_returns_real_path() {
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                mk(c) { return host.writeTempFile(c, ".task.txt"); }
-            };
-        "#,
-        );
-        let path: Option<String> =
-            crate::plugin::js_runtime::vm::call_json(&vm, "mk", &[json!("payload payload")])
-                .unwrap();
-        let path = path.unwrap();
-        assert!(path.ends_with(".task.txt"));
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "payload payload");
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn host_unix_now_monotonic_ish() {
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                now() { return host.unixNow(); },
-                nowMs() { return host.unixNowMs(); }
-            };
-        "#,
-        );
-        let s: i64 = crate::plugin::js_runtime::vm::call_json(&vm, "now", &[]).unwrap();
-        let ms: i64 = crate::plugin::js_runtime::vm::call_json(&vm, "nowMs", &[]).unwrap();
-        assert!(s > 1_700_000_000, "unix seconds should be a real timestamp");
-        assert!(ms > s * 1_000 - 5_000 && ms < (s + 5) * 1_000);
-    }
-
-    #[test]
-    fn host_log_does_not_crash() {
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                go() { host.log("info", "hello from plugin"); return 1; }
-            };
-        "#,
-        );
-        let r: i32 = crate::plugin::js_runtime::vm::call_json(&vm, "go", &[]).unwrap();
-        assert_eq!(r, 1);
-    }
-
-    #[test]
-    fn host_sqlite_query_roundtrip() {
-        let dir = tempfile::tempdir().unwrap();
-        let db = dir.path().join("t.db");
-        {
-            let conn = rusqlite::Connection::open(&db).unwrap();
-            conn.execute_batch(
-                "CREATE TABLE k(id INTEGER PRIMARY KEY, name TEXT, score REAL);\
-                 INSERT INTO k VALUES (1,'alpha',1.5),(2,'beta',2.5),(3,'gamma',3.5);",
-            )
-            .unwrap();
-        }
-        let db_path = db.to_string_lossy().into_owned();
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                topByName(p) {
-                    return JSON.parse(host.sqliteQueryAllJson(
-                        p, "SELECT id, name, score FROM k WHERE score > ?1 ORDER BY name DESC", "[2.0]"));
-                }
-            };
-        "#,
-        );
-        let rows: Vec<serde_json::Value> =
-            crate::plugin::js_runtime::vm::call_json(&vm, "topByName", &[json!(db_path)]).unwrap();
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0]["name"], "gamma");
-        assert_eq!(rows[0]["id"], 3);
-        assert_eq!(rows[1]["name"], "beta");
-    }
-
-    #[test]
-    fn host_sqlite_handles_missing_db_gracefully() {
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                run() { return host.sqliteQueryAllJson("/no/such/db.sqlite", "SELECT 1", null); }
-            };
-        "#,
-        );
-        let r: Option<String> = crate::plugin::js_runtime::vm::call_json(&vm, "run", &[]).unwrap();
-        assert_eq!(r, None);
-    }
-
-    #[test]
-    fn host_install_idempotent_across_reload() {
-        let vm = vm_with(
-            r#"
-            module.exports.default = {
-                go() { return host.platform(); }
-            };
-        "#,
-        );
-        let p1: String = crate::plugin::js_runtime::vm::call_json(&vm, "go", &[]).unwrap();
-        vm.reload(
-            r#"module.exports.default = { go() { return host.platform() + "!"; } };"#.to_string(),
-        )
-        .unwrap();
-        let p2: String = crate::plugin::js_runtime::vm::call_json(&vm, "go", &[]).unwrap();
-        assert_eq!(p2, format!("{p1}!"));
-    }
-}
+mod tests;

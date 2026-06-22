@@ -1,0 +1,28 @@
+  blinking cursor is not proof of agent work. Then stop.
+
+
+• I’ll create idle-notes.md in the current workspace with a single sentence, then I’ll keep the chat
+  explanation brief as requested.
+
+• Added idle-notes.md (+1 -0)
+    1 +A blinking cursor only shows that the terminal is waiting or refreshing, not that useful work
+        is happening.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+• A blinking cursor is only a terminal display state: it may mean the shell is idle, a process is
+  waiting for input, or output has paused. It is not evidence that an agent is reasoning, reading
+  files, editing code, or making progress.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Say 'done' and nothing else.
+
+
+• done
+
+
+› Find and fix a bug in @filename
+
+  gpt-5.5 medium · /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-codex-idle_fo…

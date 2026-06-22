@@ -56,6 +56,12 @@ pub enum Command {
     /// Rename a pane's title (pinned until the user clears it).
     PaneRename { pane_id: String, title: String },
 
+    /// Set or clear a pane's short description.
+    PaneDescribe {
+        pane_id: String,
+        description: String,
+    },
+
     /// List all registered agent providers as `ProviderDescriptor`s.
     /// First dispatch command for the plugin self-presentation system (Chunk B.3).
     ListAgentProviders,
@@ -77,6 +83,20 @@ pub enum Command {
 
     /// List all workspaces with their metadata.
     WorkspaceList,
+
+    /// List a workspace's recently-closed panes (newest first).
+    WorkspaceRecentlyClosed { workspace_id: String },
+
+    /// Reopen a recently-closed pane (browser-style). `index` selects the ring
+    /// entry (newest = 0, default).
+    WorkspaceReopenClosedPane {
+        workspace_id: String,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+
+    /// Reopen a whole closed group (single / cascade subtree / workspace) by id.
+    WorkspaceReopenClosedGroup { group_id: String },
 
     /// Resize the PTY backing a pane.
     PtyResize {
@@ -110,6 +130,16 @@ impl CommandResult {
 }
 
 /// Dispatch a command against ServiceContext. Pure logic, no transport concerns.
+// Run a synchronous (possibly blocking) dispatch off the async runtime so heavy commands never starve Tauri IPC.
+pub async fn dispatch_blocking(
+    cmd: Command,
+    svc: crate::service::ServiceState,
+) -> Result<CommandResult, String> {
+    tokio::task::spawn_blocking(move || dispatch(&cmd, svc.as_ref()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, String> {
     match cmd {
         Command::Health => cmd_health(),
@@ -130,6 +160,10 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         Command::PaneClose { pane_id } => cmd_pane_close(ctx, pane_id),
         Command::PaneFocus { pane_id } => cmd_pane_focus(ctx, pane_id),
         Command::PaneRename { pane_id, title } => cmd_pane_rename(ctx, pane_id, title),
+        Command::PaneDescribe {
+            pane_id,
+            description,
+        } => cmd_pane_describe(ctx, pane_id, description),
         Command::ListAgentProviders => cmd_list_agent_providers(ctx),
         Command::WorkspaceCreate {
             name,
@@ -141,6 +175,16 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
         }
         Command::WorkspaceClose { workspace_id } => cmd_workspace_close(ctx, workspace_id),
         Command::WorkspaceList => cmd_workspace_list(ctx),
+        Command::WorkspaceRecentlyClosed { workspace_id } => {
+            cmd_workspace_recently_closed(ctx, workspace_id)
+        }
+        Command::WorkspaceReopenClosedPane {
+            workspace_id,
+            index,
+        } => cmd_workspace_reopen_closed_pane(ctx, workspace_id, *index),
+        Command::WorkspaceReopenClosedGroup { group_id } => {
+            cmd_workspace_reopen_closed_group(ctx, group_id)
+        }
         Command::PtyResize {
             pane_id,
             cols,
@@ -163,7 +207,7 @@ fn cmd_health() -> Result<CommandResult, String> {
 }
 
 fn cmd_pane_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
-    let mux = ctx.mux.lock();
+    let mux = ctx.mux.write();
     let snapshot = mux.snapshot();
     let panes = build_pane_list_json(&snapshot);
     Ok(CommandResult::Json(serde_json::json!(panes)))
@@ -239,47 +283,12 @@ fn cmd_get_output(
     strip_ansi: bool,
     full: bool,
 ) -> Result<CommandResult, String> {
-    let pty_id = ctx.resolve_pty_id(pane_id)?;
-    let buf = ctx.output_buf.lock();
-    let text = if full {
-        buf.get_full_text(&pty_id).unwrap_or_default()
-    } else {
-        buf.get_text(&pty_id).unwrap_or_default()
-    };
-
-    let start = next_char_boundary(&text, offset.unwrap_or(0));
-    let raw = &text[start..];
-
-    // Apply max_bytes truncation (take last N bytes)
-    let truncated = if let Some(max) = max_bytes {
-        if raw.len() > max {
-            let tail_start = next_char_boundary(raw, raw.len() - max);
-            &raw[tail_start..]
-        } else {
-            raw
-        }
-    } else {
-        raw
-    };
-
-    let output = if strip_ansi {
-        crate::pty::ansi::clean_terminal_output(truncated)
-    } else {
-        truncated.to_string()
-    };
-
-    Ok(CommandResult::Json(serde_json::json!({
-        "output": output,
-        "offset": text.len(),
-    })))
-}
-
-fn next_char_boundary(s: &str, idx: usize) -> usize {
-    let mut i = idx.min(s.len());
-    while i < s.len() && !s.is_char_boundary(i) {
-        i += 1;
-    }
-    i
+    // Routed through the PaneTransport seam: PTY panes read the output buffer,
+    // chatBackend panes return their transcript (B1.2 [T]).
+    let json = ctx
+        .pane_transport(pane_id)?
+        .read_output(offset, max_bytes, strip_ansi, full)?;
+    Ok(CommandResult::Json(json))
 }
 
 fn cmd_get_text(
@@ -287,23 +296,10 @@ fn cmd_get_text(
     pane_id: &str,
     formatted: bool,
 ) -> Result<CommandResult, String> {
-    let pty_id = ctx.resolve_pty_id(pane_id)?;
-    let ss = ctx.screen_state.lock();
-
-    let text = if formatted {
-        let bytes = ss
-            .get_screen_formatted(&pty_id)
-            .ok_or_else(|| "No pane text".to_string())?;
-        String::from_utf8_lossy(&bytes).into_owned()
-    } else {
-        ss.get_screen_text(&pty_id)
-            .unwrap_or_default()
-            .replace('\n', "\r\n")
-    };
-    Ok(CommandResult::Json(serde_json::json!({
-        "text": text,
-        "formatted": formatted,
-    })))
+    // PaneTransport seam: PTY panes read screen text, chatBackend panes return
+    // their transcript (B1.2 [T]).
+    let json = ctx.pane_transport(pane_id)?.read_screen(formatted)?;
+    Ok(CommandResult::Json(json))
 }
 
 fn cmd_pane_close(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, String> {
@@ -322,6 +318,15 @@ fn cmd_pane_rename(
     title: &str,
 ) -> Result<CommandResult, String> {
     ctx.rename_pane(pane_id, title)?;
+    Ok(CommandResult::Json(serde_json::json!({"ok": true})))
+}
+
+fn cmd_pane_describe(
+    ctx: &ServiceContext,
+    pane_id: &str,
+    description: &str,
+) -> Result<CommandResult, String> {
+    ctx.set_pane_description(pane_id, description)?;
     Ok(CommandResult::Json(serde_json::json!({"ok": true})))
 }
 
@@ -357,6 +362,40 @@ fn cmd_workspace_list(ctx: &ServiceContext) -> Result<CommandResult, String> {
     Ok(CommandResult::Json(json))
 }
 
+fn cmd_workspace_recently_closed(
+    ctx: &ServiceContext,
+    workspace_id: &str,
+) -> Result<CommandResult, String> {
+    let closed = ctx.list_recently_closed(workspace_id);
+    let json =
+        serde_json::to_value(&closed).map_err(|e| format!("serialize recently_closed: {}", e))?;
+    Ok(CommandResult::Json(json))
+}
+
+fn cmd_workspace_reopen_closed_pane(
+    ctx: &ServiceContext,
+    workspace_id: &str,
+    index: Option<usize>,
+) -> Result<CommandResult, String> {
+    let (tab_id, pane_id) = ctx.reopen_closed_pane(workspace_id, index)?;
+    Ok(CommandResult::Json(serde_json::json!({
+        "tab_id": tab_id,
+        "pane_id": pane_id,
+    })))
+}
+
+fn cmd_workspace_reopen_closed_group(
+    ctx: &ServiceContext,
+    group_id: &str,
+) -> Result<CommandResult, String> {
+    let (workspace_id, tab_id, pane_id) = ctx.reopen_closed_group(group_id)?;
+    Ok(CommandResult::Json(serde_json::json!({
+        "workspace_id": workspace_id,
+        "tab_id": tab_id,
+        "pane_id": pane_id,
+    })))
+}
+
 fn cmd_pty_resize(
     ctx: &ServiceContext,
     pane_id: &str,
@@ -373,10 +412,9 @@ fn cmd_pty_kill(ctx: &ServiceContext, pane_id: &str) -> Result<CommandResult, St
 }
 
 fn cmd_list_agent_providers(ctx: &ServiceContext) -> Result<CommandResult, String> {
-    let descriptors = ctx.agent_registry.list_descriptors();
-    let json = serde_json::to_value(&descriptors)
-        .map_err(|e| format!("serialize ProviderDescriptor: {}", e))?;
-    Ok(CommandResult::Json(json))
+    Ok(CommandResult::Json(serde_json::Value::Array(
+        crate::api::agent_routes::list_agent_provider_values(&ctx.provider_registry),
+    )))
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -532,6 +570,7 @@ mod tests {
 
     #[test]
     fn next_char_boundary_handles_multibyte_offsets() {
+        use crate::service::pane_transport::next_char_boundary;
         let s = "abкd";
         assert_eq!(next_char_boundary(s, 3), 4);
         assert_eq!(&s[next_char_boundary(s, 3)..], "d");

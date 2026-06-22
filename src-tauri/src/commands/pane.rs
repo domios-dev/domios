@@ -1,4 +1,3 @@
-use crate::agent::git_info::{self, GitInfo};
 use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
 use crate::ScreenStateHandle;
@@ -40,7 +39,7 @@ pub async fn get_pane_history_raw(
         strip_ansi: false,
         full: true,
     };
-    let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+    let result = crate::dispatch::dispatch_blocking(cmd, svc.inner().clone()).await?;
     Ok(result
         .into_json()
         .get("output")
@@ -60,7 +59,7 @@ pub async fn get_pane_text(
         pane_id,
         formatted: formatted.unwrap_or(false),
     };
-    let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+    let result = crate::dispatch::dispatch_blocking(cmd, svc.inner().clone()).await?;
     Ok(result
         .into_json()
         .get("text")
@@ -69,29 +68,17 @@ pub async fn get_pane_text(
         .to_string())
 }
 
+/// Shell-integration snapshot for a pane: the accumulated command list + cwd
+/// the `shell-command-changed` events stream live. OSC4 chat hydrates from this
+/// on mount so existing commands render, not only ones seen after subscribing.
 #[tauri::command]
-pub async fn get_pane_git_info(
-    mux: tauri::State<'_, MuxState>,
+pub async fn shell_command_snapshot(
+    svc: tauri::State<'_, ServiceState>,
     pane_id: String,
-) -> Result<Option<GitInfo>, String> {
-    // Agent panes never emit OSC7 — fall back to their workspace's cwd.
-    let cwd = {
-        let mux = mux.lock();
-        mux.get_pane(&pane_id)
-            .and_then(|p| p.cwd.clone())
-            .or_else(|| {
-                mux.list_workspaces()
-                    .into_iter()
-                    .find(|ws| ws.pane_ids.iter().any(|p| p == &pane_id))
-                    .and_then(|ws| ws.cwd)
-            })
-    };
-    let Some(cwd) = cwd else { return Ok(None) };
-    Ok(
-        tokio::task::spawn_blocking(move || git_info::get_git_info(&cwd))
-            .await
-            .map_err(|e| format!("join: {}", e))?,
-    )
+) -> Result<serde_json::Value, String> {
+    let pty_id = svc.resolve_pty_id(&pane_id).ok();
+    let snap = pty_id.and_then(|pty_id| svc.shell_caps.lock().snapshot(&pty_id));
+    serde_json::to_value(snap.unwrap_or_default()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -111,7 +98,7 @@ pub async fn wait_shell_ready(
     timeout_ms: Option<u64>,
 ) -> Result<bool, String> {
     let pty_id = {
-        let m = mux.lock();
+        let m = mux.write();
         m.get_pane(&pane_id)
             .and_then(|p| p.pty_id.clone())
             .ok_or_else(|| "Pane not found or has no PTY".to_string())?
@@ -136,7 +123,7 @@ pub fn read_session_jsonl(
 ) -> Result<String, String> {
     // 1. Get agent_session_id, agent_type, and cwd from pane
     let (session_id, cwd, agent_type) = {
-        let m = mux.lock();
+        let m = mux.write();
         let pane = m
             .get_pane(&pane_id)
             .ok_or_else(|| "Pane not found".to_string())?;
@@ -180,7 +167,7 @@ pub fn read_session_jsonl(
         file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
         Ok(buf)
     } else if let Some(tail) = tail_bytes {
-        let start = if file_len > tail { file_len - tail } else { 0 };
+        let start = file_len.saturating_sub(tail);
         file.seek(SeekFrom::Start(start))
             .map_err(|e| e.to_string())?;
         let mut buf = String::new();
@@ -225,7 +212,10 @@ pub async fn chat_start(
     svc: tauri::State<'_, ServiceState>,
     pane_id: String,
 ) -> Result<ChatStartResult, String> {
-    chat_start_core(&svc, pane_id)
+    let svc_owned = svc.inner().clone();
+    tokio::task::spawn_blocking(move || chat_start_core(&svc_owned, pane_id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Shared by the Tauri command and the web mirror's
@@ -233,9 +223,23 @@ pub async fn chat_start(
 /// chat view renders the same in both shells.
 pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartResult, String> {
     let started = std::time::Instant::now();
+    // chatBackend pane: its transcript is the durable host-side JSONL, not an
+    // agent JSONL/sqlite session. Return that persisted snapshot so a pane shows
+    if svc.pane_chat_backing(&pane_id).is_some() {
+        let (messages, _total) =
+            crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
+        return Ok(ChatStartResult {
+            text: String::new(),
+            start_offset: 0,
+            offset: 0,
+            pending: false,
+            messages: Some(messages),
+            cursor: None,
+        });
+    }
     let (provider_id, cwd, mut session_id, mux_ms) = {
         let t = std::time::Instant::now();
-        let m = svc.mux.lock();
+        let m = svc.mux.write();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
         let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
         let cwd = pane.cwd.clone().unwrap_or_default();
@@ -262,7 +266,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         .flatten()
     {
         let claimed = {
-            let mut mux = svc.mux.lock();
+            let mut mux = svc.mux.write();
             if mux.other_session_ids(&pane_id).contains(&active_sid) {
                 false
             } else if let Some(pane) = mux.get_pane_mut(&pane_id) {
@@ -334,7 +338,6 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
 
     // JSONL providers (claude, codex): parse to normalized `ChatMsg` in Rust —
     // the SAME shape the DB-backed providers emit — so every provider renders
-    // through one client path. No second TS parser.
     let path_started = std::time::Instant::now();
     let path = svc
         .agent_registry
@@ -344,12 +347,17 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let path_ms = path_started.elapsed().as_millis();
 
-    // A missing file is NOT an error: the session id is detected from CLI output
-    // before the provider writes the first JSONL line. The tailer streams the
-    // history in as deltas the moment the file appears.
+    // Sessions over the cap skip the full parse to avoid blocking: return empty
+    // messages and start the tailer at offset 0 so history streams in as deltas.
+    const JSONL_SNAPSHOT_CAP: u64 = 10 * 1024 * 1024;
     let read_started = std::time::Instant::now();
-    let (messages, msg_count) =
-        crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
+    let (messages, msg_count, tailer_start_offset) = if total > JSONL_SNAPSHOT_CAP {
+        (vec![], 0usize, 0u64)
+    } else {
+        let (msgs, count) =
+            crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
+        (msgs, count, total)
+    };
     let read_ms = read_started.elapsed().as_millis();
 
     // Multiple webviews can attach to the same pane. The tailer is per pane, but subscriptions are per client; share the existing worker when one
@@ -366,7 +374,7 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
                 provider_id: provider_id.clone(),
                 cwd: cwd.clone(),
                 session_id: session_id.clone(),
-                start_offset: total,
+                start_offset: tailer_start_offset,
                 poll_interval: crate::service::pane_chat::live_chat_poll_interval(),
             },
             svc.agent_registry.clone(),
@@ -404,6 +412,25 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
 }
 
 #[tauri::command]
+pub fn session_transcript(
+    svc: tauri::State<'_, ServiceState>,
+    provider: String,
+    cwd: String,
+    session_id: String,
+) -> Result<ChatStartResult, String> {
+    let (messages, _total) =
+        crate::service::pane_chat::session_chat_snapshot(&svc, &provider, &cwd, &session_id, 0)?;
+    Ok(ChatStartResult {
+        text: String::new(),
+        start_offset: 0,
+        offset: 0,
+        pending: false,
+        messages: Some(messages),
+        cursor: None,
+    })
+}
+
+#[tauri::command]
 pub async fn chat_stop(svc: tauri::State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
     svc.chat_registry.stop(&pane_id);
     Ok(())
@@ -413,9 +440,22 @@ pub async fn chat_stop(svc: tauri::State<'_, ServiceState>, pane_id: String) -> 
 /// (via the configured transcriber daemon) and wrap it in the same
 /// `-=-codeterm:voice ...-=-` marker shape the Telegram bridge uses.
 #[tauri::command]
-pub async fn transcribe_voice_attachment(path: String) -> Result<String, String> {
-    let cfg = crate::config::load_config().integrations.voice_transcribe;
-    Ok(crate::bridge::voice_transcribe::format_attachment_line(&path, "voice", None, &cfg).await)
+pub async fn transcribe_voice_attachment(
+    svc: tauri::State<'_, ServiceState>,
+    path: String,
+) -> Result<String, String> {
+    let active = crate::config::load_config()
+        .integrations
+        .voice_transcribe
+        .active;
+    Ok(crate::bridge::voice_transcribe::format_attachment_line(
+        &path,
+        "voice",
+        None,
+        &svc.transcribe_registry,
+        &active,
+    )
+    .await)
 }
 
 #[derive(serde::Serialize)]
@@ -444,7 +484,7 @@ pub fn chat_backfill_core(
     max_bytes: Option<u64>,
 ) -> Result<ChatBackfillResult, String> {
     let (provider_id, cwd, session_id) = {
-        let m = svc.mux.lock();
+        let m = svc.mux.write();
         let pane = m.get_pane(&pane_id).ok_or("pane not found")?;
         (
             pane.agent_type.clone().ok_or("no agent_type")?,
@@ -493,5 +533,74 @@ pub async fn chat_send_text(
     enter: Option<bool>,
 ) -> Result<(), String> {
     let enter = enter.unwrap_or(true);
+    let run_stages =
+        crate::chatpipeline::is_user_turn_send(false, false, svc.pane_has_agent(&pane_id));
+    let text = if run_stages {
+        svc.run_outbound_stages(&pane_id, text)
+    } else {
+        text
+    };
     svc.send_text_when_ready(&pane_id, &text, enter).await
+}
+
+/// P1: open a non-PTY chatBackend pane driven by `plugin_id` (a plugin declaring
+/// the `chatBackend` capability). The frontend Extensions "Open chat" action
+/// calls this; `send`/`get-output` on the returned pane route to the plugin via
+/// the PaneTransport seam. Returns the new pane id.
+#[tauri::command]
+pub async fn open_chat_backend_pane(
+    svc: tauri::State<'_, ServiceState>,
+    plugin_id: String,
+    workspace_id: Option<String>,
+    config: Option<serde_json::Value>,
+    system_prompt: Option<String>,
+    preset: Option<String>,
+    model: Option<String>,
+) -> Result<String, String> {
+    use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
+    let mut config = config.unwrap_or(serde_json::Value::Null);
+    let overrides = crate::service::spawn::chatbackend_spawn_config(
+        system_prompt.as_deref(),
+        preset.as_deref(),
+        model.as_deref(),
+    );
+    if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
+        for (key, value) in extra {
+            base.insert(key.clone(), value.clone());
+        }
+    } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+        config = overrides;
+    }
+    let handle = svc.spawn_pane(SpawnPaneSpec {
+        workspace_id,
+        visibility: PaneVisibility::Visible,
+        command: PaneCommand::ChatBackend { plugin_id, config },
+        ..Default::default()
+    })?;
+    Ok(handle.pane_id)
+}
+
+/// P1: current live state of an open chatBackend session — the model it is
+/// talking to — so the tab/bubble can show it. Core asks the capability
+/// resolved by `plugin_id`; never a hardcoded id.
+#[tauri::command]
+pub fn chatbackend_session_info(
+    svc: tauri::State<'_, ServiceState>,
+    plugin_id: String,
+    session_id: String,
+) -> Result<crate::chatbackend::ChatSessionInfo, String> {
+    svc.chatbackend_session_info(&plugin_id, &session_id)
+}
+
+/// P1: switch the model an open chatBackend shell session uses on its next turn,
+/// returning the refreshed session info. Backends that cannot switch surface an
+/// error (the capability's `setModel` is optional).
+#[tauri::command]
+pub fn chatbackend_switch_model(
+    svc: tauri::State<'_, ServiceState>,
+    plugin_id: String,
+    session_id: String,
+    model: String,
+) -> Result<crate::chatbackend::ChatSessionInfo, String> {
+    svc.chatbackend_set_model(&plugin_id, &session_id, &model)
 }

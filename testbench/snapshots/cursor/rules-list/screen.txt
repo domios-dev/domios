@@ -1,0 +1,13 @@
+kandrey@ROC-6W49K3GN codeterm-cursor-picker-trust2 % bash /tmp/codeterm-spawn-8178c090-a581-4011-93cd-c5978212a918.sh
+
+
+  Cursor Agent
+  v2026.06.19-20-24-33-653a7fb
+  Use /skills to give Cursor specialized knowledge for tasks.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Rules (0 rules)
+
+  → + Create new rule
+
+ ↑/↓ to navigate • Enter to select • d to delete • Esc to close

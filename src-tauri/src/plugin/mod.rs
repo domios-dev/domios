@@ -9,11 +9,11 @@
 //!
 //! See `docs/plans/plugin-architecture.md` for the full design.
 
+pub mod activity;
 pub mod agent_claude;
-pub mod agent_codex;
-pub mod agent_opencode;
 pub mod audit;
 pub mod bundle_hash;
+pub mod capability;
 pub mod common;
 pub mod embedded;
 pub mod js_runtime;
@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn dispatch_event_filters_by_hooks() {
         let mgr = PluginManager::new();
-        let mut m_all = manifest("all", PluginTier::Native);
+        let m_all = manifest("all", PluginTier::Native);
         let mut m_filtered = manifest("filtered", PluginTier::Native);
         m_filtered.capabilities.hooks = vec!["pane-title-pinned".into()];
         mgr.register(m_all);

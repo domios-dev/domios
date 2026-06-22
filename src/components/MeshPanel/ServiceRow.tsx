@@ -29,6 +29,7 @@ export function ServiceRow({ service, host, onClick }: Props) {
       data-testid="service-row"
       data-service-name={service.name}
       data-source-peer={service.source_peer ?? "local"}
+      data-source-peer-id={service.source_peer_id ?? "local"}
       data-stale={String(!!service.stale)}
       onClick={onClick}
       className={`grid items-center px-4 py-1.5 border-b border-[var(--ct-border)] cursor-pointer hover:bg-[var(--ct-titlebar-bg)]${service.stale ? " opacity-60" : ""}`}

@@ -1,0 +1,40 @@
+
+
+› Write approximately 400 words on the history of Unix pipes. Write it directly in your reply, do not use any tools.
+
+
+• Unix pipes emerged from one of the central ideas of early Unix: programs should do one thing well, and users should be
+  able to connect those small programs into larger workflows. The concept was developed at Bell Labs in the early 1970s,
+  especially through the work of Douglas McIlroy, who had long argued for “software components” that could be joined
+  together like parts in a workshop.
+
+  Before pipes, Unix already had a simple file model and command-line tools, but combining programs was awkward. Users
+  often had to write temporary files to pass output from one command to another. For example, one program might write
+  results to a file, and a second program would later read that file. This worked, but it was clumsy, slower, and forced
+  users to manage intermediate data manually.
+
+  The pipe changed that. Introduced into Unix around 1973, it allowed the output of one process to become the input of
+  another process directly. The now-familiar vertical bar syntax, as in who | sort | lpr, made this idea compact and
+  expressive. A user could take a stream of text, filter it, transform it, sort it, count it, or send it elsewhere
+  without creating temporary files. This was not just a convenience; it reshaped the way Unix programs were designed.
+
+  Ken Thompson implemented pipes in Unix after McIlroy’s proposal. The implementation fit naturally with Unix’s
+  “everything is a file” philosophy. A pipe looked much like a file descriptor to a program, so existing tools could
+  often participate in pipelines without special knowledge of pipes. Programs simply read from standard input and wrote
+  to standard output. This encouraged a style of programming based on text streams, composability, and minimal
+  assumptions about where data came from or where it would go.
+
+  Pipes also influenced Unix culture. Tools such as grep, sed, awk, sort, uniq, tr, and wc became powerful partly
+  because they could be chained together. Each tool was useful alone, but far more useful in combination. A pipeline
+  could become a small, improvised program assembled at the shell prompt.
+
+  Over time, the pipe became one of Unix’s defining abstractions and spread to Unix-like systems, scripting languages,
+  and operating systems influenced by Unix. Its impact is visible in modern shells, data-processing workflows, and even
+  software architecture patterns that favor streams and composition. The history of Unix pipes is therefore not only the
+  story of one operating-system feature, but of a broader design philosophy: simple interfaces make complex systems
+  easier to build.
+
+
+› Run /review on my current changes
+
+  gpt-5.5 medium · /private/tmp/rt3-capture

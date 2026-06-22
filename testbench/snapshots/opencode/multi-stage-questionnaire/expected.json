@@ -1,0 +1,14 @@
+{
+  "provider": "opencode",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Access external directory /tmp",
+    "options": [
+      "Allow once",
+      "Allow always",
+      "Reject"
+    ],
+    "selectedIndex": 0,
+    "multiSelect": false
+  }
+}

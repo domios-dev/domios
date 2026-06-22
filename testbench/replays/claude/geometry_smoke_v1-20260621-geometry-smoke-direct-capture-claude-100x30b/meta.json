@@ -1,0 +1,29 @@
+{
+  "scenario": "geometry_smoke_v1",
+  "title": "Fast geometry and recording smoke",
+  "provider": "claude",
+  "provider_version": "2.1.185 (Claude Code)",
+  "codeterm_health": {
+    "status": "ok",
+    "version": "1.4.6",
+    "build": "3c722440",
+    "name": "CodeTerm",
+    "platform": "macos"
+  },
+  "workspace_id": "98d4d0e9",
+  "pane_id": "01fbc838",
+  "workspace_dir": "/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-claude-geometry_smoke_v1-9h5cp9qe",
+  "captured_at_ms": 1782035048006,
+  "terminal": {
+    "cols": 100,
+    "rows": 30,
+    "scenario_default": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  "source": "testbench/replay-capture.py"
+}

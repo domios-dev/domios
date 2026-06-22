@@ -1,0 +1,35 @@
+  - C) A script, automation, or one-off tool
+  Section 2 — Primary Language / Stack
+  What should it be built in?
+  - A) TypeScript / JavaScript (Node)
+  - B) Python
+  - C) Something else (Go, Rust, etc.)
+  Section 3 — Persistence
+  How should data be stored?
+  - A) Relational database (Postgres/MySQL/SQLite)
+  - B) File-based / no external store
+  - C) Cloud / managed service (Firebase, DynamoDB, etc.)
+  Section 4 — Testing Approach
+  How rigorous should testing be?
+  - A) Full TDD — tests first, high coverage
+  - B) Pragmatic — tests for core logic only
+  - C) Minimal — manual checks for now
+  Section 5 — Deployment Target
+  Where will this run?
+  - A) Local / developer machine only
+  - B) Containerized (Docker) for portability
+  - C) Cloud platform (AWS/GCP/Azure/Vercel)
+  ---
+  Go ahead and send your selections whenever you're ready — I won't assume any of them.
+✻ Baked for 16s
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents
+  ---
+  Go ahead and send your selections whenever you're ready — I won't assume any of them.
+✻ Baked for 16s
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents   

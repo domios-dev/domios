@@ -22,6 +22,14 @@ const PARITY: &[(&str, &str)] = &[
         "-=-codeterm:pane label=General%20Main pane=bda0e267-=-ping",
         "pane label has space",
     ),
+    (
+        "-=-codeterm:plugin_config plugin=local-shell name=LM%20Studio-=-hello body",
+        "plugin_config (name has space)",
+    ),
+    (
+        "-=-codeterm:system_prompt-=-You are CodeTerm.\nUse tools carefully.",
+        "system_prompt body payload",
+    ),
 ];
 
 #[test]
@@ -35,6 +43,14 @@ fn convenience_constructors_match_parity_wire() {
     );
     assert_eq!(mesh("peer-a", "abc12345", "hi"), PARITY[4].0);
     assert_eq!(pane("General Main", "bda0e267", "ping"), PARITY[5].0);
+    assert_eq!(
+        plugin_config("local-shell", "LM Studio", "hello body"),
+        PARITY[6].0
+    );
+    assert_eq!(
+        system_prompt("You are CodeTerm.\nUse tools carefully."),
+        PARITY[7].0
+    );
 }
 
 #[test]
@@ -87,4 +103,14 @@ fn voice_note_goes_to_payload_with_status() {
     let p = parse(&wire).unwrap();
     assert_eq!(p.attr("status"), Some("untranscribed"));
     assert_eq!(p.payload, "no transcriber daemon");
+}
+
+#[test]
+fn system_prompt_has_no_attrs_and_payload_is_prompt_text() {
+    let prompt = "# Shell rules\n\nUse markdown and keep working.";
+    let wire = system_prompt(prompt);
+    let parsed = parse(&wire).unwrap();
+    assert_eq!(parsed.kind, "system_prompt");
+    assert!(parsed.attrs.is_empty());
+    assert_eq!(parsed.payload, prompt);
 }

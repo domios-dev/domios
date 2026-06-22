@@ -120,11 +120,13 @@ pub fn check_integration() -> Json {
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_current_codeterm_hook))
         .unwrap_or(false);
+    // Require the binding-nonce header so a pre-nonce session_start hook reads as stale and gets force-upgraded on startup.
     let session_start_hook = json
         .pointer("/hooks/SessionStart")
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().any(is_current_codeterm_hook))
-        .unwrap_or(false);
+        .unwrap_or(false)
+        && content.contains("CODETERM_SESSION_BINDING_NONCE");
 
     serde_json::json!({
         "settings_exists": true,
@@ -152,8 +154,11 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
         serde_json::json!({})
     };
 
-    let null_dev = crate::shell::ShellSyntax::NULL_DEV;
+    // Hooks run via sh/bash even on Windows, so the null device is /dev/null,
+    // not "NUL" — bash `> NUL` would create a real reserved-name file in the cwd.
+    let null_dev = "/dev/null";
     let auth_h = "-H \"Authorization: Bearer ${CODETERM_API_TOKEN}\"";
+    let nonce_h = "-H \"X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}\"";
     let notify_cmd = format!(
         "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/permission -H 'Content-Type: application/json' {auth_h} -d '{{}}' > {null_dev} 2>&1 || true"
     );
@@ -164,7 +169,7 @@ pub fn install_integration(api_port: u16) -> Result<(), String> {
         "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/mem/flush -H 'Content-Type: application/json' {auth_h} -d '{{\"pane\":\"'\"$CODETERM_PANE_ID\"'\",\"title\":\"pre-compact\"}}' > {null_dev} 2>&1 || true"
     );
     let session_start_cmd = format!(
-        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' {auth_h} --data-binary @- > {null_dev} 2>&1 || true"
+        "curl -s -X POST http://localhost:${{CODETERM_API_PORT:-{port}}}/api/panes/$CODETERM_PANE_ID/hook/session_start -H 'Content-Type: application/json' {auth_h} {nonce_h} --data-binary @- > {null_dev} 2>&1 || true"
     );
 
     if json.get("hooks").is_none() {

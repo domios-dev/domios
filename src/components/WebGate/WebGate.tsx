@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   apiHost,
+  clearRelayTarget,
   currentToken,
   IS_WEB,
+  relayTarget,
   selfHost,
-  setApiHost,
   setTokenFor,
   webJson,
 } from "../../lib/webApi";
@@ -14,10 +15,10 @@ type GateState = "checking" | "need-token" | "ready";
 
 /**
  * Web-mirror entry gate. In the Tauri shell it renders children directly.
- * In a browser it requires a valid API token for the current host before
- * mounting the app: first visit pastes the token from the desktop app
- * (Settings -> Web Access), stored per host in localStorage. Peer switches
- * can then mint and store target-host tokens over the signed mesh channel.
+ * In a browser it requires a valid local-daemon API token before mounting
+ * the app: first visit pastes the token from the desktop app (Settings ->
+ * Web Access), stored in localStorage. Mesh peers are then viewed through the
+ * relay (see WebPeerPicker) using this same local token — no per-peer token.
  */
 export function WebGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<GateState>(IS_WEB ? "checking" : "ready");
@@ -118,11 +119,11 @@ export function WebGate({ children }: { children: ReactNode }) {
           >
             {busy ? "Checking…" : "Connect"}
           </button>
-          {apiHost() !== selfHost() && (
+          {relayTarget() && (
             <button
               data-testid="web-token-back-to-self"
               onClick={() => {
-                setApiHost(null);
+                clearRelayTarget();
                 window.location.reload();
               }}
               className="mt-2 w-full min-h-[44px] rounded border border-[var(--ct-border,#30363d)] text-xs opacity-80"

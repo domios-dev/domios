@@ -1,53 +1,33 @@
-mod audit;
-mod channel;
-mod install;
-mod list;
-mod state;
-mod types;
-mod update;
-mod util;
-mod version;
-
-#[cfg(test)]
-mod tests;
+//! CLI front-end for plugin management. The filesystem-level logic lives in the
+//! shared `codeterm-plugins` crate (called in-process by both this CLI and the
+//! daemon); this module only converts the clap action, prints the result, and
+//! handles the one path the crate can't — the `plugin <id> <verb>` passthrough,
+//! which routes over the daemon socket.
 
 use crate::args::plugin::{PluginAction, PluginChannelAction};
-use crate::data_root;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use codeterm_plugins::{PluginAction as Action, PluginChannelAction as ChannelAction, PluginCtx};
 
-use audit::*;
-use channel::*;
-use install::*;
-use list::*;
-use state::*;
-use types::*;
-use update::*;
-use util::*;
-use version::*;
-pub fn handle_plugin(json: bool, action: PluginAction) {
-    let result = match action.clone() {
-        PluginAction::List => list_installed(),
-        PluginAction::Install {
-            id,
-            from_dir,
-            id_override,
-            channel,
-        } => install_command(id, from_dir, id_override, channel),
-        PluginAction::Update { id } => update_command(id),
-        PluginAction::UpdateSystem { id } => update_system_command(id),
-        PluginAction::Remove { id, force } => remove_installed(&id, force),
-        PluginAction::Channel { command } => channel_command(command),
-    };
-
-    if let Err(e) = &result {
-        let _ = audit_command_failure(&action, e);
+fn plugin_ctx() -> PluginCtx {
+    PluginCtx {
+        data_root: crate::data_root(),
+        version: std::env::var("CODETERM_VERSION")
+            .ok()
+            .filter(|s| !s.trim().is_empty()),
     }
+}
+
+pub fn handle_plugin(json: bool, action: PluginAction) {
+    let ctx = plugin_ctx();
+    let result = match action {
+        PluginAction::Pass(parts) => {
+            let r = pass_command(parts.clone());
+            if let Err(e) = &r {
+                codeterm_plugins::audit_failure(ctx, &Action::Pass(parts), e);
+            }
+            r
+        }
+        other => codeterm_plugins::run(ctx, convert_action(other)),
+    };
 
     match result {
         Ok(value) => {
@@ -61,6 +41,61 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
             eprintln!("Error: {e}");
             std::process::exit(1);
         }
+    }
+}
+
+fn convert_action(action: PluginAction) -> Action {
+    match action {
+        PluginAction::List => Action::List,
+        PluginAction::Install {
+            id,
+            from_dir,
+            id_override,
+            channel,
+        } => Action::Install {
+            id,
+            from_dir,
+            id_override,
+            channel,
+        },
+        PluginAction::Update { id } => Action::Update { id },
+        PluginAction::UpdateSystem { id } => Action::UpdateSystem { id },
+        PluginAction::Remove {
+            id,
+            force,
+            remove_data,
+        } => Action::Remove {
+            id,
+            force,
+            remove_data,
+        },
+        PluginAction::Channel { command } => Action::Channel(convert_channel(command)),
+        PluginAction::Get { id } => Action::Get { id },
+        PluginAction::Config {
+            id,
+            set,
+            values_json,
+            grant,
+            revoke,
+        } => Action::Config {
+            id,
+            set,
+            values_json,
+            grant,
+            revoke,
+        },
+        PluginAction::Pass(parts) => Action::Pass(parts),
+    }
+}
+
+fn convert_channel(action: PluginChannelAction) -> ChannelAction {
+    match action {
+        PluginChannelAction::Add { url, name } => ChannelAction::Add { url, name },
+        PluginChannelAction::EnsureDefault => ChannelAction::EnsureDefault,
+        PluginChannelAction::List => ChannelAction::List,
+        PluginChannelAction::Refresh { name } => ChannelAction::Refresh { name },
+        PluginChannelAction::Diff { name } => ChannelAction::Diff { name },
+        PluginChannelAction::Remove { name, force } => ChannelAction::Remove { name, force },
     }
 }
 
@@ -97,5 +132,41 @@ fn print_human(value: &serde_json::Value) {
         println!("{msg}");
         return;
     }
+    // Passthrough (`codeterm plugin <id> <verb>`) → the plugin's `{ result }`.
+    if let Some(result) = value.get("result").and_then(|v| v.as_str()) {
+        println!("{result}");
+        return;
+    }
     println!("{}", serde_json::to_string_pretty(value).unwrap());
+}
+
+/// `codeterm plugin <id> <verb> [args…]` → route `plugin:<id>.<verb>` over the
+/// socket to the owning plugin's `onAgentCommand` (the inverse seam). The caller's
+/// worker/pane id is sent as `sessionId` so the host can scope the verb to the
+/// commands the plugin declared at spawn. A plugin-reported `{ error }` surfaces
+/// as a non-zero exit.
+fn pass_command(parts: Vec<String>) -> Result<serde_json::Value, String> {
+    let mut it = parts.into_iter();
+    let id = it
+        .next()
+        .ok_or("usage: codeterm plugin <id> <verb> [args…]")?;
+    let verb = it
+        .next()
+        .ok_or("usage: codeterm plugin <id> <verb> [args…]")?;
+    let args: Vec<String> = it.collect();
+
+    let socket = crate::client::discover_socket()?;
+    let mut client = crate::client::SocketClient::connect(&socket)?;
+    let session_id = std::env::var("CODETERM_WORKER_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("CODETERM_PANE_ID").ok())
+        .unwrap_or_default();
+    let method = format!("plugin:{id}.{verb}");
+    let params = serde_json::json!({ "args": args, "sessionId": session_id });
+    let resp = client.call(&method, Some(params))?;
+    if let Some(e) = resp.get("error").and_then(|v| v.as_str()) {
+        return Err(e.to_string());
+    }
+    Ok(resp)
 }

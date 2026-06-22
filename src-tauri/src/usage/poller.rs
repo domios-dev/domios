@@ -407,7 +407,7 @@ fn providers_with_parser(svc: &ServiceContext) -> Vec<String> {
 }
 
 fn visible_panes_for_provider(svc: &ServiceContext, provider: &str) -> Vec<String> {
-    let mux = svc.mux.lock();
+    let mux = svc.mux.write();
     let snap = mux.snapshot();
     snap.panes
         .values()

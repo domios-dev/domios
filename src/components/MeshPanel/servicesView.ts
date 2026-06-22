@@ -10,6 +10,7 @@ export interface PeerServicesView {
 }
 
 export interface PeerFetchResult {
+  peerId: string;
   peerName: string;
   /** null when the invoke itself failed (peer unpaired mid-poll, etc.). */
   view: PeerServicesView | null;
@@ -30,6 +31,7 @@ export function mergeServicesView(
     for (const s of r.view.services) {
       out.push({
         ...s,
+        source_peer_id: r.peerId,
         source_peer: r.peerName,
         stale: r.view.stale,
         peer_online: r.view.peer_online,

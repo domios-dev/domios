@@ -34,6 +34,7 @@ fn provider_descriptor_round_trip() {
                 id: "model-1".into(),
                 display_name: "Model One".into(),
                 description: Some("first model".into()),
+                available: None,
             }],
             default_model: Some("model-1".into()),
             settings_schema: vec![
@@ -95,7 +96,16 @@ fn provider_descriptor_round_trip() {
             model_switch_format: Some("/model {model}".into()),
             supports_stop: true,
             supports_chat_ui: true,
+            supports_structured_prompts: true,
             trust: ProviderTrust::System,
+            transport: ProviderTransport::ChatBackend,
+            behavior_config: BehaviorConfig::PresetsAndSystemPrompt,
+            presets: vec![crate::chatbackend::PresetInfo {
+                id: "p1".into(),
+                name: "Preset One".into(),
+                description: Some("a preset".into()),
+            }],
+            system_prompt_delivery: SystemPromptDelivery::CliFlag("--system".into()),
         };
 
     let json = serde_json::to_string(&original).expect("serialize");
@@ -157,36 +167,6 @@ impl AgentProvider for StubProvider {
     fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
         None
     }
-    fn detect_launched_session_id(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String> {
-        if let Some(sid) = injected_session_id {
-            if self.session_exists(cwd, sid) {
-                return Some(sid.to_string());
-            }
-        }
-        self.detect_session_id(cwd, exclude, max_age)
-    }
-    fn detect_started_session(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String> {
-        self.detect_started_session_with_markers(
-            cwd,
-            exclude,
-            max_age,
-            injected_session_id,
-            screen_text,
-        )
-    }
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
     }
@@ -204,4 +184,16 @@ fn default_describe_assembles_from_methods() {
     assert!(desc.preserves_context_on_resume); // default true
     assert!(!desc.supports_lazy_skills); // default false
     assert!(!desc.has_hooks); // default false
+    assert!(!desc.supports_structured_prompts); // default false
+    assert_eq!(desc.transport, ProviderTransport::Pty);
+    assert_eq!(desc.behavior_config, BehaviorConfig::OwnPromptSet);
+    assert!(desc.presets.is_empty());
+    assert_eq!(desc.system_prompt_delivery, SystemPromptDelivery::External);
+}
+
+#[test]
+fn serialized_descriptor_has_transport_not_kind() {
+    let value = serde_json::to_value(StubProvider.describe()).unwrap();
+    assert!(value.get("kind").is_none(), "`kind` must not be serialized");
+    assert_eq!(value["transport"], "pty");
 }

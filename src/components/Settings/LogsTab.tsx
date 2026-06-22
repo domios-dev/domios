@@ -175,6 +175,7 @@ export function LogsTab({ config }: { config: AppConfig }) {
       description="Diagnostics from the daemon, mesh, agents, and integrations. Filter by level, source, or time range. Updates live."
       headerRight={
         <button
+          data-testid="settings-logs-refresh"
           onClick={refresh}
           disabled={loading}
           className="flex items-center gap-1 px-2 h-7 rounded-md hover:bg-[var(--ct-hover)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors text-[11px] disabled:opacity-50"
@@ -196,12 +197,12 @@ export function LogsTab({ config }: { config: AppConfig }) {
       />
 
       {error && (
-        <div className="text-[10px] text-[var(--ct-red)]">Failed to load logs: {error}</div>
+        <div className="text-[10px] text-[var(--ct-red)]" data-testid="settings-logs-error" role="alert">Failed to load logs: {error}</div>
       )}
 
-      <div className="max-h-[440px] overflow-y-auto rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 divide-y divide-[var(--ct-border)]">
+      <div className="max-h-[440px] overflow-y-auto rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)]/40 divide-y divide-[var(--ct-border)]" data-testid="settings-logs-list">
         {visible.length === 0 ? (
-          <div className="px-3 py-8 text-center text-[11px] text-[var(--ct-muted-fg)]">
+          <div className="px-3 py-8 text-center text-[11px] text-[var(--ct-muted-fg)]" data-testid="settings-logs-empty">
             No logs match the current filters.
           </div>
         ) : (
@@ -219,6 +220,7 @@ export function LogsTab({ config }: { config: AppConfig }) {
       <div className="flex items-center justify-between gap-3 text-[10px] text-[var(--ct-muted-fg)]">
         <span>{`Showing ${visible.length} of ${logs.length} logs`}</span>
         <button
+          data-testid="settings-logs-clear-old"
           onClick={clearOld}
           className="inline-flex items-center gap-1 text-[var(--ct-muted-fg)] hover:text-[var(--ct-red)] transition-colors"
           title="Delete logs older than 7 days"

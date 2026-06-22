@@ -21,24 +21,30 @@ mod hierarchy;
 mod inject_safety;
 pub mod inject_verify;
 pub mod input_parser;
-pub mod msg_prefix;
+pub mod messenger;
 pub mod notification;
 mod orchestrator;
 mod output;
 mod pane;
 pub mod pane_chat;
+pub mod pane_transport;
+pub mod pane_transport_chat;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
 pub mod smart_add;
 pub mod spawn;
+mod spawn_chatbackend;
 mod spawn_cli;
+mod spawn_params;
 mod spawn_title;
 pub mod store;
+pub mod structured_prompt;
 pub mod sync_watcher;
 #[cfg(test)]
 mod tests;
 pub mod tokens;
+pub mod transport;
 mod workspace;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -63,6 +69,7 @@ pub use inject_verify::{
     wait_for_submit_tui_drained, InjectionError, InjectionResult, VerifyOpts,
 };
 pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnResult};
+pub use pane::{normalize_pane_description, MAX_PANE_DESCRIPTION_CHARS};
 
 /// Shared service context — all state needed for multiplexer operations.
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
@@ -76,12 +83,16 @@ pub struct ServiceContext {
     pub events: Arc<EventBroadcaster>,
     pub app_handle: tauri::AppHandle,
     pub agent_tracker: AgentTrackerState,
+    /// Per-pty shell-integration capability accumulators (OSC 133/633/7 ->
+    /// command list + cwd). Fed from `process_pty_output`; consumed by chat.
+    pub shell_caps: crate::ShellCapabilityState,
     pub report_store: ReportStoreState,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
     pub mem_supervisor: Arc<crate::mem::supervisor::Supervisor>,
     pub activity: Arc<crate::mem::activity::ActivityRing>,
     pub workers: Arc<crate::mem::workers::GraphWorkerRegistry>,
+    pub plugin_activity: Arc<crate::plugin::activity::PluginActivityRegistry>,
     pub worker_pool: Arc<crate::mem::worker_pool::WorkerPool>,
     pub prompt_detector: PromptDetectorState,
     // Stable pane→pty map for hidden agent runs; survives close_pane so the unified AgentRun log endpoints can read closed-worker output.
@@ -104,8 +115,40 @@ pub struct ServiceContext {
     /// Per-pane JSONL chat tailers — populated when a pane enters UI mode.
     pub chat_registry: Arc<crate::service::pane_chat::ChatRegistry>,
     pub delayed_send: crate::delayed_send::DelayedSendQueue,
-    /// Active secret-store backend (mock in Phase 1; bitwarden lands in Phase 2).
+    /// Active secret-store backend. Built-ins via factory; plugin backends
+    /// (e.g. Bitwarden) come from `secret_registry`.
     pub secrets: crate::secrets::SecretStoreState,
+    /// Registry of plugin-contributed secret backends, keyed by id.
+    pub secret_registry: Arc<crate::secrets::SecretRegistry>,
+    /// Registry of transcribers (built-in HTTP engine + any Transcriber plugin).
+    /// Voice notes resolve the active transcriber here by id.
+    pub transcribe_registry: Arc<crate::transcribe::TranscribeRegistry>,
+    /// Registry of glance-view providers (plugins with `glanceView`). Pinned
+    /// plugins render their popover from here.
+    pub glance_registry: crate::glance::GlanceRegistryHandle,
+    /// Registry of status-bubble providers (plugins with `statusBubble`). The
+    /// pane-footer bubble row polls these per pane context.
+    pub bubble_registry: crate::bubble::BubbleRegistryHandle,
+    /// Registry of view providers (plugins with `view`). The iframe bridge
+    /// (`ct.invoke`) routes here, gated by the plugin's permissions.
+    pub view_registry: crate::view_host::ViewRegistryHandle,
+    /// Registry of chatBackend providers (plugins with `chatBackend`). Non-PTY
+    /// panes route their I/O here via the `PaneTransport` seam.
+    pub chatbackend_registry: crate::chatbackend::ChatBackendRegistryHandle,
+    /// Per-pane locks serializing the chatBackend restore→reopen transition so a
+    /// concurrent send/deliver can't double-open one pane's plugin session.
+    pub chatbackend_reopen_guards: Arc<pane_transport_chat::PaneReopenGuards>,
+    /// Unified facade over the agent + chat-backend stores. Listing and
+    /// spawn-classify go through this so call-sites stop touching two registries.
+    pub provider_registry: Arc<crate::provider::ProviderRegistry>,
+    /// Registry of chatPreprocessor providers (plugins with `chatPreprocessor`).
+    /// `run_outbound_stages` runs these send-time text stages over every user
+    /// turn before dispatching to transport.
+    pub chat_preprocessor_registry: crate::chatpreprocessor::ChatPreprocessorRegistryHandle,
+    /// Registry of agent-command handlers (plugins with the `agent_commands`
+    /// grant). The socket dispatch routes `plugin:<id>.<verb>` here — the inverse
+    /// seam letting a spawned agent drive a plugin's `onAgentCommand`.
+    pub agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,
@@ -135,11 +178,28 @@ impl ServiceContext {
         }
         let handle = self.app_handle.clone();
         let pending = self.mux_emit_pending.clone();
+        let mux = self.mux.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            pending.store(false, Ordering::Release);
-            let _ = handle.emit("mux-state-changed", ());
+            // Snapshot is read AFTER the coalesce window so the emitted payload
+            // reflects the latest state — a fast follow-up mutation during the
+            let snapshot =
+                Self::coalesce_snapshot(&mux, &pending, std::time::Duration::from_millis(50));
+            let _ = handle.emit("mux-state-changed", &snapshot);
         });
+    }
+
+    /// Sleep out the coalesce window, then read a fresh snapshot. The pending
+    /// flag is cleared BEFORE the read so any mutation landing after this point
+    /// opens a new window (its own emit) rather than being swallowed; mutations
+    /// that landed during the window are captured by reading last.
+    fn coalesce_snapshot(
+        mux: &MuxState,
+        pending: &AtomicBool,
+        delay: std::time::Duration,
+    ) -> crate::multiplexer::state::MultiplexerSnapshot {
+        std::thread::sleep(delay);
+        pending.store(false, Ordering::Release);
+        mux.read().snapshot()
     }
 
     pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {

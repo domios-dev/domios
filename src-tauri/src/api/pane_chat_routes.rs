@@ -45,7 +45,7 @@ fn pane_chat_info(
     state: &AppState,
     pane_id: &str,
 ) -> Result<ChatPaneInfo, (StatusCode, &'static str)> {
-    let m = state.svc.mux.lock();
+    let m = state.svc.mux.write();
     let pane = m
         .get_pane(pane_id)
         .ok_or((StatusCode::NOT_FOUND, "pane not found"))?;

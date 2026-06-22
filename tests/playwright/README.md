@@ -29,6 +29,9 @@ pnpm test:pw:lint    # fail if any Playwright test has no tier tag
 pnpm test:pw:smoke   # @smoke project
 pnpm test:pw:golden  # @golden project, one retry and 5min timeout
 pnpm test:pw:full    # all non-quarantined tests
+pnpm test:pw:report  # open the last HTML report
+pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<trace.zip>
+pnpm test:pw:debug   # run the suite with Playwright Inspector
 ```
 
 On Windows PowerShell, start/restart dev with `.\build.ps1 dev --wait`.
@@ -54,6 +57,24 @@ per-test output with:
 
 ```bash
 node node_modules/@playwright/test/cli.js test -c tests/playwright --reporter=list
+```
+
+## Replay workflow
+
+Playwright writes post-mortem artifacts under `tests/playwright/artifacts/`:
+
+- `html-report/` contains the last interactive report. Open it with
+  `pnpm test:pw:report`.
+- `test-results/` contains per-test attachments. Failed tests retain screenshots,
+  videos, and a `trace.zip`; retried `golden` and `full` tests retain retry
+  traces too.
+
+To replay a failure, open the HTML report first, expand the failed test, and use
+the trace attachment link. To open a trace directly from the shell, pass the zip
+path after the script separator:
+
+```bash
+pnpm test:pw:trace -- tests/playwright/artifacts/test-results/<test-output>/trace.zip
 ```
 
 Global setup (`helpers/global-setup.ts`) reuses a running dev console when
@@ -124,6 +145,24 @@ checks this before a test can land unnoticed.
 Non-tier tags such as `@edge`, `@failure`, or `@regression` may still describe
 coverage, but they do not satisfy the lint by themselves.
 
+## Deferred lint guardrails
+
+`pnpm test:pw:lint` also contains stricter Playwright guardrails that are
+currently opt-in because the Track F and Track S cleanups have not landed on
+this branch yet. Enable them with `PW_LINT_STRICT=1` after those tracks migrate
+specs to fixtures and remove timing hacks.
+
+Strict mode rejects:
+
+- `waitForTimeout`
+- `networkidle`
+- Playwright action options using `force: true`
+- `test()` bodies with no `expect()`
+- raw `new ApiClient()` or `connectUi()` in specs instead of the fixtures layer
+
+For targeted proof runs, set `PW_LINT_SCOPE` to a spec file or directory under
+`tests/playwright/suites`.
+
 ## Web mirror (12-web)
 
 12-web drives the **web mirror** (`/web` on the daemon) in a **launched
@@ -162,4 +201,4 @@ server-spawned panes do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 3 -->
+<!-- revision: 5 -->

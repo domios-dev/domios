@@ -56,25 +56,6 @@ impl AgentProvider for NativeStub {
     ) -> Option<String> {
         None
     }
-    fn detect_launched_session_id(
-        &self,
-        _: &str,
-        _: &[String],
-        _: Option<std::time::Duration>,
-        _: Option<&str>,
-    ) -> Option<String> {
-        None
-    }
-    fn detect_started_session(
-        &self,
-        _: &str,
-        _: &[String],
-        _: Option<std::time::Duration>,
-        _: Option<&str>,
-        _: Option<&str>,
-    ) -> Option<String> {
-        None
-    }
 }
 
 /// A JS drop-in whose default export implements NOTHING capability-related,
@@ -95,8 +76,6 @@ fn js_only(id: &str) -> JsProvider {
 fn native_and_js_agree_and_neither_recurses() {
     // Native control: register a JS-only provider TWICE (authoritative pass
     // + hot-reload seeding tick) — exactly the boot sequence that armed the
-    // overflow on ROG. With the #16 fix the displaced JS provider is never
-    // recorded as a native fallback.
     let reg = Arc::new(AgentRegistry::new());
     let mut a = js_only("rec-test");
     a.set_registry(reg.clone());

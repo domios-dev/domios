@@ -1,0 +1,29 @@
+{
+  "scenario": "geometry_smoke_v1",
+  "title": "Fast geometry and recording smoke",
+  "provider": "opencode",
+  "provider_version": "1.17.9",
+  "codeterm_health": {
+    "status": "ok",
+    "version": "1.4.6",
+    "build": "3c722440",
+    "name": "CodeTerm",
+    "platform": "macos"
+  },
+  "workspace_id": "4994245b",
+  "pane_id": "145b9ddb",
+  "workspace_dir": "/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-opencode-geometry_smoke_v1-l1h_rimq",
+  "captured_at_ms": 1782037251860,
+  "terminal": {
+    "cols": 100,
+    "rows": 30,
+    "scenario_default": {
+      "cols": 120,
+      "rows": 32
+    },
+    "resize_result": {
+      "ok": true
+    }
+  },
+  "source": "testbench/replay-capture.py"
+}

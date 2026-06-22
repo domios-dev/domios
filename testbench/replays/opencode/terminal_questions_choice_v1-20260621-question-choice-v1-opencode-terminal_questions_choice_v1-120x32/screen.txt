@@ -1,0 +1,23 @@
+Here is a fake menu with three numbered options:                                                                   
+     1. Alpha – The first option.                                                                                       
+     2. Beta – The second option.                                                                                       
+     3. Gamma – The third option.                                                                                       
+     ▣  Build · DeepSeek V4 Flash Free · 2.3s                                                                           
+  ┃                                                                                                                     
+  ┃  Ask me one clarifying question if your normal provider UI supports a blocking question. If not, state that no      
+  ┃  blocking question UI is available and stop.                                                                        
+  ┃                                                                                                                     
+     + Thought: 1.4s                                                                                                    
+     → Asked 1 question                                                                                                 
+     ▣  Build · DeepSeek V4 Flash Free                                                                                  
+  ┃                                                                                                                     
+  ┃  Should the notes persist across browser restarts using localStorage, or is session-only (in-memory) fine?          
+  ┃                                                                                                                     
+  ┃  1. localStorage (persist)                                                                                          
+  ┃     Notes survive browser close/reopen                                                                              
+  ┃  2. In-memory only                                                                                                  
+  ┃     Notes lost on tab close                                                                                         
+  ┃  3. Type your own answer                                                                                            
+  ┃                                                                                                                     
+  ┃  ↑↓ select  enter submit  esc dismiss                                                                               
+  ┃

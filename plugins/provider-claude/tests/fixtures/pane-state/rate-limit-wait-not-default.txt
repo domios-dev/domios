@@ -1,0 +1,9 @@
+Usage limit reached · resets 9am (America/New_York)
+
+What would you like to do?
+
+  1. Stop and wait for the limit to reset
+❯ 2. Upgrade your plan
+  3. Switch to a smaller model
+
+Enter to confirm · Esc to cancel

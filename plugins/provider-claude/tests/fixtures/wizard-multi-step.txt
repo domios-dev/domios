@@ -1,0 +1,11 @@
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ Environment  ☐ Autonomy  ☐ Scope  ☐ Verbosity  ✔ Submit →
+Which environment should this setup target?
+❯ 1. Dev (port 7686)     The hot-reload dev instance. Safe to kill and restart freely.
+  2. Prod (port 7685)    Production CodeTerm. Read-only, never killed.
+  3. Both                Apply setup across dev and prod where applicable.
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel

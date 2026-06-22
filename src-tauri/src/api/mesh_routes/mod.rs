@@ -1,9 +1,8 @@
 //! Mesh networking API routes — discovery, pairing, relay, sync.
 
 use crate::api::routes::{check_auth, AppState};
-use crate::mesh::types::address_tier;
 use axum::{
-    extract::{Path, State as AxumState},
+    extract::State as AxumState,
     http::{HeaderMap, StatusCode},
     Json,
 };
@@ -23,7 +22,7 @@ pub use introduction::mesh_introduce;
 pub use pairing::{
     mesh_pair_accept, mesh_pair_confirm, mesh_pair_reject, mesh_pair_request, mesh_unpair,
 };
-pub use relay::{mesh_relay, mesh_sync};
+pub use relay::{mesh_relay, mesh_relay_to_peer, mesh_sync};
 
 pub async fn mesh_ping() -> Json<serde_json::Value> {
     Json(serde_json::json!({"mesh": true}))
@@ -132,124 +131,6 @@ pub async fn mesh_peers(
     check_auth(&state, &headers)?;
     let mesh = state.mesh.lock();
     Ok(Json(serde_json::to_value(mesh.peers_response()).unwrap()))
-}
-
-#[derive(serde::Deserialize)]
-struct PeerWebTokenResponse {
-    token: String,
-}
-
-pub async fn mesh_peer_web_token(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-
-    let peer = {
-        let mesh = state.mesh.lock();
-        mesh.paired_peers.get(&id).cloned().ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                format!("Paired peer {} was not found", id),
-            )
-        })?
-    };
-    if peer.addresses.is_empty() {
-        return Err((StatusCode::BAD_GATEWAY, "Peer has no addresses".to_string()));
-    }
-
-    let signed_token = state.mesh.lock().sign_request().map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Sign failed: {}", e),
-        )
-    })?;
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .unwrap_or_default();
-    let mut addresses = peer.addresses.clone();
-    addresses.sort_by_key(address_tier);
-    let mut errors = Vec::new();
-
-    for addr in addresses {
-        let base = format!("http://{}:{}", addr.ip, peer.api_port);
-        let url = format!("{}/api/mesh/web-token", base);
-        match client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", signed_token))
-            .send()
-            .await
-        {
-            Ok(resp) if resp.status().is_success() => {
-                let body = resp.json::<PeerWebTokenResponse>().await.map_err(|e| {
-                    (
-                        StatusCode::BAD_GATEWAY,
-                        format!("Peer returned invalid web token response: {}", e),
-                    )
-                })?;
-                if body.token.trim().is_empty() {
-                    return Err((
-                        StatusCode::BAD_GATEWAY,
-                        "Peer returned an empty web token".to_string(),
-                    ));
-                }
-                // Prefer the peer's tailscale-serve HTTPS front: an
-                // https-origin browser cannot fetch an http:// host
-                // (mixed content), so the plain IP would brick the switch.
-                let browser_host = peer.https_url.clone().unwrap_or(base);
-                return Ok(Json(serde_json::json!({
-                    "ok": true,
-                    "peer_id": id,
-                    "host": browser_host,
-                    "token": body.token,
-                })));
-            }
-            Ok(resp) => {
-                let status = resp.status();
-                let text = resp.text().await.unwrap_or_default();
-                errors.push(format!("{} HTTP {} {}", addr.ip, status, text));
-            }
-            Err(e) => errors.push(format!("{} {}", addr.ip, e)),
-        }
-    }
-
-    Err((
-        StatusCode::BAD_GATEWAY,
-        format!("Failed to mint peer web token: {}", errors.join("; ")),
-    ))
-}
-
-pub async fn mesh_web_token(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    // Return a short-lived scoped token instead of the permanent master token,
-    // so that the master key is never exposed outside the daemon process.
-    // If the web token leaks (logs, Referer, network), it expires within 1 hour.
-    let token = {
-        use rand::RngCore;
-        let mut bytes = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut bytes);
-        let token = bytes
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>();
-        let mut cache = state.web_tokens.lock().map_err(|e| {
-            log::error!("[mesh] web token cache lock poisoned: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Web token cache unavailable",
-            )
-        })?;
-        // Opportunistic cleanup: drop expired tokens to bound memory.
-        cache.retain(|_, created| created.elapsed() < crate::api::routes::WEB_TOKEN_TTL);
-        cache.insert(token.clone(), std::time::Instant::now());
-        token
-    };
-    Ok(Json(serde_json::json!({ "ok": true, "token": token })))
 }
 
 pub async fn mesh_discover(

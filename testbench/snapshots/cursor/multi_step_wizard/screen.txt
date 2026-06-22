@@ -1,0 +1,25 @@
+kandrey@ROC-6W49K3GN codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-abf037b9-9185-4836-bd39-b18ef1ef4141.sh
+
+
+  Cursor Agent
+  v2026.06.19-20-24-33-653a7fb
+  Use /plan to plan execution and reach the right outcome faster.
+
+                                                                                                                       
+  Make a multi-step test picker with several stages and select-all options, then wait.                                 
+                                                                                                                       
+
+  Exploring the workspace and CodeTerm skill to see how multi-step test pickers are built here.
+
+    Read, globbed 1 file, 1 glob
+    Used codeterm
+    Globbed "**/*" in .
+
+ ⠘⠤ Globbing  7.79k tokens
+
+                                                                                                                       
+  → Add a follow-up                                                                                     ctrl+c to stop 
+                                                                                                                       
+
+  Composer 2.5 · 6.9%                                                                                   Run Everything
+  /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/codeterm-snapshot-testbench

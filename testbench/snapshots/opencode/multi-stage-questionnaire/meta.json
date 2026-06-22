@@ -1,0 +1,10 @@
+{
+  "provider": "opencode",
+  "situation": "multi-stage-questionnaire",
+  "capturedAtMs": 1781992429543,
+  "paneId": "4ed0fdd0",
+  "source": "dev-7686",
+  "until": "(?i)(section|question\\s*1|stage|\\bA\\)|\\bB\\)|\\bC\\)|option\\s*A|first section)",
+  "prompt": "Build a multi-stage A/B/C questionnaire across sections, then wait for my answers.",
+  "providerCliVersion": "1.17.8"
+}

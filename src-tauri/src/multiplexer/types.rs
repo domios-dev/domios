@@ -12,6 +12,72 @@ pub struct Workspace {
     /// Protected workspaces cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
+    /// Sibling ordinal among workspaces. Only relative order within the group
+    /// matters; the frontend sorts by it. Legacy snapshots default to 0.
+    #[serde(default)]
+    pub sort_order: i32,
+}
+
+/// A closed pane retained for browser-style reopen. Captures just enough to
+/// re-materialize the pane with the SAME backing — the `backing` reuses the
+/// existing `PaneBacking` serialization, and `agent_type` / `agent_session_id`
+/// carry the PTY-agent identity that lives outside `backing` so a reopened
+/// agent pane can resume its session (or launch fresh if it's gone). Persisted
+/// as one row in the sqlite closed-history store (`state::closed`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClosedPane {
+    pub pane_id: String,
+    /// Original parent pane id — preserves the orchestration hierarchy so a
+    /// cascade reopen can relink the subtree.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub parent_pane_id: Option<String>,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub backing: PaneBacking,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub model: Option<String>,
+    pub closed_at: u64,
+    /// Workspace the pane belonged to when it was closed. Empty string on old
+    /// records (pre-field snapshots) — treat as "unknown workspace".
+    #[serde(default)]
+    pub workspace_id: String,
+    /// Human-readable workspace name for display in the sidebar list.
+    #[serde(default)]
+    pub workspace_name: String,
+}
+
+impl From<&Pane> for ClosedPane {
+    /// Derive the closed record from a live pane. Captures every pane-owned
+    /// field in ONE place so adding a `Pane` field can't silently desync the
+    /// close path. The owning workspace + tab title/description are overlaid by
+    /// the close path (they aren't pane-local).
+    fn from(pane: &Pane) -> Self {
+        ClosedPane {
+            pane_id: pane.id.clone(),
+            parent_pane_id: pane.parent_pane_id.clone(),
+            title: pane.title.clone(),
+            description: pane.description.clone(),
+            backing: pane.backing.clone(),
+            cwd: pane.cwd.clone(),
+            agent_type: pane.agent_type.clone(),
+            agent_session_id: pane.agent_session_id.clone(),
+            model: pane.agent_session_model.clone(),
+            closed_at: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+            workspace_id: String::new(),
+            workspace_name: String::new(),
+        }
+    }
 }
 
 /// A tab holds exactly one pane.
@@ -19,7 +85,14 @@ pub struct Workspace {
 pub struct Tab {
     pub id: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
     pub pane_id: String,
+    /// Sibling ordinal within this tab's group (top-level tabs of a workspace,
+    /// or children sharing a parent pane). Only relative order within the group
+    /// matters; cross-group values may collide. Legacy snapshots default to 0.
+    #[serde(default)]
+    pub sort_order: i32,
 }
 
 /// Legacy — kept only for old snapshot deserialization.
@@ -51,18 +124,50 @@ impl AgentRole {
 
 /// An interactive prompt detected in agent output (e.g. permission request).
 /// Provider-agnostic — any agent can have pending prompts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PromptOption {
     pub label: String,
     /// Value to send to PTY (e.g. "1", "y", "n")
     pub value: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PromptSection {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub active: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub completed: bool,
+}
+
 /// A pending interactive prompt from an agent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PendingPrompt {
     pub question: String,
     pub options: Vec<PromptOption>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sections: Option<Vec<PromptSection>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multi_select: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submit_available: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_values: Option<Vec<String>>,
+}
+
+/// What backs a pane's I/O. A `Pty` pane runs a terminal; a `ChatBackend` pane is
+/// driven by a plugin's `chatBackend` capability and keeps `pty_id: None`
+/// permanently (no backend reader, no screen state). The single discriminator the
+/// `PaneTransport` seam dispatches on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PaneBacking {
+    #[default]
+    Pty,
+    ChatBackend {
+        plugin_id: String,
+        session_id: String,
+    },
 }
 
 /// A pane represents a single terminal or browser panel.
@@ -71,8 +176,13 @@ pub struct Pane {
     pub id: String,
     /// Linked PTY ID, if this pane has a running terminal.
     pub pty_id: Option<String>,
+    /// What backs this pane's I/O (PTY by default, or a plugin chatBackend).
+    #[serde(default)]
+    pub backing: PaneBacking,
     pub pane_type: PaneType,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
     pub cwd: Option<String>,
     /// URL for browser panes.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -88,6 +198,11 @@ pub struct Pane {
     /// Timestamp when agent_type was set — grace period for idle-poll exit detection.
     #[serde(skip, default)]
     pub agent_set_at: Option<std::time::Instant>,
+    /// When the output-based exit heuristic first suspected the agent left (no
+    /// markers + shell prompt). Debounces a one-frame transient (e.g. a WebView
+    /// reload/resize redraw) from clearing a still-running agent.
+    #[serde(skip, default)]
+    pub exit_suspected_at: Option<std::time::Instant>,
     /// True while launch_agent boots the agent TUI in this pane. A booting
     /// TUI silently swallows bracket-paste input, so sends wait this out.
     /// Runtime-only: never persisted (a restart clears any stale true).
@@ -108,7 +223,13 @@ pub struct Pane {
     /// Current model family on the live session ("Opus"/"Sonnet"/"Haiku").
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_model: Option<String>,
-    /// Orchestration role (orchestrator / lead / worker).
+    /// Per-launch binding nonce, injected as CODETERM_SESSION_BINDING_NONCE and echoed back by the provider's session-start report. Rejects stale/foreign reports claiming this pane.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub session_binding_nonce: Option<String>,
+    /// Per-session nonce (env CODETERM_SHELL_NONCE) guarding OSC 633;E command text against forged output.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub shell_integration_nonce: Option<String>,
+    /// Orchestration role (orchestrator / worker — 2-level, no middle tier).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,
     /// Parent pane ID in the orchestration hierarchy.
@@ -117,7 +238,7 @@ pub struct Pane {
     /// Whether this pane can spawn child agents.
     #[serde(default)]
     pub can_spawn: bool,
-    /// Depth in hierarchy: 0=none, 1=orchestrator, 2=lead/worker, 3=worker.
+    /// Depth in hierarchy: 0=none, 1=orchestrator, 2=worker (flat, 2-level).
     #[serde(default)]
     pub depth: u8,
     /// Report target pane ID — for cron agents that report without joining hierarchy.
@@ -138,6 +259,12 @@ pub struct Pane {
     /// Pending interactive prompt (permission, confirmation, etc.)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pending_prompt: Option<PendingPrompt>,
+    /// Live 3-state agent classification (working / idle / question + subtype),
+    /// computed from the PTY stream by the shared state engine and surfaced to
+    /// the chat view's state indicator. Runtime-only — recomputed from output,
+    /// never persisted to the session snapshot (which is hand-built).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub agent_state: Option<crate::agent::offline_state_classifier::AgentLiveState>,
     /// Auto-approve prompts (set when spawned with skip_permissions).
     /// When true, detected prompts are answered automatically instead of shown to user.
     #[serde(default)]
@@ -191,10 +318,141 @@ impl Default for TitleLevel {
     }
 }
 
+impl Pane {
+    /// True when this pane is backed by a plugin `chatBackend` rather than a PTY.
+    /// The one helper the I/O seam and frontend branch on instead of probing
+    /// `pty_id`.
+    pub fn is_chat_backend(&self) -> bool {
+        matches!(self.backing, PaneBacking::ChatBackend { .. })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub enum PaneType {
     #[default]
     Terminal,
     /// Legacy — old snapshots only.
     Browser,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pane_with(id: &str, backing: PaneBacking) -> Pane {
+        Pane {
+            id: id.to_string(),
+            pty_id: None,
+            backing,
+            pane_type: PaneType::Terminal,
+            title: "Terminal".to_string(),
+            description: None,
+            cwd: None,
+            url: None,
+            agent_type: None,
+            agent_type_locked: false,
+            agent_session_id: None,
+            agent_session_name: None,
+            agent_session_model: None,
+            session_binding_nonce: None,
+            shell_integration_nonce: None,
+            role: None,
+            parent_pane_id: None,
+            can_spawn: false,
+            depth: 0,
+            report_target_pane_id: None,
+            spawned_by_pane_id: None,
+            title_level: TitleLevel::Default,
+            chat_view: false,
+            pending_prompt: None,
+            agent_state: None,
+            auto_approve: false,
+            protected: false,
+            connected_services: vec![],
+            agent_set_at: None,
+            exit_suspected_at: None,
+            agent_booting: false,
+            hidden: false,
+            show_in_tabbar: true,
+            worker_id: None,
+            restored_from_snapshot: false,
+        }
+    }
+
+    #[test]
+    fn pty_pane_is_not_chat_backend() {
+        let p = pane_with("a", PaneBacking::Pty);
+        assert!(!p.is_chat_backend());
+    }
+
+    #[test]
+    fn chat_backend_pane_is_detected() {
+        let p = pane_with(
+            "b",
+            PaneBacking::ChatBackend {
+                plugin_id: "local-shell".into(),
+                session_id: "s1".into(),
+            },
+        );
+        assert!(p.is_chat_backend());
+    }
+
+    #[test]
+    fn backing_round_trips_on_pane_and_defaults_to_pty() {
+        // A ChatBackend pane survives a serde round-trip.
+        let p = pane_with(
+            "c",
+            PaneBacking::ChatBackend {
+                plugin_id: "local-shell".into(),
+                session_id: "s1".into(),
+            },
+        );
+        let v = serde_json::to_value(&p).unwrap();
+        let back: Pane = serde_json::from_value(v).unwrap();
+        assert!(back.is_chat_backend());
+        // And a serialized pane with the `backing` key removed (pre-field
+        // snapshot) defaults to Pty.
+        let mut v = serde_json::to_value(&p).unwrap();
+        v.as_object_mut().unwrap().remove("backing");
+        let back: Pane = serde_json::from_value(v).unwrap();
+        assert_eq!(back.backing, PaneBacking::Pty);
+        assert!(!back.is_chat_backend());
+    }
+
+    #[test]
+    fn chat_backing_round_trips_through_serde() {
+        let backing = PaneBacking::ChatBackend {
+            plugin_id: "local-shell".into(),
+            session_id: "abc".into(),
+        };
+        let v = serde_json::to_value(&backing).unwrap();
+        assert_eq!(v["kind"], "chat_backend");
+        let back: PaneBacking = serde_json::from_value(v).unwrap();
+        assert_eq!(back, backing);
+    }
+
+    #[test]
+    fn backing_matches_frontend_ts_contract_shape() {
+        // The TS type is `{ kind: 'chat_backend'; plugin_id: string;
+        // session_id: string }` (internally tagged, snake_case) — plugin_id and
+        let v = serde_json::to_value(PaneBacking::ChatBackend {
+            plugin_id: "lmstudio".into(),
+            session_id: "s7".into(),
+        })
+        .unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({
+                "kind": "chat_backend",
+                "plugin_id": "lmstudio",
+                "session_id": "s7",
+            })
+        );
+        // The default (Pty) variant is a bare tag — what TabContent treats as
+        // "not a chat pane".
+        assert_eq!(
+            serde_json::to_value(PaneBacking::Pty).unwrap(),
+            serde_json::json!({ "kind": "pty" })
+        );
+    }
 }

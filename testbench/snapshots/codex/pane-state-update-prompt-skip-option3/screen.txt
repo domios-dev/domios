@@ -1,0 +1,6 @@
+✨ Update available! 0.141.0 → 0.142.1
+Release notes: https://github.com/openai/codex/releases/latest
+❯ 1. Update now (runs the official installer)
+  2. Remind me later
+  3. Skip
+Press enter to continue

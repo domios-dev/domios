@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { X, TerminalSquare, FolderOpen } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
@@ -8,6 +8,7 @@ import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import type { PaneStatus, Workspace } from "../../lib/types";
+import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
 interface WorkspaceItemProps {
   workspace: Workspace;
@@ -22,12 +23,11 @@ interface WorkspaceItemProps {
   canClose: boolean;
   status: PaneStatus | null;
   hasWaiting: boolean;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDrop?: (e: React.DragEvent) => void;
   touchMode?: boolean;
+  uiFontScale?: number;
 }
 
-export function WorkspaceItem({
+function WorkspaceItemInner({
   workspace,
   isActive,
   isExpanded,
@@ -40,13 +40,11 @@ export function WorkspaceItem({
   canClose: _canClose,
   status: _status,
   hasWaiting,
-  onDragOver,
-  onDrop,
   touchMode = false,
+  uiFontScale,
 }: WorkspaceItemProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(workspace.name);
-  const [dragOver, setDragOver] = useState(false);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -72,6 +70,9 @@ export function WorkspaceItem({
   // Backend descriptors — single source of truth across bundled + user-installed JS plugins. Frontend `getAllProviders()` only knew about
   // plugins with a `src/index.ts` FE module, which left drop-in `~/.codeterm/plugins/<id>/plugin.js` plugins invisible in the workspace menu.
   const { providers } = useAgentProviders();
+  const workspaceText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
+  const workspaceTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
+  const workspaceCountText = pickUiFontScaleValue(uiFontScale, ["text-[9px]", "text-[10px]", "text-[11px]", "text-xs"]);
 
   const menuItems: DropdownMenuItem[] = useMemo(() => {
     const items: DropdownMenuItem[] = [
@@ -119,18 +120,7 @@ export function WorkspaceItem({
         ${touchMode ? "min-h-11 px-2 py-2" : "px-1 py-2"}
         ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
         ${hasWaiting ? "bg-[var(--ct-yellow)]/10" : ""}
-        ${dragOver ? "bg-[var(--ct-accent)]/20" : ""}
       `}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragOver(true);
-        onDragOver?.(e);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        setDragOver(false);
-        onDrop?.(e);
-      }}
     >
       <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
         {/* Chevron toggle — rotates on expand/collapse */}
@@ -173,15 +163,15 @@ export function WorkspaceItem({
               onBlur={commitRename}
               onKeyDown={handleKeyDown}
               onClick={(e) => e.stopPropagation()}
-              className={`${touchMode ? "text-sm py-1" : "text-xs py-0"} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 w-full outline-none`}
+              className={`${touchMode ? `${workspaceTouchText} py-1` : `${workspaceText} py-0`} bg-[var(--ct-bg)] text-[var(--ct-fg)] border border-[var(--ct-border)] rounded px-1 w-full outline-none`}
             />
           ) : (
-            <span className={`${touchMode ? "text-[14px]" : "text-xs"} font-medium truncate`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
+            <span className={`${touchMode ? workspaceTouchText : workspaceText} font-medium truncate`} onDoubleClick={handleDoubleClick} title={workspace.cwd || undefined}>
               {workspace.name}
             </span>
           )}
         </div>
-        <span className="text-[10px] text-[var(--ct-muted)]">
+        <span className={`${workspaceCountText} text-[var(--ct-muted)]`}>
           {workspace.tabs.length}
         </span>
         {hasWaiting && (
@@ -210,3 +200,23 @@ export function WorkspaceItem({
     </div>
   );
 }
+
+// Workspace objects are new references after every SET_STATE. Compare by value
+// for display-relevant fields so a pane-status tick on a different workspace
+function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps): boolean {
+  return (
+    prev.isActive === next.isActive &&
+    prev.isExpanded === next.isExpanded &&
+    prev.status === next.status &&
+    prev.hasWaiting === next.hasWaiting &&
+    prev.canClose === next.canClose &&
+    prev.touchMode === next.touchMode &&
+    prev.uiFontScale === next.uiFontScale &&
+    prev.workspace.id === next.workspace.id &&
+    prev.workspace.name === next.workspace.name &&
+    prev.workspace.cwd === next.workspace.cwd &&
+    prev.workspace.tabs.length === next.workspace.tabs.length
+  );
+}
+
+export const WorkspaceItem = memo(WorkspaceItemInner, workspacePropsEqual);

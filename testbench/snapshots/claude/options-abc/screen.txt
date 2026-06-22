@@ -1,0 +1,36 @@
+kandrey@ROC-6W49K3GN codeterm-snapshot-testbench % bash /tmp/codeterm-spawn-1bde1e14-a59f-4e91-84af-b79530148edc.sh
+╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ Improved auto mode safety: destructive git commands (`git rese… │
+│                        ▘▘ ▝▝                       │ Added a warning when the requested model is deprecated or auto… │
+│                                                    │ Added `attribution.sessionUrl` setting to omit the claude.ai s… │
+│ Opus 4.8 with high effort · Claude Team · 8x8 RD 2 │ /release-notes for more                                         │
+│          /…/T/codeterm-snapshot-testbench          │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Show me a concise example of when you would give me a choice with exactly A/B/C options. Format it as one question    
+  followed by exactly three options labeled A), B), and C).                                                             
+  
+⏺ A good case is when you ask me to do something and there are a few distinct, mutually exclusive ways to proceed — none
+  clearly correct without your input. For example, if you said "set up linting for this project" and I found no config,
+  I'd ask:
+
+  How should I configure the linter?
+
+  A) Strict — enable the recommended ruleset plus type-aware rules, and fail CI on any warning.
+  B) Balanced — recommended ruleset only, warnings allowed locally but errors block CI.
+  C) Minimal — just formatting/whitespace rules, no opinionated style enforcement.
+
+  Each option leads to a genuinely different setup, so picking one changes what I build — that's the signal that a
+  choice is worth surfacing rather than just defaulting.
+
+✻ Baked for 8s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents                                                 ● high · /effort

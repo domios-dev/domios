@@ -26,6 +26,7 @@ export interface MemoryInitialState {
   feedVisible: boolean;
   workerPanelVisible: boolean;
   activeTab?: MemoryTab;
+  inspectView?: "graph" | "list";
 }
 
 const TABS: MemoryTab[] = ["dreams", "inspect", "activity", "settings"];
@@ -53,6 +54,13 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
   const [selectedId, setSelectedId] = useState<string | null>(
     initialState?.selectedId ?? null,
   );
+
+  useEffect(() => {
+    if (!initialState) return;
+    setSelectedId(initialState.selectedId ?? null);
+    if (initialState.activeTab) setActiveTab(normalizeTab(initialState.activeTab));
+    if (initialState.inspectView) setInspectView(initialState.inspectView);
+  }, [initialState]);
 
   const [memStats, setMemStats] = useState<MemStats | null>(null);
 
@@ -121,7 +129,11 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
     snapshot.status === "ready" && snapshot.index != null && snapshot.index.byId.size === 0;
 
   return (
-    <div className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
+    <div
+      className="absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]"
+      data-testid="memory-panel"
+      data-memory-active-tab={activeTab}
+    >
       {/* Header with tabs */}
       <div
         className={`${UI_PANEL.toolbar} gap-0 px-4 py-0 bg-[var(--ct-titlebar-bg)] border-b border-[var(--ct-border)] text-[var(--ct-fg)] ct-hscroll whitespace-nowrap`}
@@ -129,9 +141,14 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
       >
         <div className="flex items-center gap-3 mr-4 shrink-0">
           <strong>Memory</strong>
-          <span className="text-[11px] opacity-70 max-sm:hidden">
-            {snapshot.stats?.node_count ?? 0} nodes &middot;{" "}
-            {snapshot.stats?.edge_count ?? 0} edges
+          <span className="text-[11px] opacity-70 max-sm:hidden" data-testid="memory-stats-summary">
+            {/* Use fresh memStats (refreshes on mem-activity) — the cached graph
+                snapshot is keyed by layout_version and goes stale after edge edits. */}
+            {memStats
+              ? memStats.total_entities + memStats.total_items
+              : (snapshot.stats?.node_count ?? 0)}{" "}
+            nodes &middot;{" "}
+            {memStats ? memStats.total_relations : (snapshot.stats?.edge_count ?? 0)} edges
           </span>
           {memStats && memStats.total_vectors < memStats.total_items && (
             <span className="text-[11px] text-[var(--ct-yellow)] flex items-center gap-1">
@@ -150,8 +167,10 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           {TABS.map((tab) => (
             <button
               key={tab}
+              data-testid={`memory-tab-${tab}`}
               onClick={() => setActiveTab(tab)}
               className={tabClass(activeTab === tab, touchUi)}
+              aria-pressed={activeTab === tab}
             >
               {tab}
             </button>
@@ -176,17 +195,17 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
         {activeTab === "inspect" && inspectView === "graph" &&
           snapshot.status === "loading" && !snapshot.index && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className={UI_TEXT.meta}>Loading memory graph...</span>
+            <span className={UI_TEXT.meta} data-testid="memory-graph-loading">Loading memory graph...</span>
           </div>
         )}
         {activeTab === "inspect" && inspectView === "graph" && snapshotError && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded bg-[var(--ct-red)] text-white text-xs">
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded bg-[var(--ct-red)] text-white text-xs" data-testid="memory-graph-error" role="alert">
             {snapshotError}
           </div>
         )}
         {activeTab === "inspect" && inspectView === "graph" && showSnapshotEmpty && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className={UI_TEXT.meta}>No memory graph data yet.</span>
+            <span className={UI_TEXT.meta} data-testid="memory-graph-empty">No memory graph data yet.</span>
           </div>
         )}
         {snapshot.index && !showSnapshotEmpty && (
@@ -197,6 +216,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
                 : "absolute inset-0 invisible pointer-events-none"
             }
             aria-hidden={!(activeTab === "inspect" && inspectView === "graph")}
+            data-testid="memory-graph-view"
           >
             <MemorySnapshotCanvas
               api={api}
@@ -213,6 +233,8 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5">
             <button
               type="button"
+              data-testid="memory-inspect-view-toggle"
+              data-memory-inspect-view={inspectView}
               onClick={() => setInspectView(inspectView === "graph" ? "list" : "graph")}
               className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`}
             >
@@ -223,6 +245,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
               <button
                 type="button"
                 title="Drop cached layout and refetch"
+                data-testid="memory-graph-refresh"
                 onClick={() => void snapshot.refresh()}
                 className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} gap-1.5 backdrop-blur-md shadow-lg`}
               >

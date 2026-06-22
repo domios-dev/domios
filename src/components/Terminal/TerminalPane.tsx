@@ -1,5 +1,5 @@
-import { useEffect, useRef, useCallback, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { memo, useEffect, useRef, useCallback, useMemo, useState } from "react";
+import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { IS_WEB, listen } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -18,9 +18,9 @@ import { quotePathForPaste, routeClipboardToTerm } from "../../lib/clipboardPast
 import { registerPanePaste } from "../../lib/panePasteRegistry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import {
-  getClientPaneUiMode,
   listenClientPaneUiMode,
   publishCurrentPaneUiMode,
+  resolveInitialPaneUiMode,
   setClientPaneUiMode,
 } from "../../lib/clientPaneUiMode";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
@@ -29,12 +29,14 @@ import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
 import { PaneSessionChat } from "./PaneSessionChat";
 import {
+  isChatDefaultEnabled,
   isPaneUiModeEvent,
   type PaneUiMode,
 } from "../../lib/chatUiMode";
-import { useAgentDescriptor } from "../../lib/agentDescriptorCache";
+import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
+import { shouldShowDropOverlay } from "./dropOverlay";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -43,12 +45,13 @@ interface TerminalPaneProps {
   hasSplits?: boolean;
   onFocus?: (paneId: string) => void;
   onPtySpawned?: (paneId: string, ptyId: string) => void;
-  theme?: ThemeConfig;
+  theme: ThemeConfig;
   fontConfig?: FontConfig;
   terminalConfig?: TerminalConfigSettings;
+  uiFontScale?: number;
 }
 
-export function TerminalPane({
+export const TerminalPane = memo(function TerminalPane({
   paneId,
   ptyId,
   isFocused = false,
@@ -58,7 +61,9 @@ export function TerminalPane({
   theme,
   fontConfig,
   terminalConfig,
+  uiFontScale,
 }: TerminalPaneProps) {
+  const paneRootRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fallbackShellRef = useRef<HTMLDivElement>(null);
   const connectedPtyRef = useRef<string | null>(null);
@@ -68,10 +73,18 @@ export function TerminalPane({
   const agentType = pane?.agent_type;
   // No session-readiness gate: PaneSessionChat renders an empty chat for fresh
   // panes and binds the session when the mux reports its id.
-  // Reactive descriptor read — descriptors load async after mount; a plain
-  // cache read would freeze chatSupported=false for panes rendered first.
   const agentDescriptor = useAgentDescriptor(agentType);
-  const chatSupported = agentDescriptor?.supports_chat_ui === true;
+  // Optimistic while the descriptor is still loading: an agent pane is assumed
+  // chat-capable so a chat-default pane renders chat on the first frame (no
+  // terminal flash). Corrected to terminal only if the loaded descriptor says so.
+  const chatCapable =
+    pane?.backing?.kind === "chat_backend"
+      ? true
+      : !agentType
+        ? false
+        : agentDescriptor
+          ? agentDescriptor.supports_chat_ui === true
+          : true;
   const [mobileWebDefaultChat, setMobileWebDefaultChat] = useState(() =>
     IS_WEB && typeof window !== "undefined" && window.matchMedia("(max-width: 700px)").matches,
   );
@@ -84,30 +97,33 @@ export function TerminalPane({
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
-  const shouldDefaultToChat =
-    pane?.chat_view === true ||
-    (mobileWebDefaultChat && chatSupported);
-
   // --- Terminal lifecycle ---
   const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
     containerRef, theme, fontConfig, terminalConfig,
   });
 
   // --- UI state ---
-  // Mode priority: explicit client-local choice > backend chat_view (set via
-  // the REST remote-control endpoint) > spawn/mobile default.
-  const backendDefault = pane?.chat_view ? "chat" : undefined;
-  const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
-    chatSupported
-      && (getClientPaneUiMode(paneId) ?? backendDefault ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat"
-      ? "chat"
-      : "terminal"
-  ));
   const userModeOverrideRef = useRef<PaneUiMode | null>(null);
+  // Mode priority: explicit client-local choice > backend chat_view > global
+  // chat-default > terminal. Resolved synchronously (no descriptor await) so the
+  // pane opens in its final view with no flash, then settles on the same value.
+  const computeMode = useCallback((): PaneUiMode => {
+    if (userModeOverrideRef.current) {
+      return userModeOverrideRef.current === "chat" && chatCapable ? "chat" : "terminal";
+    }
+    return resolveInitialPaneUiMode(paneId, {
+      chatCapable,
+      chatViewFlag: pane?.chat_view === true,
+      chatDefault: isChatDefaultEnabled(),
+      mobileDefault: mobileWebDefaultChat,
+    });
+  }, [paneId, chatCapable, pane?.chat_view, mobileWebDefaultChat]);
+  const [uiMode, setUiMode] = useState<PaneUiMode>(computeMode);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
+  const wasTerminalVisibleRef = useRef(terminalVisible);
   const terminalOwnsLivePty = !IS_WEB || terminalVisible;
   const resizeClientId = useMemo(() => getResizeClientId(), []);
   const claimTerminalOwnership = useCallback((force = false) => {
@@ -176,12 +192,16 @@ export function TerminalPane({
   const SHEET_TOP = "calc(var(--ct-safe-top, 0px) + 2.5rem)";
   const SHEET_HEADER = "2.5rem";
   const SHEET_FOOTER = "3.75rem";
+  // Desktop fallback flies out near-fullscreen but keeps margins + shadow so it
+  // reads as a floating overlay above the chat, not an edge-to-edge takeover.
+  const FB_TOP = "calc(var(--ct-safe-top, 0px) + 2.75rem)";
+  const FB_SIDE = 16;
+  const FB_HEADER = "2.5rem";
+  const FB_BOTTOM = "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))";
+  const FB_SHADOW = "0 24px 64px rgba(0,0,0,0.5)";
 
   // chat_start/chat_stop are owned exclusively by useChatSession's mount/
   // unmount (PaneSessionChat is mounted iff uiMode === "chat"). A second
-  // chat_stop here used to double-decrement the tailer refcount under
-  // StrictMode/HMR churn, shutting the live tailer down while chat was still
-  // mounted — sent bubbles then never got their real echo. Keep it 1:1.
 
   useEffect(() => {
     if (isFocused && terminalOwnsLivePty) {
@@ -190,18 +210,14 @@ export function TerminalPane({
   }, [isFocused, terminalOwnsLivePty, claimTerminalOwnership]);
 
   useEffect(() => {
-    const defaultMode: PaneUiMode = chatSupported
-      && ((getClientPaneUiMode(paneId) ?? backendDefault ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat")
-      ? "chat"
-      : "terminal";
-    const desiredMode = userModeOverrideRef.current ?? defaultMode;
-    setUiMode((mode) => mode === desiredMode ? mode : desiredMode);
-  }, [agentType, chatSupported, paneId, shouldDefaultToChat, backendDefault]);
+    const desired = computeMode();
+    setUiMode((mode) => (mode === desired ? mode : desired));
+  }, [computeMode]);
 
   useEffect(() => listenClientPaneUiMode(paneId, (mode) => {
     userModeOverrideRef.current = mode;
-    setUiMode(mode === "chat" && !chatSupported ? "terminal" : mode);
-  }), [paneId, chatSupported]);
+    setUiMode(mode === "chat" && !chatCapable ? "terminal" : mode);
+  }), [paneId, chatCapable]);
 
   // Remote-control: an explicit REST /chat-view call (bridge, agents, tests)
   // broadcasts `pane-chat-view`; apply it as if the user toggled locally.
@@ -223,8 +239,6 @@ export function TerminalPane({
 
   // The client-mode store records EXPLICIT choices only (user toggles, spawn
   // default, bridge requests). Persisting every computed uiMode here used to
-  // erase the spawn-flow's "chat" with the pre-agent_type "terminal" and its
-  // echo got recorded as a user override — pinning new panes to terminal.
   useEffect(() => {
     publishCurrentPaneUiMode(paneId, uiMode);
   }, [paneId, uiMode]);
@@ -237,7 +251,7 @@ export function TerminalPane({
       const requested = event.detail.mode;
       userModeOverrideRef.current = requested;
       setClientPaneUiMode(paneId, requested);
-      if (requested === "chat" && !chatSupported) {
+      if (requested === "chat" && !chatCapable) {
         setUiMode("terminal");
         return;
       }
@@ -245,27 +259,32 @@ export function TerminalPane({
     };
     window.addEventListener("codeterm-pane-ui-mode", handler);
     return () => window.removeEventListener("codeterm-pane-ui-mode", handler);
-  }, [paneId, chatSupported]);
+  }, [paneId, chatCapable]);
 
   // Tauri file-drop uses the same `term.paste` path as keyboard paste.
   // Bracketed-paste rules stay active when chat is off.
   const { isDragOver: isFileDragOver } = useTauriFileDrop({
-    containerRef,
-    enabled: termReady && uiMode === "terminal",
+    containerRef: paneRootRef,
+    enabled: termReady,
     onPaths: (paths) => {
       const term = termRef.current;
-      if (!term || paths.length === 0) return;
+      if (!term || paths.length === 0 || uiMode !== "terminal") return;
       term.paste(paths.map(quotePathForPaste).join(" "));
     },
   });
 
   // Track non-file drag overlay too (browser text drags). Tauri handles files, HTML dragenter handles text.
   const [isTextDragOver, setIsTextDragOver] = useState(false);
-  const showDropOverlay = (isFileDragOver || isTextDragOver) && termReady && uiMode === "terminal";
+  const showDropOverlay = shouldShowDropOverlay({
+    isFileDragOver,
+    isTextDragOver,
+    termReady,
+  });
 
   // --- Input handling ---
   const { copySelection, pasteFromClipboard } = useTerminalInput({
     termRef, connectedPtyRef, containerRef, termReady,
+    terminalActive: terminalVisible,
     onTabKey: completion.handleTab,
     onNonTabKey: completion.dismissCompletions,
     onInputData: completion.feedInput,
@@ -273,13 +292,18 @@ export function TerminalPane({
 
   // Refit xterm when the terminal layout changes so rows match the actual terminal box.
   useEffect(() => {
-    if (!terminalVisible || !termReady) return;
+    const openingTerminal = terminalVisible && !wasTerminalVisibleRef.current;
+    if (!terminalVisible || !termReady) {
+      if (!terminalVisible) wasTerminalVisibleRef.current = false;
+      return;
+    }
     const raf = requestAnimationFrame(() => {
       const term = termRef.current;
       const fit = fitAddonRef.current;
       if (!term || !fit) return;
       try {
         fit.fit();
+        if (openingTerminal) term.scrollToBottom();
         term.refresh(0, term.rows - 1);
         const ptyId = connectedPtyRef.current;
         if (ptyId && term.cols > 0 && term.rows > 0) {
@@ -294,35 +318,10 @@ export function TerminalPane({
         }
       } catch { /* ignore */ }
       termRef.current?.focus();
+      wasTerminalVisibleRef.current = terminalVisible;
     });
     return () => cancelAnimationFrame(raf);
   }, [terminalVisible, showTerminalKeyBar, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
-
-  useEffect(() => {
-    if (!terminalFallbackOpen || !termReady) return;
-    const raf = requestAnimationFrame(() => {
-      const term = termRef.current;
-      const fit = fitAddonRef.current;
-      if (!term || !fit) return;
-      try {
-        fit.fit();
-        term.refresh(0, term.rows - 1);
-        const ptyId = connectedPtyRef.current;
-        if (ptyId && term.cols > 0 && term.rows > 0) {
-          void claimResizeOwner(paneId, ptyId, resizeClientId, term.cols, term.rows)
-            .then(() => invoke("resize_pty", {
-              ptyId,
-              cols: term.cols,
-              rows: term.rows,
-              clientId: resizeClientId,
-            }))
-            .catch(() => {});
-        }
-      } catch { /* ignore */ }
-      term.focus();
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [terminalFallbackOpen, termReady, paneId, resizeClientId, termRef, fitAddonRef, connectedPtyRef]);
 
   useEffect(() => {
     if (!terminalFallbackOpen || uiMode !== "chat") return;
@@ -399,13 +398,15 @@ export function TerminalPane({
     : hasSplits && isFocused
       ? "var(--ct-muted-fg, #8b949e)"
       : "transparent";
-  const terminalBackground = theme?.background ?? "transparent";
+  const terminalBackground = theme.background;
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
 
   // --- Render ---
   return (
     <div
+      ref={paneRootRef}
       className="w-full h-full relative"
+      data-testid="terminal-pane"
       data-pane-id={paneId}
       style={{
         boxSizing: "border-box",
@@ -434,7 +435,7 @@ export function TerminalPane({
         e.stopPropagation();
         setIsTextDragOver(false);
         const term = termRef.current;
-        if (!term) return;
+        if (!term || uiMode !== "terminal") return;
         const text = e.dataTransfer.getData("text/plain");
         if (text) term.paste(text);
       }}
@@ -456,33 +457,40 @@ export function TerminalPane({
           ? "absolute inset-0 grid grid-rows-[minmax(0,1fr)_auto] overflow-hidden"
           : "absolute"
         }
+        data-testid="terminal-frame"
+        data-terminal-visible={terminalVisible ? "true" : "false"}
         style={{
           top: showTerminalKeyBar
             ? undefined
             : mobileSheet
               ? `calc(${SHEET_TOP} + ${SHEET_HEADER})`
-              : fallbackChat ? "auto" : 0,
-          right: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : 12) : 0,
+              : fallbackChat ? `calc(${FB_TOP} + ${FB_HEADER})` : 0,
+          right: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : FB_SIDE) : 0,
           bottom: showTerminalKeyBar
             ? undefined
             : mobileSheet
               ? `calc(0.75rem + ${SHEET_FOOTER})`
               : fallbackChat
-                ? "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))"
+                ? FB_BOTTOM
                 : 0,
-          left: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : 12) : 0,
-          height: !showTerminalKeyBar && fallbackChat && !mobileSheet ? "min(38dvh, 320px)" : undefined,
-          borderRadius: mobileSheet ? 0 : fallbackChat ? 6 : 0,
+          left: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : FB_SIDE) : 0,
+          height: undefined,
+          borderRadius: mobileSheet ? 0 : fallbackChat ? "0 0 14px 14px" : 0,
           border: fallbackChat
-            ? "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)"
+            ? "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)"
             : "none",
-          borderTop: mobileSheet ? "none" : undefined,
+          borderTop: mobileSheet ? "none" : fallbackChat ? "none" : undefined,
           borderBottom: mobileSheet ? "none" : undefined,
+          boxShadow: fallbackChat && !mobileSheet ? FB_SHADOW : undefined,
           background: terminalBackground,
           visibility: terminalVisible ? "visible" : "hidden",
           pointerEvents: terminalVisible ? "auto" : "none",
           zIndex: terminalFallbackOpen ? 4 : uiMode === "terminal" ? 1 : 0,
-          animation: mobileSheet ? "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)" : undefined,
+          animation: mobileSheet
+            ? "ct-sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1)"
+            : fallbackChat
+              ? "ct-fb-in 200ms cubic-bezier(0.32, 0.72, 0, 1)"
+              : undefined,
         }}
       >
         {/* Padding lives on this frame, not on the xterm parent: FitAddon sizes
@@ -503,11 +511,12 @@ export function TerminalPane({
           }}
           onClick={() => termRef.current?.focus()}
         >
-          <div ref={containerRef} className="terminal-xterm-host w-full h-full" />
+          <div ref={containerRef} className="terminal-xterm-host w-full h-full" data-testid="terminal-xterm-host" />
         </div>
         {showTerminalKeyBar && (
           <div
             className="min-w-0 border-t px-2 pt-2"
+            data-testid="terminal-keybar-container"
             style={{
               paddingBottom: "var(--ct-composer-bottom-padding, 0.5rem)",
               borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
@@ -522,6 +531,7 @@ export function TerminalPane({
       {mobileSheet && (
         <div
           className="absolute inset-0"
+          data-testid="terminal-sheet-backdrop"
           style={{
             zIndex: 3,
             background: "rgba(0, 0, 0, 0.6)",
@@ -539,6 +549,7 @@ export function TerminalPane({
         <div className="absolute inset-0" style={{ zIndex: 2 }}>
           <PaneSessionChat
             paneId={paneId}
+            uiFontScale={uiFontScale}
             onError={() => {
               // Automatic fallback, NOT a user choice: never write the
               // client-mode store here or the pane gets pinned to terminal.
@@ -551,18 +562,6 @@ export function TerminalPane({
                 termRef.current?.focus();
               });
             }}
-            onToggleTerminalFallback={() => {
-              setTerminalFallbackOpen((open) => {
-                const next = !open;
-                if (next) {
-                  requestAnimationFrame(() => {
-                    claimTerminalOwnership(true);
-                    termRef.current?.focus();
-                  });
-                }
-                return next;
-              });
-            }}
           />
         </div>
       )}
@@ -570,29 +569,39 @@ export function TerminalPane({
       {fallbackChat && !mobileSheet && (
         <div ref={fallbackShellRef} className="absolute inset-0 pointer-events-none" style={{ zIndex: 5 }}>
           <div
-            className="absolute left-3 right-3 h-7 flex items-center justify-between px-2 rounded-t-md pointer-events-auto"
+            className="absolute flex items-center justify-between px-3 pointer-events-auto"
             style={{
-              bottom:
-                "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem) + min(38dvh, 320px))",
+              top: FB_TOP,
+              left: FB_SIDE,
+              right: FB_SIDE,
+              height: FB_HEADER,
               background: "color-mix(in srgb, var(--ct-bg, #0d1117) 92%, black 8%)",
               color: "var(--ct-fg, #c9d1d9)",
-              border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)",
               borderBottom: "none",
+              borderRadius: "14px 14px 0 0",
+              boxShadow: FB_SHADOW,
+              animation: "ct-fb-in 200ms cubic-bezier(0.32, 0.72, 0, 1)",
             }}
+            data-testid="terminal-fallback-header"
           >
-            <span className="text-xs font-mono opacity-80">Terminal fallback</span>
+            <span
+              className="flex items-center gap-2 text-[13px] font-semibold tracking-tight"
+              style={{ color: "var(--ct-fg)" }}
+            >
+              <SquareTerminal size={15} style={{ color: "var(--ct-accent, #58a6ff)" }} />
+              Terminal
+            </span>
             <button
               type="button"
-              className="px-2 h-5 rounded text-xs font-mono hover:brightness-125"
-              style={{
-                background: "var(--ct-surface)",
-                color: "var(--ct-muted-fg)",
-                border: "none",
-              }}
+              data-testid="terminal-fallback-close"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg transition hover:bg-[color-mix(in_srgb,var(--ct-muted-fg,#8b949e)_18%,transparent)]"
+              style={{ color: "var(--ct-muted-fg)" }}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setTerminalFallbackOpen(false)}
+              title="Close"
             >
-              Close
+              <X size={15} />
             </button>
           </div>
         </div>
@@ -603,6 +612,7 @@ export function TerminalPane({
           {/* Sheet header: grabber, live title, native Done */}
           <div
             className="absolute pointer-events-auto flex items-center justify-between px-3"
+            data-testid="terminal-sheet-header"
             style={{
               top: SHEET_TOP,
               left: 10,
@@ -643,6 +653,7 @@ export function TerminalPane({
           {/* Sheet footer: integrated key bar */}
           <div
             className="absolute pointer-events-auto px-3 pt-2"
+            data-testid="terminal-sheet-footer"
             style={{
               bottom: "0.75rem",
               left: 10,
@@ -666,6 +677,7 @@ export function TerminalPane({
           pointer-events: none so the drag continues to bubble naturally. */}
       <div
         className="absolute inset-2 rounded-md flex items-center justify-center pointer-events-none"
+        data-testid="terminal-drop-overlay"
         style={{
           opacity: showDropOverlay ? 1 : 0,
           transition: "opacity 120ms ease-out",
@@ -676,6 +688,7 @@ export function TerminalPane({
       >
         <div
           className="px-3 py-1.5 rounded text-[12px] font-medium"
+          data-testid="terminal-drop-overlay-label"
           style={{
             background: "color-mix(in srgb, var(--ct-bg, #0d1117) 80%, transparent)",
             color: "var(--ct-fg, #c9d1d9)",
@@ -690,6 +703,7 @@ export function TerminalPane({
       {shell.overlayVisible && (
         <div
           className={`absolute inset-0 ${!shell.shellReady ? "terminal-loading-overlay" : ""}`}
+          data-testid="terminal-loading-overlay"
           style={{
             background: "var(--ct-bg, #0d1117)",
             opacity: shell.shellReady ? 0 : 1,
@@ -726,4 +740,4 @@ export function TerminalPane({
       )}
     </div>
   );
-}
+});

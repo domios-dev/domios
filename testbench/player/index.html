@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CodeTerm Detection Replay Player</title>
+  <link rel="stylesheet" href="/src/styles/agent-state.css" />
+  <style>
+    :root {
+      --bg: #0b0d12;
+      --panel: #12151d;
+      --panel2: #171b24;
+      --text: #e6e8ee;
+      --muted: #8c93a3;
+      --border: rgba(255,255,255,.10);
+      --accent: #6366f1;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --ct-fg: var(--text);
+      --ct-muted-fg: var(--muted);
+      --ct-accent: #58a6ff;
+      --ct-think: #a371f7;
+      --ct-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+    }
+    .app {
+      display: grid;
+      grid-template-rows: 64px 1fr 96px;
+      height: 100vh;
+    }
+    header, footer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+    }
+    header {
+      min-width: 0;
+    }
+    footer {
+      border-top: 1px solid var(--border);
+      border-bottom: 0;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+    button, select, input[type="file"]::file-selector-button {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 6px 9px;
+      font: inherit;
+      font-size: 12px;
+    }
+    button:hover { border-color: rgba(99,102,241,.7); }
+    select { padding: 5px 8px; }
+    main {
+      display: grid;
+      grid-template-columns: minmax(520px, 1fr) 420px;
+      min-height: 0;
+    }
+    .terminal-wrap {
+      min-width: 0;
+      min-height: 0;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .terminal {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #05070a;
+      padding: 12px;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.35;
+      white-space: pre;
+      tab-size: 2;
+    }
+    .side {
+      border-left: 1px solid var(--border);
+      background: var(--panel);
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .box {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255,255,255,.025);
+      padding: 10px;
+    }
+    .chat-preview {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .chat-line {
+      border-left: 2px solid var(--border);
+      padding: 4px 0 4px 10px;
+      font-size: 13px;
+      line-height: 1.35;
+      display: grid;
+      gap: 3px;
+    }
+    .chat-line.working { border-left-color: transparent; color: var(--text); }
+    .chat-line.working[data-agent-phase="thinking"] .chat-status {
+      color: var(--ct-think, #a371f7);
+    }
+    .chat-line.working[data-agent-phase="streaming"] .chat-status {
+      color: var(--ct-accent, #58a6ff);
+    }
+    .chat-line.idle { color: var(--muted); }
+    .chat-line.status-message.idle {
+      border-left-color: transparent;
+    }
+    .chat-line.status-message.idle .chat-v {
+      color: var(--muted);
+    }
+    .chat-line.card { border-left-color: var(--amber); }
+    .chat-line.native-picker { border-left-color: var(--amber); opacity: .88; }
+    .chat-k {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .chat-v {
+      color: var(--text);
+      min-width: 0;
+    }
+    .chat-sub {
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 0;
+    }
+    .chat-status {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 6px;
+    }
+    .status {
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      gap: 6px 8px;
+      font-size: 12px;
+    }
+    .value { font-family: "JetBrains Mono", ui-monospace, monospace; color: #d9def0; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      width: max-content;
+      max-width: 100%;
+      min-height: 22px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(140,147,163,.12);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .pill.working { color: var(--green); background: rgba(34,197,94,.12); }
+    .pill.card { color: var(--amber); background: rgba(245,158,11,.12); }
+    .pill.fp { color: var(--red); background: rgba(239,68,68,.12); }
+    .timeline {
+      position: relative;
+      height: 32px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #080a0f;
+      overflow: hidden;
+    }
+    .band {
+      position: absolute;
+      top: 0;
+      height: 100%;
+      opacity: .7;
+    }
+    .band.idle { background: rgba(140,147,163,.18); }
+    .band.working { background: rgba(34,197,94,.42); }
+    .band.question { background: rgba(245,158,11,.52); }
+    .band.card { background: rgba(245,158,11,.52); }
+    .band.input { width: 2px; background: #fff; opacity: .9; }
+    .cursor {
+      position: absolute;
+      top: 0;
+      width: 2px;
+      height: 100%;
+      background: var(--accent);
+      box-shadow: 0 0 0 1px rgba(99,102,241,.4);
+    }
+    .drop-target {
+      outline: 2px solid rgba(99,102,241,.8);
+      outline-offset: -4px;
+    }
+    input[type="range"] { width: 100%; }
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .grow { flex: 1; }
+    .muted { color: var(--muted); }
+    .session-meta {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+      line-height: 1.2;
+    }
+    .session-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+    .session-detail {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--muted);
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 11px;
+    }
+    pre.debug {
+      margin: 0;
+      max-height: 240px;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 11px;
+      color: #cbd1df;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <strong>Detection Replay Player</strong>
+      <div class="session-meta grow">
+        <div class="session-title" id="meta-title">Load timeline.json</div>
+        <div class="session-detail" id="meta-detail">provider, scenario, capture, geometry, and build will appear here</div>
+      </div>
+      <button id="copy-link">Copy Frame Link</button>
+      <button id="load-url">Load ?src</button>
+      <input id="file" type="file" accept=".json,application/json" />
+    </header>
+
+    <main>
+      <section class="terminal-wrap">
+        <div class="row">
+          <span class="pill" id="frame-pill">frame 0 / 0</span>
+          <span class="pill" id="state-pill">idle</span>
+          <span class="pill" id="card-pill">no card</span>
+          <span class="pill" id="native-picker-pill">no native picker</span>
+          <span class="muted" id="time-label">0ms</span>
+        </div>
+        <pre class="terminal" id="terminal"></pre>
+      </section>
+      <aside class="side">
+        <div class="box chat-preview">
+          <div class="label">Chat UI Preview</div>
+          <div class="chat-line" id="chat-state"></div>
+          <div class="chat-line" id="chat-message"></div>
+          <div class="chat-line card" id="chat-card"></div>
+          <div class="chat-line native-picker" id="chat-native-picker"></div>
+          <div class="chat-line idle" id="chat-input"></div>
+        </div>
+        <div class="box">
+          <div class="label">Replay Quality</div>
+          <div class="status">
+            <span class="muted">inputs</span><span class="value" id="quality-inputs">-</span>
+            <span class="muted">frames</span><span class="value" id="quality-frames">-</span>
+            <span class="muted">cards</span><span class="value" id="quality-cards">-</span>
+            <span class="muted">native pickers</span><span class="value" id="quality-native-pickers">-</span>
+            <span class="muted">status</span><span class="value" id="quality-status">-</span>
+          </div>
+        </div>
+        <div class="box">
+          <div class="label">Status Message</div>
+          <div class="value" id="status-line">(none)</div>
+        </div>
+        <div class="box">
+          <div class="label">Frame</div>
+          <div class="status">
+            <span class="muted">phase</span><span class="value" id="phase">-</span>
+            <span class="muted">cursor</span><span class="value" id="cursor">-</span>
+            <span class="muted">DECSET</span><span class="value" id="decset">-</span>
+            <span class="muted">changed</span><span class="value" id="changed">-</span>
+          </div>
+        </div>
+        <div class="box">
+          <div class="label">Debug</div>
+          <pre class="debug" id="debug"></pre>
+        </div>
+      </aside>
+    </main>
+
+    <footer>
+      <div class="timeline" id="timeline"></div>
+      <div class="row">
+        <button id="play">Play</button>
+        <button id="prev">Prev</button>
+        <button id="next">Next</button>
+        <select id="speed">
+          <option value="0.25">0.25x</option>
+          <option value="1" selected>1x</option>
+          <option value="2">2x</option>
+          <option value="5">5x</option>
+          <option value="10">10x</option>
+        </select>
+        <input id="scrub" type="range" min="0" max="0" value="0" />
+      </div>
+    </footer>
+  </div>
+
+  <script>
+    const el = (id) => document.getElementById(id);
+    let frames = [];
+    let inputs = [];
+    let phases = [];
+    let idx = 0;
+    let playing = false;
+    let timer = null;
+    let timelineStart = 0;
+    let timelineEnd = 1;
+    let sourceUrl = "";
+    const STATUS_MESSAGE_MAX_CHARS = 80;
+
+    function frameTime(f) {
+      return Number(f.t_ms ?? f.t ?? f.time_ms ?? 0);
+    }
+
+    function frameText(f) {
+      const screen = f.screen ?? f.text ?? f.frame?.screen ?? "";
+      return Array.isArray(screen) ? screen.join("\n") : screen;
+    }
+
+    function detector(f) {
+      return f.detector ?? f.agent_state ?? f.state ?? {};
+    }
+
+    function rawPhase(f) {
+      if (!f) return "";
+      if (!isWorking(f)) return "";
+      return detector(f).phase || "work";
+    }
+
+    function stablePhaseAt(frameIdx, holdMs = 700) {
+      const current = rawPhase(frames[frameIdx]);
+      if (!current) return "";
+      let start = frameIdx;
+      while (start > 0 && rawPhase(frames[start - 1]) === current) start -= 1;
+      let end = frameIdx;
+      while (end + 1 < frames.length && rawPhase(frames[end + 1]) === current) end += 1;
+      const startT = frameTime(frames[start]);
+      const endT = frameTime(frames[end]);
+      if (endT - startT >= holdMs) return current;
+      if (start > 0) return rawPhase(frames[start - 1]);
+      return current;
+    }
+
+    function statusLine(f) {
+      const d = detector(f);
+      return d.status_line ?? f.status_line ?? "";
+    }
+
+    function completedLine(f) {
+      const d = detector(f);
+      const explicit = d.last_turn_summary ?? f.last_turn_summary;
+      if (explicit) return explicit;
+      const rows = frameText(f).split("\n").map((row) => row.trim()).filter(Boolean);
+      const spinner = "[✻✳✢✶✷✺✽●∗⋆*·]";
+      const duration = "(?:\\d+h\\s*)?(?:\\d+m\\s*)?\\d+s";
+      const re = new RegExp(`^${spinner}\\s+(.+?\\s+for\\s+${duration})$`);
+      for (const row of rows.slice(-20).reverse()) {
+        const match = row.match(re);
+        if (match) return match[1];
+      }
+      return "";
+    }
+
+    function isWorking(f) {
+      const d = detector(f);
+      return d.working === true || d.state === "working" || f.working === true;
+    }
+
+    function frameState(f) {
+      const d = detector(f);
+      if (hasCard(f) || d.state === "question") return "question";
+      if (isWorking(f)) return "working";
+      return "idle";
+    }
+
+    function hasCard(f) {
+      const d = detector(f);
+      return Boolean(d.pending_prompt ?? d.card ?? f.pending_prompt ?? f.card);
+    }
+
+    function cardValue(f) {
+      const d = detector(f);
+      return d.pending_prompt ?? d.card ?? f.pending_prompt ?? f.card ?? null;
+    }
+
+    function hasNativePicker(f) {
+      return Boolean(nativePickerValue(f));
+    }
+
+    function nativePickerValue(f) {
+      const d = detector(f);
+      return d.native_picker ?? f.native_picker ?? null;
+    }
+
+    function previousInput(t) {
+      let current = null;
+      for (const input of inputs) {
+        if (Number(input.t_ms ?? input.t ?? 0) <= t) current = input;
+        else break;
+      }
+      return current;
+    }
+
+    function summarizeQuality() {
+      const statusCount = frames.filter((f) => statusLine(f)).length;
+      const cardCount = frames.filter((f) => hasCard(f)).length;
+      const nativePickerCount = frames.filter((f) => hasNativePicker(f)).length;
+      const workingCount = frames.filter((f) => isWorking(f)).length;
+      el("quality-inputs").textContent = String(inputs.length);
+      el("quality-frames").textContent = String(frames.length);
+      el("quality-cards").textContent = String(cardCount);
+      el("quality-native-pickers").textContent = String(nativePickerCount);
+      el("quality-status").textContent = frames.length
+        ? `${Math.round((statusCount / Math.max(1, workingCount)) * 100)}% of working`
+        : "-";
+    }
+
+    function compactDuration(ms) {
+      const total = Math.max(0, Math.round(Number(ms || 0) / 1000));
+      const minutes = Math.floor(total / 60);
+      const seconds = total % 60;
+      return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
+    }
+
+    function formatCapturedAt(value) {
+      const ms = Number(value);
+      if (!Number.isFinite(ms) || ms <= 0) return "";
+      return new Date(ms).toLocaleString();
+    }
+
+    function replayDirFromSource(src) {
+      if (!src) return "";
+      try {
+        const url = new URL(src, location.href);
+        const parts = url.pathname.split("/").filter(Boolean);
+        return parts.at(-2) || "";
+      } catch {
+        return "";
+      }
+    }
+
+    function renderSessionMeta(doc, options = {}) {
+      const captureMeta = options.captureMeta ?? {};
+      const scenarioDoc = options.scenarioDoc ?? {};
+      const timelineMeta = doc.meta ?? {};
+      const provider = captureMeta.provider ?? doc.provider ?? "unknown-provider";
+      const scenario = captureMeta.scenario ?? doc.scenario ?? scenarioDoc.id ?? "unknown-scenario";
+      const title = captureMeta.title ?? scenarioDoc.title ?? scenario;
+      const providerVersion = captureMeta.provider_version ? ` · ${captureMeta.provider_version}` : "";
+      el("meta-title").textContent = `${provider}${providerVersion} · ${title}`;
+
+      const captureTerminal = captureMeta.terminal
+        ? `${captureMeta.terminal.cols}x${captureMeta.terminal.rows}`
+        : "";
+      const renderTerminal = timelineMeta.width && timelineMeta.height
+        ? `${timelineMeta.width}x${timelineMeta.height}`
+        : "";
+      const geometry = captureTerminal && renderTerminal && captureTerminal !== renderTerminal
+        ? `capture ${captureTerminal} / replay ${renderTerminal}`
+        : captureTerminal || renderTerminal || "geometry ?";
+      const bits = [
+        `scenario=${scenario}`,
+        replayDirFromSource(options.source),
+        captureMeta.pane_id ? `pane=${captureMeta.pane_id}` : "",
+        captureMeta.workspace_id ? `workspace=${captureMeta.workspace_id}` : "",
+        geometry,
+        `${frames.length} frames`,
+        `duration=${compactDuration(timelineMeta.duration_ms ?? frameTime(frames.at(-1)))}`,
+        captureMeta.codeterm_health?.build ? `build=${captureMeta.codeterm_health.build}` : "",
+        formatCapturedAt(captureMeta.captured_at_ms),
+      ].filter(Boolean);
+      el("meta-detail").textContent = bits.join(" · ");
+    }
+
+    function loadTimeline(doc, options = {}) {
+      frames = doc.frames ?? doc.timeline ?? doc.samples ?? [];
+      inputs = doc.inputs ?? doc.events?.filter(e => e.kind === "input") ?? doc.phases?.events ?? [];
+      phases = doc.expected_phases ?? doc.phases?.phases ?? doc.phases ?? [];
+      const frameParam = Number(new URLSearchParams(location.search).get("frame"));
+      idx = Number.isFinite(frameParam) ? Math.min(Math.max(0, frameParam - 1), Math.max(0, frames.length - 1)) : 0;
+      el("scrub").max = Math.max(0, frames.length - 1);
+      renderSessionMeta(doc, options);
+      buildTimeline();
+      summarizeQuality();
+      render();
+    }
+
+    function timelinePct(t) {
+      return ((Number(t) - timelineStart) / (timelineEnd - timelineStart)) * 100;
+    }
+
+    function buildTimeline() {
+      const box = el("timeline");
+      box.innerHTML = "";
+      if (!frames.length) return;
+      timelineStart = frameTime(frames[0]);
+      timelineEnd = Math.max(frameTime(frames[frames.length - 1]), timelineStart + 1);
+
+      let open = null;
+      for (let i = 0; i < frames.length; i++) {
+        const f = frames[i];
+        const klass = frameState(f);
+        if (!open) open = { at: i, klass };
+        const next = i + 1 < frames.length ? frameState(frames[i + 1]) : null;
+        if (next !== klass || i === frames.length - 1) {
+          const a = frameTime(frames[open.at]);
+          const b = frameTime(frames[Math.min(i + 1, frames.length - 1)]);
+          const div = document.createElement("div");
+          div.className = `band ${open.klass}`;
+          div.style.left = `${timelinePct(a)}%`;
+          div.style.width = `${Math.max(0.4, timelinePct(b) - timelinePct(a))}%`;
+          div.title = open.klass;
+          box.appendChild(div);
+          open = next ? { at: i + 1, klass: next } : null;
+        }
+      }
+
+      for (const input of inputs) {
+        const div = document.createElement("div");
+        div.className = "band input";
+        div.style.left = `${timelinePct(input.t_ms ?? input.t ?? 0)}%`;
+        box.appendChild(div);
+      }
+      const cursor = document.createElement("div");
+      cursor.className = "cursor";
+      cursor.id = "timeline-cursor";
+      box.appendChild(cursor);
+    }
+
+    function renderTimelineCursor() {
+      const cursor = el("timeline-cursor");
+      if (!cursor || !frames.length) return;
+      cursor.style.left = `${timelinePct(frameTime(frames[idx]))}%`;
+    }
+
+    function render() {
+      const f = frames[idx] ?? {};
+      const d = detector(f);
+      el("terminal").textContent = frameText(f);
+      const globalFrame = f.frame_index ?? (idx + 1);
+      el("frame-pill").textContent = frames.length && f.frame_index
+        ? `frame ${globalFrame} (${idx + 1} / ${frames.length})`
+        : `frame ${frames.length ? idx + 1 : 0} / ${frames.length}`;
+      el("time-label").textContent = `${frameTime(f)}ms`;
+      const statePill = el("state-pill");
+      statePill.textContent = isWorking(f) ? "working" : "idle";
+      statePill.className = `pill ${isWorking(f) ? "working" : ""}`;
+      const cardPill = el("card-pill");
+      cardPill.textContent = hasCard(f) ? "card" : "no card";
+      cardPill.className = `pill ${hasCard(f) ? "card" : ""}`;
+      const nativePickerPill = el("native-picker-pill");
+      nativePickerPill.textContent = hasNativePicker(f) ? "native picker" : "no native picker";
+      nativePickerPill.className = `pill ${hasNativePicker(f) ? "card" : ""}`;
+      const doneLine = completedLine(f);
+      const fullStatusText = statusLine(f) || doneLine || "(none)";
+      el("status-line").textContent = compactStatusMessage(fullStatusText);
+      el("status-line").title = fullStatusText;
+      const chatState = el("chat-state");
+      chatState.className = `chat-line ${isWorking(f) ? "working" : "idle"}`;
+      chatState.innerHTML = `<div class="chat-k">state</div><div class="chat-v">${escapeHtml(
+        isWorking(f) ? "working" : "idle",
+      )}</div>`;
+      const chatMessage = el("chat-message");
+      const message = isWorking(f) ? statusLine(f) || "Working…" : doneLine;
+      const phase = stablePhaseAt(idx);
+      chatMessage.className = `chat-line status-message ${isWorking(f) ? "working" : "idle"}`;
+      if (phase) chatMessage.dataset.agentPhase = phase;
+      else delete chatMessage.dataset.agentPhase;
+      if (message && isWorking(f)) {
+        chatMessage.innerHTML = `<div class="chat-k">status message</div>${agentStateRow("working", phase || "work", message)}`;
+      } else {
+        chatMessage.innerHTML = message
+          ? `<div class="chat-k">status message</div>${agentStateRow("idle", "work", message)}`
+          : `<div class="chat-k">status message</div><div class="chat-v">none</div>`;
+      }
+      const card = cardValue(f);
+      el("chat-card").innerHTML = card
+        ? `<div class="chat-k">pending card</div><pre class="debug">${escapeHtml(JSON.stringify(card, null, 2))}</pre>`
+        : `<div class="chat-k">pending card</div><div class="chat-v">none</div>`;
+      const nativePicker = nativePickerValue(f);
+      el("chat-native-picker").innerHTML = nativePicker
+        ? `<div class="chat-k">native picker candidate</div><pre class="debug">${escapeHtml(JSON.stringify(nativePicker, null, 2))}</pre>`
+        : `<div class="chat-k">native picker candidate</div><div class="chat-v">none</div>`;
+      const input = previousInput(frameTime(f));
+      el("chat-input").innerHTML = input
+        ? `<div class="chat-k">last input</div><div class="chat-v chat-status">${escapeHtml(input.text || input.source || "(binary input)")}</div>`
+        : `<div class="chat-k">last input</div><div class="chat-v">none</div>`;
+      el("phase").textContent = d.phase ?? f.phase ?? "-";
+      el("cursor").textContent = JSON.stringify(f.cursor ?? f.frame?.cursor ?? null);
+      el("decset").textContent = JSON.stringify(f.decset ?? f.frame?.decset ?? null);
+      el("changed").textContent = String(
+        f.changed_cells ?? f.changed_rows?.length ?? f.frame?.changed_cells ?? "-"
+      );
+      el("debug").textContent = JSON.stringify(f, null, 2);
+      el("scrub").value = idx;
+      renderTimelineCursor();
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[ch]);
+    }
+
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/`/g, "&#96;");
+    }
+
+    function compactStatusMessage(text) {
+      const chars = Array.from(String(text));
+      if (chars.length <= STATUS_MESSAGE_MAX_CHARS) return String(text);
+      return `${chars.slice(0, STATUS_MESSAGE_MAX_CHARS - 1).join("").trimEnd()}…`;
+    }
+
+    function agentStateRow(state, phase, message) {
+      return `<div class="ct-agent-row" data-agent-state="${escapeAttr(state)}" data-agent-phase="${escapeAttr(phase)}"><span class="ct-phase-dots"><i></i><i></i><i></i></span><span class="ct-agent-msg" title="${escapeAttr(message)}">${escapeHtml(compactStatusMessage(message))}</span></div>`;
+    }
+
+    function stop() {
+      playing = false;
+      el("play").textContent = "Play";
+      if (timer) clearTimeout(timer);
+      timer = null;
+    }
+
+    function tick() {
+      if (!playing) return;
+      if (idx >= frames.length - 1) {
+        stop();
+        return;
+      }
+      const speed = Number(el("speed").value);
+      const now = frameTime(frames[idx]);
+      idx += 1;
+      const next = frameTime(frames[idx]);
+      render();
+      timer = setTimeout(tick, Math.max(16, (next - now) / speed));
+    }
+
+    el("file").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      sourceUrl = file.name;
+      loadTimeline(JSON.parse(await file.text()), { source: sourceUrl });
+    });
+    el("load-url").addEventListener("click", async () => {
+      const src = new URLSearchParams(location.search).get("src");
+      if (!src) return;
+      sourceUrl = src;
+      const res = await fetch(src);
+      const doc = await res.json();
+      const base = new URL(src, location.href);
+      const dir = new URL(".", base);
+      const [captureMeta, scenarioDoc] = await Promise.all([
+        fetch(new URL("meta.json", dir)).then((r) => r.ok ? r.json() : null).catch(() => null),
+        fetch(new URL("scenario.json", dir)).then((r) => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      loadTimeline(doc, { source: src, captureMeta, scenarioDoc });
+    });
+    el("copy-link").addEventListener("click", async () => {
+      const url = new URL(location.href);
+      url.searchParams.set("frame", String(idx + 1));
+      await navigator.clipboard.writeText(url.toString());
+      el("copy-link").textContent = "Copied";
+      setTimeout(() => { el("copy-link").textContent = "Copy Frame Link"; }, 900);
+    });
+    el("play").addEventListener("click", () => {
+      if (playing) return stop();
+      playing = true;
+      el("play").textContent = "Pause";
+      tick();
+    });
+    el("prev").addEventListener("click", () => { idx = Math.max(0, idx - 1); render(); });
+    el("next").addEventListener("click", () => { idx = Math.min(frames.length - 1, idx + 1); render(); });
+    el("scrub").addEventListener("input", (e) => { idx = Number(e.target.value); render(); });
+    window.addEventListener("keydown", (e) => {
+      const tag = e.target?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "select" || tag === "button" || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        el("play").click();
+      } else if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        idx = Math.max(0, idx - (e.shiftKey ? 10 : 1));
+        render();
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        idx = Math.min(frames.length - 1, idx + (e.shiftKey ? 10 : 1));
+        render();
+      } else if (e.code === "Home") {
+        e.preventDefault();
+        idx = 0;
+        render();
+      } else if (e.code === "End") {
+        e.preventDefault();
+        idx = Math.max(0, frames.length - 1);
+        render();
+      }
+    });
+    window.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      document.body.classList.add("drop-target");
+    });
+    window.addEventListener("dragleave", () => document.body.classList.remove("drop-target"));
+    window.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      document.body.classList.remove("drop-target");
+      const file = e.dataTransfer?.files?.[0];
+      if (file) {
+        sourceUrl = file.name;
+        loadTimeline(JSON.parse(await file.text()), { source: sourceUrl });
+      }
+    });
+    if (new URLSearchParams(location.search).has("src")) el("load-url").click();
+  </script>
+</body>
+</html>

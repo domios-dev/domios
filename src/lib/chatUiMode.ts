@@ -1,33 +1,58 @@
 import { getAgentDescriptor } from "./agentDescriptorCache";
 import { invoke } from "./bridge";
-import type { AppConfig } from "./types";
+import { setUiSettings } from "./clientSettings";
+import type { AppConfig, PaneBacking } from "./types";
 
 export const CHAT_UI_DEFAULT_KEY = "codeterm-chat-ui-default-enabled";
-export const CHAT_UI_DEFAULT_PROMPTED_KEY = "codeterm-chat-ui-default-prompted";
-export const CHAT_UI_DEFAULT_PROMPT_EVENT = "codeterm-chat-ui-default-prompt";
+// Sync mirror of the chat-default so the FIRST render resolves the right view
+// before the async get_config warms the cache — kills the terminal→chat flash.
+const CHAT_DEFAULT_SYNC_KEY = "codeterm:chat-default-new-agent-pane";
+
+function readChatDefaultSync(): boolean | null {
+  try {
+    const value = localStorage.getItem(CHAT_DEFAULT_SYNC_KEY);
+    return value === null ? null : value === "true";
+  } catch {
+    return null;
+  }
+}
+
+function persistChatDefaultSync(enabled: boolean): void {
+  try {
+    localStorage.setItem(CHAT_DEFAULT_SYNC_KEY, enabled ? "true" : "false");
+  } catch {
+    // localStorage may be unavailable; the in-memory cache still serves this session.
+  }
+}
 
 export type PaneUiMode = "terminal" | "chat";
-export type ChatUiDefaultPromptChoice = "yes" | "no";
-export type ChatUiDefaultPromptDetail = {
-  handled: boolean;
-  choose: (choice: ChatUiDefaultPromptChoice) => void;
-};
 
 // Capability-driven: a provider supports chat when its descriptor says so
-// (JSONL sessions or structured/DB-backed chat). No hardcoded provider list.
-export function isChatUiSupported(agentType?: string | null): boolean {
+// (JSONL sessions or structured/DB-backed chat). chatBackend shell panes have no
+export function isChatUiSupported(agentType?: string | null, backing?: PaneBacking | null): boolean {
+  if (backing?.kind === "chat_backend") return true;
   if (!agentType) return false;
   return getAgentDescriptor(agentType)?.supports_chat_ui === true;
 }
 
-export function shouldDefaultNewAgentPaneToChat(agentType?: string | null): boolean {
+export function shouldDefaultNewAgentPaneToChat(
+  agentType?: string | null,
+  backing?: PaneBacking | null,
+): boolean {
+  if (backing?.kind === "chat_backend") return true; // shells are always chat
   if (!isChatUiSupported(agentType)) return false;
   return cachedDefaultNewAgentPaneChat;
 }
 
-let cachedDefaultNewAgentPaneChat = false;
+let cachedDefaultNewAgentPaneChat = readChatDefaultSync() ?? false;
 let configLoad: Promise<boolean> | null = null;
-let configWriterForTest: ((enabled: boolean) => Promise<void>) | null = null;
+
+/** Synchronous read of the cached "new agent panes open in chat" setting.
+ *  Warmed by loadDefaultNewAgentPaneChat() at startup — lets a pane pick its
+ *  initial view without awaiting config or the descriptor cache. */
+export function isChatDefaultEnabled(): boolean {
+  return cachedDefaultNewAgentPaneChat;
+}
 
 function readLegacyDefault(): boolean | null {
   try {
@@ -35,14 +60,6 @@ function readLegacyDefault(): boolean | null {
     return value === null ? null : value === "true";
   } catch {
     return null;
-  }
-}
-
-function markPrompted(): void {
-  try {
-    localStorage.setItem(CHAT_UI_DEFAULT_PROMPTED_KEY, "true");
-  } catch {
-    // localStorage can be unavailable in tests or hardened webviews.
   }
 }
 
@@ -55,10 +72,6 @@ function clearLegacyDefault(): void {
 }
 
 async function writeDefaultToConfig(enabled: boolean): Promise<void> {
-  if (configWriterForTest) {
-    await configWriterForTest(enabled);
-    return;
-  }
   const config = await invoke<AppConfig>("get_config");
   await invoke("update_config", {
     config: {
@@ -78,6 +91,7 @@ export function loadDefaultNewAgentPaneChat(): Promise<boolean> {
     const legacy = readLegacyDefault();
     if (legacy !== null) {
       cachedDefaultNewAgentPaneChat = legacy;
+      persistChatDefaultSync(legacy);
       await invoke("update_config", {
         config: {
           ...config,
@@ -91,6 +105,7 @@ export function loadDefaultNewAgentPaneChat(): Promise<boolean> {
       return legacy;
     }
     cachedDefaultNewAgentPaneChat = config.ui?.default_new_agent_pane_chat === true;
+    persistChatDefaultSync(cachedDefaultNewAgentPaneChat);
     return cachedDefaultNewAgentPaneChat;
   })().catch((err) => {
     configLoad = null;
@@ -100,42 +115,17 @@ export function loadDefaultNewAgentPaneChat(): Promise<boolean> {
 }
 
 export async function setDefaultNewAgentPaneToChat(enabled: boolean): Promise<void> {
-  cachedDefaultNewAgentPaneChat = enabled;
-  markPrompted();
   await writeDefaultToConfig(enabled);
+  cachedDefaultNewAgentPaneChat = enabled;
+  persistChatDefaultSync(enabled);
+  configLoad = Promise.resolve(enabled);
+  await markChatDefaultPrompted();
 }
 
-function askDefaultNewAgentPaneToChat(): Promise<ChatUiDefaultPromptChoice> {
-  return new Promise((resolve) => {
-    const detail: ChatUiDefaultPromptDetail = {
-      handled: false,
-      choose: resolve,
-    };
-    window.dispatchEvent(new CustomEvent(CHAT_UI_DEFAULT_PROMPT_EVENT, { detail }));
-    if (!detail.handled) {
-      resolve("no");
-    }
-  });
-}
-
-export async function maybeAskDefaultNewAgentPaneToChat(): Promise<void> {
-  try {
-    if (localStorage.getItem(CHAT_UI_DEFAULT_PROMPTED_KEY) === "true") return;
-  } catch {
-    return;
-  }
-  const choice = await askDefaultNewAgentPaneToChat();
-  if (choice === "yes") {
-    await setDefaultNewAgentPaneToChat(true);
-  } else {
-    markPrompted();
-  }
-}
-
-export function __setChatUiDefaultConfigWriterForTest(
-  writer: ((enabled: boolean) => Promise<void>) | null,
-): void {
-  configWriterForTest = writer;
+// Records that the chat-default suggestion has been answered, so the inline
+// prompt never reappears once the user accepts or dismisses it.
+export async function markChatDefaultPrompted(): Promise<void> {
+  await setUiSettings({ chat_ui_default_prompted: true });
 }
 
 export function emitPaneUiMode(paneId: string, mode: PaneUiMode): void {

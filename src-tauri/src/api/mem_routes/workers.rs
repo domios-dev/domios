@@ -131,14 +131,21 @@ pub async fn workers_report(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let worker_pane_id = state.svc.workers.get(&id).map(|w| w.pane_id.clone());
-    let pty_id = worker_pane_id.as_ref().and_then(|pid| {
-        state
-            .svc
-            .mux
-            .lock()
-            .get_pane(pid)
-            .and_then(|p| p.pty_id.clone())
-    });
+    let (pty_id, session_id, run_cwd) = worker_pane_id
+        .as_ref()
+        .map(|pid| {
+            let mux = state.svc.mux.write();
+            let pane = mux.get_pane(pid);
+            (
+                pane.and_then(|p| p.pty_id.clone()),
+                pane.and_then(|p| p.agent_session_id.clone()),
+                pane.and_then(|p| p.cwd.clone()),
+            )
+        })
+        .unwrap_or((None, None, None));
+    if let Some(ref sid) = session_id {
+        state.svc.workers.set_run_session(&id, sid.clone(), run_cwd);
+    }
 
     if let Some(ref pty_id) = pty_id {
         let output = state
@@ -224,7 +231,7 @@ pub async fn workers_log(
         let pty_id = state
             .svc
             .mux
-            .lock()
+            .write()
             .get_pane(&worker.pane_id)
             .and_then(|p| p.pty_id.clone());
         if let Some(pty_id) = pty_id {

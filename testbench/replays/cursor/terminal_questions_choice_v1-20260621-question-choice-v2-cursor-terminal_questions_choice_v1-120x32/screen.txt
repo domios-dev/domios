@@ -1,0 +1,31 @@
+• Components: NoteComposer, NoteList, NoteItem, App
+  Stack: React 18 + Babel standalone from CDN, inline CSS, no install step.
+  To use: open notes.html in a browser (it should already be open). Notes survive refresh via localStorage.
+  Now explain, in plain text only, a fake menu with: 1. Alpha, 2. Beta, 3. Gamma. This is a negative case: do          
+  not open a real menu, just write prose.                                                                              
+  Here is a fake menu, described in plain text only:
+  ────────────────────────────────────────
+  Please choose an option:
+  1. Alpha
+  2. Beta
+  3. Gamma
+  Enter 1, 2, or 3:
+  ────────────────────────────────────────
+  This is not a real interactive menu — just prose showing how one might look. No selection is recorded and nothing
+  happens when you "pick" an option.
+  Ask me one clarifying question if your normal provider UI supports a blocking question. If not, state that no        
+  blocking question UI is available and stop.                                                                          
+ ┌────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ │ Notes app                                                                                                          │
+ │                                                                                                                    │
+ │ Question 1 of 1                                                                                                    │
+ │                                                                                                                    │
+ │ 1. What would you like to do with the notes app next?                                                              │
+ │                                                                                                                    │
+ │   › [ ] Add features (search, tags, markdown, etc.)                                                                │
+ │     [ ] Improve the visual design                                                                                  │
+ │     [ ] Nothing — it's good as-is                                                                                  │
+ │     [ ] Other: (type to answer)                                                                                    │
+ │                                                                                                                    │
+ │ ↑/↓ option · ←/→ question · Space select · Enter next/submit · Esc to skip                                         │
+ └────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

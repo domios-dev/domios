@@ -1,4 +1,5 @@
 use crate::client::SocketClient;
+use crate::cmd::agent::normalize_pane_description;
 use crate::cmd::print::handle_result;
 use crate::{build_http, read_api_config, resolve_pane, PaneAction};
 
@@ -34,6 +35,8 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             title,
             cmd,
             eager,
+            chat_backend,
+            config,
         } => {
             let (base, token) = read_api_config();
             let http = match build_http(&token) {
@@ -55,6 +58,18 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             }
             if eager {
                 body["eager"] = serde_json::Value::Bool(true);
+            }
+            if let Some(plugin_id) = chat_backend {
+                body["chat_backend"] = serde_json::Value::String(plugin_id);
+                if let Some(cfg) = config.as_deref() {
+                    match serde_json::from_str::<serde_json::Value>(cfg) {
+                        Ok(v) => body["config"] = v,
+                        Err(e) => {
+                            eprintln!("Error: --config is not valid JSON: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
             }
             let create_result = http
                 .post(format!("{}/api/panes", base))
@@ -140,6 +155,22 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             let result = client.call(
                 "pane.rename",
                 Some(serde_json::json!({ "pane_id": pane_id, "title": title })),
+            );
+            handle_result(json, result);
+        }
+        PaneAction::Describe { pane, summary } => {
+            let description = match normalize_pane_description(&summary) {
+                Ok(Some(d)) => d,
+                Ok(None) => String::new(),
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let pane_id = resolve_pane(client, pane);
+            let result = client.call(
+                "pane.describe",
+                Some(serde_json::json!({ "pane_id": pane_id, "description": description })),
             );
             handle_result(json, result);
         }
@@ -267,6 +298,10 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                                 .unwrap_or(false);
                             println!("pane:    {}", pane_id);
                             println!("agent:   {}", at);
+                            println!(
+                                "desc:    {}",
+                                p.get("description").and_then(|v| v.as_str()).unwrap_or("-")
+                            );
                             println!("session: {}", sid);
                             println!("prompt:  {}", pp);
                             println!("chat:    {}", cv);
@@ -334,17 +369,135 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                 }
             };
             let url = format!("{}/api/panes/{}/chat?since={}", api_url, pane_id, since);
-            match http
-                .get(url)
-                .send()
-                .and_then(|r| r.json::<serde_json::Value>())
-            {
-                Ok(v) => handle_result(json, Ok(v)),
+            match http.get(url).send() {
+                // Non-JSON / empty body (e.g. pane not bound yet) -> {} so the renderer prints an honest "(no chat ...)" instead of a decode error.
+                Ok(resp) => {
+                    let v = resp
+                        .json::<serde_json::Value>()
+                        .unwrap_or_else(|_| serde_json::json!({}));
+                    if json {
+                        handle_result(json, Ok(v));
+                    } else {
+                        print_pane_chat(&v);
+                    }
+                }
                 Err(e) => {
                     eprintln!("Error: chat read failed: {}", e);
                     std::process::exit(1);
                 }
             }
+        }
+        PaneAction::Capture { action } => handle_pane_capture(client, json, action),
+    }
+}
+
+fn handle_pane_capture(
+    client: &mut SocketClient,
+    json: bool,
+    action: crate::args::misc::PaneCaptureAction,
+) {
+    use crate::args::misc::PaneCaptureAction;
+    let (api_url, api_token) = read_api_config();
+    let http = match build_http(&api_token) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: failed to build HTTP client: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let (pane, url, body) = match action {
+        PaneCaptureAction::Start { pane, out } => {
+            let pane_id = resolve_pane(client, pane);
+            let url = format!("{}/api/panes/{}/capture/start", api_url, pane_id);
+            (pane_id, url, serde_json::json!({ "out": out }))
+        }
+        PaneCaptureAction::Stop { pane } => {
+            let pane_id = resolve_pane(client, pane);
+            let url = format!("{}/api/panes/{}/capture/stop", api_url, pane_id);
+            (pane_id, url, serde_json::json!({}))
+        }
+    };
+    let _ = pane;
+    match http.post(url).json(&body).send() {
+        Ok(resp) => {
+            let v = resp
+                .json::<serde_json::Value>()
+                .unwrap_or_else(|_| serde_json::json!({}));
+            handle_result(json, Ok(v));
+        }
+        Err(e) => {
+            eprintln!("Error: capture request failed: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// `-=-codeterm:pane label=X pane=Y ...-=-body` → (Some("X"), "body"). Plain text → (None, text).
+fn strip_origin_marker(s: &str) -> (Option<String>, String) {
+    if let Some(rest) = s.strip_prefix("-=-codeterm:") {
+        if let Some(end) = rest.find("-=-") {
+            let label = rest[..end]
+                .split_whitespace()
+                .find_map(|kv| kv.strip_prefix("label="))
+                .map(|l| l.replace("%20", " "));
+            return (label, rest[end + 3..].to_string());
+        }
+    }
+    (None, s.to_string())
+}
+
+/// One-line, length-capped view of a message body so a single huge blob
+/// (skill context, AGENTS.md injection, big tool output) can't swamp the
+/// transcript and hide the real turns.
+fn truncate_for_chat(s: &str, max: usize) -> String {
+    let oneline = s.trim().replace('\n', " ⏎ ");
+    let n = oneline.chars().count();
+    if n <= max {
+        return oneline;
+    }
+    let cut: String = oneline.chars().take(max).collect();
+    format!("{}… [+{} chars]", cut, n - max)
+}
+
+/// Human-readable transcript: one capped line per message, tool calls show
+/// the command, tool results show their output, origin markers become `(from X)`.
+fn print_pane_chat(v: &serde_json::Value) {
+    let Some(msgs) = v.get("messages").and_then(|m| m.as_array()) else {
+        println!("(no chat transcript)");
+        return;
+    };
+    if msgs.is_empty() {
+        println!("(no chat messages yet)");
+        return;
+    }
+    for m in msgs {
+        let role = m.get("type").and_then(|t| t.as_str()).unwrap_or("msg");
+        let tool_args = m.get("toolArgs").and_then(|t| t.as_str());
+        let tool_result = m.get("toolResult").and_then(|t| t.as_str());
+        let content = m.get("content").and_then(|t| t.as_str()).unwrap_or("");
+
+        let (label, origin, raw) = if let Some(ta) = tool_args {
+            ("⚙ tool", None, ta.to_string())
+        } else if let Some(tr) = tool_result {
+            ("  ↳ result", None, tr.to_string())
+        } else {
+            let (origin, body) = strip_origin_marker(content);
+            let label = match role {
+                "assistant" => "● assistant",
+                "thinking" => "  ∴ thinking",
+                "system" => "  · system",
+                _ => "▸ user",
+            };
+            (label, origin, body)
+        };
+
+        let body = truncate_for_chat(&raw, 280);
+        if body.is_empty() {
+            continue;
+        }
+        match origin {
+            Some(from) => println!("{} (from {}) {}", label, from, body),
+            None => println!("{} {}", label, body),
         }
     }
 }
@@ -524,6 +677,8 @@ pub fn format_pane_row(p: &serde_json::Value) -> String {
     } else {
         format!("/{}", model)
     };
+    let description = p.get("description").and_then(|v| v.as_str()).unwrap_or("");
+    let description_part = format_description_suffix(description);
     let ws = p
         .get("workspace_name")
         .and_then(|v| v.as_str())
@@ -533,7 +688,10 @@ pub fn format_pane_row(p: &serde_json::Value) -> String {
     } else {
         format!("  ws={}", ws)
     };
-    format!("{}  {} [{}{}]{}", id, label, agent, model_part, ws_part)
+    format!(
+        "{}  {}{} [{}{}]{}",
+        id, label, description_part, agent, model_part, ws_part
+    )
 }
 
 /// Human `pane list`: workspaces as headers, panes as `<id> <name> <model>`
@@ -544,6 +702,7 @@ pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {
         id: String,
         label: String,
         model: String,
+        description: String,
         parent: Option<String>,
     }
     // Group by workspace. BTreeMap keeps a stable (name, id) ordering so the output doesn't reshuffle between calls (panes arrive
@@ -569,6 +728,7 @@ pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {
             sfield(p, "agent_type")
         }
         .to_string();
+        let description = sfield(p, "description").to_string();
         let parent = p
             .get("parent_pane_id")
             .and_then(|v| v.as_str())
@@ -580,6 +740,7 @@ pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {
             id,
             label,
             model,
+            description,
             parent,
         });
     }
@@ -628,14 +789,21 @@ pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {
             let r = &rows[i];
             let indent = "  ".repeat(depth + 1);
             if r.model.is_empty() {
-                out.push_str(&format!("{}{} {}\n", indent, r.id, r.label));
+                out.push_str(&format!(
+                    "{}{} {}{}\n",
+                    indent,
+                    r.id,
+                    r.label,
+                    format_description_suffix(&r.description)
+                ));
             } else {
                 out.push_str(&format!(
-                    "{}{} {:<w$} {}\n",
+                    "{}{} {:<w$} {}{}\n",
                     indent,
                     r.id,
                     r.label,
                     r.model,
+                    format_description_suffix(&r.description),
                     w = label_w
                 ));
             }
@@ -651,244 +819,13 @@ pub fn render_pane_tree(panes: &[serde_json::Value]) -> String {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    fn make_pane(
-        id: &str,
-        title: &str,
-        agent: Option<&str>,
-        sname: Option<&str>,
-    ) -> serde_json::Value {
-        let mut p = json!({"id": id, "title": title});
-        if let Some(a) = agent {
-            p["agent_type"] = json!(a);
-        }
-        if let Some(n) = sname {
-            p["agent_session_name"] = json!(n);
-        }
-        p
-    }
-
-    fn rank_ids(needle: &str, panes: &[serde_json::Value]) -> Vec<String> {
-        rank_panes(needle, panes)
-            .into_iter()
-            .map(|(_, p)| {
-                p.get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string()
-            })
-            .collect()
-    }
-
-    #[test]
-    fn render_tree_groups_by_workspace_and_nests_children() {
-        let panes = vec![
-            json!({"id":"aaaa","tab_title":"MainX","agent_session_model":"Sonnet","workspace_name":"General","workspace_id":"ws1"}),
-            json!({"id":"bbbb","tab_title":"Torvalds","agent_session_model":"Opus","workspace_name":"General","workspace_id":"ws1"}),
-            json!({"id":"cccc","tab_title":"scout","agent_session_model":"Sonnet","workspace_name":"General","workspace_id":"ws1","parent_pane_id":"bbbb"}),
-            json!({"id":"dddd","tab_title":"devbox","agent_session_model":"Sonnet","workspace_name":"codeterm","workspace_id":"ws2"}),
-        ];
-        let out = render_pane_tree(&panes);
-        assert!(
-            out.contains("General  ws1"),
-            "workspace header shows name + ws id:\n{}",
-            out
-        );
-        assert!(
-            out.contains("codeterm  ws2"),
-            "second workspace header:\n{}",
-            out
-        );
-
-        let lines: Vec<&str> = out.lines().collect();
-        let torvalds = lines.iter().position(|l| l.contains("Torvalds")).unwrap();
-        let scout = lines.iter().position(|l| l.contains("scout")).unwrap();
-        assert_eq!(
-            scout,
-            torvalds + 1,
-            "child renders directly under its parent:\n{}",
-            out
-        );
-        let indent = |l: &str| l.len() - l.trim_start().len();
-        assert!(
-            indent(lines[scout]) > indent(lines[torvalds]),
-            "child indented deeper:\n{}",
-            out
-        );
-        assert!(
-            lines[torvalds].trim_start().starts_with("bbbb"),
-            "id comes first: {}",
-            lines[torvalds]
-        );
-    }
-
-    #[test]
-    fn render_tree_falls_back_to_agent_type_without_model() {
-        let panes = vec![
-            json!({"id":"eeee","tab_title":"plain","workspace_name":"W","workspace_id":"w"}),
-            json!({"id":"ffff","tab_title":"coder","agent_type":"claude","workspace_name":"W","workspace_id":"w"}),
-        ];
-        let out = render_pane_tree(&panes);
-        // No model + no agent_type → bare id + name (no trailing junk).
-        assert!(
-            out.contains("eeee plain\n"),
-            "plain pane is id + name only:\n{}",
-            out
-        );
-        // agent_type fills in when the session model is absent.
-        assert!(
-            out.contains("claude"),
-            "agent_type shown when model missing:\n{}",
-            out
-        );
-    }
-
-    #[test]
-    fn short_needle_does_not_match_id_prefix() {
-        let panes = vec![
-            make_pane("aaaaa1", "OtherPane", Some("claude"), None),
-            make_pane("bbbb22", "a", None, None),
-        ];
-        let ranked = rank_ids("a", &panes);
-        assert_eq!(
-            ranked.first().map(String::as_str),
-            Some("bbbb22"),
-            "exact title match must beat id-prefix when needle is short"
-        );
-    }
-
-    #[test]
-    fn long_needle_id_prefix_still_wins() {
-        let panes = vec![
-            make_pane("abcd1234", "ignored", None, None),
-            make_pane("ffffffff", "abcd", None, None),
-        ];
-        let ranked = rank_ids("abcd", &panes);
-        assert_eq!(
-            ranked.first().map(String::as_str),
-            Some("abcd1234"),
-            "id-prefix dominates at needle length ≥ 4"
-        );
-    }
-
-    #[test]
-    fn tie_break_is_stable_by_id() {
-        let panes = vec![
-            make_pane("zzzz9999", "foo-bar", None, None),
-            make_pane("aaaa1111", "foo-baz", None, None),
-        ];
-        let ranked = rank_ids("foo", &panes);
-        assert_eq!(ranked, vec!["aaaa1111".to_string(), "zzzz9999".to_string()]);
-    }
-
-    #[test]
-    fn tab_title_matches_friendly_name() {
-        // Regression: use workspace-tree tab title in matching so labels like "dalton" still find the expected pane.
-        let panes = vec![
-            json!({"id": "11111111", "title": "claude-with-text", "tab_title": "Dalton"}),
-            json!({"id": "22222222", "title": "silent-claude",    "tab_title": "Thomson"}),
-        ];
-        let ranked = rank_ids("dalton", &panes);
-        assert_eq!(
-            ranked.first().map(String::as_str),
-            Some("11111111"),
-            "tab_title must be searched — that's the name the user sees"
-        );
-    }
-
-    #[test]
-    fn tab_title_contains_outranks_title_contains() {
-        // Tab title is more user-facing than the raw pane.title; "fib" should hit Fibonacci's tab over a pane that just has "fib" in its title.
-        let panes = vec![
-            json!({"id": "aa11", "title": "ignore-me-fib"}),
-            json!({"id": "bb22", "title": "claude", "tab_title": "Fibonacci"}),
-        ];
-        let ranked = rank_ids("fib", &panes);
-        assert_eq!(ranked.first().map(String::as_str), Some("bb22"));
-    }
-
-    #[test]
-    fn model_field_is_searchable() {
-        // Asking for "sonnet" or "haiku" finds panes currently running that model — covers the "which tabs have opus available?" workflow.
-        let panes = vec![
-            json!({"id": "p1111111", "title": "t1", "agent_type": "claude",  "agent_session_model": "Sonnet"}),
-            json!({"id": "p2222222", "title": "t2", "agent_type": "opencode","agent_session_model": "Deepseek"}),
-        ];
-        let ranked = rank_ids("sonnet", &panes);
-        assert_eq!(ranked.first().map(String::as_str), Some("p1111111"));
-    }
-
-    #[test]
-    fn human_row_shows_tab_title_with_model() {
-        let p = json!({
-            "id": "abcd1234",
-            "title": "claude-with-text",
-            "tab_title": "Dalton",
-            "agent_type": "claude",
-            "agent_session_model": "Sonnet",
-            "workspace_name": "WS-claude-renamed",
-        });
-        let row = format_pane_row(&p);
-        assert!(row.contains("Dalton"), "row missing tab_title: {}", row);
-        // One label only: tab_title wins, so the raw pane.title must NOT leak in.
-        assert!(
-            !row.contains("claude-with-text"),
-            "tab_title should win over pane.title: {}",
-            row
-        );
-        assert!(row.contains("claude"), "row missing agent: {}", row);
-        assert!(row.contains("Sonnet"), "row missing model: {}", row);
-        assert!(
-            row.contains("ws=WS-claude-renamed"),
-            "row missing workspace: {}",
-            row
-        );
-    }
-
-    #[test]
-    fn cyrillic_needle_matches_latin_tab_title() {
-        // User types tab name in Russian — should still find the Dalton tab.
-        let panes = vec![
-            json!({"id": "11111111", "title": "claude", "tab_title": "Dalton"}),
-            json!({"id": "22222222", "title": "claude", "tab_title": "Thomson"}),
-        ];
-        let ranked = rank_ids("Далтон", &panes);
-        assert_eq!(
-            ranked.first().map(String::as_str),
-            Some("11111111"),
-            "cyrillic 'Далтон' must transliterate to 'Dalton' and match"
-        );
-    }
-
-    #[test]
-    fn latin_needle_matches_cyrillic_tab_title() {
-        // Reverse matching uses deunicode romanization so Cyrillic pane names can be found by Latin input.
-        let panes = vec![
-            json!({"id": "33333333", "title": "claude", "tab_title": "Андрей"}),
-            json!({"id": "44444444", "title": "claude", "tab_title": "Misha"}),
-        ];
-        let ranked = rank_ids("andrei", &panes);
-        assert_eq!(
-            ranked.first().map(String::as_str),
-            Some("33333333"),
-            "latin 'andrei' must match the transliterated form of 'Андрей'"
-        );
-    }
-
-    #[test]
-    fn human_row_collapses_when_tab_title_equals_pane_title() {
-        let p = json!({
-            "id": "abcd1234",
-            "title": "Main",
-            "tab_title": "Main",
-            "agent_type": "claude",
-        });
-        let row = format_pane_row(&p);
-        // No "(Main)" duplicate — single label only.
-        assert!(!row.contains("(Main)"), "duplicate label in row: {}", row);
+fn format_description_suffix(description: &str) -> String {
+    if description.is_empty() {
+        String::new()
+    } else {
+        format!(" - {}", description)
     }
 }
+
+#[cfg(test)]
+mod tests;

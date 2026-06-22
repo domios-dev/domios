@@ -36,6 +36,12 @@ pub const BOOTSTRAP_INSTRUCTIONS_TEMPLATE: &str =
 /// Wrapper applied to every headless memory worker task. Placeholders: `{intent}`, `{worker_id}`, `{task}`.
 pub const WORKER_TASK_PREAMBLE: &str = include_str!("../prompts/worker_task_preamble.md");
 
+/// Wrapper for plugin-spawned agents (chatBackend NPCs, etc). Unlike memory
+/// workers they own their whole prompt and act through plugin verbs, so they
+/// must NOT inherit the graph-worker identity. Placeholder: `{task}`.
+pub const PLUGIN_AGENT_TASK_PREAMBLE: &str =
+    include_str!("../prompts/plugin_agent_task_preamble.md");
+
 /// Auto-extraction prompt for the haiku graph worker. Placeholders: `{id}`, `{title}`, `{body}`.
 pub const MEM_EXTRACTION: &str = include_str!("../prompts/mem_extraction.md");
 

@@ -1,0 +1,9 @@
+{
+  "provider": "codex",
+  "scenario": "multi-turn",
+  "variant": 2,
+  "cli_version": "codex-cli 0.141.0",
+  "capturedAtMs": 1781987009398,
+  "source": "state-capture.sh dev-7686",
+  "paneId": "b70386b0"
+}

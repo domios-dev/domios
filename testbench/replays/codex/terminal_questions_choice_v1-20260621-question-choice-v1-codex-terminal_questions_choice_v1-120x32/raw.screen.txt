@@ -1,0 +1,30 @@
+
+• Implemented notes.html. It’s a standalone minimal notes page with a textarea, local autosave via localStorage, a clear
+  button, and basic light/dark styling.
+
+  Verification passed: file exists and contains the expected HTML/localStorage behavior.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Now explain, in plain text only, a fake menu with: 1. Alpha, 2. Beta, 3. Gamma. This is a negative case: do not open
+  a real menu, just write prose.
+
+
+• Here is the fake menu:
+
+  1. Alpha
+  2. Beta
+  3. Gamma
+
+
+› Ask me one clarifying question if your normal provider UI supports a blocking question. If not, state that no
+  blocking question UI is available and stop.
+
+
+• No blocking question UI is available.
+
+
+› Summarize recent commits
+
+  gpt-5.5 medium · /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-codex-terminal_questions_choice_v…

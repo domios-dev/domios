@@ -20,13 +20,21 @@ pub struct WorkspaceSnapshot {
     pub cwd: Option<String>,
     #[serde(default)]
     pub protected: bool,
+    /// Sibling ordinal among workspaces. Legacy snapshots default to 0.
+    #[serde(default)]
+    pub sort_order: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabSnapshot {
     pub id: String,
     pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub description: Option<String>,
     pub split_tree: SplitNodeSnapshot,
+    /// Per-group sibling ordinal. Legacy snapshots default to 0.
+    #[serde(default)]
+    pub sort_order: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,6 +46,9 @@ pub enum SplitNodeSnapshot {
         /// Pane title.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         title: Option<String>,
+        /// Short pane description shown as tab tooltip/subtitle.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        description: Option<String>,
         /// Title priority level.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         title_level: Option<String>,
@@ -58,6 +69,16 @@ pub enum SplitNodeSnapshot {
         /// Parent pane ID in hierarchy.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         parent_pane_id: Option<String>,
+        /// Agent that ran `agent spawn` for this pane. Persisted so a restarted
+        /// orchestrator keeps its parent/child map and reports still route to
+        /// the spawner even with no role parent. `None` for legacy snapshots.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        spawned_by_pane_id: Option<String>,
+        /// Non-hierarchy report target (cron / mem worker). Persisted alongside
+        /// `spawned_by_pane_id` so report routing survives restart. `None` for
+        /// legacy snapshots.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        report_target_pane_id: Option<String>,
         /// Can spawn children.
         #[serde(default)]
         can_spawn: bool,
@@ -73,6 +94,17 @@ pub enum SplitNodeSnapshot {
         /// behaviour instead of silently dropping back to prompting.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         auto_approve: bool,
+        /// Model family on the live session. Persisted so resume re-applies it
+        /// instead of dropping the pane to the provider default.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_session_model: Option<String>,
+        /// chatBackend (shell) pane backing — persisted so the pane restores as a
+        /// chatBackend (not a PTY) and can lazily re-open its plugin session on
+        /// first send. `None` for ordinary PTY panes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chatbackend_plugin_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        chatbackend_session_id: Option<String>,
     },
     Split {
         orientation: String,
@@ -271,6 +303,7 @@ mod tests {
                     active_tab_id: None,
                     cwd: None,
                     protected: false,
+                    sort_order: i as i32,
                 })
                 .collect(),
         }

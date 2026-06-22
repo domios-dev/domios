@@ -1,0 +1,22 @@
+{
+  "provider": "opencode",
+  "unit": "provider_screen_attr",
+  "expected": {
+    "question": "Select model",
+    "options": [
+      "Big Pickle Free",
+      "DeepSeek V4 Flash Free Free",
+      "MiMo V2.5 Free Free",
+      "Nemotron 3 Ultra Free Free",
+      "North Mini Code Free Free",
+      "OpenCode Zen (Recommended)",
+      "OpenCode Go Low cost subscription for everyone",
+      "OpenAI (ChatGPT Plus/Pro or API key)",
+      "GitHub Copilot",
+      "Anthropic (API key)",
+      "Google"
+    ],
+    "selectedIndex": 1,
+    "multiSelect": false
+  }
+}

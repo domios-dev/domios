@@ -1,0 +1,14 @@
+Select Model and Effort
+Access legacy models by running codex -m <model_name> or in your config.toml
+› 1. gpt-5.5 (current)    Frontier model for complex coding, research, and real-world work.
+  2. gpt-5.4              Strong model for everyday coding.
+  3. gpt-5.4-mini         Small, fast, and cost-efficient model for simpler coding tasks.
+  4. gpt-5.3-codex-spark  Ultra-fast coding model.
+Press enter to confirm or esc to go back
+
+Select Reasoning Level for gpt-5.5
+  1. Low                        Fast responses with lighter reasoning
+› 2. Medium (default) (current) Balances speed and reasoning depth for everyday tasks
+  3. High                       Greater reasoning depth for complex problems
+  4. Extra high                 Extra high reasoning depth for complex problems
+Press enter to confirm or esc to go back

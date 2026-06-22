@@ -1,0 +1,8 @@
+  Sign in to Claude Code
+
+  Select a login method:
+
+> 1. Log in with your Claude account (Pro or Max)
+  2. Use an Anthropic API key
+
+  Press Enter to continue · Esc to exit

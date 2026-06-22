@@ -1,6 +1,80 @@
 use crate::client::SocketClient;
 use crate::cmd::print::{handle_result, print_object};
 use crate::{build_http, read_api_config, resolve_pane, AgentAction};
+use std::io::Read;
+
+/// Resolve the spawn task body from `--task` / `--task-file`. `--task-file`
+/// reads the file verbatim (or stdin when the value is `-`), so the body never
+/// passes through the caller's shell — backticks and $(...) survive byte-exact.
+pub fn resolve_spawn_task<R: Read>(
+    task: Option<String>,
+    task_file: Option<String>,
+    stdin: &mut R,
+) -> Result<Option<String>, String> {
+    match (task, task_file) {
+        (Some(_), Some(_)) => Err("pass either --task or --task-file, not both".into()),
+        (Some(t), None) => Ok(Some(t)),
+        (None, Some(path)) => {
+            if path == "-" {
+                let mut buf = String::new();
+                stdin
+                    .read_to_string(&mut buf)
+                    .map_err(|e| format!("failed to read --task-file from stdin: {}", e))?;
+                Ok(Some(buf))
+            } else {
+                std::fs::read_to_string(&path)
+                    .map(Some)
+                    .map_err(|e| format!("failed to read --task-file {}: {}", path, e))
+            }
+        }
+        (None, None) => Ok(None),
+    }
+}
+
+pub(crate) const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
+
+pub(crate) fn normalize_pane_description(value: &str) -> Result<Option<String>, String> {
+    let trimmed = value.trim();
+    if trimmed.chars().count() > MAX_PANE_DESCRIPTION_CHARS {
+        return Err(format!(
+            "description must be {} characters or fewer",
+            MAX_PANE_DESCRIPTION_CHARS
+        ));
+    }
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed.to_string()))
+    }
+}
+
+fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
+    let models = target.get("available_models").and_then(|v| v.as_array());
+    let Some(models) = models else {
+        return format!("No models advertised for provider '{}'.\n", provider);
+    };
+    let default_model = target.get("default_model").and_then(|v| v.as_str());
+    let mut out = String::new();
+    for m in models {
+        let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        let name = m.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
+        let marker = if default_model == Some(id) {
+            " (default)"
+        } else {
+            ""
+        };
+        let description = m.get("description").and_then(|v| v.as_str()).unwrap_or("");
+        if description.is_empty() {
+            out.push_str(&format!("{:<10} {}{}\n", id, name, marker));
+        } else {
+            out.push_str(&format!(
+                "{:<10} {}{}\n             {}\n",
+                id, name, marker, description
+            ));
+        }
+    }
+    out
+}
 
 pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) {
     let (base, token) = read_api_config();
@@ -35,6 +109,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     return;
                 }
                 for p in arr {
+                    let kind = p.get("kind").and_then(|v| v.as_str()).unwrap_or("agent");
                     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                     let name = p.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
                     let default_model = p
@@ -47,8 +122,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         .map(|a| a.len())
                         .unwrap_or(0);
                     println!(
-                        "{:<12} {:<20} default={}  models={}",
-                        id, name, default_model, models_count
+                        "{:<12} {:<6} {:<20} default={}  models={}",
+                        id, kind, name, default_model, models_count
                     );
                 }
             }
@@ -80,35 +155,19 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         );
                         std::process::exit(1);
                     };
-                    let models = target.get("available_models").and_then(|v| v.as_array());
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&models).unwrap());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(
+                                target
+                                    .get("available_models")
+                                    .unwrap_or(&serde_json::Value::Null)
+                            )
+                            .unwrap()
+                        );
                         return;
                     }
-                    let Some(models) = models else {
-                        println!("No models advertised for provider '{}'.", provider);
-                        return;
-                    };
-                    let default_model = target.get("default_model").and_then(|v| v.as_str());
-                    for m in models {
-                        let id = m.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                        let name = m.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
-                        let marker = if default_model == Some(id) {
-                            " (default)"
-                        } else {
-                            ""
-                        };
-                        let description =
-                            m.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                        if description.is_empty() {
-                            println!("{:<10} {}{}", id, name, marker);
-                        } else {
-                            println!(
-                                "{:<10} {}{}\n             {}",
-                                id, name, marker, description
-                            );
-                        }
-                    }
+                    print!("{}", format_agent_models(target, &provider));
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e);
@@ -202,15 +261,44 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Report { message, pane } => {
+        AgentAction::Report {
+            message,
+            pane,
+            status,
+            branch,
+            sha,
+            changed_files,
+            test_cmd,
+            test_result,
+            skipped,
+        } => {
             let pane_id = resolve_pane(client, pane);
-            let result = client.call(
-                "agent.report",
-                Some(serde_json::json!({
-                    "pane_id": pane_id,
-                    "message": message,
-                })),
-            );
+            let mut body = serde_json::json!({
+                "pane_id": pane_id,
+                "message": message,
+            });
+            if let Some(s) = status {
+                body["status"] = serde_json::json!(s.as_str());
+            }
+            if let Some(b) = branch {
+                body["branch"] = serde_json::json!(b);
+            }
+            if let Some(s) = sha {
+                body["sha"] = serde_json::json!(s);
+            }
+            if let Some(cf) = changed_files {
+                body["changed_files"] = serde_json::json!(cf);
+            }
+            if let Some(c) = test_cmd {
+                body["test_cmd"] = serde_json::json!(c);
+            }
+            if let Some(r) = test_result {
+                body["test_result"] = serde_json::json!(r);
+            }
+            if let Some(sk) = skipped {
+                body["skipped"] = serde_json::json!(sk);
+            }
+            let result = client.call("agent.report", Some(body));
             handle_result(json, result);
         }
         AgentAction::Reports { pane, clear, limit } => {
@@ -246,20 +334,41 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         AgentAction::Spawn {
             agent,
             title,
+            description,
             cwd,
             role,
             parent,
             can_spawn,
             task,
+            task_file,
             args,
             workspace,
             model,
+            system_prompt,
+            preset,
         } => {
+            let task = match resolve_spawn_task(task, task_file, &mut std::io::stdin()) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
             let mut body = serde_json::json!({
                 "agent": agent,
             });
             if let Some(t) = title {
                 body["title"] = serde_json::json!(t);
+            }
+            if let Some(d) = description {
+                match normalize_pane_description(&d) {
+                    Ok(Some(d)) => body["description"] = serde_json::json!(d),
+                    Ok(None) => body["description"] = serde_json::json!(""),
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
             }
             if let Some(c) = cwd {
                 body["cwd"] = serde_json::json!(c);
@@ -285,6 +394,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(m) = model {
                 body["model"] = serde_json::json!(m);
             }
+            if let Some(system_prompt) = system_prompt {
+                body["system_prompt"] = serde_json::json!(system_prompt);
+            }
+            if let Some(preset) = preset {
+                body["preset"] = serde_json::json!(preset);
+            }
             // Record the spawner's pane for report-routing fallback.
             if let Ok(spawner) = std::env::var("CODETERM_PANE_ID") {
                 if !spawner.is_empty() {
@@ -309,6 +424,42 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                     if let Some(warning) = warning {
                         eprintln!("Warning: {}", warning);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        AgentAction::Ledger { pane } => {
+            let pane_id = resolve_pane(client, pane);
+            match client.call(
+                "agent.ledger",
+                Some(serde_json::json!({ "pane_id": pane_id })),
+            ) {
+                Ok(val) => {
+                    if json {
+                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                    } else if let Some(arr) = val.as_array() {
+                        if arr.is_empty() {
+                            println!("No workers in ledger for {}.", pane_id);
+                        }
+                        for r in arr {
+                            let worker = r
+                                .get("worker_pane_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("?");
+                            let title = r.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                            let status = r.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+                            let branch = r.get("branch").and_then(|v| v.as_str()).unwrap_or("-");
+                            let model = r.get("model").and_then(|v| v.as_str()).unwrap_or("-");
+                            let seen = r.get("updated_at").and_then(|v| v.as_u64()).unwrap_or(0);
+                            println!(
+                                "{:<10} {:<6} {:<14} {:<10} seen={}  {}",
+                                worker, status, branch, model, seen, title
+                            );
+                        }
                     }
                 }
                 Err(e) => {
@@ -420,5 +571,99 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_models_formats_descriptor_models_from_api_snapshot() {
+        let provider = serde_json::json!({
+            "id": "codex",
+            "default_model": "live-codex",
+            "available_models": [
+                {
+                    "id": "live-codex",
+                    "display_name": "Live Codex",
+                    "description": "catalog snapshot"
+                }
+            ]
+        });
+
+        let out = format_agent_models(&provider, "codex");
+
+        assert!(out.contains("live-codex"));
+        assert!(out.contains("Live Codex (default)"));
+        assert!(out.contains("catalog snapshot"));
+        assert!(!out.contains("static-codex"));
+    }
+
+    #[test]
+    fn task_file_round_trips_shell_metacharacters_byte_exact() {
+        let body = "run `whoami` then $(rm -rf /) and ${HOME}\nline two\twith tab\n";
+        let path = std::env::temp_dir().join(format!("ct-task-file-{}.txt", uuid::Uuid::new_v4()));
+        std::fs::write(&path, body).unwrap();
+
+        let resolved = resolve_spawn_task(
+            None,
+            Some(path.to_string_lossy().into_owned()),
+            &mut &b""[..],
+        )
+        .unwrap();
+
+        std::fs::remove_file(&path).ok();
+        assert_eq!(resolved, Some(body.to_string()));
+    }
+
+    #[test]
+    fn pane_description_validation_accepts_200_and_rejects_201() {
+        let ok = "x".repeat(MAX_PANE_DESCRIPTION_CHARS);
+        let too_long = "x".repeat(MAX_PANE_DESCRIPTION_CHARS + 1);
+
+        assert_eq!(normalize_pane_description(&ok).unwrap(), Some(ok));
+        assert!(normalize_pane_description(&too_long).is_err());
+        assert_eq!(normalize_pane_description("  ").unwrap(), None);
+        assert_eq!(
+            normalize_pane_description("  running tests  ").unwrap(),
+            Some("running tests".into())
+        );
+    }
+
+    #[test]
+    fn task_file_dash_reads_stdin_byte_exact() {
+        let body = "stdin `backticks` and $(date) survive\n";
+        let mut stdin = body.as_bytes();
+        let resolved = resolve_spawn_task(None, Some("-".to_string()), &mut stdin).unwrap();
+        assert_eq!(resolved, Some(body.to_string()));
+    }
+
+    #[test]
+    fn task_and_task_file_together_is_an_error() {
+        let err = resolve_spawn_task(
+            Some("inline".to_string()),
+            Some("-".to_string()),
+            &mut &b""[..],
+        )
+        .unwrap_err();
+        assert!(err.contains("not both"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn missing_task_file_reports_unreadable() {
+        let path = std::env::temp_dir().join(format!("ct-nope-{}.txt", uuid::Uuid::new_v4()));
+        let err = resolve_spawn_task(
+            None,
+            Some(path.to_string_lossy().into_owned()),
+            &mut &b""[..],
+        )
+        .unwrap_err();
+        assert!(err.contains("failed to read --task-file"));
+    }
+
+    #[test]
+    fn neither_task_nor_task_file_is_none() {
+        assert_eq!(resolve_spawn_task(None, None, &mut &b""[..]).unwrap(), None);
     }
 }

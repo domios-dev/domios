@@ -1,13 +1,20 @@
-import React from "react";
+import React, { useMemo } from "react";
 import type { NormalizedChatMessage as ChatMessage, SlashCommand } from "@codeterm/chat-core";
 import { parseMarker } from "@codeterm/chat-core";
-import { File, Image, Info, Mic } from "lucide-react";
+import { File, Image, Info, Mic, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
+import { themeAwarePrismStyle } from "./syntaxTheme";
+import { pickUiFontScaleValue } from "./uiFontScale";
 
 export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
+
+/** Above this many diff lines we skip per-token Prism highlighting and render
+ *  plain (still colored +/- rows) — tokenizing a huge hunk is wasteful. */
+export const DIFF_HIGHLIGHT_MAX_LINES = 400;
 
 function extractCodeText(children: unknown): string {
   if (Array.isArray(children)) {
@@ -25,19 +32,22 @@ function resolveCodeLanguage(className: string | undefined, children: unknown): 
   return looksLikeMermaidSource(source) ? "mermaid" : null;
 }
 
-export function RichMarkdown({ text }: { text: string }) {
+export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: number }) {
+  const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
+  const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
+  const h3Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
         h1: ({ node: _node, ...props }) => (
-          <h1 className="text-base font-bold mt-3 mb-1" style={{ color: "var(--ct-fg)" }} {...props} />
+          <h1 className={`${h1Text} font-bold mt-3 mb-1`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
         h2: ({ node: _node, ...props }) => (
-          <h2 className="text-sm font-semibold mt-2 mb-1" style={{ color: "var(--ct-fg)" }} {...props} />
+          <h2 className={`${h2Text} font-semibold mt-2 mb-1`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
         h3: ({ node: _node, ...props }) => (
-          <h3 className="text-sm font-medium mt-1.5 mb-0.5" style={{ color: "var(--ct-fg)" }} {...props} />
+          <h3 className={`${h3Text} font-medium mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
         p: ({ node: _node, ...props }) => <p className={`my-1 ${TEXT_WRAP_CLASS}`} {...props} />,
         ul: ({ node: _node, ...props }) => <ul className="list-disc ml-5 my-1" {...props} />,
@@ -72,8 +82,6 @@ export function RichMarkdown({ text }: { text: string }) {
           />
         ),
         // Block code: SyntaxHighlighter/CodeBlock. Inline code: styled span.
-        // Detection: fenced blocks get a "language-*" className from remark.
-        // For language-less blocks, infer Mermaid from known source keywords.
         code: ({ node: _node, className, children, ...props }: React.ComponentProps<"code"> & { node?: unknown }) => {
           const language = resolveCodeLanguage(className, children);
           const plainCode = extractCodeText(children);
@@ -189,38 +197,113 @@ export function extractEdits(message: ChatMessage): EditPair[] {
   return single ? [single] : [];
 }
 
-/** Old→new diff for Edit/MultiEdit tool calls: removed lines in red, added in
- *  green. Line-based, no LCS — clear and cheap. */
-export function DiffView({ edits }: { edits: EditPair[] }) {
-  const row = (line: string, kind: "del" | "add", key: string) => (
-    <div
-      key={key}
-      className={`${PRE_WRAP_CLASS} px-1`}
-      style={{
-        background:
-          kind === "del"
-            ? "color-mix(in srgb, var(--ct-red, #f85149) 14%, transparent)"
-            : "color-mix(in srgb, var(--ct-green, #3fb950) 14%, transparent)",
-        color: "var(--ct-fg)",
-      }}
-    >
-      <span style={{ color: kind === "del" ? "var(--ct-red, #f85149)" : "var(--ct-green, #3fb950)" }}>
-        {kind === "del" ? "- " : "+ "}
-      </span>
-      {line || " "}
-    </div>
-  );
+type DiffLineKind = "del" | "add";
+interface DiffLine {
+  kind: DiffLineKind;
+  editIndex: number;
+  content: string;
+}
+
+/** Flatten Edit/MultiEdit pairs into ordered del-then-add lines, tagged with
+ *  their source edit so the renderer can keep per-edit separators. */
+function buildDiffLines(edits: EditPair[]): DiffLine[] {
+  const lines: DiffLine[] = [];
+  edits.forEach((e, i) => {
+    if (e.old) for (const l of e.old.split("\n")) lines.push({ kind: "del", editIndex: i, content: l });
+    if (e.new) for (const l of e.new.split("\n")) lines.push({ kind: "add", editIndex: i, content: l });
+  });
+  return lines;
+}
+
+function diffRowStyle(kind: DiffLineKind): React.CSSProperties {
+  return {
+    background:
+      kind === "del"
+        ? "var(--ct-diff-del-bg, color-mix(in srgb, var(--ct-red, #f85149) 12%, var(--ct-bg, transparent)))"
+        : "var(--ct-diff-add-bg, color-mix(in srgb, var(--ct-green, #3fb950) 12%, var(--ct-bg, transparent)))",
+    color: "var(--ct-fg)",
+  };
+}
+
+function diffGutter(kind: DiffLineKind) {
   return (
-    <div className="font-mono text-[11px] leading-relaxed overflow-x-auto">
-      {edits.map((e, i) => (
-        <div key={i} className={i > 0 ? "mt-2 border-t border-[var(--ct-border)] pt-2" : ""}>
-          {e.old ? e.old.split("\n").map((l, j) => row(l, "del", `o${i}-${j}`)) : null}
-          {e.new ? e.new.split("\n").map((l, j) => row(l, "add", `n${i}-${j}`)) : null}
-        </div>
-      ))}
-    </div>
+    <span style={{ color: kind === "del" ? "var(--ct-diff-del-fg, var(--ct-red, #f85149))" : "var(--ct-diff-add-fg, var(--ct-green, #3fb950))" }}>
+      {kind === "del" ? "- " : "+ "}
+    </span>
   );
 }
+
+/** Old→new diff for Edit/MultiEdit tool calls: removed lines in red, added in
+ *  green, with the edited file's syntax highlighting layered on top via the same
+ *  Prism highlighter CodeBlock uses. Memoized so the hunk tokenizes once, not on
+ *  every parent re-render; huge hunks fall back to plain rows (no token spans).
+ *  Unknown languages degrade gracefully — Prism just renders untokenized text. */
+export const DiffView = React.memo(function DiffView({
+  edits,
+  language = "text",
+}: {
+  edits: EditPair[];
+  language?: string;
+}) {
+  const lines = useMemo(() => buildDiffLines(edits), [edits]);
+  const combinedText = useMemo(() => lines.map((l) => l.content).join("\n"), [lines]);
+  const highlight = lines.length > 0 && lines.length <= DIFF_HIGHLIGHT_MAX_LINES;
+
+  const separatorBefore = (i: number) => i > 0 && lines[i].editIndex !== lines[i - 1].editIndex;
+
+  const plainRow = (line: DiffLine, i: number) => (
+    <React.Fragment key={i}>
+      {separatorBefore(i) && <div className="mt-2 border-t border-[var(--ct-border)] pt-2" />}
+      <div className={`${PRE_WRAP_CLASS} px-1`} style={diffRowStyle(line.kind)}>
+        {diffGutter(line.kind)}
+        {line.content || " "}
+      </div>
+    </React.Fragment>
+  );
+
+  return (
+    <div className="font-mono text-[11px] leading-relaxed overflow-x-auto">
+      {highlight ? (
+        <SyntaxHighlighter
+          language={language}
+          style={themeAwarePrismStyle}
+          PreTag="div"
+          CodeTag="div"
+          customStyle={{
+            margin: 0,
+            padding: 0,
+            background: "transparent",
+            fontSize: "inherit",
+            lineHeight: "inherit",
+            overflowWrap: "anywhere",
+            wordBreak: "break-word",
+          }}
+          codeTagProps={{ style: { fontFamily: "inherit" } }}
+          renderer={({ rows, stylesheet, useInlineStyles }) =>
+            lines.map((line, i) => {
+              const node = rows[i];
+              return (
+                <React.Fragment key={i}>
+                  {separatorBefore(i) && <div className="mt-2 border-t border-[var(--ct-border)] pt-2" />}
+                  <div className={`${PRE_WRAP_CLASS} px-1`} style={diffRowStyle(line.kind)}>
+                    {diffGutter(line.kind)}
+                    {node
+                      ? createElement({ node, stylesheet, useInlineStyles, key: `c${i}` })
+                      : line.content || " "}
+                  </div>
+                </React.Fragment>
+              );
+            })
+          }
+        >
+          {combinedText}
+        </SyntaxHighlighter>
+      ) : (
+        lines.map(plainRow)
+      )}
+    </div>
+  );
+});
 
 /** Truncate file path to show just filename + parent. */
 export function shortPath(fullPath: string): string {
@@ -461,9 +544,45 @@ export function VoiceCard({ v }: { v: ParsedVoice }) {
   );
 }
 
+export interface ParsedPluginConfig {
+  pluginId: string;
+  name: string;
+  body: string;
+}
+
+/** Parse the CodeTerm `plugin_config` marker so the chat can show a Configure
+ *  card instead of the raw (core-wrapped) marker string. Returns null when the
+ *  text isn't a plugin_config line. */
+export function parsePluginConfigMessage(content: string): ParsedPluginConfig | null {
+  const m = parseMarker(content.trim());
+  if (!m || m.kind !== "plugin_config" || !m.attrs.plugin) return null;
+  return {
+    pluginId: m.attrs.plugin,
+    name: m.attrs.name ?? m.attrs.plugin,
+    body: m.payload,
+  };
+}
+
+export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div
+        className="flex flex-wrap items-center gap-1.5 text-[11px] min-w-0 max-w-full"
+        style={{ color: "var(--ct-muted-fg)" }}
+      >
+        <Settings size={13} strokeWidth={2} className="shrink-0" />
+        <span className="opacity-80 font-medium shrink-0">Configure {c.name}</span>
+      </div>
+      <pre className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{c.body}</pre>
+    </div>
+  );
+}
+
 export function renderUserContent(content: string): React.ReactNode {
   const voice = parseVoiceMessage(content);
   if (voice) return <VoiceCard v={voice} />;
+  const pluginConfig = parsePluginConfigMessage(content);
+  if (pluginConfig) return <PluginConfigCard c={pluginConfig} />;
   // Non-voice attachment markers (photo/document/video/file) → file badge.
   const mk = parseMarker(content.trim());
   if (mk && ["photo", "file", "document", "video", "audio", "sticker"].includes(mk.kind)) {

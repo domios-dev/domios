@@ -1,0 +1,20 @@
+› Before coding more, explain in prose the options you'd consider for mobile controls. Give a numbered list and end by
+  asking which I'd like — but do not open any interactive menu, just plain text.
+• 1. On-screen D-pad
+     Four directional buttons below the canvas. This is the clearest option for mobile and works well for Snake, though
+     it takes extra vertical space.
+  2. Swipe controls
+     The player swipes on the canvas to change direction. This feels natural on phones and keeps the UI clean, but it
+     can be less discoverable without a small hint.
+  3. Invisible touch zones
+     Divide the canvas or screen into directional regions. Tapping left/right/up/down areas changes direction. It is
+     simple, but less obvious and easier to mis-tap.
+  4. Hybrid swipe plus buttons
+     Support swipe gestures and also show a compact D-pad. This is the most accessible and forgiving option, but adds
+     more UI.
+  5. Floating directional buttons over the board
+     Put translucent arrow buttons near the canvas edges. This saves space below the board, but risks covering gameplay
+     if not carefully placed.
+  Which mobile control style would you like?
+› Summarize recent commits
+  gpt-5.5 medium · /private/var/folders/5w/xh9wzz_j7l14jcqmty0hf6rm0000gp/T/ct-replay-codex-snake_incremental_build_bro…

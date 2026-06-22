@@ -6,6 +6,14 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_pane, AppState};
+use send::wait_for_pty_link as await_pty_link;
+
+mod send;
+
+pub use send::send_text;
+
+#[cfg(test)]
+pub(crate) use send::{default_true, send_action_bytes, BatchCommand, SendAction, SendTextBody};
 
 pub async fn list_panes(
     AxumState(state): AxumState<AppState>,
@@ -22,9 +30,25 @@ pub struct CreateShellPaneBody {
     pub workspace_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
+    pub description: Option<String>,
     pub cmd: Option<String>,
     #[serde(default)]
     pub eager: bool,
+    /// When set, open a non-PTY chatBackend pane driven by this plugin id
+    /// (a `chatBackend`-capability plugin) instead of a shell (P1). `send`/
+    /// `get-output` then route to the plugin via the PaneTransport seam.
+    #[serde(default)]
+    pub chat_backend: Option<String>,
+    /// Config object handed to the chatBackend plugin's `openSession` — only
+    /// meaningful with `chat_backend`.
+    #[serde(default)]
+    pub config: Option<serde_json::Value>,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub preset: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 pub async fn create_shell_pane(
@@ -34,15 +58,46 @@ pub async fn create_shell_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     use crate::service::spawn::{PaneCommand, PaneVisibility, SpawnPaneSpec};
+    // P1: a chatBackend pane is the production entry point for plugin-driven
+    // chat. Build PaneCommand::ChatBackend so spawn routes through
+    let command = match body.chat_backend {
+        Some(plugin_id) => {
+            // Validate the id BEFORE building the pane. The old path accepted any
+            // string and 200'd even for unknown / non-spawnable backends; the async
+            validate_chat_backend_spawn(&state.svc.provider_registry, &plugin_id)
+                .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+            let mut config = body.config.unwrap_or(serde_json::Value::Null);
+            let overrides = crate::service::spawn::chatbackend_spawn_config(
+                body.system_prompt.as_deref(),
+                body.preset.as_deref(),
+                body.model.as_deref(),
+            );
+            if let (Some(base), Some(extra)) = (config.as_object_mut(), overrides.as_object()) {
+                for (key, value) in extra {
+                    base.insert(key.clone(), value.clone());
+                }
+            } else if !overrides.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+                config = overrides;
+            }
+            PaneCommand::ChatBackend { plugin_id, config }
+        }
+        None => PaneCommand::Shell,
+    };
     let handle = state
         .svc
         .spawn_pane(SpawnPaneSpec {
             workspace_id: body.workspace_id,
             cwd: body.cwd,
             title: body.title,
+            description: body
+                .description
+                .map(|s| crate::service::normalize_pane_description(&s))
+                .transpose()
+                .map_err(|e| (StatusCode::BAD_REQUEST, e))?
+                .flatten(),
             visibility: PaneVisibility::Visible,
             eager: body.eager,
-            command: PaneCommand::Shell,
+            command,
             ..Default::default()
         })
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -73,316 +128,23 @@ pub async fn create_shell_pane(
     })))
 }
 
-fn default_true() -> bool {
-    true
-}
-
-#[derive(Deserialize)]
-pub(crate) struct SendTextBody {
-    text: Option<String>,
-    #[serde(default = "default_true")]
-    enter: bool,
-    /// Terminal key/action sequence. When present, optional text is inserted
-    /// first without auto-submit, then actions are written as raw PTY bytes.
-    actions: Option<Vec<SendAction>>,
-    /// Batch: send multiple commands sequentially with optional delays
-    batch: Option<Vec<BatchCommand>>,
-    /// Raw mode: bypass bracket paste, send bytes directly to PTY.
-    /// Use for keystrokes that need to be interpreted by TUI (e.g. vim j/k navigation).
-    #[serde(default)]
-    raw: bool,
-    /// Sender's pane id when CLI is invoked from inside CodeTerm. Daemon
-    /// prepends a CodeTerm marker so the recipient knows the return-address.
-    /// Mesh hops and hierarchy reports use the same marker family.
-    #[serde(default)]
-    source_pane: Option<String>,
-    /// Originating peer name, injected by the mesh relay (authenticated from
-    /// the signed token — peers cannot spoof it). Present ⇒ this delivery
-    /// crossed the mesh; the label is peer-qualified `label@peer`.
-    #[serde(default)]
-    source_peer: Option<String>,
-    /// Source agent label + model, threaded from the originating peer (the
-    /// source pane is foreign and cannot be resolved against the local mux).
-    #[serde(default)]
-    source_label: Option<String>,
-    #[serde(default)]
-    source_model: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct BatchCommand {
-    text: String,
-    #[serde(default = "default_true")]
-    enter: bool,
-    delay_ms: Option<u64>,
-}
-
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub(crate) enum SendAction {
-    Key { key: String },
-    Delay { ms: u64 },
-}
-
-fn send_action_bytes(key: &str) -> Option<Vec<u8>> {
-    let normalized = key.replace('_', "-").to_ascii_lowercase();
-    match normalized.as_str() {
-        "enter" | "return" => Some(b"\r".to_vec()),
-        "esc" | "escape" => Some(b"\x1b".to_vec()),
-        "tab" => Some(b"\t".to_vec()),
-        "backspace" | "bs" => Some(vec![0x7f]),
-        "delete" | "del" => Some(b"\x1b[3~".to_vec()),
-        "up" | "arrow-up" => Some(b"\x1b[A".to_vec()),
-        "down" | "arrow-down" => Some(b"\x1b[B".to_vec()),
-        "right" | "arrow-right" => Some(b"\x1b[C".to_vec()),
-        "left" | "arrow-left" => Some(b"\x1b[D".to_vec()),
-        "home" => Some(b"\x1b[H".to_vec()),
-        "end" => Some(b"\x1b[F".to_vec()),
-        "pageup" | "page-up" | "pgup" => Some(b"\x1b[5~".to_vec()),
-        "pagedown" | "page-down" | "pgdn" => Some(b"\x1b[6~".to_vec()),
-        "space" => Some(b" ".to_vec()),
-        other => parse_ctrl_key(other).map(|b| vec![b]),
-    }
-}
-
-fn parse_ctrl_key(value: &str) -> Option<u8> {
-    let key = value
-        .strip_prefix("ctrl-")
-        .or_else(|| value.strip_prefix("control-"))
-        .or_else(|| value.strip_prefix("c-"))?;
-    if key.len() != 1 {
-        return None;
-    }
-    let b = key.as_bytes()[0].to_ascii_lowercase();
-    if b.is_ascii_lowercase() {
-        Some(b - b'a' + 1)
-    } else if b == b'[' {
-        Some(0x1b)
+/// Validate a `chat_backend` spawn target for POST /api/panes. `Ok(())` ⇒ the id
+/// names a registered, user-spawnable chat backend; `Err(reason)` ⇒ a 400 the
+/// caller surfaces (unknown id vs. registered-but-not-spawnable, distinguished
+/// so the message is actionable).
+fn validate_chat_backend_spawn(
+    reg: &crate::provider::ProviderRegistry,
+    plugin_id: &str,
+) -> Result<(), String> {
+    if reg.is_spawnable_chat_backend(plugin_id) {
+        Ok(())
+    } else if reg.transport_of(plugin_id).is_some() {
+        Err(format!(
+            "chat backend '{plugin_id}' is registered but not user-spawnable"
+        ))
     } else {
-        None
+        Err(format!("unknown chat backend '{plugin_id}'"))
     }
-}
-
-fn action_preview(actions: &[SendAction]) -> String {
-    actions
-        .iter()
-        .map(|a| match a {
-            SendAction::Key { key } => key.clone(),
-            SendAction::Delay { ms } => format!("delay:{ms}ms"),
-        })
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
-/// PTY init takes ~1-2s after agent_spawn returns; send fired
-/// immediately would otherwise hit "no PTY" unconditionally. Poll for
-/// the link with this short budget so a script can chain spawn → send.
-async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
-    for _ in 0..75 {
-        if state.svc.resolve_pty_id(pane_id).is_ok() {
-            return true;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    }
-    false
-}
-
-fn record_push_activity(state: &AppState, svc_id: &Option<String>, pane_id: &str, text: &str) {
-    use tauri::Emitter;
-    let Some(svc_id) = svc_id else { return };
-    let writer = crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
-    let preview = text.chars().take(200).collect::<String>();
-    let _ = writer.record(crate::service::activity::ActivityEvent::push(
-        svc_id, pane_id, &preview,
-    ));
-    let _ = state.svc.app_handle.emit(
-        "service-pushed",
-        serde_json::json!({"source_id": svc_id, "target": pane_id}),
-    );
-}
-
-pub async fn send_text(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(raw_pane_id): Path<String>,
-    Json(body): Json<SendTextBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    let svc_token_match = headers
-        .get("Authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| {
-            crate::service::push::validate_push(v, &state.svc.tokens, &state.svc.services_store)
-                .ok()
-                .flatten()
-        });
-
-    if svc_token_match.is_none() {
-        check_auth(&state, &headers)?;
-    }
-    let pane_id = resolve_pane(&state, &raw_pane_id)?;
-
-    state
-        .svc
-        .ensure_pane_pty_for_send(&pane_id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-
-    if !await_pty_link(&state, &pane_id).await {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "Pane not found or PTY did not start within 3s",
-        ));
-    }
-
-    // Prefix only for agent recipients; shells run the bytes verbatim. One
-    // canonical builder serves both local and mesh-relayed deliveries.
-    let source_prefix: Option<String> = body.source_pane.as_deref().and_then(|src| {
-        let mux = state.svc.mux.lock();
-        let target_is_agent = mux
-            .get_pane(&pane_id)
-            .and_then(|p| p.agent_type.as_ref())
-            .is_some();
-        match body.source_peer.as_deref().filter(|p| !p.is_empty()) {
-            // Mesh delivery: the source pane is foreign — identity comes from
-            // the body (resolved on the originating peer), peer-qualified here.
-            Some(peer) => {
-                let label = body
-                    .source_label
-                    .as_deref()
-                    .filter(|s| !s.trim().is_empty())
-                    .unwrap_or(peer);
-                crate::service::msg_prefix::delivery_prefix(
-                    target_is_agent,
-                    src,
-                    &pane_id,
-                    label,
-                    body.source_model.as_deref(),
-                    Some(peer),
-                )
-            }
-            // Local delivery: resolve the label/model from the local mux.
-            None => {
-                let from_label = mux.display_label_for_pane(src);
-                let model = mux
-                    .get_pane(src)
-                    .and_then(|p| p.agent_session_model.clone());
-                crate::service::msg_prefix::delivery_prefix(
-                    target_is_agent,
-                    src,
-                    &pane_id,
-                    &from_label,
-                    model.as_deref(),
-                    None,
-                )
-            }
-        }
-    });
-    let prepend = |s: &str| -> String {
-        match &source_prefix {
-            Some(p) => format!("{}{}", p, s),
-            None => s.to_string(),
-        }
-    };
-
-    if let Some(actions) = body.actions {
-        if actions.is_empty() {
-            return Err((StatusCode::BAD_REQUEST, "actions cannot be empty"));
-        }
-        let mut writes: Vec<(Option<u64>, Vec<u8>)> = Vec::with_capacity(actions.len());
-        for action in &actions {
-            match action {
-                SendAction::Delay { ms } => writes.push((Some(*ms), Vec::new())),
-                SendAction::Key { key } => {
-                    let Some(bytes) = send_action_bytes(key) else {
-                        return Err((StatusCode::BAD_REQUEST, "unknown action key"));
-                    };
-                    writes.push((None, bytes));
-                }
-            }
-        }
-
-        let raw_text = body.text.clone().unwrap_or_default();
-        let text_was_sent = !raw_text.is_empty();
-        if text_was_sent {
-            let text = prepend(&raw_text);
-            state
-                .svc
-                .send_text_when_ready(&pane_id, &text, false)
-                .await
-                .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-        }
-
-        let pty_id = state
-            .svc
-            .resolve_pty_id(&pane_id)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-        let pty = state.svc.pty.clone();
-        tokio::spawn(async move {
-            if text_was_sent {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            }
-            for (delay, bytes) in writes {
-                if let Some(ms) = delay {
-                    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-                    continue;
-                }
-                let _ = pty.lock().write(&pty_id, &bytes);
-            }
-        });
-
-        let preview = if raw_text.is_empty() {
-            format!("<actions:{}>", action_preview(&actions))
-        } else {
-            format!("{} <actions:{}>", raw_text, action_preview(&actions))
-        };
-        record_push_activity(&state, &svc_token_match, &pane_id, &preview);
-        return Ok(Json(serde_json::json!({"ok": true, "actions": true})));
-    }
-
-    if let Some(batch) = body.batch {
-        let preview = batch
-            .iter()
-            .map(|c| c.text.as_str())
-            .collect::<Vec<_>>()
-            .join(" ; ");
-        let items: Vec<crate::service::pty_io::SendBatchItem> = batch
-            .into_iter()
-            .map(|c| crate::service::pty_io::SendBatchItem {
-                text: prepend(&c.text),
-                enter: c.enter,
-                delay_ms: c.delay_ms,
-            })
-            .collect();
-        state
-            .svc
-            .send_text_batch(&pane_id, items)
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-        record_push_activity(&state, &svc_token_match, &pane_id, &preview);
-        return Ok(Json(serde_json::json!({"ok": true, "batch": true})));
-    }
-
-    if body.raw {
-        // raw mode bypasses bracket paste — sender prefix is intentionally skipped here too (raw = byte-for-byte keystrokes for TUIs)
-        let raw_text = body.text.clone().unwrap_or_default();
-        let mut buf = raw_text.clone();
-        if body.enter && !buf.ends_with('\r') {
-            buf.push('\r');
-        }
-        state
-            .svc
-            .write_raw(&pane_id, buf.as_bytes())
-            .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-        record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
-        return Ok(Json(serde_json::json!({"ok": true})));
-    }
-
-    let text = prepend(&body.text.unwrap_or_default());
-    state
-        .svc
-        .send_text_when_ready(&pane_id, &text, body.enter)
-        .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
-    record_push_activity(&state, &svc_token_match, &pane_id, &text);
-    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 /// Interrupt the agent's current operation (NOT a clean exit).
@@ -397,25 +159,51 @@ pub async fn stop_pane(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
-    let agent_id = state
-        .svc
-        .mux
-        .lock()
-        .get_pane(&pane_id)
-        .and_then(|p| p.agent_type.clone());
-    let bytes: Option<String> = agent_id.and_then(|aid| {
-        state
-            .svc
-            .agent_registry
-            .with_provider(&aid, |p| p.stop_keystroke().map(|s| s.to_string()))
-            .flatten()
-    });
-    let Some(bytes) = bytes else {
+    let (agent_id, session_id) = {
+        let mux = state.svc.mux.write();
+        match mux.get_pane(&pane_id) {
+            Some(pane) => (pane.agent_type.clone(), pane.agent_session_id.clone()),
+            None => (None, None),
+        }
+    };
+    // No agent on this pane → nothing to stop.
+    let Some(aid) = agent_id else {
         return Ok(Json(serde_json::json!({"ok": true, "stopped": false})));
     };
+    if let Some(sid) = session_id {
+        let svc = state.svc.clone();
+        let pane = pane_id.clone();
+        let structured_abort = tokio::task::spawn_blocking(move || {
+            crate::service::structured_prompt::abort_session(&svc, &pane, &sid)
+        })
+        .await
+        .ok()
+        .flatten();
+        if let Some(Ok(())) = structured_abort {
+            if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_pane_id) {
+                state.svc.mark_agent_interrupted(&pty_id);
+            }
+            return Ok(Json(
+                serde_json::json!({"ok": true, "stopped": true, "structured_abort": true}),
+            ));
+        }
+    }
+    // Real interrupt key. No built-in provider declares `stop_keystroke()` (trait
+    // default is None), so without a fallback the REST/CLI stop would send NOTHING
+    let key: String = state
+        .svc
+        .agent_registry
+        .with_provider(&aid, |p| p.stop_keystroke().map(|s| s.to_string()))
+        .flatten()
+        .unwrap_or_else(|| "\x1b".to_string());
+    // Stop/Cancel is a user intent to halt: force Idle + clear any pending question
+    // immediately (with the suppression window). write_raw bypasses the manual-Esc
+    if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_pane_id) {
+        state.svc.mark_agent_interrupted(&pty_id);
+    }
     state
         .svc
-        .write_raw(&pane_id, bytes.as_bytes())
+        .write_raw(&pane_id, key.as_bytes())
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     Ok(Json(serde_json::json!({"ok": true, "stopped": true})))
 }
@@ -597,6 +385,30 @@ pub async fn rename_pane(
 }
 
 #[derive(Deserialize)]
+pub(crate) struct DescribePaneBody {
+    description: String,
+}
+
+pub async fn describe_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+    Json(body): Json<DescribePaneBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
+    let result = crate::dispatch::dispatch(
+        &crate::dispatch::Command::PaneDescribe {
+            pane_id,
+            description: body.description,
+        },
+        &state.svc,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(result.into_json()))
+}
+
+#[derive(Deserialize)]
 pub(crate) struct ResizePaneBody {
     cols: u16,
     rows: u16,
@@ -641,11 +453,22 @@ pub async fn stream_pane_output(
     (StatusCode, &'static str),
 > {
     check_auth(&state, &headers)?;
-    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id)?;
+    // A chatBackend pane has no PTY output buffer — it streams transcript via the
+    // `pane-chat-msg-{id}` Tauri event (StructuredSink), not this SSE. Keep the
+    let chat = state.svc.pane_chat_backing(&raw_pane_id).is_some();
+    let pty_id = if chat {
+        String::new()
+    } else {
+        resolve_pty_id_with_fallback(&state, &raw_pane_id)?
+    };
 
     let buf = state.svc.output_buf.clone();
     let pid = pty_id.clone();
-    let initial_total = buf.lock().total_written(&pid);
+    let initial_total = if chat {
+        0
+    } else {
+        buf.lock().total_written(&pid)
+    };
     let mut offset: u64 = match query.from {
         Some(n) => n.min(initial_total),
         None => initial_total,
@@ -654,6 +477,9 @@ pub async fn stream_pane_output(
     let stream = async_stream::stream! {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+            if chat {
+                continue;
+            }
             let (chunk, new_total) = buf.lock().read_since(&pid, offset);
             if !chunk.is_empty() {
                 offset = new_total;
@@ -774,7 +600,7 @@ pub async fn get_pane_usage(
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
     let (agent_type, session_id, cwd) = {
-        let mux = state.svc.mux.lock();
+        let mux = state.svc.mux.write();
         let pane = mux
             .get_pane(&pane_id)
             .ok_or((StatusCode::NOT_FOUND, "Pane not found"))?;
@@ -824,5 +650,108 @@ pub async fn get_pane_text(
     }
 }
 
+/// GET /api/panes/{id}/shell-commands — OSC4 chat snapshot hydration: the
+/// pane's accumulated shell command list + cwd. Empty (not 404) when the pane
+/// has no PTY or no shell-integration markers yet, so chat mount never errors.
+pub async fn shell_command_snapshot(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id).ok();
+    let snap = pty_id.and_then(|pty_id| state.svc.shell_caps.lock().snapshot(&pty_id));
+    let snap = snap.unwrap_or_default();
+    serde_json::to_value(snap)
+        .map(Json)
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "serialize failed"))
+}
+
+#[derive(Deserialize)]
+pub struct CaptureStartBody {
+    /// Path of the `.cast` file to write.
+    pub out: String,
+}
+
+/// POST /api/panes/{id}/capture/start — dev-only PTY capture tap → asciicast v2.
+pub async fn start_capture(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+    Json(body): Json<CaptureStartBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id)?;
+    let (cols, rows) = {
+        let mgr = state.svc.pty.lock();
+        match mgr.get_session(&pty_id) {
+            Some(s) => *s
+                .size
+                .lock()
+                .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "pty size lock poisoned"))?,
+            None => (80, 24),
+        }
+    };
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let out = std::path::PathBuf::from(&body.out);
+    let prefill = state
+        .svc
+        .output_buf
+        .lock()
+        .get_full(&pty_id)
+        .map(|bytes| bytes.to_vec())
+        .unwrap_or_default();
+    crate::pty::capture::CaptureRegistry::global()
+        .start(&pty_id, out, cols, rows, timestamp, prefill)
+        .map_err(|_| {
+            (
+                StatusCode::CONFLICT,
+                "Failed to start capture (already active?)",
+            )
+        })?;
+    Ok(Json(serde_json::json!({
+        "ok": true, "out": body.out, "width": cols, "height": rows,
+    })))
+}
+
+/// POST /api/panes/{id}/capture/stop — flush+close `.cast`, write sidecar screen.txt.
+pub async fn stop_capture(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_pane_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let pty_id = resolve_pty_id_with_fallback(&state, &raw_pane_id)?;
+    // Render the final grid from the SAME vt100 ScreenState the daemon uses.
+    let screen = state.svc.screen_state.lock().get_screen_text(&pty_id);
+    let reg = crate::pty::capture::CaptureRegistry::global();
+    // stop() joins the writer thread (file IO) — keep it off the async runtime.
+    let pty_for_stop = pty_id.clone();
+    let out = tokio::task::spawn_blocking(move || reg.stop(&pty_for_stop))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "capture stop join failed",
+            )
+        })?
+        .ok_or((StatusCode::NOT_FOUND, "no active capture for this pane"))?;
+    let screen_path = out.with_extension("screen.txt");
+    if let Some(text) = screen {
+        let _ = std::fs::write(&screen_path, text);
+    }
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "cast": out.to_string_lossy(),
+        "screen": screen_path.to_string_lossy(),
+    })))
+}
+
 #[cfg(test)]
 mod tests_send_text_body;
+
+#[cfg(test)]
+mod tests_create_pane;

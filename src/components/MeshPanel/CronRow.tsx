@@ -21,13 +21,27 @@ export function CronRow({ service, host, onClick }: Props) {
   const { label, color } = statusInfo(service);
   return (
     <div
+      data-testid="cron-row"
+      data-service-name={service.name}
+      data-source-peer={service.source_peer ?? "local"}
+      data-source-peer-id={service.source_peer_id ?? "local"}
+      data-stale={String(!!service.stale)}
       onClick={onClick}
-      className="grid items-center px-4 py-1.5 border-b border-[var(--ct-border)] cursor-pointer hover:bg-[var(--ct-titlebar-bg)]"
+      className={`grid items-center px-4 py-1.5 border-b border-[var(--ct-border)] cursor-pointer hover:bg-[var(--ct-titlebar-bg)]${service.stale ? " opacity-60" : ""}`}
       style={{ gridTemplateColumns: GRID_COLS }}
     >
-      <span style={{ color }}>●</span>
+      <span style={{ color }}>{service.stale ? "◌" : "●"}</span>
       <span className="text-[var(--ct-fg)] text-xs truncate" title={service.name}>
         {service.name}
+        {service.stale && (
+          <span
+            data-testid="cron-stale-badge"
+            className="ml-1.5 text-[9px] uppercase text-[var(--ct-yellow)]"
+            title={service.peer_online === false ? "Last known cron — peer is offline" : "Last known cron — peer unreachable"}
+          >
+            cached
+          </span>
+        )}
       </span>
       <span className="text-[var(--ct-muted)] text-[11px] truncate" title={host}>
         {host}

@@ -132,6 +132,11 @@ pub struct ChatMsg {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub timestamp: Option<String>,
+    /// Monotonic source-order ordinal (JSONL rich-message index / structured row
+    /// position). The client's stable transcript-sort tiebreaker when timestamps
+    /// are coarse (codex floors to seconds) or absent (cursor emits none).
+    #[serde(default)]
+    pub seq: i64,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_name: Option<String>,
     /// Short, human-readable summary of the tool input (file path, command, …).
@@ -155,6 +160,16 @@ pub struct ChatMsg {
     /// System-message provenance (skill_context, <cmd>_meta, meta, …).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub system_subtype: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_pane: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub from_mesh: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub inbound_kind: Option<String>,
     /// XML tag name for local-command entries.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tag_name: Option<String>,

@@ -1,0 +1,10 @@
+{
+  "provider": "claude",
+  "situation": "wizard-side-preview",
+  "capturedAtMs": 1781990833764,
+  "paneId": "eaafeafe",
+  "source": "dev-7686",
+  "cwd": "/tmp/claudewizardframesLtwHs",
+  "origin": "terminal frame reproducing live Claude wizard with right preview box",
+  "until": "Тип|Стек|Фичи|Глубина|Submit + Preview"
+}

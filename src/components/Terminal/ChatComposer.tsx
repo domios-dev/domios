@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Clock3, Paperclip, Terminal, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Clock3, Paperclip, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
 import { invoke, listen } from "../../lib/bridge";
 import { quotePathForPaste } from "../../lib/clipboardPaste";
@@ -22,7 +22,7 @@ import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/typ
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 
 const COMPOSER_MIN_HEIGHT = 20;
-const COMPOSER_SINGLE_LINE_THRESHOLD = 28;
+const COMPOSER_HEIGHT_EPSILON = 2;
 const COMPOSER_MAX_HEIGHT = 230;
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
 // Shown the instant a voice note is sent — transcription (cold Whisper can take
@@ -40,12 +40,12 @@ const CLI_FALLBACK_COMMANDS = new Set([
   "/help",
 ]);
 
-function composerHeight(el: HTMLTextAreaElement, value: string): number {
-  const hasExplicitLineBreak = value.includes("\n");
-  if (!hasExplicitLineBreak && el.scrollHeight <= COMPOSER_SINGLE_LINE_THRESHOLD) {
+function composerHeight(el: HTMLTextAreaElement): number {
+  const measured = el.scrollHeight;
+  if (measured <= COMPOSER_MIN_HEIGHT + COMPOSER_HEIGHT_EPSILON) {
     return COMPOSER_MIN_HEIGHT;
   }
-  return Math.min(Math.max(el.scrollHeight, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT);
+  return Math.min(Math.max(measured, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT);
 }
 
 function cliFallbackCommandPayload(text: string): string | null {
@@ -90,66 +90,27 @@ function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void
 function ComposerBubbleRow({
   attachments,
   onRemove,
-  onToggleTerminalFallback,
-  terminalActive,
-  pendingPrompt,
   queuedCount,
   failedCount,
   onOpenDelayedQueue,
+  modelBubble,
 }: {
   attachments: string[];
   onRemove: (path: string) => void;
-  onToggleTerminalFallback?: () => void;
-  terminalActive: boolean;
-  pendingPrompt?: PendingPrompt | null;
   queuedCount: number;
   failedCount: number;
   onOpenDelayedQueue: () => void;
+  modelBubble?: ReactNode;
 }) {
-  if (attachments.length === 0 && !onToggleTerminalFallback && queuedCount === 0 && failedCount === 0) return null;
+  if (attachments.length === 0 && queuedCount === 0 && failedCount === 0 && !modelBubble) return null;
   const visible = attachments.slice(0, 4);
   const overflow = attachments.length - visible.length;
   return (
     <div
       data-testid="composer-bubble-row"
-      className="mb-2 flex max-h-[3.6rem] flex-wrap items-center gap-1 overflow-hidden"
+      className="mb-2 flex max-h-[3.6rem] flex-wrap items-center gap-1 overflow-visible"
     >
-      {onToggleTerminalFallback && (
-        <button
-          type="button"
-          data-testid="terminal-fallback-bubble"
-          data-terminal-fallback-toggle="true"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onToggleTerminalFallback()}
-          className="inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
-          style={{
-            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, white 5%)",
-            borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 28%, transparent)",
-            color: "var(--ct-muted-fg)",
-          }}
-          title="Toggle terminal fallback"
-        >
-          <Terminal size={12} />
-          <span>terminal</span>
-          {terminalActive && !pendingPrompt && (
-            <span
-              className="h-1.5 w-1.5 rounded-full"
-              style={{ background: "var(--ct-green, #3fb950)" }}
-            />
-          )}
-          {pendingPrompt && (
-            <span
-              className="ml-1 rounded px-1 py-0.5 text-[10px]"
-              style={{
-                background: "color-mix(in srgb, var(--ct-yellow, #d29922) 18%, transparent)",
-                color: "var(--ct-yellow, #d29922)",
-              }}
-            >
-              waiting
-            </span>
-          )}
-        </button>
-      )}
+      {modelBubble}
       {(queuedCount > 0 || failedCount > 0) && (
         <button
           type="button"
@@ -215,6 +176,8 @@ function SlashPicker({
         <button
           key={c.name}
           type="button"
+          data-testid="slash-command-option"
+          data-slash-command={c.name}
           onClick={() => onPick(c)}
           className="w-full flex items-center justify-between gap-2 px-2 py-1 text-xs font-mono text-left"
           style={{
@@ -239,7 +202,6 @@ export function ChatComposer({
   paneProvider,
   currentPtyId,
   pendingPrompt,
-  terminalHasAttention,
   attachments,
   addAttachments,
   removeAttachment,
@@ -249,13 +211,21 @@ export function ChatComposer({
   updateOptimistic,
   showComposerError,
   onOpenTerminalFallback,
-  onToggleTerminalFallback,
+  modelBubble,
+  chatBackend = false,
+  isActive = true,
 }: {
   paneId: string;
   paneProvider: string | null;
   currentPtyId: string | null;
+  /** This pane is backed by a plugin chatBackend (no PTY) — send via the
+   *  pane-level `chat_send_text` instead of writing to a PTY. */
+  chatBackend?: boolean;
+  /** Whether this composer's pane is the currently active/focused tab.
+   *  When false, refocusComposer is a no-op — prevents background panes
+   *  from stealing focus after an async send completes. */
+  isActive?: boolean;
   pendingPrompt: PendingPrompt | null;
-  terminalHasAttention: boolean;
   attachments: string[];
   addAttachments: (paths: string[]) => void;
   removeAttachment: (path: string) => void;
@@ -265,8 +235,11 @@ export function ChatComposer({
   updateOptimistic: (id: string, content: string) => void;
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
-  onToggleTerminalFallback?: () => void;
+  modelBubble?: ReactNode;
 }) {
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+
   const [input, setInput] = usePersistentDraft(`pane-session-chat:${paneId}`);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
@@ -309,7 +282,11 @@ export function ChatComposer({
   );
 
   const refocusComposer = useCallback(() => {
-    const focus = () => textareaRef.current?.focus({ preventScroll: true });
+    if (!isActiveRef.current) return;
+    const focus = () => {
+      if (!isActiveRef.current) return;
+      textareaRef.current?.focus({ preventScroll: true });
+    };
     if (!textareaRef.current) return;
     focus();
     requestAnimationFrame(() => {
@@ -324,11 +301,11 @@ export function ChatComposer({
     }, 0);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = "auto";
-    const next = composerHeight(el, input);
+    el.style.height = `${COMPOSER_MIN_HEIGHT}px`;
+    const next = composerHeight(el);
     el.style.height = `${next}px`;
   }, [input]);
 
@@ -378,7 +355,9 @@ export function ChatComposer({
   }, [paneProvider]);
 
   useEffect(() => {
-    const id = setTimeout(() => textareaRef.current?.focus(), 0);
+    const id = setTimeout(() => {
+      if (isActiveRef.current) textareaRef.current?.focus();
+    }, 0);
     return () => clearTimeout(id);
   }, []);
 
@@ -555,13 +534,24 @@ export function ChatComposer({
     clearAttachments();
     refocusComposer();
     try {
-      const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
-      if (!currentPtyId) throw new Error("Pane has no PTY");
-      if (fallbackCommand) {
-        onOpenTerminalFallback?.();
-        await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
+      if (chatBackend) {
+        // No PTY — route to the pane send seam, which dispatches to the
+        // plugin's sendMessage (chat_send_text → send_text_when_ready).
+        await invoke("chat_send_text", { paneId, text: composed, enter: true });
       } else {
-        await invoke("write_pty_string", { ptyId: currentPtyId, data: composed + "\r", raw: false });
+        const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
+        if (fallbackCommand) {
+          // CLI fallback commands write directly to the PTY — need the id now.
+          if (!currentPtyId) throw new Error("Pane has no PTY");
+          onOpenTerminalFallback?.();
+          await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
+        } else {
+          // Regular sends go through chat_send_text, whose backend implementation
+          // (send_text_when_ready → await_pty_link_blocking) waits up to 15s for
+          // the PTY to start — safe to call even when currentPtyId is still null
+          // on a freshly created pane.
+          await invoke("chat_send_text", { paneId, text: composed, enter: true });
+        }
       }
     } catch (e) {
       showComposerError(e instanceof Error ? e.message : String(e));
@@ -570,7 +560,7 @@ export function ChatComposer({
     }
   }
 
-  async function scheduleDraft(scheduledAtMs: number) {
+  async function scheduleDraft(scheduledAtMs: number | null) {
     const draft = buildDraft();
     if (!draft) return;
     setScheduleBusy(true);
@@ -615,43 +605,57 @@ export function ChatComposer({
   const queuedCount = delayedMessages.filter((msg) => msg.state !== "failed").length;
   const failedCount = delayedMessages.filter((msg) => msg.state === "failed").length;
 
+  useEffect(() => {
+    if (delayedQueueOpen && delayedMessages.length === 0) {
+      setDelayedQueueOpen(false);
+    }
+  }, [delayedQueueOpen, delayedMessages.length]);
+
   return (
     <div
-      className="shrink-0 p-2 border-t"
+      className="relative shrink-0 p-2 border-t"
+      data-testid="chat-composer-shell"
       style={{
         borderColor:
           "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
         paddingBottom: "var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)))",
       }}
     >
-      {scheduleOpen && (
-        <DelayedSendSchedulePanel
-          busy={scheduleBusy}
-          onClose={() => {
-            setScheduleOpen(false);
-            refocusComposer();
-          }}
-          onConfirm={(scheduledAtMs) => void scheduleDraft(scheduledAtMs)}
-        />
-      )}
-      {delayedQueueOpen && (
-        <DelayedSendQueuePanel
-          messages={delayedMessages}
-          busyId={delayedBusyId}
-          onClose={() => {
-            setDelayedQueueOpen(false);
-            refocusComposer();
-          }}
-          onDelete={(id) => void withDelayedBusy(id, async () => {
-            await deleteDelayedMessage(id);
-          })}
-          onSendNow={(id) => void withDelayedBusy(id, async () => {
-            await sendDelayedMessageNow(id);
-          })}
-          onUpdate={(id, patch) => void withDelayedBusy(id, async () => {
-            await updateDelayedMessage(id, patch);
-          })}
-        />
+      {(scheduleOpen || delayedQueueOpen) && (
+        <div className="absolute bottom-full left-0 z-30">
+          {scheduleOpen && (
+            <DelayedSendSchedulePanel
+              busy={scheduleBusy}
+              touchMode={touchMode}
+              onClose={() => {
+                setScheduleOpen(false);
+                refocusComposer();
+              }}
+              onConfirm={(scheduledAtMs) => void scheduleDraft(scheduledAtMs)}
+              onStash={() => void scheduleDraft(null)}
+            />
+          )}
+          {delayedQueueOpen && (
+            <DelayedSendQueuePanel
+              messages={delayedMessages}
+              busyId={delayedBusyId}
+              touchMode={touchMode}
+              onClose={() => {
+                setDelayedQueueOpen(false);
+                refocusComposer();
+              }}
+              onDelete={(id) => void withDelayedBusy(id, async () => {
+                await deleteDelayedMessage(id);
+              })}
+              onSendNow={(id) => void withDelayedBusy(id, async () => {
+                await sendDelayedMessageNow(id);
+              })}
+              onUpdate={(id, patch) => void withDelayedBusy(id, async () => {
+                await updateDelayedMessage(id, patch);
+              })}
+            />
+          )}
+        </div>
       )}
       {modelPickerOpen && (
         <div
@@ -711,11 +715,9 @@ export function ChatComposer({
       <ComposerBubbleRow
         attachments={attachments}
         onRemove={removeAttachment}
-        onToggleTerminalFallback={onToggleTerminalFallback}
-        terminalActive={terminalHasAttention}
-        pendingPrompt={pendingPrompt}
         queuedCount={queuedCount}
         failedCount={failedCount}
+        modelBubble={modelBubble}
         onOpenDelayedQueue={() => {
           setDelayedQueueOpen((v) => !v);
           setScheduleOpen(false);

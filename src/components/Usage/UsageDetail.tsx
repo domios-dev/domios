@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { RefreshCw, ArrowRight } from "lucide-react";
 import { classify, type UsageSnapshot } from "../../types/usage";
+import { getCachedConfig, setUiSettings } from "../../lib/clientSettings";
 import {
   useUsageHistory,
   useUsageProjection,
@@ -31,20 +32,17 @@ const EIGHT_DAYS_MS = 8 * 24 * 60 * 60 * 1000;
 const STALE_MS = 20 * 60 * 1000;
 const REFRESH_TIMEOUT_MS = 12_000;
 const MERGE_MARKERS_WITHIN_PCT = 3;
-const INTRO_HINT_OPENS_KEY = "ct-usage-intro-hint-opens";
 const INTRO_HINT_MAX_OPENS = 5;
 
 export function UsageDetail({ snapshot, flipUp, onRefresh, onOpenHistory }: UsageDetailProps) {
   const [refreshing, setRefreshing] = useState(false);
   const refreshStartRef = useRef<number>(0);
+  // Open-count gating is centralized in config (bounded writes: stops at MAX)
+  // so the intro hint fades out consistently across clients, not per-browser.
   const showIntroHints = useMemo(() => {
-    try {
-      const n = parseInt(localStorage.getItem(INTRO_HINT_OPENS_KEY) || "0", 10) || 0;
-      localStorage.setItem(INTRO_HINT_OPENS_KEY, String(n + 1));
-      return n < INTRO_HINT_MAX_OPENS;
-    } catch {
-      return true;
-    }
+    const opens = (getCachedConfig()?.ui?.usage_intro_hint_opens as number | undefined) ?? 0;
+    if (opens < INTRO_HINT_MAX_OPENS) void setUiSettings({ usage_intro_hint_opens: opens + 1 });
+    return opens < INTRO_HINT_MAX_OPENS;
   }, []);
   const since = useMemo(() => Date.now() - EIGHT_DAYS_MS, []);
   const { rows } = useUsageHistory({

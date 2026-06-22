@@ -1,0 +1,28 @@
+┃                                                                                                                     
+  ┃  Write idle-notes.md with one sentence, then write one short paragraph in chat explaining why a blinking cursor     
+  ┃  is not proof of agent work. Then stop.                                                                             
+  ┃                                                                                                                     
+     + Thought: 1.4s                                                                                                    
+  ┃                                                                                                                     
+  ┃  # Wrote idle-notes.md                                                                                              
+  ┃                                                                                                                     
+  ┃   1 Idle detection in terminal UIs is inherently unreliable because terminals provide no input-completion           
+  ┃     signals, making it impossible to distinguish a pause between keystrokes from actual idle.                       
+  ┃                                                                                                                     
+     + Thought: 244ms                                                                                                   
+     A blinking cursor only proves that the terminal emulator or shell is still running its cursor-blinking timer —     
+     it reveals nothing about whether an agent is actively processing work, blocked on I/O, or simply parked waiting    
+     for the next input event. The cursor is a display-layer artifact, not a process-state indicator.                   
+     ▣  Build · DeepSeek V4 Flash Free · 5.8s                                                                           
+  ┃                                                                                                                     
+  ┃  Say 'done' and nothing else.                                                                                       
+  ┃                                                                                                                     
+     + Thought: 270ms                                                                                                   
+     done                                                                                                               
+     ▣  Build · DeepSeek V4 Flash Free · 1.4s                                                                           
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃                                                                                                                     
+  ┃  Build · DeepSeek V4 Flash Free OpenCode Zen                                                                        
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  
+                                                                                           10.0K (5%)  ctrl+p commands

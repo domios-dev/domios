@@ -134,6 +134,13 @@ TASK — execute each step as Bash tool calls, in order:
    Use --skip-extract to prevent infinite worker loops.
    ALWAYS link sub-saves back to the source — orphan nodes are never acceptable.
 
+   BODY DISCIPLINE (mandatory): only save a decision/problem item when you have a
+   real, self-contained body — at least one full sentence of substance (what +
+   why / symptom + cause). Items with an empty or title-only body get NO vector
+   (unsearchable) and are pure noise. If you can't write a substantive body,
+   DON'T save the item — capture it as a graph relation instead. A relation with
+   no weak node beats a thin node.
+
 6. REPORT (MANDATORY FINAL STEP)
      codeterm mem worker report "<N entities, M relations, K decisions, U merges, area=<area>>"
 
@@ -147,6 +154,8 @@ HARD BANS:
 - Canonical names: pick the short form a person actually goes by, then map every
   variant (full name, nickname, formal form) to the same `person_<short>` slug.
 - When in doubt, extract LESS. "0 entities, 0 relations" is a valid outcome.
+- NO thin/empty bodies. A saved mem_item must carry real content in its body, not
+  just a restated title. No substance → don't save it (use a graph relation).
 
 ──────────────────────────────────────────────────────────────────────
 REMINDER: You have exactly one way to act: **Bash tool calls**.

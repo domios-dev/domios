@@ -287,6 +287,42 @@ mod tests {
         assert!(parse_permission_prompt(text).is_none());
     }
 
+    #[test]
+    fn test_parse_codex_model_picker() {
+        // Live-captured codex `/model` ratatui menu: numbered options, a › selector on
+        // the highlight, and an enter/esc footer. This is the path codex relies on
+        let text = "Select Model and Effort\n\
+            Access legacy models by running codex -m <model_name> or in your config.toml\n\
+            \u{203A} 1. gpt-5.5 (current)    Frontier model for complex coding\n\
+            \x20\x202. gpt-5.4              Strong model for everyday coding.\n\
+            \x20\x203. gpt-5.4-mini         Small, fast, and cost-efficient model.\n\
+            \x20\x204. gpt-5.3-codex-spark  Ultra-fast coding model.\n\
+            Press enter to confirm or esc to go back";
+        assert!(detect_interactive_prompt(text));
+        let (question, options) = parse_permission_prompt(text).expect("codex /model parses");
+        assert!(
+            options.len() >= 2,
+            "expected >=2 options, got {}",
+            options.len()
+        );
+        assert_eq!(options[0].1, "1");
+        assert!(
+            question.contains("Model") || options[0].0.contains("gpt"),
+            "question/options carry the model picker, got q={question:?}"
+        );
+    }
+
+    #[test]
+    fn test_parse_codex_model_picker_fixture_last_cluster() {
+        let text = include_str!("../../../plugins/provider-codex/tests/fixtures/model-picker.txt");
+        let result = parse_interactive_picker(text).expect("codex fixture parses");
+        assert_eq!(result.question, "Select Reasoning Level for gpt-5.5");
+        assert_eq!(result.selected_index, Some(1));
+        assert_eq!(result.options.len(), 4);
+        assert_eq!(result.options[0].1, "1");
+        assert_eq!(result.options[3].1, "4");
+    }
+
     // --- Structural fingerprint edge cases ---
 
     #[test]

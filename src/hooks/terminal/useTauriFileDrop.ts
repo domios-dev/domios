@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { invoke } from "../../lib/bridge";
 
 export interface UseTauriFileDropOptions {
   containerRef: React.RefObject<HTMLElement | null>;
@@ -42,7 +43,11 @@ export function useTauriFileDrop({
         setIsDragOver(false);
         if (!isDropInside(payload.position, el)) return;
         const paths = payload.paths || [];
-        if (paths.length > 0) onPathsRef.current(paths);
+        if (paths.length > 0) {
+          void materializeDroppedPaths(paths).then((materialized) => {
+            onPathsRef.current(materialized);
+          });
+        }
         return;
       }
       if (payload.type === "leave") {
@@ -66,6 +71,15 @@ export function useTauriFileDrop({
   }, [enabled, containerRef]);
 
   return { isDragOver };
+}
+
+export async function materializeDroppedPaths(paths: string[]): Promise<string[]> {
+  if (paths.length === 0) return [];
+  try {
+    return await invoke<string[]>("materialize_dropped_files", { paths });
+  } catch {
+    return paths;
+  }
 }
 
 function isDropInside(

@@ -334,6 +334,34 @@ impl CronStore {
         self.save()
     }
 
+    pub fn set_run_session(
+        &mut self,
+        job_id: &str,
+        run_id: &str,
+        session_id: &str,
+        cwd: Option<&str>,
+    ) {
+        if let Some(history) = self.file.history.get_mut(job_id) {
+            if let Some(run) = history.iter_mut().find(|r| r.run_id == run_id) {
+                run.session_id = Some(session_id.to_string());
+                if let Some(c) = cwd {
+                    run.cwd = Some(c.to_string());
+                }
+            }
+        }
+        if let Some(job) = self.file.jobs.iter_mut().find(|j| j.id == job_id) {
+            if let Some(ref mut lr) = job.last_run {
+                if lr.run_id == run_id {
+                    lr.session_id = Some(session_id.to_string());
+                    if let Some(c) = cwd {
+                        lr.cwd = Some(c.to_string());
+                    }
+                }
+            }
+        }
+        let _ = self.save();
+    }
+
     pub fn get_history(&self, job_id: &str) -> Vec<&CronRunInfo> {
         self.file
             .history

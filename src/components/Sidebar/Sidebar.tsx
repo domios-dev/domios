@@ -8,14 +8,31 @@ import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer } from "../../store/multiplexer";
 import { getAgentProvider } from "../../lib/agentProviders";
+import { setProviderSettings } from "../../lib/clientSettings";
+import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
-import { Plus } from "lucide-react";
-import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon } from "../Icons";
+import { Check, ChevronDown, Plus } from "lucide-react";
+import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
+import { RecentlyClosed } from "./RecentlyClosed";
+import {
+  SidebarDnd,
+  SortableRow,
+  SortableContext,
+  verticalListSortingStrategy,
+  sortByOrder,
+  WS_PREFIX,
+  TAB_PREFIX,
+} from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
+import {
+  getMeshPresenceMenuItems,
+  getMeshPresenceSummary,
+  type MeshPresence,
+} from "./meshPresenceHeader";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
@@ -51,18 +68,22 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
+  onOpenExtensions?: () => void;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "mesh" | "git";
+  mainView?: "workspace" | "settings" | "memory" | "mesh" | "git" | "extensions";
   config?: AppConfig;
+  uiFontScale?: number;
 }
 
 export function Sidebar({
   onOpenSettings,
   onOpenMemory,
   onOpenMesh,
+  onOpenExtensions,
   onNavigateToTab,
   mainView = "workspace",
   config,
+  uiFontScale,
 }: SidebarProps) {
   const {
     state,
@@ -70,9 +91,13 @@ export function Sidebar({
     setActiveWorkspace,
     closeWorkspace,
     renameWorkspace,
-    moveTab,
+    reorderTabs,
+    reorderWorkspaces,
     createTab,
     closeTab,
+    reopenClosed,
+    reopenGroup,
+    restoreOrphaned,
     setActiveTab,
     setTabTitle,
     spawnAgentTab,
@@ -91,14 +116,15 @@ export function Sidebar({
     initialPath?: string | null;
     onSelect: (path: string) => void;
   } | null>(null);
-  const [claudeSkipPerms, setClaudeSkipPerms] = useState(() => {
-    try { return localStorage.getItem("codeterm-claude-skip-perms") === "true"; } catch { return false; }
-  });
-  const [claudeRememberChoice, setClaudeRememberChoice] = useState(() => {
-    try { return localStorage.getItem("codeterm-claude-remember") === "true"; } catch { return false; }
-  });
+  const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
+  const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
   const { providers } = useAgentProviders();
   const agentsConfig = config?.agents;
+  // Skip-permissions "remember" choice is centralized in backend config so it
+  // carries across the desktop app and every web client (not per-localStorage).
+  const claudeConfig = agentsConfig?.claude;
+  const claudeSkipRemembered = claudeConfig?.spawn_skip_permissions_remembered === true;
+  const claudeSavedSkipPerms = claudeConfig?.spawn_skip_permissions === true;
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
@@ -119,8 +145,8 @@ export function Sidebar({
           title: `Project folder for ${provider?.displayName ?? agentId}`,
           initialPath: workspaceCwd,
           onSelect: (path) => {
-            if (claudeRememberChoice) {
-              spawnAgentTab(workspaceId, agentId, claudeSkipPerms, path);
+            if (claudeSkipRemembered) {
+              spawnAgentTab(workspaceId, agentId, claudeSavedSkipPerms, path);
             } else {
               setAgentSpawnModal({ folder: path, agentId, workspaceId });
             }
@@ -142,20 +168,20 @@ export function Sidebar({
       if (!folder) return;
     }
     // If user chose "remember", skip the modal and spawn directly
-    if (claudeRememberChoice) {
-      spawnAgentTab(workspaceId, agentId, claudeSkipPerms, folder);
+    if (claudeSkipRemembered) {
+      spawnAgentTab(workspaceId, agentId, claudeSavedSkipPerms, folder);
       return;
     }
     setAgentSpawnModal({ folder, agentId, workspaceId });
-  }, [spawnAgentTab, claudeRememberChoice, claudeSkipPerms]);
+  }, [spawnAgentTab, claudeSkipRemembered, claudeSavedSkipPerms]);
 
   const handleClaudeConfirm = useCallback(() => {
     if (!agentSpawnModal) return;
     if (claudeRememberChoice) {
-      try {
-        localStorage.setItem("codeterm-claude-skip-perms", String(claudeSkipPerms));
-        localStorage.setItem("codeterm-claude-remember", "true");
-      } catch { /* ignore */ }
+      void setProviderSettings("claude", {
+        spawn_skip_permissions: claudeSkipPerms,
+        spawn_skip_permissions_remembered: true,
+      });
     }
     spawnAgentTab(
       agentSpawnModal.workspaceId,
@@ -169,6 +195,7 @@ export function Sidebar({
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
   );
+  const [meshEnabledOverride, setMeshEnabledOverride] = useState<boolean | null>(null);
 
   // Auto-expand only the active workspace when it changes
   useEffect(() => {
@@ -209,6 +236,45 @@ export function Sidebar({
       return next;
     });
   }, [createWorkspace, state.workspaces]);
+
+  useEffect(() => {
+    setMeshEnabledOverride(null);
+  }, [config?.mesh.enabled]);
+
+  const meshPresence: MeshPresence = (meshEnabledOverride ?? config?.mesh.enabled ?? false) ? "online" : "offline";
+  const meshPresenceSummary = getMeshPresenceSummary(meshPresence);
+  const setMeshPresence = useCallback(async (next: MeshPresence) => {
+    if (next === meshPresence) return;
+    const nextEnabled = next === "online";
+    setMeshEnabledOverride(nextEnabled);
+    try {
+      const current = config ?? await invoke<AppConfig>("get_config");
+      await invoke("update_config", {
+        config: { ...current, mesh: { ...current.mesh, enabled: nextEnabled } },
+      });
+    } catch {
+      setMeshEnabledOverride(null);
+    }
+  }, [config, meshPresence]);
+  const meshPresenceItems = useMemo<DropdownMenuItem[]>(
+    () => getMeshPresenceMenuItems(meshPresence).map((item) => ({
+      label: item.label,
+      icon: item.active
+        ? <Check size={12} className="text-[var(--ct-accent)]" />
+        : (
+            <span
+              className="inline-block w-2 h-2 rounded-full"
+              style={
+                item.value === "online"
+                  ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
+                  : { background: "transparent", border: "1.5px solid var(--ct-muted)" }
+              }
+            />
+          ),
+      onClick: () => setMeshPresence(item.value),
+    })),
+    [meshPresence, setMeshPresence],
+  );
 
   const toggleExpanded = useCallback((wsId: string) => {
     setExpandedWorkspaces((prev) => {
@@ -283,6 +349,9 @@ export function Sidebar({
 
   const sidebarRef = useRef<HTMLDivElement>(null);
   const touchMode = useTouchOptimizedUi();
+  const sidebarActionText = pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[11px]", "text-[12px]", "text-[13px]"]);
+  const sidebarNavText = pickUiFontScaleValue(uiFontScale, ["text-[10px]", "text-[11px]", "text-[12px]", "text-[13px]"]);
+  const sidebarNavTouchText = pickUiFontScaleValue(uiFontScale, ["text-[12px]", "text-[13px]", "text-[14px]", "text-[15px]"]);
   const visibleSidebarWidth = isSidebarCollapsed ? 16 : touchMode ? Math.round(sidebarWidth * 1.3) : sidebarWidth;
   const isCompact = !touchMode && !isSidebarCollapsed && sidebarWidth < 100;
 
@@ -345,20 +414,35 @@ export function Sidebar({
     }, 350);
   }, [closeTab, state.workspaces]);
 
+  // Workspaces rendered in sort_order; the sidebar is the source of visual order.
+  const sortedWorkspaces = useMemo(() => sortByOrder(state.workspaces), [state.workspaces]);
+  const workspaceSortIds = useMemo(
+    () => sortedWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
+    [sortedWorkspaces],
+  );
+  // The General (protected) workspace is pinned to the top and never reorders.
+  const pinnedWorkspaceIds = useMemo(
+    () => sortedWorkspaces.filter((ws) => ws.protected).map((ws) => `${WS_PREFIX}${ws.id}`),
+    [sortedWorkspaces],
+  );
+  const dndHandlers = useMemo(
+    () => ({ reorderTabs, reorderWorkspaces }),
+    [reorderTabs, reorderWorkspaces],
+  );
+
   return (
     <>
       <div
         className="relative overflow-visible shrink-0 h-full"
         style={{
           width: visibleSidebarWidth,
-          boxShadow: "inset -0.5px 0 0 var(--ct-border-subtle)",
           transition: sidebarDragging.current ? undefined : "width 180ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
         >
         <aside
           ref={sidebarRef}
           data-touch-mode={touchMode ? "true" : "false"}
-          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] flex flex-col select-none overflow-visible overflow-y-hidden relative"
+          className="shrink-0 h-full min-h-0 bg-[var(--ct-sidebar-bg)] border-r border-[var(--ct-border)] flex flex-col select-none overflow-visible overflow-y-hidden relative"
           style={{ width: visibleSidebarWidth }}
         >
           {!isSidebarCollapsed && (
@@ -373,12 +457,33 @@ export function Sidebar({
                   </div>
                 </div>
               )}
-              {/* Panes header with action icons */}
+              {/* Presence header — live online/offline signal (was the static "Panes" label). */}
               <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
                 {!isCompact && (
-                  <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
-                    Panes
-                  </span>
+                  <DropdownMenu
+                    items={meshPresenceItems}
+                    className="min-w-0"
+                    trigger={
+                      <button
+                        type="button"
+                        className="flex min-w-0 items-center gap-1.5 truncate rounded-md px-1.5 py-1 -ml-1.5 text-left transition-colors hover:bg-[var(--ct-hover)]"
+                        title={meshPresenceSummary.title}
+                      >
+                      <span
+                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                        style={
+                          meshPresence === "online"
+                            ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
+                            : { background: "transparent", border: "1.5px solid var(--ct-muted)" }
+                        }
+                      />
+                      <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
+                        {meshPresenceSummary.label}
+                      </span>
+                        <ChevronDown size={11} className="shrink-0 text-[var(--ct-muted)]" />
+                      </button>
+                    }
+                  />
                 )}
                 <div className="flex items-center gap-1">
                   {/* New workspace */}
@@ -396,7 +501,7 @@ export function Sidebar({
               {isCompact ? (
                 /* Compact mode — icon list with collapsible tabs */
                 <div className="flex flex-col items-center py-1">
-                  {state.workspaces.map((ws) => {
+                  {sortedWorkspaces.map((ws) => {
                     const isActive = ws.id === state.active_workspace_id;
                     const isActiveVisual = isActive && isWorkspaceMode;
                     const isExpanded = expandedWorkspaces.has(ws.id);
@@ -411,13 +516,13 @@ export function Sidebar({
                         >
                           <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
                         </button>
-                        {isExpanded && ws.tabs.map((tab) => {
+                        {isExpanded && sortByOrder(ws.tabs).map((tab) => {
                           const tabPaneIds = collectPaneIds(tab, state.panes);
-                          const isTabActive = isActiveVisual && tab.id === ws.active_tab_id;
+                          const isTabActive = isActiveVisual && tab.id === state.activeTabIds[ws.id];
                           return (
                             <button
                               key={tab.id}
-                              onClick={() => { setActiveWorkspace(ws.id); setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
+                              onClick={() => { setActiveTab(ws.id, tab.id); onNavigateToTab?.(); }}
                               className={`w-8 h-7 flex items-center justify-center rounded transition-colors ${
                                 isTabActive
                                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
@@ -444,8 +549,12 @@ export function Sidebar({
                     );
                   })}
                 </div>
-              ) : state.workspaces.map((ws) => {
-                const allPaneIds = ws.tabs.flatMap((t) => collectPaneIds(t, state.panes));
+              ) : (
+                <SidebarDnd handlers={dndHandlers}>
+                <SortableContext items={workspaceSortIds} strategy={verticalListSortingStrategy}>
+                {sortedWorkspaces.map((ws) => {
+                const sortedTabs = sortByOrder(ws.tabs);
+                const allPaneIds = sortedTabs.flatMap((t) => collectPaneIds(t, state.panes));
                 const wsStatus = aggregateStatus(allPaneIds, state.paneStatuses);
                 const hasWaiting = allPaneIds.some(
                   (pid) => state.paneStatuses[pid] === "Waiting",
@@ -460,6 +569,11 @@ export function Sidebar({
 
                 return (
                   <div key={ws.id}>
+                    <SortableRow
+                      id={`${WS_PREFIX}${ws.id}`}
+                      disabled={ws.protected}
+                      data={{ group: "workspace", groupKey: "workspaces", items: workspaceSortIds, pinnedIds: pinnedWorkspaceIds }}
+                    >
                     <WorkspaceItem
                       workspace={ws}
                       isActive={isActiveVisual}
@@ -473,18 +587,10 @@ export function Sidebar({
                       canClose={true}
                       status={wsStatus}
                       hasWaiting={hasWaiting}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        try {
-                          const data = JSON.parse(e.dataTransfer.getData("text/plain"));
-                          if (data.tabId && data.fromWorkspaceId && data.fromWorkspaceId !== ws.id) {
-                            moveTab(data.tabId, data.fromWorkspaceId, ws.id);
-                          }
-                        } catch { /* ignore */ }
-                      }}
                       touchMode={touchMode}
+                      uiFontScale={uiFontScale}
                     />
+                    </SortableRow>
                     {/* Animated expand/collapse using grid-template-rows */}
                     <div
                       className="grid transition-[grid-template-rows] duration-[320ms]"
@@ -497,44 +603,52 @@ export function Sidebar({
                         {/* Content always rendered — CSS grid-template-rows handles show/hide with animation */}
                         <>
                           {(() => {
-                            // Build pane→tab lookup and find which tabs are children
-                            const paneToTab: Record<string, typeof ws.tabs[0]> = {};
-                            for (const tab of ws.tabs) {
-                              const pids = collectPaneIds(tab, state.panes);
-                              if (pids[0]) paneToTab[pids[0]] = tab;
-                            }
                             // Set of pane IDs that are children (have a parent) — skip at top level
                             const childPaneIds = new Set<string>();
-                            for (const tab of ws.tabs) {
+                            for (const tab of sortedTabs) {
                               const pids = collectPaneIds(tab, state.panes);
                               const pane = pids[0] ? state.panes[pids[0]] : null;
                               if (pane?.parent_pane_id) childPaneIds.add(pids[0]);
                             }
 
-                            // Render a tab + its children recursively
-                            const renderTab = (tab: Tab, index: number, depth: number): React.ReactNode => {
+                            // Render a tab + its children recursively. `group`/`groupKey`/
+                            // `items` scope this tab's drag to its own sibling set.
+                            const renderTab = (
+                              tab: Tab,
+                              index: number,
+                              depth: number,
+                              group: "tab" | "child",
+                              groupKey: string,
+                              items: string[],
+                              pinnedIds: string[],
+                            ): React.ReactNode => {
                               const tabPids = collectPaneIds(tab, state.panes);
                               const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
-                              // Find child tabs (tabs whose pane.parent_pane_id === this pane)
+                              // Child tabs (pane.parent_pane_id === this pane), in sort order.
                               const childTabs = firstPane
-                                ? ws.tabs.filter((t) => {
+                                ? sortedTabs.filter((t) => {
                                     const tPids = collectPaneIds(t, state.panes);
                                     const tPane = tPids[0] ? state.panes[tPids[0]] : null;
                                     return tPane?.parent_pane_id === firstPane.id;
                                   })
                                 : [];
+                              const childIds = childTabs.map((t) => `${TAB_PREFIX}${t.id}`);
 
                               const isClosing = closingTabs.has(tab.id);
                               const isAppearing = appearingTabs.has(tab.id);
 
                               return (
                                 <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
+                                  <SortableRow
+                                    id={`${TAB_PREFIX}${tab.id}`}
+                                    disabled={firstPane?.protected}
+                                    data={{ group, groupKey, items, pinnedIds }}
+                                  >
                                   <TabItem
                                     tab={tab}
                                     index={index}
-                                    isActive={isActiveVisual && tab.id === ws.active_tab_id}
+                                    isActive={isActiveVisual && tab.id === state.activeTabIds[ws.id]}
                                     onClick={() => {
-                                      setActiveWorkspace(ws.id);
                                       setActiveTab(ws.id, tab.id);
                                       onNavigateToTab?.();
                                     }}
@@ -555,21 +669,39 @@ export function Sidebar({
                                     isAppearing={isAppearing}
                                     isClosing={isClosing}
                                     touchMode={touchMode}
+                                    uiFontScale={uiFontScale}
                                   />
-                                  {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
+                                  </SortableRow>
+                                  {childTabs.length > 0 && firstPane && (
+                                    <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
+                                      {childTabs.map((ct, ci) =>
+                                        renderTab(ct, ci, depth + 1, "child", firstPane.id, childIds, []),
+                                      )}
+                                    </SortableContext>
+                                  )}
                                 </div>
                               );
                             };
 
-                            // Only render top-level tabs (not children)
-                            return ws.tabs
-                              .filter((tab) => {
-                                const pids = collectPaneIds(tab, state.panes);
-                                if (pids.length === 0) return false;
-                                if (childPaneIds.has(pids[0])) return false;
-                                return true;
-                              })
-                              .map((tab, index) => renderTab(tab, index, 0));
+                            // Only render top-level tabs (children render under their parent).
+                            const topLevel = sortedTabs.filter((tab) => {
+                              const pids = collectPaneIds(tab, state.panes);
+                              if (pids.length === 0) return false;
+                              if (childPaneIds.has(pids[0])) return false;
+                              return true;
+                            });
+                            const topLevelIds = topLevel.map((t) => `${TAB_PREFIX}${t.id}`);
+                            // Pin the General (protected) tab to the top of this group.
+                            const pinnedTabIds = topLevel
+                              .filter((t) => state.panes[t.pane_id]?.protected)
+                              .map((t) => `${TAB_PREFIX}${t.id}`);
+                            return (
+                              <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
+                                {topLevel.map((tab, index) =>
+                                  renderTab(tab, index, 0, "tab", ws.id, topLevelIds, pinnedTabIds),
+                                )}
+                              </SortableContext>
+                            );
                           })()}
                           {/* Add agent session button */}
                           {(() => {
@@ -581,11 +713,11 @@ export function Sidebar({
                             const trigger = (
                               <button
                                 disabled={newSessionItems.length === 0}
-                                className="flex items-center gap-2 mx-2 mt-1 mb-0.5 px-5 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
+                                className="flex items-center gap-2 min-w-0 max-w-full mx-2 mt-1 mb-0.5 px-3 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
                                 title={newSessionItems.length === 0 ? "No visible agent providers" : "New session in this workspace"}
                               >
-                                <Plus size={10} strokeWidth={1.5} />
-                                <span className="text-[11px]">New session</span>
+                                <Plus size={10} strokeWidth={1.5} className="shrink-0" />
+                                <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
                               </button>
                             );
                             return newSessionItems.length === 0 ? (
@@ -600,10 +732,10 @@ export function Sidebar({
                         </>
                       </div>
                     </div>
-                    {!isExpanded && isActiveVisual && ws.active_tab_id ? (
+                    {!isExpanded && isActiveVisual && state.activeTabIds[ws.id] ? (
                       /* Collapsed but active — show selected tab */
                       (() => {
-                        const activeTab = ws.tabs.find((t) => t.id === ws.active_tab_id);
+                        const activeTab = ws.tabs.find((t) => t.id === state.activeTabIds[ws.id]);
                         if (!activeTab) return null;
                         const atPids = collectPaneIds(activeTab, state.panes);
                         const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
@@ -628,6 +760,7 @@ export function Sidebar({
                             pane={atFirstPane}
                             orchestrators={wsOrchestrators}
                             touchMode={touchMode}
+                            uiFontScale={uiFontScale}
                           />
                         );
                       })()
@@ -635,70 +768,109 @@ export function Sidebar({
                   </div>
                 );
               })}
+                </SortableContext>
+                </SidebarDnd>
+              )}
             </div>
 
+            {/* Recently closed — pinned above bottom nav, aggregated across all workspaces */}
+            {!isCompact && (() => {
+              // Newest-first closed-history view, sourced from the sqlite store
+              // (already bounded + sorted server-side).
+              const views = state.recently_closed ?? [];
+              if (views.length === 0) return null;
+              const hasOrphaned = views.some((v) => v.orphaned);
+              return (
+                <RecentlyClosed
+                  views={views}
+                  showWorkspace={state.workspaces.length > 1 || hasOrphaned}
+                  onReopen={(wsId, idx, orphaned, paneId) => {
+                    if (orphaned) { restoreOrphaned(paneId); }
+                    else { reopenClosed(wsId, idx); }
+                  }}
+                  onReopenGroup={reopenGroup}
+                  touchMode={touchMode}
+                  uiFontScale={uiFontScale}
+                  headerTextClass={touchMode ? sidebarNavTouchText : sidebarNavText}
+                />
+              );
+            })()}
             {/* Memory + Settings buttons at bottom */}
             <div className={`border-t border-[var(--ct-border)] mt-auto ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
-              {(config?.ui?.memory_tab_enabled ?? true) && (
-                <button
-                  onClick={onOpenMemory}
-                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                    mainView === "memory"
-                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                  }`}
-                  title="Memory Graph (Ctrl+Shift+M)"
-                >
-                  <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                    <circle cx="12" cy="5" r="2" />
-                    <circle cx="5" cy="19" r="2" />
-                    <circle cx="19" cy="19" r="2" />
-                    <circle cx="12" cy="13" r="2" />
-                    <line x1="12" y1="7" x2="12" y2="11" />
-                    <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
-                    <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
-                  </svg>
-                  {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Memory</span>}
-                </button>
-              )}
-              {(config?.ui?.mesh_tab_enabled ?? true) && (
-                <button
-                  data-testid="nav-mesh"
-                  onClick={onOpenMesh}
-                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                    mainView === "mesh"
-                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                  }`}
-                  title="Mesh"
-                >
-                  <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                    <circle cx="12" cy="12" r="2" />
-                    <circle cx="4" cy="6" r="2" />
-                    <circle cx="20" cy="6" r="2" />
-                    <circle cx="4" cy="18" r="2" />
-                    <circle cx="20" cy="18" r="2" />
-                    <line x1="6" y1="6" x2="10.5" y2="11" />
-                    <line x1="18" y1="6" x2="13.5" y2="11" />
-                    <line x1="6" y1="18" x2="10.5" y2="13" />
-                    <line x1="18" y1="18" x2="13.5" y2="13" />
-                  </svg>
-                  {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Mesh</span>}
-                </button>
-              )}
               <button
-                data-testid="nav-settings"
-                onClick={onOpenSettings}
+                data-testid="nav-extensions"
+                onClick={onOpenExtensions}
                 className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                  mainView === "settings"
+                  mainView === "extensions"
                     ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                     : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
                 }`}
-                title="Settings (Ctrl+,)"
+                title="Plugins"
               >
-                <GearIcon size={touchMode ? 18 : 14} className="shrink-0" />
-                {!isCompact && <span className={touchMode ? "text-[13px]" : "text-[11px]"}>Settings</span>}
+                <ExtensionsIcon size={touchMode ? 18 : 14} className="shrink-0" />
+                {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Plugins</span>}
               </button>
+              <button
+                data-testid="nav-memory"
+                onClick={onOpenMemory}
+                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                  mainView === "memory"
+                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                }`}
+                title="Memory Graph (Ctrl+Shift+M)"
+              >
+                <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                  <circle cx="12" cy="5" r="2" />
+                  <circle cx="5" cy="19" r="2" />
+                  <circle cx="19" cy="19" r="2" />
+                  <circle cx="12" cy="13" r="2" />
+                  <line x1="12" y1="7" x2="12" y2="11" />
+                  <line x1="10.5" y1="14.5" x2="6.5" y2="17.5" />
+                  <line x1="13.5" y1="14.5" x2="17.5" y2="17.5" />
+                </svg>
+                {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Memory</span>}
+              </button>
+              <button
+                data-testid="nav-mesh"
+                onClick={onOpenMesh}
+                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                  mainView === "mesh"
+                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                }`}
+                title="Mesh"
+              >
+                <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="4" cy="6" r="2" />
+                  <circle cx="20" cy="6" r="2" />
+                  <circle cx="4" cy="18" r="2" />
+                  <circle cx="20" cy="18" r="2" />
+                  <line x1="6" y1="6" x2="10.5" y2="11" />
+                  <line x1="18" y1="6" x2="13.5" y2="11" />
+                  <line x1="6" y1="18" x2="10.5" y2="13" />
+                  <line x1="18" y1="18" x2="13.5" y2="13" />
+                </svg>
+                {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Mesh</span>}
+              </button>
+              {/* Desktop surfaces Settings in the titlebar tray; web mirror has no
+                  titlebar, so the sidebar keeps the entry point there. */}
+              {IS_WEB && (
+                <button
+                  data-testid="nav-settings"
+                  onClick={onOpenSettings}
+                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                    mainView === "settings"
+                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                  }`}
+                  title="Settings (Ctrl+,)"
+                >
+                  <GearIcon size={touchMode ? 18 : 14} className="shrink-0" />
+                  {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Settings</span>}
+                </button>
+              )}
             </div>
           </>
         )}

@@ -34,7 +34,7 @@ pub fn install_provider_in_pane(
 
     // 2. Resolve workspace — prefer active, fall back to first.
     let ws_id = {
-        let mux = svc.mux.lock();
+        let mux = svc.mux.write();
         mux.snapshot()
             .active_workspace_id
             .clone()
@@ -57,7 +57,7 @@ pub fn install_provider_in_pane(
         let pty_id = loop {
             if let Some(pid) = svc_clone
                 .mux
-                .try_lock()
+                .try_write()
                 .and_then(|m| m.get_pane(&pane_id_clone).and_then(|p| p.pty_id.clone()))
             {
                 break pid;

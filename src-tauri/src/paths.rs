@@ -110,7 +110,6 @@ mod tests {
     fn canonical_cwd_preserves_case_and_strips_verbatim() {
         // Existing dir → canonicalize fires; result must carry no verbatim
         // prefix and keep the original case (claude project dirs are
-        // case-sensitive encodings).
         let tmp = std::env::temp_dir().to_string_lossy().to_string();
         let out = canonical_cwd(&tmp);
         assert!(!out.starts_with(r"\\?\"), "verbatim prefix leaked: {out}");

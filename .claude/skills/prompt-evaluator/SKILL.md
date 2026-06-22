@@ -143,7 +143,7 @@ Eval sets live in `evals/<name>/evals.json`. The shape is:
       "prompt": "User input the agent will receive (with prefixes like [Telegram: ID] if relevant)",
       "expected_output": "One-sentence summary of correct behavior — used in reports",
       "expectations": [
-        "Uses send-text --pane general --mesh PEER",
+        "Uses send --pane general --mesh PEER",
         "Does NOT use workspace create",
         "Includes 'report back' phrase"
       ]
@@ -157,7 +157,7 @@ Tips for writing good evals:
 - **One eval = one behavior.** Don't bundle "spawns the right role AND uses the right CLI flags AND replies via the right channel" into one eval — make three.
 - **Expectations are independent assertions, not steps.** Each one is checked separately; an eval passes only if ALL expectations pass.
 - **Use technical expectations whenever possible** — they're matched by regex without an LLM call, so they're free and deterministic. Reserve behavioral expectations (LLM-as-judge) for things you genuinely can't grep for.
-- **Negative expectations matter.** "Does NOT use workspace create" is just as important as "Uses send-text". They prevent regressions in the *other* direction.
+- **Negative expectations matter.** "Does NOT use workspace create" is just as important as "Uses send". They prevent regressions in the *other* direction.
 - **Test the eval first** by running it against the *unchanged* prompt and confirming it passes. If it fails on the unchanged prompt, the eval is wrong, not the prompt.
 - **Eval prompts should be realistic** — copy real user messages from `~/.codeterm-dev/general/MEMORY.md` daily notes or actual logs, don't synthesize "test inputs".
 

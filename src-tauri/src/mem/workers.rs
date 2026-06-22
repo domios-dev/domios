@@ -91,6 +91,15 @@ pub struct GraphWorkerInfo {
     pub agent_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    // session_id + cwd captured before the hidden pane closes so the read-only chat-ui can resolve and render this run's jsonl after the fact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    // Verbs a plugin-spawned worker may invoke on its owning plugin via the
+    // inverse seam — recorded from `host.agent.spawn(commands)` (C2 MINOR-2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commands: Vec<String>,
 }
 
 pub struct GraphWorkerRegistry {
@@ -263,6 +272,22 @@ impl GraphWorkerRegistry {
         self.persist();
     }
 
+    pub fn set_run_session(&self, worker_id: &str, session_id: String, cwd: Option<String>) {
+        {
+            let mut map = self.inner.write();
+            match map.get_mut(worker_id) {
+                Some(w) => {
+                    w.session_id = Some(session_id);
+                    if cwd.is_some() {
+                        w.cwd = cwd;
+                    }
+                }
+                None => return,
+            }
+        }
+        self.persist();
+    }
+
     pub fn complete(&self, worker_id: &str, report: String) -> Result<GraphWorkerInfo, String> {
         let info = {
             let mut map = self.inner.write();
@@ -330,6 +355,9 @@ pub fn make_info(
         log_path: None,
         agent_provider: None,
         model: None,
+        session_id: None,
+        cwd: None,
+        commands: Vec::new(),
     }
 }
 
@@ -408,6 +436,7 @@ pub fn spawn_headless(
                 visibility: PaneVisibility::Hidden,
                 // Tag reports with worker intent in title so reports are identifiable (`mem:dreaming:rem`, etc.).
                 title: Some(format!("mem:{}", intent_title)),
+                description: None,
                 command: PaneCommand::Agent(AgentSpawnSpec {
                     provider: agent_for_spawn,
                     model: if model_for_spawn.is_empty() {
@@ -566,6 +595,18 @@ mod tests {
         assert!(task.contains("Your worker id: gw_test"));
         assert!(task.contains("merge dups"));
         assert!(task.contains("codeterm mem worker report"));
+    }
+
+    #[test]
+    fn set_run_session_persists_session_and_cwd() {
+        let reg = GraphWorkerRegistry::load(tmp_path("sess"));
+        reg.register(fresh_info("gw_s"));
+        reg.set_run_session("gw_s", "sid-123".into(), Some("/work/dir".into()));
+        let w = reg.get("gw_s").unwrap();
+        assert_eq!(w.session_id.as_deref(), Some("sid-123"));
+        assert_eq!(w.cwd.as_deref(), Some("/work/dir"));
+        // Missing worker is a no-op, not a panic.
+        reg.set_run_session("gw_missing", "x".into(), None);
     }
 
     #[test]

@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use parking_lot::RwLock;
+use parking_lot::{Condvar, Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 
 use super::provider::{AgentProvider, SessionMetadata};
@@ -31,13 +32,29 @@ pub struct SessionSearchOpts {
 }
 
 pub struct AgentRegistry {
-    providers: RwLock<HashMap<String, Box<dyn AgentProvider>>>,
+    providers: RwLock<HashMap<String, Arc<dyn AgentProvider>>>,
     /// First provider displaced for an id (the native one a JS plugin took
     /// authority over). Kept so a JS plugin can delegate capability methods it
     /// doesn't implement to the native impl. Never overwritten by later
     /// re-registrations (hot-reload), so the fallback survives plugin reloads.
     native_fallbacks: RwLock<HashMap<String, Arc<dyn AgentProvider>>>,
+    startup_loading: Mutex<StartupProviderLoading>,
+    startup_loading_changed: Condvar,
 }
+
+#[derive(Default)]
+struct StartupProviderLoading {
+    pending: HashSet<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderStartupStatus {
+    Ready,
+    LoadingTimedOut,
+    Unknown,
+}
+
+pub const PROVIDER_STARTUP_WAIT: Duration = Duration::from_secs(5);
 
 impl AgentRegistry {
     /// Create an empty registry. Providers are added via `register_provider()`.
@@ -45,6 +62,68 @@ impl AgentRegistry {
         Self {
             providers: RwLock::new(HashMap::new()),
             native_fallbacks: RwLock::new(HashMap::new()),
+            startup_loading: Mutex::new(StartupProviderLoading::default()),
+            startup_loading_changed: Condvar::new(),
+        }
+    }
+
+    pub fn begin_startup_provider_loading<I, S>(&self, ids: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let mut loading = self.startup_loading.lock();
+        loading.pending.extend(
+            ids.into_iter()
+                .map(|id| id.as_ref().trim().to_string())
+                .filter(|id| !id.is_empty()),
+        );
+    }
+
+    pub fn finish_startup_provider_loading(&self) {
+        let mut loading = self.startup_loading.lock();
+        if loading.pending.is_empty() {
+            return;
+        }
+        loading.pending.clear();
+        self.startup_loading_changed.notify_all();
+    }
+
+    fn mark_startup_provider_loaded(&self, id: &str) {
+        let mut loading = self.startup_loading.lock();
+        if loading.pending.remove(id) {
+            self.startup_loading_changed.notify_all();
+        }
+    }
+
+    pub fn wait_for_provider_startup(&self, id: &str) -> ProviderStartupStatus {
+        self.wait_for_provider_startup_with_timeout(id, PROVIDER_STARTUP_WAIT)
+    }
+
+    pub fn wait_for_provider_startup_with_timeout(
+        &self,
+        id: &str,
+        timeout: Duration,
+    ) -> ProviderStartupStatus {
+        let deadline = Instant::now() + timeout;
+        let mut loading = self.startup_loading.lock();
+        while loading.pending.contains(id) {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return ProviderStartupStatus::LoadingTimedOut;
+            };
+            if self
+                .startup_loading_changed
+                .wait_for(&mut loading, remaining)
+                .timed_out()
+            {
+                return ProviderStartupStatus::LoadingTimedOut;
+            }
+        }
+        drop(loading);
+        if self.with_provider(id, |_| ()).is_some() {
+            ProviderStartupStatus::Ready
+        } else {
+            ProviderStartupStatus::Unknown
         }
     }
 
@@ -67,23 +146,23 @@ impl AgentRegistry {
     /// provider can delegate unimplemented capabilities to it. Later
     /// re-registrations (hot-reload) don't disturb the recorded fallback.
     pub fn register_provider(&self, provider: Box<dyn AgentProvider>) {
+        let provider: Arc<dyn AgentProvider> = Arc::from(provider);
         let id = provider.id().to_string();
         log::info!("[agent-registry] registered provider: {}", id);
         let mut guard = self.providers.write();
         if let Some(prev) = guard.remove(&id) {
             // Only a genuine native impl is a valid capability fallback. A JS
             // provider displaced by re-registration of the same id (hot-reload of
-            // a JS-only drop-in) must NOT become the fallback — `native()` would
-            // then return itself and capability delegation would recurse until
-            // the stack overflows (#16).
             if prev.is_native() {
                 self.native_fallbacks
                     .write()
                     .entry(id.clone())
-                    .or_insert_with(|| Arc::from(prev));
+                    .or_insert(prev);
             }
         }
-        guard.insert(id, provider);
+        guard.insert(id.clone(), provider);
+        drop(guard);
+        self.mark_startup_provider_loaded(&id);
     }
 
     /// Register a provider only if `id` is not already present.
@@ -97,10 +176,14 @@ impl AgentRegistry {
                 "[agent-registry] skipping provider {}: already registered",
                 id
             );
+            drop(guard);
+            self.mark_startup_provider_loaded(&id);
             return false;
         }
         log::info!("[agent-registry] registered provider: {}", id);
-        guard.insert(id, provider);
+        guard.insert(id.clone(), Arc::from(provider));
+        drop(guard);
+        self.mark_startup_provider_loaded(&id);
         true
     }
 
@@ -123,6 +206,19 @@ impl AgentRegistry {
     {
         let guard = self.providers.read();
         guard.get(id).map(|p| f(p.as_ref()))
+    }
+
+    /// Clone the `Arc` for a provider so it can be moved into a background task
+    /// (e.g. live model discovery on the blocking pool) without holding the
+    /// registry lock for the task's duration.
+    pub fn provider_arc(&self, id: &str) -> Option<Arc<dyn AgentProvider>> {
+        self.providers.read().get(id).cloned()
+    }
+
+    /// Clone every registered provider's `Arc`. Used by startup model-catalog
+    /// warming to fan out one discovery task per provider.
+    pub fn all_provider_arcs(&self) -> Vec<Arc<dyn AgentProvider>> {
+        self.providers.read().values().cloned().collect()
     }
 
     /// Get a provider by ID (e.g. "claude").
@@ -205,7 +301,7 @@ impl AgentRegistry {
         &self,
         agent_type: &str,
         text: &str,
-    ) -> Option<(String, Vec<(String, String)>)> {
+    ) -> Option<crate::multiplexer::types::PendingPrompt> {
         let guard = self.providers.read();
         guard.get(agent_type).and_then(|p| p.parse_prompt(text))
     }
@@ -221,11 +317,12 @@ impl AgentRegistry {
         &self,
         agent_type: &str,
         option_index: usize,
+        screen: &str,
     ) -> Option<Vec<Vec<u8>>> {
         let guard = self.providers.read();
         guard
             .get(agent_type)
-            .map(|p| p.build_prompt_response(option_index))
+            .map(|p| p.build_prompt_response(option_index, screen))
     }
 
     /// Check if any providers are registered.
@@ -433,25 +530,6 @@ mod tests {
         ) -> Option<String> {
             None
         }
-        fn detect_launched_session_id(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<std::time::Duration>,
-            _: Option<&str>,
-        ) -> Option<String> {
-            None
-        }
-        fn detect_started_session(
-            &self,
-            _: &str,
-            _: &[String],
-            _: Option<std::time::Duration>,
-            _: Option<&str>,
-            _: Option<&str>,
-        ) -> Option<String> {
-            None
-        }
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             None
         }
@@ -540,6 +618,64 @@ mod tests {
     }
 
     #[test]
+    fn startup_wait_unblocks_when_provider_registers() {
+        let reg = Arc::new(AgentRegistry::new());
+        reg.begin_startup_provider_loading(["slow"]);
+
+        let worker_reg = reg.clone();
+        let worker = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(25));
+            worker_reg.register_provider(Box::new(FallbackStub {
+                id: "slow",
+                native: false,
+            }));
+        });
+
+        assert_eq!(
+            reg.wait_for_provider_startup_with_timeout("slow", Duration::from_secs(1)),
+            ProviderStartupStatus::Ready
+        );
+        worker
+            .join()
+            .expect("provider registration thread panicked");
+    }
+
+    #[test]
+    fn startup_wait_reports_loading_before_unknown() {
+        let reg = AgentRegistry::new();
+        reg.begin_startup_provider_loading(["slow"]);
+
+        assert_eq!(
+            reg.wait_for_provider_startup_with_timeout("slow", Duration::from_millis(1)),
+            ProviderStartupStatus::LoadingTimedOut
+        );
+        reg.finish_startup_provider_loading();
+        assert_eq!(
+            reg.wait_for_provider_startup_with_timeout("slow", Duration::from_millis(1)),
+            ProviderStartupStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn register_if_absent_clears_startup_loading_for_pinned_native() {
+        let reg = AgentRegistry::new();
+        reg.register_provider(Box::new(FallbackStub {
+            id: "pinned",
+            native: true,
+        }));
+        reg.begin_startup_provider_loading(["pinned"]);
+
+        assert!(!reg.register_provider_if_absent(Box::new(FallbackStub {
+            id: "pinned",
+            native: false,
+        })));
+        assert_eq!(
+            reg.wait_for_provider_startup_with_timeout("pinned", Duration::from_millis(1)),
+            ProviderStartupStatus::Ready
+        );
+    }
+
+    #[test]
     fn test_detect_from_title() {
         let reg = registry_with_claude();
         let id = reg.detect_from_title("Claude Code session");
@@ -574,10 +710,11 @@ mod tests {
 
     #[test]
     fn list_descriptors_with_two_providers() {
-        use crate::plugin::agent_codex::CodexProvider;
         let reg = AgentRegistry::new();
         reg.register_provider(Box::new(ClaudeProvider::new()));
-        reg.register_provider(Box::new(CodexProvider::new()));
+        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "codex",
+        )));
         let descs = reg.list_descriptors();
         assert_eq!(descs.len(), 2);
         let ids: std::collections::HashSet<&str> = descs.iter().map(|d| d.id.as_str()).collect();
@@ -587,12 +724,14 @@ mod tests {
 
     #[test]
     fn restore_dispatch_builds_resume_for_every_provider() {
-        use crate::plugin::agent_codex::CodexProvider;
-        use crate::plugin::agent_opencode::OpenCodeProvider;
         let reg = AgentRegistry::new();
         reg.register_provider(Box::new(ClaudeProvider::new()));
-        reg.register_provider(Box::new(CodexProvider::new()));
-        reg.register_provider(Box::new(OpenCodeProvider::new()));
+        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "codex",
+        )));
+        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "opencode",
+        )));
         for (id, sid) in [
             ("claude", "f00fc0dd-be1c-4d43-bb1d-212c923b75c1"),
             ("codex", "019e15cd-1527-7e21-9477-2631a52e499a"),
@@ -614,12 +753,14 @@ mod tests {
     #[test]
     fn restore_dispatch_falls_back_to_fresh_launch_when_no_resume() {
         use crate::agent::provider::AgentLaunchParams;
-        use crate::plugin::agent_codex::CodexProvider;
-        use crate::plugin::agent_opencode::OpenCodeProvider;
         let reg = AgentRegistry::new();
         reg.register_provider(Box::new(ClaudeProvider::new()));
-        reg.register_provider(Box::new(CodexProvider::new()));
-        reg.register_provider(Box::new(OpenCodeProvider::new()));
+        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "codex",
+        )));
+        reg.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "opencode",
+        )));
         for id in ["claude", "codex", "opencode"] {
             let cmd = reg.with_provider(id, |p| {
                 p.build_launch_command(&AgentLaunchParams {
@@ -697,36 +838,6 @@ mod tests {
             _: Option<std::time::Duration>,
         ) -> Option<String> {
             None
-        }
-        fn detect_launched_session_id(
-            &self,
-            cwd: &str,
-            exclude: &[String],
-            max_age: Option<std::time::Duration>,
-            injected_session_id: Option<&str>,
-        ) -> Option<String> {
-            if let Some(sid) = injected_session_id {
-                if self.session_exists(cwd, sid) {
-                    return Some(sid.to_string());
-                }
-            }
-            self.detect_session_id(cwd, exclude, max_age)
-        }
-        fn detect_started_session(
-            &self,
-            cwd: &str,
-            exclude: &[String],
-            max_age: Option<std::time::Duration>,
-            injected_session_id: Option<&str>,
-            screen_text: Option<&str>,
-        ) -> Option<String> {
-            self.detect_started_session_with_markers(
-                cwd,
-                exclude,
-                max_age,
-                injected_session_id,
-                screen_text,
-            )
         }
         fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
             None

@@ -12,12 +12,16 @@ export interface ExtendedState extends MultiplexerState {
   notifications: Notification[];
   paneStatuses: Record<string, PaneStatus>;
   toasts: Notification[];
+  activeTabIds: Record<string, string>;
+  /** Highest snapshot generation applied so far; guards against stale snapshots. */
+  generation: number;
 }
 
 export function makeTab(pane: Pane): Tab {
   return {
     id: uid(),
     title: "Terminal",
+    description: pane.description ?? null,
     pane_id: pane.id,
   };
 }

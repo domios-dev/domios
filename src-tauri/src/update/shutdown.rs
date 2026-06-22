@@ -30,6 +30,9 @@ fn provider_exit_command(provider_id: &str) -> Option<&'static str> {
 pub async fn graceful_shutdown(app: &tauri::AppHandle) -> Result<(), String> {
     log::info!("[updater] graceful_shutdown: starting");
 
+    // Stop the liveness watchdog treating the imminent API-down as a crash.
+    crate::crash::shutdown::mark_shutting_down();
+
     let svc = app
         .try_state::<ServiceState>()
         .ok_or_else(|| "ServiceState not registered".to_string())?
@@ -65,7 +68,7 @@ struct AgentPaneInfo {
 }
 
 fn collect_agent_panes(svc: &ServiceState) -> Vec<AgentPaneInfo> {
-    let snapshot = svc.mux.lock().snapshot();
+    let snapshot = svc.mux.read().snapshot();
     let mut out = Vec::new();
     for (_, pane) in snapshot.panes.iter() {
         let (Some(provider_id), Some(pty_id)) = (pane.agent_type.as_ref(), pane.pty_id.as_ref())
@@ -207,7 +210,7 @@ pub(crate) fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Res
         .ok_or_else(|| "SessionState not registered".to_string())?
         .inner()
         .clone();
-    let snapshot = svc.mux.lock().to_session_snapshot();
+    let snapshot = svc.mux.read().to_session_snapshot();
     session
         .lock()
         .save(&snapshot)
@@ -242,15 +245,13 @@ mod tests {
         // something else, both this test and the fallback must change together.
         use crate::agent::provider::AgentProvider;
         use crate::plugin::agent_claude::ClaudeProvider;
-        use crate::plugin::agent_codex::CodexProvider;
 
         let claude = ClaudeProvider::new();
         assert_eq!(claude.exit_command(), Some("/exit"));
         assert_eq!(provider_exit_command(claude.id()), claude.exit_command());
 
-        let codex = CodexProvider::new();
-        assert_eq!(codex.exit_command(), Some("/exit"));
-        assert_eq!(provider_exit_command(codex.id()), codex.exit_command());
+        // codex/opencode are JS plugins now; their /exit fallback is asserted in
+        // their plugin-side tests (plugins/provider-*/tests).
     }
 
     #[test]

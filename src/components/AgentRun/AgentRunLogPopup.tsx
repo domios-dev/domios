@@ -200,12 +200,16 @@ function StatusBadge({ status }: { status: string }) {
           : lc === "running"
             ? "var(--ct-yellow)"
             : "var(--ct-accent)";
+  // Granular worker statuses (reading/analyzing/writing) are no longer emitted —
+  // any non-terminal worker is simply "running". Avoids a stuck "starting" label.
+  const terminal = ["done", "success", "error", "failed", "orphaned", "cancelled"];
+  const label = terminal.includes(lc) ? status : "running";
   return (
     <span
       className="text-[9px] px-1.5 py-[1px] rounded-full shrink-0"
       style={{ color, border: `1px solid ${color}` }}
     >
-      {status}
+      {label}
     </span>
   );
 }

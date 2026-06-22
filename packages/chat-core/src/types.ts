@@ -8,7 +8,11 @@ export type ChatMessageKind =
   | "system"
   | "local_command"
   | "image"
+  | "shell_command"
   | "custom";
+
+/** Lifecycle status of a `shell_command` chat item (OSC 133/633 boundaries). */
+export type ShellCommandStatus = "running" | "ok" | "failed";
 
 export interface ChatAttachment {
   id: string;
@@ -43,6 +47,13 @@ export interface NormalizedChatMessage {
   content: string;
   attachments?: ChatAttachment[];
   timestamp?: string;
+  /** Monotonic source-order ordinal supplied by the server (JSONL line/rich-message
+   *  index, structured row position). Stable tiebreaker when timestamps are coarse
+   *  (codex floors to seconds) or absent (cursor emits none) — see `mergeById`. */
+  seq?: number;
+  /** Frontend-only arrival/send order hint for live optimistic merges. Providers
+   *  do not emit this; refresh paths rely on `timestamp`/`seq` instead. */
+  clientOrder?: number;
   provider?: string;
   subtype?: string;
   tagName?: string;
@@ -57,8 +68,21 @@ export interface NormalizedChatMessage {
   collapsed?: boolean;
   duration?: string;
   payload?: unknown;
+  fromLabel?: string;
+  fromPane?: string;
+  fromModel?: string;
+  fromMesh?: string;
+  inboundKind?: "pane" | "report" | "reminder" | "mesh" | "telegram";
   /** Interactive prompts the provider extracted from this message (answerable widgets). */
   interactive?: InteractiveElement[];
+  /** `shell_command` items only — the command line, lifecycle status, exit code
+   *  and cwd surfaced from the shell-integration accumulators (OSC 133/633/7). */
+  shellCommand?: string;
+  shellStatus?: ShellCommandStatus;
+  shellExitCode?: number;
+  shellCwd?: string;
+  /** False in A/D-only degraded mode (no pre-exec `C`); decorations stay valid. */
+  shellHasOutputStart?: boolean;
 }
 
 export interface ProviderChatAdapter<TMessage extends NormalizedChatMessage = NormalizedChatMessage> {
@@ -82,6 +106,22 @@ export type ChatOrigin =
   | { kind: "telegram"; userId: string; messageId?: string }
   | { kind: "mesh"; peerId: string }
   | { kind: "service"; service: string; userId: string }
+  | { kind: "plugin_config"; pluginId: string; name: string }
+  | { kind: "system_prompt" }
+  | {
+      kind: "reminder";
+      /** Display name of whoever queued the reminder, when resolvable. */
+      whoSet?: string;
+      /** Creator pane short id. */
+      pane?: string;
+      model?: string;
+      /** Queued-at, ms since epoch (string on the wire). */
+      setAt?: string;
+      /** Scheduled fire time, ms since epoch (string on the wire). */
+      fireAt?: string;
+      /** Originating delayed-message id. */
+      id?: string;
+    }
   | { kind: "command"; commands: SlashCommand[] };
 
 export interface SlashCommand {

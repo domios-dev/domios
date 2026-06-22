@@ -1,0 +1,9 @@
+✻ I need a decision before I can continue.
+
+  Which database should back the cache layer?
+
+> 1. Redis — in-memory, fastest reads
+  2. Postgres — durable, transactional
+  3. SQLite — embedded, zero-ops
+
+  Enter to confirm · Esc to cancel

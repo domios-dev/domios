@@ -1,7 +1,8 @@
 {
   "id": "claude",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "minCodeterm": "1.0.0",
+  "hostApi": 2,
   "displayName": "Claude Code",
   "binaryName": "claude",
   "cliBinary": "claude",
@@ -20,7 +21,7 @@
       "timeoutSecs": 15,
       "idleAfterDrainMs": 800
     },
-    "sessionIdInjection": "fresh_and_fork",
+    "sessionIdInjection": "none",
     "statusBarRows": 3,
     "preservesContextOnResume": true,
     "supportsLazySkills": true,
@@ -42,7 +43,7 @@
   "models": [
     {
       "id": "opus",
-      "displayName": "Claude Opus 4.7 (1M context)",
+      "displayName": "Claude Opus 4.8 (1M context)",
       "description": "Most capable for complex work."
     },
     {
@@ -54,6 +55,12 @@
       "id": "haiku",
       "displayName": "Claude Haiku 4.5",
       "description": "Fastest for quick answers."
+    },
+    {
+      "id": "fable",
+      "displayName": "Claude Fable 5",
+      "description": "Newest model — enabled once available for your account.",
+      "available": false
     }
   ],
   "defaultModel": "sonnet",

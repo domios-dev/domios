@@ -1,0 +1,13 @@
+• Ran  npm test
+  └ 42 passing, 0 failing
+
+• Edited  src/router.ts (+12 -3)
+
+• Ran  git status
+  └ On branch main
+    nothing to commit, working tree clean
+
+> 1. Approach via the existing middleware
+  2. Add a new dedicated handler
+
+Which approach should I take? Working…

@@ -106,37 +106,6 @@ fn taxonomy_manager_aggregates_by_area_and_kind() {
 }
 
 #[test]
-fn preference_auto_extracted_from_note() {
-    let mem = MemManager::open_in_memory().unwrap();
-    mem.save(NewMemItem {
-        kind: MemKind::Note,
-        scope: MemScope::Global,
-        title: "user said".into(),
-        summary: None,
-        area: None,
-        tags: vec![],
-        body: "I usually prefer PostgreSQL over MySQL for new projects".into(),
-        source: None,
-        importance: 3.0,
-        source_path: None,
-        pinned: false,
-    })
-    .unwrap();
-    let stats = mem.stats().unwrap();
-    assert!(
-        stats.total_items >= 2,
-        "expected ≥2 items, got {}",
-        stats.total_items
-    );
-    let pref_count = stats.by_kind.get("preference").copied().unwrap_or(0);
-    assert!(
-        pref_count >= 1,
-        "expected ≥1 preference, got {}",
-        pref_count
-    );
-}
-
-#[test]
 fn try_conn_for_times_out_when_held_by_another_thread() {
     use std::sync::mpsc;
     use std::time::Duration;

@@ -16,6 +16,7 @@ use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
 struct TestCase {
+    #[allow(dead_code)]
     id: String,
     cat: String,
     q: String,

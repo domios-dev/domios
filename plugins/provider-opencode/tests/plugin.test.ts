@@ -3,6 +3,10 @@
  * Run: npx tsx plugins/provider-opencode/tests/plugin.test.ts
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import vm from "node:vm";
+import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 
 let passed = 0;
@@ -46,6 +50,303 @@ console.log("\n--- titlePattern + noisePatterns ---\n");
 assert(plugin.titlePattern instanceof RegExp, "titlePattern is RegExp");
 assert(plugin.titlePattern!.test("opencode"), "titlePattern matches 'opencode'");
 assert(Array.isArray(plugin.noisePatterns) && plugin.noisePatterns.length > 0, "noisePatterns non-empty");
+
+console.log("\n--- binding nonce (install + outdated detection) ---\n");
+
+function loadOpencodeWithHost(host: unknown) {
+  const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
+  const source = fs.readFileSync(pluginPath, "utf8");
+  const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
+  new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+  return context.module.exports.default;
+}
+
+const ocHost = (over: Record<string, unknown>) => ({
+  manifestJson: () => JSON.stringify({
+    models: [
+      { id: "seed-opencode", displayName: "Seed OpenCode", description: "Manifest fallback" },
+    ],
+  }),
+  homeDir: () => "/tmp",
+  platform: () => "linux",
+  expandHome: (v: string) => v,
+  envGet: () => null,
+  exec: () => JSON.stringify({ code: 1, stdout: "", stderr: "not available" }),
+  log: () => {},
+  shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
+  ...over,
+});
+
+console.log("\n--- discoverModels ---\n");
+
+{
+  const p = loadOpencodeWithHost(ocHost({
+    platform: () => "windows",
+    shell: {
+      quoteFor: (v: unknown, platform?: unknown) => `Q(${platform}:${String(v)})`,
+      quote: (v: unknown) => `BAD(${String(v)})`,
+    },
+  }));
+  const launch = p.buildLaunchCommand({
+    sessionId: "sess 1",
+    structuredPromptServer: { hostname: "127.0.0.1", port: 4567 },
+  });
+  eq(
+    launch,
+    "opencode --hostname Q(windows:127.0.0.1) --port Q(windows:4567) --session Q(windows:sess 1)",
+    "buildLaunchCommand quotes --session with quoteFor(platform)",
+  );
+  eq(
+    p.buildResumeCommand("sess 2"),
+    "opencode --session Q(windows:sess 2)",
+    "buildResumeCommand quotes --session with quoteFor(platform)",
+  );
+}
+
+{
+  const p = loadOpencodeWithHost(ocHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "opencode/big-pickle\nanthropic/claude-opus-4-8\n" }),
+  }));
+  eq(
+    p.discoverModels(),
+    [
+      { id: "opencode/big-pickle", displayName: "OpenCode Zen Big Pickle" },
+      { id: "anthropic/claude-opus-4-8", displayName: "Claude Opus 4.8" },
+    ],
+    "discoverModels: clean labels (OpenCode Zen prefix + dotted version), no availability signal → unset",
+  );
+}
+
+// Non-chat (embedding/tts) ids dropped from the live list.
+{
+  const p = loadOpencodeWithHost(ocHost({
+    exec: () => JSON.stringify({ code: 0, stdout: "openai/text-embedding-3-large\nopencode/gpt-5.5\nopenai/whisper-1\n" }),
+  }));
+  eq(
+    p.discoverModels(),
+    [{ id: "opencode/gpt-5.5", displayName: "OpenCode Zen GPT 5.5" }],
+    "embedding + whisper filtered out; chat model kept with clean label",
+  );
+}
+
+{
+  const p = loadOpencodeWithHost(ocHost({}));
+  eq(
+    p.discoverModels(),
+    [{ id: "seed-opencode", displayName: "Seed OpenCode", description: "Manifest fallback" }],
+    "discoverModels falls back to manifest seed when opencode models probe is unavailable",
+  );
+}
+
+// Install must write the x-codeterm-binding-nonce header into the generated
+// opencode plugin so the session-start report can prove pane ownership.
+{
+  let body = "";
+  const host = ocHost({
+    fs: {
+      fileExists: () => false,
+      readJson: () => null,
+      readFile: () => null,
+      writeFile: (_p: string, content: string) => { body = content; return true; },
+      writeJson: () => true,
+    },
+  });
+  const p = loadOpencodeWithHost(host);
+  const res = p.installIntegration(7686);
+  assert(!!res && res.ok === true, "installIntegration succeeds", JSON.stringify(res));
+  assert(
+    body.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 &&
+      body.indexOf("x-codeterm-binding-nonce") !== -1,
+    "generated opencode plugin sends the binding-nonce header",
+  );
+}
+
+// A plugin file lacking the nonce is pre-nonce → not current (forces reinstall).
+{
+  const withBody = (body: string) =>
+    ocHost({
+      fs: {
+        fileExists: () => true,
+        readFile: () => body,
+        readJson: () => null,
+        writeFile: () => true,
+        writeJson: () => true,
+      },
+    });
+  const old = loadOpencodeWithHost(withBody("// codeterm-opencode-session-binding-v2\nconst x = 1;"));
+  assert(
+    old.checkIntegration().plugin_file_current === false,
+    "pre-nonce opencode plugin reads as not-current",
+  );
+  const cur = loadOpencodeWithHost(
+    withBody("// codeterm-opencode-session-binding-v2\nprocess.env.CODETERM_SESSION_BINDING_NONCE;"),
+  );
+  assert(
+    cur.checkIntegration().plugin_file_current === true,
+    "opencode plugin carrying the nonce reads as current",
+  );
+}
+
+// detectSessionModel keys off the pane's OWN session_id (capability rule #3),
+// never a "latest model in cwd" fallback that would surface a SIBLING's model.
+console.log("\n--- detectSessionModel (identity-bound, no cwd fallback) ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  // The session row carries no assistant message → the per-session scan finds
+  // nothing. A cwd-wide scan WOULD find a sibling's model — we assert it does
+  let cwdScanRan = false;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      readJson: () => null,
+      readFile: () => null,
+      writeFile: () => true,
+      writeJson: () => true,
+      sqliteQuery: (_db: string, sql: string, params: unknown[]) => {
+        // The (forbidden) cwd fallback joins session ON message and filters by
+        // s.directory — never by the pane's session_id.
+        if (sql.indexOf("s.directory") !== -1 || sql.indexOf("JOIN session") !== -1) {
+          cwdScanRan = true;
+          return [{ data: JSON.stringify({ role: "assistant", modelID: "sibling/model" }) }];
+        }
+        // Per-session query bound to ?1 = sessionId, no matching rows.
+        void params;
+        return [];
+      },
+    },
+  }));
+  eq(
+    p.detectSessionModel("/some/cwd", "ses_owns_no_model"),
+    null,
+    "no model row for THIS session → null (no cwd fallback to a sibling's model)",
+  );
+  assert(!cwdScanRan, "must NOT run the cwd-wide model scan");
+
+  // Empty session id → null without touching the db scan.
+  eq(p.detectSessionModel("/some/cwd", ""), null, "empty sessionId → null");
+
+  // The happy path still works: this session's own assistant message wins.
+  const own = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      readJson: () => null,
+      readFile: () => null,
+      writeFile: () => true,
+      writeJson: () => true,
+      sqliteQuery: () => [{ data: JSON.stringify({ role: "assistant", modelID: "anthropic/claude-own" }) }],
+    },
+  }));
+  eq(own.detectSessionModel("/cwd", "ses_mine"), "anthropic/claude-own", "this session's own model is returned");
+}
+
+console.log("\n--- parsePrompt (horizontal option row) ---\n");
+{
+  const p = loadOpencodeWithHost(ocHost({}));
+  const screen = [
+    "│ Permission required                       │",
+    "│ Run `rm -rf build`?                        │",
+    "│                                            │",
+    "│   Allow once   Allow always   Reject       │",
+  ].join("\n");
+  const parsed = p.parsePrompt(screen);
+  eq(parsed && parsed.question, "Run `rm -rf build`?", "parsePrompt extracts the question");
+  eq(
+    parsed && parsed.options,
+    [["Allow once", "1"], ["Allow always", "2"], ["Reject", "3"]],
+    "parsePrompt extracts ALL three horizontal options (1-based values)",
+  );
+  eq(p.parsePrompt("just some normal assistant output\nwith no permission box"), null, "non-prompt output → null");
+}
+
+console.log("\n--- parsePrompt (vertical numbered question picker) ---\n");
+{
+  const p = loadOpencodeWithHost(ocHost({}));
+  const fixture = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "question-picker.txt"),
+    "utf8",
+  );
+  const parsed = p.parsePrompt(fixture);
+  eq(parsed && parsed.question, "Выбери, что хочешь увидеть:", "parsePrompt extracts the question picker header");
+  assert(!!parsed && parsed.options.length >= 2, "parsePrompt extracts at least two question picker options");
+  eq(
+    parsed && parsed.options,
+    [
+      ["A — Исследовать код", "1"],
+      ["Б — Подкорректировать файл", "2"],
+      ["В — Запустить тесты/сборку", "3"],
+      ["Г — Поискать в коде", "4"],
+      ["Type your own answer", "5"],
+    ],
+    "parsePrompt extracts numbered question picker options",
+  );
+  assert(p.hasEventMarkers("↑↓ select  enter submit  esc dismiss"), "hasEventMarkers fires on question picker footer");
+  assert(p.hasEventMarkers("2. Б — Подкорректировать файл"), "hasEventMarkers fires on numbered question picker row");
+  eq(p.detectEvents(fixture), ["permission_request"], "detectEvents surfaces question picker as waiting input");
+  eq(p.buildPromptResponse(2, fixture), ["G1tC", "G1tC", "DQ=="], "vertical without visible highlight falls back to top-start");
+
+  const highlighted = fixture.replace("3. В — Запустить тесты/сборку", "❯ 3. В — Запустить тесты/сборку");
+  p.parsePrompt(highlighted);
+  eq(p.buildPromptResponse(4, highlighted), ["G1tC", "G1tC", "DQ=="], "vertical target below highlight → down ×2 + Enter");
+  eq(p.buildPromptResponse(0, highlighted), ["G1tB", "G1tB", "DQ=="], "vertical target above highlight → up ×2 + Enter");
+}
+
+console.log("\n--- parsePrompt (opencode modal pickers) ---\n");
+{
+  const p = loadOpencodeWithHost(ocHost({}));
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "testbench", "snapshots", "opencode");
+  const model = fs.readFileSync(path.join(root, "model-picker", "screen.txt"), "utf8");
+  const modelParsed = p.parsePrompt(model);
+  eq(modelParsed && modelParsed.question, "Select model", "model picker question");
+  eq(
+    modelParsed && modelParsed.options.slice(0, 5),
+    [
+      ["Big Pickle Free", "1"],
+      ["DeepSeek V4 Flash Free Free", "2"],
+      ["MiMo V2.5 Free Free", "3"],
+      ["Nemotron 3 Ultra Free Free", "4"],
+      ["North Mini Code Free Free", "5"],
+    ],
+    "model picker extracts visible model choices without sidebar rows",
+  );
+  eq(p.buildPromptResponse(4, model), ["G1tC", "G1tC", "G1tC", "DQ=="], "model picker sends down from highlighted row");
+
+  const connect = fs.readFileSync(path.join(root, "connect-picker", "screen.txt"), "utf8");
+  const connectParsed = p.parsePrompt(connect);
+  eq(connectParsed && connectParsed.question, "Connect a provider", "connect picker question");
+  eq(
+    connectParsed && connectParsed.options,
+    [
+      ["OpenCode Zen (Recommended)", "1"],
+      ["OpenCode Go Low cost subscription for everyone", "2"],
+      ["OpenAI (ChatGPT Plus/Pro or API key)", "3"],
+      ["GitHub Copilot", "4"],
+      ["Anthropic (API key)", "5"],
+      ["Google", "6"],
+      ["302.AI", "7"],
+      ["Abacus", "8"],
+      ["abliteration.ai", "9"],
+      ["AIHubMix", "10"],
+      ["Alibaba", "11"],
+    ],
+    "connect picker extracts provider choices",
+  );
+}
+
+console.log("\n--- buildPromptResponse (horizontal ←/→ nav, NOT down) ---\n");
+{
+  const p = loadOpencodeWithHost(ocHost({}));
+  const screen = [
+    "│ Permission required                       │",
+    "│ Run `rm -rf build`?                        │",
+    "│                                            │",
+    "│   Allow once   Allow always   Reject       │",
+  ].join("\n");
+  p.parsePrompt(screen);
+  // value=1 → optionIndex 0 → just Enter (leftmost already highlighted).
+  eq(p.buildPromptResponse(0, screen), ["DQ=="], "index 0 → Enter only");
+  // value=3 → optionIndex 2 → right, right, Enter (NOT down×2).
+  eq(p.buildPromptResponse(2, screen), ["G1tD", "G1tD", "DQ=="], "index 2 → right ×2 + Enter (ESC[C, not ESC[B)");
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -41,6 +41,23 @@ const T0 = 1_700_000_000_000;
 
 {
   const merged = mergeTimelineMessages(
+    [
+      {
+        ...msg("assistant-arrived-after-send-with-skewed-provider-time", "assistant", T0 - 1_000),
+        clientOrder: 2,
+      },
+    ],
+    [{ ...msg("pending-user", "user", T0), clientOrder: 1 }],
+  );
+  eq(
+    merged.map((m) => m.id),
+    ["pending-user", "assistant-arrived-after-send-with-skewed-provider-time"],
+    "live optimistic user keeps client order before later-arriving assistant despite provider timestamp skew",
+  );
+}
+
+{
+  const merged = mergeTimelineMessages(
     [msg("old", "assistant", T0), msg("new", "assistant", T0 + 2_000)],
     [msg("middle", "user", T0 + 1_000)],
   );

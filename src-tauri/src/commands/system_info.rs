@@ -50,7 +50,10 @@ pub fn get_network_info(
     let tailscale_ip = mesh.lock().tailscale_ip.clone();
     let tailscale_dns = crate::mesh::discovery::tailscale_self_dns_name();
     let port = state.lock().api.port;
-    let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port);
+    // Live probe, but fall back to the value the periodic refresh cached when the
+    // Tailscale CLI was last reachable. The macOS App-Store GUI CLI intermittently
+    let tailscale_https_url = crate::mesh::tailscale_serve_https_url(port)
+        .or_else(|| mesh.lock().local_https_url.clone());
     Ok(serde_json::json!({
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
@@ -67,9 +70,19 @@ pub fn get_network_info(
 #[tauri::command]
 pub fn get_serve_status(
     state: tauri::State<'_, crate::config::ConfigState>,
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
 ) -> crate::mesh::ServeStatus {
     let port = state.lock().api.port;
-    crate::mesh::probe_serve_status(port)
+    let mut status = crate::mesh::probe_serve_status(port);
+    // Fall back to the periodic refresh's cached serve URL when the live probe
+    // comes back empty (intermittent macOS GUI-CLI failures), so the panel keeps
+    if status.https_url.is_none() {
+        if let Some(cached) = mesh.lock().local_https_url.clone() {
+            status.https_url = Some(cached);
+            status.active = true;
+        }
+    }
+    status
 }
 
 /// Consent-gated: stand up `tailscale serve` HTTPS → this daemon. The UI MUST
@@ -186,7 +199,7 @@ pub fn suggest_install_pwsh(
             }
             let pty_id = svc_arc
                 .mux
-                .lock()
+                .write()
                 .get_pane(&pane_id_bg)
                 .and_then(|p| p.pty_id.clone());
             if let Some(pid) = pty_id {

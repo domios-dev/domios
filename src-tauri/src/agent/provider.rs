@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 /// How to wait for agent readiness after PTY spawn.
@@ -46,11 +47,23 @@ pub struct AgentLaunchParams {
     pub task: Option<String>,
     pub args: Option<Vec<String>>,
     pub skip_permissions: bool,
-    // True for one-shot hidden panes; providers pick non-interactive delivery.
-    pub headless: bool,
     // Pre-generated session id to use when starting a NEW conversation. Honored only by providers reporting `SessionIdInjection != None` — others
     // ignore it (they generate ids themselves and CodeTerm has to detect after launch).
     pub session_id: Option<String>,
+    /// Fixed local server the host wants the agent's structured-prompt handle to
+    /// listen on (opencode `--hostname/--port`). Set by the host only for
+    /// providers that `supports_structured_prompts`; the plugin maps it to the
+    /// provider's server flags. Fixes the W3 leading-dash `--args` ergonomics
+    /// gap — the host allocates the port instead of the caller hand-passing args.
+    pub structured_prompt_server: Option<StructuredPromptServer>,
+}
+
+/// Bind address for a provider's structured-prompt server (opencode SSE bus).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StructuredPromptServer {
+    pub hostname: String,
+    pub port: u16,
 }
 
 /// Whether a provider lets us choose the session id ahead of launch.
@@ -102,13 +115,17 @@ pub struct SessionMessage {
 // frontend for Settings, Sidebar, and command-palette rows.
 
 /// Single model offered by an agent provider.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ModelInfo {
     pub id: String,
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Account-can-select-this-now. `None` (common) ⇒ no info, treat as available;
+    /// `Some(false)` greys it out in the picker. Set by live discovery; usually `None` in static seeds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub available: Option<bool>,
 }
 
 /// Severity flavor for `SettingField::Info` notes.
@@ -219,6 +236,17 @@ pub enum SettingField {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
     },
+    Array {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        item_label: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<Vec<serde_json::Map<String, serde_json::Value>>>,
+        item: ArraySettingItem,
+    },
     /// Read-only field that reports an env var the user must set externally.
     ApiKey {
         env_var: String,
@@ -282,6 +310,57 @@ pub enum SettingField {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ArraySettingItem {
+    Object { fields: Vec<ObjectSettingField> },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ObjectSettingField {
+    Text {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    Textarea {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placeholder: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    Number {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+    Json {
+        key: String,
+        label: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        default: Option<serde_json::Map<String, serde_json::Value>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
+}
+
 impl NoteLevel {
     fn default_info() -> Self {
         NoteLevel::Info
@@ -311,16 +390,18 @@ pub fn session_resume_section(description: &str, skip_flag: &str) -> SettingFiel
             },
             SettingField::Toggle {
                 key: "resume_skip_permissions".into(),
-                label: format!("Resume with {}", skip_flag),
+                label: "Skip permission prompts when resuming".into(),
                 default: true,
-                description: None,
+                description: Some(format!(
+                    "Relaunches resumed sessions with {skip_flag} so they don't re-ask for tool approvals."
+                )),
             },
             SettingField::When {
                 field: "resume_skip_permissions".into(),
                 equals: serde_json::Value::Bool(true),
                 then: vec![SettingField::Info {
                     title: None,
-                    body: "⚠ Agent will run without asking for tool approvals. Use with caution."
+                    body: "The agent runs without asking before each tool use. Convenient for resume, but it can edit files and run commands unattended."
                         .into(),
                     level: NoteLevel::Warn,
                 }],
@@ -369,6 +450,35 @@ pub fn model_select_section(
             description: None,
         }],
     }
+}
+
+/// Which runtime drives a provider's pane: a PTY process or a JS chatBackend.
+/// Replaces the old injected `kind` string and is the spawn discriminant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderTransport {
+    Pty,
+    ChatBackend,
+}
+
+/// What behavior surface a provider exposes for configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(tag = "model", rename_all = "snake_case")]
+pub enum BehaviorConfig {
+    #[default]
+    None,
+    OwnPromptSet,
+    PresetsAndSystemPrompt,
+    Graph,
+}
+
+/// How a system prompt reaches the provider.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SystemPromptDelivery {
+    CliFlag(String),
+    SessionConfig,
+    External,
 }
 
 /// Wire format describing one agent provider to the frontend.
@@ -429,6 +539,12 @@ pub struct ProviderDescriptor {
     /// instead of a hardcoded provider list.
     #[serde(default)]
     pub supports_chat_ui: bool,
+    /// `true` when the provider exposes a structured prompt source in its
+    /// current interactive run mode (claude AskUserQuestion in the JSONL
+    /// transcript, opencode SSE bus). Core builds `pending_prompt` from the
+    /// structured handle first and only falls back to PTY scraping otherwise.
+    #[serde(default)]
+    pub supports_structured_prompts: bool,
     /// Trust status of the bundle backing this provider. `system` =
     /// shipped by CodeTerm, hash matched the build-time table, or was
     /// installed from the official codeterm-core system channel.
@@ -438,6 +554,16 @@ pub struct ProviderDescriptor {
     /// `unknown` = native (Rust-side) provider, no hash to check.
     #[serde(default)]
     pub trust: ProviderTrust,
+    /// Runtime backing this provider — the spawn discriminant (was the `kind` string).
+    pub transport: ProviderTransport,
+    /// Behavior surface the provider exposes for configuration.
+    #[serde(default)]
+    pub behavior_config: BehaviorConfig,
+    /// Named presets the provider offers (chat backends); agents default empty.
+    #[serde(default)]
+    pub presets: Vec<crate::chatbackend::PresetInfo>,
+    /// How a system prompt reaches the provider.
+    pub system_prompt_delivery: SystemPromptDelivery,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -451,9 +577,10 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 5;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 7;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
+#[async_trait]
 pub trait AgentProvider: Send + Sync {
     /// Unique identifier for this provider (e.g. "claude").
     fn id(&self) -> &str;
@@ -522,63 +649,6 @@ pub trait AgentProvider: Send + Sync {
         max_age: Option<Duration>,
     ) -> Option<String>;
 
-    /// Detect a session that belongs to this launch attempt.
-    ///
-    /// `max_age` is interpreted as "younger than now - max_age". Callers pass
-    /// launch age so stale sessions in the same cwd are ignored.
-    /// `injected_session_id` is an optional pre-generated id used by providers
-    /// that support session-id injection.
-    fn detect_launched_session_id(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String>;
-
-    /// Detect that a provider session for this launch is actually active.
-    ///
-    /// `screen_text` can be passed when available to avoid false-positive
-    /// attachment to stale filesystem sessions. For providers with explicit or
-    /// seeded session IDs this is usually `Some(session_id) == session_id`.
-    /// Implementations should return the same sid contract as
-    /// `detect_launched_session_id`.
-    fn detect_started_session(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String>;
-
-    /// Common startup detector used by providers that should only claim a
-    /// filesystem-detected session after seeing provider output markers.
-    fn detect_started_session_with_markers(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String> {
-        let Some(sid) = self.detect_launched_session_id(cwd, exclude, max_age, injected_session_id)
-        else {
-            return None;
-        };
-
-        if injected_session_id.is_some() {
-            return Some(sid);
-        }
-
-        match screen_text {
-            Some(text) if text.trim().is_empty() => Some(sid),
-            Some(text) if self.detect_from_output(text) => Some(sid),
-            Some(_) => None,
-            None => Some(sid),
-        }
-    }
-
     /// Whether a session id still has a backing file (JSONL / session store / whatever
     /// the provider keeps). Default implementation is `session_file_path(...).exists()`.
     /// Providers without file-based session storage override this.
@@ -589,8 +659,7 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Session creation time, for providers whose sessions have no per-session
-    /// file (sqlite-backed, e.g. opencode) so the launch-window birth-time guard
-    /// in `detect_launched_session_id` can still reject pre-launch sessions.
+    /// file (sqlite-backed, e.g. opencode).
     /// Default `None` — file-based providers rely on filesystem timestamps.
     fn session_created_at(&self, _cwd: &str, _session_id: &str) -> Option<std::time::SystemTime> {
         None
@@ -699,10 +768,12 @@ pub trait AgentProvider: Send + Sync {
     }
 
     /// Build raw bytes to navigate to and confirm a prompt option.
-    /// `option_index` is 0-based (0 = first option, already selected).
-    /// Default: arrow down keys + Enter (standard ANSI).
+    /// `option_index` is 0-based (0 = first option). `screen` is the cleaned
+    /// terminal text the prompt is on — providers whose highlight isn't the top
+    /// row (cursor's /model lands on the CURRENT model) read it to navigate
+    /// relative to the live highlight. Default ignores it: arrow down + Enter.
     /// Providers override for agent-specific navigation (e.g. vim j/k).
-    fn build_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
+    fn build_prompt_response(&self, option_index: usize, _screen: &str) -> Vec<Vec<u8>> {
         let mut steps = Vec::new();
         let arrow_down = b"\x1b[B".to_vec(); // ESC [ B
         for _ in 0..option_index {
@@ -735,6 +806,16 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Classify a parked pane from a generic snapshot (AS1 seam). Optional — default
+    /// `None`. An opting-in provider runs its own matchers and returns a generic
+    /// verdict; core sees only that, never the fingerprints. Called only when parked.
+    fn classify_pane_state(
+        &self,
+        _snapshot: &crate::agent::pane_state::PaneStateSnapshot,
+    ) -> Option<crate::agent::pane_state::PaneStateClassification> {
+        None
+    }
+
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
     fn is_output_noise(&self, text: &str) -> bool {
         let _ = text;
@@ -764,8 +845,9 @@ pub trait AgentProvider: Send + Sync {
         events
     }
 
-    fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
+    fn parse_prompt(&self, text: &str) -> Option<crate::multiplexer::types::PendingPrompt> {
         crate::agent::detector::parse_permission_prompt(text)
+            .map(|(question, options)| crate::agent::prompt::build_prompt(question, options))
     }
 
     // In-agent control commands — defaults return None/empty.
@@ -891,6 +973,12 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    /// Query the models this provider currently offers, live.
+    /// None means "can't probe; use the manifest seed."
+    async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
+        None
+    }
+
     /// Default model id, must match one of `available_models()` if non-None.
     /// Returns `String` (not `&str`) so providers can resolve through the
     /// user-editable `model_catalog` without lifetime headaches.
@@ -981,8 +1069,25 @@ pub trait AgentProvider: Send + Sync {
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
+            supports_structured_prompts: self.supports_structured_prompts(),
             trust: self.trust(),
+            transport: ProviderTransport::Pty,
+            behavior_config: self.behavior_config(),
+            presets: Vec::new(),
+            system_prompt_delivery: self.system_prompt_delivery(),
         }
+    }
+
+    /// Behavior surface exposed for configuration. PTY agents bring their own
+    /// prompt set by default.
+    fn behavior_config(&self) -> BehaviorConfig {
+        BehaviorConfig::OwnPromptSet
+    }
+
+    /// How a system prompt reaches this provider. Default `External` — PTY
+    /// agents carry their own prompts and take no system-prompt flag here.
+    fn system_prompt_delivery(&self) -> SystemPromptDelivery {
+        SystemPromptDelivery::External
     }
 
     /// Whether a pane running this provider can be shown as chat. Defaults
@@ -991,6 +1096,47 @@ pub trait AgentProvider: Send + Sync {
     /// provider list.
     fn supports_chat_ui(&self) -> bool {
         self.uses_structured_chat()
+    }
+
+    /// Whether this provider, in its CURRENT interactive run mode, exposes a
+    /// STRUCTURED source for pending prompts (permission / question pickers)
+    /// instead of leaving them only as ephemeral PTY terminal UI. When true,
+    /// core builds `pane.pending_prompt` from that structured handle and only
+    /// falls back to the native attributed-grid PTY detector when the handle
+    /// yields nothing. Capability-gated — core never branches on provider id.
+    ///
+    /// Examples: claude exposes its AskUserQuestion in the parsed JSONL
+    /// transcript (`parse_interactive_events`); opencode exposes a local SSE
+    /// event bus + reply endpoints. codex app-server and cursor ACP are NOT
+    /// reachable in interactive-PTY mode, so they stay on the native detector.
+    fn supports_structured_prompts(&self) -> bool {
+        false
+    }
+
+    /// Build the STRUCTURED pending prompt for an interactive pane, if one is
+    /// active and unanswered, from this provider's structured source. `cwd` /
+    /// `session_id` identify the pane's own session (detection keys off the
+    /// pane's OWN session, never "latest global"). Pure + I/O-only (no locks,
+    /// no process calls) — same contract as `parse_session_delta`. Returns
+    /// `None` when there is no active structured prompt; core then falls back
+    /// to the native PTY detector. Only ever invoked when
+    /// `supports_structured_prompts()` is true.
+    fn structured_pending_prompt(
+        &self,
+        _cwd: &str,
+        _session_id: &str,
+    ) -> Option<crate::multiplexer::types::PendingPrompt> {
+        None
+    }
+
+    /// Whether this provider's structured handle is a local SERVER the host must
+    /// bind: the host allocates a fixed `127.0.0.1:port`, passes it at launch
+    /// (`AgentLaunchParams::structured_prompt_server`), and subscribes to it.
+    /// True for opencode (SSE bus); false for pull-handle providers like claude
+    /// that read their own on-disk transcript. Implies
+    /// `supports_structured_prompts`.
+    fn needs_structured_prompt_server(&self) -> bool {
+        false
     }
 
     /// Bundle trust status. Default impl returns `Unknown` (native

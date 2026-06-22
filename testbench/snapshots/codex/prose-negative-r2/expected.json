@@ -1,0 +1,10 @@
+{
+  "provider": "codex",
+  "unit": "provider_screen_attr",
+  "gating": false,
+  "source": "real-capture",
+  "expected": {
+    "detectPicker": null
+  },
+  "notes": "Prose negative round 2 (varied wording vs r1): codex answered the multi-step A/B/C picker request as a single prose line ('• Step 1: A/B/C → ...'), no rendered interactive picker. Native detect_picker MUST return null (no false positive on prose that merely mentions A/B/C options)."
+}

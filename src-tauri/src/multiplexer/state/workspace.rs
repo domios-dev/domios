@@ -12,6 +12,7 @@ impl MultiplexerState {
             active_tab_id: None,
             cwd: cwd.clone(),
             protected: false,
+            sort_order: self.next_workspace_sort_order(),
         };
 
         self.workspaces.push(workspace);
@@ -89,6 +90,10 @@ impl MultiplexerState {
             return Err("Cannot close protected workspace".to_string());
         }
 
+        // Record the workspace + its live tabs as ONE closed group (kind =
+        // workspace) before yanking it, so the whole workspace can be reopened.
+        self.record_workspace_close(id);
+
         let workspace = self.workspaces.remove(idx);
 
         let pane_ids: Vec<String> = workspace
@@ -141,12 +146,24 @@ impl MultiplexerState {
         }
     }
 
+    /// Move a workspace to the front and pin it to the lowest `sort_order` (0),
+    /// renumbering the rest by their existing order. Used for the General
+    /// (protected) workspace so it stays at the top of the sidebar.
     pub fn move_workspace_to_front(&mut self, id: &str) {
         if let Some(idx) = self.workspaces.iter().position(|w| w.id == id) {
             if idx > 0 {
                 let ws = self.workspaces.remove(idx);
                 self.workspaces.insert(0, ws);
             }
+        }
+        let mut rest: Vec<&mut Workspace> =
+            self.workspaces.iter_mut().filter(|w| w.id != id).collect();
+        rest.sort_by_key(|w| w.sort_order);
+        for (i, w) in rest.into_iter().enumerate() {
+            w.sort_order = (i + 1) as i32;
+        }
+        if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == id) {
+            ws.sort_order = 0;
         }
     }
 
@@ -177,7 +194,7 @@ impl MultiplexerState {
             return Err("Cannot move the last tab from a workspace".to_string());
         }
 
-        let tab = from_ws.tabs.remove(tab_idx);
+        let mut tab = from_ws.tabs.remove(tab_idx);
 
         if from_ws.active_tab_id.as_deref() == Some(tab_id) {
             from_ws.active_tab_id = from_ws.tabs.last().map(|t| t.id.clone());
@@ -189,6 +206,7 @@ impl MultiplexerState {
             .find(|w| w.id == to_workspace_id)
             .ok_or_else(|| format!("Destination workspace not found: {}", to_workspace_id))?;
 
+        tab.sort_order = to_ws.tabs.iter().map(|t| t.sort_order).max().unwrap_or(-1) + 1;
         to_ws.tabs.push(tab);
         to_ws.active_tab_id = Some(tab_id.to_string());
 

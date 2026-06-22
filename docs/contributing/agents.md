@@ -21,9 +21,8 @@ The in-repo `docs/contributing/agents.md` doc is the execution playbook; role lo
 
 ## Non-Claude agents (Codex/GPT)
 
-Non-Claude agents (Codex and GPT task workers) should read repository-generated [`AGENTS.md`](../../AGENTS.md).
-When policies change, edit [`CLAUDE.md`](../../CLAUDE.md), then run `bash scripts/gen-agents-md.sh` to regenerate `AGENTS.md`.
-Do not edit `AGENTS.md` manually.
+Non-Claude agents (Codex and GPT task workers) read [`AGENTS.md`](../../AGENTS.md) — the cross-vendor source of truth.
+When policies change, edit `AGENTS.md` directly. Claude Code reads [`CLAUDE.md`](../../CLAUDE.md), which is just `@AGENTS.md` (importing it) plus any Claude-specific notes — one rulebook, no generation step.
 ## Orchestrator-only rules
 
 (Read this only if you are the Orchestrator — no role, running at the top.)
@@ -86,7 +85,6 @@ TASK: ...
 - **All sub-agents are Workers.** For a big job, decompose it yourself and spawn several Workers as siblings (e.g. "refactor the whole frontend state layer" → 4 frontend-dev Workers, each a scoped sub-task). There is no intermediate level — the tree is exactly one deep (Orchestrator → Workers).
 
 **Rule of thumb:** spawn via `codeterm agent spawn` when the task touches >3 files, needs its own filesystem/PTY context, or the user benefits from watching it run. Otherwise use the built-in Agent tool.
-Model-routing rubric for this team is documented in [docs/review-2026-06/agent-team.md](../review-2026-06/agent-team.md).
 
 ### Reporting back
 
@@ -135,6 +133,21 @@ If you are a Worker, you received exactly ONE concrete task. Do it and stop.
 - Run verification (`./build.sh check`, `cargo test --lib`, `npx tsc --noEmit`) before reporting done.
 - Report structured via `codeterm agent report "..."` and exit.
 
+## Pane type awareness
+
+When an agent needs to talk to another pane, it must know what kind of pane it's addressing. `codeterm pane list` includes a `backing` field on each entry:
+
+| `backing.kind` | What it is | Has shell? | How to address |
+|----------------|-----------|------------|----------------|
+| `pty` | PTY pane — terminal or agent (Claude, Codex, plain shell) | Yes | `codeterm send "cmd" --pane X` — can include shell commands |
+| `chat_backend` | LLM chat pane (local model via plugin, no PTY) | **No** | `codeterm send "message" --pane X` — delivers as a chat turn; the peer replies via its own tools |
+
+**The live bug this prevents:** a PTY agent telling a `chat_backend` peer "run `codeterm send ... --pane main` in your shell" — the chatBackend peer has no shell and cannot comply. The Messenger already stamps inbound messages with the sender's return address so the peer can reply; just send the message and let its tool loop handle the rest.
+
+Discover backing type: `codeterm pane list | jq '.[] | {id, kind: .backing.kind, title}'`
+
+Note: `codeterm pane status` does not yet expose `backing` — use `pane list`.
+
 ## Dogfooding (applies to everyone)
 
 This project IS CodeTerm. You're running inside CodeTerm. Every spawn via `codeterm agent spawn` is both productive work AND a test of the system. If something feels clunky — the codeterm CLI, the mesh, the reports, the panes — note it in your report. We improve CodeTerm by using it.
@@ -151,5 +164,5 @@ Prompt templates compiled into the binary via `include_str!()`. Edit `.md` files
 - `src-tauri/prompts/cron_complete_suffix.md` — Appended to cron tasks (completion instruction)
 - `src-tauri/src/prompts.rs` — Rust module that loads all templates
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 

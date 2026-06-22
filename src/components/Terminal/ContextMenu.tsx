@@ -57,6 +57,7 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
   return (
     <div
       ref={menuRef}
+      data-testid="terminal-context-menu"
       style={{
         position: "fixed",
         left: x,
@@ -84,6 +85,8 @@ export function ContextMenu({ x, y, actions, onClose }: ContextMenuProps) {
             />
           )}
           <button
+            data-testid="terminal-context-menu-item"
+            data-action-label={action.label}
             onClick={() => {
               action.onClick();
               onClose();

@@ -1,0 +1,13 @@
+diff --git a/src/router.ts b/src/router.ts
+index 1a2b3c4..5d6e7f8 100644
+--- a/src/router.ts
++++ b/src/router.ts
+@@ -10,7 +10,7 @@ export function route(req: Request) {
+-  const handler = lookup(req.path);
++  const handler = lookup(req.path) ?? fallback;
+   return handler(req);
+
+$ npm install
+npm notice New minor version of npm available! 10.2.0 -> 10.5.0
+added 3 packages in 1s
+$

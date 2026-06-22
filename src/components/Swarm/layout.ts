@@ -6,7 +6,7 @@ const V_GAP = 120;
 const H_GAP = 40;
 
 /**
- * Simple tree layout: orchestrator at top center, leads below, workers below their lead.
+ * Simple tree layout: orchestrator at top center, its workers below (2-level: Orchestrator → Workers).
  * Mutates targetX/targetY on each node in-place.
  */
 export function computeTreeLayout(

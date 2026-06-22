@@ -1,0 +1,9 @@
+OpenAI Codex
+codex/gpt-5
+
+▶ Let me look at the repository structure and find the relevant files.
+
+I'll start by reading the main entry point and tracing how requests flow
+through the router. Working on it…
+
+  ctrl+c to cancel

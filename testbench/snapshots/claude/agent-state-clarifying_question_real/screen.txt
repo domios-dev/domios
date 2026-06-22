@@ -1,0 +1,40 @@
+kandrey@ROC-6W49K3GN rt3-capture % bash /tmp/codeterm-spawn-c4b52a1b-ce21-4699-af18-e92eff8fb408.sh
+╭─── Claude Code v2.1.183 ─────────────────────────────────────────────────────────────────────────────────────────────╮
+│                                                    │ Tips for getting started                                        │
+│                Welcome back Andrey!                │ Ask Claude to create a new app or clone a repository            │
+│                                                    │ ─────────────────────────────────────────────────────────────── │
+│                       ▐▛███▜▌                      │ What's new                                                      │
+│                      ▝▜█████▛▘                     │ Improved auto mode safety: destructive git commands (`git rese… │
+│                        ▘▘ ▝▝                       │ Added a warning when the requested model is deprecated or auto… │
+│                                                    │ Added `attribution.sessionUrl` setting to omit the claude.ai s… │
+│ Opus 4.8 with high effort · Claude Team · 8x8 RD 2 │ /release-notes for more                                         │
+│              /private/tmp/rt3-capture              │                                                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Fix it.
+
+⏺ I don't have any context yet on what "it" is. Let me look at the working directory.
+
+⏺ Bash(ls -la && git status 2>&1 | head -20)
+  ⎿  (empty)
+     Not a git repository
+  ⎿  Allowed by auto mode classifier
+
+⏺ The working directory /private/tmp/rt3-capture is empty and isn't a git repository, and this is a fresh session — so I
+  have no context on what "it" is.
+
+  I can't find anything broken to fix on my own. Can you tell me what needs fixing? For example:
+
+  - A specific file, command, or error message
+  - A project somewhere else on disk (give me the path)
+  - Output from something that failed (paste it and I'll dig in)
+
+  Once I know what "it" refers to, I'll fix it.
+
+✻ Brewed for 14s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents    

@@ -109,10 +109,15 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
       onClick={handleBackdropClick}
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: "rgba(0,0,0,0.4)" }}
+      data-testid="memory-item-editor-backdrop"
     >
       <div
         className="flex flex-col bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded-lg shadow-2xl"
         style={{ width: "min(680px, 90vw)", height: "min(560px, 80vh)" }}
+        data-testid="memory-item-editor"
+        data-memory-id={itemId}
+        role="dialog"
+        aria-label="Edit memory item"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--ct-border)]">
@@ -128,6 +133,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
           <div className="flex items-center gap-2">
             {dirty && (
               <button
+                data-testid="memory-item-save"
                 onClick={handleSave}
                 disabled={saving}
                 className="bg-[var(--ct-accent)] text-white border-0 px-3 py-1 rounded text-[11px] cursor-pointer disabled:opacity-50"
@@ -136,6 +142,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
               </button>
             )}
             <button
+              data-testid="memory-item-close"
               onClick={onClose}
               className="bg-transparent border-0 text-[var(--ct-muted-fg)] cursor-pointer text-sm px-1 hover:text-[var(--ct-fg)]"
             >
@@ -145,13 +152,13 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
         </div>
 
         {error && (
-          <div className="mx-4 mt-2 p-2 rounded bg-[var(--ct-red)]/20 text-[var(--ct-red)] text-[11px]">
+          <div className="mx-4 mt-2 p-2 rounded bg-[var(--ct-red)]/20 text-[var(--ct-red)] text-[11px]" data-testid="memory-item-error" role="alert">
             {error}
           </div>
         )}
 
         {!item && !error && (
-          <div className="flex-1 flex items-center justify-center text-[var(--ct-muted-fg)] text-xs">Loading...</div>
+          <div className="flex-1 flex items-center justify-center text-[var(--ct-muted-fg)] text-xs" data-testid="memory-item-loading">Loading...</div>
         )}
 
         {item && (
@@ -160,6 +167,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
             <div>
               <label className="text-[10px] text-[var(--ct-muted-fg)] block mb-1">Title</label>
               <input
+                data-testid="memory-item-title-input"
                 className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                 value={draftTitle}
                 onChange={e => setDraftTitle(e.target.value)}
@@ -171,6 +179,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
               <div className="flex-1">
                 <label className="text-[10px] text-[var(--ct-muted-fg)] block mb-1">Area</label>
                 <input
+                  data-testid="memory-item-area-input"
                   className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                   value={draftArea}
                   onChange={e => setDraftArea(e.target.value)}
@@ -180,6 +189,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
               <div className="flex-1">
                 <label className="text-[10px] text-[var(--ct-muted-fg)] block mb-1">Tags</label>
                 <input
+                  data-testid="memory-item-tags-input"
                   className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
                   value={draftTags}
                   onChange={e => setDraftTags(e.target.value)}
@@ -193,6 +203,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
               <label className="text-[10px] text-[var(--ct-muted-fg)] block mb-1">Body</label>
               <textarea
                 ref={bodyRef}
+                data-testid="memory-item-body-input"
                 className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-2 text-[11px] text-[var(--ct-fg)] font-mono leading-relaxed focus:border-[var(--ct-accent)] focus:outline-none resize-y"
                 style={{ minHeight: "200px" }}
                 value={draftBody}
@@ -206,6 +217,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
               {item.updated_at && <span>Updated: {new Date(item.updated_at).toLocaleString()}</span>}
               {item.importance != null && <span>Importance: {item.importance}</span>}
               <button
+                data-testid="memory-item-delete"
                 onClick={handleDelete}
                 className="ml-auto bg-transparent border border-[#ef4444] text-[#ef4444] px-2 py-0.5 rounded text-[10px] cursor-pointer hover:bg-[#ef444422]"
               >

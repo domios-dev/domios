@@ -1,0 +1,6 @@
+{
+  "provider": "cursor",
+  "unit": "provider_screen_attr",
+  "gating": false,
+  "expected": { "detectPicker": null }
+}

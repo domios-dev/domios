@@ -377,10 +377,11 @@ export function ComposerActions({
             title="Attach file"
             disabled={uploading}
             onClick={() => fileRef.current?.click()}
-            className={`${btnBase} ct-composer-round-button mb-1 h-10 w-10 rounded-full border border-white/10 text-white/90 shadow-[0_2px_10px_rgba(0,0,0,0.28)] hover:scale-[1.03] disabled:opacity-40`}
+            className={`${btnBase} ct-composer-round-button h-10 w-10 rounded-full border shadow-none hover:scale-[1.03] disabled:opacity-40`}
             style={{
-              background:
-                "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, white 8%)",
+              background: "var(--ct-surface, #161b22)",
+              border: "1px solid var(--ct-border)",
+              color: "var(--ct-fg, #c9d1d9)",
             }}
           >
             <Paperclip size={20} strokeWidth={2.3} className={uploading ? "animate-pulse" : undefined} />
@@ -388,12 +389,12 @@ export function ComposerActions({
         )}
         <div
           ref={shellRef}
-          className="ct-composer-input-shell relative flex min-h-12 flex-1 items-center rounded-[1.35rem] border px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+          data-testid="composer-input-shell"
+          className="ct-composer-input-shell relative flex min-h-10 flex-1 items-center rounded-[1.35rem] border px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
           style={{
-            background:
-              "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 86%, white 7%)",
+            background: "var(--ct-bg-elev, var(--ct-surface, #161b22))",
             borderColor:
-              "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
+              "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
           }}
         >
           {composerHidden && (
@@ -435,28 +436,26 @@ export function ComposerActions({
                 e.preventDefault();
                 onSchedule();
               }}
-              className={`${btnBase} ml-1 mb-0.5 h-8 w-8 shrink-0 self-end rounded-full text-[var(--ct-muted-fg)] transition hover:text-[var(--ct-fg)] hover:brightness-125`}
+              className={`${btnBase} ml-1 h-5 w-5 shrink-0 self-center rounded-full text-[var(--ct-muted-fg)] transition hover:text-[var(--ct-fg)] hover:brightness-125`}
               style={{
-                background:
-                  "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 82%, white 7%)",
+                background: "var(--ct-surface, #161b22)",
                 border:
                   "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
               }}
             >
-              <Clock3 size={16} strokeWidth={2.2} />
+              <Clock3 size={13} strokeWidth={2.2} />
             </button>
           )}
         </div>
-        {/* mb-1 keeps the send button bottom-aligned with the schedule icon as the input grows. */}
         {!isPreview && (
-          <div className="relative mb-1 h-10 w-10 shrink-0">
+          <div className="relative h-10 w-10 shrink-0">
             {/* Slide-up-to-lock target — purely a visual cue; locking is driven by the pointer leaving the mic. */}
             {isHold && (
               <div
                 data-testid="composer-voice-lock-pill"
                 className="ct-voice-lock-pill absolute bottom-full left-1/2 mb-7 flex -translate-x-1/2 flex-col items-center gap-1 rounded-full border px-2 py-2.5 text-[var(--ct-muted-fg)] shadow-[0_6px_20px_rgba(0,0,0,0.35)]"
                 style={{
-                  background: "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 90%, white 6%)",
+                  background: "var(--ct-surface, #161b22)",
                   borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 26%, transparent)",
                 }}
               >
@@ -505,25 +504,16 @@ export function ComposerActions({
                 e.preventDefault();
                 onSchedule();
               }}
-              className={`${btnBase} ${voiceActive ? "" : "ct-composer-round-button"} absolute left-1/2 top-1/2 rounded-full border text-white ${
-                voiceActive
-                  ? "z-30 shadow-[0_18px_55px_rgba(31,111,235,0.52)]"
-                  : "h-10 w-10"
-              } ${isLocked ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/25" : ""} ${
-                voiceActive || mainIsSend || isLocked
-                  ? "shadow-[0_5px_18px_rgba(31,111,235,0.35)]"
-                  : "shadow-[0_2px_10px_rgba(0,0,0,0.28)]"
-              } disabled:opacity-40`}
+              className={`${btnBase} ${voiceActive ? "" : "ct-composer-round-button"} absolute left-1/2 top-1/2 rounded-full border ${
+                voiceActive ? "z-30" : "h-10 w-10"
+              } ${isLocked ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/25" : ""} shadow-none disabled:opacity-40`}
               style={{
                 background:
                   voiceActive || mainIsSend || isLocked
-                    ? "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)"
-                    : "color-mix(in srgb, var(--ct-titlebar-bg, #161b22) 78%, white 9%)",
-                borderColor:
-                  voiceActive || mainIsSend || isLocked
-                    ? "rgba(255,255,255,0.18)"
-                    : "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 24%, transparent)",
-                color: voiceActive || mainIsSend || isLocked ? "white" : "var(--ct-fg, #c9d1d9)",
+                    ? "var(--ct-accent)"
+                    : "var(--ct-surface, #161b22)",
+                border: "1px solid var(--ct-border)",
+                color: voiceActive || mainIsSend || isLocked ? "var(--ct-bg)" : "var(--ct-fg, #c9d1d9)",
                 height: voiceActive ? "5.5rem" : undefined,
                 width: voiceActive ? "5.5rem" : undefined,
                 // Constant center anchor in both states — only the size transitions, so growth radiates from the center.

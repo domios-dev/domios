@@ -1,0 +1,206 @@
+{
+  "events": [
+    {
+      "t_ms": 8683,
+      "kind": "input",
+      "turn": 1,
+      "text": "Create a minimal but complete browser Snake game in a single self-contained snake.html file (inline CSS + JS, canvas, no external assets or libraries). Just create the file."
+    },
+    {
+      "t_ms": 18921,
+      "kind": "input",
+      "turn": 2,
+      "text": "Add arrow-key and WASD controls and a visible score in the top-left."
+    },
+    {
+      "t_ms": 86707,
+      "kind": "input",
+      "turn": 3,
+      "text": "Add pause/resume on the spacebar and a restart button below the canvas."
+    },
+    {
+      "t_ms": 127888,
+      "kind": "input",
+      "turn": 4,
+      "text": "Make the snake speed up a little every 5 points."
+    },
+    {
+      "t_ms": 159887,
+      "kind": "input",
+      "turn": 5,
+      "text": "Add a start screen with three difficulty buttons: Easy, Normal, Hard."
+    },
+    {
+      "t_ms": 197975,
+      "kind": "input",
+      "turn": 6,
+      "text": "Add an optional wall-wrap mode toggled by a checkbox on the start screen."
+    },
+    {
+      "t_ms": 244308,
+      "kind": "input",
+      "turn": 7,
+      "text": "Persist the high score in localStorage and show it next to the current score."
+    },
+    {
+      "t_ms": 268031,
+      "kind": "input",
+      "turn": 8,
+      "text": "Before coding more, explain in prose the options you'd consider for mobile controls. Give a numbered list and end by asking which I'd like — but do not open any interactive menu, just plain text."
+    }
+  ],
+  "phases": [
+    {
+      "from_ms": 8683,
+      "to_ms": 18920,
+      "turn": 1,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 4115,
+        "stable_ms": 3085,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 18921,
+      "to_ms": 86706,
+      "turn": 2,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 67755,
+        "stable_ms": 3077,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 86707,
+      "to_ms": 127887,
+      "turn": 3,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 41122,
+        "stable_ms": 3107,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 127888,
+      "to_ms": 159886,
+      "turn": 4,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 31921,
+        "stable_ms": 3102,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 159887,
+      "to_ms": 197975,
+      "turn": 5,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 38029,
+        "stable_ms": 3098,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 197975,
+      "to_ms": 244307,
+      "turn": 6,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 46269,
+        "stable_ms": 3087,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 244308,
+      "to_ms": 268031,
+      "turn": 7,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 23661,
+        "stable_ms": 3088,
+        "timed_out": false
+      }
+    },
+    {
+      "from_ms": 268031,
+      "to_ms": 277366,
+      "turn": 8,
+      "expected": {
+        "phases": [
+          "working",
+          "idle"
+        ],
+        "card": "none",
+        "negative": "prose_question_and_list"
+      },
+      "pacing": {
+        "state": "Idle",
+        "elapsed_ms": 9264,
+        "stable_ms": 3090,
+        "timed_out": false
+      }
+    }
+  ],
+  "oracle": {
+    "forbid_card_on_all_negative_frames": true,
+    "require_status_line_during_working": true,
+    "expected_status_phases": [
+      "working"
+    ]
+  }
+}

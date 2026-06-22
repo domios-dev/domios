@@ -13,7 +13,7 @@ mod cron;
 mod delayed_send;
 mod hooks;
 mod pane;
-mod plugins;
+pub(crate) mod plugins;
 mod pty;
 mod services;
 mod skills;

@@ -22,6 +22,10 @@ export interface PeerStatus {
   pending?: boolean;
   /** instance_names of paired peers that vouched for this one (only for pending). */
   vouched_by_names?: string[];
+  services_stale?: boolean;
+  services_error?: string | null;
+  services_fetched_at?: number | null;
+  services_loaded?: boolean;
 }
 
 export interface MeshData {
@@ -133,17 +137,16 @@ export function useMeshData(refreshKey: number): MeshDataResult {
       // Query every paired peer — the daemon decides whether to hit the network or serve its last-known cache, so offline peers still contribute
       // (stale-flagged) services instead of vanishing (#119/#127).
       const remotePromises = paired
-        .filter((p) => p.ip)
         .map(async (p): Promise<PeerFetchResult> => {
           try {
             const view = await invoke<PeerServicesView>(
               "mesh_peer_services_list",
               { instanceId: p.instance_id },
             );
-            return { peerName: p.name, view };
+            return { peerId: p.instance_id, peerName: p.name, view };
           } catch (e) {
             console.warn(`[mesh] services fetch failed for ${p.name}:`, e);
-            return { peerName: p.name, view: null };
+            return { peerId: p.instance_id, peerName: p.name, view: null };
           }
         });
       const remoteResults = await Promise.all(remotePromises);
@@ -151,12 +154,25 @@ export function useMeshData(refreshKey: number): MeshDataResult {
         console.warn(`[mesh] peer services: ${err}`);
       }
 
+      const remoteById = new Map(remoteResults.map((r) => [r.peerId, r] as const));
+      const peersWithServiceState = paired.map((p) => {
+        const r = remoteById.get(p.instance_id);
+        if (!r) return p;
+        return {
+          ...p,
+          services_loaded: !!r.view,
+          services_stale: r.view?.stale ?? true,
+          services_error: r.view?.error ?? (r.view ? null : "services fetch failed"),
+          services_fetched_at: r.view?.fetched_at ?? null,
+        };
+      });
+
       const next = {
         thisMachine: {
           name: status?.instance_name ?? "this",
           ip: status?.local_ip ?? status?.tailscale_ip ?? "",
         },
-        peers: [...paired, ...pending],
+        peers: [...peersWithServiceState, ...pending],
         services: mergeServicesView(local, remoteResults),
       };
       writeCache(next);

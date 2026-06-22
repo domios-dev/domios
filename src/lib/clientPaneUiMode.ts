@@ -3,10 +3,6 @@ import type { PaneUiMode } from "./chatUiMode";
 const PREFIX = "codeterm:pane-ui-mode:";
 // Two channels on purpose. EVENT carries EXPLICIT choices (user toggle, spawn
 // default, remote-control) — TerminalPane records those as user overrides.
-// EVENT_CURRENT is a status broadcast of a pane's computed mode (for tab
-// labels etc.); routing it through EVENT made TerminalPane hear its own
-// mount-time "terminal" echo and lock it as an override, freezing panes in
-// terminal before descriptors/backend state arrived.
 const EVENT = "codeterm-client-pane-ui-mode";
 const EVENT_CURRENT = "codeterm-client-pane-ui-mode-current";
 const currentModes = new Map<string, PaneUiMode>();
@@ -22,6 +18,21 @@ export function publishCurrentPaneUiMode(paneId: string, mode: PaneUiMode): void
       detail: { paneId, mode },
     }),
   );
+}
+
+/** Single source of truth for a pane's opening view, shared by the pane body and
+ *  the mode switch so they agree on the first frame (no terminal→chat flicker).
+ *  Priority: live/explicit choice > backend chat_view > global chat-default. */
+export function resolveInitialPaneUiMode(
+  paneId: string,
+  opts: { chatCapable: boolean; chatViewFlag?: boolean; chatDefault?: boolean; mobileDefault?: boolean },
+): PaneUiMode {
+  const explicit = getCurrentPaneUiMode(paneId) ?? getClientPaneUiMode(paneId);
+  if (explicit) return explicit === "chat" && opts.chatCapable ? "chat" : "terminal";
+  if (!opts.chatCapable) return "terminal";
+  if (opts.chatViewFlag) return "chat";
+  if (opts.chatDefault) return "chat";
+  return opts.mobileDefault ? "chat" : "terminal";
 }
 
 export function getClientPaneUiMode(paneId: string): PaneUiMode | null {

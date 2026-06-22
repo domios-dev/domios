@@ -1,0 +1,40 @@
+и кто-то проиграет CAS,
+  но проигравший — не умрёт:
+  он развернётся и пойдёт по кругу снова,
+  пока хоть кто-то движется вперёд.
+  Так и мы — пишем порознь, врозь,
+  ты — «привет», я — «здравствуй» в тот же миг,
+  и нет начальника, кто рассудил бы спор,
+  лишь правило, простое, как гранит:
+  сначала origin, потом — кто старше ID.
+  И буквы не сплетутся в кашу,
+  твоя строка останется твоей,
+  моя — моей, и встретятся,
+  не потеряв ни смысла, ни людей.
+  А мёртвое — не трогаем, пока
+  последний, самый медленный из нас
+  не подтвердит: я видел, я согласен.
+  И только в этот тихий общий час
+  надгробья падают, и память дышит,
+  и дерево становится — строкой.
+  ---
+  Если хочешь — могу в другом настроении: без технической метафоры, или построже по форме (сонет, верлибр), или вообще
+  на английском. 🙂
+✻ Churned for 16s
+❯ Now summarize what we discussed in one paragraph, then stop. Do not open any menu, picker, permission prompt, or      
+  interactive selection.                                                                                                
+⏺ We covered two in-depth systems-design discussions plus a bit of casual conversation: first, a lock-free MPMC queue in
+  Rust — bounded (Vyukov array-with-sequence-numbers, ABA-immune and reclamation-free) vs. unbounded (Michael–Scott
+  linked list needing epoch/hazard-pointer reclamation), cache-line padding to 128 bytes to avoid false sharing,
+  Acquire/Release ordering discipline (with Relaxed for ticket counters and avoiding reflexive SeqCst), blocking/async
+  wrappers via spin→yield→park escalation, batching through bulk slot reservation and thread-local buffers, and
+  validation with loom + Miri + TSan + stress tests; second, a CRDT for collaborative text editing in the RGA/YATA/Fugue
+  family — unique (replicaId, counter) IDs, left/right origin anchoring to avoid the character-level interleaving
+  anomaly, unavoidable tombstones for deletion, causal delivery and delta-sync via version vectors, and garbage
+  collection gated on causal stability (with the membership/offline-replica tension as the real hard part), plus block
+  encoding as the key size optimization. We closed with some light conversation and a poem tying those themes together.
+✻ Baked for 7s
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ write the Vyukov queue with loom tests
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

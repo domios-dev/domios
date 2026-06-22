@@ -1,0 +1,49 @@
+⏺ Bash(python3 -m pytest test_fib.py -q 2>&1 || python3 -m unittest 2>&1)
+  ⎿  Error: Exit code 5
+     rtk: Failed to run pytest: Failed to spawn process: No such file or directory (os error 2)
+
+     ----------------------------------------------------------------------
+     Ran 0 tests in 0.000s
+
+     NO TESTS RAN
+
+⏺ Bash(python3 -c "import pytest; print('pytest', pytest.__version__)" 2>&1; echo "exit=$?")
+  ⎿  pytest 9.1.0
+     exit=0
+  ⎿  Allowed by auto mode classifier
+
+⏺ Bash(python3 -m pytest test_fib.py -v 2>&1; echo "exit=$?")
+  ⎿  rtk: Failed to run pytest: Failed to spawn process: No such file or directory (os error 2)
+     exit=1
+  ⎿  Allowed by auto mode classifier
+
+⏺ Bash(python3 -c "import pytest,sys; sys.exit(pytest.main(['test_fib.py','-v']))" 2>&1; echo "exit=$?")
+  ⎿  ============================= test session starts ==============================
+     platform darwin -- Python 3.13.5, pytest-9.1.0, pluggy-1.6.0 -- /usr/local/bin/python3
+     cachedir: .pytest_cache
+     … +10 lines (ctrl+o to expand)
+  ⎿  Allowed by auto mode classifier
+
+⏺ Done. Both tests pass. 
+
+  fib.py — added input validation:
+  - TypeError for non-integers (and rejects bool, since True/False are int subclasses)
+  - ValueError for negative n
+
+  test_fib.py — two tests:
+  1. test_fib_computes_known_values — checks fib(0..7) == [0, 1, 1, 2, 3, 5, 8, 13]
+  2. test_fib_rejects_invalid_input — asserts fib(-1) raises ValueError and fib(3.0) raises TypeError
+
+  test_fib.py::test_fib_computes_known_values PASSED
+  test_fib.py::test_fib_rejects_invalid_input PASSED
+  2 passed
+
+  Note: a rtk wrapper intercepts the plain pytest command in this environment, so I ran the suite via python3 -c "import
+  pytest; pytest.main(...)". The same applies if you want to rerun them.
+
+✻ Sautéed for 51s
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ commit this
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents

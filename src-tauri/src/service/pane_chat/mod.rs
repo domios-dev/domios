@@ -10,6 +10,7 @@
 //! it) lives in plugins — this module only orchestrates
 //! start/stop and shuttles the bytes through.
 
+pub mod chatbackend_history;
 pub mod raw_text_sink;
 pub mod registry;
 pub mod structured_poller;
@@ -172,6 +173,16 @@ fn attachment_from_image(data: &serde_json::Value, id: String) -> ChatAttachment
 /// place JSONL providers' rich rendering lives; the desktop renders the same
 /// output, so there is no second parser.
 pub fn rich_to_chat_msgs(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
+    // `base_id` is the monotonic source ordinal (rich-message index in a snapshot,
+    // atomic counter in the stream). Stamp it as `seq` so the client can break
+    let mut out = rich_to_chat_msgs_blocks(rich, base_id);
+    for m in &mut out {
+        m.seq = base_id as i64;
+    }
+    out
+}
+
+fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> {
     let mut out = Vec::new();
     let role = rich.role.as_str();
     let base = rich
@@ -441,39 +452,109 @@ pub fn pane_chat_snapshot(
     pane_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
-    let (provider_id, cwd, session_id) = {
-        let m = svc.mux.lock();
-        let pane = m.get_pane(pane_id).ok_or("pane not found")?;
-        let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
-        let cwd = pane.cwd.clone().unwrap_or_default();
-        let sid = pane
-            .agent_session_id
-            .clone()
-            .ok_or("pane has no session_id yet")?;
-        (provider, cwd, sid)
+    // A chatBackend pane has no agent_type / agent_session_id — its transcript
+    // lives in the plugin session, not a JSONL/sqlite file. Branch on the pane
+    let backing = {
+        let m = svc.mux.write();
+        m.get_pane(pane_id).ok_or("pane not found")?.backing.clone()
     };
+    match backing {
+        crate::multiplexer::types::PaneBacking::ChatBackend {
+            plugin_id,
+            session_id,
+        } => {
+            let provider = svc
+                .chatbackend_registry
+                .get(&plugin_id)
+                .ok_or_else(|| format!("chatBackend plugin '{plugin_id}' not registered"))?;
+            chatbackend_transcript_snapshot(provider.as_ref(), &session_id, since)
+        }
+        crate::multiplexer::types::PaneBacking::Pty => {
+            let (provider_id, cwd, session_id) = {
+                let m = svc.mux.write();
+                let pane = m.get_pane(pane_id).ok_or("pane not found")?;
+                let provider = pane.agent_type.clone().ok_or("pane has no agent_type")?;
+                let cwd = pane.cwd.clone().unwrap_or_default();
+                let sid = pane
+                    .agent_session_id
+                    .clone()
+                    .ok_or("pane has no session_id yet")?;
+                (provider, cwd, sid)
+            };
+            session_chat_snapshot(svc, &provider_id, &cwd, &session_id, since)
+        }
+    }
+}
 
+/// Snapshot a chatBackend pane's transcript. The host-side JSONL is the DURABLE
+/// truth: a chatBackend shell has no provider-side store, so the live plugin Map
+/// is wiped on refresh / VM reload / daemon restart. We read the persisted JSONL
+/// first ([`chatbackend_history`]) and only fall back to a live `poll` when no
+/// JSONL exists yet (a brand-new session before the first delta was persisted).
+/// Returns (messages[since..], total_count).
+pub(crate) fn chatbackend_transcript_snapshot(
+    provider: &dyn crate::chatbackend::ChatBackendProvider,
+    session_id: &str,
+    since: usize,
+) -> Result<(Vec<ChatMsg>, usize), String> {
+    let path = chatbackend_history::session_path(provider.id(), session_id);
+    chatbackend_snapshot_from(provider, session_id, since, &path)
+}
+
+/// Path-injectable core of [`chatbackend_transcript_snapshot`] (hermetic tests).
+fn chatbackend_snapshot_from(
+    provider: &dyn crate::chatbackend::ChatBackendProvider,
+    session_id: &str,
+    since: usize,
+    history_path: &std::path::Path,
+) -> Result<(Vec<ChatMsg>, usize), String> {
+    let from_disk = chatbackend_history::read_messages(history_path);
+    let all = if from_disk.is_empty() {
+        // No durable history yet ⇒ ask the live session (no cursor ⇒ the full
+        // cumulative transcript), exactly like the agent path.
+        provider
+            .poll(session_id, None)
+            .map_err(|e| e.to_string())?
+            .messages
+    } else {
+        from_disk
+    };
+    let total = all.len();
+    let slice = all.into_iter().skip(since).collect();
+    Ok((slice, total))
+}
+
+/// Pane-less twin of [`pane_chat_snapshot`]: parse a session's transcript
+/// straight from `(provider, cwd, session_id)`. Used by the read-only chat-ui
+/// to render closed hidden-worker / cron runs whose pane is already gone.
+pub fn session_chat_snapshot(
+    svc: &crate::service::ServiceContext,
+    provider_id: &str,
+    cwd: &str,
+    session_id: &str,
+    since: usize,
+) -> Result<(Vec<ChatMsg>, usize), String> {
     let structured = svc
         .agent_registry
-        .with_provider(&provider_id, |p| p.uses_structured_chat())
+        .with_provider(provider_id, |p| p.uses_structured_chat())
         .unwrap_or(false);
 
     let all: Vec<ChatMsg> = if structured {
         svc.agent_registry
-            .with_provider(&provider_id, |p| {
-                p.read_structured_chat(&cwd, &session_id, None)
+            .with_provider(provider_id, |p| {
+                p.read_structured_chat(cwd, session_id, None)
             })
             .map(|sc| sc.messages)
             .unwrap_or_default()
     } else {
         let path = svc
             .agent_registry
-            .with_provider(&provider_id, |p| p.session_file_path(&cwd, &session_id))
+            .with_provider(provider_id, |p| p.session_file_path(cwd, session_id))
             .flatten()
             .ok_or("provider has no JSONL and no structured chat")?;
         let delta = svc
             .agent_registry
-            .with_provider(&provider_id, |p| {
+            .with_provider(provider_id, |p| {
                 let mut delta = p.parse_session_delta(&path, 0);
                 for m in &mut delta.messages {
                     enrich_interactive(m, p);
@@ -498,7 +579,186 @@ pub fn pane_chat_snapshot(
 mod chat_snapshot_tests {
     use super::*;
     use crate::agent::chat_types::{MessageBlock, RichMessage};
+    use crate::agent::provider::ModelInfo;
+    use crate::chatbackend::{ChatBackendError, ChatBackendProvider};
     use serde_json::json;
+
+    /// Cumulative-transcript backend (like the lmstudio plugin): `poll` with no
+    /// cursor returns the FULL transcript, so the snapshot can slice it.
+    struct SnapshotBackend {
+        messages: Vec<ChatMsg>,
+    }
+
+    impl SnapshotBackend {
+        fn with_messages(n: usize) -> Self {
+            let messages = (0..n)
+                .map(|i| ChatMsg {
+                    id: i.to_string(),
+                    kind: "assistant".into(),
+                    content: format!("m{i}"),
+                    ..Default::default()
+                })
+                .collect();
+            Self { messages }
+        }
+    }
+
+    impl ChatBackendProvider for SnapshotBackend {
+        fn id(&self) -> &str {
+            "snapshot"
+        }
+        fn open_session(&self, _ctx: serde_json::Value) -> Result<String, ChatBackendError> {
+            Ok("sid".into())
+        }
+        fn send_message(&self, _session_id: &str, _text: &str) -> Result<(), ChatBackendError> {
+            Ok(())
+        }
+        fn poll(
+            &self,
+            _session_id: &str,
+            _cursor: Option<&str>,
+        ) -> Result<crate::agent::chat_types::StructuredChat, ChatBackendError> {
+            Ok(crate::agent::chat_types::StructuredChat {
+                messages: self.messages.clone(),
+                cursor: None,
+            })
+        }
+        fn close_session(&self, _session_id: &str) -> Result<(), ChatBackendError> {
+            Ok(())
+        }
+        fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[test]
+    fn chatbackend_snapshot_returns_full_transcript() {
+        let backend = SnapshotBackend::with_messages(3);
+        let (msgs, total) = chatbackend_transcript_snapshot(&backend, "sid", 0).unwrap();
+        assert_eq!(total, 3);
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].content, "m0");
+        assert_eq!(msgs[2].content, "m2");
+    }
+
+    #[test]
+    fn chatbackend_snapshot_honors_since_cursor() {
+        let backend = SnapshotBackend::with_messages(3);
+        let (msgs, total) = chatbackend_transcript_snapshot(&backend, "sid", 2).unwrap();
+        // total is the full count; the slice starts at `since`.
+        assert_eq!(total, 3);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].content, "m2");
+    }
+
+    #[test]
+    fn chatbackend_snapshot_since_past_end_is_empty_not_error() {
+        let backend = SnapshotBackend::with_messages(2);
+        let (msgs, total) = chatbackend_transcript_snapshot(&backend, "sid", 5).unwrap();
+        assert_eq!(total, 2);
+        assert!(msgs.is_empty());
+    }
+
+    #[test]
+    fn chatbackend_snapshot_reads_hand_written_jsonl() {
+        // Durable JSONL is the source of truth: even when it differs from the
+        // live `poll`, the persisted file wins (refresh shows real history).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        std::fs::write(
+            &path,
+            "{\"id\":\"u1\",\"type\":\"user\",\"content\":\"hi\"}\n\
+             {\"id\":\"a1\",\"type\":\"assistant\",\"content\":\"hello there\"}\n",
+        )
+        .unwrap();
+
+        let backend = SnapshotBackend::with_messages(0); // live Map empty
+        let (msgs, total) = super::chatbackend_snapshot_from(&backend, "sid", 0, &path).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(msgs[0].content, "hi");
+        assert_eq!(msgs[1].content, "hello there");
+    }
+
+    #[test]
+    fn restored_pane_replays_history_from_jsonl_when_live_map_wiped() {
+        // Simulates a refresh / VM reload: the plugin's in-memory Map is empty
+        // (poll → 0 messages) but the JSONL persisted the full transcript.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("s.jsonl");
+        let mut h = chatbackend_history::ChatBackendHistory::open_at(path.clone());
+        h.upsert(&[
+            ChatMsg {
+                id: "1".into(),
+                kind: "user".into(),
+                content: "remember me".into(),
+                ..Default::default()
+            },
+            ChatMsg {
+                id: "2".into(),
+                kind: "assistant".into(),
+                content: "i do".into(),
+                ..Default::default()
+            },
+        ]);
+
+        let wiped = SnapshotBackend::with_messages(0);
+        let (msgs, total) = super::chatbackend_snapshot_from(&wiped, "sid", 0, &path).unwrap();
+        assert_eq!(total, 2, "history replays from disk, not the wiped Map");
+        assert_eq!(msgs[0].content, "remember me");
+
+        // `since` is honored on the disk-backed slice too.
+        let (tail, _) = super::chatbackend_snapshot_from(&wiped, "sid", 1, &path).unwrap();
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].content, "i do");
+    }
+
+    #[test]
+    fn snapshot_after_poll_flush_includes_host_inbound_and_reply() {
+        // BUG B end-to-end at the snapshot layer: after the gateway writes a host
+        // inbound and the poll loop flushes the reply through the SHARED mirror,
+        let plugin = "test-snapshot-single-writer-unique";
+        let session = "snap-sw-sid";
+        let path = chatbackend_history::session_path(plugin, session);
+        let _ = std::fs::remove_file(&path);
+
+        let shared = chatbackend_history::ChatBackendHistory::shared(plugin, session);
+        shared.lock().upsert(&[ChatMsg {
+            id: "inbound-1".into(),
+            kind: "user".into(),
+            content: "ping from Gauss".into(),
+            from_label: Some("Gauss".into()),
+            inbound_kind: Some("pane".into()),
+            ..Default::default()
+        }]);
+        // Poll-loop flush of the reply (delta without the inbound row).
+        shared.lock().upsert(&[ChatMsg {
+            id: "reply-1".into(),
+            kind: "assistant".into(),
+            content: "pong".into(),
+            ..Default::default()
+        }]);
+
+        let wiped = SnapshotBackend::with_messages(0); // live Map empty (refresh)
+        let (msgs, total) = super::chatbackend_snapshot_from(&wiped, session, 0, &path).unwrap();
+        assert_eq!(total, 2, "inbound + reply both survive to the snapshot");
+        assert_eq!(msgs[0].content, "ping from Gauss");
+        assert_eq!(msgs[0].from_label.as_deref(), Some("Gauss"));
+        assert_eq!(msgs[1].content, "pong");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn chatbackend_snapshot_falls_back_to_live_poll_without_jsonl() {
+        // A brand-new session before the first delta was persisted: no JSONL on
+        // disk ⇒ read the live plugin transcript.
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("nope.jsonl");
+        let backend = SnapshotBackend::with_messages(2);
+        let (msgs, total) = super::chatbackend_snapshot_from(&backend, "sid", 0, &missing).unwrap();
+        assert_eq!(total, 2);
+        assert_eq!(msgs[0].content, "m0");
+    }
 
     #[test]
     fn live_chat_poll_interval_stays_low_latency() {

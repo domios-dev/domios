@@ -40,7 +40,7 @@ pub enum PromptDecision {
     },
 }
 
-pub type ParsedPrompt = Option<(String, Vec<(String, String)>)>;
+pub type ParsedPrompt = Option<PendingPrompt>;
 
 /// Centralized prompt detection state machine.
 /// Keyed by pane_id.
@@ -71,7 +71,7 @@ impl PromptDetector {
         parse_fn: F,
     ) -> PromptDecision
     where
-        F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
+        F: FnOnce(&str) -> ParsedPrompt,
     {
         // If pane has active prompt, always check screen (user may have answered in terminal)
         let is_active = matches!(
@@ -128,7 +128,7 @@ impl PromptDetector {
             Some(PanePromptState::Active {
                 prompt: existing, ..
             }) => {
-                if same_options(&existing.options, &prompt.options) {
+                if same_prompt(existing, &prompt) {
                     return PromptDecision::None;
                 }
                 self.states.insert(
@@ -167,7 +167,7 @@ impl PromptDetector {
         parse_fn: F,
     ) -> PromptDecision
     where
-        F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
+        F: FnOnce(&str) -> ParsedPrompt,
     {
         let parsed = parse_hook_prompt(clean_ring_text, parse_fn);
         self.hook_detected_parsed(
@@ -202,13 +202,12 @@ impl PromptDetector {
             }
         }
         match parsed {
-            Some((question, opts)) => {
+            Some(prompt) => {
                 log::info!(
                     "[prompt] parsed question={:?}, opts={}",
-                    question,
-                    opts.len()
+                    prompt.question,
+                    prompt.options.len()
                 );
-                let prompt = build_prompt(question, opts);
                 self.hook_detected_explicit(pane_id, prompt)
             }
             None => PromptDecision::None,
@@ -244,9 +243,8 @@ impl PromptDetector {
             Some(PanePromptState::Active {
                 prompt: existing, ..
             }) => match parsed {
-                Some((question, opts)) => {
-                    let new_prompt = build_prompt(question, opts);
-                    if same_options(&existing.options, &new_prompt.options) {
+                Some(new_prompt) => {
+                    if same_prompt(existing, &new_prompt) {
                         PromptDecision::None
                     } else {
                         self.states.insert(
@@ -286,8 +284,7 @@ impl PromptDetector {
 
     fn try_apply_parsed(&mut self, pane_id: &str, parsed: ParsedPrompt) -> PromptDecision {
         match parsed {
-            Some((question, opts)) => {
-                let prompt = build_prompt(question, opts);
+            Some(prompt) => {
                 self.states.insert(
                     pane_id.to_string(),
                     PanePromptState::Active {
@@ -316,12 +313,9 @@ pub(crate) fn utf8_tail(text: &str, max_bytes: usize) -> &str {
     &text[start..]
 }
 
-fn parse_hook_prompt<F>(
-    clean_ring_text: &str,
-    parse_fn: F,
-) -> Option<(String, Vec<(String, String)>)>
+fn parse_hook_prompt<F>(clean_ring_text: &str, parse_fn: F) -> ParsedPrompt
 where
-    F: FnOnce(&str) -> Option<(String, Vec<(String, String)>)>,
+    F: FnOnce(&str) -> ParsedPrompt,
 {
     parse_prompt_safely(|| parse_fn(clean_ring_text))
 }
@@ -340,17 +334,29 @@ where
 }
 
 /// Build a PendingPrompt from parsed (question, options) tuple.
-fn build_prompt(question: String, opts: Vec<(String, String)>) -> PendingPrompt {
+pub(crate) fn build_prompt(question: String, opts: Vec<(String, String)>) -> PendingPrompt {
     PendingPrompt {
         question,
         options: opts
             .into_iter()
             .map(|(label, value)| PromptOption { label, value })
             .collect(),
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
     }
 }
 
-/// Check if two option lists have the same values (order-sensitive).
+fn same_prompt(a: &PendingPrompt, b: &PendingPrompt) -> bool {
+    a.question == b.question
+        && same_options(&a.options, &b.options)
+        && a.sections == b.sections
+        && a.multi_select == b.multi_select
+        && a.submit_available == b.submit_available
+        && a.selected_values == b.selected_values
+}
+
 fn same_options(a: &[PromptOption], b: &[PromptOption]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -374,12 +380,16 @@ mod tests {
                     value: v.to_string(),
                 })
                 .collect(),
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
         }
     }
 
-    fn parse_yes_no(text: &str) -> Option<(String, Vec<(String, String)>)> {
+    fn parse_yes_no(text: &str) -> ParsedPrompt {
         if text.contains("proceed") {
-            Some((
+            Some(build_prompt(
                 "Do you want to proceed?".to_string(),
                 vec![
                     ("Yes".to_string(), "1".to_string()),
@@ -391,9 +401,9 @@ mod tests {
         }
     }
 
-    fn parse_three_opts(text: &str) -> Option<(String, Vec<(String, String)>)> {
+    fn parse_three_opts(text: &str) -> ParsedPrompt {
         if text.contains("proceed") {
-            Some((
+            Some(build_prompt(
                 "Do you want to proceed?".to_string(),
                 vec![
                     ("Yes".to_string(), "1".to_string()),

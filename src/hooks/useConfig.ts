@@ -1,35 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
-import type { AppConfig, ThemeConfig } from "../lib/types";
+import type { AppConfig } from "../lib/types";
+import { DEFAULT_THEME, readCachedTheme } from "../lib/themeCss";
 
-// Default theme (GitHub Dark) used before config loads from backend
-const DEFAULT_THEME: ThemeConfig = {
-  name: "github-dark",
-  background: "#0d1117",
-  foreground: "#c9d1d9",
-  cursor: "#58a6ff",
-  selection: "#264f78",
-  black: "#0d1117",
-  red: "#ff7b72",
-  green: "#7ee787",
-  yellow: "#d29922",
-  blue: "#58a6ff",
-  magenta: "#bc8cff",
-  cyan: "#39d353",
-  white: "#c9d1d9",
-  bright_black: "#484f58",
-  bright_red: "#ffa198",
-  bright_green: "#56d364",
-  bright_yellow: "#e3b341",
-  bright_blue: "#79c0ff",
-  bright_magenta: "#d2a8ff",
-  bright_cyan: "#56d364",
-  bright_white: "#f0f6fc",
-};
-
-const DEFAULT_CONFIG: AppConfig = {
-  theme: DEFAULT_THEME,
+function defaultConfig(): AppConfig {
+  return {
+  theme: readCachedTheme() ?? DEFAULT_THEME,
   font: {
     family: "JetBrains Mono, Cascadia Code, Fira Code, Consolas, monospace",
     size: 14,
@@ -47,23 +24,7 @@ const DEFAULT_CONFIG: AppConfig = {
     toast_duration: 5,
   },
   keybindings: {
-    new_tab: "Ctrl+Shift+T",
-    close_tab: "Ctrl+Shift+W",
-    next_tab: "Ctrl+Tab",
-    prev_tab: "Ctrl+Shift+Tab",
-    close_pane: "Ctrl+Shift+Q",
-    focus_pane_left: "Alt+Left",
-    focus_pane_right: "Alt+Right",
-    focus_pane_up: "Alt+Up",
-    focus_pane_down: "Alt+Down",
-    new_workspace: "Ctrl+Shift+N",
-    copy: "Ctrl+Shift+C",
-    paste: "Ctrl+Shift+V",
-    search: "Ctrl+Shift+F",
-    zoom_in: "Ctrl+=",
-    zoom_out: "Ctrl+-",
-    zoom_reset: "Ctrl+0",
-    open_settings: "Ctrl+,",
+    reopen_tab: "Ctrl+Shift+T",
   },
   socket: { path: null },
   agent: {
@@ -122,14 +83,15 @@ const DEFAULT_CONFIG: AppConfig = {
     mesh_tab_enabled: true,
     default_new_agent_pane_chat: false,
   },
-};
+  };
+}
 
 function configEquals(a: AppConfig, b: AppConfig): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
 export function useConfig() {
-  const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
+  const [config, setConfig] = useState<AppConfig>(() => defaultConfig());
   const [loading, setLoading] = useState(true);
 
   // Fetch config from Rust backend on mount

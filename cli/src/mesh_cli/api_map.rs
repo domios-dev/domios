@@ -177,6 +177,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 title,
                 cmd,
                 eager,
+                chat_backend,
+                config,
             } => {
                 let mut body = serde_json::json!({});
                 if let Some(w) = workspace {
@@ -194,6 +196,14 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 if *eager {
                     body["eager"] = serde_json::Value::Bool(true);
                 }
+                if let Some(plugin_id) = chat_backend {
+                    body["chat_backend"] = serde_json::Value::String(plugin_id.clone());
+                    if let Some(cfg) = config {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(cfg) {
+                            body["config"] = v;
+                        }
+                    }
+                }
                 ("POST".into(), "/api/panes".into(), Some(body.to_string()))
             }
             crate::PaneAction::Focus { id } => {
@@ -208,6 +218,19 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     "POST".into(),
                     format!("/api/panes/{}/rename", p),
                     Some(serde_json::json!({"title": title}).to_string()),
+                )
+            }
+            crate::PaneAction::Describe { summary, pane } => {
+                let p = pane.as_deref().unwrap_or("general");
+                let description = match crate::cmd::agent::normalize_pane_description(summary) {
+                    Ok(Some(d)) => d,
+                    Ok(None) => String::new(),
+                    Err(e) => return unsupported(&e),
+                };
+                (
+                    "POST".into(),
+                    format!("/api/panes/{}/describe", p),
+                    Some(serde_json::json!({"description": description}).to_string()),
                 )
             }
             crate::PaneAction::GetText { pane, formatted } => {
@@ -262,6 +285,24 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     None,
                 )
             }
+            crate::PaneAction::Capture { action } => match action {
+                crate::args::misc::PaneCaptureAction::Start { pane, out } => {
+                    let p = pane.as_deref().unwrap_or("general");
+                    (
+                        "POST".into(),
+                        format!("/api/panes/{}/capture/start", p),
+                        Some(serde_json::json!({ "out": out }).to_string()),
+                    )
+                }
+                crate::args::misc::PaneCaptureAction::Stop { pane } => {
+                    let p = pane.as_deref().unwrap_or("general");
+                    (
+                        "POST".into(),
+                        format!("/api/panes/{}/capture/stop", p),
+                        None,
+                    )
+                }
+            },
         },
         Commands::Paste { action } => match action {
             crate::PasteAction::Put {
@@ -328,7 +369,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::AgentAction::Spawn {
                 agent,
                 title,
+                description,
                 task,
+                task_file,
                 role,
                 parent,
                 workspace,
@@ -336,13 +379,30 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 cwd,
                 args,
                 model,
+                system_prompt,
+                preset,
             } => {
+                let task = match crate::cmd::agent::resolve_spawn_task(
+                    task.clone(),
+                    task_file.clone(),
+                    &mut std::io::stdin(),
+                ) {
+                    Ok(t) => t,
+                    Err(e) => return unsupported(&format!("agent spawn task input error: {}", e)),
+                };
                 let agent_name = agent.as_str();
                 let mut body = serde_json::json!({
                     "agent": agent_name,
                     "title": title,
                     "task": task,
                 });
+                if let Some(d) = description {
+                    match crate::cmd::agent::normalize_pane_description(d) {
+                        Ok(Some(d)) => body["description"] = serde_json::json!(d),
+                        Ok(None) => body["description"] = serde_json::json!(""),
+                        Err(e) => return unsupported(&e),
+                    }
+                }
                 if let Some(r) = role {
                     body["role"] = serde_json::json!(r.as_str());
                 }
@@ -365,6 +425,12 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(m) = model {
                     body["model"] = serde_json::json!(m);
+                }
+                if let Some(system_prompt) = system_prompt {
+                    body["system_prompt"] = serde_json::json!(system_prompt);
+                }
+                if let Some(preset) = preset {
+                    body["preset"] = serde_json::json!(preset);
                 }
                 (
                     "POST".into(),

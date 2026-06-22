@@ -51,6 +51,20 @@ impl AgentProvider for ClaudeProvider {
         true
     }
 
+    fn supports_structured_prompts(&self) -> bool {
+        // AskUserQuestion is structured in the parsed JSONL transcript
+        // (`parse_interactive_events`). Permission prompts have no PTY-mode
+        true
+    }
+
+    fn structured_pending_prompt(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Option<crate::multiplexer::types::PendingPrompt> {
+        sessions::structured_pending_prompt(cwd, session_id)
+    }
+
     fn display_name(&self) -> &str {
         "Claude Code"
     }
@@ -64,7 +78,8 @@ impl AgentProvider for ClaudeProvider {
     }
 
     fn session_id_injection(&self) -> SessionIdInjection {
-        SessionIdInjection::FreshAndFork
+        // Claude Code 2.1.x writes no transcript for a fresh interactive --session-id launch — let it pick its own id, we detect it after launch.
+        SessionIdInjection::None
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {
@@ -138,40 +153,10 @@ impl AgentProvider for ClaudeProvider {
         sessions::detect_session_id(cwd, exclude, max_age)
     }
 
-    fn detect_launched_session_id(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-    ) -> Option<String> {
-        if let Some(session_id) = injected_session_id {
-            if self.session_exists(cwd, session_id) {
-                return Some(session_id.to_string());
-            }
-        }
-        sessions::detect_session_id(cwd, exclude, max_age)
-    }
-
-    fn detect_started_session(
-        &self,
-        cwd: &str,
-        exclude: &[String],
-        max_age: Option<Duration>,
-        injected_session_id: Option<&str>,
-        screen_text: Option<&str>,
-    ) -> Option<String> {
-        self.detect_started_session_with_markers(
-            cwd,
-            exclude,
-            max_age,
-            injected_session_id,
-            screen_text,
-        )
-    }
-
     fn detect_session_model(&self, cwd: &str, session_id: &str) -> Option<String> {
-        sessions::detect_session_model(cwd, session_id)
+        sessions::detect_session_model(cwd, session_id).map(|family| {
+            crate::agent::model_catalog::resolve_family_model("claude", &family).unwrap_or(family)
+        })
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
@@ -198,8 +183,9 @@ impl AgentProvider for ClaudeProvider {
         detection::detect_claude_events(text)
     }
 
-    fn parse_prompt(&self, text: &str) -> Option<(String, Vec<(String, String)>)> {
+    fn parse_prompt(&self, text: &str) -> Option<crate::multiplexer::types::PendingPrompt> {
         crate::agent::detector::parse_permission_prompt(text)
+            .map(|(question, options)| crate::agent::prompt::build_prompt(question, options))
     }
 
     fn has_hooks(&self) -> bool {
@@ -207,10 +193,13 @@ impl AgentProvider for ClaudeProvider {
     }
 
     /// Claude TUI supports vim j/k navigation — simpler and more reliable than arrow keys.
-    fn build_prompt_response(&self, option_index: usize) -> Vec<Vec<u8>> {
+    fn build_prompt_response(&self, option_index: usize, screen: &str) -> Vec<Vec<u8>> {
+        let current = highlighted_option_index(screen).unwrap_or(0);
+        let delta = option_index as isize - current as isize;
         let mut steps = Vec::new();
-        for _ in 0..option_index {
-            steps.push(b"j".to_vec());
+        let key = if delta >= 0 { b"j" } else { b"k" };
+        for _ in 0..delta.unsigned_abs() {
+            steps.push(key.to_vec());
         }
         steps.push(b"\r".to_vec());
         steps
@@ -238,6 +227,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn exit_command(&self) -> Option<&str> {
         Some("/exit")
+    }
+
+    fn stop_keystroke(&self) -> Option<&str> {
+        Some("\u{1b}")
     }
 
     fn supports_lazy_skills(&self) -> bool {
@@ -326,6 +319,27 @@ impl AgentProvider for ClaudeProvider {
     }
 }
 
+fn highlighted_option_index(screen: &str) -> Option<usize> {
+    let mut option_idx = 0usize;
+    for line in screen.lines() {
+        let trimmed = line.trim_start();
+        let selected = trimmed.starts_with('❯') || trimmed.starts_with('>');
+        let candidate = trimmed.trim_start_matches(['❯', '>']).trim_start();
+        let digits = candidate
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect::<String>();
+        if digits.is_empty() || !candidate[digits.len()..].starts_with(". ") {
+            continue;
+        }
+        if selected {
+            return Some(option_idx);
+        }
+        option_idx += 1;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,6 +373,21 @@ mod tests {
         assert_eq!(
             p.model_switch_command("sonnet").as_deref(),
             Some("/model sonnet")
+        );
+    }
+
+    #[test]
+    fn claude_prompt_response_is_highlight_relative() {
+        let p = ClaudeProvider::new();
+        let screen = "Choose:\n  1. Opus\n❯ 2. Sonnet\n  3. Haiku\nEnter to select";
+        assert_eq!(p.build_prompt_response(1, screen), vec![b"\r".to_vec()]);
+        assert_eq!(
+            p.build_prompt_response(0, screen),
+            vec![b"k".to_vec(), b"\r".to_vec()]
+        );
+        assert_eq!(
+            p.build_prompt_response(2, screen),
+            vec![b"j".to_vec(), b"\r".to_vec()]
         );
     }
 
@@ -397,11 +426,12 @@ mod tests {
     }
 
     #[test]
-    fn test_session_id_injection_supported_for_claude() {
+    fn test_claude_does_not_inject_session_id() {
+        // Claude 2.1.x drops the transcript when --session-id is passed to a fresh interactive launch; we detect the id instead.
         let p = ClaudeProvider::new();
         assert_eq!(
             p.session_id_injection(),
-            crate::agent::provider::SessionIdInjection::FreshAndFork
+            crate::agent::provider::SessionIdInjection::None
         );
     }
 

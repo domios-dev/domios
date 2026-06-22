@@ -1,0 +1,55 @@
+{
+  "provider": "cursor",
+  "unit": "provider_screen",
+  "expected": {
+    "hasEventMarkers": true,
+    "detectEvents": [
+      "PermissionRequest"
+    ],
+    "parsePrompt": {
+      "question": "Skills (39 skills)",
+      "options": [
+        {
+          "label": "+ Create new skill",
+          "value": "1"
+        },
+        {
+          "label": "check-remote-logs (user)",
+          "value": "2"
+        },
+        {
+          "label": "codeterm (user)",
+          "value": "3"
+        },
+        {
+          "label": "create-agent (user)",
+          "value": "4"
+        },
+        {
+          "label": "create-skill (user)",
+          "value": "5"
+        },
+        {
+          "label": "release (user)",
+          "value": "6"
+        },
+        {
+          "label": "codeterm (user)",
+          "value": "7"
+        },
+        {
+          "label": "babysit (builtin)",
+          "value": "8"
+        },
+        {
+          "label": "canvas (builtin)",
+          "value": "9"
+        },
+        {
+          "label": "create-hook (builtin)",
+          "value": "10"
+        }
+      ]
+    }
+  }
+}

@@ -337,6 +337,8 @@ fn pane_new_relays_cmd_field() {
             title: Some("runner".into()),
             cmd: Some("pnpm test".into()),
             eager: true,
+            chat_backend: None,
+            config: None,
         },
     };
     let (m, p, b) = cli_command_to_api(&cmd);

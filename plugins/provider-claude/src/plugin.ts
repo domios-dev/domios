@@ -1,0 +1,988 @@
+// Claude Code provider plugin runtime logic, compiled to QuickJS-compatible
+// plugin.js by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
+import type { LaunchParams, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
+import { manifest } from "./shared";
+import { usageNormalize, usageParseBlock } from "./usage";
+import {
+  ClaudeEntry,
+  claudeSessionFilePath,
+  contentToText,
+  extractSetModelFamily,
+  familyFromModelId,
+  isValidClaudeSessionMessage,
+  validateEntry,
+} from "./session";
+import { discoverAnthropicModels, manifestModels } from "./models";
+import {
+  classifyClaudePaneState,
+  PaneStateSnapshot,
+  PaneStateClassification,
+} from "./classify";
+
+const TITLE_RE = /claude/i;
+// v2.1+ TUIs prefix the title with a braille spinner glyph or ✳/✻.
+const BRAILLE_LO = 0x2801;
+const BRAILLE_HI = 0x28ff;
+
+const OUTPUT_FINGERPRINTS = [
+  "Claude Code",
+  "Do you want to proceed?",
+  "may I proceed",
+  "Would you like me to",
+  "Yes, and don't ask again",
+  "Enter to confirm",
+  "Cogitated for",
+  "Brewed for",
+  "Reasoned for",
+];
+
+const NOISE_FRAGMENTS = [
+  "bypass permissions on",
+  "shift+tab to cycle",
+  "Update available! Run:",
+  "brew upgrade claude-code",
+  "esc to interrupt",
+  "? for shortcuts",
+  "ctrl+g to edit",
+  "Monthly spend limit",
+  "hold Space",
+];
+
+const TUI_FRAGMENTS = [
+  "? for shortcuts",
+  "for shortcuts",
+  "ctrl+l",
+  "esc to interrupt",
+  // v2.1+ idle footer
+  "bypass permissions",
+  "shift+tab to cycle",
+];
+
+const SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
+const SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
+const WIZARD_SUBMIT_VALUE = 9000;
+const WIZARD_MULTI_MASK_BASE = 10000;
+
+function isBrailleSpinner(ch: string): boolean {
+  if (!ch) return false;
+  const code = ch.charCodeAt(0);
+  return (code >= BRAILLE_LO && code <= BRAILLE_HI) || ch === "✳" || ch === "✻";
+}
+
+interface ParsedOptionState {
+  label: string;
+  value: string;
+  highlighted: boolean;
+  selected: boolean;
+}
+
+function parseClaudeWizardPrompt(text: string): ParsedPrompt | null {
+  const raw = String(text || "");
+  if (raw.indexOf("Submit") === -1 || raw.indexOf("Enter to select") === -1) return null;
+  const tabLine = findWizardTabLine(raw);
+  if (!tabLine) return null;
+  const sections = parseWizardSections(tabLine);
+  if (sections.length < 2) return null;
+
+  const body = wizardBody(raw, tabLine);
+  const options = parseWizardOptions(body);
+  if (options.length < 2) return null;
+  const question = parseWizardQuestion(body) || "Choose an option";
+  const multiSelect = options.some((opt) => opt.selected) || /\[[ xX]\]|☐|☑|☒/.test(body);
+
+  return {
+    question,
+    options: options.map((opt) => [opt.label, opt.value]),
+    sections,
+    multiSelect,
+    submitAvailable: tabLine.indexOf("Submit") !== -1,
+    selectedValues: options.filter((opt) => opt.selected).map((opt) => opt.value),
+  };
+}
+
+function findWizardTabLine(text: string): string | null {
+  const lines = String(text || "").split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line.indexOf("Submit") !== -1 && (line.indexOf("☐") !== -1 || line.indexOf("✔") !== -1)) {
+      return line;
+    }
+  }
+  const m = /←[\s\S]{0,160}Submit\s*→/.exec(text);
+  return m ? m[0] : null;
+}
+
+function parseWizardSections(tabLine: string): Array<{ label: string; active?: boolean; completed?: boolean }> {
+  const sections: Array<{ label: string; active?: boolean; completed?: boolean }> = [];
+  const re = /([☐☑☒✔])\s*([^☐☑☒✔←→]+?)(?=[☐☑☒✔]|→|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(tabLine)) !== null) {
+    const label = m[2].trim();
+    if (!label || /^submit$/i.test(label)) continue;
+    sections.push({
+      label,
+      completed: m[1] === "✔" || m[1] === "☑" || m[1] === "☒",
+    });
+  }
+  const active = sections.findIndex((s) => !s.completed);
+  if (active >= 0) sections[active].active = true;
+  return sections;
+}
+
+function wizardBody(text: string, knownTabLine?: string): string {
+  const tabLine = knownTabLine || findWizardTabLine(text);
+  if (!tabLine) return text;
+  return text.slice(text.indexOf(tabLine) + tabLine.length);
+}
+
+function parseWizardQuestion(body: string): string {
+  const beforeOptions = body.split(/(?:❯\s*)?\d+\./)[0] || "";
+  return beforeOptions
+    .replace(/^[\s←→☐☑☒✔A-Za-z]*Submit\s*→?/, "")
+    .replace(/─+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseWizardOptions(body: string): ParsedOptionState[] {
+  const checkbox = parseCheckboxOptions(body);
+  if (checkbox.length >= 2) return checkbox;
+  return parseNumberedOptions(body);
+}
+
+function parseNumberedOptions(text: string): ParsedOptionState[] {
+  const options: ParsedOptionState[] = [];
+  const re = /^\s*[❯>]?\s*(\d+)\.\s*([^\r\n]*)/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const label = cleanOptionLabel(m[2]);
+    if (!label) continue;
+    options.push({
+      label,
+      value: m[1],
+      highlighted: m[0].indexOf("❯") !== -1 || m[0].indexOf(">") !== -1,
+      selected: false,
+    });
+  }
+  return options;
+}
+
+function parseCheckboxOptions(text: string): ParsedOptionState[] {
+  const options: ParsedOptionState[] = [];
+  const re = /^\s*[❯>]?\s*((?:\[[ xX]\])|☐|☑|☒|✔)\s*([^\r\n]*)/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const label = cleanOptionLabel(m[2]);
+    if (!label) continue;
+    const mark = m[1];
+    options.push({
+      label,
+      value: String(options.length + 1),
+      highlighted: m[0].indexOf("❯") !== -1 || m[0].indexOf(">") !== -1,
+      selected: mark === "☑" || mark === "☒" || mark === "✔" || /\[[xX]\]/.test(mark),
+    });
+  }
+  return options;
+}
+
+function cleanOptionLabel(value: string): string {
+  return String(value || "")
+    .replace(/─+/g, " ")
+    .replace(/\bChat\s*about\s*this\b[\s\S]*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseClaudeNumberedPrompt(text: string): ParsedPrompt | null {
+  const raw = String(text || "");
+  if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
+  const options = parseNumberedOptions(raw);
+  if (options.length < 2) return null;
+  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.\s*/);
+  const before = firstOption >= 0 ? raw.slice(0, firstOption) : raw;
+  const question = findQuestion(before) || "Choose an option";
+  return {
+    question,
+    options: options.map((opt) => [opt.label, opt.value]),
+  };
+}
+
+function parseClaudeLetteredPrompt(text: string): ParsedPrompt | null {
+  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const optionStarts: Array<{ index: number; letter: string; label: string }> = [];
+  const optionRe = /^\s*(?:[-*]\s*)?([A-Z])[.)]\s+(.+?)\s*$/;
+  for (let i = 0; i < lines.length; i++) {
+    const m = optionRe.exec(lines[i]);
+    if (!m || !/[A-C]/.test(m[1])) continue;
+    optionStarts.push({ index: i, letter: m[1], label: m[2] });
+  }
+  if (optionStarts.length < 3) return null;
+
+  const options: ParsedOptionState[] = [];
+  for (let i = 0; i < optionStarts.length; i++) {
+    const start = optionStarts[i];
+    const end = i + 1 < optionStarts.length ? optionStarts[i + 1].index : lines.length;
+    const parts = [start.label];
+    for (let j = start.index + 1; j < end; j++) {
+      const t = lines[j].trim();
+      if (!t) break;
+      if (isClaudeFooterLine(t)) break;
+      if (/^Step\s+\d+\s+of\s+\d+\b/i.test(t)) break;
+      if (t.endsWith("?")) break;
+      parts.push(t);
+    }
+    options.push({
+      label: cleanOptionLabel(parts.join(" ")),
+      value: start.letter,
+      highlighted: false,
+      selected: false,
+    });
+  }
+
+  const groups = groupLetteredOptions(lines, optionStarts);
+  const question = groups.length > 1
+    ? findCompoundTitle(lines, groups[0].questionIndex) || groups[0].question || "Choose an option"
+    : groups[0]?.question || findQuestion(lines.slice(0, optionStarts[0].index).join("\n")) || "Choose an option";
+  const sections = groups.length > 1
+    ? groups.map((group, i) => ({
+        label: group.title || "Step " + String(i + 1),
+        active: i === 0,
+        completed: false,
+      }))
+    : undefined;
+
+  return {
+    question,
+    options: options.map((opt) => [opt.label, opt.value]),
+    sections,
+    multiSelect: false,
+    submitAvailable: false,
+  };
+}
+
+function isClaudeFooterLine(line: string): boolean {
+  return line.indexOf("Baked for") !== -1
+    || line.indexOf("Cogitated for") !== -1
+    || line.indexOf("Spelunking") !== -1
+    || line.indexOf("auto mode on") !== -1
+    || line.indexOf("────────────────") !== -1
+    || line === "❯";
+}
+
+function groupLetteredOptions(
+  lines: string[],
+  starts: Array<{ index: number; letter: string; label: string }>,
+): Array<{ question: string; questionIndex: number; title: string | null }> {
+  const groups: Array<{ question: string; questionIndex: number; title: string | null }> = [];
+  for (let i = 0; i < starts.length; i++) {
+    if (starts[i].letter !== "A") continue;
+    const questionIndex = nearestQuestionIndex(lines, starts[i].index);
+    const title = nearestSectionTitle(lines, questionIndex);
+  groups.push({
+      question: questionIndex >= 0 ? cleanClaudeLine(lines[questionIndex]) : "",
+      questionIndex,
+      title,
+    });
+  }
+  return groups;
+}
+
+function nearestQuestionIndex(lines: string[], beforeIndex: number): number {
+  const start = Math.max(0, beforeIndex - 8);
+  for (let i = beforeIndex - 1; i >= start; i--) {
+    const t = lines[i].trim();
+    if (t.endsWith("?")) return i;
+  }
+  return -1;
+}
+
+function nearestSectionTitle(lines: string[], questionIndex: number): string | null {
+  if (questionIndex < 0) return null;
+  for (let i = questionIndex - 1; i >= Math.max(0, questionIndex - 5); i--) {
+    const t = cleanClaudeLine(lines[i]);
+    if (!t) continue;
+    const step = /^Step\s+\d+\s+of\s+\d+\s+[—-]\s+(.+)$/i.exec(t);
+    if (step && step[1]) return step[1].trim();
+    if (!t.endsWith("?") && !/^[❯>]/.test(t)) return t;
+  }
+  return null;
+}
+
+function findCompoundTitle(lines: string[], beforeQuestionIndex: number): string | null {
+  if (beforeQuestionIndex < 0) return null;
+  for (let i = beforeQuestionIndex - 1; i >= Math.max(0, beforeQuestionIndex - 8); i--) {
+    const t = cleanClaudeLine(lines[i]);
+    if (!t) continue;
+    if (/^Step\s+\d+\s+of\s+\d+\b/i.test(t)) continue;
+    if (t.endsWith("?") || /^[❯>]/.test(t)) continue;
+    return t;
+  }
+  return null;
+}
+
+function cleanClaudeLine(line: string): string {
+  return String(line || "").trim().replace(/^⏺\s*/, "").trim();
+}
+
+function findQuestion(text: string): string {
+  const lines = String(text || "").split("\n").map((line) => line.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].endsWith("?")) return lines[i];
+  }
+  return lines.length > 0 ? lines[lines.length - 1] : "";
+}
+
+function buildClaudePromptResponse(optionIndex: number, screen: string): string[] {
+  if (optionIndex === WIZARD_SUBMIT_VALUE - 1) return buildWizardSubmitResponse(screen);
+  if (optionIndex >= WIZARD_MULTI_MASK_BASE - 1) {
+    return buildWizardMultiSelectResponse(optionIndex - (WIZARD_MULTI_MASK_BASE - 1), screen);
+  }
+  const steps = moveToOption(optionIndex, screen);
+  steps.push("DQ==");
+  if (parseClaudeWizardPrompt(screen) && !parseClaudeWizardPrompt(screen)?.multiSelect) steps.push("CQ==");
+  return steps;
+}
+
+function moveToOption(targetIndex: number, screen: string): string[] {
+  const current = currentHighlightedOptionIndex(screen);
+  const delta = targetIndex - current;
+  const steps: string[] = [];
+  const key = delta >= 0 ? "ag==" : "aw==";
+  for (let i = 0; i < Math.abs(delta); i++) steps.push(key);
+  return steps;
+}
+
+function currentHighlightedOptionIndex(screen: string): number {
+  const body = wizardBody(screen);
+  const numbered = parseNumberedOptions(body);
+  const options = numbered.length >= 2 ? numbered : parseWizardOptions(body);
+  const idx = options.findIndex((opt) => opt.highlighted);
+  return idx >= 0 ? idx : 0;
+}
+
+function buildWizardMultiSelectResponse(mask: number, screen: string): string[] {
+  const options = parseWizardOptions(wizardBody(screen));
+  const steps: string[] = [];
+  let current = currentHighlightedOptionIndex(screen);
+  for (let i = 0; i < options.length; i++) {
+    const desired = (mask & (1 << i)) !== 0;
+    if (options[i].selected === desired) continue;
+    const delta = i - current;
+    const key = delta >= 0 ? "ag==" : "aw==";
+    for (let j = 0; j < Math.abs(delta); j++) steps.push(key);
+    steps.push("IA==");
+    current = i;
+  }
+  steps.push("CQ==");
+  return steps;
+}
+
+function buildWizardSubmitResponse(screen: string): string[] {
+  const parsed = parseClaudeWizardPrompt(screen);
+  const steps: string[] = [];
+  const active = parsed?.sections?.findIndex((section: { active?: boolean }) => section.active) ?? -1;
+  const count = parsed?.sections?.length ?? 0;
+  const moves = active >= 0 && count > active ? count - active : 1;
+  for (let i = 0; i < moves; i++) steps.push("G1tD");
+  steps.push("DQ==");
+  return steps;
+}
+
+const plugin: PluginModule = {
+  detectFromTitle(title: string): boolean {
+    const t = String(title || "");
+    if (TITLE_RE.test(t)) return true;
+    const first = t.charAt(0);
+    return isBrailleSpinner(first) && t.length > 2;
+  },
+
+  detectFromOutput(text: string): boolean {
+    const t = String(text || "");
+    for (let i = 0; i < OUTPUT_FINGERPRINTS.length; i++) {
+      if (t.indexOf(OUTPUT_FINGERPRINTS[i]) !== -1) return true;
+    }
+    return false;
+  },
+
+  screenHasTui(screen: string): boolean {
+    const s = String(screen || "");
+    const lower = s.toLowerCase();
+    for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
+      if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
+    }
+    // Banner logo quadrant blocks — never in plain shell output.
+    return s.indexOf("▛") !== -1 || s.indexOf("▜") !== -1;
+  },
+
+  isOutputNoise(text: string): boolean {
+    const trimmed = String(text || "").trim();
+    if (!trimmed) return true;
+    for (let i = 0; i < NOISE_FRAGMENTS.length; i++) {
+      if (trimmed.indexOf(NOISE_FRAGMENTS[i]) !== -1) return true;
+    }
+    // All-box-drawing line is decorative chrome.
+    for (let j = 0; j < trimmed.length; j++) {
+      const c = trimmed[j];
+      if (
+        c !== "─" && c !== "━" && c !== "═" &&
+        c !== " " && c !== "\t" && c !== "\n" && c !== "\r"
+      ) {
+        return false;
+      }
+    }
+    return true;
+  },
+
+  hasEventMarkers(chunk: string): boolean {
+    const c = String(chunk || "");
+    if (c.indexOf("❯") !== -1) return true;
+    if (c.indexOf("Enter to select") !== -1) return true;
+    if (c.indexOf("Submit") !== -1 && (c.indexOf("☐") !== -1 || c.indexOf("✔") !== -1)) return true;
+    if (c.indexOf("proceed") !== -1) return true;
+    if (c.indexOf("Esc to cancel") !== -1) return true;
+    if (c.indexOf("Tab to amend") !== -1) return true;
+    if (c.indexOf("1.") !== -1 && c.indexOf("2.") !== -1) return true;
+    // "for 0..9" — task completion footers
+    for (let i = 0; i < 10; i++) {
+      if (c.indexOf(" for " + i) !== -1) return true;
+    }
+    return false;
+  },
+
+  extractSessionName(screen: string): string | null {
+    const s = String(screen || "");
+    let m = SESSION_EXPLICIT_RE.exec(s);
+    if (m && m[1]) return m[1];
+    m = SESSION_BARE_RE.exec(s);
+    if (m && m[1]) return m[1];
+    return null;
+  },
+
+  detectEvents(text: string): string[] {
+    const t = String(text || "");
+    const events: string[] = [];
+    if (parseClaudeWizardPrompt(t)) events.push("permission_request");
+    // PermissionRequest: numbered list + "Esc to cancel" or "❯ N." selector
+    const numLines = (t.match(/^\s*\d+\.\s+/gm) || []).length;
+    const hasEscFooter = t.indexOf("Esc to cancel") !== -1 || t.indexOf("Tab to amend") !== -1;
+    const hasSelector = t.indexOf("❯") !== -1;
+    if (numLines >= 2 && (hasEscFooter || hasSelector)) {
+      events.push("permission_request");
+    }
+    // TaskComplete: "<CapitalizedVerb> for <digits><s|m|h>"
+    const lines = t.split("\n");
+    const start = Math.max(0, lines.length - 10);
+    for (let i = start; i < lines.length; i++) {
+      const line = lines[i].trim();
+      const pos = line.indexOf(" for ");
+      if (pos < 1) continue;
+      const word = line.substring(0, pos);
+      const after = line.substring(pos + 5);
+      if (!/^[A-Z][a-zA-Z]*$/.test(word)) continue;
+      if (/^\d+[smh]/.test(after) || (/^\d/.test(after) && /[smh]/.test(after))) {
+        events.push("task_complete");
+        break;
+      }
+    }
+    return events;
+  },
+
+  parsePrompt(text: string): ParsedPrompt | null {
+    return parseClaudeWizardPrompt(text) || parseClaudeNumberedPrompt(text) || parseClaudeLetteredPrompt(text);
+  },
+
+  buildPromptResponse(optionIndex: number, screen?: string): string[] {
+    return buildClaudePromptResponse(optionIndex, String(screen || ""));
+  },
+
+  // Launch command parity for native behavior across OS-specific execution modes.
+  buildLaunchCommand(params: LaunchParams): string {
+    const p = params || {};
+    const win = host.platform() === "windows";
+    const unset = win
+      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
+        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
+        + "[System.Text.Encoding]::UTF8; "
+        + "$PSNativeCommandArgumentPassing = 'Standard';"
+      : "unset CLAUDECODE &&";
+    const parts = [unset];
+
+    parts.push("claude");
+    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
+
+    if (p.agentName) {
+      parts.push("--agent");
+      parts.push(host.shell.quoteFor(p.agentName, host.platform()));
+    }
+    if (p.sessionId) {
+      parts.push("--session-id");
+      parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
+    }
+    if (p.args && p.args.length > 0) {
+      // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
+      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    }
+    // Prompt is a positional after `--`: a task may start with the -=-codeterm:...-=- marker, which commander would reject as an option.
+    if (p.task) {
+      const visiblePath = writeTaskTempFile(p.task);
+      parts.push("--");
+      parts.push(win
+        ? "\"$(Get-Content '" + visiblePath + "' -Raw -Encoding UTF8)\""
+        : "\"$(cat " + visiblePath + ")\"");
+    }
+    return parts.join(" ");
+  },
+
+  buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
+    const win = host.platform() === "windows";
+    const unset = win
+      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
+        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
+        + "[System.Text.Encoding]::UTF8; "
+        + "$PSNativeCommandArgumentPassing = 'Standard';"
+      : "unset CLAUDECODE &&";
+    const parts = [unset, "claude"];
+    if (skipPermissions) parts.push("--dangerously-skip-permissions");
+    parts.push("--resume");
+    parts.push(host.shell.quoteFor(sessionId, host.platform()));
+    return parts.join(" ");
+  },
+
+  // Tail session JSONL to find latest model (`message.model` or `Set model to ...`).
+  detectSessionModel(cwd: string, sessionId: string): string | null {
+    const path = claudeSessionFilePath(cwd, sessionId);
+    if (!path || !host.fs.fileExists(path)) return null;
+    const contents = host.fs.readFile(path);
+    if (!contents) return null;
+    const lines = contents.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line) continue;
+      let v: ClaudeEntry;
+      try { v = JSON.parse(line); } catch (_) { continue; }
+      if (!v || !v.message) continue;
+      const raw = contentToText(v.message.content);
+      const fam = extractSetModelFamily(raw);
+      if (fam) return fam;
+      const m = v.message.model;
+      if (typeof m === "string" && m && m !== "<synthetic>") {
+        return familyFromModelId(m);
+      }
+    }
+    return null;
+  },
+
+  // Anthropic exposes live API models only for API-key users. Claude Pro/Max
+  // OAuth accounts do not expose a cheap CLI model-list probe, so they use seed.
+  discoverModels() {
+    return discoverAnthropicModels() || manifestModels();
+  },
+
+  // Parse the `/usage` TUI screen into a UsageSnapshot; null when nothing recognizable was found.
+  parseUsage(rawText: string, nowMs: number): unknown {
+    const raw = String(rawText || "");
+    if (!raw.trim()) return null;
+    const text = usageNormalize(raw);
+
+    const session = usageParseBlock(text, "Current session", false, nowMs);
+    const weekly = usageParseBlock(text, "Current week\\s*\\(\\s*all\\s*models\\s*\\)", true, nowMs);
+
+    if (session.pct === null && weekly.pct === null) return null;
+    return {
+      provider: "claude",
+      account_id: null,
+      captured_at_ms: nowMs,
+      session_pct: session.pct,
+      session_resets_at_ms: session.resetsMs,
+      weekly_pct: weekly.pct,
+      weekly_resets_at_ms: weekly.resetsMs,
+      raw_text: raw,
+    };
+  },
+
+  // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts. Change both or the test fails.
+  // Parse `user`/`assistant` lines and map content blocks to SessionMessage.
+  parseSessionMessages(text: string): unknown[] {
+    const out: unknown[] = [];
+    const lines = String(text || "").split("\n");
+    let hadInvalid = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      let v: ClaudeEntry;
+      try { v = JSON.parse(line); } catch (e) {
+        if (!hadInvalid) {
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
+      if (!isValidClaudeSessionMessage(v)) {
+        if (!hadInvalid) {
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionMessages: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
+      const msgType = (v && v.type) || "";
+      if (msgType !== "user" && msgType !== "assistant") continue;
+      const isMeta = !!(v && v.isMeta);
+      const msg = v.message;
+      if (!msg) continue;
+      const content = msg.content;
+      let text2 = "";
+      if (typeof content === "string") {
+        text2 = content;
+      } else if (Array.isArray(content)) {
+        const chunks: string[] = [];
+        for (let j = 0; j < content.length; j++) {
+          const b = content[j];
+          if (b && b.type === "text" && typeof b.text === "string") {
+            chunks.push(b.text);
+          }
+        }
+        text2 = chunks.join(" ");
+      } else {
+        continue;
+      }
+      if (!text2 || !text2.trim()) continue;
+      let ts: number | null = null;
+      if (typeof v.timestamp === "string") {
+        const d = Date.parse(v.timestamp);
+        if (!isNaN(d)) ts = Math.floor(d / 1000);
+      }
+      out.push({ role: msgType, text: text2, ts: ts, isMeta: isMeta });
+    }
+    return out;
+  },
+
+  // Rust provides complete lines; plugin parses JSON into RichMessage[]. Byte offsets stay in Rust.
+  parseSessionDelta(chunk: string): unknown {
+    const out: unknown[] = [];
+    const lines = String(chunk || "").split("\n");
+    let hadInvalid = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      let v: ClaudeEntry;
+      try { v = JSON.parse(line); } catch (_) {
+        if (!hadInvalid) {
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
+      if (!validateEntry(v)) {
+        if (!hadInvalid) {
+          if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
+          hadInvalid = true;
+        }
+        continue;
+      }
+      const t = v && v.type;
+      const blocks: Array<{ kind: string; data: Record<string, unknown> }> = [];
+      let role: string;
+      if (t === "system") {
+        // System rows carry top-level `content` + `subtype`; the host turns them into system/local_command cards.
+        role = "system";
+        const sysText = (typeof v.content === "string")
+          ? v.content
+          : (Array.isArray(v.content)
+              ? v.content.filter((c) => c && c.type === "text")
+                  .map((c) => c.text || "").join("\n")
+              : "");
+        const sdata: Record<string, unknown> = { text: sysText };
+        if (typeof v.subtype === "string") sdata.subtype = v.subtype;
+        blocks.push({ kind: "text", data: sdata });
+      } else if (t === "user" || t === "assistant") {
+        role = t;
+        const msg = v.message;
+        if (!msg) continue;
+        const content = msg.content;
+        if (typeof content === "string") {
+          if (content) blocks.push({ kind: "text", data: { text: content } });
+        } else if (Array.isArray(content)) {
+          for (let j = 0; j < content.length; j++) {
+            const b = content[j];
+            if (!b || typeof b.type !== "string") continue;
+            const data: Record<string, unknown> = {};
+            for (const k in b) {
+              if (Object.prototype.hasOwnProperty.call(b, k) && k !== "type") {
+                data[k] = (b as Record<string, unknown>)[k];
+              }
+            }
+            blocks.push({ kind: b.type, data: data });
+          }
+        } else {
+          continue;
+        }
+      } else if (t === "attachment") {
+        // Input sent while the agent was busy is queued as a queued_command attachment; surface it as the user message it is.
+        const att = v.attachment;
+        if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
+          continue;
+        }
+        role = "user";
+        blocks.push({ kind: "text", data: { text: att.prompt } });
+      } else {
+        continue;
+      }
+      if (!blocks.length) continue;
+      let ts: number | null = null;
+      if (typeof v.timestamp === "string") {
+        const d = Date.parse(v.timestamp);
+        if (!isNaN(d)) ts = Math.floor(d / 1000);
+      }
+      out.push({
+        role: role,
+        blocks: blocks,
+        ts: ts,
+        uuid: (typeof v.uuid === "string") ? v.uuid : null,
+        isMeta: v.isMeta === true ? true : null,
+        timestamp: (typeof v.timestamp === "string") ? v.timestamp : null,
+      });
+    }
+    return { messages: out };
+  },
+
+  // Keep JSONL path encoding aligned with `claudeSessionFilePath`.
+  sessionJsonlPath(_cwd: string, sessionId: string): string | null {
+    if (!sessionId) return null;
+    return claudeSessionFilePath(_cwd, sessionId);
+  },
+
+  // Write bridge rule to `~/.claude/rules/codeterm.md` via host APIs.
+  installBridgeRule(payload: string): unknown {
+    const m = manifest();
+    const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
+    const expanded = host.expandHome(rulePath);
+    if (!expanded) return { ok: false, error: "could not expand " + rulePath };
+    const ok = host.writeFile(expanded, payload);
+    if (ok) {
+      host.log("info", "[claude-plugin] bridge rule installed to " + expanded);
+      return { ok: true };
+    }
+    return { ok: false, error: "writeFile failed for " + expanded };
+  },
+
+  uninstallBridgeRule(): unknown {
+    const m = manifest();
+    const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
+    const expanded = host.expandHome(rulePath);
+    if (!expanded) return { ok: true }; // nothing to do
+    if (!host.fileExists(expanded)) return { ok: true };
+    const ok = host.removeFile(expanded);
+    if (ok) {
+      host.log("info", "[claude-plugin] bridge rule removed from " + expanded);
+      return { ok: true };
+    }
+    return { ok: false, error: "removeFile failed for " + expanded };
+  },
+
+  // Manage Claude settings hooks for Notification, Stop, PreCompact, SessionStart.
+  // Hooks use `_source: "codeterm-hook-v2"` and manifest paths for stable lifecycle.
+
+  checkIntegration(): unknown {
+    const m = manifest();
+    const path = host.expandHome((m && m.integration && m.integration.settingsPath)
+      || "~/.claude/settings.json");
+    if (!path || !host.fileExists(path)) {
+      return {
+        settings_exists: false,
+        hooks_installed: false,
+        notification_hook: false,
+        stop_hook: false,
+        precompact_hook: false,
+        session_start_hook: false,
+      };
+    }
+    const json = host.fs.readJson<ClaudeSettings>(path);
+    if (!json) {
+      return { settings_exists: true, hooks_installed: false };
+    }
+    function present(key: string): boolean {
+      const arr = json!.hooks && json!.hooks[key];
+      if (!Array.isArray(arr)) return false;
+      for (let i = 0; i < arr.length; i++) {
+        const entry = arr[i];
+        const hooks = entry && entry.hooks;
+        if (!Array.isArray(hooks)) continue;
+        for (let j = 0; j < hooks.length; j++) {
+          if (hooks[j] && hooks[j]._source === CODETERM_HOOK_MARKER) return true;
+        }
+      }
+      return false;
+    }
+    // SessionStart must also carry the binding-nonce header, else it's a pre-nonce hook to force-upgrade.
+    function sessionStartCurrent(): boolean {
+      const arr = json!.hooks && json!.hooks.SessionStart;
+      if (!Array.isArray(arr)) return false;
+      for (let i = 0; i < arr.length; i++) {
+        const hooks = arr[i] && arr[i].hooks;
+        if (!Array.isArray(hooks)) continue;
+        for (let j = 0; j < hooks.length; j++) {
+          const h = hooks[j];
+          if (h && h._source === CODETERM_HOOK_MARKER && typeof h.command === "string"
+              && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1) return true;
+        }
+      }
+      return false;
+    }
+    const n = present("Notification");
+    const s = present("Stop");
+    const pc = present("PreCompact");
+    const ss = sessionStartCurrent();
+    return {
+      settings_exists: true,
+      hooks_installed: n && s && pc && ss,
+      notification_hook: n,
+      stop_hook: s,
+      precompact_hook: pc,
+      session_start_hook: ss,
+    };
+  },
+
+  installIntegration(apiPort: number): unknown {
+    const m = manifest();
+    const path = host.expandHome((m && m.integration && m.integration.settingsPath)
+      || "~/.claude/settings.json");
+    if (!path) return { ok: false, error: "could not expand settingsPath" };
+
+    const json = (host.fileExists(path) ? (host.fs.readJson<ClaudeSettings>(path) || {}) : {}) as ClaudeSettings;
+    if (!json.hooks || typeof json.hooks !== "object") json.hooks = {};
+
+    const nullDev = host.platform() === "windows" ? "NUL" : "/dev/null";
+    const port = apiPort | 0;
+    const authH = '-H "Authorization: Bearer ${CODETERM_API_TOKEN}"';
+    const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
+    const portExpr = "${CODETERM_API_PORT:-" + port + "}";
+
+    const notifyCmd = "curl -s -X POST http://localhost:" + portExpr
+      + "/api/panes/$CODETERM_PANE_ID/hook/permission "
+      + "-H 'Content-Type: application/json' " + authH + " -d '{}' > " + nullDev + " 2>&1 || true";
+    const stopCmd = "curl -s -X POST http://localhost:" + portExpr
+      + "/api/panes/$CODETERM_PANE_ID/hook/stop "
+      + "-H 'Content-Type: application/json' " + authH + " -d '{}' > " + nullDev + " 2>&1 || true";
+    const precompactCmd = "curl -s -X POST http://localhost:" + portExpr
+      + "/api/mem/flush -H 'Content-Type: application/json' " + authH
+      + ' -d \'{"pane":"\'"$CODETERM_PANE_ID"\'","title":"pre-compact"}\' > '
+      + nullDev + " 2>&1 || true";
+    const sessionStartCmd = "curl -s -X POST http://localhost:" + portExpr
+      + "/api/panes/$CODETERM_PANE_ID/hook/session_start "
+      + "-H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @- > "
+      + nullDev + " 2>&1 || true";
+
+    function newEntry(matcher: string, cmd: string, timeout: number): HookEntry {
+      return {
+        matcher: matcher,
+        hooks: [{
+          type: "command",
+          command: cmd,
+          timeout: timeout,
+          _source: CODETERM_HOOK_MARKER,
+        }],
+      };
+    }
+    const newHooks: Record<string, HookEntry> = {
+      Notification:  newEntry("permission_prompt", notifyCmd, 5000),
+      Stop:          newEntry("", stopCmd, 5000),
+      PreCompact:    newEntry("", precompactCmd, 10000),
+      SessionStart:  newEntry("", sessionStartCmd, 5000),
+    };
+
+    // Remove existing codeterm hooks before appending to avoid stale leftovers.
+    const keys = ["Notification", "Stop", "PreCompact", "SessionStart"];
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (!Array.isArray(json.hooks[k])) json.hooks[k] = [];
+      json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
+      json.hooks[k].push(newHooks[k]);
+    }
+
+    const ok = host.fs.writeJson(path, json);
+    if (ok) {
+      host.log("info", "[claude-plugin] hooks installed at " + path);
+      return { ok: true };
+    }
+    return { ok: false, error: "writeJson failed for " + path };
+  },
+
+  uninstallIntegration(): unknown {
+    const m = manifest();
+    const path = host.expandHome((m && m.integration && m.integration.settingsPath)
+      || "~/.claude/settings.json");
+    if (!path || !host.fileExists(path)) return { ok: true };
+    const json = host.fs.readJson<ClaudeSettings>(path);
+    if (!json || !json.hooks || typeof json.hooks !== "object") return { ok: true };
+    // Uninstall removes Notification + Stop only; keeps PreCompact + SessionStart.
+    const keys = ["Notification", "Stop"];
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (!Array.isArray(json.hooks[k])) continue;
+      json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
+    }
+    const ok = host.fs.writeJson(path, json);
+    if (ok) {
+      host.log("info", "[claude-plugin] hooks removed from " + path);
+      return { ok: true };
+    }
+    return { ok: false, error: "writeJson failed for " + path };
+  },
+
+  // AS3/AS4 pane-state classification lives in ./classify; the facade delegates.
+  // See that module for the auth/rate-limit/clarifying ensemble and its guarantees.
+  classifyPaneState(snapshot: PaneStateSnapshot): PaneStateClassification | null {
+    return classifyClaudePaneState(snapshot);
+  },
+};
+
+// Task-file helpers: write to host temp files with provider-specific suffixes.
+// Windows adds a UTF-8 BOM so PowerShell parses task bodies correctly.
+function writeTaskTempFile(task: string): string | null {
+  const suffix = ".ct-task-" + randomShortHex(8);
+  const win = host.platform() === "windows";
+  // PowerShell reads UTF-8 reliably only with BOM; prepend it for Windows task files.
+  const body = win ? "﻿" + task : task;
+  return host.fs.writeTempFile(body, suffix);
+}
+
+function randomShortHex(len: number): string {
+  const hex = "0123456789abcdef";
+  let out = "";
+  for (let i = 0; i < len; i++) out += hex.charAt((Math.random() * 16) | 0);
+  return out;
+}
+
+// Hook recognition helpers + types for the integration methods above.
+interface HookCmd { type?: string; command?: string; timeout?: number; _source?: string }
+interface HookEntry { matcher?: string; hooks?: HookCmd[] }
+interface ClaudeSettings { hooks?: Record<string, HookEntry[]> }
+
+const CODETERM_HOOK_MARKER = "codeterm-hook-v2";
+
+function isCodetermHook(entry: HookEntry): boolean {
+  const hooks = entry && entry.hooks;
+  if (!Array.isArray(hooks)) return false;
+  for (let i = 0; i < hooks.length; i++) {
+    const h = hooks[i];
+    if (!h) continue;
+    if (typeof h._source === "string"
+        && (h._source.indexOf("codeterm-hook") === 0 || h._source === "codeterm")) {
+      return true;
+    }
+    const cmd = h.command;
+    if (typeof cmd === "string") {
+      const isUrl = cmd.indexOf("7685") !== -1 || cmd.indexOf("7686") !== -1;
+      const isPath = cmd.indexOf("/api/notifications") !== -1
+        || cmd.indexOf("/api/panes/") !== -1
+        || cmd.indexOf("/hook/permission") !== -1
+        || cmd.indexOf("/hook/stop") !== -1
+        || cmd.indexOf("/hook/session_start") !== -1
+        || cmd.indexOf("/api/mem/flush") !== -1;
+      if (isUrl && isPath) return true;
+    }
+  }
+  return false;
+}
+
+export default plugin;
