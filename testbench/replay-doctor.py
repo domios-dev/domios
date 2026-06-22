@@ -6,6 +6,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from status_hygiene import scan_frames  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -100,6 +103,7 @@ def main():
     parser.add_argument("--from-ms", type=int)
     parser.add_argument("--to-ms", type=int)
     parser.add_argument("--strict-screen", action="store_true")
+    parser.add_argument("--strict-status", action="store_true", help="escalate status-hygiene anomalies from WARN to BAD")
     args = parser.parse_args()
     has_frame_window = args.from_frame is not None or args.to_frame is not None
     if has_frame_window and args.sample_ms == 250:
@@ -222,6 +226,17 @@ def main():
     else:
         card_frames = status_frames = working_frames = 0
 
+    status_anomalies = scan_frames(frames) if frames else []
+    for a in status_anomalies:
+        message = (
+            f"status-hygiene {a['field']} {a['issues']} at frame {a['frame_index']} "
+            f"(t_ms={a['t_ms']}): {a['sample']!r}"
+        )
+        if args.strict_status:
+            failures.append(message)
+        else:
+            print(f"WARN {message}")
+
     print(f"replay: {replay_dir}")
     print(
         f"cast: inputs={counts['i']} outputs={counts['o']} o+b64={counts['o+b64']} "
@@ -247,6 +262,7 @@ def main():
         f"working={working_frames}",
         f"status_line={status_frames}",
         f"cards={card_frames}",
+        f"status_anomalies={len(status_anomalies)}",
     )
 
     if failures:

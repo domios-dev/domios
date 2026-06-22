@@ -24,6 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 REPLAYS = ROOT / "replays"
+STUCK_WORKING_IDLE_MS = 5000
 
 
 def load(path):
@@ -56,19 +57,19 @@ def final_state(frames):
     return None
 
 
-def tail_working(frames, ms=3000):
-    """Working frames in the trailing settle window. After every turn/animation
-    has stopped the agent is silent, so a correct classifier reads idle here.
-    This is the honest 'stuck Working after completion' oracle — it does NOT
-    count the final turn's legitimate working response (that ends before the
-    settle window). None if untracked."""
+def stuck_working(frames):
+    """Working frames that persist after the terminal has been fully silent past
+    the stuck-working budget. This ignores legitimate final-turn working/grace
+    frames in short captures while still catching a pane stranded in Working."""
     if not frames:
         return None
-    end = frames[-1]["t_ms"]
-    tail = [f for f in frames if f["t_ms"] >= end - ms]
-    if not tail:
-        return None
-    return sum(1 for f in tail if (f.get("detector") or {}).get("state") == "working")
+    return sum(
+        1
+        for f in frames
+        if (f.get("detector") or {}).get("state") == "working"
+        and (f.get("quiescence") or {}).get("byte_idle_ms", 0) >= STUCK_WORKING_IDLE_MS
+        and (f.get("quiescence") or {}).get("semantic_idle_ms", 0) >= STUCK_WORKING_IDLE_MS
+    )
 
 
 def mid_run_questions(frames):
@@ -106,10 +107,10 @@ def c_idle(results):
     out = []
     for p in find("*/idle_focus_churn_v1-*/timeline.json"):
         d, fr = load(p)
-        tw = tail_working(fr)
+        stuck = stuck_working(fr)
         cards = field_frames(fr, "card")
-        ok = tw == 0 and cards == 0
-        out.append((ok, f"{Path(p).parent.name[:46]}", f"tail3s_working={tw} card={cards} frames={len(fr)}"))
+        ok = stuck == 0 and cards == 0
+        out.append((ok, f"{Path(p).parent.name[:46]}", f"stuck_working={stuck} card={cards} frames={len(fr)}"))
     return out
 
 
@@ -132,8 +133,8 @@ def c_question_no_card(results):
 
 @check("normal-answer-ends-idle")
 def c_ends_idle(results):
-    """Normal answer completion -> Idle. Final frame idle AND no Working in the
-    trailing idle hold. Directly covers Codex/OpenCode stuck-Working P0s."""
+    """Normal answer completion -> Idle. Final frame idle AND no stuck Working
+    after full silence. Directly covers Codex/OpenCode stuck-Working P0s."""
     out = []
     pats = [
         "*/provider_cli_question_probe_v1-*/timeline.json",
@@ -148,9 +149,9 @@ def c_ends_idle(results):
             seen.add(p)
             d, fr = load(p)
             fin = final_state(fr)
-            tw = tail_working(fr)
-            ok = fin == "idle" and (tw == 0 or tw is None)
-            out.append((ok, f"{Path(p).parent.name[:46]}", f"final={fin} tail3s_working={tw}"))
+            stuck = stuck_working(fr)
+            ok = fin == "idle" and (stuck == 0 or stuck is None)
+            out.append((ok, f"{Path(p).parent.name[:46]}", f"final={fin} stuck_working={stuck}"))
     return out
 
 

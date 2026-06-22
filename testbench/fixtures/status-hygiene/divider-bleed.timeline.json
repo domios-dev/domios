@@ -1,0 +1,44 @@
+{
+  "provider": "claude",
+  "scenario": "status_hygiene_negative_fixture",
+  "_note": "Targeted bad fixture for status_hygiene.py. Reproduces the divider-tail / path-leak / ANSI-bleed regressions the count-only replay gates missed. Intentionally NOT under testbench/replays/ so --corpus stays green; referenced only by the gate --self-proof.",
+  "meta": {
+    "width": 100,
+    "height": 30
+  },
+  "frames": [
+    {
+      "t_ms": 0,
+      "frame_index": 1,
+      "detector": {
+        "state": "working",
+        "working": true,
+        "status_line": "Creating… (4s · ↓64 tokens)────────────────────────…",
+        "phase": "work",
+        "last_turn_summary": null
+      }
+    },
+    {
+      "t_ms": 1000,
+      "frame_index": 2,
+      "detector": {
+        "state": "working",
+        "working": true,
+        "status_line": "\u001b[2mthinking\u001b[0m",
+        "phase": "work",
+        "last_turn_summary": null
+      }
+    },
+    {
+      "t_ms": 2000,
+      "frame_index": 3,
+      "detector": {
+        "state": "idle",
+        "working": false,
+        "status_line": null,
+        "phase": "done",
+        "last_turn_summary": "/Users/kandrey/Developer/codeterm-alpha/testbench"
+      }
+    }
+  ]
+}

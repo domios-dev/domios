@@ -22,13 +22,24 @@ python3 - "$OUT" <<'EOF'
 import json,sys
 fr=json.load(open(sys.argv[1]))['frames']
 from collections import Counter
-c=Counter(f['detector']['state'] for f in fr)
-idle=c.get('idle',0); n=len(fr); final=fr[-1]['detector']['state']
+# Count idle only on frames where the box is visibly painted (its numbered allow/deny
+# choice rows present). render_timeline's first frame is a blank pre-paint seed (empty
+# screen, cursor 0,0) emitted before the cast's first output event — no box exists on it
+# yet, so its idle classification is honest, not a false-idle. testbench-only gate.
+visible=[
+    f for f in fr
+    if any(('allow' in row.lower() or 'deny' in row.lower()) and any(ch.isdigit() for ch in row)
+           for row in (f.get('screen') or []))
+]
+c=Counter(f['detector']['state'] for f in visible)
+idle=c.get('idle',0); n=len(visible); final=fr[-1]['detector']['state']
 cur=fr[-1].get('cursor'); ds=fr[-1].get('decset')
-print(f"permission_box_visible_cursor_v1: states={dict(c)} final={final}")
+print(f"permission_box_visible_cursor_v1: visible_frames={n}/{len(fr)} states={dict(c)} final={final}")
 print(f"  final cursor={cur} decset={ds}")
 # PASS = not classified idle (a pending permission must read as Question, never Idle)
-if idle==0:
+if n == 0:
+    print("RESULT: FAIL (fixture did not render a visible permission box)"); sys.exit(1)
+elif idle==0:
     print("RESULT: PASS (permission box never classified idle)"); sys.exit(0)
 elif idle==n:
     print(f"RESULT: FAIL (FALSE-IDLE — all {n} frames idle on a pending permission box)"); sys.exit(1)

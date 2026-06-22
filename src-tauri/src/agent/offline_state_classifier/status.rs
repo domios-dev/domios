@@ -11,6 +11,7 @@ const STATUS_SPINNERS: &[char] = &['✻', '✳', '✢', '✶', '✷', '✺', '�
 const STATUS_MESSAGE_MAX_CHARS: usize = 80;
 
 fn compact_status_message(line: &str) -> String {
+    let line = strip_status_chrome_tail(line).trim_end();
     let mut out = String::new();
     for (idx, ch) in line.chars().enumerate() {
         if idx >= STATUS_MESSAGE_MAX_CHARS {
@@ -20,6 +21,33 @@ fn compact_status_message(line: &str) -> String {
         out.push(ch);
     }
     out
+}
+
+fn strip_status_chrome_tail(line: &str) -> &str {
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    let mut run_start = None;
+    let mut run_len = 0usize;
+    for (byte_idx, ch) in chars {
+        if is_horizontal_chrome(ch) {
+            if run_start.is_none() {
+                run_start = Some(byte_idx);
+            }
+            run_len += 1;
+            if run_len >= 3 {
+                return &line[..run_start.unwrap_or(byte_idx)];
+            }
+        } else if ch.is_whitespace() || matches!(ch, '…' | '.') {
+            continue;
+        } else {
+            run_start = None;
+            run_len = 0;
+        }
+    }
+    line
+}
+
+fn is_horizontal_chrome(ch: char) -> bool {
+    matches!(ch, '\u{2500}'..='\u{257f}' | '—' | '―')
 }
 
 fn is_braille_spinner(c: char) -> bool {
@@ -311,5 +339,17 @@ mod tests {
 
         let status = extract_status_line(&screen).expect("status line");
         assert_eq!(status.line, "Composing");
+    }
+
+    #[test]
+    fn status_line_drops_terminal_divider_tail() {
+        let screen = lines(&[
+            "Assistant text",
+            "✻ Creating… (4s · ↓64 tokens)────────────────────────────────────────…",
+        ]);
+
+        let status = extract_status_line(&screen).expect("status line");
+
+        assert_eq!(status.line, "Creating… (4s · ↓64 tokens)");
     }
 }

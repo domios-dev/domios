@@ -45,6 +45,8 @@ pub struct PickerDetection {
     pub options: Vec<String>,
     pub selected_index: usize,
     pub multi_select: bool,
+    pub top_row: u16,
+    pub bottom_row: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -280,6 +282,8 @@ fn detect_title_search_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
         .unwrap_or(AttributedColor::Default);
     let mut options = Vec::new();
     let mut selected_index = None;
+    let mut top_row = None;
+    let mut bottom_row = None;
     for row in &rows[search_idx + 1..] {
         if row.clean.is_empty() {
             if !options.is_empty() {
@@ -298,6 +302,8 @@ fn detect_title_search_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
         {
             selected_index = Some(options.len());
         }
+        top_row.get_or_insert(row.row);
+        bottom_row = Some(row.row);
         options.push(label);
     }
 
@@ -310,6 +316,8 @@ fn detect_title_search_panel(rows: &[RowFeature]) -> Option<PickerDetection> {
         options,
         selected_index: selected_index.unwrap_or(0),
         multi_select: false,
+        top_row: top_row.unwrap_or(rows[search_idx].row),
+        bottom_row: bottom_row.unwrap_or(rows[search_idx].row),
     })
 }
 
@@ -371,6 +379,8 @@ fn structured_footer_panel(
         multi_select: selected_kind == OptionKind::Checkbox
             || rows[footer_idx].multi_select
             || contains_select_all_hint(&rows[footer_idx].text),
+        top_row: rows[top].row,
+        bottom_row: rows[footer_idx].row,
     })
 }
 
@@ -408,6 +418,8 @@ fn plain_footer_panel(
         options,
         selected_index: selected_index.unwrap_or(0),
         multi_select: false,
+        top_row: rows[top].row,
+        bottom_row: rows[bottom - 1].row,
     })
 }
 
@@ -482,6 +494,8 @@ fn selected_row_candidate(
             options,
             selected_index: selected_index.unwrap_or(0),
             multi_select,
+            top_row: rows[top].row,
+            bottom_row: rows[bottom - 1].row,
         },
     ))
 }
@@ -600,6 +614,8 @@ fn score_block(
             options,
             selected_index: selected.0,
             multi_select,
+            top_row: rows[top].row,
+            bottom_row: rows[bottom - 1].row,
         },
     ))
 }

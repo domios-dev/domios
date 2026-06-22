@@ -76,6 +76,29 @@ fn permission_box_with_visible_cursor_and_confirm_footer_is_question() {
     );
 }
 
+#[test]
+fn terminal_menu_question_does_not_preempt_working_grace() {
+    let screen = lines(&[
+        "┃  Which option do you choose?",
+        "┃",
+        "┃  1. Alpha",
+        "┃  2. Beta",
+        "┃",
+        "┃  ↑↓ select  enter submit  esc dismiss",
+    ]);
+    let mut input = quiescent_input(&screen);
+    input.cursor_hidden = true;
+    input.byte_idle_ms = 300;
+    input.semantic_idle_ms = 300;
+    let verdict = classify_state(&input, working());
+    assert_eq!(verdict.state, TimelineState::Working);
+
+    input.byte_idle_ms = 2000;
+    input.semantic_idle_ms = 2000;
+    let verdict = classify_state(&input, working());
+    assert_eq!(verdict.state, TimelineState::Question);
+}
+
 // Plain numbered prose WITHOUT a confirm/choice footer stays not-a-question even
 // with a visible cursor (no false Question on normal lists).
 #[test]
@@ -91,8 +114,11 @@ fn numbered_prose_without_confirm_footer_is_not_question_visible_cursor() {
 }
 
 use super::{
-    classify_state, composer_cursor_ready, ClassifyInput, Motion, PaneVerdict, TimelineState,
+    classify_state, composer_cursor_ready, offline_picker_is_coherent, ClassifyInput, Motion,
+    PaneVerdict, TimelineState,
 };
+use crate::agent::attributed_screen::PickerDetection;
+use crate::agent::signal_extractor::StreamSignals;
 
 fn working() -> PaneVerdict {
     PaneVerdict {
@@ -156,7 +182,7 @@ fn long_quiescent_unknown_layout_does_not_stay_working_forever() {
 }
 
 // Cursor (app) post-turn composer: footer arrow `→` (no stop-hint) must read
-// Idle PROMPTLY at low idle clocks (structural, not the 5s timeout).
+// Idle promptly once Working grace has elapsed (structural, not the 5s timeout).
 #[test]
 fn cursor_composer_arrow_returns_idle_promptly() {
     let screen = lines(&[
@@ -166,13 +192,22 @@ fn cursor_composer_arrow_returns_idle_promptly() {
         "/private/var/folders/x/ct-replay-cursor",
     ]);
     let mut input = quiescent_input(&screen);
-    input.byte_idle_ms = 300;
-    input.semantic_idle_ms = 300;
+    input.byte_idle_ms = 2000;
+    input.semantic_idle_ms = 2000;
     let verdict = classify_state(&input, working());
     assert_eq!(
         verdict.state,
         TimelineState::Idle,
         "cursor → composer arrow"
+    );
+
+    input.byte_idle_ms = 300;
+    input.semantic_idle_ms = 300;
+    let verdict = classify_state(&input, working());
+    assert_eq!(
+        verdict.state,
+        TimelineState::Working,
+        "cursor composer arrow must not pre-empt working grace"
     );
 }
 
@@ -334,6 +369,42 @@ fn composer_ready_vetoed_by_options_block() {
 }
 
 #[test]
+fn offline_picker_above_ready_composer_is_stale_transcript() {
+    let mut signals = StreamSignals::default();
+    signals.rows = 40;
+    signals.screen.lines = lines(&[
+        "Plain prose options:",
+        "1. Keep swipe-only",
+        "2. Add a d-pad",
+        "",
+        "────────────────────────",
+        "❯",
+        "────────────────────────",
+    ]);
+    let stale = PickerDetection {
+        question: "Plain prose options:".to_string(),
+        options: vec!["Keep swipe-only".to_string(), "Add a d-pad".to_string()],
+        selected_index: 0,
+        multi_select: false,
+        top_row: 1,
+        bottom_row: 2,
+    };
+    assert!(
+        !offline_picker_is_coherent(&stale, &signals),
+        "a picker above a visible bottom composer is stale scrollback"
+    );
+
+    let active = PickerDetection {
+        bottom_row: 5,
+        ..stale
+    };
+    assert!(
+        offline_picker_is_coherent(&active, &signals),
+        "a picker reaching the composer row remains a candidate"
+    );
+}
+
+#[test]
 fn options_block_horizontal_only_not_vertical_or_idle_box() {
     // Horizontal buttons (bottom row, column-gapped) -> vetoed.
     assert!(super::looks_like_options_block(&lines(&[
@@ -391,6 +462,10 @@ fn active_turn_footer_fires_on_real_active_footers() {
     // codex: arrow prefix + ctrl+c stop hint
     assert!(super::active_turn_footer(&lines(&[
         "→ Working (ctrl+c to stop)",
+    ])));
+    // opencode: animated progress meter + interrupt hint.
+    assert!(super::active_turn_footer(&lines(&[
+        "   ⬝⬝⬝⬝⬝⬝■■  esc interrupt                                                                 10.5K (5%)  ctrl+p commands",
     ])));
 }
 

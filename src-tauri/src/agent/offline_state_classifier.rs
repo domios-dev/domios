@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::attributed_screen::detect_picker;
+use super::attributed_screen::{detect_picker, PickerDetection};
 use super::signal_extractor::{Motion, SignalExtractor, StreamSignals, VolatileHint};
 
 mod status;
@@ -13,6 +13,7 @@ pub const TICK_MS: u64 = 250;
 pub const WAIT_MS: u64 = 800;
 pub const DONE_MS: u64 = 800;
 const WORKING_GRACE_MS: u64 = 1500;
+const BOTTOM_REGION_ROWS: u16 = 8;
 /// Upper bound on how long a Working verdict may persist with zero active-work
 /// evidence and total PTY silence before resolving to Idle (anti-stuck-Working).
 const STUCK_WORKING_IDLE_MS: u64 = 5000;
@@ -162,7 +163,6 @@ pub struct ClassifyInput<'a> {
 /// menu, so a *visible* cursor in the input region is an idle/ready signal. Shared
 /// by the offline replay adapter and the live path so both agree.
 pub fn composer_cursor_ready(cursor_visible: bool, cursor_row: u16, rows: u16) -> bool {
-    const BOTTOM_REGION_ROWS: u16 = 8;
     cursor_visible && rows > 0 && cursor_row + BOTTOM_REGION_ROWS >= rows
 }
 
@@ -247,6 +247,16 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
         };
     }
 
+    // Working-grace BEFORE PTY-only questions and idle fast-paths: both terminal
+    // menu parsing and prompt glyphs can false-fire on a single repaint frame.
+    // Structured prompts already returned above and remain immediate.
+    if previous.state == TimelineState::Working && input.semantic_idle_ms < WORKING_GRACE_MS {
+        return PaneVerdict {
+            state: TimelineState::Working,
+            subtype: None,
+        };
+    }
+
     if let Some(subtype) = classify_terminal_menu_question(input.screen_lines, input.cursor_hidden)
     {
         return PaneVerdict {
@@ -268,22 +278,9 @@ pub fn classify_state(input: &ClassifyInput, previous: PaneVerdict) -> PaneVerdi
     // is a (possibly uncaught) question surface, NOT a composer — it must not be
     // read as Idle by either the glyph fast-path or composer_ready below. Computed
     // once; vetoes both idle paths so a real PTY question is never masked as Idle.
-    // Strong idle signal: an input-prompt glyph (❯/›/→) at the bottom. Only shown
-    // when the agent is parked at its composer, so it may settle Idle immediately
-    // (pre-grace) — this is the prompt fast-path.
     if ready_prompt_visible {
         return PaneVerdict {
             state: TimelineState::Idle,
-            subtype: None,
-        };
-    }
-
-    // Working-grace BEFORE the weaker composer_ready: a visible cursor in the input
-    // box is present mid-turn too, so it must NOT pre-empt the grace window (else a
-    // brief gap between status-widget repaints would flicker Working→Idle→Working).
-    if previous.state == TimelineState::Working && input.semantic_idle_ms < WORKING_GRACE_MS {
-        return PaneVerdict {
-            state: TimelineState::Working,
             subtype: None,
         };
     }
@@ -436,10 +433,14 @@ pub fn classify_signals(
     // left rendered in the transcript after it was answered (e.g. cursor's inline
     // "AskQuestion" poll) keep matching the grid and strand the pane in Question.
     let attributed = extractor.attributed_screen();
-    let picker = signals
-        .picker_active
+    let active_working_chrome = extract_status_line(&signals.screen.lines).is_some()
+        || active_turn_footer(&signals.screen.lines);
+    let within_working_grace = previous.state == TimelineState::Working
+        && signals.quiescence.semantic_idle_ms < WORKING_GRACE_MS;
+    let picker = (signals.picker_active && !active_working_chrome && !within_working_grace)
         .then(|| detect_picker(&attributed))
-        .flatten();
+        .flatten()
+        .filter(|picker| offline_picker_is_coherent(picker, signals));
     classify_state(
         &ClassifyInput {
             picker_question: picker.as_ref().map(|p| p.question.as_str()),
@@ -463,6 +464,17 @@ pub fn classify_signals(
         },
         previous,
     )
+}
+
+fn offline_picker_is_coherent(picker: &PickerDetection, signals: &StreamSignals) -> bool {
+    let composer_row = ready_prompt_glyph_row(&signals.screen.lines).or_else(|| {
+        composer_cursor_ready(signals.cursor.visible, signals.cursor.row, signals.rows)
+            .then_some(signals.cursor.row)
+    });
+    if let Some(row) = composer_row {
+        return picker.bottom_row + 1 >= row;
+    }
+    true
 }
 
 pub fn classify_terminal_menu_question(
@@ -682,21 +694,27 @@ fn ready_prompt(screen_lines: &[String]) -> bool {
 }
 
 fn ready_prompt_glyph(screen_lines: &[String]) -> bool {
+    ready_prompt_glyph_row(screen_lines).is_some()
+}
+
+fn ready_prompt_glyph_row(screen_lines: &[String]) -> Option<u16> {
     // Last 4 NON-EMPTY rows: a full-height grid leaves blank padding rows below
     // the composer, so counting raw rows would push the prompt glyph out of the
     // window and strand the pane in its previous (often Working) verdict.
     screen_lines
         .iter()
+        .enumerate()
         .rev()
-        .filter(|line| !line.trim().is_empty())
+        .filter(|(_, line)| !line.trim().is_empty())
         .take(4)
-        .any(|line| {
+        .find_map(|(idx, line)| {
             let line = line.trim();
             // Input-prompt glyphs: ❯/› (claude/codex), → (cursor's composer arrow).
             // Structural input indicators, not prose. ready_prompt only runs when
             // not actively working (guarded above), so cursor's working footer
             // `→ … ctrl+c to stop` is caught by active_turn_footer first.
-            line.starts_with('❯') || line.starts_with('›') || line.starts_with('→')
+            (line.starts_with('❯') || line.starts_with('›') || line.starts_with('→'))
+                .then_some(idx as u16)
         })
 }
 

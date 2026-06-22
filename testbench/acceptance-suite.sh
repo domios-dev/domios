@@ -30,7 +30,7 @@ echo "dev daemon   : $DEV_BUILD  $( [ "$DEV_BUILD" = "$GIT_HEAD" ] && echo '(MAT
 
 if [ "$REGEN" = 1 ]; then
   echo "================ REGENERATE TIMELINES (after classifier change) ================"
-  cargo build --example render_timeline 2>&1 | tail -2
+  cargo build --manifest-path src-tauri/Cargo.toml --example render_timeline 2>&1 | tail -2
   RT="src-tauri/target/debug/examples/render_timeline"
   n=0
   while IFS= read -r cast; do
@@ -46,6 +46,12 @@ fi
 echo "================ OFFLINE ACCEPTANCE GATE (baked detector.state) ================"
 python3 testbench/acceptance-gate.py
 GATE=$?
+
+echo "================ DISPLAY HYGIENE GATE (baked detector text) ================"
+python3 testbench/status_hygiene.py --self-test >/dev/null
+HYGIENE_SELF=$?
+python3 testbench/status_hygiene.py --corpus testbench/replays --quiet
+HYGIENE=$?
 
 echo "================ CODEX TRANSCRIPT ORDERING (data-layer proxy for P0 #2) ================"
 # DOM oracle is Windows/WebView2-only (tests/playwright/README.md). On macOS we
@@ -77,4 +83,8 @@ echo "  NOTE: ChatUI DOM order NOT checked — Playwright/CDP is Windows/WebView
 
 echo "================ RESULT ================"
 [ "$GATE" = 0 ] && echo "ACCEPTANCE GATE: GREEN" || echo "ACCEPTANCE GATE: RED"
-exit $GATE
+[ "$HYGIENE_SELF" = 0 ] && [ "$HYGIENE" = 0 ] && echo "DISPLAY HYGIENE: GREEN" || echo "DISPLAY HYGIENE: RED"
+if [ "$GATE" = 0 ] && [ "$HYGIENE_SELF" = 0 ] && [ "$HYGIENE" = 0 ]; then
+  exit 0
+fi
+exit 1
