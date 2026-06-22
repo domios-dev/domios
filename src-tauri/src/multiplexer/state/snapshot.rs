@@ -561,6 +561,50 @@ mod tests {
         );
     }
 
+    /// A chatBackend pane stays chatBackend after a save + restore cycle.
+    /// `pane_chat_backing` returning `Some` is what gates the send path into the
+    /// plugin route instead of the PTY route — this invariant must hold after
+    /// /new triggers a snapshot re-save (simulated as a full round-trip here).
+    #[test]
+    fn chatbackend_pane_stays_chat_backend_after_snapshot_resave() {
+        // Start with a live chatBackend pane (simulates post-spawn state).
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = state.list_workspaces()[0].id.clone();
+        let (_, pane_id) = state.create_tab(&wsid).unwrap();
+        {
+            let pane = state.get_pane_mut(&pane_id).unwrap();
+            pane.backing = PaneBacking::ChatBackend {
+                plugin_id: "lmstudio".into(),
+                session_id: "sess-abc".into(),
+            };
+            pane.chat_view = true;
+        }
+
+        // Save → restore (what happens after /new triggers the 30s save + restart).
+        let snap = state.to_session_snapshot();
+        let restored = MultiplexerState::from_session_snapshot(&snap);
+        let pane = restored.panes.get(&pane_id).expect("pane survived restore");
+
+        // Backing must still be ChatBackend — not Pty — after the round-trip.
+        assert!(
+            pane.is_chat_backend(),
+            "chatBackend pane must stay chatBackend after save+restore; \
+             pane_chat_backing() returns None when backing=Pty, causing the \
+             send path to mis-route to PTY and throw 'Pane has no PTY'"
+        );
+        assert_eq!(
+            pane.backing,
+            PaneBacking::ChatBackend {
+                plugin_id: "lmstudio".into(),
+                session_id: "sess-abc".into(),
+            }
+        );
+        // Routing invariant: only a ChatBackend backing routes to the plugin.
+        // A Pty backing would fall through to ensure_pane_pty_for_send and fail.
+        let routes_to_plugin = matches!(pane.backing, PaneBacking::ChatBackend { .. });
+        assert!(routes_to_plugin, "send must route to plugin, not PTY path");
+    }
+
     #[test]
     fn spawned_by_round_trips_through_snapshot() {
         // state → snapshot → state preserves the hierarchy linkage fields.
