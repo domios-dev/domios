@@ -1,0 +1,20 @@
+# Dev-only code-navigation tool. INTENTIONALLY standalone — not a member of any
+# workspace and never referenced by build.sh (which pins --manifest-path to
+# src-tauri/ and cli/). It must never be linked into the shipped product binary.
+[package]
+name = "code-nav"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "code-nav"
+path = "src/main.rs"
+
+[dependencies]
+tree-sitter = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
+
+[profile.release]
+opt-level = 2
