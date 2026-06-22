@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Clock3, Paperclip, Terminal, X } from "lucide-react";
 import { ComposerActions } from "./ComposerActions";
 import { invoke, listen } from "../../lib/bridge";
@@ -22,7 +22,7 @@ import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/typ
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 
 const COMPOSER_MIN_HEIGHT = 20;
-const COMPOSER_SINGLE_LINE_THRESHOLD = 28;
+const COMPOSER_HEIGHT_EPSILON = 2;
 const COMPOSER_MAX_HEIGHT = 230;
 const AUDIO_ATTACHMENT_RE = /\.(webm|ogg|oga|opus|mp3|wav|m4a|aac|mp4|flac)$/i;
 // Shown the instant a voice note is sent — transcription (cold Whisper can take
@@ -40,12 +40,12 @@ const CLI_FALLBACK_COMMANDS = new Set([
   "/help",
 ]);
 
-function composerHeight(el: HTMLTextAreaElement, value: string): number {
-  const hasExplicitLineBreak = value.includes("\n");
-  if (!hasExplicitLineBreak && el.scrollHeight <= COMPOSER_SINGLE_LINE_THRESHOLD) {
+function composerHeight(el: HTMLTextAreaElement): number {
+  const measured = el.scrollHeight;
+  if (measured <= COMPOSER_MIN_HEIGHT + COMPOSER_HEIGHT_EPSILON) {
     return COMPOSER_MIN_HEIGHT;
   }
-  return Math.min(Math.max(el.scrollHeight, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT);
+  return Math.min(Math.max(measured, COMPOSER_MIN_HEIGHT), COMPOSER_MAX_HEIGHT);
 }
 
 function cliFallbackCommandPayload(text: string): string | null {
@@ -126,8 +126,8 @@ function ComposerBubbleRow({
           onClick={() => onToggleTerminalFallback()}
           className="inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
           style={{
-            background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, white 5%)",
-            borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 28%, transparent)",
+            background: "var(--ct-bg-elev, var(--ct-surface, #161b22))",
+            borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
             color: "var(--ct-muted-fg)",
           }}
           title="Toggle terminal fallback"
@@ -257,6 +257,7 @@ export function ChatComposer({
   onToggleTerminalFallback,
   modelBubble,
   chatBackend = false,
+  isActive = true,
 }: {
   paneId: string;
   paneProvider: string | null;
@@ -264,6 +265,10 @@ export function ChatComposer({
   /** This pane is backed by a plugin chatBackend (no PTY) — send via the
    *  pane-level `chat_send_text` instead of writing to a PTY. */
   chatBackend?: boolean;
+  /** Whether this composer's pane is the currently active/focused tab.
+   *  When false, refocusComposer is a no-op — prevents background panes
+   *  from stealing focus after an async send completes. */
+  isActive?: boolean;
   pendingPrompt: PendingPrompt | null;
   terminalHasAttention: boolean;
   attachments: string[];
@@ -278,6 +283,9 @@ export function ChatComposer({
   onToggleTerminalFallback?: () => void;
   modelBubble?: ReactNode;
 }) {
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
+
   const [input, setInput] = usePersistentDraft(`pane-session-chat:${paneId}`);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
@@ -320,7 +328,11 @@ export function ChatComposer({
   );
 
   const refocusComposer = useCallback(() => {
-    const focus = () => textareaRef.current?.focus({ preventScroll: true });
+    if (!isActiveRef.current) return;
+    const focus = () => {
+      if (!isActiveRef.current) return;
+      textareaRef.current?.focus({ preventScroll: true });
+    };
     if (!textareaRef.current) return;
     focus();
     requestAnimationFrame(() => {
@@ -335,11 +347,11 @@ export function ChatComposer({
     }, 0);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = "auto";
-    const next = composerHeight(el, input);
+    el.style.height = `${COMPOSER_MIN_HEIGHT}px`;
+    const next = composerHeight(el);
     el.style.height = `${next}px`;
   }, [input]);
 
@@ -389,7 +401,9 @@ export function ChatComposer({
   }, [paneProvider]);
 
   useEffect(() => {
-    const id = setTimeout(() => textareaRef.current?.focus(), 0);
+    const id = setTimeout(() => {
+      if (isActiveRef.current) textareaRef.current?.focus();
+    }, 0);
     return () => clearTimeout(id);
   }, []);
 
