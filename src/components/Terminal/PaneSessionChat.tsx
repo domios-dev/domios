@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { MessageBubble } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler } from "@codeterm/chat-ui";
@@ -19,7 +20,6 @@ interface Props {
   paneId: string;
   onError?: (msg: string) => void;
   onOpenTerminalFallback?: () => void;
-  onToggleTerminalFallback?: () => void;
   uiFontScale?: number;
   /** Pane is backed by a plugin chatBackend (no PTY). Sends route through the
    *  pane send seam, and PTY-only affordances (terminal fallback, screen poll)
@@ -63,7 +63,6 @@ export function PaneSessionChat({
   paneId,
   onError,
   onOpenTerminalFallback,
-  onToggleTerminalFallback,
   uiFontScale,
   chatBackend = false,
 }: Props) {
@@ -76,6 +75,17 @@ export function PaneSessionChat({
   const chatRootRef = useRef<HTMLDivElement>(null);
   const [terminalActive, setTerminalActive] = useState(false);
   const [longIdle, setLongIdle] = useState(false);
+  // Shows only when scrolled FAR up — the threshold keeps it clear of the
+  // bottom-pinned agent indicator/composer, so it never overlaps streaming output.
+  const [showScrollDown, setShowScrollDown] = useState(false);
+
+  const scrollToBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    atBottomRef.current = true;
+    setShowScrollDown(false);
+  }, []);
 
   const { state: muxState, setFocusedPane, addNotification } = useMultiplexer();
   const pane = muxState.panes[paneId];
@@ -88,7 +98,6 @@ export function PaneSessionChat({
   // were persisted) still routes sends correctly.
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
-  const terminalHasAttention = terminalActive || Boolean(pendingPrompt);
   const isActive = muxState.focused_pane_id === paneId;
 
   const showComposerError = useCallback((message: string) => {
@@ -347,14 +356,16 @@ export function PaneSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
+      <div className="relative flex-1 min-h-0">
       <div
         ref={scrollRef}
         onScroll={(e) => {
           const el = e.currentTarget;
           const dist = el.scrollHeight - (el.scrollTop + el.clientHeight);
           atBottomRef.current = dist < 50;
+          setShowScrollDown(dist > 240);
         }}
-        className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3"
+        className="absolute inset-0 overflow-y-auto overscroll-contain p-3"
         data-testid="pane-session-chat-messages"
       >
         {touchMode && (
@@ -365,7 +376,7 @@ export function PaneSessionChat({
           />
         )}
         {hiddenMessageCount > 0 && (
-          <div className="sticky top-0 z-10 flex justify-center pb-2">
+          <div className="flex justify-center pb-2 pt-1">
             <button
               type="button"
               data-testid="chat-load-older"
@@ -436,6 +447,19 @@ export function PaneSessionChat({
         )}
         <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
       </div>
+      {showScrollDown && (
+        <button
+          type="button"
+          data-testid="chat-scroll-bottom"
+          onClick={scrollToBottom}
+          title="Scroll to latest"
+          className="absolute right-4 bottom-4 z-10 flex h-8 w-8 items-center justify-center rounded-full text-[var(--ct-muted-fg)] transition-colors hover:text-[var(--ct-fg)]"
+          style={{ background: "var(--ct-surface)", border: "1px solid var(--ct-border)" }}
+        >
+          <ChevronDown size={16} strokeWidth={2.2} />
+        </button>
+      )}
+      </div>
       <ChatComposer
         paneId={paneId}
         paneProvider={paneProvider}
@@ -443,7 +467,6 @@ export function PaneSessionChat({
         chatBackend={effectiveChatBackend}
         isActive={isActive}
         pendingPrompt={pendingPrompt}
-        terminalHasAttention={terminalHasAttention}
         attachments={attachments}
         addAttachments={addAttachments}
         removeAttachment={removeAttachment}
@@ -453,7 +476,6 @@ export function PaneSessionChat({
         updateOptimistic={updateOptimistic}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-        onToggleTerminalFallback={effectiveChatBackend ? undefined : onToggleTerminalFallback}
         modelBubble={effectiveChatBackend && chatBacking ? (
           <>
             <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />

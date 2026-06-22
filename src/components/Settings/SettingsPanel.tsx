@@ -2,12 +2,6 @@ import { useState, useEffect, useCallback } from "react";
 import { invoke } from "../../lib/bridge";
 import type { AppConfig } from "../../lib/types";
 import {
-  Sliders,
-  Bot,
-  Plug,
-  Info,
-  KeyRound,
-  LayoutGrid,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -18,9 +12,8 @@ import {
   Mouse,
   Power,
   Keyboard,
-  FileText,
-  Package,
-  type LucideIcon,
+  Info,
+  X,
 } from "lucide-react";
 
 import logoUrl from "../../assets/logo.png";
@@ -35,67 +28,31 @@ import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { PluginsTab } from "./PluginsTab";
 import { UI_PANEL } from "../shared/design";
+import {
+  type SectionId,
+  SECTION_ICONS,
+  SETTINGS_SECTIONS,
+  sectionTitle,
+  normalizeSection,
+} from "./sections";
 
 interface SettingsPanelProps {
   config: AppConfig;
   onUpdateConfig: (config: AppConfig) => Promise<void>;
   onClose: () => void;
   initialSection?: SectionId | "notifications";
-  onNavigateToTab?: (tab: "memory" | "mesh") => void;
 }
-
-export type SectionId =
-  | "general"
-  | "tabs"
-  | "agents"
-  | "plugins"
-  | "integrations"
-  | "secrets"
-  | "logs"
-  | "about";
 
 type Route =
   | { kind: "root" }
   | { kind: "section"; id: SectionId }
   | { kind: "agent-provider"; providerId: string };
 
-const SECTION_ICONS: Record<SectionId, LucideIcon> = {
-  general: Sliders,
-  tabs: LayoutGrid,
-  agents: Bot,
-  plugins: Package,
-  integrations: Plug,
-  secrets: KeyRound,
-  logs: FileText,
-  about: Info,
-};
-
-const SECTIONS: { id: SectionId; label: string; desc: string }[] = [
-  { id: "general", label: "General", desc: "Theme, fonts, cursor, keybindings" },
-  { id: "tabs", label: "Tabs", desc: "Toggle Memory and Mesh tabs in the sidebar" },
-  { id: "agents", label: "Agents", desc: "General Agent, notifications, and per-provider config" },
-  // Plugins live in the first-class Extensions surface now (titlebar ⊞ / sidebar).
-  { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges" },
-  // Secret store is managed in the Bitwarden extension now (Extensions surface).
-  { id: "logs", label: "Logs", desc: "App diagnostics — live, filterable, scoped" },
-  { id: "about", label: "About", desc: "Version, updates, creator" },
-];
-
-function normalizeSection(id: SectionId | "notifications" | undefined): SectionId | undefined {
-  if (!id) return undefined;
-  return id === "notifications" ? "agents" : id;
-}
-
-function sectionTitle(id: SectionId): string {
-  return SECTIONS.find((s) => s.id === id)?.label ?? id;
-}
-
 export function SettingsPanel({
   config,
   onUpdateConfig,
   onClose,
   initialSection,
-  onNavigateToTab,
 }: SettingsPanelProps) {
   const normalizedInitial = normalizeSection(initialSection);
   const [stack, setStack] = useState<Route[]>(
@@ -115,6 +72,15 @@ export function SettingsPanel({
       setStack([{ kind: "root" }, { kind: "section", id: n }]);
     }
   }, [initialSection]);
+
+  // Settings is a full-view modal — Esc closes it (matching the close button).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const [localConfig, setLocalConfig] = useState<AppConfig>(config);
   const [themes, setThemes] = useState<string[]>([]);
@@ -171,6 +137,11 @@ export function SettingsPanel({
       ? sectionTitle(top.id)
       : "Provider";
 
+  // Back only when the parent is a real section (provider drill-down); returning
+  // to the root grid is handled by closing — the titlebar menu is the entry point.
+  const parent = stack.length >= 2 ? stack[stack.length - 2] : undefined;
+  const parentSection = parent?.kind === "section" ? parent : undefined;
+
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-[var(--ct-sidebar-bg)]" data-testid="settings-panel">
       <div className="absolute inset-0 flex flex-col pt-[var(--ct-safe-top,0px)] pb-[var(--ct-safe-bottom,0px)]">
@@ -183,10 +154,11 @@ export function SettingsPanel({
             opacity: 0.3,
           }}
         />
-        {/* Header — iOS style: back (chevron + parent label) left, title centered. */}
+        {/* Header — back only for deep nav (provider → section); the section grid
+            is reached from the titlebar menu, so its "back" is a close instead. */}
         <div className={`${UI_PANEL.toolbar} z-10 relative`}>
           <div className="flex min-w-0 flex-1 items-center">
-            {top.kind !== "root" && (
+            {parentSection && (
               <button
                 data-testid="settings-back"
                 onClick={pop}
@@ -194,21 +166,22 @@ export function SettingsPanel({
                 title="Back"
               >
                 <ChevronLeft size={19} strokeWidth={2.4} className="shrink-0" />
-                <span className="truncate text-sm">
-                  {stack.length >= 2 && stack[stack.length - 2].kind === "root"
-                    ? "Settings"
-                    : stack.length >= 2 && stack[stack.length - 2].kind === "section"
-                    ? sectionTitle((stack[stack.length - 2] as { kind: "section"; id: SectionId }).id)
-                    : "Back"}
-                </span>
+                <span className="truncate text-sm">{sectionTitle(parentSection.id)}</span>
               </button>
             )}
           </div>
           <h2 className="pointer-events-none absolute left-1/2 max-w-[55%] -translate-x-1/2 truncate text-center text-sm font-semibold text-[var(--ct-fg)]" data-testid="settings-header-title">
             {headerTitle}
           </h2>
-          {/* Balances the back button so the centered title stays optically centered. */}
-          <div className="w-8 shrink-0" />
+          <button
+            data-testid="settings-close"
+            onClick={onClose}
+            title="Close settings (Esc)"
+            aria-label="Close settings"
+            className="-mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--ct-muted)] transition-colors hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+          >
+            <X size={18} strokeWidth={2.2} />
+          </button>
         </div>
 
         {/* Body */}
@@ -217,7 +190,7 @@ export function SettingsPanel({
             {top.kind === "root" && (
               <div className="min-h-full flex items-center justify-center">
                 <div className="w-full max-w-3xl grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {SECTIONS.map((s) => {
+                  {SETTINGS_SECTIONS.map((s) => {
                     const Icon = SECTION_ICONS[s.id];
                     return (
                       <button
@@ -392,10 +365,10 @@ export function SettingsPanel({
                     onChange={(v) => update("terminal", { copy_on_select: v })}
                   />
                   <Toggle
-                    label="Open agents in Chat UI by default"
+                    label="Use chat as the default view for new agent tabs"
                     checked={chatUiDefault}
                     onChange={async (v) => {
-                      update("ui", { ...localConfig.ui, default_new_agent_pane_chat: v });
+                      update("ui", { ...localConfig.ui, default_new_agent_pane_chat: v, chat_ui_default_prompted: true });
                       await setDefaultNewAgentPaneToChat(v);
                     }}
                   />
@@ -420,61 +393,8 @@ export function SettingsPanel({
 
                 <SettingsCard icon={<Keyboard size={16} />} title="Keybindings">
                   <KeybindGroup title="Tabs" bindings={[
-                    ["new_tab", "New Tab"],
                     ["reopen_tab", "Reopen Closed Tab"],
-                    ["close_tab", "Close Tab"],
                   ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
-
-                  <KeybindGroup title="Panes" bindings={[
-                    ["close_pane", "Close Pane"],
-                    ["focus_pane_left", "Focus Left"],
-                    ["focus_pane_right", "Focus Right"],
-                    ["focus_pane_up", "Focus Up"],
-                    ["focus_pane_down", "Focus Down"],
-                  ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
-
-                  <KeybindGroup title="General" bindings={[
-                    ["new_workspace", "New Workspace"],
-                    ["search", "Search"],
-                    ["zoom_in", "Zoom In"],
-                    ["zoom_out", "Zoom Out"],
-                    ["zoom_reset", "Zoom Reset"],
-                    ["open_settings", "Settings"],
-                  ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
-                </SettingsCard>
-              </SettingsPage>
-            )}
-
-            {top.kind === "section" && top.id === "tabs" && (
-              <SettingsPage title="Tabs" subtitle="Toggle Memory and Mesh in the sidebar.">
-                <SettingsCard icon={<LayoutGrid size={16} />} title="Sidebar Tabs">
-                  <Toggle
-                    label="Enable Memory tab"
-                    checked={localConfig.ui?.memory_tab_enabled ?? true}
-                    onChange={(v) => update("ui", { memory_tab_enabled: v })}
-                  />
-                  <button
-                    data-testid="settings-go-memory"
-                    onClick={() => { onNavigateToTab?.("memory"); onClose(); }}
-                    className="text-[var(--ct-accent)] text-[10px] hover:underline ml-6"
-                  >
-                    Go to Memory →
-                  </button>
-                  <Toggle
-                    label="Enable Mesh tab"
-                    checked={localConfig.ui?.mesh_tab_enabled ?? true}
-                    onChange={(v) => {
-                      update("ui", { mesh_tab_enabled: v });
-                      if (v && !localConfig.mesh?.enabled) update("mesh", { enabled: true });
-                    }}
-                  />
-                  <button
-                    data-testid="settings-go-mesh"
-                    onClick={() => { onNavigateToTab?.("mesh"); onClose(); }}
-                    className="text-[var(--ct-accent)] text-[10px] hover:underline ml-6"
-                  >
-                    Go to Mesh →
-                  </button>
                 </SettingsCard>
               </SettingsPage>
             )}
@@ -535,7 +455,7 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "about" && (
-              <SettingsPage title="About" subtitle="Version, updates, and creator.">
+              <SettingsPage title="Check for updates" subtitle="Version, updates, and creator.">
                 <div className="text-center py-4">
                   <img src={logoUrl} alt="CodeTerm" width="64" height="64" className="rounded-xl mb-3 mx-auto" data-testid="settings-about-logo" />
                   <div className="text-xl font-bold text-[var(--ct-fg)]">CodeTerm</div>

@@ -4,6 +4,7 @@ import { listen } from "../../lib/bridge";
 import { getCachedConfig, loadConfig, setUiSettings } from "../../lib/clientSettings";
 import { Power } from "lucide-react";
 import { createPortal } from "react-dom";
+import { UI_TRAY_BTN } from "../shared/design";
 
 interface KeepAwakeStatus {
   active: boolean;
@@ -170,11 +171,11 @@ export function KeepAwakeTray() {
         data-testid="keepawake-tray"
         onClick={() => setOpen((v) => !v)}
         title={titleText}
-        className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors ${
+        className={
           status.active
-            ? "text-[var(--ct-accent)] hover:bg-[rgba(255,255,255,0.08)]"
-            : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-        }`}
+            ? "flex items-center justify-center w-7 h-7 rounded-md transition-colors text-[var(--ct-accent)] hover:bg-[var(--ct-hover)]"
+            : UI_TRAY_BTN
+        }
       >
         <Power size={14} />
       </button>

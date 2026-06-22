@@ -18,9 +18,9 @@ import { quotePathForPaste, routeClipboardToTerm } from "../../lib/clipboardPast
 import { registerPanePaste } from "../../lib/panePasteRegistry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import {
-  getClientPaneUiMode,
   listenClientPaneUiMode,
   publishCurrentPaneUiMode,
+  resolveInitialPaneUiMode,
   setClientPaneUiMode,
 } from "../../lib/clientPaneUiMode";
 import { ContextMenu, type ContextMenuAction } from "./ContextMenu";
@@ -29,6 +29,7 @@ import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
 import { PaneSessionChat } from "./PaneSessionChat";
 import {
+  isChatDefaultEnabled,
   isPaneUiModeEvent,
   type PaneUiMode,
 } from "../../lib/chatUiMode";
@@ -73,7 +74,17 @@ export const TerminalPane = memo(function TerminalPane({
   // No session-readiness gate: PaneSessionChat renders an empty chat for fresh
   // panes and binds the session when the mux reports its id.
   const agentDescriptor = useAgentDescriptor(agentType);
-  const chatSupported = agentDescriptor?.supports_chat_ui === true;
+  // Optimistic while the descriptor is still loading: an agent pane is assumed
+  // chat-capable so a chat-default pane renders chat on the first frame (no
+  // terminal flash). Corrected to terminal only if the loaded descriptor says so.
+  const chatCapable =
+    pane?.backing?.kind === "chat_backend"
+      ? true
+      : !agentType
+        ? false
+        : agentDescriptor
+          ? agentDescriptor.supports_chat_ui === true
+          : true;
   const [mobileWebDefaultChat, setMobileWebDefaultChat] = useState(() =>
     IS_WEB && typeof window !== "undefined" && window.matchMedia("(max-width: 700px)").matches,
   );
@@ -86,25 +97,28 @@ export const TerminalPane = memo(function TerminalPane({
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
   }, []);
-  const shouldDefaultToChat =
-    pane?.chat_view === true ||
-    (mobileWebDefaultChat && chatSupported);
-
   // --- Terminal lifecycle ---
   const { termRef, fitAddonRef, searchAddonRef, bellFlash, termReady } = useXterm({
     containerRef, theme, fontConfig, terminalConfig,
   });
 
   // --- UI state ---
-  // Mode priority: explicit client-local choice > backend chat_view (set via
-  const backendDefault = pane?.chat_view ? "chat" : undefined;
-  const [uiMode, setUiMode] = useState<PaneUiMode>(() => (
-    chatSupported
-      && (getClientPaneUiMode(paneId) ?? backendDefault ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat"
-      ? "chat"
-      : "terminal"
-  ));
   const userModeOverrideRef = useRef<PaneUiMode | null>(null);
+  // Mode priority: explicit client-local choice > backend chat_view > global
+  // chat-default > terminal. Resolved synchronously (no descriptor await) so the
+  // pane opens in its final view with no flash, then settles on the same value.
+  const computeMode = useCallback((): PaneUiMode => {
+    if (userModeOverrideRef.current) {
+      return userModeOverrideRef.current === "chat" && chatCapable ? "chat" : "terminal";
+    }
+    return resolveInitialPaneUiMode(paneId, {
+      chatCapable,
+      chatViewFlag: pane?.chat_view === true,
+      chatDefault: isChatDefaultEnabled(),
+      mobileDefault: mobileWebDefaultChat,
+    });
+  }, [paneId, chatCapable, pane?.chat_view, mobileWebDefaultChat]);
+  const [uiMode, setUiMode] = useState<PaneUiMode>(computeMode);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -196,18 +210,14 @@ export const TerminalPane = memo(function TerminalPane({
   }, [isFocused, terminalOwnsLivePty, claimTerminalOwnership]);
 
   useEffect(() => {
-    const defaultMode: PaneUiMode = chatSupported
-      && ((getClientPaneUiMode(paneId) ?? backendDefault ?? (shouldDefaultToChat ? "chat" : "terminal")) === "chat")
-      ? "chat"
-      : "terminal";
-    const desiredMode = userModeOverrideRef.current ?? defaultMode;
-    setUiMode((mode) => mode === desiredMode ? mode : desiredMode);
-  }, [agentType, chatSupported, paneId, shouldDefaultToChat, backendDefault]);
+    const desired = computeMode();
+    setUiMode((mode) => (mode === desired ? mode : desired));
+  }, [computeMode]);
 
   useEffect(() => listenClientPaneUiMode(paneId, (mode) => {
     userModeOverrideRef.current = mode;
-    setUiMode(mode === "chat" && !chatSupported ? "terminal" : mode);
-  }), [paneId, chatSupported]);
+    setUiMode(mode === "chat" && !chatCapable ? "terminal" : mode);
+  }), [paneId, chatCapable]);
 
   // Remote-control: an explicit REST /chat-view call (bridge, agents, tests)
   // broadcasts `pane-chat-view`; apply it as if the user toggled locally.
@@ -241,7 +251,7 @@ export const TerminalPane = memo(function TerminalPane({
       const requested = event.detail.mode;
       userModeOverrideRef.current = requested;
       setClientPaneUiMode(paneId, requested);
-      if (requested === "chat" && !chatSupported) {
+      if (requested === "chat" && !chatCapable) {
         setUiMode("terminal");
         return;
       }
@@ -249,7 +259,7 @@ export const TerminalPane = memo(function TerminalPane({
     };
     window.addEventListener("codeterm-pane-ui-mode", handler);
     return () => window.removeEventListener("codeterm-pane-ui-mode", handler);
-  }, [paneId, chatSupported]);
+  }, [paneId, chatCapable]);
 
   // Tauri file-drop uses the same `term.paste` path as keyboard paste.
   // Bracketed-paste rules stay active when chat is off.
@@ -550,18 +560,6 @@ export const TerminalPane = memo(function TerminalPane({
               requestAnimationFrame(() => {
                 claimTerminalOwnership(true);
                 termRef.current?.focus();
-              });
-            }}
-            onToggleTerminalFallback={() => {
-              setTerminalFallbackOpen((open) => {
-                const next = !open;
-                if (next) {
-                  requestAnimationFrame(() => {
-                    claimTerminalOwnership(true);
-                    termRef.current?.focus();
-                  });
-                }
-                return next;
               });
             }}
           />

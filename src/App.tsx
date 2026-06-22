@@ -6,7 +6,8 @@ import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
-import { SettingsPanel, type SectionId } from "./components/Settings/SettingsPanel";
+import { SettingsPanel } from "./components/Settings/SettingsPanel";
+import type { SectionId } from "./components/Settings/sections";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { ExtensionsView } from "./components/Extensions/ExtensionsView";
@@ -17,7 +18,6 @@ import { workerFocusStore } from "./components/MemoryPanel/workerFocusStore";
 import { CommandPalette, buildDefaultCommands } from "./components/CommandPalette/CommandPalette";
 import { CrashReportToast } from "./components/CrashReportToast";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
-import { ChatUiDefaultPrompt } from "./components/ChatUiDefaultPrompt";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { HamburgerIcon } from "./components/Icons";
 import { useConfig } from "./hooks/useConfig";
@@ -30,10 +30,9 @@ import {
   MultiplexerProvider,
   useMultiplexer,
 } from "./store/multiplexer";
-import { matchesBinding, isMac } from "./lib/keybindings";
-import { cacheThemeSnapshot, themeToCSS } from "./lib/themeCss";
+import { matchesBinding } from "./lib/keybindings";
+import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { pasteToPane } from "./lib/panePasteRegistry";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
@@ -165,7 +164,6 @@ function AppInner() {
     closeTab,
     reopenClosed,
     setActiveTab,
-    closePane,
     setFocusedPane,
     setPanePty,
     dismissToast,
@@ -296,12 +294,6 @@ function AppInner() {
     }
   }, [activeWs, activeTab, closeTab]);
 
-  const handleCloseFocusedPane = useCallback(() => {
-    if (state.focused_pane_id) {
-      closePane(state.focused_pane_id);
-    }
-  }, [state.focused_pane_id, closePane]);
-
   const handlePtySpawned = useCallback(
     (paneId: string, ptyId: string) => {
       // Link PTY in backend + update frontend state
@@ -360,163 +352,10 @@ function AppInner() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Config-driven bindings (language-independent via e.code)
-      if (matchesBinding(e, kb.new_tab)) { e.preventDefault(); handleNewTab(); return; }
       // Browser-standard reopen-closed-tab. Most recent = ring index 0.
       if (matchesBinding(e, kb.reopen_tab ?? "Ctrl+Shift+T")) {
         e.preventDefault();
         if (activeWs) reopenClosed(activeWs.id, 0);
-        return;
-      }
-      if (matchesBinding(e, kb.close_tab)) { e.preventDefault(); handleCloseCurrentTab(); return; }
-      if (matchesBinding(e, kb.close_pane)) { e.preventDefault(); handleCloseFocusedPane(); return; }
-      if (matchesBinding(e, kb.new_workspace)) {
-        e.preventDefault();
-        openDialog({ directory: true, multiple: false, title: "Choose workspace folder" })
-          .then((folder) => {
-            if (!folder) return;
-            const basename = folder.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "Workspace";
-            createWorkspace(basename, folder);
-          })
-          .catch(() => {});
-        return;
-      }
-      if (matchesBinding(e, kb.copy)) {
-        e.preventDefault();
-        const sel = window.getSelection()?.toString();
-        if (sel) navigator.clipboard.writeText(sel).catch(() => {});
-        return;
-      }
-      // App-wide paste works across titlebar/sidebar/chat as long as the main window is focused.
-      // Target the active terminal tab pane and skip native editable controls to avoid double-paste.
-      const plainPaste = e.code === "KeyV" && !e.shiftKey && !e.altKey
-        && (isMac ? e.metaKey : e.ctrlKey);
-      if (plainPaste || matchesBinding(e, kb.paste)) {
-        const active = document.activeElement;
-        const isXtermFocused = active?.classList.contains("xterm-helper-textarea");
-        const isInputFocused = !isXtermFocused && (
-          active?.tagName === "INPUT"
-          || active?.tagName === "TEXTAREA"
-          || active?.getAttribute("contenteditable") === "true"
-        );
-        if (isXtermFocused || isInputFocused) return;
-
-        // Target the ACTIVE TAB'S pane, not the global focused_pane_id. focused_pane_id can stay set on a pane from a previous tab even after the user
-        // switched tabs — pasting there means the text lands in an invisible terminal. The active tab's pane is what the user perceives as "the selected one" they're looking at.
-        const st = stateRef.current;
-        const ws = st.workspaces.find((w) => w.id === st.active_workspace_id);
-        const tab = ws?.tabs.find((t) => t.id === st.activeTabIds[ws?.id ?? ""]);
-        const targetId = tab?.pane_id;
-        if (!targetId) return;
-        if (pasteToPane(targetId)) {
-          e.preventDefault();
-        }
-        return;
-      }
-      if (matchesBinding(e, kb.search)) {
-        e.preventDefault();
-        const focusedPaneId = stateRef.current.focused_pane_id;
-        if (focusedPaneId) {
-          window.dispatchEvent(new CustomEvent("codeterm-toggle-search", { detail: { paneId: focusedPaneId } }));
-        }
-        return;
-      }
-      if (matchesBinding(e, kb.zoom_in)) {
-        e.preventDefault();
-        const newSize = Math.min(32, (config.font.size || 14) + 1);
-        updateConfig({ ...config, font: { ...config.font, size: newSize } });
-        return;
-      }
-      if (matchesBinding(e, kb.zoom_out)) {
-        e.preventDefault();
-        const newSize = Math.max(8, (config.font.size || 14) - 1);
-        updateConfig({ ...config, font: { ...config.font, size: newSize } });
-        return;
-      }
-      if (matchesBinding(e, kb.zoom_reset)) {
-        e.preventDefault();
-        updateConfig({ ...config, font: { ...config.font, size: 14 } });
-        return;
-      }
-      if (matchesBinding(e, kb.open_settings)) {
-        e.preventDefault();
-        setSettingsOpen((v) => !v);
-        return;
-      }
-
-      // Memory panel: Cmd+Shift+M / Ctrl+Shift+M
-      if (e.code === "KeyM" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setMemoryOpen((v) => !v);
-        return;
-      }
-
-      // TODO: Swarm overlay — future feature if (matchesBinding(e, "Mod+Shift+G")) { e.preventDefault(); setSwarmVisible((v) => !v); return; }
-
-      // Pane focus navigation (uses config bindings)
-      if (matchesBinding(e, kb.focus_pane_left) || matchesBinding(e, kb.focus_pane_right) ||
-          matchesBinding(e, kb.focus_pane_up) || matchesBinding(e, kb.focus_pane_down)) {
-        e.preventDefault();
-        const dir = matchesBinding(e, kb.focus_pane_left) ? "ArrowLeft"
-          : matchesBinding(e, kb.focus_pane_right) ? "ArrowRight"
-          : matchesBinding(e, kb.focus_pane_up) ? "ArrowUp" : "ArrowDown";
-        const paneEls = Array.from(document.querySelectorAll("[data-pane-id]")) as HTMLElement[];
-        if (paneEls.length < 2) return;
-        const focusedId = stateRef.current.focused_pane_id;
-        const currentEl = paneEls.find((el) => el.dataset.paneId === focusedId);
-        if (!currentEl) return;
-        const currentRect = currentEl.getBoundingClientRect();
-        let bestEl: HTMLElement | null = null;
-        let bestDist = Infinity;
-        for (const el of paneEls) {
-          if (el === currentEl) continue;
-          const r = el.getBoundingClientRect();
-          const dx = (r.left + r.width / 2) - (currentRect.left + currentRect.width / 2);
-          const dy = (r.top + r.height / 2) - (currentRect.top + currentRect.height / 2);
-          let valid = false;
-          if (dir === "ArrowLeft" && dx < -10) valid = true;
-          if (dir === "ArrowRight" && dx > 10) valid = true;
-          if (dir === "ArrowUp" && dy < -10) valid = true;
-          if (dir === "ArrowDown" && dy > 10) valid = true;
-          if (valid) {
-            const dist = Math.abs(dx) + Math.abs(dy);
-            if (dist < bestDist) { bestDist = dist; bestEl = el; }
-          }
-        }
-        if (bestEl?.dataset.paneId) setFocusedPane(bestEl.dataset.paneId);
-        return;
-      }
-
-      // Tab switching: next/prev
-      if (matchesBinding(e, kb.next_tab)) {
-        e.preventDefault();
-        if (activeWs && activeWs.tabs.length > 1) {
-          const activeTabId = stateRef.current.activeTabIds[activeWs.id];
-          const idx = activeWs.tabs.findIndex((t) => t.id === activeTabId);
-          setActiveTab(activeWs.id, activeWs.tabs[(idx + 1) % activeWs.tabs.length].id);
-        }
-        return;
-      }
-      if (matchesBinding(e, kb.prev_tab)) {
-        e.preventDefault();
-        if (activeWs && activeWs.tabs.length > 1) {
-          const activeTabId = stateRef.current.activeTabIds[activeWs.id];
-          const idx = activeWs.tabs.findIndex((t) => t.id === activeTabId);
-          setActiveTab(activeWs.id, activeWs.tabs[(idx - 1 + activeWs.tabs.length) % activeWs.tabs.length].id);
-        }
-        return;
-      }
-
-      // Mod+1-9: switch tab by number
-      const modKey = isMac ? e.metaKey : e.ctrlKey;
-      if (modKey && !e.shiftKey && !e.altKey && /^Digit[1-9]$/.test(e.code)) {
-        const num = parseInt(e.code.slice(5), 10);
-        if (activeWs) {
-          const tab = activeWs.tabs[num - 1];
-          if (tab) {
-            e.preventDefault();
-            setActiveTab(activeWs.id, tab.id);
-          }
-        }
         return;
       }
 
@@ -567,10 +406,8 @@ function AppInner() {
     kb,
     handleNewTab,
     handleCloseCurrentTab,
-    handleCloseFocusedPane,
     reopenClosed,
     createWorkspace,
-    setFocusedPane,
     activeWs,
     setActiveTab,
     config,
@@ -583,12 +420,9 @@ function AppInner() {
 
   // Set color-scheme + theme vars on documentElement so portals (modals, popups rendered into document.body via createPortal) inherit them.
   useEffect(() => {
-    const hex = stableTheme.background.replace("#", "");
-    const r = parseInt(hex.substring(0, 2), 16);
-    const g = parseInt(hex.substring(2, 4), 16);
-    const b = parseInt(hex.substring(4, 6), 16);
-    const isLight = (r + g + b) / 3 > 128;
+    const isLight = isLightColor(stableTheme.background);
     document.documentElement.style.colorScheme = isLight ? "light" : "dark";
+    document.documentElement.dataset.ctTheme = isLight ? "light" : "dark";
     for (const [k, v] of Object.entries(themeStyles)) {
       document.documentElement.style.setProperty(k, v);
     }
@@ -621,6 +455,7 @@ function AppInner() {
           onNewTab={handleNewTab}
           theme={stableTheme}
           onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
+          onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
           onOpenExtensions={() => { setExtensionsOpen(true); }}
         />
       )}
@@ -644,18 +479,21 @@ function AppInner() {
         <button
           data-testid="web-sidebar-open"
           onClick={() => setSidebarOpen(true)}
-          className="fixed left-3 z-50 flex items-center justify-center rounded-full text-white shadow-[0_6px_20px_rgba(31,111,235,0.45)] border border-white/15 active:scale-95"
+          className="fixed left-3 z-50 flex items-center justify-center rounded-full active:scale-95"
           style={{
             // Explicit size, NOT Tailwind h-11/w-11 — the phone button-shrink rule (button.h-11{height!important}) would squash it into an ellipse.
             width: "2.75rem",
             height: "2.75rem",
             aspectRatio: "1 / 1",
-            // Panel views (mesh/memory/settings/git) own a top header bar — slide the burger below it so it never overlaps. Animates between positions for a live feel.
+            // Both views own a top strip — slide the burger just below it so it
+            // never overlaps. Workspace's pane bar is shorter than panel headers.
             top:
               mainView === "workspace"
-                ? "calc(0.5rem + var(--ct-safe-top, 0px))"
+                ? "calc(var(--ct-safe-top, 0px) + 2.6rem)"
                 : "calc(var(--ct-safe-top, 0px) + 3.65rem)",
-            background: "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)",
+            background: "var(--ct-accent)",
+            color: "var(--ct-bg)",
+            border: "1px solid color-mix(in srgb, var(--ct-fg) 18%, transparent)",
             transition: "top 340ms cubic-bezier(0.16, 1, 0.3, 1), transform 120ms ease",
           }}
           title="Open sidebar"
@@ -701,12 +539,6 @@ function AppInner() {
                 onUpdateConfig={updateConfig}
                 onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
                 initialSection={settingsSection}
-                onNavigateToTab={(tab) => {
-                  setSettingsOpen(false);
-                  setSettingsSection(undefined);
-                  if (tab === "memory") setMemoryOpen(true);
-                  else if (tab === "mesh") setMeshOpen(true);
-                }}
               />
             </div>
           )}
@@ -812,8 +644,6 @@ function AppInner() {
       <CrashReportToast />
 
       <StaleBuildBanner />
-
-      <ChatUiDefaultPrompt />
 
       <NavigationBackBar onBack={handleBackToMemory} />
 

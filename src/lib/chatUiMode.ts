@@ -1,18 +1,11 @@
 import { getAgentDescriptor } from "./agentDescriptorCache";
 import { invoke } from "./bridge";
-import { loadConfig, setUiSettings } from "./clientSettings";
+import { setUiSettings } from "./clientSettings";
 import type { AppConfig, PaneBacking } from "./types";
 
 export const CHAT_UI_DEFAULT_KEY = "codeterm-chat-ui-default-enabled";
-export const CHAT_UI_DEFAULT_PROMPT_EVENT = "codeterm-chat-ui-default-prompt";
 
 export type PaneUiMode = "terminal" | "chat";
-export type ChatUiDefaultPromptChoice = "yes" | "no";
-type ChatUiDefaultPromptResult = ChatUiDefaultPromptChoice | "unhandled";
-export type ChatUiDefaultPromptDetail = {
-  handled: boolean;
-  choose: (choice: ChatUiDefaultPromptChoice) => void;
-};
 
 // Capability-driven: a provider supports chat when its descriptor says so
 // (JSONL sessions or structured/DB-backed chat). chatBackend shell panes have no
@@ -33,7 +26,13 @@ export function shouldDefaultNewAgentPaneToChat(
 
 let cachedDefaultNewAgentPaneChat = false;
 let configLoad: Promise<boolean> | null = null;
-let configWriterForTest: ((enabled: boolean) => Promise<void>) | null = null;
+
+/** Synchronous read of the cached "new agent panes open in chat" setting.
+ *  Warmed by loadDefaultNewAgentPaneChat() at startup — lets a pane pick its
+ *  initial view without awaiting config or the descriptor cache. */
+export function isChatDefaultEnabled(): boolean {
+  return cachedDefaultNewAgentPaneChat;
+}
 
 function readLegacyDefault(): boolean | null {
   try {
@@ -42,25 +41,6 @@ function readLegacyDefault(): boolean | null {
   } catch {
     return null;
   }
-}
-
-// "Have we asked the user the chat-UI-default question yet?" — centralized in
-// backend config so a fresh client never re-prompts. Test-overridable.
-let promptedStoreForTest: { get: () => boolean; set: () => void } | null = null;
-
-async function isPrompted(): Promise<boolean> {
-  if (promptedStoreForTest) return promptedStoreForTest.get();
-  try {
-    const config = await loadConfig();
-    return config.ui?.chat_ui_default_prompted === true;
-  } catch {
-    return false;
-  }
-}
-
-async function markPrompted(): Promise<void> {
-  if (promptedStoreForTest) { promptedStoreForTest.set(); return; }
-  await setUiSettings({ chat_ui_default_prompted: true });
 }
 
 function clearLegacyDefault(): void {
@@ -72,10 +52,6 @@ function clearLegacyDefault(): void {
 }
 
 async function writeDefaultToConfig(enabled: boolean): Promise<void> {
-  if (configWriterForTest) {
-    await configWriterForTest(enabled);
-    return;
-  }
   const config = await invoke<AppConfig>("get_config");
   await invoke("update_config", {
     config: {
@@ -120,43 +96,13 @@ export async function setDefaultNewAgentPaneToChat(enabled: boolean): Promise<vo
   await writeDefaultToConfig(enabled);
   cachedDefaultNewAgentPaneChat = enabled;
   configLoad = Promise.resolve(enabled);
-  await markPrompted();
+  await markChatDefaultPrompted();
 }
 
-function askDefaultNewAgentPaneToChat(): Promise<ChatUiDefaultPromptResult> {
-  return new Promise((resolve) => {
-    const detail: ChatUiDefaultPromptDetail = {
-      handled: false,
-      choose: resolve,
-    };
-    window.dispatchEvent(new CustomEvent(CHAT_UI_DEFAULT_PROMPT_EVENT, { detail }));
-    if (!detail.handled) {
-      resolve("unhandled");
-    }
-  });
-}
-
-export async function maybeAskDefaultNewAgentPaneToChat(): Promise<void> {
-  if (await isPrompted()) return;
-  const choice = await askDefaultNewAgentPaneToChat();
-  if (choice === "unhandled") return;
-  if (choice === "yes") {
-    await setDefaultNewAgentPaneToChat(true);
-  } else {
-    await markPrompted();
-  }
-}
-
-export function __setChatUiDefaultConfigWriterForTest(
-  writer: ((enabled: boolean) => Promise<void>) | null,
-): void {
-  configWriterForTest = writer;
-}
-
-export function __setChatUiDefaultPromptedStoreForTest(
-  store: { get: () => boolean; set: () => void } | null,
-): void {
-  promptedStoreForTest = store;
+// Records that the chat-default suggestion has been answered, so the inline
+// prompt never reappears once the user accepts or dismisses it.
+export async function markChatDefaultPrompted(): Promise<void> {
+  await setUiSettings({ chat_ui_default_prompted: true });
 }
 
 export function emitPaneUiMode(paneId: string, mode: PaneUiMode): void {

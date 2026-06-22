@@ -1,5 +1,5 @@
 import type { ThemeConfig } from "./types";
-import { blendColor, deriveColor } from "./colors";
+import { blendColor, deriveColor, parseHex } from "./colors";
 
 const THEME_CACHE_KEY = "codeterm-theme-v1";
 const THEME_VARS_CACHE_KEY = "codeterm-theme-css-v1";
@@ -29,6 +29,8 @@ export const DEFAULT_THEME: ThemeConfig = {
 };
 
 export function themeToCSS(theme: ThemeConfig): Record<string, string> {
+  const isLight = isLightColor(theme.background);
+  const syntax = syntaxColors(theme, isLight);
   return {
     "--ct-bg": theme.background,
     "--ct-fg": theme.foreground,
@@ -62,7 +64,53 @@ export function themeToCSS(theme: ThemeConfig): Record<string, string> {
     "--ct-bright-green": theme.bright_green,
     "--ct-bright-yellow": theme.bright_yellow,
     "--ct-bright-red": theme.bright_red,
+    "--ct-diff-del-bg": blendColor(theme.background, theme.red, isLight ? 0.08 : 0.18),
+    "--ct-diff-add-bg": blendColor(theme.background, theme.green, isLight ? 0.08 : 0.18),
+    "--ct-diff-del-fg": syntax.deleted,
+    "--ct-diff-add-fg": syntax.inserted,
+    "--ct-syntax-fg": syntax.fg,
+    "--ct-syntax-muted": syntax.muted,
+    "--ct-syntax-comment": syntax.comment,
+    "--ct-syntax-punctuation": syntax.punctuation,
+    "--ct-syntax-keyword": syntax.keyword,
+    "--ct-syntax-string": syntax.string,
+    "--ct-syntax-number": syntax.number,
+    "--ct-syntax-function": syntax.function,
+    "--ct-syntax-type": syntax.type,
+    "--ct-syntax-property": syntax.property,
+    "--ct-syntax-operator": syntax.operator,
+    "--ct-syntax-tag": syntax.tag,
+    "--ct-syntax-deleted": syntax.deleted,
+    "--ct-syntax-inserted": syntax.inserted,
     ...(theme.name.toLowerCase().replace(/[\s-]/g, "") === "pipboy" ? { "--ct-glow": `${theme.green}99` } : {}),
+  };
+}
+
+export function isLightColor(hex: string): boolean {
+  const [r, g, b] = parseHex(hex);
+  return (r * 299 + g * 587 + b * 114) / 1000 > 150;
+}
+
+function readableAccent(color: string, isLight: boolean): string {
+  return blendColor(color, isLight ? "#000000" : "#ffffff", isLight ? 0.28 : 0.12);
+}
+
+function syntaxColors(theme: ThemeConfig, isLight: boolean) {
+  return {
+    fg: theme.foreground,
+    muted: blendColor(theme.foreground, theme.background, isLight ? 0.36 : 0.28),
+    comment: blendColor(theme.bright_black, theme.foreground, isLight ? 0.44 : 0.34),
+    punctuation: blendColor(theme.foreground, theme.background, isLight ? 0.22 : 0.18),
+    keyword: readableAccent(theme.blue, isLight),
+    string: readableAccent(theme.green, isLight),
+    number: readableAccent(theme.yellow, isLight),
+    function: readableAccent(theme.magenta, isLight),
+    type: readableAccent(theme.cyan, isLight),
+    property: readableAccent(theme.bright_blue, isLight),
+    operator: readableAccent(theme.foreground, isLight),
+    tag: readableAccent(theme.red, isLight),
+    deleted: readableAccent(theme.red, isLight),
+    inserted: readableAccent(theme.green, isLight),
   };
 }
 

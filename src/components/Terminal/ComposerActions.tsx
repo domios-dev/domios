@@ -504,16 +504,16 @@ export function ComposerActions({
                 e.preventDefault();
                 onSchedule();
               }}
-              className={`${btnBase} ${voiceActive ? "" : "ct-composer-round-button"} absolute left-1/2 top-1/2 rounded-full border text-white ${
+              className={`${btnBase} ${voiceActive ? "" : "ct-composer-round-button"} absolute left-1/2 top-1/2 rounded-full border ${
                 voiceActive ? "z-30" : "h-10 w-10"
               } ${isLocked ? "ring-4 ring-[var(--ct-accent,#58a6ff)]/25" : ""} shadow-none disabled:opacity-40`}
               style={{
                 background:
                   voiceActive || mainIsSend || isLocked
-                    ? "linear-gradient(145deg, #4f8cff 0%, #1f6feb 100%)"
+                    ? "var(--ct-accent)"
                     : "var(--ct-surface, #161b22)",
                 border: "1px solid var(--ct-border)",
-                color: voiceActive || mainIsSend || isLocked ? "white" : "var(--ct-fg, #c9d1d9)",
+                color: voiceActive || mainIsSend || isLocked ? "var(--ct-bg)" : "var(--ct-fg, #c9d1d9)",
                 height: voiceActive ? "5.5rem" : undefined,
                 width: voiceActive ? "5.5rem" : undefined,
                 // Constant center anchor in both states — only the size transitions, so growth radiates from the center.

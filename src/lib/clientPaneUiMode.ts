@@ -20,6 +20,21 @@ export function publishCurrentPaneUiMode(paneId: string, mode: PaneUiMode): void
   );
 }
 
+/** Single source of truth for a pane's opening view, shared by the pane body and
+ *  the mode switch so they agree on the first frame (no terminal→chat flicker).
+ *  Priority: live/explicit choice > backend chat_view > global chat-default. */
+export function resolveInitialPaneUiMode(
+  paneId: string,
+  opts: { chatCapable: boolean; chatViewFlag?: boolean; chatDefault?: boolean; mobileDefault?: boolean },
+): PaneUiMode {
+  const explicit = getCurrentPaneUiMode(paneId) ?? getClientPaneUiMode(paneId);
+  if (explicit) return explicit === "chat" && opts.chatCapable ? "chat" : "terminal";
+  if (!opts.chatCapable) return "terminal";
+  if (opts.chatViewFlag) return "chat";
+  if (opts.chatDefault) return "chat";
+  return opts.mobileDefault ? "chat" : "terminal";
+}
+
 export function getClientPaneUiMode(paneId: string): PaneUiMode | null {
   const key = `${PREFIX}${paneId}`;
   try {
