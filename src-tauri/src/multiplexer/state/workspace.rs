@@ -146,12 +146,24 @@ impl MultiplexerState {
         }
     }
 
+    /// Move a workspace to the front and pin it to the lowest `sort_order` (0),
+    /// renumbering the rest by their existing order. Used for the General
+    /// (protected) workspace so it stays at the top of the sidebar.
     pub fn move_workspace_to_front(&mut self, id: &str) {
         if let Some(idx) = self.workspaces.iter().position(|w| w.id == id) {
             if idx > 0 {
                 let ws = self.workspaces.remove(idx);
                 self.workspaces.insert(0, ws);
             }
+        }
+        let mut rest: Vec<&mut Workspace> =
+            self.workspaces.iter_mut().filter(|w| w.id != id).collect();
+        rest.sort_by_key(|w| w.sort_order);
+        for (i, w) in rest.into_iter().enumerate() {
+            w.sort_order = (i + 1) as i32;
+        }
+        if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == id) {
+            ws.sort_order = 0;
         }
     }
 
