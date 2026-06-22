@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { useConfig } from "../../hooks/useConfig";
 import {
   markChatDefaultPrompted,
   setDefaultNewAgentPaneToChat,
@@ -16,17 +15,25 @@ import {
  * One-time inline nudge beside the mode switch the first time a pane enters chat:
  * accept makes chat the default view (and swaps the picker order); dismiss just
  * stops asking. Both write `chat_ui_default_prompted`, so it never reappears.
+ * `prompted`/`isDefault` arrive via props from App's single useConfig — never a
+ * per-pane useConfig (that multiplied get_config by pane count, freezing switches).
  */
-export function ChatDefaultSuggestion({ paneId, height }: { paneId: string; height?: number }) {
-  const { config } = useConfig();
-  const ui = config.ui;
+export function ChatDefaultSuggestion({
+  paneId,
+  height,
+  prompted,
+  isDefault,
+}: {
+  paneId: string;
+  height?: number;
+  prompted: boolean;
+  isDefault: boolean;
+}) {
   const [mode, setMode] = useState<PaneUiMode>(
     () => getCurrentPaneUiMode(paneId) ?? getClientPaneUiMode(paneId) ?? "terminal",
   );
   useEffect(() => listenCurrentPaneUiMode(paneId, setMode), [paneId]);
 
-  const prompted = ui?.chat_ui_default_prompted === true;
-  const isDefault = ui?.default_new_agent_pane_chat === true;
   if (mode !== "chat" || prompted || isDefault) return null;
 
   return (
