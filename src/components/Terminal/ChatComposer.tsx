@@ -572,11 +572,16 @@ export function ChatComposer({
         await invoke("chat_send_text", { paneId, text: composed, enter: true });
       } else {
         const fallbackCommand = allAttachments.length === 0 ? cliFallbackCommandPayload(composed) : null;
-        if (!currentPtyId) throw new Error("Pane has no PTY");
         if (fallbackCommand) {
+          // CLI fallback commands write directly to the PTY — need the id now.
+          if (!currentPtyId) throw new Error("Pane has no PTY");
           onOpenTerminalFallback?.();
           await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
         } else {
+          // Regular sends go through chat_send_text, whose backend implementation
+          // (send_text_when_ready → await_pty_link_blocking) waits up to 15s for
+          // the PTY to start — safe to call even when currentPtyId is still null
+          // on a freshly created pane.
           await invoke("chat_send_text", { paneId, text: composed, enter: true });
         }
       }
