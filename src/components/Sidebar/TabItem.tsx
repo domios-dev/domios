@@ -49,7 +49,7 @@ function TabItemInner({
   onClose,
   canClose,
   paneCount,
-  workspaceId,
+  workspaceId: _workspaceId,
   hasAgent,
   status,
   onRename: _onRename,
@@ -168,18 +168,6 @@ function TabItemInner({
       data-tab-id={tab.id}
       title={description ? `${displayTitle}\n${description}` : displayTitle}
       onClick={onClick}
-      draggable={!touchMode}
-      onDragStart={(e) => {
-        if (touchMode) {
-          e.preventDefault();
-          return;
-        }
-        e.dataTransfer.setData("text/plain", JSON.stringify({
-          tabId: tab.id,
-          fromWorkspaceId: workspaceId,
-        }));
-        e.dataTransfer.effectAllowed = "move";
-      }}
       className={`
         sidebar-tab group flex items-center justify-between cursor-pointer transition-colors relative
         ${touchMode ? "sidebar-tab-touch" : ""}

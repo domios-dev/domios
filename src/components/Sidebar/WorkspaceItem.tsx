@@ -23,8 +23,6 @@ interface WorkspaceItemProps {
   canClose: boolean;
   status: PaneStatus | null;
   hasWaiting: boolean;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDrop?: (e: React.DragEvent) => void;
   touchMode?: boolean;
   uiFontScale?: number;
 }
@@ -42,14 +40,11 @@ function WorkspaceItemInner({
   canClose: _canClose,
   status: _status,
   hasWaiting,
-  onDragOver,
-  onDrop,
   touchMode = false,
   uiFontScale,
 }: WorkspaceItemProps) {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(workspace.name);
-  const [dragOver, setDragOver] = useState(false);
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -125,18 +120,7 @@ function WorkspaceItemInner({
         ${touchMode ? "min-h-11 px-2 py-2" : "px-1 py-2"}
         ${isActive ? "bg-[var(--ct-active)] text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"}
         ${hasWaiting ? "bg-[var(--ct-yellow)]/10" : ""}
-        ${dragOver ? "bg-[var(--ct-accent)]/20" : ""}
       `}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setDragOver(true);
-        onDragOver?.(e);
-      }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        setDragOver(false);
-        onDrop?.(e);
-      }}
     >
       <div className={`flex items-center min-w-0 ${touchMode ? "gap-2" : "gap-1"}`}>
         {/* Chevron toggle — rotates on expand/collapse */}

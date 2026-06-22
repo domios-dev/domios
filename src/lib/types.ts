@@ -13,6 +13,8 @@ export interface Workspace {
   active_tab_id: string | null;
   cwd: string | null;
   protected?: boolean;
+  /** Sibling ordinal among workspaces; the sidebar sorts by it. */
+  sort_order?: number;
 }
 
 /** A pane that was closed and can be reopened. Mirrors Rust `ClosedPane`
@@ -52,6 +54,8 @@ export interface Tab {
   description?: string | null;
   /** One pane per tab. Split layouts were removed. */
   pane_id: string;
+  /** Per-group sibling ordinal (top-level tabs, or children of one parent). */
+  sort_order?: number;
 }
 
 export type AgentRole = "Orchestrator" | "Worker";

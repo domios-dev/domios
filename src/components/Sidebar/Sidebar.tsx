@@ -17,6 +17,15 @@ import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
 import { RecentlyClosed } from "./RecentlyClosed";
+import {
+  SidebarDnd,
+  SortableRow,
+  SortableContext,
+  verticalListSortingStrategy,
+  sortByOrder,
+  WS_PREFIX,
+  TAB_PREFIX,
+} from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import {
@@ -82,7 +91,8 @@ export function Sidebar({
     setActiveWorkspace,
     closeWorkspace,
     renameWorkspace,
-    moveTab,
+    reorderTabs,
+    reorderWorkspaces,
     createTab,
     closeTab,
     reopenClosed,
@@ -404,6 +414,17 @@ export function Sidebar({
     }, 350);
   }, [closeTab, state.workspaces]);
 
+  // Workspaces rendered in sort_order; the sidebar is the source of visual order.
+  const sortedWorkspaces = useMemo(() => sortByOrder(state.workspaces), [state.workspaces]);
+  const workspaceSortIds = useMemo(
+    () => sortedWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
+    [sortedWorkspaces],
+  );
+  const dndHandlers = useMemo(
+    () => ({ reorderTabs, reorderWorkspaces }),
+    [reorderTabs, reorderWorkspaces],
+  );
+
   return (
     <>
       <div
@@ -475,7 +496,7 @@ export function Sidebar({
               {isCompact ? (
                 /* Compact mode — icon list with collapsible tabs */
                 <div className="flex flex-col items-center py-1">
-                  {state.workspaces.map((ws) => {
+                  {sortedWorkspaces.map((ws) => {
                     const isActive = ws.id === state.active_workspace_id;
                     const isActiveVisual = isActive && isWorkspaceMode;
                     const isExpanded = expandedWorkspaces.has(ws.id);
@@ -490,7 +511,7 @@ export function Sidebar({
                         >
                           <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
                         </button>
-                        {isExpanded && ws.tabs.map((tab) => {
+                        {isExpanded && sortByOrder(ws.tabs).map((tab) => {
                           const tabPaneIds = collectPaneIds(tab, state.panes);
                           const isTabActive = isActiveVisual && tab.id === state.activeTabIds[ws.id];
                           return (
@@ -523,8 +544,12 @@ export function Sidebar({
                     );
                   })}
                 </div>
-              ) : state.workspaces.map((ws) => {
-                const allPaneIds = ws.tabs.flatMap((t) => collectPaneIds(t, state.panes));
+              ) : (
+                <SidebarDnd handlers={dndHandlers}>
+                <SortableContext items={workspaceSortIds} strategy={verticalListSortingStrategy}>
+                {sortedWorkspaces.map((ws) => {
+                const sortedTabs = sortByOrder(ws.tabs);
+                const allPaneIds = sortedTabs.flatMap((t) => collectPaneIds(t, state.panes));
                 const wsStatus = aggregateStatus(allPaneIds, state.paneStatuses);
                 const hasWaiting = allPaneIds.some(
                   (pid) => state.paneStatuses[pid] === "Waiting",
@@ -539,6 +564,10 @@ export function Sidebar({
 
                 return (
                   <div key={ws.id}>
+                    <SortableRow
+                      id={`${WS_PREFIX}${ws.id}`}
+                      data={{ group: "workspace", groupKey: "workspaces", items: workspaceSortIds }}
+                    >
                     <WorkspaceItem
                       workspace={ws}
                       isActive={isActiveVisual}
@@ -552,19 +581,10 @@ export function Sidebar({
                       canClose={true}
                       status={wsStatus}
                       hasWaiting={hasWaiting}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        try {
-                          const data = JSON.parse(e.dataTransfer.getData("text/plain"));
-                          if (data.tabId && data.fromWorkspaceId && data.fromWorkspaceId !== ws.id) {
-                            moveTab(data.tabId, data.fromWorkspaceId, ws.id);
-                          }
-                        } catch { /* ignore */ }
-                      }}
                       touchMode={touchMode}
                       uiFontScale={uiFontScale}
                     />
+                    </SortableRow>
                     {/* Animated expand/collapse using grid-template-rows */}
                     <div
                       className="grid transition-[grid-template-rows] duration-[320ms]"
@@ -577,38 +597,45 @@ export function Sidebar({
                         {/* Content always rendered — CSS grid-template-rows handles show/hide with animation */}
                         <>
                           {(() => {
-                            // Build pane→tab lookup and find which tabs are children
-                            const paneToTab: Record<string, typeof ws.tabs[0]> = {};
-                            for (const tab of ws.tabs) {
-                              const pids = collectPaneIds(tab, state.panes);
-                              if (pids[0]) paneToTab[pids[0]] = tab;
-                            }
                             // Set of pane IDs that are children (have a parent) — skip at top level
                             const childPaneIds = new Set<string>();
-                            for (const tab of ws.tabs) {
+                            for (const tab of sortedTabs) {
                               const pids = collectPaneIds(tab, state.panes);
                               const pane = pids[0] ? state.panes[pids[0]] : null;
                               if (pane?.parent_pane_id) childPaneIds.add(pids[0]);
                             }
 
-                            // Render a tab + its children recursively
-                            const renderTab = (tab: Tab, index: number, depth: number): React.ReactNode => {
+                            // Render a tab + its children recursively. `group`/`groupKey`/
+                            // `items` scope this tab's drag to its own sibling set.
+                            const renderTab = (
+                              tab: Tab,
+                              index: number,
+                              depth: number,
+                              group: "tab" | "child",
+                              groupKey: string,
+                              items: string[],
+                            ): React.ReactNode => {
                               const tabPids = collectPaneIds(tab, state.panes);
                               const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
-                              // Find child tabs (tabs whose pane.parent_pane_id === this pane)
+                              // Child tabs (pane.parent_pane_id === this pane), in sort order.
                               const childTabs = firstPane
-                                ? ws.tabs.filter((t) => {
+                                ? sortedTabs.filter((t) => {
                                     const tPids = collectPaneIds(t, state.panes);
                                     const tPane = tPids[0] ? state.panes[tPids[0]] : null;
                                     return tPane?.parent_pane_id === firstPane.id;
                                   })
                                 : [];
+                              const childIds = childTabs.map((t) => `${TAB_PREFIX}${t.id}`);
 
                               const isClosing = closingTabs.has(tab.id);
                               const isAppearing = appearingTabs.has(tab.id);
 
                               return (
                                 <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
+                                  <SortableRow
+                                    id={`${TAB_PREFIX}${tab.id}`}
+                                    data={{ group, groupKey, items }}
+                                  >
                                   <TabItem
                                     tab={tab}
                                     index={index}
@@ -636,20 +663,33 @@ export function Sidebar({
                                     touchMode={touchMode}
                                     uiFontScale={uiFontScale}
                                   />
-                                  {childTabs.map((ct, ci) => renderTab(ct, ci, depth + 1))}
+                                  </SortableRow>
+                                  {childTabs.length > 0 && firstPane && (
+                                    <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
+                                      {childTabs.map((ct, ci) =>
+                                        renderTab(ct, ci, depth + 1, "child", firstPane.id, childIds),
+                                      )}
+                                    </SortableContext>
+                                  )}
                                 </div>
                               );
                             };
 
-                            // Only render top-level tabs (not children)
-                            return ws.tabs
-                              .filter((tab) => {
-                                const pids = collectPaneIds(tab, state.panes);
-                                if (pids.length === 0) return false;
-                                if (childPaneIds.has(pids[0])) return false;
-                                return true;
-                              })
-                              .map((tab, index) => renderTab(tab, index, 0));
+                            // Only render top-level tabs (children render under their parent).
+                            const topLevel = sortedTabs.filter((tab) => {
+                              const pids = collectPaneIds(tab, state.panes);
+                              if (pids.length === 0) return false;
+                              if (childPaneIds.has(pids[0])) return false;
+                              return true;
+                            });
+                            const topLevelIds = topLevel.map((t) => `${TAB_PREFIX}${t.id}`);
+                            return (
+                              <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
+                                {topLevel.map((tab, index) =>
+                                  renderTab(tab, index, 0, "tab", ws.id, topLevelIds),
+                                )}
+                              </SortableContext>
+                            );
                           })()}
                           {/* Add agent session button */}
                           {(() => {
@@ -716,6 +756,9 @@ export function Sidebar({
                   </div>
                 );
               })}
+                </SortableContext>
+                </SidebarDnd>
+              )}
             </div>
 
             {/* Recently closed — pinned above bottom nav, aggregated across all workspaces */}

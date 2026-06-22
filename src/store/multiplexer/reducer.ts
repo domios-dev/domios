@@ -19,6 +19,8 @@ export type Action =
   | { type: "CLOSE_WORKSPACE"; id: string }
   | { type: "RENAME_WORKSPACE"; id: string; name: string }
   | { type: "MOVE_TAB"; tabId: string; fromWorkspaceId: string; toWorkspaceId: string }
+  | { type: "REORDER_TABS"; orderedTabIds: string[] }
+  | { type: "REORDER_WORKSPACES"; orderedWorkspaceIds: string[] }
   | { type: "ADD_TAB"; workspaceId: string; tab: Tab; pane: Pane }
   | { type: "CLOSE_TAB"; workspaceId: string; tabId: string; removedPaneIds: string[] }
   | { type: "SET_ACTIVE_TAB"; workspaceId: string; tabId: string }
@@ -202,6 +204,36 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         }),
         activeTabIds: newActiveTabIds,
         active_workspace_id: action.toWorkspaceId,
+      };
+    }
+
+    case "REORDER_TABS": {
+      // Optimistic: assign sort_order = position within the dragged group.
+      // Reconciled by the next backend SET_STATE (authoritative). Other groups
+      // keep their values; cross-group collisions are harmless (each group is
+      // sorted independently in the sidebar).
+      const orderById = new Map(action.orderedTabIds.map((id, i) => [id, i]));
+      return {
+        ...state,
+        workspaces: state.workspaces.map((ws) => {
+          if (!ws.tabs.some((t) => orderById.has(t.id))) return ws;
+          return {
+            ...ws,
+            tabs: ws.tabs.map((t) =>
+              orderById.has(t.id) ? { ...t, sort_order: orderById.get(t.id)! } : t,
+            ),
+          };
+        }),
+      };
+    }
+
+    case "REORDER_WORKSPACES": {
+      const orderById = new Map(action.orderedWorkspaceIds.map((id, i) => [id, i]));
+      return {
+        ...state,
+        workspaces: state.workspaces.map((ws) =>
+          orderById.has(ws.id) ? { ...ws, sort_order: orderById.get(ws.id)! } : ws,
+        ),
       };
     }
 

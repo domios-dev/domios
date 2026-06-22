@@ -10,6 +10,12 @@ export interface MultiplexerContextType {
   closeWorkspace: (id: string) => void;
   renameWorkspace: (id: string, name: string) => void;
   moveTab: (tabId: string, fromWorkspaceId: string, toWorkspaceId: string) => void;
+  /** Reorder a tab group within its hierarchy level. `parentPaneId` set →
+   *  reorder children of that parent; otherwise reorder a workspace's top-level
+   *  tabs. Within-group only — the order list never crosses groups. */
+  reorderTabs: (args: { workspaceId?: string; parentPaneId?: string; orderedTabIds: string[] }) => void;
+  /** Reorder the workspace list to the given order. */
+  reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
   createTab: (workspaceId: string, cwd?: string) => void;
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed pane (index 0 = most recent). */
