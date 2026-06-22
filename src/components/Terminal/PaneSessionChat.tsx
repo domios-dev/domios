@@ -83,6 +83,10 @@ export function PaneSessionChat({
   const agentSessionId = pane?.agent_session_id ?? null;
   const currentPtyId = pane?.pty_id ?? null;
   const chatBacking = pane?.backing?.kind === "chat_backend" ? pane.backing : null;
+  // Derive from live pane state so a restored chatBackend pane with a stale
+  // prop (e.g. old snapshot defaulted backing to Pty before chatbackend fields
+  // were persisted) still routes sends correctly.
+  const effectiveChatBackend = chatBackend || chatBacking !== null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
   const terminalHasAttention = terminalActive || Boolean(pendingPrompt);
 
@@ -114,7 +118,7 @@ export function PaneSessionChat({
   // clears pane.pending_prompt shortly after on the next state poll.
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
   const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
-  const inlinePrompt = chatBackend ? activePrompt : null;
+  const inlinePrompt = effectiveChatBackend ? activePrompt : null;
 
   useEffect(() => {
     if (!pendingPrompt) setAnsweredPromptQuestion(null);
@@ -423,9 +427,9 @@ export function PaneSessionChat({
           <div className="w-full max-w-4xl min-w-0 mx-auto">
             <AgentStateIndicator
               state={liveAgentState}
-              onStop={chatBackend || !currentPtyId ? undefined : handleStopAgent}
-              onCancel={chatBackend || !currentPtyId ? undefined : handleStopAgent}
-              onOpenTerminal={chatBackend ? undefined : onOpenTerminalFallback}
+              onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+              onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
+              onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
             />
           </div>
         )}
@@ -435,7 +439,7 @@ export function PaneSessionChat({
         paneId={paneId}
         paneProvider={paneProvider}
         currentPtyId={currentPtyId}
-        chatBackend={chatBackend}
+        chatBackend={effectiveChatBackend}
         pendingPrompt={pendingPrompt}
         terminalHasAttention={terminalHasAttention}
         attachments={attachments}
@@ -446,9 +450,9 @@ export function PaneSessionChat({
         addOptimistic={addOptimistic}
         updateOptimistic={updateOptimistic}
         showComposerError={showComposerError}
-        onOpenTerminalFallback={chatBackend ? undefined : onOpenTerminalFallback}
-        onToggleTerminalFallback={chatBackend ? undefined : onToggleTerminalFallback}
-        modelBubble={chatBackend && chatBacking ? (
+        onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+        onToggleTerminalFallback={effectiveChatBackend ? undefined : onToggleTerminalFallback}
+        modelBubble={effectiveChatBackend && chatBacking ? (
           <>
             <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
             <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
