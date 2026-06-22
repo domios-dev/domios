@@ -23,6 +23,10 @@ interface TabContentProps {
   api?: ApiConfig;
   workspaceCwd?: string | null;
   uiFontScale?: number;
+  /** From App's single useConfig — chat is the default view (leads the picker). */
+  chatFirst: boolean;
+  /** From App's single useConfig — chat-default nudge already answered. */
+  chatDefaultPrompted: boolean;
 }
 
 export function TabContent({
@@ -36,6 +40,8 @@ export function TabContent({
   usageEnabledByProvider,
   workspaceCwd,
   uiFontScale,
+  chatFirst,
+  chatDefaultPrompted,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(pane?.agent_type);
 
@@ -75,6 +81,8 @@ export function TabContent({
           paneId={pane.id}
           cwd={cwd}
           showSwitch={showSwitch}
+          chatFirst={chatFirst}
+          chatDefaultPrompted={chatDefaultPrompted}
           usageProvider={usageProvider}
           usageVisible={usageVisible}
         />

@@ -157,6 +157,11 @@ function AppInner() {
   }, [config.agents]);
   const usageEnabledByProvider = useStableJsonValue(computedUsageEnabledByProvider);
 
+  // Feed the pane top bar's chat-default flags from this one useConfig as props, so
+  // PaneTopBar/ChatDefaultSuggestion never run a per-pane useConfig (froze switches).
+  const chatPaneDefault = config.ui?.default_new_agent_pane_chat === true;
+  const chatDefaultPrompted = config.ui?.chat_ui_default_prompted === true;
+
   const {
     state,
     createWorkspace,
@@ -616,6 +621,8 @@ function AppInner() {
                   api={stableApiConfig}
                   workspaceCwd={ws.cwd ?? null}
                   uiFontScale={uiFontScale}
+                  chatFirst={chatPaneDefault}
+                  chatDefaultPrompted={chatDefaultPrompted}
                 />
               </div>
                 );
