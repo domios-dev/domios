@@ -73,7 +73,12 @@ If `build` (git commit hash) differs from `git rev-parse HEAD`, the old build is
 Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-dev/logs/codeterm.log`.
 
 Full testing guide (3 layers, remote E2E, fixtures): `docs/TESTING.md`.
-UI automation/debugging uses Playwright over WebView2 CDP only; operational docs live in `tests/playwright/README.md`.
+
+UI automation runs Playwright on **both** platforms — `tests/playwright/helpers/dev-console.ts` `connectUi()` branches on the OS:
+- **Windows** → `connectOverCDP` to the real WebView2 desktop app (drives the actual Tauri window; most faithful, covers native/PTY rendering).
+- **macOS / Linux** → web-mode: Playwright launches its own Chromium against the dev web client (`/web/`). Same React UI, so it verifies shared UI logic (composer, chat-view, state) — but NOT desktop-native behaviour; use Windows/ROG for that.
+
+Run (any OS, against a healthy dev on 7686): `npx playwright test --config=tests/playwright/playwright.config.ts --project=golden` (projects: `smoke` / `golden` / `full`). On macOS this needs the dev running and Chromium installed (`npx playwright install chromium`). So a UI/chat-view fix on macOS IS gateable locally via web-mode — do not skip it. Operational docs: `tests/playwright/README.md`.
 
 **Cargo tests on Windows — never lose 10 min to a hang:**
 - From PowerShell, run repo commands through `.\build.ps1 ...`; it selects Git
