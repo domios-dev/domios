@@ -12,6 +12,10 @@ pub struct Workspace {
     /// Protected workspaces cannot be closed via API or UI.
     #[serde(default)]
     pub protected: bool,
+    /// Sibling ordinal among workspaces. Only relative order within the group
+    /// matters; the frontend sorts by it. Legacy snapshots default to 0.
+    #[serde(default)]
+    pub sort_order: i32,
 }
 
 /// A closed pane retained for browser-style reopen. Captures just enough to
@@ -84,6 +88,11 @@ pub struct Tab {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
     pub pane_id: String,
+    /// Sibling ordinal within this tab's group (top-level tabs of a workspace,
+    /// or children sharing a parent pane). Only relative order within the group
+    /// matters; cross-group values may collide. Legacy snapshots default to 0.
+    #[serde(default)]
+    pub sort_order: i32,
 }
 
 /// Legacy — kept only for old snapshot deserialization.

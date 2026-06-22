@@ -106,6 +106,7 @@ impl MultiplexerState {
                     active_tab_id: ws.active_tab_id.clone(),
                     cwd: ws.cwd.clone(),
                     protected: ws.protected,
+                    sort_order: ws.sort_order,
                     tabs: ws
                         .tabs
                         .iter()
@@ -125,6 +126,7 @@ impl MultiplexerState {
                                 .get(&tab.pane_id)
                                 .and_then(|pane| pane.description.clone()),
                             split_tree: pane_to_leaf_snapshot(&tab.pane_id, &self.panes),
+                            sort_order: tab.sort_order,
                         })
                         .collect(),
                 }
@@ -305,10 +307,12 @@ impl MultiplexerState {
                             .get(&pane_id)
                             .and_then(|pane| pane.description.clone()),
                         pane_id,
+                        sort_order: tab.sort_order,
                     })
                 }).collect(),
                 cwd: ws.cwd.clone(),
                 protected: ws.protected,
+                sort_order: ws.sort_order,
             }
         }).collect();
 
@@ -369,11 +373,13 @@ mod tests {
                 active_tab_id: Some("tab".into()),
                 cwd: None,
                 protected: false,
+                sort_order: 0,
                 tabs: vec![TabSnapshot {
                     id: "tab".into(),
                     title: "tab".into(),
                     description: None,
                     split_tree: leaf,
+                    sort_order: 0,
                 }],
             }],
         }

@@ -17,12 +17,14 @@ impl MultiplexerState {
         );
         let pane_id = self.create_pane();
         let tab_id = short_id();
+        let sort_order = self.next_tab_sort_order(workspace_id);
 
         let tab = Tab {
             id: tab_id.clone(),
             title,
             description: None,
             pane_id: pane_id.clone(),
+            sort_order,
         };
 
         let workspace = &mut self.workspaces[workspace_idx];

@@ -174,6 +174,57 @@ pub async fn move_tab(
 }
 
 #[derive(Deserialize)]
+pub(crate) struct ReorderTabsBody {
+    ordered_tab_ids: Vec<String>,
+}
+
+pub async fn reorder_tabs(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(workspace_id): Path<String>,
+    Json(body): Json<ReorderTabsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state
+        .svc
+        .reorder_tab(&workspace_id, &body.ordered_tab_ids)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder tabs"))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn reorder_children(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(parent_pane_id): Path<String>,
+    Json(body): Json<ReorderTabsBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state
+        .svc
+        .reorder_child(&parent_pane_id, &body.ordered_tab_ids)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder children"))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ReorderWorkspacesBody {
+    ordered_workspace_ids: Vec<String>,
+}
+
+pub async fn reorder_workspaces(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ReorderWorkspacesBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state
+        .svc
+        .reorder_workspace(&body.ordered_workspace_ids)
+        .map_err(|_| (StatusCode::BAD_REQUEST, "Failed to reorder workspaces"))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
 pub(crate) struct RenameTabBody {
     title: String,
 }

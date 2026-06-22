@@ -12,6 +12,7 @@ impl MultiplexerState {
             active_tab_id: None,
             cwd: cwd.clone(),
             protected: false,
+            sort_order: self.next_workspace_sort_order(),
         };
 
         self.workspaces.push(workspace);
@@ -181,7 +182,7 @@ impl MultiplexerState {
             return Err("Cannot move the last tab from a workspace".to_string());
         }
 
-        let tab = from_ws.tabs.remove(tab_idx);
+        let mut tab = from_ws.tabs.remove(tab_idx);
 
         if from_ws.active_tab_id.as_deref() == Some(tab_id) {
             from_ws.active_tab_id = from_ws.tabs.last().map(|t| t.id.clone());
@@ -193,6 +194,7 @@ impl MultiplexerState {
             .find(|w| w.id == to_workspace_id)
             .ok_or_else(|| format!("Destination workspace not found: {}", to_workspace_id))?;
 
+        tab.sort_order = to_ws.tabs.iter().map(|t| t.sort_order).max().unwrap_or(-1) + 1;
         to_ws.tabs.push(tab);
         to_ws.active_tab_id = Some(tab_id.to_string());
 
