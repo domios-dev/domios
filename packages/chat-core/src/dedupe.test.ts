@@ -284,5 +284,36 @@ const T0 = 1_700_000_000_000;
   eq(matchedIds, ["opt-1"], "ms-number-string echo matches (no double-scaling)");
 }
 
+// 22. A local_command echo (backend-normalized form of <command-name>/new</command-name>)
+//     clears the optimistic /new pill — exact content match.
+{
+  const localCmd = (id: string, content: string, tsMs: number): NormalizedChatMessage => ({
+    id, type: "local_command", content, timestamp: new Date(tsMs).toISOString(),
+  });
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-new", "/new", T0)],
+    [localCmd("lc-0", "/new", T0 + 200)],
+  );
+  eq(matchedIds, ["opt-new"], "local_command /new echo clears optimistic pill");
+  eq(pendingIds, [], "no stuck pill after local_command /new echo");
+}
+
+// 23. local_command echo with bare name (no leading slash) also clears the pill
+//     via coverage token matching.
+{
+  const localCmd = (id: string, content: string, tsMs: number): NormalizedChatMessage => ({
+    id, type: "local_command", content, timestamp: new Date(tsMs).toISOString(),
+  });
+  const { matchedIds, pendingIds } = matchedOptimisticEchoes(
+    [echo("opt-clear", "/clear", T0)],
+    [localCmd("lc-1", "clear", T0 + 200)],
+  );
+  // coverage pass: tokenNeedle("/clear") = ["/clear"]; tokens("clear") = ["clear"] — no match
+  // but exact: "/clear" vs "clear" — no match, so pill stays pending (expected — content diverged)
+  eq(pendingIds, ["opt-clear"], "bare-name local_command /clear stays pending (content mismatch)");
+  // The real fix for this case is the session-boundary clear in useChatSession.ts
+  void matchedIds; // suppress unused warning
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

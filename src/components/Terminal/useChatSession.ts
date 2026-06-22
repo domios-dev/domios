@@ -232,6 +232,9 @@ export function useChatSession({
       cancelled = true;
       unlisten?.();
       unlistenTest?.();
+      // Pre-reset optimistics are invalid in the new session; drop them now so
+      // /new and /clear pills don't stick when the session boundary changes.
+      setOptimistic([]);
       void invoke("chat_stop", { paneId }).catch(() => {});
     };
   }, [paneId, agentSessionId, nextClientOrder]);
@@ -264,7 +267,7 @@ export function useChatSession({
     // content-collapse that would swallow a legitimately repeated message).
     // A bubble is hidden once the provider transcript positively claims it,
     // either exactly or as part of a combined TUI-submitted user turn.
-    const parsedUsers = resetParsed.filter((m) => m.type === "user");
+    const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(liveOptimistic), parsedUsers);
     const matched = new Set(matchedIds);
     const stillPending = liveOptimistic.filter((m) => !matched.has(m.id));
@@ -339,7 +342,7 @@ export function useChatSession({
   // visible; combined transcript turns can still claim several quick sends.
   useEffect(() => {
     if (optimistic.length === 0) return;
-    const parsedUsers = resetParsed.filter((m) => m.type === "user");
+    const parsedUsers = resetParsed.filter((m) => m.type === "user" || m.type === "local_command");
     const { matchedIds } = matchedOptimisticEchoes(toEchoes(optimistic), parsedUsers);
     const matched = new Set(matchedIds);
     setOptimistic((prev) => {

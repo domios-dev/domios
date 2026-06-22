@@ -145,7 +145,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       for (let i = 0; i < parsedUsers.length; i++) {
         if (consumed[i]) continue;
         const candidate = parsedUsers[i];
-        if (candidate.type !== "user") continue;
+        if (candidate.type !== "user" && candidate.type !== "local_command") continue;
         const markerMatch = markerEchoMatchesParsed(echo.content, candidate.content);
         if (
           !markerMatch
@@ -200,7 +200,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     for (let i = 0; i < parsedUsers.length; i++) {
       if (consumed[i] || coverageClaimed.has(i)) continue;
       const candidate = parsedUsers[i];
-      if (candidate.type !== "user" || isFileIdentityMarker(candidate.content)) continue;
+      if ((candidate.type !== "user" && candidate.type !== "local_command") || isFileIdentityMarker(candidate.content)) continue;
       const ts = timestampMs(candidate.timestamp);
       if (ts != null && ts < echo.sentAtMs - ECHO_SKEW_MS) continue;
       const candidateTokens = meaningfulTokens(candidate.content);
