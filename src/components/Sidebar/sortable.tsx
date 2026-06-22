@@ -22,6 +22,9 @@ export interface SortableGroupData {
   group: "workspace" | "tab" | "child";
   groupKey: string;
   items: string[];
+  /** Prefixed ids pinned to the front of the group (the General workspace /
+   *  General tab). A drop that would not keep them leading is rejected. */
+  pinnedIds?: string[];
 }
 
 export const WS_PREFIX = "ws:";
@@ -109,7 +112,12 @@ export function SidebarDnd({
       const from = ad.items.indexOf(String(active.id));
       const to = ad.items.indexOf(String(over.id));
       if (from < 0 || to < 0) return;
-      const ordered = arrayMove(ad.items, from, to).map(rawId);
+      const reordered = arrayMove(ad.items, from, to);
+      // Reject (snap back) any drop that doesn't keep the pinned ids leading
+      // the group in their original order — nothing reorders above General.
+      const pinned = ad.pinnedIds ?? [];
+      if (pinned.some((p, i) => reordered[i] !== p)) return;
+      const ordered = reordered.map(rawId);
       if (ad.group === "workspace") {
         handlers.reorderWorkspaces(ordered);
       } else if (ad.group === "child") {
