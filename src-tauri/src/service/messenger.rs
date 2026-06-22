@@ -266,8 +266,7 @@ impl Messenger {
         );
 
         // The model gets the marker (sender + return address); the stored row carries only the clean body.
-        let staged = svc.run_outbound_stages(to_pane, marked);
-        svc.chatbackend_send(plugin_id, session_id, &staged)?;
+        svc.chatbackend_send(plugin_id, session_id, &marked)?;
         Ok(Delivery::ChatBackend { message_id })
     }
 

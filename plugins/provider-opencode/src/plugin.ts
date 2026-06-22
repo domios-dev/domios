@@ -141,7 +141,7 @@ const plugin: PluginModule = {
       parts.push("--port", host.shell.quoteFor(String(sps.port), platform));
     }
     if (p.sessionId) {
-      parts.push("--session", host.shell.quote(String(p.sessionId)));
+      parts.push("--session", host.shell.quoteFor(String(p.sessionId), host.platform()));
     }
     if (p.args && p.args.length > 0) {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
@@ -153,7 +153,7 @@ const plugin: PluginModule = {
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
     // Resume uses the normal TUI path; permission rules come from saved session config.
     void skipPermissions;
-    const parts = ["opencode", "--session", host.shell.quote(sessionId)];
+    const parts = ["opencode", "--session", host.shell.quoteFor(sessionId, host.platform())];
     return parts.join(" ");
   },
 

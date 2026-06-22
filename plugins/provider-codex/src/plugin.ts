@@ -122,7 +122,7 @@ const plugin: PluginModule = {
     }
     // session_id accepts UUID or rollout filename stem.
     const uuid = extractSessionUuid(sessionId) || sessionId;
-    parts.push(host.shell.quote(uuid));
+    parts.push(host.shell.quoteFor(uuid, host.platform()));
     return parts.join(" ");
   },
 

@@ -336,7 +336,7 @@ var plugin = {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
     const uuid = extractSessionUuid(sessionId) || sessionId;
-    parts.push(host.shell.quote(uuid));
+    parts.push(host.shell.quoteFor(uuid, host.platform()));
     return parts.join(" ");
   },
   // Rollout-tree detection: scan `~/.codex/sessions/.../rollout-*.jsonl`, reading only `session_meta` headers.

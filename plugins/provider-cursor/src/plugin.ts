@@ -116,7 +116,11 @@ const plugin: PluginModule = {
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const parts = ["cursor-agent", "--resume", host.shell.quote(String(sessionId || ""))];
+    const parts = [
+      "cursor-agent",
+      "--resume",
+      host.shell.quoteFor(String(sessionId || ""), host.platform()),
+    ];
     if (skipPermissions) parts.push("--force");
     return (skipPermissions ? trustPrefix() : "") + parts.join(" ");
   },

@@ -72,7 +72,6 @@ mod tests {
 
     #[test]
     fn preprocess_replaces_text() {
-        // The ctx carries the live text; the plugin augments it.
         let vm = vm_with(
             r#"module.exports.default = {
                 match: "text",
@@ -81,6 +80,43 @@ mod tests {
         );
         let p = JsChatPreprocessor::new(vm, "pre");
         assert_eq!(p.preprocess(&ctx(), "hi"), Some("hi [p1]".to_string()));
+    }
+
+    #[test]
+    fn ctx_fields_cross_the_boundary_camelcase() {
+        let vm = vm_with(
+            r#"module.exports.default = {
+                chatPreprocess(ctx) {
+                    return { text: [ctx.provider, ctx.cwd, ctx.turnIndex, ctx.paneId, ctx.text].join("|") };
+                }
+            }"#,
+        );
+        let p = JsChatPreprocessor::new(vm, "pre");
+        let ctx = PreprocessCtx {
+            pane_id: "p1".into(),
+            cwd: Some("/work/repo".into()),
+            provider: Some("claude".into()),
+            turn_index: 7,
+        };
+        assert_eq!(
+            p.preprocess(&ctx, "hello"),
+            Some("claude|/work/repo|7|p1|hello".to_string())
+        );
+    }
+
+    #[test]
+    fn optional_ctx_fields_serialize_as_null() {
+        let vm = vm_with(
+            r#"module.exports.default = {
+                chatPreprocess(ctx) {
+                    var cwd = ctx.cwd === null ? "NULL" : String(ctx.cwd);
+                    var provider = ctx.provider === null ? "NULL" : String(ctx.provider);
+                    return { text: provider + "|" + cwd + "|" + ctx.turnIndex };
+                }
+            }"#,
+        );
+        let p = JsChatPreprocessor::new(vm, "pre");
+        assert_eq!(p.preprocess(&ctx(), "x"), Some("NULL|NULL|0".to_string()));
     }
 
     #[test]

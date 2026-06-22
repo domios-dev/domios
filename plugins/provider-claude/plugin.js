@@ -636,7 +636,7 @@ function parseWizardOptions(body) {
 }
 function parseNumberedOptions(text) {
   const options = [];
-  const re = /(?:^|[\s❯>])(\d+)\.\s*([\s\S]*?)(?=(?:[\s❯>]\d+\.\s*)|Enter\s*to\s*select|$)/g;
+  const re = /^\s*[❯>]?\s*(\d+)\.\s*([^\r\n]*)/gm;
   let m;
   while ((m = re.exec(text)) !== null) {
     const label = cleanOptionLabel(m[2]);
@@ -652,7 +652,7 @@ function parseNumberedOptions(text) {
 }
 function parseCheckboxOptions(text) {
   const options = [];
-  const re = /(?:^|[\s❯>])((?:\[[ xX]\])|☐|☑|☒|✔)\s*([\s\S]*?)(?=(?:[\s❯>](?:\[[ xX]\]|☐|☑|☒|✔)\s*)|Enter\s*to\s*select|$)/g;
+  const re = /^\s*[❯>]?\s*((?:\[[ xX]\])|☐|☑|☒|✔)\s*([^\r\n]*)/gm;
   let m;
   while ((m = re.exec(text)) !== null) {
     const label = cleanOptionLabel(m[2]);

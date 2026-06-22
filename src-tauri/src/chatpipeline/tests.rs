@@ -166,16 +166,29 @@ async fn voice_stage_no_backend_errors() {
 
 #[test]
 fn user_turn_send_runs_stages_only_for_user_agent_sends() {
-    // args: (is_service_push, has_source_pane, is_chat_backed, is_agent_pane)
-    // P3/F3: a plain user send to a PTY AGENT pane runs the stages.
-    assert!(is_user_turn_send(false, false, false, true));
-    // BUG A: a SHELL pane (no agent_type) must NEVER get a context block —
-    // injecting one garbled `echo X` and broke 23 e2e tests.
-    assert!(!is_user_turn_send(false, false, false, false));
-    // Service push (svc_token) is system traffic → skip.
-    assert!(!is_user_turn_send(true, false, false, true));
-    // Carries a source_pane (inter-pane / mesh / report delivery) → skip.
-    assert!(!is_user_turn_send(false, true, false, true));
-    // chatBackend pane → its transport already staged; don't double-process.
-    assert!(!is_user_turn_send(false, false, true, true));
+    assert!(is_user_turn_send(false, false, true));
+    assert!(!is_user_turn_send(false, false, false));
+    assert!(!is_user_turn_send(true, false, true));
+    assert!(!is_user_turn_send(false, true, true));
+}
+
+fn occurrences(haystack: &str, needle: &str) -> usize {
+    haystack.match_indices(needle).count()
+}
+
+#[test]
+fn outbound_stages_only_run_at_user_facing_send_seams() {
+    let rest = include_str!("../api/pane_routes/send.rs");
+    let composer = include_str!("../commands/pane.rs");
+    let chat = include_str!("../service/pane_transport_chat.rs");
+    let batch = include_str!("../service/pty_io/send.rs");
+    let messenger = include_str!("../service/messenger.rs");
+    let bridge = include_str!("../bridge/manager/mod.rs");
+
+    assert_eq!(occurrences(rest, "run_outbound_stages("), 1);
+    assert_eq!(occurrences(composer, "run_outbound_stages("), 1);
+    assert_eq!(occurrences(chat, "run_outbound_stages("), 0);
+    assert_eq!(occurrences(batch, "run_outbound_stages("), 0);
+    assert_eq!(occurrences(messenger, "run_outbound_stages("), 0);
+    assert_eq!(occurrences(bridge, "run_outbound_stages("), 0);
 }

@@ -111,6 +111,7 @@ struct StepResult {
     classify: Option<PaneStateClassification>,
     coarse: Coarse,
     mid_stream: bool, // true while real output still follows this step
+    now_ms: u64,      // replay clock at this step (for convergence latency)
 }
 
 fn classify_at(provider: &JsProvider, sig: &StreamSignals) -> Option<PaneStateClassification> {
@@ -145,6 +146,7 @@ fn replay(cast: &Cast, provider: &JsProvider) -> Vec<StepResult> {
                     classify: classify_at(provider, &sig),
                     coarse: coarse(&sig),
                     mid_stream: true, // a later event still follows
+                    now_ms: t,
                 });
                 t += TICK_MS;
             }
@@ -161,6 +163,7 @@ fn replay(cast: &Cast, provider: &JsProvider) -> Vec<StepResult> {
                     classify: classify_at(provider, &sig),
                     coarse: coarse(&sig),
                     mid_stream: output_after(i),
+                    now_ms: *now_ms,
                 });
                 last_ms = *now_ms;
             }
@@ -176,6 +179,7 @@ fn replay(cast: &Cast, provider: &JsProvider) -> Vec<StepResult> {
             classify: classify_at(provider, &sig),
             coarse: coarse(&sig),
             mid_stream: false, // tail: no real output follows
+            now_ms: t,
         });
         t += TICK_MS;
     }
@@ -225,6 +229,30 @@ fn final_state(steps: &[StepResult]) -> PaneState {
         .unwrap_or(PaneState::Unknown)
 }
 
+/// Convergence latency (MEASURED diagnostic, never a gate): replay-clock ms,
+/// relative to the first step, at which the classifier first reaches `truth`
+/// and never leaves it again. `None` when it never settles on truth (a
+/// final-state failure the golden oracle already catches). This is the data a
+/// future latency hard-gate would need; surfaced now so the budgets can be set
+/// from real numbers rather than guessed.
+fn convergence_ms(steps: &[StepResult], truth: PaneState) -> Option<u64> {
+    let base = steps.first()?.now_ms;
+    let mut converged_at: Option<u64> = None;
+    for s in steps {
+        let Some(c) = s.classify.as_ref() else {
+            continue;
+        };
+        if c.state == truth {
+            if converged_at.is_none() {
+                converged_at = Some(s.now_ms.saturating_sub(base));
+            }
+        } else {
+            converged_at = None; // left truth → not yet stable
+        }
+    }
+    converged_at
+}
+
 fn final_keys(steps: &[StepResult]) -> Option<Vec<String>> {
     steps
         .iter()
@@ -243,6 +271,7 @@ struct FixtureResult {
     failures: Vec<String>,
     gating: bool,
     source: Option<String>,
+    convergence_ms: Option<u64>,
 }
 
 fn run_fixture(name: &str, dir: &Path, provider: &JsProvider) -> FixtureResult {
@@ -311,6 +340,8 @@ fn run_fixture(name: &str, dir: &Path, provider: &JsProvider) -> FixtureResult {
         }
     }
 
+    let convergence_ms = convergence_ms(&steps, truth);
+
     FixtureResult {
         name: name.to_string(),
         truth,
@@ -320,6 +351,7 @@ fn run_fixture(name: &str, dir: &Path, provider: &JsProvider) -> FixtureResult {
         failures,
         gating: expected.gating,
         source: expected.source,
+        convergence_ms,
     }
 }
 
@@ -482,10 +514,10 @@ fn print_scorecard(results: &[FixtureResult]) {
 
     // Per-fixture detail — receipts for every real false-positive.
     println!(
-        "\n{:<34} {:>6} {:<18} {:<18} {:>4} {:>4}",
-        "fixture", "bucket", "truth", "predicted", "fW", "fTC"
+        "\n{:<34} {:>6} {:<18} {:<18} {:>4} {:>4} {:>8}",
+        "fixture", "bucket", "truth", "predicted", "fW", "fTC", "conv_ms"
     );
-    println!("{}", "-".repeat(90));
+    println!("{}", "-".repeat(98));
     for r in results {
         let bucket = if r.gating { "seed" } else { "REAL" };
         let flag = if !r.gating && (r.predicted != r.truth || !r.failures.is_empty()) {
@@ -493,17 +525,35 @@ fn print_scorecard(results: &[FixtureResult]) {
         } else {
             ""
         };
+        let conv = match r.convergence_ms {
+            Some(ms) => ms.to_string(),
+            None => "—".to_string(),
+        };
         println!(
-            "{:<34} {:>6} {:<18} {:<18} {:>4} {:>4}{}",
+            "{:<34} {:>6} {:<18} {:<18} {:>4} {:>4} {:>8}{}",
             r.name,
             bucket,
             label(r.truth),
             label(r.predicted),
             r.false_waiting,
             r.false_turn_complete,
+            conv,
             flag
         );
         let _ = &r.source;
+    }
+    // Convergence-latency summary over fixtures that DID settle on truth — the
+    // empirical basis for any future latency hard-gate (currently diagnostic
+    // only, never fatal).
+    let mut convs: Vec<u64> = results.iter().filter_map(|r| r.convergence_ms).collect();
+    if !convs.is_empty() {
+        convs.sort_unstable();
+        let max = *convs.last().unwrap();
+        let p50 = convs[convs.len() / 2];
+        println!(
+            "\nconvergence latency over {} settled fixture(s): p50={p50}ms max={max}ms",
+            convs.len()
+        );
     }
 
     println!("\n{:<22} {:>10} {:>10}", "state", "precision", "recall");

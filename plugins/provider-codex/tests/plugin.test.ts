@@ -370,5 +370,22 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   );
 }
 
+{
+  const p = loadCodexWithHost(
+    baseHost({
+      platform: () => "windows",
+      shell: {
+        quoteFor: (v: unknown, platform?: unknown) => `Q(${platform}:${String(v)})`,
+        quote: (v: unknown) => `BAD(${String(v)})`,
+      },
+    }),
+  );
+  eq(
+    p.buildResumeCommand("11111111-1111-1111-1111-111111111111"),
+    "codex resume --dangerously-bypass-hook-trust Q(windows:11111111-1111-1111-1111-111111111111)",
+    "buildResumeCommand quotes session id with quoteFor(platform)",
+  );
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

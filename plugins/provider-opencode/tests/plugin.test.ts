@@ -81,6 +81,30 @@ console.log("\n--- discoverModels ---\n");
 
 {
   const p = loadOpencodeWithHost(ocHost({
+    platform: () => "windows",
+    shell: {
+      quoteFor: (v: unknown, platform?: unknown) => `Q(${platform}:${String(v)})`,
+      quote: (v: unknown) => `BAD(${String(v)})`,
+    },
+  }));
+  const launch = p.buildLaunchCommand({
+    sessionId: "sess 1",
+    structuredPromptServer: { hostname: "127.0.0.1", port: 4567 },
+  });
+  eq(
+    launch,
+    "opencode --hostname Q(windows:127.0.0.1) --port Q(windows:4567) --session Q(windows:sess 1)",
+    "buildLaunchCommand quotes --session with quoteFor(platform)",
+  );
+  eq(
+    p.buildResumeCommand("sess 2"),
+    "opencode --session Q(windows:sess 2)",
+    "buildResumeCommand quotes --session with quoteFor(platform)",
+  );
+}
+
+{
+  const p = loadOpencodeWithHost(ocHost({
     exec: () => JSON.stringify({ code: 0, stdout: "opencode/big-pickle\nanthropic/claude-opus-4-8\n" }),
   }));
   eq(

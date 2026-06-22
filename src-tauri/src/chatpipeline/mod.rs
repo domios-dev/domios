@@ -94,16 +94,12 @@ pub fn run_text_stages(
 }
 
 /// Whether a send at a user-facing seam should run the send-time text stages.
-/// Excludes service pushes and `source_pane` deliveries (not user turns),
-/// chatBackend panes (their transport already runs the stages — avoid double-run),
-/// and shell panes (a `<context>` block would garble `echo X`).
 pub fn is_user_turn_send(
     is_service_push: bool,
     has_source_pane: bool,
-    is_chat_backed: bool,
     is_agent_pane: bool,
 ) -> bool {
-    is_agent_pane && !is_service_push && !has_source_pane && !is_chat_backed
+    is_agent_pane && !is_service_push && !has_source_pane
 }
 
 /// Compose-time voice stage: resolve the active transcriber and turn an audio file

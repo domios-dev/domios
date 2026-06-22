@@ -5,6 +5,7 @@
 use super::*;
 pub(crate) use crate::plugin::agent_claude::provider::ClaudeProvider;
 
+mod commands;
 mod core;
 mod sessions;
 

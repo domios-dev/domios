@@ -571,5 +571,22 @@ console.log("\n--- buildPromptResponse (vertical ↓ nav + Enter) ---\n");
   eq(p.buildPromptResponse(2, noHighlight), ["G1tC", "G1tC", "DQ=="], "no highlight in screen → top-start fallback");
 }
 
+{
+  const p = loadCursorWithHost(
+    baseHost({
+      platform: () => "windows",
+      shell: {
+        quoteFor: (v: unknown, platform?: unknown) => `Q(${platform}:${String(v)})`,
+        quote: (v: unknown) => `BAD(${String(v)})`,
+      },
+    }),
+  );
+  eq(
+    p.buildResumeCommand("sess 1"),
+    "cursor-agent --resume Q(windows:sess 1)",
+    "buildResumeCommand quotes session id with quoteFor(platform)",
+  );
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

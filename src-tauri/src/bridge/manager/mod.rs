@@ -736,8 +736,7 @@ async fn inject_message(
 
     // A chatBackend pane has no PTY — deliver the inbound message via the plugin.
     if let Some((plugin_id, session_id)) = svc.pane_chat_backing(&pane_id) {
-        let staged = svc.run_outbound_stages(&pane_id, prefixed);
-        return svc.chatbackend_send(&plugin_id, &session_id, &staged);
+        return svc.chatbackend_send(&plugin_id, &session_id, &prefixed);
     }
 
     let pty_id = svc.resolve_pty_id(&pane_id)?;

@@ -403,6 +403,89 @@ fn all_workspace_plugins_load() {
     }
 }
 
+/// Structured-prompt-server capability contract across the bundled providers.
+/// JS-only providers have no native counterpart to diff against, so the honest
+/// "parity" is plugin-output-vs-documented-contract: opencode is the ONLY
+/// provider whose structured handle is a host-bound SSE server, and the trait
+/// documents `needs_structured_prompt_server() ⟹ supports_structured_prompts()`.
+/// A manifest drift (dropping opencode's server flag, or setting it on a
+/// pull-handle provider) would make the host bind the wrong transport.
+#[test]
+fn structured_prompt_server_capability_contract() {
+    if require_plugins().is_none() {
+        return;
+    }
+    for id in ["claude", "codex", "opencode", "cursor"] {
+        let p = load_js(id);
+        let needs_server = p.needs_structured_prompt_server();
+        assert_eq!(
+            needs_server,
+            id == "opencode",
+            "only opencode binds a host SSE server; {id} got needs_structured_prompt_server={needs_server}"
+        );
+        if needs_server {
+            assert!(
+                p.supports_structured_prompts(),
+                "{id}: needs_structured_prompt_server implies supports_structured_prompts"
+            );
+        }
+    }
+}
+
+/// `model_launch_args` pins each provider's REAL CLI model flag — codex/opencode
+/// take `-m`, claude/cursor take `--model`. A manifest edit that flips the flag
+/// would launch the agent with a flag its CLI rejects; an empty model must add
+/// no flag on every provider. Non-vacuous: it encodes the actual CLI contract,
+/// not a tautology.
+#[test]
+fn model_launch_args_match_each_cli_flag_format() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let cases = [
+        ("claude", "--model"),
+        ("codex", "-m"),
+        ("cursor", "--model"),
+        ("opencode", "-m"),
+    ];
+    for (id, flag) in cases {
+        let p = load_js(id);
+        assert!(
+            p.model_launch_args("").is_empty(),
+            "{id}: empty model must produce no launch flags"
+        );
+        assert_eq!(
+            p.model_launch_args("some-model"),
+            vec![flag.to_string(), "some-model".to_string()],
+            "{id}: model flag format"
+        );
+    }
+}
+
+/// `supports_stop` (the UI Stop-affordance flag in the provider descriptor)
+/// must stay in lockstep with `stop_keystroke().is_some()` for every bundled
+/// provider — they are two reads of the same capability and a split would show
+/// a Stop button that sends nothing (or hide one that works). This is the
+/// drift class that hid the R1 native-Claude bug; here it guards the JS path.
+/// NOTE: all four bundled manifests currently declare Esc as the stop key — see
+/// the loop report for the cursor doc/manifest discrepancy (trait doc says
+/// cursor-agent listens for Ctrl+C) which needs live-CLI verification, not a
+/// blind patch, so this test asserts the invariant rather than the raw byte.
+#[test]
+fn supports_stop_matches_stop_keystroke() {
+    if require_plugins().is_none() {
+        return;
+    }
+    for id in ["claude", "codex", "opencode", "cursor"] {
+        let p = load_js(id);
+        assert_eq!(
+            p.describe().supports_stop,
+            p.stop_keystroke().is_some(),
+            "{id}: descriptor supports_stop must equal stop_keystroke().is_some()"
+        );
+    }
+}
+
 /// #16 parity (discipline rule #2): a capability method a provider doesn't
 /// implement must SKIP-not-recurse and return the SAME sane default on BOTH the
 /// native and JS runtimes when there is no native fallback to delegate to. The

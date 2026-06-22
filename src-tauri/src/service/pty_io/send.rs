@@ -392,8 +392,7 @@ impl ServiceContext {
     ) -> Result<(), String> {
         if let Some((plugin_id, session_id)) = self.pane_chat_backing(pane_id) {
             for item in batch {
-                let staged = self.run_outbound_stages(pane_id, item.text);
-                self.chatbackend_send(&plugin_id, &session_id, &staged)?;
+                self.chatbackend_send(&plugin_id, &session_id, &item.text)?;
             }
             return Ok(());
         }
