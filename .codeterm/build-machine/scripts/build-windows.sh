@@ -28,6 +28,11 @@ SCP="sshpass -e scp -P $WIN_PORT -o StrictHostKeyChecking=accept-new -o Preferre
 
 OUT="${OUT:-/tmp/codeterm-${TAG}-mirror}"; mkdir -p "$OUT"
 
+if [ -z "${SSHPASS:-}" ]; then
+  echo "::error::SSHPASS is not set; Windows release build cannot authenticate to $WIN_SSH:$WIN_PORT" >&2
+  exit 2
+fi
+
 # Bring the Windows VM up ON DEMAND — start it if it's not already answering SSH, then wait for
 # it to boot. Lets the whole build machine spin the VM up only when a release actually arrives.
 VM_DIR="$HOME/VMs/codeterm-win11-arm"
