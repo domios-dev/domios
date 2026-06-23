@@ -182,7 +182,9 @@ export function CanvasComposer({
       data-testid="canvas-composer"
       className="absolute bottom-4 left-1/2 z-30 flex w-[min(640px,90%)] -translate-x-1/2 flex-col gap-1.5 rounded-xl border p-2 shadow-lg"
       style={{
-        background: "var(--ct-bg)",
+        background: "color-mix(in srgb, var(--ct-bg) 82%, transparent)",
+        backdropFilter: "blur(10px) saturate(1.2)",
+        WebkitBackdropFilter: "blur(10px) saturate(1.2)",
         borderColor: "var(--ct-border)",
         color: "var(--ct-fg)",
       }}

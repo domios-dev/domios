@@ -99,6 +99,8 @@ export function packRegions(layouts: IntraPlanLayout[], s: CanvasLayoutSettings)
   const nodeIndex = new Map<string, LaidOutNode>();
   for (const f of frames) for (const n of f.nodes) nodeIndex.set(n.id, n);
 
-  const bounds = unionBox(ownerGroups.map((g) => g.box));
+  // Fit the camera to the real content (frames), not the padded group wrappers —
+  // keeps the composition filling the viewport instead of framing dead padding.
+  const bounds = unionBox(frames.map((f) => f.box));
   return { frames, nodeIndex, groups: ownerGroups, bounds };
 }

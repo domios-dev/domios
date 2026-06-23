@@ -331,24 +331,27 @@ export function CanvasViewInner({
                   // dims the rest so the row→task mapping reads at a glance.
                   const related = hoveredTask != null && (edge.from === hoveredTask || edge.to === hoveredTask);
                   const dimmed = hoveredTask != null && !related;
-                  const baseW = sectionTask ? 1.5 : chain ? 1.1 : 1.4;
+                  // Middle ground: legible accent strokes at rest (~0.4), the
+                  // hover-lift goes brighter+thicker. Neutral-on-dark vanished.
+                  const baseW = sectionTask ? 1.6 : chain ? 1.2 : 1.4;
+                  const baseO = sectionTask ? 0.42 : chain ? 0.3 : 0.36;
                   return (
                     <g key={edge.id}>
                       <path
                         d={bezierPath(ends.a, ends.b, DEFAULT_CANVAS_SETTINGS.edgeCurve)}
                         fill="none"
-                        stroke={related ? "var(--ct-border-focus)" : "var(--ct-fg)"}
-                        strokeWidth={related ? 2.4 : baseW}
+                        stroke="var(--ct-border-focus)"
+                        strokeWidth={related ? 2.6 : baseW}
                         strokeLinecap="round"
-                        opacity={related ? 0.92 : dimmed ? 0.06 : chain ? 0.16 : 0.24}
+                        opacity={related ? 0.95 : dimmed ? 0.12 : baseO}
                       />
                       {(sectionTask || edge.kind === "task-cluster") && (
                         <circle
                           cx={ends.a.x}
                           cy={ends.a.y}
-                          r={related ? 4 : 2.6}
-                          fill={related ? "var(--ct-border-focus)" : "var(--ct-fg)"}
-                          opacity={related ? 0.95 : dimmed ? 0.16 : 0.38}
+                          r={related ? 4.5 : 3}
+                          fill="var(--ct-border-focus)"
+                          opacity={related ? 1 : dimmed ? 0.3 : 0.75}
                         />
                       )}
                     </g>
