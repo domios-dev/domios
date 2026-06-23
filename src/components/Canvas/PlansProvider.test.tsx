@@ -1,12 +1,12 @@
 // Run: npx tsx src/components/Canvas/PlansProvider.test.tsx
 
-import { act, type ReactElement } from "react";
+import { act, useEffect, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { ApiConfig } from "../../lib/types";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
 import { PlanButton } from "./PlanButton";
-import { PlansProvider, useFullPlans } from "./PlansProvider";
+import { PlansProvider, useCanvasPlans, useFullPlans } from "./PlansProvider";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -42,7 +42,7 @@ function setupDom() {
     configurable: true,
     value: async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/plans?full=1")) {
+      if (url.includes("/api/plans?") && url.includes("full=1")) {
         fullCalls++;
         return new Response(JSON.stringify({ plans: [FIXTURE_PLAN] }), { status: 200 });
       }
@@ -123,6 +123,89 @@ test("full bodies fetched once only when a canvas consumer mounts", async () => 
   assert(fullCalls === 1, `one batched full fetch for N canvas consumers (got ${fullCalls})`);
   await act(async () => root.unmount());
 });
+
+test("workspace canvas fetch scopes by project query param", async () => {
+  indexCalls = 0;
+  fullCalls = 0;
+  let seenProject: string | null = null;
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/plans?")) {
+      fullCalls++;
+      const parsed = new URL(url, "http://127.0.0.1");
+      seenProject = parsed.searchParams.get("project");
+      const plan = { ...FIXTURE_PLAN, project_path: seenProject ?? FIXTURE_PLAN.project_path };
+      return new Response(JSON.stringify({ plans: [plan] }), { status: 200 });
+    }
+    if (url.endsWith("/api/plans")) {
+      indexCalls++;
+      return new Response(JSON.stringify({ plans: [] }), { status: 200 });
+    }
+    return prevFetch(input);
+  };
+
+  const { root } = await renderTree(
+    <PlansProvider api={API}>
+      <WorkspaceProbe projectPath="/repo/a" />
+    </PlansProvider>,
+  );
+  assert(fullCalls === 1, "one scoped full fetch");
+  assert(seenProject === "/repo/a", "project query param matches workspace cwd");
+  globalThis.fetch = prevFetch;
+  await act(async () => root.unmount());
+});
+
+test("two projects: workspace canvas consumer only loads matching project plans", async () => {
+  const planA = { ...FIXTURE_PLAN, id: "plan-a", project_path: "/repo/a", title: "Plan A" };
+  const planB = { ...FIXTURE_PLAN, id: "plan-b", project_path: "/repo/b", title: "Plan B" };
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/api/plans?")) {
+      const parsed = new URL(url, "http://127.0.0.1");
+      const project = parsed.searchParams.get("project");
+      const plans = project === "/repo/a" ? [planA] : project === "/repo/b" ? [planB] : [planA, planB];
+      return new Response(JSON.stringify({ plans }), { status: 200 });
+    }
+    if (url.endsWith("/api/plans")) {
+      return new Response(JSON.stringify({ plans: [] }), { status: 200 });
+    }
+    return prevFetch(input);
+  };
+
+  const seen: string[] = [];
+  function CapturePlans() {
+    const { plans } = useCanvasPlans("workspace", "/repo/a");
+    useEffect(() => {
+      seen.push(...plans.map((p) => p.id));
+    }, [plans]);
+    return null;
+  }
+
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(
+      <PlansProvider api={API}>
+        <CapturePlans />
+      </PlansProvider>,
+    );
+  });
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 40));
+  });
+  assert(seen.includes("plan-a"), "plan A loaded for project /repo/a");
+  assert(!seen.includes("plan-b"), "plan B excluded for project /repo/a");
+  globalThis.fetch = prevFetch;
+  await act(async () => root.unmount());
+});
+
+function WorkspaceProbe({ projectPath }: { projectPath: string }) {
+  useCanvasPlans("workspace", projectPath);
+  return null;
+}
 
 async function main() {
   setupDom();

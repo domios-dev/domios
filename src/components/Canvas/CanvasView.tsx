@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { ApiConfig, Pane } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -17,7 +17,7 @@ import {
 import { archivePlan } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { filterPlansForCanvas } from "./planPaneMatch";
-import { useFullPlans } from "./PlansProvider";
+import { useCanvasPlans } from "./PlansProvider";
 import type { CanvasElement, Milestone, OrchestratorRef, Plan, Section, Task } from "./types";
 import { isDraggableNodeKind, useCanvasNodeDrag } from "./useCanvasNodeDrag";
 import { useCanvasViewport } from "./useCanvasViewport";
@@ -30,6 +30,8 @@ export interface CanvasViewInnerProps {
   planId?: string;
   orchestratorPaneId?: string;
   panes?: Record<string, Pane>;
+  focusedPaneId?: string | null;
+  projectPath?: string | null;
   onClose?: () => void;
   /** Talk-to-area composer needs an API config to POST to the owner pane. */
   api?: ApiConfig;
@@ -84,6 +86,42 @@ function collectSections(sections: Section[], out: Map<string, Section>): void {
   }
 }
 
+interface CanvasNodeCardProps {
+  node: LaidOutNode;
+  box: LaidOutNode["box"];
+  model: unknown;
+  lod: CanvasLod;
+  dragging: boolean;
+  onMouseDown?: (e: React.MouseEvent) => void;
+}
+
+const CanvasNodeCard = memo(function CanvasNodeCard({
+  node,
+  box,
+  model,
+  lod,
+  dragging,
+  onMouseDown,
+}: CanvasNodeCardProps) {
+  const rendered = getNodeRenderer(node.kind)({
+    node: { ...node, box },
+    model,
+    style: nodeStyle(box),
+    lod,
+    onMouseDown,
+    dragging,
+  });
+  return rendered ? <Fragment key={node.id}>{rendered}</Fragment> : null;
+}, (prev, next) => {
+  if (prev.node.id !== next.node.id) return false;
+  if (prev.lod !== next.lod) return false;
+  if (prev.dragging !== next.dragging) return false;
+  if (prev.model !== next.model) return false;
+  const a = prev.box;
+  const b = next.box;
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+});
+
 export function CanvasViewInner({
   mode,
   plans,
@@ -92,6 +130,8 @@ export function CanvasViewInner({
   planId,
   orchestratorPaneId,
   panes = {},
+  focusedPaneId = null,
+  projectPath = null,
   onClose,
   api,
   viewportPadding,
@@ -184,9 +224,18 @@ export function CanvasViewInner({
     if (orchestratorPaneId) {
       return { pane_id: orchestratorPaneId, session_id: null, title: null };
     }
-    const first = filteredPlans.find((p) => p.owner.pane_id);
-    return first?.owner;
-  }, [orchestratorPaneId, filteredPlans]);
+    const owned = filteredPlans.find((p) => p.owner.pane_id);
+    if (owned?.owner.pane_id) return owned.owner;
+    if (focusedPaneId) {
+      const pane = panes[focusedPaneId];
+      return {
+        pane_id: focusedPaneId,
+        session_id: null,
+        title: pane?.title ?? null,
+      };
+    }
+    return undefined;
+  }, [orchestratorPaneId, filteredPlans, focusedPaneId, panes]);
 
   const effectiveBox = useCallback(
     (n: LaidOutNode) => {
@@ -300,7 +349,9 @@ export function CanvasViewInner({
             style={{ color: "var(--ct-fg)", opacity: "var(--ct-text-secondary-opacity)" }}
           >
             <p>No active plans yet.</p>
-            {mode === "workspace" && api && <CanvasEmptyActions api={api} />}
+            {mode === "workspace" && api && (
+              <CanvasEmptyActions api={api} projectPath={projectPath} />
+            )}
           </div>
         )}
         {!loading && filteredPlans.length > 0 && (
@@ -364,15 +415,19 @@ export function CanvasViewInner({
                 .map((n) => {
                   const box = effectiveBox(n);
                   const draggable = isDraggableNodeKind(n.kind);
-                  const rendered = getNodeRenderer(n.kind)({
-                    node: { ...n, box },
-                    model: resolveModel(n),
-                    style: nodeStyle(box),
-                    lod,
-                    onMouseDown: draggable ? (e) => onNodeMouseDown(e, { ...n, box }) : undefined,
-                    dragging: draggingNodeId === n.id,
-                  });
-                  return rendered ? <Fragment key={n.id}>{rendered}</Fragment> : null;
+                  return (
+                    <CanvasNodeCard
+                      key={n.id}
+                      node={n}
+                      box={box}
+                      model={resolveModel(n)}
+                      lod={lod}
+                      dragging={draggingNodeId === n.id}
+                      onMouseDown={
+                        draggable ? (e) => onNodeMouseDown(e, { ...n, box }) : undefined
+                      }
+                    />
+                  );
                 }),
             )}
           </div>
@@ -402,8 +457,10 @@ export interface CanvasViewProps {
 }
 
 export function CanvasView({ mode, planId, orchestratorPaneId, api, onClose }: CanvasViewProps) {
-  const { plans, loading, error } = useFullPlans();
   const { state } = useMultiplexer();
+  const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
+  const projectPath = activeWs?.cwd ?? null;
+  const { plans, loading, error } = useCanvasPlans(mode, projectPath);
   return (
     <CanvasViewInner
       mode={mode}
@@ -413,6 +470,8 @@ export function CanvasView({ mode, planId, orchestratorPaneId, api, onClose }: C
       planId={planId}
       orchestratorPaneId={orchestratorPaneId}
       panes={state.panes}
+      focusedPaneId={state.focused_pane_id}
+      projectPath={projectPath}
       onClose={onClose}
       api={api}
     />

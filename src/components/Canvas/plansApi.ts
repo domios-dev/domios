@@ -43,8 +43,14 @@ export async function fetchPlanIndex(api: ApiConfig, signal?: AbortSignal): Prom
 }
 
 // Full plan bodies in ONE batched request (?full=1) — no N+1 per-plan fan-out.
-export async function fetchPlans(api: ApiConfig, signal?: AbortSignal): Promise<Plan[]> {
-  const res = await fetch(`${baseUrl(api)}/api/plans?full=1`, {
+export async function fetchPlans(
+  api: ApiConfig,
+  signal?: AbortSignal,
+  opts?: { project?: string | null },
+): Promise<Plan[]> {
+  const params = new URLSearchParams({ full: "1" });
+  if (opts?.project) params.set("project", opts.project);
+  const res = await fetch(`${baseUrl(api)}/api/plans?${params}`, {
     headers: authHeaders(api),
     signal,
   });
