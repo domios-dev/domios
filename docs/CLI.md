@@ -160,6 +160,18 @@ Send a message to Telegram or other service
 - `--to` — Recipient chat/user ID
 - `--type` — Content type: text, photo, document, voice, animation, video, sticker
 
+#### `codeterm canvas`
+
+Canvas control commands
+
+#### `codeterm canvas focus`
+
+Focus the open canvas on a task, pane, or plan
+
+- `--pane` — 
+- `--plan` — 
+- `--task` — 
+
 #### `codeterm capabilities`
 
 List all available API methods
@@ -1271,6 +1283,12 @@ Generic canvas elements
 - `--link` — 
 - `<plan_id>` — 
 
+#### `codeterm plan gaps`
+
+Show sections with zero tasks
+
+- `<plan_id>` — 
+
 #### `codeterm plan get`
 
 Get a plan (markdown by default)
@@ -1712,6 +1730,54 @@ Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent 
 Install an OS-level trigger that auto-launches CodeTerm at user login and re-launches it if the process disappears. Per platform: Windows = `schtasks` task with ONLOGON + 5-minute repeat, macOS = `~/Library/LaunchAgents/com.codeterm.app.plist` with `KeepAlive` + `RunAtLoad`, Linux = user systemd unit `~/.config/systemd/user/codeterm.service` with `Restart=on-failure`. Idempotent — running twice is a no-op
 
 - `--binary` — Override the path to the CodeTerm executable. Defaults to the installed app binary for the current platform
+
+#### `codeterm task`
+
+Standalone and plan-backed tasks
+
+#### `codeterm task add`
+
+Add a standalone task to the workspace Inbox
+
+- `--assign_pane` — 
+- `--body` — 
+- `--body_file` — 
+- `--intent` — 
+- `--intent_file` — 
+- `--kind` — 
+- `--model` — 
+- `--name` — 
+- `--why` — 
+- `--why_file` — 
+
+#### `codeterm task drop`
+
+Release the task assignment
+
+- `<task_id>` — 
+
+#### `codeterm task list`
+
+List tasks across active plans
+
+- `--active` — 
+- `--all` — 
+- `--mine` — 
+- `--plan` — 
+- `--unassigned` — 
+- `--workspace` — 
+
+#### `codeterm task show`
+
+Show one task with plan and section context
+
+- `<task_id>` — 
+
+#### `codeterm task take`
+
+Assign the task to the caller's pane
+
+- `<task_id>` — 
 
 #### `codeterm theme`
 

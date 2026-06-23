@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+pub const INBOX_PLAN_ID: &str = "inbox";
+pub const INBOX_PLAN_FILE_STEM: &str = "_inbox";
+pub const INBOX_PLAN_TITLE: &str = "Tasks";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanStatus {
@@ -118,6 +122,8 @@ pub struct Task {
     pub body: String,
     pub intent: Option<String>,
     pub assigned_pane_id: Option<String>,
+    #[serde(default)]
+    pub taken_by_role: Option<String>,
     pub peer: Option<String>,
     #[serde(default)]
     pub group: Option<String>,
@@ -285,6 +291,7 @@ mod tests {
         assert!(p.links.is_empty());
         assert_eq!(p.tasks.len(), 1);
         assert_eq!(p.tasks[0].group, None);
+        assert_eq!(p.tasks[0].taken_by_role, None);
     }
 
     #[test]

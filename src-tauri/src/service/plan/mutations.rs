@@ -161,7 +161,7 @@ impl PlanStore {
         })
     }
 
-    fn with_plan<T, F>(&self, id: &str, now_ms: u64, f: F) -> Result<T, PlanError>
+    pub(super) fn with_plan<T, F>(&self, id: &str, now_ms: u64, f: F) -> Result<T, PlanError>
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
@@ -229,6 +229,7 @@ impl PlanStore {
             body: new.body,
             intent: new.intent,
             assigned_pane_id: new.assigned_pane_id,
+            taken_by_role: None,
             peer: None,
             group: new.group,
             canvas: Default::default(),
@@ -488,6 +489,7 @@ impl PlanStore {
                 .find(|t| t.id == task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             task.assigned_pane_id = Some(pane.into());
+            task.taken_by_role = None;
             task.peer = peer.map(|s| s.into());
             Ok(())
         })

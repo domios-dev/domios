@@ -10,11 +10,12 @@ pub fn project_root(cwd: &Path) -> PathBuf {
         if out.status.success() {
             let top = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !top.is_empty() {
-                return PathBuf::from(top);
+                let top = PathBuf::from(top);
+                return top.canonicalize().unwrap_or(top);
             }
         }
     }
-    cwd.to_path_buf()
+    cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())
 }
 
 pub fn plans_dir(project: &Path) -> std::io::Result<PathBuf> {

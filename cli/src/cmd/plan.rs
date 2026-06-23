@@ -268,6 +268,24 @@ fn run_plan(
             return Ok(None);
         }
 
+        PlanAction::Gaps { plan_id } => {
+            let val = call(client, "plan.coverage", json!({ "plan_id": plan_id }))?;
+            if json {
+                return Ok(Some(val));
+            }
+            let gaps: Vec<&str> = val
+                .get("gaps")
+                .and_then(|v| v.as_array())
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            if gaps.is_empty() {
+                println!("Gaps: none");
+            } else {
+                println!("{}", gaps.join("\n"));
+            }
+            return Ok(None);
+        }
+
         PlanAction::Groups { action } => match action {
             PlanGroupsAction::Set { plan_id, groups } => call(
                 client,

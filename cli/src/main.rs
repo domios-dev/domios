@@ -169,6 +169,7 @@ pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::service::ServiceAction;
 pub use args::sessions::SessionsAction;
 pub use args::system::SystemAction;
+pub use args::task::{CanvasAction, TaskAction};
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
@@ -519,6 +520,16 @@ fn main() {
 
         Commands::Plan { action } => {
             cmd::plan::handle_plan(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Task { action } => {
+            cmd::task::handle_task(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Canvas { action } => {
+            cmd::task::handle_canvas(&mut client, cli.json, action);
             return;
         }
 
