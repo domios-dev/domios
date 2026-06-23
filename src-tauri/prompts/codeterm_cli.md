@@ -417,26 +417,29 @@ Full reference (every command, all kinds, graph queries, search-strategy details
 
 ## Plans & Canvas
 
-Persistent per-project plans (spec → tasks → milestone chains). Full toolset lands in Phase 4; core handles:
+Persistent per-project plans (spec → tasks → milestone chains → self-improving loops). Full mechanics: `codeterm docs ORCHESTRATION`.
+
+Essential one-liners:
 
 ```bash
 codeterm plan create --title "My plan" [--kinds status_update,testing,review] [--project PATH]
-codeterm plan list [--active|--archived|--unowned] [--json]
-codeterm plan get PLAN_ID [--json]
+codeterm plan list [--active|--archived|--unowned]
+codeterm plan get PLAN_ID
 codeterm plan update PLAN_ID [--title T] [--status active|archived]
 codeterm plan archive PLAN_ID
-codeterm plan delete PLAN_ID
-codeterm plan transfer PLAN_ID --to ORCHESTRATOR
-codeterm plan disown PLAN_ID
-codeterm plan claim PLAN_ID
-codeterm plan section add PLAN_ID --title "..." [--body/--body-file ...]
-codeterm plan task add PLAN_ID --name N --type implement [--sections id,id]
-codeterm plan task close PLAN_ID TASK_ID [--result/--result-file ...]
-codeterm plan milestone add PLAN_ID TASK_ID --kind status_update [--text/--text-file ...]
+codeterm plan section add PLAN_ID --title "..." [--body "..." | --body-file PATH]
+codeterm plan task add PLAN_ID --name N [--type implement] [--sections id,id] \
+  [--model "claude:opus"] [--why "routing rationale"] [--body "..." | --body-file PATH]
+codeterm plan task update PLAN_ID TASK_ID [--status done] [--model M] [--why "..."]
+codeterm plan task assign PLAN_ID TASK_ID --pane PANE_ID
+codeterm plan task close PLAN_ID TASK_ID [--result "..." | --result-file PATH]
+codeterm plan milestone add PLAN_ID TASK_ID --kind status_update [--text "..." | --text-file PATH]
+codeterm plan loop create PLAN_ID --target "..." --budget 25 [--stop-when "..."]
+codeterm plan loop stop LOOP_ID
 codeterm plan layout set PLAN_ID --element task:TASK_ID --x 0 --y 0
 ```
 
-Free-text fields support `--field-file PATH` and `-` for stdin (same pattern as `mem save`).
+Workers bound to a task report via env: `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID`. Free-text fields accept `--field-file PATH` or `-` for stdin.
 
 ## Built-in docs (read on demand, not in prompt)
 
@@ -447,7 +450,7 @@ codeterm docs                                      # list available docs
 codeterm docs <NAME>                               # read one
 ```
 
-Available: `CONFIG`, `API`, `MESH`, `MEMORY`, `BUILD`, `PROMPTS`, `SKILLS`, `TESTING`, `TELEGRAM-SETUP`, `SECRETS`, `TEXT-HOOKS`. Operational ladders (Telegram bot wiring from scratch, the full `mem secret` CLI, inbound-message hook configuration) live in those playbooks instead of in the prompt — read them when the situation actually demands.
+Available: `CONFIG`, `API`, `MESH`, `MEMORY`, `BUILD`, `PROMPTS`, `SKILLS`, `TESTING`, `TELEGRAM-SETUP`, `SECRETS`, `TEXT-HOOKS`, `ORCHESTRATION`. Operational ladders (Telegram bot wiring from scratch, the full `mem secret` CLI, inbound-message hook configuration, full `codeterm plan` mechanics) live in those playbooks instead of in the prompt — read them when the situation actually demands.
 
 ## Platform notes
 

@@ -18,6 +18,10 @@ const DOCS: &[(&str, &str)] = &[
     ("SECRETS", include_str!("../../../docs/SECRETS.md")),
     ("TEXT-HOOKS", include_str!("../../../docs/TEXT-HOOKS.md")),
     ("TRANSCRIBE", include_str!("../../../docs/TRANSCRIBE.md")),
+    (
+        "ORCHESTRATION",
+        include_str!("../../../docs/ORCHESTRATION.md"),
+    ),
 ];
 
 const CODETERM_PANE_PREVIEW_LINES: usize = 120;
