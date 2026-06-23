@@ -4011,7 +4011,7 @@
               "positional": false,
               "value_name": "CMD",
               "default": null,
-              "help": "Command to run on pane start (e.g. `\"poetry run backend\"`). Sent into the PTY after the shell is ready",
+              "help": "Spawn a shell that runs this command on start (e.g. `\"cd /repo && ./build.sh dev\"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created pane",
               "aliases": []
             },
             {
