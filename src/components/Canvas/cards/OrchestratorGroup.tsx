@@ -20,11 +20,11 @@ export function OrchestratorGroup({ group, style, onOpen }: OrchestratorGroupPro
         ...style,
         position: "absolute",
         boxSizing: "border-box",
-        border: `1.5px ${claimable ? "dashed" : "solid"} var(--ct-border-subtle)`,
+        border: `1.5px ${claimable ? "dashed" : "solid"} ${claimable ? "var(--ct-border-subtle)" : "color-mix(in srgb, var(--ct-border-focus) 35%, var(--ct-border-subtle))"}`,
         borderRadius: "var(--ct-radius-lg)",
         background: claimable
-          ? "color-mix(in srgb, var(--ct-fg) 2%, transparent)"
-          : "color-mix(in srgb, var(--ct-border-focus) 5%, transparent)",
+          ? "color-mix(in srgb, var(--ct-fg) 2.5%, transparent)"
+          : "color-mix(in srgb, var(--ct-border-focus) 8%, transparent)",
         pointerEvents: "none",
       }}
     >
@@ -35,26 +35,27 @@ export function OrchestratorGroup({ group, style, onOpen }: OrchestratorGroupPro
         onClick={() => group.ownerPaneId && onOpen?.(group.ownerPaneId)}
         style={{
           position: "absolute",
-          top: 8,
-          left: 14,
+          top: 7,
+          left: 12,
           display: "flex",
           alignItems: "center",
-          gap: 7,
-          padding: "3px 10px",
+          gap: 8,
+          padding: "4px 12px",
           borderRadius: 999,
-          border: "1px solid var(--ct-border-subtle)",
+          border: `1px solid ${claimable ? "var(--ct-border-subtle)" : "color-mix(in srgb, var(--ct-border-focus) 45%, transparent)"}`,
           background: "var(--ct-bg)",
           color: "var(--ct-fg)",
           fontFamily: "var(--ct-font-ui)",
           fontSize: "var(--ct-font-size-sm)",
-          fontWeight: 600,
+          fontWeight: 700,
+          letterSpacing: "-0.005em",
           pointerEvents: "auto",
           cursor: claimable ? "default" : "pointer",
-          boxShadow: "var(--ct-shadow-sm)",
+          boxShadow: "var(--ct-shadow-md)",
         }}
         title={claimable ? "No orchestrator — claimable" : `Open ${group.title}`}
       >
-        <Boxes size={13} style={{ opacity: 0.75 }} />
+        <Boxes size={14} style={{ opacity: 0.8, color: claimable ? undefined : "var(--ct-border-focus)" }} />
         <span style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {group.title}
         </span>
