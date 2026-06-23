@@ -1,168 +1,139 @@
-# Agent roles & orchestration
+# Agent Roles And Orchestration
 
-CodeTerm has a 2-level role hierarchy: **Orchestrator → Worker**. Flat by design — an Orchestrator and the Workers it spawns, exactly one level deep. No deeper nesting, no worker-spawns-worker.
+CodeTerm uses a two-level agent hierarchy: **Orchestrator -> Worker**.
+The shape is intentionally flat. An Orchestrator owns decomposition and
+integration; Workers own bounded execution tasks. Workers do not create
+sub-workers.
 
-**Your role depends on how you were spawned.** Check `$CODETERM_ROLE` env var or look for a role marker in your initial task prompt.
+The runtime stores the role as `AgentRole`, with two variants:
 
-- **No role / not spawned by another agent** → you are the **Orchestrator**. You are the top. You decompose user requests into concrete tasks and delegate them to Workers.
-- **Spawned with `--role Worker`** → you are a **Worker**. You execute one concrete task. You DO NOT spawn other agents. When done, run `codeterm agent report "..."` and stop.
+- `Orchestrator`
+- `Worker`
 
-The `AgentRole` enum has exactly two values: `Orchestrator` and `Worker`.
+## Role Model
 
-## Role skills (in-memory role skills)
+An **Orchestrator** is the top-level coordinator for a user request or an
+independent project lane. It turns ambiguous work into scoped tasks, chooses the
+verification gates, integrates completed work, and keeps track of branch,
+worktree, and process state.
 
-Role definitions live in [`CLAUDE.md`](../../CLAUDE.md) and remain the single source of truth. Do not duplicate the role table here.
+A **Worker** is a leaf executor. It receives one concrete task, works in the
+assigned scope, verifies that scope, and reports the result to its parent. If a
+Worker discovers that the task needs decomposition, the result is a blocked or
+partial report rather than a new child agent.
 
-The in-repo `docs/contributing/agents.md` doc is the execution playbook; role lookup remains through mem:
+This split keeps the tree shallow and makes ownership clear:
 
-- Keep roles in `codeterm mem` (role skills).
-- `.claude/skills/` is only for role execution code assets where needed (for example `prompt-evaluator/runner.py`).
-- Role markdown should live in mem; `SKILL.md` entries point to runnable assets when required.
+- Planning and sequencing belong to the Orchestrator.
+- Implementation, investigation, review, and docs-sync tasks can be delegated to
+  Workers when they are scoped enough to run independently.
+- Cross-lane tradeoffs, final readiness, and user-facing status remain with the
+  Orchestrator.
 
-## Non-Claude agents (Codex/GPT)
+## Role Assignment
 
-Non-Claude agents (Codex and GPT task workers) read [`AGENTS.md`](../../AGENTS.md) — the cross-vendor source of truth.
-When policies change, edit `AGENTS.md` directly. Claude Code reads [`CLAUDE.md`](../../CLAUDE.md), which is just `@AGENTS.md` (importing it) plus any Claude-specific notes — one rulebook, no generation step.
-## Orchestrator-only rules
+CodeTerm records the structural role when an agent pane is spawned. Prompt text
+can also describe the intended role, but the product-level hierarchy is the
+`AgentRole` value.
 
-(Read this only if you are the Orchestrator — no role, running at the top.)
+For Codex/GPT agents, the cross-vendor behavior source is
+[`AGENTS.md`](../../AGENTS.md). Claude reads [`CLAUDE.md`](../../CLAUDE.md),
+which imports the same rules with Claude-specific additions. This document
+describes the architecture and operating model; it is not a prompt template.
 
-Role definitions live in mem. Spawn pattern: spawn a generic claude agent and tell it to `codeterm mem get <role_skill_id>` BEFORE starting the concrete task. The agent reads the skill, internalizes the role, then executes.
+Role-specific launch text is kept inline with the spawned task. The repo docs
+and prompt templates are the source of truth for CodeTerm orchestration
+behavior.
 
-### When to delegate vs do-it-yourself
+## Delegation Model
 
-**Delegate** when the task is scoped, parallelizable, or outside your current context:
-- "Add these 15 tests to service/pane.rs" → backend-dev
-- "Extract this hook from the component" → frontend-dev
-- "Review the last 3 commits for issues" → code-reviewer
-- "Update docs after these changes" → docs
-- "Bump version and release" → no specialized agent; spawn a Worker with the prompt "`codeterm mem get skill_end_to_end_github_release_for_codeterm` and follow it end-to-end. Use ROG for Windows build (mesh peer)."
+Delegation is useful when a task has clear boundaries, can run in parallel, or
+benefits from a visible pane. Common Worker lanes include:
 
-**Do-it-yourself** when the task is small, architectural, or cross-cutting:
-- Single-file edit under ~50 lines
-- Architecture decisions (splitting modules, choosing patterns)
-- Multi-module refactors spanning 5+ files across both frontend and backend
-- Tasks that require holding the full project context
+- Backend implementation or investigation.
+- Frontend implementation or investigation.
+- Code review of a branch diff.
+- Documentation synchronization after behavior changes.
+- Release or build verification work.
 
-### How to spawn workers
+Small single-file edits, architectural decisions, and broad cross-cutting
+changes often stay with the Orchestrator because they require a shared view of
+the whole request.
 
-Two mechanisms:
+## Reports
 
-**1. Built-in Agent tool** (in-process, cheap, fast):
-```
-Agent(subagent_type="general-purpose",
-      prompt="codeterm mem get skill_backend_dev_role_rust_src_tauri_for_codeterm — that is your role definition; follow it. TASK: …")
-```
-Use for: quick research, small isolated tasks, one-off subtasks. The agent runs in your context and returns a message. No pane is created.
+Worker completion flows through structured reports. A report is an event, not a
+chat conversation. The parent Orchestrator consumes reports, updates the plan,
+and decides whether more work, review, or integration is needed.
 
-**2. `codeterm agent spawn claude`** (heavyweight, visible, dogfooded):
-```bash
-codeterm agent spawn claude \
-  --role Worker --parent $CODETERM_PANE_ID \
-  --title "backend-dev: add pane tests" \
-  --task "First run: codeterm mem get skill_backend_dev_role_rust_src_tauri_for_codeterm — that is your role and rules, follow them strictly.
+The expected report shape is:
 
-TASK: add unit tests to src-tauri/src/service/pane.rs covering …"
-```
-Use for: bigger parallelizable tasks, when the user should watch work happen, when the worker needs its own PTY and real filesystem access. Reports auto-inject into your pane as `[Report from ...]`.
-
-**Important:** do NOT inline the role-skill body in the task — it wastes tokens on every spawn and decouples from mem updates. Tell the agent to fetch via `codeterm mem get <skill_id>` as the first action. Mem is the source of truth and updates automatically.
-
-### Role assignment when spawning
-
-**Tell the agent its role explicitly via mem fetch in the task prompt.** `codeterm agent spawn --role` sets the backend hierarchy state, but the agent itself doesn't know its role-specific guidance unless you point it at the right mem skill.
-
-Example task prefix:
-
-```
-First run: codeterm mem get <role_skill_id> — that is your role definition; follow it.
-You are a Worker. Do not spawn other agents. Report via `codeterm agent report` when done.
-
-TASK: ...
-```
-
-- **Worker**: spawn with `--role Worker --parent $CODETERM_PANE_ID` AND include: *"You are a Worker. First run `codeterm mem get <role_skill_id>`. Do NOT spawn other agents. Finish your task, run `codeterm agent report '...'`, exit."*
-- **All sub-agents are Workers.** For a big job, decompose it yourself and spawn several Workers as siblings (e.g. "refactor the whole frontend state layer" → 4 frontend-dev Workers, each a scoped sub-task). There is no intermediate level — the tree is exactly one deep (Orchestrator → Workers).
-
-**Rule of thumb:** spawn via `codeterm agent spawn` when the task touches >3 files, needs its own filesystem/PTY context, or the user benefits from watching it run. Otherwise use the built-in Agent tool.
-
-### Reporting back
-
-Workers report via `codeterm agent report "..."`. Reports auto-inject into your terminal. Do NOT poll or sleep — just continue working. When a report arrives, act on it.
-
-Worker report template (enforced via `worker_suffix.md`):
-```
+```text
 STATUS: done | blocked | partial
 CHANGES: files touched
 BUILD/TYPECHECK/TESTS: result
 FOLLOWUP: anything the Orchestrator should know
 ```
 
-### Recursion limits
+Reports are designed to avoid active polling. A delayed heartbeat can be used as
+a fallback for long-running work, but normal progress should come from reports
+arriving naturally.
 
-- Workers (backend-dev, frontend-dev, code-reviewer, docs) MUST NOT spawn other workers. If they need decomposition, they report back and you spawn siblings.
-- Release work (no specialized type — spawn a Worker with the release skill prompt) coordinates multi-machine builds via mesh; peer machines run their build steps standalone (not as local sub-workers). Reports back to you.
+## Verification Gates
 
-### Proactive delegation rules
+The Orchestrator defines the readiness bar for each lane before treating it as
+complete. Typical gates include:
 
-**After significant changes, auto-invoke the docs sync role.** Significant = new Tauri command, new CLI subcommand, new config option, new feature, API breaking change, README-visible behavior change. Don't ask — just spawn with `codeterm mem get skill_docs_sync_role_keep_docs_in_sync_with_code_for_codeterm` and the task "sync docs with HEAD~N".
+- Targeted unit or integration tests for the changed code.
+- `./build.sh check` for Rust/Tauri changes.
+- `npm run build` or targeted TypeScript tests for frontend changes.
+- Playwright/web-mode checks for UI behavior.
+- Manual UI oracle checks when the bug is visual or depends on real session
+  data.
+- Code review before merging a feature branch back toward `develop`.
 
-**Any edit to a CodeTerm prompt file → auto-invoke the prompt-evaluator role before considering the change done.** This applies to:
-- `src-tauri/prompts/*.md` (general_agent, worker_suffix, orchestrator_suffix, codeterm_rule, bootstrap_instructions, cron_complete_suffix)
-- Any future prompt-like artifact that has an eval set under `evals/`
+A lane is not complete just because its implementation compiles. The relevant
+behavior must be exercised at the layer where the user-visible bug occurs.
 
-Rules:
-- Spawn an agent with `codeterm mem get skill_prompt_evaluator_role_a_b_and_regression_testing_for_codeterm` + task "A/B compare HEAD~1 vs HEAD for <path>. Report regressions." after committing a prompt change locally but before pushing.
-- If the evaluator reports `Δ < 0` on any eval, fix or revert the prompt change before pushing. Do not push through a regression.
-- If no eval set exists for the prompt file yet, first ask the evaluator to bootstrap one from the prompt's documented behaviors, THEN run the A/B.
-- You (as Orchestrator) do NOT run the prompt-evaluator harness yourself — always delegate. The skill points to `.claude/skills/prompt-evaluator/SKILL.md` + `runner.py` for the actual harness.
-- Test cases are added to `evals/<name>/evals.json` by the user or by the evaluator in "Mode 4" (add-a-test-case). You don't hand-edit eval sets.
+## Worktrees And Branches
 
-**Before merging feat branch to develop, auto-invoke the code-reviewer role** on the full branch diff. Act on Critical + High findings before merge.
+Independent lanes can use separate worktrees and branches. This keeps diffs
+reviewable and protects unrelated work. A later integration branch can combine
+the lane diffs for full-system verification.
 
-**Role selection is by artifact, not by task verb.** Rust work → backend-dev skill. React/TS → frontend-dev skill. Docs → docs skill. Reviews → code-reviewer skill. Releases / builds → end-to-end release skill.
+Worktrees with uncommitted changes are source artifacts. They should be kept
+until their diffs have been integrated, reviewed, or intentionally discarded.
 
-### End of Orchestrator-only section.
+## Pane Type Awareness
 
-## Rules for Worker agents
+CodeTerm panes can have different backing kinds:
 
-If you are a Worker, you received exactly ONE concrete task. Do it and stop.
+| `backing.kind` | Meaning | Shell | Interaction model |
+| --- | --- | --- | --- |
+| `pty` | Terminal or PTY-backed agent pane | Yes | Shell commands and terminal input |
+| `chat_backend` | LLM chat pane backed by a provider plugin | No | Chat messages only |
 
-- Do NOT spawn any other agents. No exceptions. If the task needs decomposition, report back to your parent with `STATUS: blocked, FOLLOWUP: needs decomposition`.
-- Do NOT read parent's code/docs beyond what's needed for your task.
-- Run verification (`./build.sh check`, `cargo test --lib`, `npx tsc --noEmit`) before reporting done.
-- Report structured via `codeterm agent report "..."` and exit.
+This distinction matters for agent-to-agent communication. A PTY pane can
+execute shell commands; a `chat_backend` pane cannot.
 
-## Pane type awareness
+## Dogfooding
 
-When an agent needs to talk to another pane, it must know what kind of pane it's addressing. `codeterm pane list` includes a `backing` field on each entry:
+Agent orchestration is also product testing. Spawning workers, receiving
+reports, switching panes, and running dev servers through CodeTerm exercises the
+same UX being built. Friction in that loop is useful product feedback and should
+be captured as a bug, follow-up, or docs gap when it affects the work.
 
-| `backing.kind` | What it is | Has shell? | How to address |
-|----------------|-----------|------------|----------------|
-| `pty` | PTY pane — terminal or agent (Claude, Codex, plain shell) | Yes | `codeterm send "cmd" --pane X` — can include shell commands |
-| `chat_backend` | LLM chat pane (local model via plugin, no PTY) | **No** | `codeterm send "message" --pane X` — delivers as a chat turn; the peer replies via its own tools |
+## Agent Prompts On Disk
 
-**The live bug this prevents:** a PTY agent telling a `chat_backend` peer "run `codeterm send ... --pane main` in your shell" — the chatBackend peer has no shell and cannot comply. The Messenger already stamps inbound messages with the sender's return address so the peer can reply; just send the message and let its tool loop handle the rest.
+Prompt templates compiled into the binary live under `src-tauri/prompts/`:
 
-Discover backing type: `codeterm pane list | jq '.[] | {id, kind: .backing.kind, title}'`
+- `general_agent.md`
+- `bootstrap_instructions.md`
+- `worker_suffix.md`
+- `orchestrator_suffix.md`
+- `codeterm_rule.md`
+- `cron_complete_suffix.md`
 
-Note: `codeterm pane status` does not yet expose `backing` — use `pane list`.
+The Rust loader is `src-tauri/src/prompts.rs`.
 
-## Dogfooding (applies to everyone)
-
-This project IS CodeTerm. You're running inside CodeTerm. Every spawn via `codeterm agent spawn` is both productive work AND a test of the system. If something feels clunky — the codeterm CLI, the mesh, the reports, the panes — note it in your report. We improve CodeTerm by using it.
-
-## Agent prompts on disk
-
-Prompt templates compiled into the binary via `include_str!()`. Edit `.md` files, recompile to apply.
-
-- `src-tauri/prompts/general_agent.md` — General Agent system prompt (CLAUDE.md template)
-- `src-tauri/prompts/bootstrap_instructions.md` — First-run onboarding instructions
-- `src-tauri/prompts/worker_suffix.md` — Appended to Worker tasks (report instructions)
-- `src-tauri/prompts/orchestrator_suffix.md` — Appended to Orchestrator tasks
-- `src-tauri/prompts/codeterm_rule.md` — Installed to `~/.claude/rules/codeterm.md`
-- `src-tauri/prompts/cron_complete_suffix.md` — Appended to cron tasks (completion instruction)
-- `src-tauri/src/prompts.rs` — Rust module that loads all templates
-
-<!-- revision: 5 -->
-
+<!-- revision: 6 -->

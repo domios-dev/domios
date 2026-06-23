@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { themeAwarePrismStyle } from "./syntaxTheme";
+import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
+import { inferCodeLanguage } from "./codeLanguage";
 import {
   ensureMermaidInitialized,
   ensureMermaidLoaded,
@@ -169,6 +170,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   onMermaidWheel,
   onMermaidDoubleClick,
 }: CodeContentProps) {
+  const resolvedLanguage = language !== "text" ? language : inferCodeLanguage(null, displayedText);
   if (forcePlainText) {
     return (
       <pre
@@ -187,7 +189,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
   }
   return (
     <div
-      className="overflow-x-auto overflow-y-auto"
+      className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} overflow-x-auto overflow-y-auto`}
       style={{ maxHeight: fullSize ? "100%" : maxHeight }}
     >
       {suppressMermaidErrorOutput ? null : shouldDisplayMermaid ? (
@@ -230,8 +232,9 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
             <div className="px-2 py-1.5 text-xs opacity-70">Rendering mermaid…</div>
           )}
           <SyntaxHighlighter
-            language={language}
+            language={resolvedLanguage}
             style={themeAwarePrismStyle}
+            useInlineStyles={false}
             PreTag="div"
             customStyle={{
               margin: 0,

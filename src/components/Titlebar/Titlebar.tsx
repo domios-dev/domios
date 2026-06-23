@@ -5,7 +5,7 @@ import { CloseXIcon } from "../Icons";
 import logoUrl from "../../assets/logo.png";
 
 import { isMac } from "../../lib/keybindings";
-import { UI_BUTTON } from "../shared/design";
+import { UI_BUTTON, UI_TRAY_DIVIDER } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 import { SettingsMenu } from "./SettingsMenu";
@@ -77,7 +77,7 @@ export function Titlebar({
         <KeepAwakeTray />
         {onOpenSettings && (
           <>
-            <span className="w-px h-4 mx-0.5 bg-[var(--ct-border-subtle,rgba(255,255,255,0.12))]" />
+            <span className={UI_TRAY_DIVIDER} aria-hidden />
             <SettingsMenu onOpenSection={onOpenSettings} />
           </>
         )}

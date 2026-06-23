@@ -1,0 +1,69 @@
+/* Prism token colors — theme vars from themeCss.ts. Class-based so chat-ui
+   diffs/code blocks keep contrast in WebView where inline var() on spans is flaky. */
+.ct-syntax-highlight {
+  color: var(--ct-syntax-fg, var(--ct-fg, #c9d1d9));
+}
+
+.ct-syntax-highlight .token.comment,
+.ct-syntax-highlight .token.prolog,
+.ct-syntax-highlight .token.doctype,
+.ct-syntax-highlight .token.cdata {
+  color: var(--ct-syntax-comment, #8b949e);
+  font-style: italic;
+}
+
+.ct-syntax-highlight .token.punctuation {
+  color: var(--ct-syntax-punctuation, var(--ct-fg, #c9d1d9));
+}
+
+.ct-syntax-highlight .token.property,
+.ct-syntax-highlight .token.variable,
+.ct-syntax-highlight .token.attr-name {
+  color: var(--ct-syntax-property, #79c0ff);
+}
+
+.ct-syntax-highlight .token.tag,
+.ct-syntax-highlight .token.selector,
+.ct-syntax-highlight .token.deleted {
+  color: var(--ct-syntax-tag, #ff7b72);
+}
+
+.ct-syntax-highlight .token.boolean,
+.ct-syntax-highlight .token.number,
+.ct-syntax-highlight .token.constant,
+.ct-syntax-highlight .token.symbol {
+  color: var(--ct-syntax-number, #d29922);
+}
+
+.ct-syntax-highlight .token.string,
+.ct-syntax-highlight .token.char,
+.ct-syntax-highlight .token.attr-value,
+.ct-syntax-highlight .token.regex,
+.ct-syntax-highlight .token.inserted,
+.ct-syntax-highlight .token.url {
+  color: var(--ct-syntax-string, #7ee787);
+}
+
+.ct-syntax-highlight .token.operator,
+.ct-syntax-highlight .token.entity {
+  color: var(--ct-syntax-operator, var(--ct-fg, #c9d1d9));
+}
+
+.ct-syntax-highlight .token.atrule,
+.ct-syntax-highlight .token.keyword,
+.ct-syntax-highlight .token.important {
+  color: var(--ct-syntax-keyword, #58a6ff);
+}
+
+.ct-syntax-highlight .token.function {
+  color: var(--ct-syntax-function, #d2a8ff);
+}
+
+.ct-syntax-highlight .token.class-name,
+.ct-syntax-highlight .token.builtin {
+  color: var(--ct-syntax-type, #39d353);
+}
+
+.ct-syntax-highlight .token.parameter {
+  color: var(--ct-syntax-muted, var(--ct-fg, #c9d1d9));
+}

@@ -40,7 +40,9 @@ import {
   extractCommand,
   extractEdits,
   extractFilePath,
+  inferCodeLanguage,
   isLargeArtifact,
+  languageForEdits,
   languageFromPath,
   lastNonEmptyLine,
   renderUserContent,
@@ -748,7 +750,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     }
 
     const detailText = message.toolArgs || message.content;
-    const codeLanguage = languageFromPath(filePath);
+    const codeLanguage = edits.length > 0
+      ? languageForEdits(filePath, edits)
+      : inferCodeLanguage(filePath, toolContent ?? "");
     const resultText = message.toolResult;
 
     return (

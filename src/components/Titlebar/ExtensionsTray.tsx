@@ -4,7 +4,7 @@ import { ExtensionsIcon } from "../Icons";
 import { PluginIcon } from "../Extensions/PluginIcon";
 import { GlancePopover, type GlanceAnchor } from "../Extensions/GlancePopover";
 import { derivePinned, selectExtension, type TrayPluginData } from "./extensionsTrayLogic";
-import { UI_TRAY_BTN } from "../shared/design";
+import { UI_TRAY_BTN, UI_TRAY_DIVIDER } from "../shared/design";
 
 type TrayPlugin = TrayPluginData;
 interface Snapshot {
@@ -101,7 +101,7 @@ export function ExtensionsTray({ onOpen }: { onOpen: () => void }) {
           <PluginIcon plugin={p} size={15} />
         </button>
       ))}
-      <span className="w-px h-4 mx-0.5 bg-[var(--ct-border-subtle,rgba(255,255,255,0.1))]" />
+      <span className={UI_TRAY_DIVIDER} aria-hidden />
       <button
         type="button"
         data-testid="titlebar-extensions"
