@@ -1,0 +1,308 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { X } from "lucide-react";
+import type { ApiConfig, Pane } from "../../lib/types";
+import { useMultiplexer } from "../../store/multiplexer";
+import {
+  MilestoneNode,
+  PlanFrame,
+  SectionCard,
+  TaskCard,
+  type CanvasLod,
+} from "./cards";
+import {
+  layoutWorkspace,
+  visibleFrameIds,
+  visibleNodeIds,
+  type LaidOutEdge,
+  type PlanFrame as LayoutFrame,
+} from "./layout";
+import { DEFAULT_CANVAS_SETTINGS } from "./settings";
+import { filterPlansForCanvas, findSectionInPlan } from "./planPaneMatch";
+import type { Plan } from "./types";
+import { useCanvasViewport } from "./useCanvasViewport";
+import { usePlans } from "./usePlans";
+
+export interface CanvasViewInnerProps {
+  mode: "workspace" | "focus";
+  plans: Plan[];
+  loading?: boolean;
+  error?: string | null;
+  planId?: string;
+  orchestratorPaneId?: string;
+  panes?: Record<string, Pane>;
+  onClose?: () => void;
+  /** Test hook: expand viewport culling margin. */
+  viewportPadding?: number;
+}
+
+function lodForScale(scale: number): CanvasLod {
+  const s = DEFAULT_CANVAS_SETTINGS;
+  if (scale < s.zoomFarThreshold) return "far";
+  if (scale < s.zoomNearThreshold) return "mid";
+  return "near";
+}
+
+function nodeStyle(box: { x: number; y: number; width: number; height?: number }) {
+  return {
+    position: "absolute" as const,
+    left: box.x,
+    top: box.y,
+    width: box.width,
+    height: box.height,
+  };
+}
+
+function edgeEndpoints(
+  edge: LaidOutEdge,
+  frame: LayoutFrame,
+): { x1: number; y1: number; x2: number; y2: number } | null {
+  const from = frame.nodes.find((n) => n.id === edge.from);
+  const to = frame.nodes.find((n) => n.id === edge.to);
+  if (!from || !to) return null;
+  return {
+    x1: from.box.x + from.box.width / 2,
+    y1: from.box.y + from.box.height / 2,
+    x2: to.box.x + to.box.width / 2,
+    y2: to.box.y + to.box.height / 2,
+  };
+}
+
+export function CanvasViewInner({
+  mode,
+  plans,
+  loading = false,
+  error = null,
+  planId,
+  orchestratorPaneId,
+  panes = {},
+  onClose,
+  viewportPadding,
+}: CanvasViewInnerProps) {
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ width: 800, height: 600 });
+
+  const filteredPlans = useMemo(
+    () =>
+      filterPlansForCanvas(plans, mode, {
+        planId,
+        orchestratorPaneId,
+        panes,
+      }),
+    [plans, mode, planId, orchestratorPaneId, panes],
+  );
+
+  const planById = useMemo(
+    () => new Map(filteredPlans.map((p) => [p.id, p])),
+    [filteredPlans],
+  );
+
+  const layout = useMemo(() => layoutWorkspace(filteredPlans), [filteredPlans]);
+  const { transform, handlers, fitToView, isDragging, containerRef } = useCanvasViewport({
+    width: size.width,
+    height: size.height,
+    panButton: "middle",
+  });
+
+  const lod = lodForScale(transform.scale);
+  const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
+  const canvasSize = { width: size.width, height: size.height };
+  const frameIds = useMemo(
+    () => new Set(visibleFrameIds(layout, transform, canvasSize, padding)),
+    [layout, transform, canvasSize, padding],
+  );
+  const nodeIds = useMemo(
+    () => new Set(visibleNodeIds(layout, transform, canvasSize, padding)),
+    [layout, transform, canvasSize, padding],
+  );
+
+  const lastFitKey = useRef<string | null>(null);
+  const fitKey = `${mode}:${filteredPlans.map((p) => p.id).join(",")}:${size.width}x${size.height}`;
+  useEffect(() => {
+    if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
+    if (lastFitKey.current === fitKey) return;
+    lastFitKey.current = fitKey;
+    fitToView(layout.bounds);
+  }, [fitKey, fitToView, layout.bounds, size.width, size.height]);
+
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      setSize({ width: rect.width, height: rect.height });
+    });
+    ro.observe(el);
+    setSize({ width: el.clientWidth, height: el.clientHeight });
+    return () => ro.disconnect();
+  }, []);
+
+  const worldW = Math.max(layout.bounds.width + 400, size.width);
+  const worldH = Math.max(layout.bounds.height + 400, size.height);
+
+  return (
+    <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view">
+      {onClose && (
+        <button
+          type="button"
+          data-testid="canvas-focus-close"
+          onClick={onClose}
+          className="absolute top-2 right-2 z-20 flex h-7 w-7 items-center justify-center rounded border cursor-pointer"
+          style={{
+            background: "var(--ct-bg)",
+            borderColor: "var(--ct-border)",
+            color: "var(--ct-fg)",
+          }}
+          title="Close plan canvas"
+        >
+          <X size={14} />
+        </button>
+      )}
+      <div
+        ref={containerRef}
+        className="relative h-full w-full overflow-hidden"
+        onMouseDown={handlers.onMouseDown}
+        onWheel={handlers.onWheel}
+        style={{
+          cursor: isDragging ? "grabbing" : "grab",
+          userSelect: "none",
+          background:
+            "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)",
+        }}
+      >
+        {loading && (
+          <div
+            className="absolute inset-0 flex items-center justify-center text-sm"
+            style={{ color: "var(--ct-fg)", opacity: "var(--ct-text-secondary-opacity)" }}
+          >
+            Loading plans…
+          </div>
+        )}
+        {!loading && error && (
+          <div
+            className="absolute inset-0 flex items-center justify-center text-sm px-4 text-center"
+            style={{ color: "var(--ct-error, #f87171)" }}
+          >
+            {error}
+          </div>
+        )}
+        {!loading && !error && filteredPlans.length === 0 && (
+          <div
+            data-testid="canvas-empty"
+            className="absolute inset-0 flex items-center justify-center text-sm px-6 text-center"
+            style={{ color: "var(--ct-fg)", opacity: "var(--ct-text-secondary-opacity)" }}
+          >
+            No active plans yet. Create one with{" "}
+            <code className="mx-1">codeterm plan create</code>.
+          </div>
+        )}
+        {!loading && filteredPlans.length > 0 && (
+          <div
+            style={{
+              transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+              transformOrigin: "0 0",
+              width: worldW,
+              height: worldH,
+              position: "relative",
+            }}
+          >
+            <svg
+              className="pointer-events-none absolute inset-0"
+              width={worldW}
+              height={worldH}
+              style={{ overflow: "visible" }}
+            >
+              {layout.frames.map((frame) => {
+                if (!frameIds.has(frame.planId)) return null;
+                return frame.edges.map((edge) => {
+                  const pts = edgeEndpoints(edge, frame);
+                  if (!pts) return null;
+                  return (
+                    <line
+                      key={edge.id}
+                      x1={pts.x1}
+                      y1={pts.y1}
+                      x2={pts.x2}
+                      y2={pts.y2}
+                      stroke="var(--ct-border-default)"
+                      strokeWidth={1.5}
+                      opacity={0.7}
+                    />
+                  );
+                });
+              })}
+            </svg>
+            {layout.frames.map((frame) => {
+              if (!frameIds.has(frame.planId)) return null;
+              const plan = planById.get(frame.planId);
+              if (!plan) return null;
+              return (
+                <PlanFrame
+                  key={frame.planId}
+                  plan={plan}
+                  lod={lod}
+                  style={nodeStyle(frame.box)}
+                />
+              );
+            })}
+            {layout.frames.flatMap((frame) => {
+              const plan = planById.get(frame.planId);
+              if (!plan) return [];
+              return frame.nodes
+                .filter((n) => nodeIds.has(n.id))
+                .map((n) => {
+                  const style = nodeStyle(n.box);
+                  if (n.kind === "section") {
+                    const section = findSectionInPlan(plan, n.id);
+                    if (!section) return null;
+                    return (
+                      <SectionCard key={n.id} section={section} style={style} lod={lod} />
+                    );
+                  }
+                  if (n.kind === "task") {
+                    const task = plan.tasks.find((t) => t.id === n.id);
+                    if (!task) return null;
+                    return <TaskCard key={n.id} task={task} style={style} lod={lod} />;
+                  }
+                  const task = plan.tasks.find((t) =>
+                    t.milestones.some((m) => m.id === n.id),
+                  );
+                  const milestone = task?.milestones.find((m) => m.id === n.id);
+                  if (!milestone) return null;
+                  return (
+                    <MilestoneNode key={n.id} milestone={milestone} style={style} lod={lod} />
+                  );
+                });
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export interface CanvasViewProps {
+  mode: "workspace" | "focus";
+  workspaceId?: string;
+  planId?: string;
+  orchestratorPaneId?: string;
+  api: ApiConfig;
+  onClose?: () => void;
+}
+
+export function CanvasView({ api, mode, planId, orchestratorPaneId, onClose }: CanvasViewProps) {
+  const { plans, loading, error } = usePlans(api);
+  const { state } = useMultiplexer();
+  return (
+    <CanvasViewInner
+      mode={mode}
+      plans={plans}
+      loading={loading}
+      error={error}
+      planId={planId}
+      orchestratorPaneId={orchestratorPaneId}
+      panes={state.panes}
+      onClose={onClose}
+    />
+  );
+}

@@ -906,6 +906,22 @@ button,
   100% { transform: scale(1.06); opacity: 0;   }
 }
 
+.ct-plan-button-pulse {
+  animation: ct-plan-button-pulse 0.85s ease-in-out 3;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-accent) 55%, transparent);
+}
+
+@keyframes ct-plan-button-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--ct-accent) 0%, transparent);
+  }
+}
+
 /* =========================================================================
    Agent icon working-state animations
    Each provider has its own visual language: Claude rotates + breathes,
