@@ -42,6 +42,9 @@ function setupDom() {
     value: async (input: RequestInfo | URL, init?: RequestInit) => {
       fetchCalls++;
       const url = String(input);
+      if (url.includes("/api/plans?full=1")) {
+        return new Response(JSON.stringify({ plans: [FIXTURE_PLAN] }), { status: 200 });
+      }
       if (url.endsWith("/api/plans") && (!init || init.method === undefined || init.method === "GET")) {
         return new Response(JSON.stringify({ plans: [{ plan_id: FIXTURE_PLAN.id }] }), { status: 200 });
       }
@@ -113,7 +116,7 @@ async function main() {
     assert(!holder.current.loading, "finished loading");
     assert(holder.current.plans.length === 1, "one plan loaded");
     assert(holder.current.plans[0]?.title === "Auth rollout", "plan title");
-    assert(fetchCalls >= 2, "list + get fetch");
+    assert(fetchCalls === 1, "one batched full fetch on load");
     await act(async () => root.unmount());
   });
 

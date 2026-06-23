@@ -1,5 +1,6 @@
 import type { Pane } from "../../lib/types";
-import type { Plan } from "./types";
+import type { PlanIndexEntry } from "./plansApi";
+import type { OrchestratorRef, Plan } from "./types";
 
 export function collectPaneChain(
   paneId: string,
@@ -28,14 +29,33 @@ export function resolveOrchestratorPaneId(
   return paneId;
 }
 
-function planMatchesPaneChain(plan: Plan, chain: Pane[]): boolean {
+function ownerMatchesPaneChain(owner: OrchestratorRef, chain: Pane[]): boolean {
   const paneIds = new Set(chain.map((p) => p.id));
   const sessionIds = new Set(
     chain.map((p) => p.agent_session_id).filter((s): s is string => !!s),
   );
-  if (plan.owner.pane_id && paneIds.has(plan.owner.pane_id)) return true;
-  if (plan.owner.session_id && sessionIds.has(plan.owner.session_id)) return true;
+  if (owner.pane_id && paneIds.has(owner.pane_id)) return true;
+  if (owner.session_id && sessionIds.has(owner.session_id)) return true;
   return false;
+}
+
+function planMatchesPaneChain(plan: Plan, chain: Pane[]): boolean {
+  return ownerMatchesPaneChain(plan.owner, chain);
+}
+
+// PlanButton visibility from the lightweight index alone (no full bodies).
+export function findPlanIndexForPane(
+  entries: PlanIndexEntry[],
+  paneId: string,
+  panes: Record<string, Pane>,
+): PlanIndexEntry[] {
+  const active = entries.filter((e) => e.status === "active");
+  const chain = collectPaneChain(paneId, panes);
+  return active.filter((e) => {
+    if (e.assigned_pane_ids.includes(paneId)) return true;
+    if (e.owner.pane_id === paneId) return true;
+    return ownerMatchesPaneChain(e.owner, chain);
+  });
 }
 
 export function findPlansForPane(

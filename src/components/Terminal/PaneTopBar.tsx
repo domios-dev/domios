@@ -42,7 +42,6 @@ export function PaneTopBar({
   chatDefaultPrompted,
   usageProvider,
   usageVisible,
-  api,
 }: PaneTopBarProps) {
   const { state } = useMultiplexer();
   return (
@@ -67,7 +66,7 @@ export function PaneTopBar({
             isDefault={chatFirst}
           />
         )}
-        {api && <PlanButton paneId={paneId} api={api} panes={state.panes} />}
+        <PlanButton paneId={paneId} panes={state.panes} />
       </div>
       <div className="flex min-w-0 items-center gap-1.5">
         <PluginBubbles cwd={cwd} paneId={paneId} />

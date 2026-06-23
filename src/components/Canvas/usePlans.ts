@@ -11,36 +11,55 @@ export interface UsePlansResult {
   refetch: () => Promise<void>;
 }
 
+export interface UsePlansOptions {
+  // When false, no full bodies are fetched (PlanButton-only mode needs the index).
+  enabled?: boolean;
+}
+
 interface PlanChangedPayload {
   plan_id: string;
 }
 
-export function usePlans(api: ApiConfig): UsePlansResult {
+export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlansResult {
+  const enabled = options.enabled ?? true;
   const [plans, setPlans] = useState<Plan[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const apiRef = useRef(api);
   apiRef.current = api;
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  // Last-write-wins: every fetch aborts the previous in-flight one.
+  const listCtrl = useRef<AbortController | null>(null);
+  const patchCtrls = useRef(new Map<string, AbortController>());
 
   const refetch = useCallback(async () => {
+    if (!enabledRef.current) return;
+    listCtrl.current?.abort();
     const ctrl = new AbortController();
+    listCtrl.current = ctrl;
     setLoading(true);
     setError(null);
     try {
       const next = await fetchPlans(apiRef.current, ctrl.signal);
+      if (ctrl.signal.aborted) return;
       setPlans(next);
     } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") return;
+      if (ctrl.signal.aborted || (e instanceof Error && e.name === "AbortError")) return;
       setError(String(e));
     } finally {
-      setLoading(false);
+      if (!ctrl.signal.aborted) setLoading(false);
     }
   }, []);
 
   const patchPlan = useCallback(async (planId: string) => {
+    if (!enabledRef.current) return;
+    patchCtrls.current.get(planId)?.abort();
     const ctrl = new AbortController();
+    patchCtrls.current.set(planId, ctrl);
     try {
       const plan = await fetchPlan(apiRef.current, planId, ctrl.signal);
+      if (ctrl.signal.aborted) return;
       setPlans((prev) => {
         const idx = prev.findIndex((p) => p.id === planId);
         if (idx < 0) return [...prev, plan];
@@ -48,36 +67,42 @@ export function usePlans(api: ApiConfig): UsePlansResult {
         next[idx] = plan;
         return next;
       });
-    } catch {
+    } catch (e) {
+      if (ctrl.signal.aborted || (e instanceof Error && e.name === "AbortError")) return;
       await refetch();
+    } finally {
+      if (patchCtrls.current.get(planId) === ctrl) patchCtrls.current.delete(planId);
     }
   }, [refetch]);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!enabled) {
+      setPlans([]);
+      setLoading(false);
+      return;
+    }
     const ctrl = new AbortController();
+    listCtrl.current = ctrl;
     setLoading(true);
     setError(null);
 
     fetchPlans(api, ctrl.signal)
       .then((next) => {
-        if (cancelled) return;
+        if (ctrl.signal.aborted) return;
         setPlans(next);
         setLoading(false);
       })
       .catch((e) => {
-        if (cancelled || e?.name === "AbortError") return;
+        if (ctrl.signal.aborted || e?.name === "AbortError") return;
         setError(String(e));
         setLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-      ctrl.abort();
-    };
-  }, [api]);
+    return () => ctrl.abort();
+  }, [api, enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     let unlisten: (() => void) | null = null;
 
@@ -98,7 +123,7 @@ export function usePlans(api: ApiConfig): UsePlansResult {
       active = false;
       unlisten?.();
     };
-  }, [patchPlan, refetch]);
+  }, [enabled, patchPlan, refetch]);
 
   return { plans, loading, error, refetch };
 }

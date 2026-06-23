@@ -73,7 +73,7 @@ function layoutChain(
   const edges: LaidOutEdge[] = [];
   const present = new Set(ordered.map((m) => m.id));
   for (const m of ordered) {
-    for (const target of m.links) {
+    for (const target of new Set(m.links)) {
       if (present.has(target)) edges.push({ id: `${m.id}->${target}`, from: m.id, to: target, kind: "milestone-chain" });
     }
   }
