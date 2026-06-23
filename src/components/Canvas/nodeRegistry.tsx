@@ -8,6 +8,7 @@ import {
   type CanvasLod,
 } from "./cards";
 import type { LaidOutNode } from "./layout";
+import { registerProvenanceRenderers } from "./registerProvenanceRenderers";
 import type { CanvasElement, Milestone, Plan, Section, Task } from "./types";
 
 // kind → renderer dispatch (§6.3). Adding a node kind = one register call;
@@ -85,3 +86,5 @@ registerNodeRenderer("task", ({ model, style, lod }) =>
 registerNodeRenderer("milestone", ({ model, style, lod }) =>
   model ? <MilestoneNode milestone={model as Milestone} style={style} lod={lod} /> : null,
 );
+
+registerProvenanceRenderers(registerNodeRenderer);

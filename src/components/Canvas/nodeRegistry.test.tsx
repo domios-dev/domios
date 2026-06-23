@@ -60,22 +60,40 @@ test("unknown kind resolves to the fallback renderer", () => {
   assert(getNodeRenderer("totally-unknown-kind") === fallbackRenderer, "unknown → fallback");
 });
 
+test("provenance kinds note and decision resolve to registered renderers (not fallback)", () => {
+  for (const kind of ["note", "decision"]) {
+    assert(getNodeRenderer(kind) !== fallbackRenderer, `${kind} should be registered`);
+  }
+});
+
 test("registerNodeRenderer adds a new kind without touching core", () => {
   const custom: NodeRenderer = () => null;
   registerNodeRenderer("prototype", custom);
   assert(getNodeRenderer("prototype") === custom, "custom renderer retrievable");
 });
 
-test("registered renderer output mounts; unknown kind falls back without crashing", async () => {
-  registerNodeRenderer("note", ({ node: n, style }) => (
-    <div data-testid="custom-note" data-id={n.id} style={style}>
-      note content
-    </div>
-  ));
-
+test("note renderer mounts NoteCard; unknown kind falls back without crashing", async () => {
   const noteOut = getNodeRenderer("note")({
     node: node("note"),
-    model: { id: "n-note", kind: "note", canvas: { x: 0, y: 0, collapsed: false }, content: "x", links: [] },
+    model: {
+      id: "n-note",
+      kind: "note",
+      canvas: { x: 0, y: 0, collapsed: false },
+      content: "**hello note**",
+      links: [],
+    },
+    style: { position: "absolute" },
+    lod: "near",
+  });
+  const decisionOut = getNodeRenderer("decision")({
+    node: node("decision"),
+    model: {
+      id: "n-decision",
+      kind: "decision",
+      canvas: { x: 0, y: 0, collapsed: false },
+      content: "Ship v1",
+      links: [],
+    },
     style: { position: "absolute" },
     lod: "near",
   });
@@ -89,10 +107,12 @@ test("registered renderer output mounts; unknown kind falls back without crashin
   const { host, root } = await render(
     <>
       {noteOut}
+      {decisionOut}
       {fbOut}
     </>,
   );
-  assert(host.querySelector('[data-testid="custom-note"]'), "custom note renderer mounted");
+  assert(host.querySelector('[data-testid="canvas-note-card"]'), "NoteCard mounted");
+  assert(host.querySelector('[data-testid="canvas-decision-card"]'), "DecisionCard mounted");
   assert(host.querySelector('[data-testid="canvas-fallback-node"]'), "fallback node mounted");
   assert(
     host.querySelector('[data-testid="canvas-fallback-node"]')?.getAttribute("data-node-kind") === "mystery",

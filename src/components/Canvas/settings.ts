@@ -97,3 +97,7 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
 
   layoutStrategy: "lanes",
 };
+
+export const CANVAS_LAYOUT_SETTING_KEYS = Object.keys(
+  DEFAULT_CANVAS_SETTINGS,
+) as (keyof CanvasLayoutSettings)[];
