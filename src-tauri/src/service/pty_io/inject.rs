@@ -186,6 +186,15 @@ impl ServiceContext {
         })
     }
 
+    /// Inject a command into a plain shell pane via script-exec, bypassing
+    /// bracketed-paste. Ensures the PTY exists and awaits the PTY link before
+    /// writing; delegates to `send_shell_spawn` which calls `await_shell_ready`.
+    pub fn send_shell_cmd(&self, pane_id: &str, cmd: &str) -> Result<(), String> {
+        self.ensure_pane_pty_for_send(pane_id)?;
+        let pty_id = self.await_pty_link_blocking(pane_id, std::time::Duration::from_secs(15))?;
+        self.send_shell_spawn(&pty_id, cmd)
+    }
+
     /// Shell-level agent launch with submit verification via [`build_spawn_dispatch`]
     /// (so bash 3.2 never sees raw ESC markers). Echo verify is skipped (the screen
     /// shows `bash /tmp/...`); for `TuiInputDrained`, an event-driven `agent_signal`
