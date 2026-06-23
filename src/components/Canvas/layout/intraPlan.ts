@@ -91,6 +91,14 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
     taskY += rowHeight + s.taskGapY;
   }
 
+  // Free-form elements (open registry kinds) render only when explicitly placed;
+  // unpositioned auto-layout is deferred. Manual coords keep determinism.
+  for (const el of plan.elements) {
+    if (el.canvas.x == null || el.canvas.y == null) continue;
+    const box: Box = { x: el.canvas.x, y: el.canvas.y, width: s.taskWidth, height: s.taskMinHeight };
+    nodes.push({ id: el.id, kind: el.kind, planId: plan.id, box, iteration: null, manual: true });
+  }
+
   const autoBoxes = nodes.map((n) => n.box);
   const content = unionBox([
     ...autoBoxes,

@@ -47,12 +47,12 @@ function SettingsProbe() {
   const { settings, setField } = useCanvasSettings();
   return (
     <>
-      <div data-testid="probe-width">{settings.cardWidth}</div>
+      <div data-testid="probe-width">{settings.planWidth}</div>
       <div data-testid="probe-strategy">{settings.layoutStrategy}</div>
       <button
         type="button"
         data-testid="probe-set-card-width"
-        onClick={() => setField("cardWidth", 400)}
+        onClick={() => setField("planWidth", 400)}
       >
         bump
       </button>
