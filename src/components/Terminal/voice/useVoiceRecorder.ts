@@ -16,8 +16,10 @@ export interface VoicePreviewData {
   mime: string;
 }
 
-const WAVEFORM_BARS = 40;
-const LIVE_WAVEFORM_BARS = 24;
+const WAVEFORM_BARS = 48;
+const LIVE_WAVEFORM_BARS = 56;
+const STOP_TRAILING_MS = 250;
+const START_WARMUP_MS = 150;
 
 function quietLiveWaveform(): number[] {
   return new Array(LIVE_WAVEFORM_BARS).fill(0.1);
@@ -74,6 +76,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const peaksRef = useRef<number[]>([]);
   const sampleTimerRef = useRef<number | null>(null);
+  const stopTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!recording) return;
@@ -82,8 +85,16 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     return () => window.clearInterval(t);
   }, [recording]);
 
+  function clearStopTimer() {
+    if (stopTimerRef.current != null) {
+      window.clearTimeout(stopTimerRef.current);
+      stopTimerRef.current = null;
+    }
+  }
+
   useEffect(
     () => () => {
+      clearStopTimer();
       recRef.current?.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       teardownAnalyser();
@@ -114,6 +125,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     streamRef.current = stream;
+    await new Promise((r) => window.setTimeout(r, START_WARMUP_MS));
     return stream;
   }
 
@@ -222,6 +234,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     }
 
     try {
+      clearStopTimer();
       const stream = await acquireWarmStream();
       const mime = pickAudioMime();
       mimeRef.current = mime;
@@ -321,15 +334,21 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
     return new Promise((resolve) => {
       stopKindRef.current = kind;
       stopResolveRef.current = resolve;
-      try {
-        rec.requestData();
-      } catch (e) {
-        console.debug("[voice] recorder requestData before stop failed:", e);
-      }
-      rec.stop();
-      recRef.current = null;
       setRecording(false);
       setLivePeaks(quietLiveWaveform());
+      clearStopTimer();
+      const recorder = rec;
+      stopTimerRef.current = window.setTimeout(() => {
+        stopTimerRef.current = null;
+        if (recorder.state === "inactive") return;
+        try {
+          recorder.requestData();
+        } catch (e) {
+          console.debug("[voice] recorder requestData before stop failed:", e);
+        }
+        recorder.stop();
+        if (recRef.current === recorder) recRef.current = null;
+      }, STOP_TRAILING_MS);
     });
   }
 
