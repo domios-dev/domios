@@ -1,3 +1,4 @@
+pub mod mutations;
 pub mod paths;
 
 #[cfg(test)]
@@ -6,8 +7,54 @@ mod tests;
 use crate::plan::{OrchestratorRef, Plan, PlanStatus};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+#[derive(Debug)]
+pub enum PlanError {
+    NotFound,
+    TaskNotFound,
+    UndeclaredKind { declared: Vec<String> },
+    BudgetExhausted { count: u32, budget: u32 },
+    BadStatus,
+    Io(String),
+}
+
+impl fmt::Display for PlanError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PlanError::NotFound => write!(f, "plan not found"),
+            PlanError::TaskNotFound => write!(f, "task not found"),
+            PlanError::UndeclaredKind { declared } => {
+                write!(
+                    f,
+                    "undeclared milestone kind; declared: {}",
+                    declared.join(", ")
+                )
+            }
+            PlanError::BudgetExhausted { count, budget } => {
+                write!(f, "loop budget {count}/{budget} reached")
+            }
+            PlanError::BadStatus => write!(f, "invalid status"),
+            PlanError::Io(e) => write!(f, "io error: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for PlanError {}
+
+#[derive(Default)]
+pub struct NewTask {
+    pub name: String,
+    pub kind: String,
+    pub section_ids: Vec<String>,
+    pub model: Option<String>,
+    pub model_rationale: Option<String>,
+    pub body: String,
+    pub intent: Option<String>,
+    pub assigned_pane_id: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct IndexEntry {
