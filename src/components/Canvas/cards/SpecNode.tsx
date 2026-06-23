@@ -22,16 +22,17 @@ const shell: CSSProperties = {
 
 function SpecSection({ section, depth }: { section: Section; depth: number }) {
   return (
-    <div style={{ marginTop: depth === 0 ? 14 : 10, paddingLeft: depth * 12 }}>
+    <div style={{ marginTop: depth === 0 ? 11 : 7, paddingLeft: depth * 11 }}>
       <div
         data-testid="canvas-spec-heading"
         role="heading"
         aria-level={Math.min(6, depth + 3)}
         style={{
           margin: 0,
-          fontSize: depth === 0 ? "var(--ct-font-size-md)" : "var(--ct-font-size-sm)",
+          fontSize: depth === 0 ? "var(--ct-font-size-sm)" : "0.72rem",
           fontWeight: 700,
-          letterSpacing: "-0.01em",
+          letterSpacing: depth === 0 ? "-0.005em" : "0.02em",
+          textTransform: depth === 0 ? "none" : "uppercase",
           color: depth === 0 ? "var(--ct-fg)" : "var(--ct-border-focus)",
         }}
       >
@@ -40,10 +41,10 @@ function SpecSection({ section, depth }: { section: Section; depth: number }) {
       {section.body.trim().length > 0 && (
         <div
           style={{
-            marginTop: 4,
+            marginTop: 3,
             fontSize: "var(--ct-font-size-sm)",
             opacity: "var(--ct-text-secondary-opacity)",
-            lineHeight: 1.5,
+            lineHeight: 1.42,
           }}
         >
           <RichMarkdown text={section.body} />
@@ -94,6 +95,19 @@ export function SpecNode({ plan, style }: SpecNodeProps) {
           <SpecSection key={section.id} section={section} depth={0} />
         ))}
       </div>
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          left: 1,
+          right: 1,
+          bottom: 1,
+          height: 32,
+          borderRadius: "0 0 var(--ct-radius-md) var(--ct-radius-md)",
+          pointerEvents: "none",
+          background: "linear-gradient(180deg, transparent, color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg)))",
+        }}
+      />
     </div>
   );
 }
