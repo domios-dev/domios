@@ -148,7 +148,18 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   connected diagram (spec→plan→tasks→steps); fills viewport. Big jump.
 - Re-scoring with fresh Dax (full + zoom). Target >85.
 
-## Iteration 9 — fix clipped step-text + tint balance (Mira) — in progress
+## Iteration 9 — fix clipped step-text + tint balance (Mira) ✅
+- Mira pushed da7e4d05 (merged dfaae1d5): ROOT cause of clipped/glued text = bubbles auto-opened
+  tooltips at near-LOD → wall of overlapping clipped cards. Fix: tooltips HOVER-ONLY (clean circles
+  + initial at rest); hover card -webkit-line-clamp 5 (clean boundary), overflowWrap:anywhere +
+  word-break (spaces preserved), dropped RichMarkdown (was gluing words), fg@0.92. Coverage tint
+  LOCKED at 0.18 + 3px rail (uncovered amber 0.26). fit padding 28 (centers bbox). Footer labeled
+  '2/2 tasks' / '86% covered'. Cluster enclosure nodes; spec body fg@0.9. tsc clean, 13/13.
+- **Verified:** clipped/glued text GONE (clean circles at rest); task bodies render clean markdown;
+  coverage labeled + tint visible; spec readable. Professional plan board now.
+- Re-scoring with fresh Dax (Dax6).
+
+## Iteration 10 — Dax re-score — in progress
 - **Dax5 scored iter8 = 79/100.** Hierarchy 7, Connection 6.5, Coverage **6** (tint now invisible),
   Bounds **6** (text CLIPS — regression), Packing 6, Typo 6.5, Color 8, Nav 8, Markdown **6** (run-
   together text), Polish 6.5. Plateau persists; iter8 fixed floating but introduced text-clipping.
