@@ -58,8 +58,10 @@ impl PlanStore {
         let out = f(&mut guard)?;
         guard.updated_at = now_ms;
         let path = Self::write_atomic(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
+        self.note_write(&path);
         let entry = Self::index_entry(&guard, path);
         self.index.write().insert(guard.id.clone(), entry);
+        self.reset_bound_panes(&guard);
         Ok(out)
     }
 
