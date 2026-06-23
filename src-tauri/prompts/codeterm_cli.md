@@ -415,6 +415,29 @@ Both keyword and vector run in parallel on every `mem search`; don't give up aft
 
 Full reference (every command, all kinds, graph queries, search-strategy details, sessions API, calibration internals): `codeterm docs MEMORY` and `references/mem.md` inside the codeterm skill.
 
+## Plans & Canvas
+
+Persistent per-project plans (spec → tasks → milestone chains). Full toolset lands in Phase 4; core handles:
+
+```bash
+codeterm plan create --title "My plan" [--kinds status_update,testing,review] [--project PATH]
+codeterm plan list [--active|--archived|--unowned] [--json]
+codeterm plan get PLAN_ID [--json]
+codeterm plan update PLAN_ID [--title T] [--status active|archived]
+codeterm plan archive PLAN_ID
+codeterm plan delete PLAN_ID
+codeterm plan transfer PLAN_ID --to ORCHESTRATOR
+codeterm plan disown PLAN_ID
+codeterm plan claim PLAN_ID
+codeterm plan section add PLAN_ID --title "..." [--body/--body-file ...]
+codeterm plan task add PLAN_ID --name N --type implement [--sections id,id]
+codeterm plan task close PLAN_ID TASK_ID [--result/--result-file ...]
+codeterm plan milestone add PLAN_ID TASK_ID --kind status_update [--text/--text-file ...]
+codeterm plan layout set PLAN_ID --element task:TASK_ID --x 0 --y 0
+```
+
+Free-text fields support `--field-file PATH` and `-` for stdin (same pattern as `mem save`).
+
 ## Built-in docs (read on demand, not in prompt)
 
 CodeTerm bundles its full reference docs into the CLI binary — query without polluting the system prompt:

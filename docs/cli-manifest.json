@@ -1378,6 +1378,46 @@
       "args": [],
       "subcommands": [
         {
+          "name": "append",
+          "about": "Append text to an existing item's body (non-destructive). Loads the current body, appends with a blank-line separator, re-indexes the embedding. Use this instead of a full `update --body` replace",
+          "aliases": [],
+          "args": [
+            {
+              "name": "changed_by",
+              "positional": false,
+              "value_name": "CHANGED_BY",
+              "default": null,
+              "help": "Actor label for audit trail (defaults to \"user\")",
+              "aliases": []
+            },
+            {
+              "name": "file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the text to append from a file instead (bypasses shell quoting)",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Mem item id",
+              "aliases": []
+            },
+            {
+              "name": "text",
+              "positional": true,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Text to append (positional). Use `-` for stdin, or pass --file",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "calibration",
           "about": "Memory calibration: review or trigger the dreamer's importance/archive sweep",
           "aliases": [],
@@ -2673,6 +2713,30 @@
           "subcommands": []
         },
         {
+          "name": "restore",
+          "about": "Restore a prior body from the audit history (undo a bad replace). With no --version, reverts to the body before the most recent change",
+          "aliases": [],
+          "args": [
+            {
+              "name": "changed_by",
+              "positional": false,
+              "value_name": "CHANGED_BY",
+              "default": null,
+              "help": "Actor label for audit trail (defaults to \"user\")",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Mem item id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "run-worker",
           "about": "Run a single mem maintenance pass in this subprocess. Opens the DB directly (multi-process WAL) and performs one phase of work, then exits. Used by the daemon's supervisor so a panic / OOM in dreaming or librarian cannot take the API down",
           "aliases": [],
@@ -2714,7 +2778,15 @@
               "positional": true,
               "value_name": "BODY",
               "default": null,
-              "help": "Body content. If omitted and stdin is piped, read stdin",
+              "help": "Body content. Use `-` (or omit with piped stdin) to read stdin",
+              "aliases": []
+            },
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read body from a file instead of the positional arg (bypasses shell quoting)",
               "aliases": []
             },
             {
@@ -3268,7 +3340,15 @@
               "positional": false,
               "value_name": "BODY",
               "default": null,
-              "help": "New body content (re-indexes embedding)",
+              "help": "New body content (re-indexes embedding). Use `-` to read stdin. REPLACES the whole body — to grow a body use `mem append`",
+              "aliases": []
+            },
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the new body from a file instead of --body (bypasses shell quoting)",
               "aliases": []
             },
             {
@@ -4235,6 +4315,1222 @@
               "value_name": "ID",
               "default": null,
               "help": "Paste id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "plan",
+      "about": "Canvas plans — persistent orchestration boards",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "archive",
+          "about": "Archive a plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "claim",
+          "about": "Claim an unowned plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "create",
+          "about": "Create a new plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "kinds",
+              "positional": false,
+              "value_name": "KINDS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "spec",
+              "positional": false,
+              "value_name": "SPEC",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "spec_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "delete",
+          "about": "Delete a plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "disown",
+          "about": "Release plan ownership",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "element",
+          "about": "Generic canvas elements",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "content",
+                  "positional": false,
+                  "value_name": "CONTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "content_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "link",
+                  "positional": false,
+                  "value_name": "LINK",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "about": "Get a plan (markdown by default)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "kinds",
+          "about": "Set milestone kind columns",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "kinds",
+                  "positional": false,
+                  "value_name": "KINDS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "about": "Canvas layout overrides",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "element",
+                  "positional": false,
+                  "value_name": "ELEMENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "x",
+                  "positional": false,
+                  "value_name": "X",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "y",
+                  "positional": false,
+                  "value_name": "Y",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "about": "List plans",
+          "aliases": [],
+          "args": [
+            {
+              "name": "active",
+              "positional": false,
+              "value_name": "ACTIVE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "archived",
+              "positional": false,
+              "value_name": "ARCHIVED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "orchestrator",
+              "positional": false,
+              "value_name": "ORCHESTRATOR",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "unowned",
+              "positional": false,
+              "value_name": "UNOWNED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "loop",
+          "about": "Self-improving loops",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "create",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "budget",
+                  "positional": false,
+                  "value_name": "BUDGET",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "stop_when",
+                  "positional": false,
+                  "value_name": "STOP_WHEN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "target",
+                  "positional": false,
+                  "value_name": "TARGET",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "budget",
+                  "positional": false,
+                  "value_name": "BUDGET",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "loop_id",
+                  "positional": true,
+                  "value_name": "LOOP_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "stop_when",
+                  "positional": false,
+                  "value_name": "STOP_WHEN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "status",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "loop_id",
+                  "positional": true,
+                  "value_name": "LOOP_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "stop",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "loop_id",
+                  "positional": true,
+                  "value_name": "LOOP_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "milestone",
+          "about": "Task milestones",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "add_kind",
+                  "positional": false,
+                  "value_name": "ADD_KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from",
+                  "positional": false,
+                  "value_name": "FROM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text",
+                  "positional": false,
+                  "value_name": "TEXT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "milestone_id",
+                  "positional": true,
+                  "value_name": "MILESTONE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "milestone_id",
+                  "positional": true,
+                  "value_name": "MILESTONE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text",
+                  "positional": false,
+                  "value_name": "TEXT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "note",
+          "about": "Free-form notes on the canvas",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "link_section",
+                  "positional": false,
+                  "value_name": "LINK_SECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "link_task",
+                  "positional": false,
+                  "value_name": "LINK_TASK",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text",
+                  "positional": false,
+                  "value_name": "TEXT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "section",
+          "about": "Plan sections",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "task",
+          "about": "Plan tasks",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "assign_pane",
+                  "positional": false,
+                  "value_name": "ASSIGN_PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "intent",
+                  "positional": false,
+                  "value_name": "INTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "intent_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "loop_from",
+                  "positional": false,
+                  "value_name": "LOOP_FROM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "model",
+                  "positional": false,
+                  "value_name": "MODEL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": false,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "sections",
+                  "positional": false,
+                  "value_name": "SECTIONS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "why",
+                  "positional": false,
+                  "value_name": "WHY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "why_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "assign",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "mesh",
+                  "positional": false,
+                  "value_name": "MESH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "pane",
+                  "positional": false,
+                  "value_name": "PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "close",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "mesh",
+                  "positional": false,
+                  "value_name": "MESH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "result",
+                  "positional": false,
+                  "value_name": "RESULT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "result_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "intent",
+                  "positional": false,
+                  "value_name": "INTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "intent_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "model",
+                  "positional": false,
+                  "value_name": "MODEL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": false,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "status",
+                  "positional": false,
+                  "value_name": "STATUS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "status_label",
+                  "positional": false,
+                  "value_name": "STATUS_LABEL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "why",
+                  "positional": false,
+                  "value_name": "WHY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "why_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "transfer",
+          "about": "Transfer plan ownership",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "reason",
+              "positional": false,
+              "value_name": "REASON",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "update",
+          "about": "Update plan metadata",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "spec",
+              "positional": false,
+              "value_name": "SPEC",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "spec_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "status",
+              "positional": false,
+              "value_name": "STATUS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],

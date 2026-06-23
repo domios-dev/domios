@@ -13,6 +13,7 @@ pub mod mem_secret;
 pub mod mesh;
 pub mod pane;
 pub mod paste;
+pub mod plan;
 pub mod plugin;
 pub mod print;
 pub mod send_text;

@@ -11,6 +11,7 @@ mod bridge;
 mod cron;
 mod notification;
 mod pane;
+mod plan;
 mod services;
 mod workspace;
 
@@ -345,6 +346,15 @@ fn dispatch(
                     "agent.list", "agent.hierarchy", "agent.spawn", "agent.set_role",
                     "agent.clear_role", "agent.status", "agent.children", "agent.link",
                     "agent.report", "agent.reports",
+                    "plan.create", "plan.list", "plan.get", "plan.update", "plan.archive",
+                    "plan.delete", "plan.transfer", "plan.disown", "plan.claim",
+                    "plan.section.add", "plan.section.update", "plan.section.rm",
+                    "plan.kinds.set",
+                    "plan.task.add", "plan.task.update", "plan.task.close", "plan.task.assign",
+                    "plan.task.rm",
+                    "plan.milestone.add", "plan.milestone.update", "plan.milestone.rm",
+                    "plan.loop.create", "plan.loop.set", "plan.loop.status", "plan.loop.stop",
+                    "plan.layout.set", "plan.note.add", "plan.element.add",
                     "cron.list", "cron.get", "cron.create", "cron.update", "cron.delete",
                     "cron.enable", "cron.disable", "cron.trigger", "cron.cancel",
                     "cron.history", "cron.complete",
@@ -375,6 +385,7 @@ fn dispatch(
         "pane" | "agents" | "browser" => pane::dispatch(method, &params, mux, app, svc),
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
+        "plan" => plan::dispatch(method, &params, app, svc),
         "plugin" => agent_commands::dispatch(method, &params, svc),
         "cron" => cron::dispatch(method, &params, app, svc),
         "services" | "activity" => services::dispatch(method, &params, app, svc),

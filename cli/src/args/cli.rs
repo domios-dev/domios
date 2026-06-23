@@ -18,6 +18,7 @@ use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
     ThemeAction, WorkspaceAction,
 };
+use super::plan::PlanAction;
 use super::plugin::PluginAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
@@ -254,6 +255,12 @@ pub enum Commands {
     Mem {
         #[command(subcommand)]
         action: MemAction,
+    },
+
+    /// Canvas plans — persistent orchestration boards
+    Plan {
+        #[command(subcommand)]
+        action: PlanAction,
     },
 
     /// Past agent sessions — search conversations across all providers

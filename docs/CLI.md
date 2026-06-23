@@ -368,6 +368,15 @@ Stop the current keep-awake session
 
 Unified memory store — skills, facts, notes, scripts, peers, preferences
 
+#### `codeterm mem append`
+
+Append text to an existing item's body (non-destructive). Loads the current body, appends with a blank-line separator, re-indexes the embedding. Use this instead of a full `update --body` replace
+
+- `--changed_by` — Actor label for audit trail (defaults to "user")
+- `--file` — Read the text to append from a file instead (bypasses shell quoting)
+- `<id>` — Mem item id
+- `<text>` — Text to append (positional). Use `-` for stdin, or pass --file
+
 #### `codeterm mem calibration`
 
 Memory calibration: review or trigger the dreamer's importance/archive sweep
@@ -718,6 +727,13 @@ Re-embed mem_items and/or graph entities into mem_vectors. Use this after swappi
 
 - `--scope` — What to re-embed: items (mem_items) | entities (graph) | all
 
+#### `codeterm mem restore`
+
+Restore a prior body from the audit history (undo a bad replace). With no --version, reverts to the body before the most recent change
+
+- `--changed_by` — Actor label for audit trail (defaults to "user")
+- `<id>` — Mem item id
+
 #### `codeterm mem run-worker`
 
 Run a single mem maintenance pass in this subprocess. Opens the DB directly (multi-process WAL) and performs one phase of work, then exits. Used by the daemon's supervisor so a panic / OOM in dreaming or librarian cannot take the API down
@@ -730,7 +746,8 @@ Run a single mem maintenance pass in this subprocess. Opens the DB directly (mul
 Save a new mem item
 
 - `--area` — Area tag (auth | deploy | home | ...)
-- `<body>` — Body content. If omitted and stdin is piped, read stdin
+- `<body>` — Body content. Use `-` (or omit with piped stdin) to read stdin
+- `--body_file` — Read body from a file instead of the positional arg (bypasses shell quoting)
 - `--importance` — Importance 1-5 (default 3.0). Higher = more likely in L1 wake-up
 - `--kind` — Item kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary
 - `--pin` — Pin the item for L1 wake-up (always loaded)
@@ -884,7 +901,8 @@ Unpin a previously pinned item
 Partial update of an existing mem item by id. Only the flags you pass are written; everything else stays as-is
 
 - `--area` — 
-- `--body` — New body content (re-indexes embedding)
+- `--body` — New body content (re-indexes embedding). Use `-` to read stdin. REPLACES the whole body — to grow a body use `mem append`
+- `--body_file` — Read the new body from a file instead of --body (bypasses shell quoting)
 - `--changed_by` — Actor label for audit trail (defaults to "user"). Used by automated workflows
 - `<id>` — Mem item id
 - `--importance` — New importance 1-5
@@ -1194,6 +1212,259 @@ Stash a payload. Body from positional / --from-file / stdin
 Explicit delete
 
 - `<id>` — Paste id
+
+#### `codeterm plan`
+
+Canvas plans — persistent orchestration boards
+
+#### `codeterm plan archive`
+
+Archive a plan
+
+- `<plan_id>` — 
+
+#### `codeterm plan claim`
+
+Claim an unowned plan
+
+- `<plan_id>` — 
+
+#### `codeterm plan create`
+
+Create a new plan
+
+- `--kinds` — 
+- `--project` — 
+- `--spec` — 
+- `--spec_file` — 
+- `--title` — 
+
+#### `codeterm plan delete`
+
+Delete a plan
+
+- `<plan_id>` — 
+
+#### `codeterm plan disown`
+
+Release plan ownership
+
+- `<plan_id>` — 
+
+#### `codeterm plan element`
+
+Generic canvas elements
+
+#### `codeterm plan element add`
+
+- `--content` — 
+- `--content_file` — 
+- `--kind` — 
+- `--link` — 
+- `<plan_id>` — 
+
+#### `codeterm plan get`
+
+Get a plan (markdown by default)
+
+- `<plan_id>` — 
+
+#### `codeterm plan kinds`
+
+Set milestone kind columns
+
+#### `codeterm plan kinds set`
+
+- `--kinds` — 
+- `<plan_id>` — 
+
+#### `codeterm plan layout`
+
+Canvas layout overrides
+
+#### `codeterm plan layout set`
+
+- `--element` — 
+- `<plan_id>` — 
+- `--x` — 
+- `--y` — 
+
+#### `codeterm plan list`
+
+List plans
+
+- `--active` — 
+- `--all` — 
+- `--archived` — 
+- `--orchestrator` — 
+- `--project` — 
+- `--unowned` — 
+- `--workspace` — 
+
+#### `codeterm plan loop`
+
+Self-improving loops
+
+#### `codeterm plan loop create`
+
+- `--budget` — 
+- `<plan_id>` — 
+- `--stop_when` — 
+- `--target` — 
+
+#### `codeterm plan loop set`
+
+- `--budget` — 
+- `<loop_id>` — 
+- `--stop_when` — 
+
+#### `codeterm plan loop status`
+
+- `<loop_id>` — 
+
+#### `codeterm plan loop stop`
+
+- `<loop_id>` — 
+
+#### `codeterm plan milestone`
+
+Task milestones
+
+#### `codeterm plan milestone add`
+
+- `--add_kind` — 
+- `--from` — 
+- `--kind` — 
+- `<plan_id>` — 
+- `<task_id>` — 
+- `--text` — 
+- `--text_file` — 
+
+#### `codeterm plan milestone rm`
+
+- `<milestone_id>` — 
+- `<plan_id>` — 
+- `<task_id>` — 
+
+#### `codeterm plan milestone update`
+
+- `--kind` — 
+- `<milestone_id>` — 
+- `<plan_id>` — 
+- `<task_id>` — 
+- `--text` — 
+- `--text_file` — 
+
+#### `codeterm plan note`
+
+Free-form notes on the canvas
+
+#### `codeterm plan note add`
+
+- `--link_section` — 
+- `--link_task` — 
+- `<plan_id>` — 
+- `--text` — 
+- `--text_file` — 
+
+#### `codeterm plan section`
+
+Plan sections
+
+#### `codeterm plan section add`
+
+- `--body` — 
+- `--body_file` — 
+- `--parent` — 
+- `<plan_id>` — 
+- `--title` — 
+
+#### `codeterm plan section rm`
+
+- `<plan_id>` — 
+- `<section_id>` — 
+
+#### `codeterm plan section update`
+
+- `--body` — 
+- `--body_file` — 
+- `<plan_id>` — 
+- `<section_id>` — 
+- `--title` — 
+
+#### `codeterm plan task`
+
+Plan tasks
+
+#### `codeterm plan task add`
+
+- `--assign_pane` — 
+- `--body` — 
+- `--body_file` — 
+- `--intent` — 
+- `--intent_file` — 
+- `--kind` — 
+- `--loop_from` — 
+- `--model` — 
+- `--name` — 
+- `<plan_id>` — 
+- `--sections` — 
+- `--why` — 
+- `--why_file` — 
+
+#### `codeterm plan task assign`
+
+- `--mesh` — 
+- `--pane` — 
+- `<plan_id>` — 
+- `<task_id>` — 
+
+#### `codeterm plan task close`
+
+- `--mesh` — 
+- `<plan_id>` — 
+- `--result` — 
+- `--result_file` — 
+- `<task_id>` — 
+
+#### `codeterm plan task rm`
+
+- `<plan_id>` — 
+- `<task_id>` — 
+
+#### `codeterm plan task update`
+
+- `--body` — 
+- `--body_file` — 
+- `--intent` — 
+- `--intent_file` — 
+- `--kind` — 
+- `--model` — 
+- `--name` — 
+- `<plan_id>` — 
+- `--status` — 
+- `--status_label` — 
+- `<task_id>` — 
+- `--why` — 
+- `--why_file` — 
+
+#### `codeterm plan transfer`
+
+Transfer plan ownership
+
+- `<plan_id>` — 
+- `--reason` — 
+- `--to` — 
+
+#### `codeterm plan update`
+
+Update plan metadata
+
+- `<plan_id>` — 
+- `--spec` — 
+- `--spec_file` — 
+- `--status` — 
+- `--title` — 
 
 #### `codeterm plugin`
 
