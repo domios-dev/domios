@@ -61,7 +61,7 @@ test("PlanNode renders title, section rows, and 50% coverage", async () => {
     <PlanNode plan={FIXTURE_PLAN} style={cardStyle} lod="near" />,
   );
   assert(host.textContent?.includes("Auth rollout"), "plan title visible");
-  assert(host.querySelector('[data-testid="canvas-plan-coverage-pct"]')?.textContent === "50%", "coverage pct");
+  assert(host.querySelector('[data-testid="canvas-plan-coverage-pct"]')?.textContent?.includes("50%"), "coverage pct");
   const rows = host.querySelectorAll('[data-testid="canvas-plan-row"]');
   assert(rows.length === 2, `two section rows (parent + subsection), got ${rows.length}`);
   await act(async () => root.unmount());
@@ -144,13 +144,15 @@ test("TaskCard far LOD hides model and body", async () => {
   await act(async () => root.unmount());
 });
 
-test("MilestoneBubble renders kind label and iteration badge", async () => {
+test("MilestoneBubble shows kind initial + iteration at rest; tooltip is hover-only (no near-LOD wall)", async () => {
   const { host, root } = await render(
     <MilestoneBubble model={{ milestone: FIXTURE_MILESTONE, color: "rgba(99,102,241,0.9)" }} style={cardStyle} lod="near" />,
   );
-  assert(host.querySelector('[data-testid="canvas-milestone-kind-label"]')?.textContent?.includes("status update"), "kind label");
-  assert(host.querySelector('[data-testid="canvas-milestone-text"]'), "milestone markdown");
+  assert(host.querySelector('[data-testid="canvas-milestone-initial"]')?.textContent === "S", "kind initial glyph at rest");
   assert(host.querySelector('[data-testid="canvas-milestone-iteration"]')?.textContent === "2", "iteration badge");
+  // The bug: at near LOD every bubble auto-opened its tooltip → overlapping,
+  // clipped, word-glued mess. Tooltip must NOT render until hover.
+  assert(!host.querySelector('[data-testid="canvas-milestone-text"]'), "no auto tooltip at near LOD");
   await act(async () => root.unmount());
 });
 

@@ -119,12 +119,14 @@ console.log("\nno overlap:");
   }
   ok("no two frames overlap", !frameOverlap);
 
-  // tasks/spec/plan nodes inside one frame never overlap each other.
+  // tasks/spec/plan/bubble nodes inside one frame never overlap each other. The
+  // cluster background intentionally sits UNDER its bubbles, so exclude it.
   const frame = layout.frames.find((f) => f.planId === "p1")!;
+  const solid = frame.nodes.filter((n) => n.kind !== "cluster");
   let nodeOverlap = false;
-  for (let i = 0; i < frame.nodes.length; i++) {
-    for (let j = i + 1; j < frame.nodes.length; j++) {
-      if (boxesOverlap(frame.nodes[i].box, frame.nodes[j].box)) nodeOverlap = true;
+  for (let i = 0; i < solid.length; i++) {
+    for (let j = i + 1; j < solid.length; j++) {
+      if (boxesOverlap(solid[i].box, solid[j].box)) nodeOverlap = true;
     }
   }
   ok("no two nodes overlap within a frame", !nodeOverlap);
