@@ -1,7 +1,6 @@
 ---
 name: dev-testing
 description: Test CodeTerm dev instance via API. Use when testing memory, GA interactions, skills, bootstrap, recall quality. Covers pane send, mem check, worker status, file verification.
-version: 0.2.0
 ---
 
 # Dev Testing

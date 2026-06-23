@@ -368,7 +368,14 @@ export function SettingsPanel({
                     label="Use chat as the default view for new agent tabs"
                     checked={chatUiDefault}
                     onChange={async (v) => {
-                      update("ui", { ...localConfig.ui, default_new_agent_pane_chat: v, chat_ui_default_prompted: true });
+                      setLocalConfig((prev) => ({
+                        ...prev,
+                        ui: {
+                          ...prev.ui,
+                          default_new_agent_pane_chat: v,
+                          chat_ui_default_prompted: true,
+                        },
+                      }));
                       await setDefaultNewAgentPaneToChat(v);
                     }}
                   />

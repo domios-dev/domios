@@ -43,6 +43,17 @@ function buildInitialState(): ExtendedState {
   };
 }
 
+export function muxStateEventAction(payload: unknown): "apply-snapshot" | "refresh" {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    Array.isArray((payload as { workspaces?: unknown }).workspaces)
+  ) {
+    return "apply-snapshot";
+  }
+  return "refresh";
+}
+
 export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
   const stateRef = useRef(state);
@@ -150,12 +161,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
 
     listen<MultiplexerState>("mux-state-changed", (event) => {
       const s = event.payload;
-      if (s && s.workspaces.length > 0) {
+      if (muxStateEventAction(s) === "apply-snapshot") {
         dispatch({ type: "SET_STATE", state: s });
         // Resize panes after layout changes so xterms fit new container sizes.
         requestAnimationFrame(() => {
           window.dispatchEvent(new Event("codeterm-pane-resize"));
         });
+      } else {
+        refreshFromBackend();
       }
     }).then((unlisten) => unlisteners.push(unlisten));
 

@@ -245,7 +245,8 @@ pub async fn get_pane_output(
         strip_ansi: query.strip_ansi.unwrap_or(false),
         full: query.full.unwrap_or(false),
     };
-    let result = crate::dispatch::dispatch(&cmd, &state.svc)
+    let result = crate::dispatch::dispatch_blocking(cmd, state.svc.clone())
+        .await
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     Ok(Json(result.into_json()))
 }
@@ -638,7 +639,7 @@ pub async fn get_pane_text(
         pane_id: pane_id.clone(),
         formatted: query.formatted,
     };
-    match crate::dispatch::dispatch(&cmd, &state.svc) {
+    match crate::dispatch::dispatch_blocking(cmd, state.svc.clone()).await {
         Ok(r) => {
             let mut v = r.into_json();
             if let Some(obj) = v.as_object_mut() {
