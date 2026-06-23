@@ -44,7 +44,7 @@ function SpecSection({ section, depth }: { section: Section; depth: number }) {
             marginTop: 4,
             fontSize: "var(--ct-font-size-sm)",
             color: "var(--ct-fg)",
-            opacity: 0.72,
+            opacity: 0.9,
             lineHeight: 1.55,
           }}
         >
