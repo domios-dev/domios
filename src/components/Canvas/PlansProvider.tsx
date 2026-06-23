@@ -23,6 +23,8 @@ interface PlansContextValue {
   full: UsePlansResult;
   acquireFull: () => void;
   releaseFull: () => void;
+  acquireWorkspaceFull: (projectPath: string | null) => void;
+  releaseWorkspaceFull: () => void;
 }
 
 const PlansContext = createContext<PlansContextValue | null>(null);
@@ -36,7 +38,10 @@ export function PlansProvider({ api, children }: { api: ApiConfig; children: Rea
   const indexCtrl = useRef<AbortController | null>(null);
 
   const [fullRefCount, setFullRefCount] = useState(0);
-  const full = usePlans(api, { enabled: fullRefCount > 0 });
+  const [workspaceFullCount, setWorkspaceFullCount] = useState(0);
+  const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string | null>(null);
+  const fullProject = workspaceFullCount > 0 ? workspaceProjectPath : null;
+  const full = usePlans(api, { enabled: fullRefCount > 0, project: fullProject });
 
   const refetchIndex = useCallback(async () => {
     indexCtrl.current?.abort();
@@ -81,10 +86,28 @@ export function PlansProvider({ api, children }: { api: ApiConfig; children: Rea
 
   const acquireFull = useCallback(() => setFullRefCount((n) => n + 1), []);
   const releaseFull = useCallback(() => setFullRefCount((n) => Math.max(0, n - 1)), []);
+  const acquireWorkspaceFull = useCallback((projectPath: string | null) => {
+    setWorkspaceProjectPath(projectPath);
+    setWorkspaceFullCount((n) => n + 1);
+    setFullRefCount((n) => n + 1);
+  }, []);
+  const releaseWorkspaceFull = useCallback(() => {
+    setWorkspaceFullCount((n) => Math.max(0, n - 1));
+    setFullRefCount((n) => Math.max(0, n - 1));
+  }, []);
 
   const value = useMemo<PlansContextValue>(
-    () => ({ index, indexLoading, indexError, full, acquireFull, releaseFull }),
-    [index, indexLoading, indexError, full, acquireFull, releaseFull],
+    () => ({
+      index,
+      indexLoading,
+      indexError,
+      full,
+      acquireFull,
+      releaseFull,
+      acquireWorkspaceFull,
+      releaseWorkspaceFull,
+    }),
+    [index, indexLoading, indexError, full, acquireFull, releaseFull, acquireWorkspaceFull, releaseWorkspaceFull],
   );
 
   return <PlansContext.Provider value={value}>{children}</PlansContext.Provider>;
@@ -108,12 +131,34 @@ export function usePlanIndex(): PlanIndexResult {
   return { index, loading: indexLoading, error: indexError };
 }
 
-// Full-plan consumer for CanvasView: ref-counts so bodies load only while open.
+// Full-plan consumer for focus canvas: ref-counts so bodies load only while open.
 export function useFullPlans(): UsePlansResult {
   const { full, acquireFull, releaseFull } = usePlansContext();
   useEffect(() => {
     acquireFull();
     return releaseFull;
   }, [acquireFull, releaseFull]);
+  return full;
+}
+
+// Workspace or focus canvas: one ref-count path, project-scoped in workspace mode.
+export function useCanvasPlans(mode: "workspace" | "focus", projectPath: string | null): UsePlansResult {
+  const { full, acquireFull, releaseFull, acquireWorkspaceFull, releaseWorkspaceFull } =
+    usePlansContext();
+  useEffect(() => {
+    if (mode === "workspace") {
+      acquireWorkspaceFull(projectPath);
+      return releaseWorkspaceFull;
+    }
+    acquireFull();
+    return releaseFull;
+  }, [
+    mode,
+    projectPath,
+    acquireFull,
+    releaseFull,
+    acquireWorkspaceFull,
+    releaseWorkspaceFull,
+  ]);
   return full;
 }

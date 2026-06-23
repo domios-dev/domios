@@ -11,7 +11,7 @@ import { getAgentProvider } from "../../lib/agentProviders";
 import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
-import { Check, ChevronDown, Plus } from "lucide-react";
+import { Check, ChevronDown, Plus, LayoutGrid } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
@@ -27,6 +27,7 @@ import {
   TAB_PREFIX,
 } from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
+import { canvasFocusStore } from "../Canvas/canvasFocusStore";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import {
   getMeshPresenceMenuItems,
@@ -73,6 +74,7 @@ interface SidebarProps {
   mainView?: "workspace" | "settings" | "memory" | "mesh" | "git" | "extensions";
   config?: AppConfig;
   uiFontScale?: number;
+  workspaceCanvasActive?: boolean;
 }
 
 export function Sidebar({
@@ -84,6 +86,7 @@ export function Sidebar({
   mainView = "workspace",
   config,
   uiFontScale,
+  workspaceCanvasActive = false,
 }: SidebarProps) {
   const {
     state,
@@ -797,6 +800,22 @@ export function Sidebar({
             })()}
             {/* Memory + Settings buttons at bottom */}
             <div className={`border-t border-[var(--ct-border)] mt-auto ${isCompact ? "px-1 py-2 flex flex-col items-center gap-1" : "px-3 py-2 flex flex-col gap-1"}`}>
+              {IS_WEB && (
+                <button
+                  type="button"
+                  data-testid="nav-canvas"
+                  onClick={() => canvasFocusStore.toggleWorkspace(workspaceCanvasActive)}
+                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                    workspaceCanvasActive
+                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                  }`}
+                  title={workspaceCanvasActive ? "Close workspace canvas" : "Open workspace canvas"}
+                >
+                  <LayoutGrid size={touchMode ? 18 : 14} className="shrink-0" />
+                  {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Canvas</span>}
+                </button>
+              )}
               <button
                 data-testid="nav-extensions"
                 onClick={onOpenExtensions}

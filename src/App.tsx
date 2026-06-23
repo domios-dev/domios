@@ -23,7 +23,7 @@ import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { HamburgerIcon } from "./components/Icons";
 import { CanvasView } from "./components/Canvas/CanvasView";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
-import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget } from "./components/Canvas/canvasFocusStore";
+import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
@@ -273,6 +273,19 @@ function AppInner() {
   );
   const showWorkspaceCanvas =
     mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
+  const workspaceCanvasOpen = useCanvasWorkspaceOpen();
+  const workspaceCanvasDismissed = useCanvasWorkspaceDismissed();
+  const showInlineWorkspaceCanvas = showWorkspaceCanvas && !workspaceCanvasDismissed;
+  const showOverlayWorkspaceCanvas =
+    workspaceCanvasOpen &&
+    !!activeTab &&
+    mainView === "workspace" &&
+    !pluginViewId &&
+    activeWs != null;
+  const workspaceCanvasVisible = showInlineWorkspaceCanvas || showOverlayWorkspaceCanvas;
+  useEffect(() => {
+    if (!activeTab) canvasFocusStore.resetWorkspaceDismissed();
+  }, [activeTab]);
   const canvasFocusOpen = useCanvasFocusOpen();
   const canvasFocusTarget = useCanvasFocusTarget();
   useEffect(() => {
@@ -477,6 +490,7 @@ function AppInner() {
           onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
           onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
           onOpenExtensions={() => { setExtensionsOpen(true); }}
+          workspaceCanvasActive={workspaceCanvasVisible}
         />
       )}
       {/* Status-bar scrim: content sliding under the notch fogs into the bg color + a soft blur, fading to clear below. */}
@@ -542,6 +556,7 @@ function AppInner() {
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
+                workspaceCanvasActive={workspaceCanvasVisible}
               />
             </div>
           </>
@@ -602,12 +617,22 @@ function AppInner() {
               <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={() => setPluginViewId(null)} />
             </div>
           )}
-          {showWorkspaceCanvas && (
+          {showInlineWorkspaceCanvas && (
             <div className="absolute inset-0" style={{ zIndex: 1 }}>
               <CanvasView
                 mode="workspace"
                 workspaceId={activeWs?.id}
                 api={stableApiConfig}
+              />
+            </div>
+          )}
+          {showOverlayWorkspaceCanvas && (
+            <div className="absolute inset-0" style={{ zIndex: 25 }}>
+              <CanvasView
+                mode="workspace"
+                workspaceId={activeWs?.id}
+                api={stableApiConfig}
+                onClose={() => canvasFocusStore.closeWorkspace()}
               />
             </div>
           )}

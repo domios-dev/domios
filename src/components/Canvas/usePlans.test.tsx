@@ -140,6 +140,37 @@ async function main() {
     await act(async () => root.unmount());
   });
 
+  test("usePlans passes project filter to full fetch", async () => {
+    fetchCalls = 0;
+    let seenProject: string | null = null;
+    const prevFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      fetchCalls++;
+      const url = String(input);
+      if (url.includes("/api/plans?")) {
+        const parsed = new URL(url, "http://127.0.0.1");
+        seenProject = parsed.searchParams.get("project");
+        return new Response(JSON.stringify({ plans: [FIXTURE_PLAN] }), { status: 200 });
+      }
+      return prevFetch(input);
+    };
+
+    const holder: { current: UsePlansResult | null } = { current: null };
+    const { root } = await renderProbe(
+      (api) => usePlans(api, { project: "/tmp/project-a" }),
+      (state) => {
+        holder.current = state;
+      },
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    assert(seenProject === "/tmp/project-a", "project query param sent");
+    assert(fetchCalls === 1, "one fetch on load");
+    globalThis.fetch = prevFetch;
+    await act(async () => root.unmount());
+  });
+
   let failed = 0;
   for (const [name, fn] of tests) {
     try {
