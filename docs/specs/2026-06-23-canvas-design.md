@@ -1,6 +1,6 @@
 # Canvas — Design Spec
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
 
 **Status:** Draft for review
 **Scope:** Full feature — backend data model + storage + CLI + REST/socket + prompts/docs + frontend canvas. Local-per-machine v1; mesh-sync deferred but data model kept mesh-ready.
@@ -48,6 +48,8 @@ Plan {
   milestone_kinds: MilestoneKind[] // declared at plan-formation; the chain's stage vocabulary / columns
   loops: LoopSpec[]     // declared self-improving cycles, optional/empty (see 3.6)
   elements: CanvasElement[] // free-form extensible nodes (notes, mockups, …) — see 6.3; empty by default
+  task_groups: TaskGroup[] // optional lightweight grouping of tasks (≈ phases); empty by default (see 3.8)
+  links: string[]       // ids of related/parent plans — derived-from / discovered-during; an edge between plan frames (see 3.8)
   tasks: Task[]
   canvas: CanvasLayout  // persisted positions/hints (see 3.5)
 }
@@ -55,6 +57,12 @@ Plan {
 MilestoneKind {
   key: string           // e.g. "testing"
   label: string         // e.g. "Testing results" (rendered column header)
+  color: string | null  // optional accent
+}
+
+TaskGroup {
+  key: string           // e.g. "phase-1"
+  label: string         // e.g. "Phase 1 — backend"
   color: string | null  // optional accent
 }
 ```
@@ -84,6 +92,7 @@ Task {
   status: "pending" | "in_progress" | "blocked" | "done" | "cancelled" // CLOSED enum — logic reasons on this
   status_label: string | null // optional FREE text shown on the card ("waiting on review", "90%"); never drives logic
   section_ids: string[]  // which plan Section(s) this task covers — MANY-TO-MANY (a task may cover several sections; a section may have several tasks). Drives coverage + section↔task edges
+  group: string | null   // optional TaskGroup key (≈ phase); null = ungrouped (see 3.8)
   body: string          // markdown — the task card body
   intent: string | null  // orchestrator's extra free-text instruction for the worker, folded into the spawn prompt
   assigned_pane_id: string | null
@@ -171,6 +180,14 @@ LoopStage { key: string, role: string, model: string | null, why: string | null,
 - **Index is in-memory only.** At startup the daemon scans `.codeterm/plans/` for the project paths it knows from the open workspaces, builds an in-memory index `{ plan_id → (file_path, owner, title, status, updated_at) }`, and maintains it on every write. It is a derived cache, never the source of truth — wipe it and a rescan rebuilds it. It exists solely so the workspace-overview canvas can list plans across several projects fast, without re-reading every file.
 - **Single writer:** the **daemon** owns all writes. Workers/orchestrators never write the JSON directly — they call `codeterm plan ...` → socket/REST → daemon, which serializes writes per-plan with a mutex and does atomic temp-write + rename. This removes the concurrent-section-close race by construction.
 - **External edits reconciled:** the files stay hand-editable. The daemon watches `.codeterm/plans/` and, on an external change, reloads the plan, refreshes the in-memory index, and emits `plan-changed` so the canvas reflects a manual edit live. Daemon writes use atomic rename to avoid racing a hand-edit mid-flush.
+
+### 3.8 Provenance — emergent from nodes + edges (NOT a new subsystem)
+The whole canvas is one small primitive set — **typed nodes** (each a `CanvasElement`-kind: plan / section / task / milestone / note / decision / …, see §6.3) **+ edges** (a node's `links` ids, drawn as connectors). Different `kind` + different link topology give different "features", reused emergently. Provenance is just more of the same — **no diff/revision-history engine** (explicitly out of scope).
+- **Actions / decisions / changes on a document are NODES, not a log field.** "This section was re-scoped", "plan re-planned after the verification pass", a routing decision — each is a small node (a `milestone`/`decision`/`note` element) whose `links` **edge-connect it to the document node** (section / plan / task) it concerns. The "history on the spec" emerges from those edges; there is no `Plan.milestones` / `Section.milestones` array.
+- **Same edge mechanism everywhere:** a task→milestone chain, a section→task link, a milestone loop-back, a decision→section note, and a plan→plan relation are ALL the universal `links` edge — the renderer just dispatches by node kind.
+- **Inter-plan links:** `Plan.links` is the plan-frame-to-plan-frame edge — a plan discovered/derived while building another links back to its parent.
+- **Task groups:** `Plan.task_groups` + `Task.group` are the one non-graph addition — a lightweight grouping attribute (≈ phases), declared like `milestone_kinds`, rendered as labeled bands/clusters; ungrouped tasks are fine.
+This keeps the canvas a "film" of the work via the primitives it already has — kind-typed nodes + `links` edges + the §6.3 renderer registry. **Phase 3+ enhancement** (not in read-only v1).
 
 ## 4. Backend
 
