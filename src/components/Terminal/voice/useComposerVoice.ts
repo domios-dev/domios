@@ -214,7 +214,7 @@ export function useComposerVoice({
   const isHold = state.phase === "hold";
   const isLocked = state.phase === "locked";
   const isPreview = state.phase === "preview";
-  const voiceActive = voicePressed || (voice.recording && !isLocked);
+  const voiceActive = voicePressed || voice.recording;
   const composerHidden = voice.recording || isPreview;
   const mainIsSend = hasText;
   const cancelArmed = state.cancelArmed;
