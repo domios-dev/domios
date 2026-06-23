@@ -159,7 +159,21 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   coverage labeled + tint visible; spec readable. Professional plan board now.
 - Re-scoring with fresh Dax (Dax6).
 
-## Iteration 10 — Dax re-score — in progress
+## Iteration 10 — CONSOLIDATED final polish (Mira) — in progress
+- **Dax6 scored iter9 = 72** — DOWN from 79 while the board IMPROVED (clipped text fixed). Score
+  series across 6 critics: 80/76/80/74/79/72 = **flat noise, no trend** (each fresh critic
+  recalibrates), and they now CONTRADICT (tint 0.18 'good'↔'invisible'; bubble labels
+  'drop'↔'add'). The adversarial-fresh-critic-per-round loop has hit diminishing returns.
+- **EM DECISION:** stop driving by the recalibrating number. Converge on the issues ALL critics
+  agree are real, with FINAL choices to end oscillation; use Dax only as an occasional gut-check,
+  not a per-iteration score. Judge convergence from screenshots against a STABLE bar.
+- **Agreed-real issues (every critic) → Mira iter10, FINAL decisions:** 1) DEAD SPACE / packing —
+  tighten inter-column gaps + vertically center; the diagram must fill, not float in a void. 2)
+  BUBBLES read detached+cryptic — pull each cluster to ABUT its task (~16px), draw a clear
+  task→cluster edge, AND add a small one-word kind label per cluster at rest (DECIDED: labels ON,
+  stop the on/off swing). 3) PLAN→TASK edges bundle into a parallel tangle — fan anchors + vary
+  per-edge opacity/curvature so each is individually traceable. 4) minor: desaturate the bright
+  'Done' pills to a calmer ct success token. These are FINAL polish — after this the board ships.
 - **Dax5 scored iter8 = 79/100.** Hierarchy 7, Connection 6.5, Coverage **6** (tint now invisible),
   Bounds **6** (text CLIPS — regression), Packing 6, Typo 6.5, Color 8, Nav 8, Markdown **6** (run-
   together text), Polish 6.5. Plateau persists; iter8 fixed floating but introduced text-clipping.
