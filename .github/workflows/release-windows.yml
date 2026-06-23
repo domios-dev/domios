@@ -4,8 +4,10 @@ name: release-windows
 # the GitHub release, then refreshes the channel updater manifest.
 #
 # Triggers:
-#   - push of a tag matching v*  (fires alongside macOS / Linux workflows)
-#   - workflow_dispatch with explicit `tag` input (manual re-run)
+#   - workflow_dispatch with explicit `tag` input (manual fallback re-run)
+#
+# Normal releases use release.yml on the self-hosted codeterm-builder runner.
+# Do not trigger this hosted workflow from v* tags; GitHub-hosted runners burn billing minutes.
 #
 # Disable: set repo Variable RELEASE_WINDOWS_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
@@ -16,9 +18,6 @@ name: release-windows
 # encrypted — it evaluates to empty when unset).
 
 "on":
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:

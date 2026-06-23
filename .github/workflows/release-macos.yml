@@ -5,8 +5,10 @@ name: release-macos
 # the channel updater manifest.
 #
 # Triggers:
-#   - push of a tag matching v*  (fires alongside Windows / Linux workflows)
-#   - workflow_dispatch with explicit `tag` input (manual re-run)
+#   - workflow_dispatch with explicit `tag` input (manual fallback re-run)
+#
+# Normal releases use release.yml on the self-hosted codeterm-builder runner.
+# Do not trigger this hosted workflow from v* tags; GitHub-hosted runners burn billing minutes.
 #
 # Disable: set repo Variable RELEASE_MACOS_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
@@ -18,9 +20,6 @@ name: release-macos
 # Optional secret: TAURI_KEY_PASSWORD (only if the signing key is encrypted).
 
 "on":
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
