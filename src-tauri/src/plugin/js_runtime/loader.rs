@@ -153,14 +153,21 @@ fn compute_sandbox(
     let base = if dev || matches!(trust, ProviderTrust::System) || !is_user_dropin {
         PluginSandbox::unrestricted()
     } else {
-        // Confined: read its own dir + declared session root; write its own dir + temp.
-        let mut read_roots = vec![bundle_dir.to_path_buf(), std::env::temp_dir()];
+        // Confined: read/write its own dir + dedicated data dir + declared session root + temp.
+        // The data dir (~/.codeterm/<plugin-id>/) is the standard place for downloaded assets
+        // (models, binaries, tmp files) that must survive plugin updates.
+        let data_dir = crate::paths::data_dir().join(&manifest.id);
+        let mut read_roots = vec![
+            bundle_dir.to_path_buf(),
+            data_dir.clone(),
+            std::env::temp_dir(),
+        ];
         if let Some(sessions) = manifest.sessions.as_ref() {
             if let Some(root) = PluginManifest::expand_home(&sessions.root_dir) {
                 read_roots.push(root);
             }
         }
-        let write_roots = vec![bundle_dir.to_path_buf(), std::env::temp_dir()];
+        let write_roots = vec![bundle_dir.to_path_buf(), data_dir, std::env::temp_dir()];
         PluginSandbox::restricted(read_roots, write_roots)
     };
 
