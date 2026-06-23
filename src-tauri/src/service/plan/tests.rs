@@ -55,6 +55,36 @@ fn reload_from_disk_replaces_memory_and_index() {
     assert_eq!(entry.updated_at, 2000);
 }
 
+#[test]
+fn scan_project_loads_plan_written_directly_to_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = paths::project_root(dir.path());
+    let plans_dir = paths::plans_dir(&project).unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Persisted".into(),
+        project.display().to_string(),
+        OrchestratorRef::from_pane("abc"),
+    );
+    plan.created_at = 1000;
+    plan.updated_at = 2000;
+    let plan_id = plan.id.clone();
+    let path = plans_dir.join(format!("{plan_id}.json"));
+    std::fs::write(&path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
+
+    let loaded_project = store.scan_project(dir.path()).unwrap();
+    let plans: Vec<_> = store
+        .list_index()
+        .into_iter()
+        .filter_map(|e| store.get(&e.plan_id))
+        .filter(|p| p.project_path == loaded_project.display().to_string())
+        .collect();
+
+    assert_eq!(plans.len(), 1);
+    assert_eq!(plans[0].id, plan_id);
+    assert_eq!(plans[0].title, "Persisted");
+}
+
 fn store_with_task(kinds: &[&str]) -> (PlanStore, String, String) {
     let root = tempfile::tempdir().unwrap().keep();
     let store = PlanStore::new_for_test(&root);

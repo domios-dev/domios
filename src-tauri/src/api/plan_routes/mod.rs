@@ -12,6 +12,9 @@ use crate::api::routes::{check_auth, AppState};
 use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus, TaskGroup};
 use crate::service::plan::{NewTask, PlanError};
 
+#[cfg(test)]
+mod tests;
+
 type PlanRouteResult = Result<Json<Value>, (StatusCode, Json<Value>)>;
 
 fn epoch_ms() -> u64 {
@@ -153,17 +156,26 @@ pub async fn list(
     Query(q): Query<ListPlansQuery>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let want = if let Some(project) = &q.project {
+        Some(
+            state
+                .svc
+                .ensure_plan_project_loaded(std::path::Path::new(project))
+                .map_err(plan_err)?
+                .display()
+                .to_string(),
+        )
+    } else {
+        None
+    };
     let mut entries = state.svc.plan_store.list_index();
-    if let Some(project) = &q.project {
-        let want = crate::service::plan::paths::project_root(std::path::Path::new(project))
-            .display()
-            .to_string();
+    if let Some(want) = &want {
         entries.retain(|e| {
             state
                 .svc
                 .plan_store
                 .get(&e.plan_id)
-                .map(|p| p.project_path == want)
+                .map(|p| p.project_path == *want)
                 .unwrap_or(false)
         });
     }
@@ -964,46 +976,4 @@ pub async fn unlink(
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn groups_from_csv_parses_key_label() {
-        let g = groups_from_csv("phase-1:Phase 1,phase-2:Phase 2,solo");
-        assert_eq!(g.len(), 3);
-        assert_eq!(g[0].key, "phase-1");
-        assert_eq!(g[0].label, "Phase 1");
-        assert_eq!(g[2].key, "solo");
-        assert_eq!(g[2].label, "solo");
-    }
-
-    #[test]
-    fn full_and_unowned_query_accept_1_and_true() {
-        use axum::extract::Query;
-        for raw in ["/?full=1", "/?full=true"] {
-            let uri: axum::http::Uri = raw.parse().unwrap();
-            let q: Query<ListPlansQuery> = Query::try_from_uri(&uri).unwrap();
-            assert_eq!(q.full, Some(true), "full from {raw}");
-        }
-        let uri: axum::http::Uri = "/?unowned=1".parse().unwrap();
-        let q: Query<ListPlansQuery> = Query::try_from_uri(&uri).unwrap();
-        assert_eq!(q.unowned, Some(true));
-    }
-
-    #[test]
-    fn kinds_from_csv_splits() {
-        let k = kinds_from_csv("status_update,testing,review");
-        assert_eq!(k.len(), 3);
-        assert_eq!(k[0].key, "status_update");
-    }
-
-    #[test]
-    fn create_body_deserializes() {
-        let body: CreatePlanBody = serde_json::from_str(r#"{"title":"T","kinds":"a,b"}"#).unwrap();
-        assert_eq!(body.title, "T");
-        assert_eq!(body.kinds.as_deref(), Some("a,b"));
-    }
 }
