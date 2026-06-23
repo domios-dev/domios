@@ -340,15 +340,15 @@ export function CanvasViewInner({
                         stroke={related ? "var(--ct-border-focus)" : "var(--ct-fg)"}
                         strokeWidth={related ? 2.4 : baseW}
                         strokeLinecap="round"
-                        opacity={related ? 0.92 : dimmed ? 0.08 : chain ? 0.2 : 0.28}
+                        opacity={related ? 0.92 : dimmed ? 0.06 : chain ? 0.16 : 0.24}
                       />
                       {(sectionTask || edge.kind === "task-cluster") && (
                         <circle
                           cx={ends.a.x}
                           cy={ends.a.y}
-                          r={related ? 4 : 2.8}
+                          r={related ? 4 : 2.6}
                           fill={related ? "var(--ct-border-focus)" : "var(--ct-fg)"}
-                          opacity={related ? 0.95 : dimmed ? 0.2 : 0.45}
+                          opacity={related ? 0.95 : dimmed ? 0.16 : 0.38}
                         />
                       )}
                     </g>
