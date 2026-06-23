@@ -2,9 +2,7 @@ import { PaneModeSwitch } from "./PaneModeSwitch";
 import { ChatDefaultSuggestion } from "./ChatDefaultSuggestion";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
-import { PlanButton } from "../Canvas/PlanButton";
 import type { ApiConfig } from "../../lib/types";
-import { useMultiplexer } from "../../store/multiplexer";
 import { PANE_BAR_CONTROL_H } from "./paneBarConstants";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
@@ -43,7 +41,6 @@ export function PaneTopBar({
   usageProvider,
   usageVisible,
 }: PaneTopBarProps) {
-  const { state } = useMultiplexer();
   return (
     <div
       data-testid="pane-top-bar"
@@ -66,7 +63,6 @@ export function PaneTopBar({
             isDefault={chatFirst}
           />
         )}
-        <PlanButton paneId={paneId} panes={state.panes} />
       </div>
       <div className="flex min-w-0 items-center gap-1.5">
         <PluginBubbles cwd={cwd} paneId={paneId} />
