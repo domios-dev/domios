@@ -90,6 +90,12 @@ impl PlanStore {
         kinds: Vec<MilestoneKind>,
         now_ms: u64,
     ) -> Result<Plan, PlanError> {
+        // Canonicalize to the git toplevel so storage + index + queries agree on
+        // one root (not a sub-path like src-tauri/ or the daemon cwd).
+        let project_path =
+            crate::service::plan::paths::project_root(std::path::Path::new(&project_path))
+                .display()
+                .to_string();
         let mut plan = Plan::new(title, project_path, owner);
         plan.milestone_kinds = kinds;
         self.save(&mut plan, now_ms)
