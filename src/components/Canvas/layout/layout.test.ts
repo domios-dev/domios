@@ -189,6 +189,12 @@ console.log("\nspec node:");
   ok("spec node emitted for a plan with sections", !!spec);
   ok("plan-spec edge present", frame.edges.some((e) => e.kind === "plan-spec"));
   ok("spec sits left of plan node", spec!.box.x < frame.nodes.find((n) => n.kind === "plan")!.box.x);
+
+  // Spec and the plan+tasks block are vertically centered against each other.
+  const blockBoxes = frame.nodes.filter((n) => ["plan", "task", "milestone", "cluster"].includes(n.kind)).map((n) => n.box);
+  const blockCenter = (Math.min(...blockBoxes.map((b) => b.y)) + Math.max(...blockBoxes.map((b) => b.y + b.height))) / 2;
+  const specCenter = spec!.box.y + spec!.box.height / 2;
+  ok("spec ↕centered against the plan+tasks block", Math.abs(specCenter - blockCenter) < 2);
 }
 
 // ── standalone / inbox plan (no sections) ─────────────────────────

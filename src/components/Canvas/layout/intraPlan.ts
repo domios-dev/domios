@@ -98,12 +98,14 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
       const clusterX = box.x + box.width + s.clusterGapX;
       const clusterY = box.y + Math.max(0, (height - cluster.height) / 2);
       const pad = 8;
-      // Faint container behind the cluster (rendered first → sits under bubbles).
+      const labelH = s.clusterLabelHeight;
+      // Faint container behind the cluster (rendered first → sits under bubbles);
+      // reserves a top strip for the kind caption.
       nodes.push({
         id: `${task.id}::cluster`,
         kind: "cluster",
         planId: plan.id,
-        box: { x: clusterX - pad, y: clusterY - pad, width: cluster.width + pad * 2, height: cluster.height + pad * 2 },
+        box: { x: clusterX - pad, y: clusterY - pad - labelH, width: cluster.width + pad * 2, height: cluster.height + pad * 2 + labelH },
         iteration: null,
         manual: false,
       });
@@ -125,6 +127,29 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
     if (el.canvas.x == null || el.canvas.y == null) continue;
     const box: Box = { x: el.canvas.x, y: el.canvas.y, width: s.taskWidth, height: s.taskMinHeight };
     nodes.push({ id: el.id, kind: el.kind, planId: plan.id, box, iteration: null, manual: true });
+  }
+
+  // Vertically center the two columns (spec vs plan+tasks block) against each
+  // other so the content band is balanced, not top-weighted in a void.
+  const isBlock = (k: string) => k === "plan" || k === "task" || k === "milestone" || k === "cluster";
+  const specNode = nodes.find((n) => n.kind === "spec");
+  const blockBoxes = nodes.filter((n) => isBlock(n.kind)).map((n) => n.box);
+  if (specNode && blockBoxes.length) {
+    const blockTop = Math.min(...blockBoxes.map((b) => b.y));
+    const blockH = Math.max(...blockBoxes.map((b) => b.y + b.height)) - blockTop;
+    const specH = specNode.box.height;
+    const contentH = Math.max(specH, blockH);
+    const specOff = (contentH - specH) / 2 - specNode.box.y;
+    const blockOff = (contentH - blockH) / 2 - blockTop;
+    for (let i = 0; i < nodes.length; i++) {
+      const off = nodes[i].kind === "spec" ? specOff : isBlock(nodes[i].kind) ? blockOff : 0;
+      if (off) nodes[i] = { ...nodes[i], box: { ...nodes[i].box, y: nodes[i].box.y + off } };
+    }
+    for (const [k, p] of anchors) anchors.set(k, { x: p.x, y: p.y + blockOff });
+    for (const e of edges) {
+      if (e.fromPoint) e.fromPoint = { x: e.fromPoint.x, y: e.fromPoint.y + blockOff };
+      if (e.toPoint) e.toPoint = { x: e.toPoint.x, y: e.toPoint.y + blockOff };
+    }
   }
 
   const autoBoxes = nodes.map((n) => n.box);
