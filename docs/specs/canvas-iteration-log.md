@@ -15,8 +15,24 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   satellite tasks + curved section-row edges, step bubble clusters, orchestrator groups,
   trackpad nav, Plan-as-mode, composer clear + activity bubble, no-drag auto-pack,
   coverage tint, markdown, bounds discipline; + a reusable Playwright canvas harness.
-- **Status:** building. Next: integrate → screenshot → Dax review → start iteration 1.
-- **Score:** — (baseline not yet captured)
-- **Defect backlog (seed, from v1 baseline screenshot):** sections render as loose
-  scattered cards; zero edges; no coverage tint; multiple plans leaked across workspaces
-  (isolation); dogfood not visible in focus mode (ownership). All targeted by v2.
+- **Status:** ✅ BE landed (4b1bd77c) + FE landed (ae5404f5/d9e3906c) → both integrated to
+  feat/canvas (merge 8a548a83, pushed). FE structural rewrite real: PlanNode, SpecNode,
+  MilestoneBubble, OrchestratorGroup, edges.ts, clusters.ts, sectionRows.ts; deleted
+  PlanFrame/SectionCard/useCanvasNodeDrag (no-drag confirmed). Gates: tsc clean, 12/12
+  canvas tsx tests green, cargo check + plan/task tests green.
+- **INCIDENT (resolved):** the FE worktree's symlinked node_modules + a pnpm install
+  inside it corrupted MAIN's node_modules into a self-symlink loop → tsx exited 194
+  repo-wide (false "all tests fail"). Fixed: rebuilt both node_modules independently from
+  the warm pnpm store (2.5s each); worktree now has its own real node_modules; builder
+  warned not to re-install. LESSON: never symlink node_modules into a worktree where an
+  agent may run installs — give each worktree its own.
+- **Score:** — (capturing first v2 screenshot after dev restart to 8a548a83)
+- **Defect backlog (seed, from v1 baseline):** sections as loose scattered cards; zero
+  edges; no coverage tint; cross-workspace leak (isolation); dogfood not visible in focus
+  mode. All targeted by v2 — verify each in the first screenshot.
+
+## Iteration 1 — first v2 capture & review (next)
+- After dev is healthy on 8a548a83: Playwright screenshot the dogfood board (Plan mode) →
+  view → score vs rubric → log defects → critique to Mira / spawn Dax. Verify: no-drag,
+  coverage tint, edges connect, bubbles cluster, markdown renders, nothing overflows,
+  isolation (plan absent in other workspace).
