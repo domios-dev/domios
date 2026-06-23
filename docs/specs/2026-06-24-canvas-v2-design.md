@@ -282,6 +282,74 @@ screenshot feedback loop, not just unit tests.
 - The orchestrator owns running this loop (can view screenshots); the FE lane provides
   the harness + reaches a screenshottable state and iterates on critique.
 
+## 13. Interface inventory & text/size budgets (consolidated)
+
+Every interface intent stated across the whole design, with concrete sizing so nodes
+render correctly and **never overflow their bounds**. All numbers live in `settings.ts`;
+these are the starting values, tuned in the visual loop (§15).
+
+### 13.1 Plan node (compact, the structural overview)
+- **Width fixed** (~`planWidth` 340). Header (~56px): title (1 line, ellipsis ~48 ch),
+  owner chip, `done/total`, coverage bar.
+- **Body = section rows**, one per section (recursive; subsections indented `sectionIndentX`).
+  Each row ~36px: section title (1 line, ellipsis), task-count badge `[n]`, status glyph.
+  **Row body text is NOT shown here** — only the title; the prose lives in the Spec node.
+- **Height grows vertically with section count** — a long, detailed plan = a tall plan
+  node (the "портянка"). That is expected and fine: you pan/zoom to read. No horizontal
+  growth, so it never sprawls sideways.
+- **Coverage = row fill tint:** covered row filled `coverCoveredBg` (accent), uncovered
+  `coverUncoveredBg` (warning/dashed). Primary signal; edge reinforces.
+
+### 13.2 Spec node (the full document — the long портянка)
+- **Width** ~`specWidth` 480 (max), markdown wraps inside; **never overflows horizontally**.
+- Renders the WHOLE spec: plan title → each section heading + `section.body` markdown,
+  subsections nested. **Can be very long** — that is OK and expected for detailed plans.
+- **Internally scrollable** past `specMaxHeight` (~720) so the board stays navigable, with a
+  subtle scroll affordance; below that it sizes to content. Edge `plan ↔ spec`.
+- Detailed plans are encouraged (§2.7 authoring guideline): full bodies, not stubs.
+
+### 13.3 Task card (satellite, all the data)
+- **Width** ~`cardWidth` 260. Content: status marker · name (1 line, bold) · `type` chip ·
+  `model` chip · status badge + `status_label` · `model_rationale` ("why this model?"
+  collapsed→expand) · `intent` · `body` markdown.
+- **Body clamps** to `taskBodyClampLines` (~5) at mid LOD with fade; full at near LOD.
+  Height ∈ [`cardMinHeight` 64, `cardMaxHeight` 320]; beyond max → internal scroll, never
+  spill. Tasks **bin-pack near their covered section row**, collision-avoided.
+
+### 13.4 Step bubbles (milestones — see §14 terminology)
+- Small circle `stepBubbleSize` (~44) colored by step `kind` (declared color lane), or a
+  compact chip (circle + kind label + text truncated ~`stepTextClamp` 36 ch). Full text on
+  hover / near LOD.
+- **Clustered per task**, grouped by group key (§14); iterations stack downward; `links`
+  draw bubble→bubble inside the cluster so the **progress sequence** is visible. Cluster is
+  width-bounded — wraps into rows, never streams off to the right (v1 §6.1 chain rule kept).
+
+### 13.5 Groupings (two levels, both flexible)
+- **Task groups** (`Plan.task_groups` + `Task.group`, ≈ phases): labeled bands/clusters of
+  tasks. Ungrouped tasks are fine. Declared like kinds.
+- **Step groups**: steps within a task group by a flexible key — `kind`, or `loop_id`/
+  `iteration`, or any future principle. The grouping key is data-driven, not hardcoded, so a
+  new grouping principle needs no layout change.
+
+### 13.6 Subtasks (optional)
+A task may have child tasks (`parent_task_id`, optional/flexible) rendered as smaller task
+nodes clustered under the parent; each subtask has its own steps. Lead with steps; subtasks
+are the heavier case, used only when a task genuinely decomposes. Deferred unless needed —
+the model leaves room (`parent_task_id` nullable) without forcing it.
+
+### 13.7 Bounds discipline (the overflow fix)
+Every node **measures its own content** (text metrics / a measured DOM pass) and reports a
+real size to the layout; the layout packs from real sizes so big sections cannot overflow.
+Long bodies are confined: full prose only in the Spec node (wrapped, max-width, scroll);
+the plan node shows titles only; task bodies clamp. **Nothing renders outside its node box.**
+
+## 14. Terminology — milestones render as "Steps"
+Per-task execution progress reads better as **Steps** than "milestones". UI label = "Steps"
+(a task's ordered execution steps). The data model keeps the name `milestone` (no churn /
+no migration) but every user-facing string says "Step(s)". A step still carries `kind`,
+`text`, `links`, `loop_id`, `iteration` — grouping stays flexible (§13.5). Tasks may have
+subtasks (§13.6). "Coverage" stays "coverage".
+
 ## 12. Done
 Figma-grade board: sectioned plan node + spec node + edge-connected satellite tasks +
 grouped milestone bubbles + orchestrator groups; uncovered sections pop; trackpad
