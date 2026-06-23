@@ -33,8 +33,12 @@ export interface ClusterResult {
   height: number;
 }
 
-// Milestone bubble cluster (§2.4): kinds become columns, iterations stack as
-// rows, m.links draw bubble→bubble inside the cluster. Local coords from (0,0).
+// Milestone bubble cluster (§2.4): a COMPACT 2-column wrapped grid that abuts the
+// task card — never streams off to the right. Milestones are grouped by kind for
+// adjacency (color lanes), then flow row-major; m.links draw bubble→bubble. Local
+// coords from (0,0). The kind ordering keeps same-kind bubbles next to each other.
+const CLUSTER_COLS = 2;
+
 export function layoutCluster(
   task: Task,
   planId: string,
@@ -44,23 +48,27 @@ export function layoutCluster(
   const cell = s.bubbleRadius * 2;
   const stepX = cell + s.bubbleGapX;
   const stepY = cell + s.bubbleGapY;
-  const top = s.clusterLabelHeight;
 
-  const rowByLane = new Map<number, number>();
-  const nodes: LaidOutNode[] = [];
-  let maxCol = 0;
-  let maxRow = 0;
+  // Stable order: by declared kind lane, then by iteration, then input order.
+  const ordered = task.milestones
+    .map((m, i) => ({ m, i }))
+    .sort((a, b) => {
+      const la = lanes.laneOf(a.m.kind);
+      const lb = lanes.laneOf(b.m.kind);
+      if (la !== lb) return la - lb;
+      const ia = a.m.iteration ?? 0;
+      const ib = b.m.iteration ?? 0;
+      return ia - ib || a.i - b.i;
+    })
+    .map((x) => x.m);
 
-  for (const m of task.milestones) {
-    const col = lanes.laneOf(m.kind);
-    const seq = rowByLane.get(col) ?? 0;
-    const row = m.iteration ?? seq;
-    rowByLane.set(col, Math.max(seq, row) + 1);
-    if (col > maxCol) maxCol = col;
-    if (row > maxRow) maxRow = row;
-    const box: Box = { x: col * stepX, y: top + row * stepY, width: cell, height: cell };
-    nodes.push({ id: m.id, kind: "milestone", planId, box, iteration: m.iteration, manual: false });
-  }
+  const cols = Math.min(CLUSTER_COLS, Math.max(1, ordered.length));
+  const nodes: LaidOutNode[] = ordered.map((m, idx) => {
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const box: Box = { x: col * stepX, y: row * stepY, width: cell, height: cell };
+    return { id: m.id, kind: "milestone", planId, box, iteration: m.iteration, manual: false };
+  });
 
   const present = new Set(task.milestones.map((m) => m.id));
   const edges: LaidOutEdge[] = [];
@@ -72,7 +80,8 @@ export function layoutCluster(
     }
   }
 
-  const width = nodes.length ? (maxCol + 1) * stepX - s.bubbleGapX : 0;
-  const height = nodes.length ? top + (maxRow + 1) * stepY - s.bubbleGapY : 0;
+  const rows = Math.ceil(ordered.length / cols);
+  const width = ordered.length ? cols * cell + (cols - 1) * s.bubbleGapX : 0;
+  const height = ordered.length ? rows * cell + (rows - 1) * s.bubbleGapY : 0;
   return { nodes, edges, width, height };
 }

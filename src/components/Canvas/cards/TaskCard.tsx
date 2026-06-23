@@ -40,7 +40,7 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
       data-task-id={task.id}
       onMouseEnter={() => onHover?.(task.id)}
       onMouseLeave={() => onHover?.(null)}
-      style={{ ...cardStyle, ...style, borderLeft: `3px solid ${badgeColor}` }}
+      style={{ ...cardStyle, ...style }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
         <span
@@ -68,8 +68,9 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
                   fontSize: "0.68rem",
                   padding: "1px 8px",
                   borderRadius: 999,
-                  background: badgeColor,
-                  color: "var(--ct-bg)",
+                  background: `color-mix(in srgb, ${badgeColor} 16%, transparent)`,
+                  border: `1px solid color-mix(in srgb, ${badgeColor} 55%, transparent)`,
+                  color: badgeColor,
                   textTransform: "capitalize",
                   fontWeight: 600,
                 }}
@@ -88,7 +89,8 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
                     padding: "1px 6px",
                     borderRadius: "var(--ct-radius-sm)",
                     border: "1px solid var(--ct-border-subtle)",
-                    opacity: "var(--ct-text-secondary-opacity)",
+                    background: "var(--ct-bg-active)",
+                    color: "var(--ct-fg)",
                     textTransform: "capitalize",
                   }}
                 >
