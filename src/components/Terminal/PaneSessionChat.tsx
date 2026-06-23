@@ -21,6 +21,7 @@ interface Props {
   onError?: (msg: string) => void;
   onOpenTerminalFallback?: () => void;
   uiFontScale?: number;
+  isVisible?: boolean;
   /** Pane is backed by a plugin chatBackend (no PTY). Sends route through the
    *  pane send seam, and PTY-only affordances (terminal fallback, screen poll)
    *  are suppressed. */
@@ -64,6 +65,7 @@ export function PaneSessionChat({
   onError,
   onOpenTerminalFallback,
   uiFontScale,
+  isVisible = true,
   chatBackend = false,
 }: Props) {
   const touchMode = useTouchOptimizedUi();
@@ -98,7 +100,7 @@ export function PaneSessionChat({
   // were persisted) still routes sends correctly.
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const pendingPrompt: PendingPrompt | null = pane?.pending_prompt ?? null;
-  const isActive = muxState.focused_pane_id === paneId;
+  const isActive = isVisible;
 
   const showComposerError = useCallback((message: string) => {
     addNotification({
@@ -234,6 +236,10 @@ export function PaneSessionChat({
       setTerminalActive(false);
       return;
     }
+    if (!isActive) {
+      setTerminalActive(false);
+      return;
+    }
     let cancelled = false;
     const poll = async () => {
       try {
@@ -265,7 +271,7 @@ export function PaneSessionChat({
         terminalActiveTimerRef.current = null;
       }
     };
-  }, [currentPtyId, paneId]);
+  }, [currentPtyId, isActive, paneId]);
 
   // Long-idle ('resting') nuance: once the pane has gone quiet — no terminal
   // activity, no open prompt — for a stretch, soften the indicator from

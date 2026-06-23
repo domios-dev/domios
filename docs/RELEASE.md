@@ -3,7 +3,7 @@
 How a versioned release goes from `develop` to a published GitHub release the
 in-app updater can pull. This is the **map**; the **executable procedure** (every
 command, every secret, every retry) lives in the `github-release` skill:
-`.codeterm/skills/github-release/SKILL.md`. For a local build with no release, use
+`.agents/skills/github-release/SKILL.md`. For a local build with no release, use
 the `prod-build` skill instead.
 
 **Golden rule:** every artifact is built from the **tagged commit on `master`** —
@@ -86,4 +86,4 @@ notary credentials are backed up in mem — the skill lists the exact ids and
 restore paths. A builder without the minisign key produces artifacts the updater
 can't verify.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

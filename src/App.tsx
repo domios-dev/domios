@@ -1,7 +1,8 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke } from "./lib/bridge";
 import { IS_WEB } from "./lib/webApi";
-import { getCurrentPaneUiMode } from "./lib/clientPaneUiMode";
+import { getCurrentPaneUiMode, listenPaneUiModeDefaultChanged } from "./lib/clientPaneUiMode";
+import { isChatDefaultEnabled } from "./lib/chatUiMode";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
@@ -139,7 +140,7 @@ function AppInner() {
     });
   }, []);
   // TODO: const [swarmVisible, setSwarmVisible] = useState(false); // Swarm viz — future
-  const { config, updateConfig, theme } = useConfig();
+  const { config, updateConfig, theme, loading: configLoading } = useConfig();
   const stableTheme = useStableJsonValue(theme);
   const stableFontConfig = useStableJsonValue(config.font);
   const stableTerminalConfig = useStableJsonValue(config.terminal);
@@ -159,7 +160,14 @@ function AppInner() {
 
   // Feed the pane top bar's chat-default flags from this one useConfig as props, so
   // PaneTopBar/ChatDefaultSuggestion never run a per-pane useConfig (froze switches).
-  const chatPaneDefault = config.ui?.default_new_agent_pane_chat === true;
+  const configChatPaneDefault = config.ui?.default_new_agent_pane_chat === true;
+  const [chatPaneDefaultOverride, setChatPaneDefaultOverride] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!configLoading) setChatPaneDefaultOverride(null);
+  }, [configChatPaneDefault, configLoading]);
+  useEffect(() => listenPaneUiModeDefaultChanged(setChatPaneDefaultOverride), []);
+  const chatPaneDefault =
+    chatPaneDefaultOverride ?? (configLoading ? isChatDefaultEnabled() : configChatPaneDefault);
   const chatDefaultPrompted = config.ui?.chat_ui_default_prompted === true;
 
   const {
@@ -596,7 +604,7 @@ function AppInner() {
                   ws.protected === true && state.panes[tab.pane_id]?.protected === true;
                 const shouldMountTab = isActiveTab || isMainTab || mountedTabIds.has(tab.id);
                 if (!shouldMountTab) return null;
-                const isVisible = mainView === "workspace" && isActiveTab;
+                const isVisible = mainView === "workspace" && !pluginViewId && isActiveTab;
                 return (
               <div
                 key={tab.id}
@@ -621,6 +629,7 @@ function AppInner() {
                   api={stableApiConfig}
                   workspaceCwd={ws.cwd ?? null}
                   uiFontScale={uiFontScale}
+                  isVisible={isVisible}
                   chatFirst={chatPaneDefault}
                   chatDefaultPrompted={chatDefaultPrompted}
                 />

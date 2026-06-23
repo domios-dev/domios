@@ -264,6 +264,51 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
   );
 }
 
+{
+  const agentsText = [
+    "# AGENTS.md instructions for /Users/dev/Developer/codeterm-alpha",
+    "",
+    "<INSTRUCTIONS>",
+    "# CodeTerm",
+    "</INSTRUCTIONS>",
+  ].join("\n");
+  const abortedText = [
+    "<turn_aborted>",
+    "The user interrupted the previous turn on purpose.",
+    "</turn_aborted>",
+  ].join("\n");
+  const systemChunk = [
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-01-01T00:00:03Z",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: agentsText }] },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-01-01T00:00:04Z",
+      payload: { type: "message", role: "user", content: [{ type: "input_text", text: abortedText }] },
+    }),
+  ].join("\n");
+  const systemParsed = hostPlugin.parseSessionDelta(systemChunk) as { messages: any[] };
+  eq(
+    systemParsed.messages.map((message) => [message.role, message.sourceSubtype]),
+    [["system", "agent_instructions"], ["system", "turn_aborted"]],
+    "parseSessionDelta maps Codex injected user-shaped rows to system subtypes",
+  );
+  eq(
+    systemParsed.messages.map((message) => message.blocks[0].data.subtype),
+    ["agent_instructions", "turn_aborted"],
+    "parseSessionDelta preserves Codex system subtype in text block data",
+  );
+
+  const searchParsed = hostPlugin.parseSessionMessages(systemChunk) as any[];
+  eq(
+    searchParsed.map((message) => [message.role, message.isMeta, message.sourceSubtype]),
+    [["system", true, "agent_instructions"], ["system", true, "turn_aborted"]],
+    "parseSessionMessages marks Codex injected rows as system meta",
+  );
+}
+
 console.log("\n--- discoverModels ---\n");
 
 {

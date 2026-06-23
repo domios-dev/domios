@@ -4,6 +4,7 @@ import { invoke } from "../../lib/bridge";
 import { InputTracker } from "../../lib/completions/inputTracker";
 import { CompletionEngine } from "../../lib/completions/engine";
 import { defaultDefinitions } from "../../lib/completions/definitions";
+import { getCompletionInsert, isSafeCompletionText } from "../../lib/completions/acceptance";
 import type { CompletionItem } from "../../lib/completions/types";
 
 export interface UseTabCompletionOptions {
@@ -54,14 +55,13 @@ export function useTabCompletion({
     if (!parsed) return false;
 
     if (engine && engine.hasDefinition(parsed.command)) {
-      const items = engine.getCompletions(parsed);
+      const items = engine.getCompletions(parsed).filter((item) => isSafeCompletionText(item.text));
       if (items.length === 1) {
-        const eraseCount = parsed.currentArg.length;
-        const erase = "\x7f".repeat(eraseCount);
-        const insert = items[0].text + " ";
+        const insert = getCompletionInsert(parsed, items[0]);
+        if (!insert) return false;
         const ptyId = connectedPtyRef.current;
-        if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert, raw: false });
-        tracker.feed(erase + insert);
+        if (ptyId) invoke("write_pty_string", { ptyId, data: insert, raw: false });
+        tracker.feed(insert);
         return true;
       }
       if (items.length > 1) {
@@ -91,13 +91,14 @@ export function useTabCompletion({
 
   const acceptCompletion = useCallback((item: CompletionItem) => {
     const tracker = trackerRef.current;
-    const parsed = tracker?.getCursorWord();
-    const eraseCount = parsed?.currentArg.length ?? 0;
-    const erase = "\x7f".repeat(eraseCount);
-    const insert = item.text + " ";
+    if (!tracker) return;
+    const parsed = tracker.getCursorWord();
+    if (!parsed) return;
+    const insert = getCompletionInsert(parsed, item);
+    if (!insert) return;
     const ptyId = connectedPtyRef.current;
-    if (ptyId) invoke("write_pty_string", { ptyId, data: erase + insert, raw: false });
-    tracker?.feed(erase + insert);
+    if (ptyId) invoke("write_pty_string", { ptyId, data: insert, raw: false });
+    tracker.feed(insert);
     setCompletionItems([]);
   }, [connectedPtyRef]);
 
