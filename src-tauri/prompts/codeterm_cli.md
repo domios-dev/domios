@@ -425,12 +425,16 @@ Essential one-liners:
 codeterm plan create --title "My plan" [--kinds status_update,testing,review] [--project PATH]
 codeterm plan list [--active|--archived|--unowned]
 codeterm plan get PLAN_ID
+codeterm plan coverage PLAN_ID
 codeterm plan update PLAN_ID [--title T] [--status active|archived]
 codeterm plan archive PLAN_ID
+codeterm plan groups set PLAN_ID --groups phase-1:Phase 1,phase-2:Phase 2
+codeterm plan link PLAN_ID --to OTHER_PLAN_ID
+codeterm plan unlink PLAN_ID --to OTHER_PLAN_ID
 codeterm plan section add PLAN_ID --title "..." [--body "..." | --body-file PATH]
-codeterm plan task add PLAN_ID --name N [--type implement] [--sections id,id] \
+codeterm plan task add PLAN_ID --name N [--type implement] [--sections id,id] [--group phase-1] \
   [--model "claude:opus"] [--why "routing rationale"] [--body "..." | --body-file PATH]
-codeterm plan task update PLAN_ID TASK_ID [--status done] [--model M] [--why "..."]
+codeterm plan task update PLAN_ID TASK_ID [--status done] [--group phase-1] [--model M] [--why "..."]
 codeterm plan task assign PLAN_ID TASK_ID --pane PANE_ID
 codeterm plan task close PLAN_ID TASK_ID [--result "..." | --result-file PATH]
 codeterm plan milestone add PLAN_ID TASK_ID --kind status_update [--text "..." | --text-file PATH]

@@ -1231,6 +1231,12 @@ Claim an unowned plan
 
 - `<plan_id>` — 
 
+#### `codeterm plan coverage`
+
+Show section coverage (% + gaps)
+
+- `<plan_id>` — 
+
 #### `codeterm plan create`
 
 Create a new plan
@@ -1271,6 +1277,15 @@ Get a plan (markdown by default)
 
 - `<plan_id>` — 
 
+#### `codeterm plan groups`
+
+Set task groups (phases)
+
+#### `codeterm plan groups set`
+
+- `--groups` — 
+- `<plan_id>` — 
+
 #### `codeterm plan kinds`
 
 Set milestone kind columns
@@ -1290,6 +1305,13 @@ Canvas layout overrides
 - `<plan_id>` — 
 - `--x` — 
 - `--y` — 
+
+#### `codeterm plan link`
+
+Link this plan to a related plan
+
+- `<plan_id>` — 
+- `--to` — 
 
 #### `codeterm plan list`
 
@@ -1403,6 +1425,7 @@ Plan tasks
 - `--assign_pane` — 
 - `--body` — 
 - `--body_file` — 
+- `--group` — 
 - `--intent` — 
 - `--intent_file` — 
 - `--kind` — 
@@ -1438,6 +1461,7 @@ Plan tasks
 
 - `--body` — 
 - `--body_file` — 
+- `--group` — 
 - `--intent` — 
 - `--intent_file` — 
 - `--kind` — 
@@ -1456,6 +1480,13 @@ Transfer plan ownership
 
 - `<plan_id>` — 
 - `--reason` — 
+- `--to` — 
+
+#### `codeterm plan unlink`
+
+Remove a plan link
+
+- `<plan_id>` — 
 - `--to` — 
 
 #### `codeterm plan update`
