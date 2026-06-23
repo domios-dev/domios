@@ -31,8 +31,25 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   edges; no coverage tint; cross-workspace leak (isolation); dogfood not visible in focus
   mode. All targeted by v2 — verify each in the first screenshot.
 
-## Iteration 1 — first v2 capture & review (next)
-- After dev is healthy on 8a548a83: Playwright screenshot the dogfood board (Plan mode) →
-  view → score vs rubric → log defects → critique to Mira / spawn Dax. Verify: no-drag,
-  coverage tint, edges connect, bubbles cluster, markdown renders, nothing overflows,
-  isolation (plan absent in other workspace).
+## Iteration 1 — first v2 capture & review ✅
+- **Dev:** ad476207. **Canonical dogfood now `pl_22c052d7`** (re-seeded; old pl_48a4ee03
+  orphaned by the rescan bug below). Seed script: `scripts/seed-canvas-dogfood.sh`.
+- **Render:** canvasView ✓, 1 plan node, 1 spec node, 2 task cards, 5 step bubbles, 85
+  edge paths. Sections are rows inside the plan node (no loose cards). HUGE leap from v1.
+- **Score: ~58/100** — structure correct; polish needed.
+- **CRITICAL BUG (blocks loop): plans on disk are NOT re-indexed after daemon restart.**
+  `/api/plans` returned `{plans:[]}` despite files on disk; `?project=` doesn't scan;
+  watcher doesn't pick up existing files; only API-created-this-session plans index. This
+  is the user's recurring "plans disappear" issue + breaks every restart in the loop.
+  → spawned Rex (codex) to fix: list-by-project must lazily scan `<proj>/.codeterm/plans/`,
+  and startup must rescan known projects. Likely files: service/plan/mod.rs (index build),
+  paths.rs, api/plan_routes list handler. (Possible regression from BE strict-filtering.)
+- **Polish defect backlog → Mira (FE pane 3c68143d):**
+  1. Coverage tint not visually distinct on covered section rows (want fill accent vs uncovered).
+  2. Edges faint / anchor unclear — verify task edges hit the exact section ROW right-edge.
+  3. Board packs loosely — big empty space; tighten satellite/bubble packing toward the plan.
+  4. Owner chip shows "unknown" — show orchestrator or hide when unowned.
+  5. Typography/rhythm/shadows not yet Figma-grade; spec vs plan nodes look too similar.
+  6. Step bubbles small — verify kind grouping + labels legible at default zoom.
+
+## Iteration 2 — fix rescan (Rex) + polish pass 1 (Mira) — in progress
