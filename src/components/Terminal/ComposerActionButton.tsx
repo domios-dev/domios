@@ -48,8 +48,15 @@ export function ComposerActionButton({
         data-testid={mainIsSend ? "composer-send-button" : "composer-voice-button"}
         title={mainTitle}
         onPointerDown={(e) => {
-          if (mainIsSend || isLocked) {
+          if (mainIsSend) {
             e.preventDefault();
+            return;
+          }
+          // Fresh press on a locked recording = stop into preview. The release that
+          // completes drag-to-lock is a pointerup, so it can't trigger this.
+          if (isLocked) {
+            e.preventDefault();
+            void stopToPreview();
             return;
           }
           void startVoice(e);
@@ -70,7 +77,6 @@ export function ComposerActionButton({
         }}
         onClick={(e) => {
           e.preventDefault();
-          if (isLocked) void stopToPreview();
         }}
         onContextMenu={(e) => {
           if (!mainIsSend || !onSchedule) return;
