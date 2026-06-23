@@ -29,9 +29,18 @@ type Args = Record<string, unknown>;
 type Mapper = (args: Args) => Promise<unknown>;
 const webPtyOffsets = new Map<string, number>();
 let invokeForTest: (<T>(cmd: string, args?: Args) => Promise<T>) | null = null;
+let listenForTest:
+  | (<T>(event: string, handler: (e: { payload: T }) => void) => Promise<UnlistenFn>)
+  | null = null;
 
 export function __setInvokeForTest(fn: (<T>(cmd: string, args?: Args) => Promise<T>) | null): void {
   invokeForTest = fn;
+}
+
+export function __setListenForTest(
+  fn: (<T>(event: string, handler: (e: { payload: T }) => void) => Promise<UnlistenFn>) | null,
+): void {
+  listenForTest = fn;
 }
 
 /** Drop the tail cursor so the next read_pty replays retained history from 0. */
@@ -477,6 +486,7 @@ export async function listen<T>(
   event: string,
   handler: (e: { payload: T }) => void,
 ): Promise<UnlistenFn> {
+  if (listenForTest) return listenForTest(event, handler);
   if (!IS_WEB) {
     return tauriListen<T>(event, handler);
   }
