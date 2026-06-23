@@ -146,7 +146,7 @@ async function waitForShell(page: Page): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   await page.evaluate(() => {
     try {
-      localStorage.setItem("codeterm-chat-ui-default-enabled", "false");
+      localStorage.removeItem("codeterm-chat-ui-default-enabled");
     } catch {
       /* localStorage may be unavailable; tests that need it will surface it */
     }
@@ -178,7 +178,7 @@ async function connectWebUi(): Promise<UiSession> {
   await page.addInitScript((devToken) => {
     try {
       localStorage.setItem(`codeterm-web-token:${window.location.origin}`, devToken);
-      localStorage.setItem("codeterm-chat-ui-default-enabled", "false");
+      localStorage.removeItem("codeterm-chat-ui-default-enabled");
     } catch {
       /* localStorage may be unavailable; tests that need it will surface it */
     }

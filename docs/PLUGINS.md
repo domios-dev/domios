@@ -562,7 +562,7 @@ tax (see also `docs/contributing/architecture.md`):
   workflow publishes to npm. Never `npm publish` by hand (token is in Bitwarden).
 - **Core provider plugin (`claude`/`codex`/`opencode`).** It's bundled — it ships
   with the app. Bump the app version, `npm run sync:versions`, then run the app
-  release (`.codeterm/skills/github-release`). The `codeterm-core` channel serves
+  release (`.agents/skills/github-release`). The `codeterm-core` channel serves
   the same version so existing installs pick it up via `plugin update-system`.
 - **Marketplace plugin (`codeterm-plugins` repo).**
   1. Bump `<id>/plugin.json` (and `channel.json` if its entry changed).
@@ -574,5 +574,4 @@ tax (see also `docs/contributing/architecture.md`):
      release the app first/together** (see "App + plugin ship together"). Test
      path: install the new app, then `codeterm plugin install <id>`.
 
-<!-- revision: 10 -->
-
+<!-- revision: 11 -->

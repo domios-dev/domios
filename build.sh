@@ -94,6 +94,24 @@ prepare_bundle_stubs() {
   node scripts/prepare-embed-stub.js
 }
 
+ensure_real_embed_bundle() {
+  local host exe_ext embed_bundle embed_size
+  host=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
+  exe_ext=""
+  case "$OSTYPE" in msys*|cygwin*|win32) exe_ext=".exe" ;; esac
+  embed_bundle="src-tauri/bundled-embed/codeterm-embed-${host}${exe_ext}"
+  prepare_bundle_stubs
+  embed_size=0
+  if [ -f "$embed_bundle" ]; then
+    embed_size=$(stat -c %s "$embed_bundle" 2>/dev/null || stat -f %z "$embed_bundle" 2>/dev/null || echo 0)
+  fi
+  if [ "${REBUILD_EMBED:-0}" = "1" ] || [ "$embed_size" -lt 1048576 ]; then
+    echo "Building codeterm-embed before dev (size=${embed_size}, REBUILD_EMBED=${REBUILD_EMBED:-0})..."
+    cargo build --release --manifest-path src-tauri/Cargo.toml --bin codeterm-embed
+    node scripts/bundle-embed.js
+  fi
+}
+
 start_dev_wait_process() {
   local log="$1"
   local cmd=(pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json)
@@ -231,6 +249,7 @@ case "$CMD" in
     cargo build --release --manifest-path cli/Cargo.toml
     install_cli_to "$HOME/.codeterm/bin"
     install_cli_to "$HOME/.codeterm-dev/bin"
+    ensure_real_embed_bundle
     echo "Starting dev..."
     # Mark the daemon as dev: bundle hashes are bypassed (live edits
     # to <repo>/plugins/<id>/ don't trip the verifier) and the

@@ -81,6 +81,37 @@ pub struct RichMessage {
         default
     )]
     pub is_meta: Option<bool>,
+    /// Provider source row classification preserved for normalization.
+    #[serde(
+        rename = "sourceType",
+        alias = "source_type",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub source_type: Option<String>,
+    #[serde(
+        rename = "sourceSubtype",
+        alias = "source_subtype",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub source_subtype: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub level: Option<String>,
+    #[serde(
+        rename = "isCompactSummary",
+        alias = "is_compact_summary",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub is_compact_summary: Option<bool>,
+    #[serde(
+        rename = "isVisibleInTranscriptOnly",
+        alias = "is_visible_in_transcript_only",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub is_visible_in_transcript_only: Option<bool>,
     /// Raw ISO timestamp string passed straight through to the frontend.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub timestamp: Option<String>,

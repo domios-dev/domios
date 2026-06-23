@@ -20,6 +20,42 @@ async function restoreConfig(api: { request<T>(method: string, apiPath: string, 
   await api.request<AppConfig>("PATCH", "/config", config);
 }
 
+async function setChatPaneDefault(
+  api: { request<T>(method: string, apiPath: string, body?: unknown): Promise<T> },
+  original: AppConfig,
+  enabled: boolean,
+): Promise<void> {
+  await api.request<AppConfig>("PATCH", "/config", {
+    ...original,
+    ui: {
+      ...original.ui,
+      default_new_agent_pane_chat: enabled,
+      chat_ui_default_prompted: true,
+    },
+  });
+}
+
+async function resetChatDefaultBrowserMirror(ui: ManagedUiSession, enabled: boolean): Promise<void> {
+  await ui.page.evaluate((value) => {
+    localStorage.setItem("codeterm:chat-default-new-agent-pane", value ? "true" : "false");
+    localStorage.removeItem("codeterm:pane-ui-mode:terminal-overrides-normalized-for-chat-default");
+  }, enabled);
+}
+
+async function expectPaneModeSwitch(
+  ui: ManagedUiSession,
+  paneId: string,
+  expected: { order: string[]; selected: string },
+): Promise<void> {
+  const switcher = ui.page.locator(`[data-pane-id="${paneId}"] [data-testid="pane-mode-switch"]`);
+  await expect(switcher).toBeVisible({ timeout: 30_000 });
+  const tabs = switcher.getByRole("tab");
+  await expect.poll(async () => {
+    return tabs.evaluateAll((nodes) => nodes.map((node) => node.textContent?.trim() ?? ""));
+  }).toEqual(expected.order);
+  await expect(switcher.getByRole("tab", { name: expected.selected })).toHaveAttribute("aria-selected", "true");
+}
+
 function expectedShortcutText(binding: string): string {
   const isMac = process.platform === "darwin";
   return binding
@@ -98,4 +134,73 @@ test("@smoke keybinding display renders configured shortcuts", async ({ api, ui 
     expectedShortcutText(config.keybindings.open_settings),
   );
   await expect(ui.page.locator('[data-testid="settings-keybinding-row"]')).toHaveCount(14);
+});
+
+test("@golden General Settings chat default updates picker order and survives reload", async ({
+  api,
+  ui,
+  paneCleanup,
+}) => {
+  const original = await api.get<AppConfig>("/config");
+  let paneId: string | undefined;
+
+  try {
+    await setChatPaneDefault(api, original, false);
+    await ui.reconnect();
+    await resetChatDefaultBrowserMirror(ui, false);
+
+    const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({
+      title: `pw-chat-default-picker-${Date.now()}`,
+    });
+    paneId = pane.id;
+    await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
+    await api.focusPane(pane.id);
+
+    await ui.page.reload({ waitUntil: "domcontentloaded" });
+    await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+    if (pane.tab_id) {
+      const tab = ui.page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).first();
+      await expect(tab).toBeVisible({ timeout: 30_000 });
+      await tab.click();
+    }
+    await expectPaneModeSwitch(ui, pane.id, { order: ["Terminal", "Chat"], selected: "Terminal" });
+
+    await ui.page.evaluate((id) => {
+      localStorage.setItem(`codeterm:pane-ui-mode:${id}`, "terminal");
+      sessionStorage.setItem(`codeterm:pane-ui-mode:${id}`, "terminal");
+    }, pane.id);
+
+    await openSettings(ui);
+    const chatDefaultToggle = ui.page.locator(
+      '[data-settings-toggle="use-chat-as-the-default-view-for-new-agent-tabs"][role="switch"]',
+    );
+    await expect(chatDefaultToggle).toHaveAttribute("aria-checked", "false");
+    await chatDefaultToggle.click();
+    await expect(chatDefaultToggle).toHaveAttribute("aria-checked", "true");
+    await expect.poll(async () => {
+      const cfg = await api.get<AppConfig>("/config");
+      return cfg.ui?.default_new_agent_pane_chat === true && cfg.ui?.chat_ui_default_prompted === true;
+    }).toBe(true);
+
+    await ui.page.locator('[data-testid="settings-close"]').click();
+    await expectPaneModeSwitch(ui, pane.id, { order: ["Chat", "Terminal"], selected: "Chat" });
+
+    await ui.page.reload({ waitUntil: "domcontentloaded" });
+    await ui.page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+    if (pane.tab_id) {
+      const tab = ui.page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).first();
+      await expect(tab).toBeVisible({ timeout: 30_000 });
+      await tab.click();
+    }
+    await expectPaneModeSwitch(ui, pane.id, { order: ["Chat", "Terminal"], selected: "Chat" });
+  } finally {
+    await restoreConfig(api, original);
+    if (paneId) {
+      await ui.page.evaluate((id) => {
+        localStorage.removeItem(`codeterm:pane-ui-mode:${id}`);
+        sessionStorage.removeItem(`codeterm:pane-ui-mode:${id}`);
+        localStorage.removeItem("codeterm:pane-ui-mode:terminal-overrides-normalized-for-chat-default");
+      }, paneId).catch(() => {});
+    }
+  }
 });

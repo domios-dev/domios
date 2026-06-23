@@ -361,8 +361,6 @@ var plugin = {
     return this.sessionFilePath(cwd, sessionId);
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
-  // Parse codex rollout JSONL into RichMessages, reading only `response_item` lines
-  // ({type:"response_item", payload:{type:"message"|"function_call"|"function_call_output"}}).
   parseSessionDelta(chunk) {
     const out = [];
     const lines = String(chunk || "").split("\n");
@@ -407,6 +405,18 @@ var plugin = {
           text = p.content;
         }
         if (!text) continue;
+        const systemSubtype = classifyCodexSystemText(text);
+        if (systemSubtype) {
+          out.push({
+            role: "system",
+            blocks: [{ kind: "text", data: { text, subtype: systemSubtype } }],
+            sourceType: v.type,
+            sourceSubtype: systemSubtype,
+            ts,
+            timestamp: tsIso
+          });
+          continue;
+        }
         out.push({ role, blocks: [{ kind: "text", data: { text } }], ts, timestamp: tsIso });
       } else if (p.type === "function_call") {
         let input = {};
@@ -634,14 +644,17 @@ var plugin = {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1e3);
       }
-      out.push({ role, text: text2, ts, isMeta: false });
+      const systemSubtype = classifyCodexSystemText(text2);
+      if (systemSubtype) {
+        out.push({ role: "system", text: text2, ts, isMeta: true, sourceSubtype: systemSubtype });
+      } else {
+        out.push({ role, text: text2, ts, isMeta: false });
+      }
     }
     return out;
   },
   // Classify a parked codex pane from its rendered screen. Invariants: auth is
   // sacred (surfaced, never auto-pressed); the update verdict is an ensemble of
-  // structural signals so a lone weak match stays sub-threshold, and when it
-  // fires it navigates to "Skip", never the default "Update now" highlight.
   classifyPaneState(snapshot) {
     const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
     if (!screen.trim()) return null;
@@ -969,6 +982,17 @@ function hasUsefulFunctionCall(name, input, args) {
   if (name) return true;
   if (typeof args === "string" && args.trim() && args.trim() !== "{}") return true;
   return Object.keys(input || {}).length > 0;
+}
+function classifyCodexSystemText(text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return null;
+  if (trimmed.indexOf("<turn_aborted>") === 0 && trimmed.indexOf("</turn_aborted>") !== -1) {
+    return "turn_aborted";
+  }
+  if (/^# AGENTS\.md instructions for /m.test(trimmed) && trimmed.indexOf("<INSTRUCTIONS>") !== -1) {
+    return "agent_instructions";
+  }
+  return null;
 }
 function isValidCodexSessionMessage(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
