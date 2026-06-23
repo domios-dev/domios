@@ -27,8 +27,26 @@ TAG="${1:?usage: build-all.sh vX.Y.Z}"; VER="${TAG#v}"
 REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
 BM="$REPO/.codeterm/build-machine"
 HELPERS="$REPO/.agents/skills/github-release/scripts"
-ART="${ART:-/tmp/codeterm-${VER}-artifacts}"; mkdir -p "$ART"
-LWORK=/tmp/ct-linux-build; mkdir -p "$LWORK"
+ART="${ART:-/tmp/codeterm-${VER}-artifacts}"
+LWORK=/tmp/ct-linux-build
+rm -rf "$ART" "$LWORK"
+mkdir -p "$ART" "$LWORK"
+
+cleanup_children() {
+  local pids
+  pids="$(jobs -pr || true)"
+  [ -n "$pids" ] || return 0
+  for pid in $pids; do
+    pkill -TERM -P "$pid" 2>/dev/null || true
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  sleep 2
+  for pid in $pids; do
+    pkill -KILL -P "$pid" 2>/dev/null || true
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+}
+trap 'cleanup_children' INT TERM
 
 echo "### creating auth-free source bundle for $TAG"
 git -C "$REPO" bundle create "/tmp/codeterm-${TAG}.bundle" "$TAG"
@@ -61,26 +79,33 @@ DOCKER="docker run --rm -v $LWORK:/work -v /tmp/ct-cargo-registry:/usr/local/car
 echo "### pnpm install (mac engine, $REPO)"
 ( cd "$REPO" && { corepack enable >/dev/null 2>&1 || true; }; pnpm install )
 
+echo "### cleaning mac release target dirs (avoid interrupted prior release state)"
+rm -rf "$REPO/src-tauri/target/release" \
+       "$REPO/src-tauri/target/x86_64-apple-darwin/release"
+
+rc=0
+
 # arm64 wave
 run_wave arm64 \
   "$HELPERS/mac-bundle.sh $VER arm64 $ART" \
-  "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null" \
-  "OUT=$ART bash $BM/scripts/build-windows.sh $TAG aarch64"
+  "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null; cp $LWORK/out/*aarch64.AppImage $ART/ 2>/dev/null" \
+  "OUT=$ART bash $BM/scripts/build-windows.sh $TAG aarch64" || rc=1
 
 # x86_64 wave
 run_wave x86_64 \
   "$HELPERS/mac-bundle.sh $VER x86_64 $ART" \
   "$DOCKER codeterm-build-linux-x64 bash /build-linux.sh $TAG deb; cp $LWORK/out/*amd64.deb $ART/ 2>/dev/null" \
-  "OUT=$ART bash $BM/scripts/build-windows.sh $TAG x86_64"
+  "OUT=$ART bash $BM/scripts/build-windows.sh $TAG x86_64" || rc=1
 
 # Collect mac DMGs into the artifacts dir (mac-bundle leaves them in target/).
 cp -f "$REPO/src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg" "$ART/" 2>/dev/null || true
 cp -f "$REPO/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_${VER}_x64.dmg" "$ART/" 2>/dev/null || true
 
-# Sign Windows installers with the minisign updater key (key stays on the Mac).
-for exe in "$ART"/CodeTerm_${VER}_*-setup.exe; do
-  [ -f "$exe" ] && ( cd "$REPO" && set -a; . ~/.claude/.secrets/apple-notary.env; set +a; pnpm tauri signer sign "$exe" )
+# Sign updater-capable bundles with the minisign updater key (key stays on the Mac).
+for bundle in "$ART"/CodeTerm_${VER}_*-setup.exe "$ART"/CodeTerm_${VER}_*.AppImage; do
+  [ -f "$bundle" ] && ( cd "$REPO" && set -a; . ~/.claude/.secrets/apple-notary.env; set +a; pnpm tauri signer sign "$bundle" )
 done
 
 echo "### artifacts in $ART"; ls -la "$ART"
+[ "$rc" -eq 0 ] || { echo "::error::one or more release build waves failed"; exit "$rc"; }
 echo "BUILD_ALL_DONE $TAG"

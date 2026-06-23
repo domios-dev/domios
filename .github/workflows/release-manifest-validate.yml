@@ -7,25 +7,16 @@ name: release-manifest-validate
 # current Tauri v2 `createUpdaterArtifacts=true` configuration),
 # so this guard catches a broken manifest before users try to update.
 #
-# Triggers:
-#   - workflow_run after release-macos / release-windows / release-linux
-#     finish on a tag push. The mirror step inside each release workflow
-#     uploads/refreshes latest.json, so by the time all three complete the
-#     manifest should be correct.
-#   - workflow_dispatch for manual re-checks.
+# Trigger:
+#   - workflow_dispatch for manual re-checks. The self-hosted release workflow
+#     already verifies updater URLs during publish, so this workflow is fallback-only.
 
 on:
-  workflow_run:
-    workflows: [release-macos, release-windows, release-linux]
-    types: [completed]
   workflow_dispatch:
 
 jobs:
   validate:
     runs-on: ubuntu-latest
-    # Skip when the upstream workflow itself failed — there is nothing new to
-    # validate, and we don't want to spam failures on top of failures.
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     steps:
       - name: Fetch latest.json from public mirror and validate per-platform URLs
         shell: bash
@@ -37,7 +28,7 @@ jobs:
 
           darwin=$(echo "$JSON" | jq -r '.platforms["darwin-x86_64"].url // .platforms["darwin-aarch64"].url // empty')
           windows=$(echo "$JSON" | jq -r '.platforms["windows-x86_64"].url // empty')
-          linux=$(echo "$JSON" | jq -r '.platforms["linux-x86_64"].url // empty')
+          linux=$(echo "$JSON" | jq -r '.platforms["linux-x86_64"].url // .platforms["linux-aarch64"].url // empty')
 
           fail=0
           if [ -z "$darwin" ]; then
@@ -53,7 +44,7 @@ jobs:
             echo "$windows" | grep -qE '\.exe(\?|$)' || { echo "::error::windows url missing .exe: $windows"; fail=1; }
           fi
           if [ -z "$linux" ]; then
-            echo "::error::manifest missing linux-x86_64 entry"
+            echo "::error::manifest missing linux updater entry"
             fail=1
           else
             echo "$linux" | grep -qE '\.AppImage(\?|$)' || { echo "::error::linux url missing .AppImage: $linux"; fail=1; }

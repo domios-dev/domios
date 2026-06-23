@@ -70,19 +70,45 @@ pub(super) fn clone_git_channel(source: &ChannelSource, cache_path: &Path) -> Re
     if tmp.exists() {
         fs::remove_dir_all(&tmp).map_err(|e| format!("clear {}: {e}", tmp.display()))?;
     }
-    run_git([
-        "clone",
-        "--depth",
-        "1",
-        &source.base,
-        &tmp.to_string_lossy(),
-    ])?;
+    let tmp_string = tmp.to_string_lossy().to_string();
+    let mut clone_args = vec![
+        "clone".to_string(),
+        "-c".to_string(),
+        "core.longpaths=true".to_string(),
+        "--depth".to_string(),
+        "1".to_string(),
+        "--filter=blob:none".to_string(),
+    ];
+    if source.subdir.is_some() {
+        clone_args.push("--sparse".to_string());
+    }
+    clone_args.push(source.base.clone());
+    clone_args.push(tmp_string);
+    run_git(clone_args)?;
     if let Some(git_ref) = &source.git_ref {
-        run_git_in(&tmp, ["fetch", "--depth", "1", "origin", git_ref])?;
-        run_git_in(&tmp, ["checkout", "FETCH_HEAD"])?;
+        run_git_in(
+            &tmp,
+            vec![
+                "fetch".to_string(),
+                "--depth".to_string(),
+                "1".to_string(),
+                "origin".to_string(),
+                git_ref.clone(),
+            ],
+        )?;
+        run_git_in(&tmp, vec!["checkout".to_string(), "FETCH_HEAD".to_string()])?;
     }
     if let Some(subdir) = &source.subdir {
         validate_relative_path(subdir)?;
+        run_git_in(
+            &tmp,
+            vec![
+                "sparse-checkout".to_string(),
+                "set".to_string(),
+                "--cone".to_string(),
+                subdir.clone(),
+            ],
+        )?;
         copy_dir_filtered(&tmp.join(subdir), cache_path)?;
         fs::remove_dir_all(&tmp).map_err(|e| format!("remove {}: {e}", tmp.display()))?;
     } else {
@@ -127,9 +153,10 @@ pub(super) fn absolutize(path: &Path) -> Result<PathBuf, String> {
     fs::canonicalize(path).map_err(|e| format!("resolve {}: {e}", path.display()))
 }
 
-pub(super) fn run_git<const N: usize>(args: [&str; N]) -> Result<(), String> {
-    let out = Command::new("git")
-        .args(args)
+pub(super) fn run_git(args: Vec<String>) -> Result<(), String> {
+    let mut command = git_command();
+    let out = command
+        .args(&args)
         .output()
         .map_err(|e| format!("run git: {e}"))?;
     if !out.status.success() {
@@ -138,10 +165,11 @@ pub(super) fn run_git<const N: usize>(args: [&str; N]) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn run_git_in<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<(), String> {
-    let out = Command::new("git")
+pub(super) fn run_git_in(cwd: &Path, args: Vec<String>) -> Result<(), String> {
+    let mut command = git_command();
+    let out = command
         .current_dir(cwd)
-        .args(args)
+        .args(&args)
         .output()
         .map_err(|e| format!("run git: {e}"))?;
     if !out.status.success() {
@@ -149,6 +177,28 @@ pub(super) fn run_git_in<const N: usize>(cwd: &Path, args: [&str; N]) -> Result<
     }
     Ok(())
 }
+
+fn git_command() -> Command {
+    #[cfg(test)]
+    let program = std::env::var("CODETERM_TEST_GIT_BIN").unwrap_or_else(|_| "git".to_string());
+    #[cfg(not(test))]
+    let program = "git";
+
+    let mut command = Command::new(program);
+    no_window(&mut command);
+    command
+}
+
+#[cfg(windows)]
+fn no_window(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn no_window(_command: &mut Command) {}
 
 pub(super) fn system_channel_url() -> String {
     std::env::var("CODETERM_SYSTEM_PLUGIN_CHANNEL_URL")

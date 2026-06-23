@@ -11,6 +11,9 @@ on:
       - '.github/workflows/cli-source-of-truth.yml'
   push:
     branches: [develop, master]
+    paths-ignore:
+      - '.codeterm/build-machine/**'
+      - '.github/workflows/release*.yml'
 
 jobs:
   cli-doctor:

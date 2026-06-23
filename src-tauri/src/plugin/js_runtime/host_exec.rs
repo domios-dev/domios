@@ -98,7 +98,9 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
             },
             None => (Stdio::null(), Stdio::null()),
         };
-        return match Command::new(&resolved)
+        let mut command = Command::new(&resolved);
+        crate::process_util::no_window_std(&mut command);
+        return match command
             .args(&opts.args)
             .envs(&opts.env)
             .stdin(Stdio::null())
@@ -113,7 +115,9 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         };
     }
 
-    let mut child = match Command::new(&resolved)
+    let mut command = Command::new(&resolved);
+    crate::process_util::no_window_std(&mut command);
+    let mut child = match command
         .args(&opts.args)
         .envs(&opts.env)
         .stdin(if opts.stdin.is_some() {

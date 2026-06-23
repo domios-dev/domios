@@ -48,7 +48,7 @@ pub(crate) fn run_update_apply_via_mesh(
         std::process::exit(1);
     };
 
-    let signed = match crate::read_mesh_signed_token() {
+    let check_signed = match crate::read_mesh_signed_token() {
         Some(t) => t,
         None => {
             eprintln!(
@@ -66,7 +66,7 @@ pub(crate) fn run_update_apply_via_mesh(
     let check_resp = relay_call(
         http,
         &peer_url,
-        &signed,
+        &check_signed,
         "GET",
         "/api/update/check?force=true",
         None,
@@ -155,7 +155,27 @@ pub(crate) fn run_update_apply_via_mesh(
     if let Some(t) = after_update {
         install_path.push_str(&format!("&after_update={}", urlencoding::encode(t)));
     }
-    let install_resp = relay_call(http, &peer_url, &signed, "POST", &install_path, None);
+    let install_signed = match crate::read_mesh_signed_token() {
+        Some(t) => t,
+        None => {
+            eprintln!(
+                "Error: cannot sign mesh request — no identity at {:?}.",
+                dirs::home_dir()
+                    .unwrap_or_default()
+                    .join(data_dir_name())
+                    .join("mesh/identity.json")
+            );
+            std::process::exit(1);
+        }
+    };
+    let install_resp = relay_call(
+        http,
+        &peer_url,
+        &install_signed,
+        "POST",
+        &install_path,
+        None,
+    );
     let install_data = match install_resp {
         Ok(v) => v,
         Err(e) => {
