@@ -166,6 +166,39 @@ impl PlanStore {
         }
     }
 
+    fn load_file_into_index(&self, path: PathBuf, project_root: &Path) -> Result<(), PlanError> {
+        let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
+        let mut plan: Plan =
+            serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
+        plan.project_path = project_root.display().to_string();
+        let entry = Self::index_entry(&plan, path);
+        self.index.write().insert(plan.id.clone(), entry);
+        self.plans
+            .write()
+            .insert(plan.id.clone(), Arc::new(Mutex::new(plan)));
+        Ok(())
+    }
+
+    pub fn scan_project(&self, project_path: &Path) -> Result<PathBuf, PlanError> {
+        let project_root = paths::project_root(project_path);
+        let plans_dir =
+            paths::plans_dir(&project_root).map_err(|e| PlanError::Io(e.to_string()))?;
+        let entries = std::fs::read_dir(&plans_dir).map_err(|e| PlanError::Io(e.to_string()))?;
+        for entry in entries {
+            let Ok(entry) = entry else {
+                continue;
+            };
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            if let Err(e) = self.load_file_into_index(path.clone(), &project_root) {
+                log::warn!("[plan] skip malformed plan {}: {}", path.display(), e);
+            }
+        }
+        Ok(project_root)
+    }
+
     pub fn save(&self, plan: &mut Plan, now_ms: u64) -> std::io::Result<()> {
         if plan.created_at == 0 {
             plan.created_at = now_ms;
@@ -201,13 +234,16 @@ impl PlanStore {
             .map(|e| e.file_path.clone())
             .ok_or(PlanError::NotFound)?;
         let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
-        let plan: Plan = serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
+        let mut plan: Plan =
+            serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
         if plan.id != id {
             return Err(PlanError::Io(format!(
                 "plan id mismatch: expected {id}, found {}",
                 plan.id
             )));
         }
+        let project_root = paths::project_root(Path::new(&plan.project_path));
+        plan.project_path = project_root.display().to_string();
         self.index
             .write()
             .insert(plan.id.clone(), Self::index_entry(&plan, path));
