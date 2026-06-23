@@ -13,7 +13,9 @@ mod send;
 pub use send::send_text;
 
 #[cfg(test)]
-pub(crate) use send::{default_true, send_action_bytes, BatchCommand, SendAction, SendTextBody};
+pub(crate) use send::{
+    default_true, send_action_bytes, should_prepend_source, BatchCommand, SendAction, SendTextBody,
+};
 
 pub async fn list_panes(
     AxumState(state): AxumState<AppState>,
@@ -267,11 +269,14 @@ pub async fn exec_in_pane(
     check_auth(&state, &headers)?;
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
+    // A freshly-spawned (lazy) pane has no PTY yet; ensure it before polling for
+    // the link, else await_pty_link waits for a PTY nothing triggered and fails.
+    state
+        .svc
+        .ensure_pane_pty_for_send(&pane_id)
+        .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     if !await_pty_link(&state, &pane_id).await {
-        return Err((
-            StatusCode::NOT_FOUND,
-            "Pane not found or PTY did not start within 3s",
-        ));
+        return Err((StatusCode::NOT_FOUND, "Pane not found or PTY did not start"));
     }
     let pty_id = state
         .svc
