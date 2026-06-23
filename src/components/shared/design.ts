@@ -14,6 +14,9 @@ export const UI_BUTTON = {
 export const UI_TRAY_BTN =
   "flex items-center justify-center w-7 h-7 rounded-md transition-colors text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]";
 
+export const UI_TRAY_DIVIDER =
+  "mx-1 h-4 shrink-0 border-l-[1.5px] border-[var(--ct-tray-divider)]";
+
 export const UI_INPUT = {
   base: "ct-input",
   compact: "ct-input ct-input--compact",

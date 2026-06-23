@@ -6,7 +6,7 @@ minutes**, in clean builds, 3 architectures in parallel per wave.
 
 > Scaffolding lives in [`.codeterm/build-machine/`](../.codeterm/build-machine/) (Dockerfiles +
 > orchestrator). The release pipeline itself is the `github-release` skill
-> (`.codeterm/skills/github-release/`). This doc is the from-scratch *setup* record.
+> (`.agents/skills/github-release/`). This doc is the from-scratch *setup* record.
 
 ## Topology: 3 engines × 2 waves
 
@@ -256,4 +256,4 @@ engines must each be self-starting:
 6. Set repo secret `WIN_VM_SSHPASS`; `net accounts /lockoutthreshold:0` in the VM (no SSH lockout).
 7. Push a `release-0.0.0`-style test tag to validate plumbing, then a real `release-X.Y.Z`.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

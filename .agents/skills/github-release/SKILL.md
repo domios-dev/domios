@@ -1,10 +1,10 @@
 ---
-title: End-to-end GitHub release for CodeTerm
-area: deploy
-tags: [release, github, macos, windows, notarize, brew, mesh]
-owner: mac
-scope: shared
-source: git
+name: github-release
+description: >-
+  End-to-end GitHub release workflow for CodeTerm. Use when asked to release,
+  ship, tag, publish, bump a version, trigger the self-hosted build machine,
+  monitor release CI, produce signed/notarized macOS/Linux/Windows artifacts,
+  update the public updater mirror, or debug the CodeTerm release pipeline.
 ---
 
 
@@ -80,7 +80,7 @@ failed run never half-publishes.
 
 User says: «сделай релиз», «выпусти vX.Y.Z», «ship it», «bump version + release», «assemble the binaries and put on github».
 
-For just **building locally** (no release), use `prod-build`. For **just** the macOS x86_64 cross-compile gotchas, see `macos-x86_64-release`. This skill ties all three targets + upload + brew in one flow.
+For just **building locally** (no release), use `prod-build`. For **just** the macOS x86_64 cross-compile gotchas, read `references/macos-x86-64.md`. This skill ties all three targets + upload + brew in one flow.
 
 ## Agent report contract — machine-token first line
 
@@ -237,7 +237,7 @@ The captured `ARM_SIG` / `X64_SIG` go straight into latest.json below.
 
 Compact one-shot view of: private/public assets, latest.json manifest plat coverage, and per-platform CI run state. Replaces 3-4 separate `gh` queries.
 
-Cross-compile detail (why this script exists): `macos-x86_64-release` skill.
+Cross-compile detail (why this script exists): `references/macos-x86-64.md`.
 
 ### 7. Upload macOS DMGs to the private (source) repo
 

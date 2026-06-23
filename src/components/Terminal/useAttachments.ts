@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { useTauriFileDrop } from "../../hooks/terminal";
-import { useWebFileDrop } from "./ComposerActions";
+import { useWebFileDrop } from "./composerFiles";
 import { storeBlob } from "./voice/audio";
 
 const IMAGE_EXT: Record<string, string> = {

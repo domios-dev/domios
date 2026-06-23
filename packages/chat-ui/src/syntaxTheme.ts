@@ -1,5 +1,7 @@
 import type React from "react";
 
+export const SYNTAX_HIGHLIGHT_ROOT_CLASS = "ct-syntax-highlight";
+
 const rootText: React.CSSProperties = {
   color: "var(--ct-syntax-fg, var(--ct-fg, #c9d1d9))",
   textShadow: "none",

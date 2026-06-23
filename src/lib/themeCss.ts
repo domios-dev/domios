@@ -31,13 +31,18 @@ export const DEFAULT_THEME: ThemeConfig = {
 export function themeToCSS(theme: ThemeConfig): Record<string, string> {
   const isLight = isLightColor(theme.background);
   const syntax = syntaxColors(theme, isLight);
+  const chromeBg = deriveColor(theme.background, 8);
   return {
     "--ct-bg": theme.background,
     "--ct-fg": theme.foreground,
     "--ct-cursor": theme.cursor,
     "--ct-selection": theme.selection,
-    "--ct-sidebar-bg": deriveColor(theme.background, 8),
-    "--ct-titlebar-bg": deriveColor(theme.background, 8),
+    "--ct-sidebar-bg": chromeBg,
+    "--ct-titlebar-bg": chromeBg,
+    "--ct-tray-divider": isLight
+      ? blendColor(chromeBg, theme.bright_black, 0.34)
+      : blendColor(chromeBg, theme.bright_white, 0.58),
+    "--ct-on-accent": isLight ? "#ffffff" : theme.bright_white,
     "--ct-border": blendColor(theme.background, theme.bright_black, 0.38),
     "--ct-hover": deriveColor(theme.background, 14),
     "--ct-active": deriveColor(theme.background, 22),

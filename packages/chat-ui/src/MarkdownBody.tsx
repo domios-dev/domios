@@ -7,7 +7,8 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
 import { looksLikeMermaidSource } from "./MermaidBlock";
-import { themeAwarePrismStyle } from "./syntaxTheme";
+import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
+import { inferCodeLanguage } from "./codeLanguage";
 import { pickUiFontScaleValue } from "./uiFontScale";
 
 export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
@@ -145,16 +146,19 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
 
 export function extractFilePath(message: ChatMessage): string | null {
   if (message.toolInput) {
-    const fp = (message.toolInput.file_path ?? message.toolInput.filePath) as string | undefined;
-    if (fp) return fp;
+    const input = message.toolInput;
+    const fp = (input.file_path ?? input.filePath ?? input.path) as string | undefined;
+    if (typeof fp === "string" && fp.trim()) return fp;
   }
   if (message.toolArgs) {
     try {
-      const parsed = JSON.parse(message.toolArgs);
-      if (parsed.file_path) return parsed.file_path;
+      const parsed = JSON.parse(message.toolArgs) as Record<string, unknown>;
+      for (const key of ["file_path", "filePath", "path"] as const) {
+        const value = parsed[key];
+        if (typeof value === "string" && value.trim()) return value;
+      }
     } catch {
-      // Try to extract from text
-      const match = message.toolArgs.match(/(?:file_path|path)['":\s]+([^\s'"}\],]+)/);
+      const match = message.toolArgs.match(/(?:file_path|filePath|path)['":\s]+([^\s'"}\],]+)/);
       if (match) return match[1];
     }
   }
@@ -221,7 +225,6 @@ function diffRowStyle(kind: DiffLineKind): React.CSSProperties {
       kind === "del"
         ? "var(--ct-diff-del-bg, color-mix(in srgb, var(--ct-red, #f85149) 12%, var(--ct-bg, transparent)))"
         : "var(--ct-diff-add-bg, color-mix(in srgb, var(--ct-green, #3fb950) 12%, var(--ct-bg, transparent)))",
-    color: "var(--ct-fg)",
   };
 }
 
@@ -247,6 +250,10 @@ export const DiffView = React.memo(function DiffView({
 }) {
   const lines = useMemo(() => buildDiffLines(edits), [edits]);
   const combinedText = useMemo(() => lines.map((l) => l.content).join("\n"), [lines]);
+  const resolvedLanguage = useMemo(
+    () => (language !== "text" ? language : inferCodeLanguage(null, combinedText)),
+    [language, combinedText],
+  );
   const highlight = lines.length > 0 && lines.length <= DIFF_HIGHLIGHT_MAX_LINES;
 
   const separatorBefore = (i: number) => i > 0 && lines[i].editIndex !== lines[i - 1].editIndex;
@@ -262,11 +269,12 @@ export const DiffView = React.memo(function DiffView({
   );
 
   return (
-    <div className="font-mono text-[11px] leading-relaxed overflow-x-auto">
+    <div className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} font-mono text-[11px] leading-relaxed overflow-x-auto`}>
       {highlight ? (
         <SyntaxHighlighter
-          language={language}
+          language={resolvedLanguage}
           style={themeAwarePrismStyle}
+          useInlineStyles={false}
           PreTag="div"
           CodeTag="div"
           customStyle={{
@@ -433,41 +441,7 @@ export function LongArtifact({
   );
 }
 
-export function languageFromPath(path: string | null): string {
-  if (!path) return "text";
-  const ext = path.split(/[./\\]/).pop()?.toLowerCase();
-  const map: Record<string, string> = {
-    js: "javascript",
-    jsx: "jsx",
-    ts: "typescript",
-    tsx: "tsx",
-    json: "json",
-    css: "css",
-    scss: "scss",
-    html: "html",
-    md: "markdown",
-    markdown: "markdown",
-    mmd: "mermaid",
-    mermaid: "mermaid",
-    rs: "rust",
-    py: "python",
-    ps1: "powershell",
-    sh: "bash",
-    bash: "bash",
-    yml: "yaml",
-    yaml: "yaml",
-    toml: "toml",
-    sql: "sql",
-    go: "go",
-    java: "java",
-    c: "c",
-    h: "c",
-    cpp: "cpp",
-    hpp: "cpp",
-    cs: "csharp",
-  };
-  return ext ? (map[ext] ?? ext) : "text";
-}
+export { inferCodeLanguage, languageForEdits, languageFromPath } from "./codeLanguage";
 
 /** Last non-empty line of a tool result — used for the compact inline tail. */
 export function lastNonEmptyLine(text: string): string {
