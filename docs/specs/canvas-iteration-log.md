@@ -136,7 +136,19 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   composition fills viewport. Targeting >85.
 - Re-scoring with fresh Dax (full + zoom).
 
-## Iteration 8 — KILL THE FLOATING (cluster placement root-cause) (Mira) — in progress
+## Iteration 8 — KILL THE FLOATING (cluster placement root-cause) (Mira) ✅
+- Mira pushed dbc1a3d4 (merged 78ee8930): cluster algorithm rewritten to COMPACT 2-col wrapped
+  grid abutting the task card (clusterGapX 24, ≤2 cols, locked w/ test nearest-bubble ≤1 gutter
+  from task right edge); spec CARD chrome restored (1px border, titlebar surface, shadow) + plan↔
+  spec edge 0.46 w/ dots both ends; zoom cap 2.4, bubble gaps 12; coverage tint → 0.10 + thin rail
+  (saturation only in glyph); task card ONE green signal (marker dot, outline badge) + readable
+  type chip; co-located done-count + coverage footer; owner dot → sky. tsc clean, 13/13 (layout 33).
+- **Verified (full+zoom):** clusters ABUT tasks (floating killed) w/ milestone text adjacent; spec
+  is a real document card w/ visible plan↔spec edge; plan→task edges fan + traceable; reads as ONE
+  connected diagram (spec→plan→tasks→steps); fills viewport. Big jump.
+- Re-scoring with fresh Dax (full + zoom). Target >85.
+
+## Iteration 9 — Dax re-score — in progress
 - **Dax4 scored iter7 = 74/100** (Hierarchy 7.5, Connection **5.5**, Coverage 8.5, Bounds 9,
   Packing **6**, Typo 7.5, Color 7, Nav 8, Markdown 8.5, Polish 6.5). Harsher calibration, but
   the defect theme is now consistent across Dax2/3/4: CONNECTION + PACKING, same root.
