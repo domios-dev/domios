@@ -1,26 +1,26 @@
 import type { CSSProperties, ReactNode } from "react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import {
-  MilestoneNode,
-  PlanFrame,
-  SectionCard,
+  MilestoneBubble,
+  PlanNode,
+  SpecNode,
   TaskCard,
   type CanvasLod,
+  type MilestoneBubbleModel,
 } from "./cards";
 import type { LaidOutNode } from "./layout";
 import { registerProvenanceRenderers } from "./registerProvenanceRenderers";
-import type { CanvasElement, Milestone, Plan, Section, Task } from "./types";
+import type { CanvasElement, Plan, Task } from "./types";
 
-// kind → renderer dispatch (§6.3). Adding a node kind = one register call;
-// the canvas core, layout, pan/zoom and focus detection stay untouched.
+// kind → renderer dispatch. Adding a node kind = one register call; canvas core,
+// layout, pan/zoom and focus detection stay untouched. Open-kind fallback kept.
 export interface NodeRenderArgs {
   node: LaidOutNode;
   model: unknown;
   style: CSSProperties;
   lod: CanvasLod;
-  onMouseDown?: (e: React.MouseEvent) => void;
-  dragging?: boolean;
   onArchive?: () => void;
+  onOpenPane?: (paneId: string) => void;
 }
 
 export type NodeRenderer = (args: NodeRenderArgs) => ReactNode;
@@ -43,30 +43,12 @@ const fallbackStyle: CSSProperties = {
   boxShadow: "var(--ct-shadow-sm)",
 };
 
-// Unknown kind → generic card, never crash. Renders the kind + markdown content
-// when the model is a CanvasElement carrying a string payload.
-export const fallbackRenderer: NodeRenderer = ({ node, model, style, onMouseDown, dragging }) => {
+export const fallbackRenderer: NodeRenderer = ({ node, model, style }) => {
   const el = model as CanvasElement | undefined;
   const content = typeof el?.content === "string" ? el.content : null;
   return (
-    <div
-      data-testid="canvas-fallback-node"
-      data-node-kind={node.kind}
-      data-canvas-draggable={onMouseDown ? "true" : undefined}
-      onMouseDown={onMouseDown}
-      style={{
-        ...fallbackStyle,
-        ...style,
-        cursor: onMouseDown ? (dragging ? "grabbing" : "grab") : undefined,
-      }}
-    >
-      <div
-        style={{
-          fontWeight: 600,
-          fontSize: "var(--ct-font-size-sm)",
-          textTransform: "capitalize",
-        }}
-      >
+    <div data-testid="canvas-fallback-node" data-node-kind={node.kind} style={{ ...fallbackStyle, ...style }}>
+      <div style={{ fontWeight: 600, fontSize: "var(--ct-font-size-sm)", textTransform: "capitalize" }}>
         {node.kind.replace(/_/g, " ")}
       </div>
       {content && (
@@ -82,24 +64,17 @@ export function getNodeRenderer(kind: string): NodeRenderer {
   return renderers[kind] ?? fallbackRenderer;
 }
 
-// Built-in kinds wrap the existing cards — their internals are unchanged.
 registerNodeRenderer("plan", ({ model, style, lod, onArchive }) =>
-  model ? <PlanFrame plan={model as Plan} style={style} lod={lod} onArchive={onArchive} /> : null,
+  model ? <PlanNode plan={model as Plan} style={style} lod={lod} onArchive={onArchive} /> : null,
 );
-registerNodeRenderer("section", ({ model, style, lod, onMouseDown, dragging }) =>
-  model ? (
-    <SectionCard section={model as Section} style={style} lod={lod} onMouseDown={onMouseDown} dragging={dragging} />
-  ) : null,
+registerNodeRenderer("spec", ({ model, style, lod }) =>
+  model ? <SpecNode plan={model as Plan} style={style} lod={lod} /> : null,
 );
-registerNodeRenderer("task", ({ model, style, lod, onMouseDown, dragging }) =>
-  model ? (
-    <TaskCard task={model as Task} style={style} lod={lod} onMouseDown={onMouseDown} dragging={dragging} />
-  ) : null,
+registerNodeRenderer("task", ({ model, style, lod, onOpenPane }) =>
+  model ? <TaskCard task={model as Task} style={style} lod={lod} onOpenPane={onOpenPane} /> : null,
 );
-registerNodeRenderer("milestone", ({ model, style, lod, onMouseDown, dragging }) =>
-  model ? (
-    <MilestoneNode milestone={model as Milestone} style={style} lod={lod} onMouseDown={onMouseDown} dragging={dragging} />
-  ) : null,
+registerNodeRenderer("milestone", ({ model, style, lod }) =>
+  model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} /> : null,
 );
 
 registerProvenanceRenderers(registerNodeRenderer);

@@ -1,13 +1,17 @@
 import type { OrchestratorRef } from "../types";
-import type { Box } from "./geometry";
+import type { Box, Point } from "./geometry";
 
-// OPEN by design (§6.3): kinds grow (note/decision/html/prototype/…) without
-// editing core. The structured model emits the first three; free-form
+// OPEN by design: kinds grow (spec/orchestrator/note/html/…) without editing
+// core. The structured model emits the known kinds below; free-form
 // CanvasElement kinds flow through the same render registry.
 export type CanvasNodeKind = string;
 
-// Known kinds the structured layout emits — hints only, not a closed union.
-export const KNOWN_NODE_KINDS = ["plan", "section", "task", "milestone"] as const;
+export const KNOWN_NODE_KINDS = [
+  "plan",
+  "spec",
+  "task",
+  "milestone",
+] as const;
 
 export interface LaidOutNode {
   id: string;
@@ -18,13 +22,22 @@ export interface LaidOutNode {
   manual: boolean;
 }
 
-export type CanvasEdgeKind = "section-task" | "milestone-chain";
+export type CanvasEdgeKind =
+  | "section-task"
+  | "task-cluster"
+  | "milestone-chain"
+  | "plan-spec"
+  | "plan-plan";
 
+// An edge endpoint is either a live node (follows drag) or a static world/local
+// point (section-row anchors and cluster anchors that are not standalone nodes).
 export interface LaidOutEdge {
   id: string;
-  from: string;
-  to: string;
   kind: CanvasEdgeKind;
+  from?: string;
+  to?: string;
+  fromPoint?: Point;
+  toPoint?: Point;
 }
 
 export interface PlanFrame {
@@ -35,15 +48,28 @@ export interface PlanFrame {
   box: Box;
   nodes: LaidOutNode[];
   edges: LaidOutEdge[];
+  // Per-section-row right-edge anchors in WORLD coords; edge source for tasks.
+  anchors: Map<string, Point>;
+}
+
+// Soft labeled wrapper around all plans owned by one orchestrator (§2.5).
+export interface OwnerGroup {
+  ownerKey: string;
+  title: string;
+  ownerPaneId: string | null;
+  box: Box;
+  planIds: string[];
 }
 
 export interface WorkspaceLayout {
   frames: PlanFrame[];
   nodeIndex: Map<string, LaidOutNode>;
+  groups: OwnerGroup[];
   bounds: Box;
 }
 
-// Frame in local coords (origin 0,0), before region packing offsets it.
+// Frame in local coords (origin 0,0), before region packing offsets it. Points
+// in edges/anchors are local too and get translated alongside node boxes.
 export interface IntraPlanLayout {
   planId: string;
   title: string;
@@ -54,4 +80,5 @@ export interface IntraPlanLayout {
   height: number;
   nodes: LaidOutNode[];
   edges: LaidOutEdge[];
+  anchors: Map<string, Point>;
 }

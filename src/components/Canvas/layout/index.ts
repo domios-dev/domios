@@ -19,6 +19,7 @@ export type {
   LaidOutNode,
   LaidOutEdge,
   PlanFrame,
+  OwnerGroup,
   WorkspaceLayout,
   IntraPlanLayout,
 } from "./types";
