@@ -6,9 +6,10 @@ import { createPlan } from "./plansApi";
 
 export interface CanvasEmptyActionsProps {
   api: ApiConfig;
+  projectPath?: string | null;
 }
 
-export function CanvasEmptyActions({ api }: CanvasEmptyActionsProps) {
+export function CanvasEmptyActions({ api, projectPath }: CanvasEmptyActionsProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,6 +37,7 @@ export function CanvasEmptyActions({ api }: CanvasEmptyActionsProps) {
       const paneId = await spawnOrchestrator();
       await createPlan(api, {
         title: "New plan",
+        project_path: projectPath ?? undefined,
         owner: paneId
           ? { pane_id: paneId, session_id: null, title: "Canvas Orchestrator" }
           : undefined,
@@ -45,7 +47,7 @@ export function CanvasEmptyActions({ api }: CanvasEmptyActionsProps) {
     } finally {
       setBusy(false);
     }
-  }, [api, busy, spawnOrchestrator]);
+  }, [api, busy, projectPath, spawnOrchestrator]);
 
   return (
     <div className="flex flex-col items-center gap-3">

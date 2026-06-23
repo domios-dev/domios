@@ -14,6 +14,8 @@ export interface UsePlansResult {
 export interface UsePlansOptions {
   // When false, no full bodies are fetched (PlanButton-only mode needs the index).
   enabled?: boolean;
+  /** Scope list to a workspace project root (GET ?project=&full=1). */
+  project?: string | null;
 }
 
 interface PlanChangedPayload {
@@ -22,6 +24,7 @@ interface PlanChangedPayload {
 
 export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlansResult {
   const enabled = options.enabled ?? true;
+  const project = options.project ?? null;
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +32,8 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
   apiRef.current = api;
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
+  const projectRef = useRef(project);
+  projectRef.current = project;
   // Last-write-wins: every fetch aborts the previous in-flight one.
   const listCtrl = useRef<AbortController | null>(null);
   const patchCtrls = useRef(new Map<string, AbortController>());
@@ -41,7 +46,9 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
     setLoading(true);
     setError(null);
     try {
-      const next = await fetchPlans(apiRef.current, ctrl.signal);
+      const next = await fetchPlans(apiRef.current, ctrl.signal, {
+        project: projectRef.current,
+      });
       if (ctrl.signal.aborted) return;
       setPlans(next);
     } catch (e) {
@@ -86,7 +93,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
     setLoading(true);
     setError(null);
 
-    fetchPlans(api, ctrl.signal)
+    fetchPlans(api, ctrl.signal, { project })
       .then((next) => {
         if (ctrl.signal.aborted) return;
         setPlans(next);
@@ -99,7 +106,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
       });
 
     return () => ctrl.abort();
-  }, [api, enabled]);
+  }, [api, enabled, project]);
 
   useEffect(() => {
     if (!enabled) return;

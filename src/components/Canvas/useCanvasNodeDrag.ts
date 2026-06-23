@@ -60,6 +60,7 @@ export function useCanvasNodeDrag({
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const dragRef = useRef<ActiveDrag | null>(null);
   const overrideRef = useRef<NodeDragOverride | null>(null);
+  const rafRef = useRef<number | null>(null);
   const transformRef = useRef(transform);
   transformRef.current = transform;
 
@@ -90,6 +91,11 @@ export function useCanvasNodeDrag({
 
   useEffect(() => {
     if (!draggingNodeId) return;
+    const flushOverride = () => {
+      rafRef.current = null;
+      const last = overrideRef.current;
+      if (last) setDragOverride(last);
+    };
     const onMove = (e: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
@@ -100,15 +106,22 @@ export function useCanvasNodeDrag({
         transformRef.current,
       );
       if (!world) return;
-      const next = {
+      overrideRef.current = {
         nodeId: d.nodeId,
         x: world.x - d.grabOffsetX,
         y: world.y - d.grabOffsetY,
       };
-      overrideRef.current = next;
-      setDragOverride(next);
+      if (rafRef.current == null) {
+        rafRef.current = requestAnimationFrame(flushOverride);
+      }
     };
     const onUp = () => {
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+        const pending = overrideRef.current;
+        if (pending) setDragOverride(pending);
+      }
       const d = dragRef.current;
       const last = overrideRef.current;
       dragRef.current = null;
@@ -125,6 +138,7 @@ export function useCanvasNodeDrag({
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
     return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
