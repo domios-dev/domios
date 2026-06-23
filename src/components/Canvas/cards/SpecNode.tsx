@@ -4,15 +4,17 @@ import { RichMarkdown } from "@codeterm/chat-ui";
 import type { Plan, Section } from "../types";
 import type { CanvasCardStyleProps } from "./types";
 
+// Document feel (distinct from the compact plan dashboard): flat paper surface,
+// dashed left "margin rule" down the prose, quieter chrome, soft shadow.
 const shell: CSSProperties = {
   position: "absolute",
   boxSizing: "border-box",
-  border: "1px solid var(--ct-border-default)",
-  borderRadius: "var(--ct-radius-lg)",
-  background: "var(--ct-bg)",
+  border: "1px solid var(--ct-border-subtle)",
+  borderRadius: "var(--ct-radius-md)",
+  background: "color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg))",
   color: "var(--ct-fg)",
   fontFamily: "var(--ct-font-ui)",
-  boxShadow: "var(--ct-shadow-md)",
+  boxShadow: "var(--ct-shadow-sm)",
   overflow: "hidden",
   display: "flex",
   flexDirection: "column",
@@ -63,29 +65,31 @@ export function SpecNode({ plan, style }: SpecNodeProps) {
     <div data-testid="canvas-spec-node" data-plan-id={plan.id} style={{ ...shell, ...style }}>
       <div
         style={{
-          padding: "10px 14px",
+          padding: "9px 16px",
           borderBottom: "1px solid var(--ct-border-subtle)",
           display: "flex",
           alignItems: "center",
           gap: 8,
           flexShrink: 0,
-          background: "var(--ct-titlebar-bg)",
         }}
       >
-        <FileText size={14} style={{ opacity: 0.7, flexShrink: 0 }} />
-        <span style={{ fontWeight: 700, fontSize: "var(--ct-font-size-md)", letterSpacing: "-0.01em" }}>
-          {plan.title}
+        <FileText size={13} style={{ opacity: 0.55, flexShrink: 0 }} />
+        <span style={{ fontWeight: 600, fontSize: "var(--ct-font-size-sm)", letterSpacing: "0.04em", textTransform: "uppercase", opacity: "var(--ct-text-secondary-opacity)" }}>
+          Specification
         </span>
-        <span style={{ marginLeft: "auto", fontSize: "0.68rem", opacity: "var(--ct-text-tertiary-opacity)" }}>
-          spec
+        <span style={{ marginLeft: "auto", fontSize: "0.64rem", opacity: "var(--ct-text-tertiary-opacity)", fontFamily: "var(--ct-font-mono)" }}>
+          {plan.sections.length} §
         </span>
       </div>
       <div
         data-testid="canvas-spec-body"
         className="ct-scroll"
-        style={{ flex: 1, overflowY: "auto", padding: "0 14px 16px" }}
+        style={{ flex: 1, overflowY: "auto", padding: "2px 18px 18px", marginLeft: 8, borderLeft: "1px dashed var(--ct-border-subtle)" }}
         onWheel={(e) => e.stopPropagation()}
       >
+        <div style={{ fontSize: "var(--ct-font-size-lg, 15px)", fontWeight: 700, letterSpacing: "-0.01em", marginTop: 12 }}>
+          {plan.title}
+        </div>
         {plan.sections.map((section) => (
           <SpecSection key={section.id} section={section} depth={0} />
         ))}
