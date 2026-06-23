@@ -3,6 +3,7 @@ import { Loader, Send } from "lucide-react";
 import type { ApiConfig, Pane } from "../../lib/types";
 import { baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
 import { useCanvasFocusTarget } from "./canvasFocusStore";
+import { ownerName } from "./owner";
 import { focusAt, type FocusResult, type Point, type WorkspaceLayout } from "./layout";
 import { DEFAULT_CANVAS_SETTINGS, type CanvasLayoutSettings } from "./settings";
 import type { Milestone, Plan, Section, Task } from "./types";
@@ -38,7 +39,7 @@ function collectSections(sections: Section[], out: Map<string, Section>): void {
 }
 
 function ownerLabelOf(plan: Plan): string {
-  return plan.owner.title ?? plan.owner.pane_id ?? "unknown owner";
+  return ownerName(plan.owner) ?? "unowned";
 }
 
 // Target = the plan whose region you're looking at (focus-store in focus mode,

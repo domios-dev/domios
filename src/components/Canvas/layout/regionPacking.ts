@@ -1,4 +1,5 @@
 import type { CanvasLayoutSettings } from "../settings";
+import { ownerName } from "../owner";
 import { translateBox, unionBox } from "./geometry";
 import type { Box, Point } from "./geometry";
 import type { IntraPlanLayout, LaidOutEdge, LaidOutNode, OwnerGroup, PlanFrame, WorkspaceLayout } from "./types";
@@ -26,7 +27,7 @@ function shiftEdge(e: LaidOutEdge, dx: number, dy: number): LaidOutEdge {
 }
 
 function ownerTitle(owner: IntraPlanLayout["owner"]): string {
-  return owner.title ?? owner.pane_id ?? "Unowned · claimable";
+  return ownerName(owner) ?? "Unowned · claimable";
 }
 
 // Region packing: owner clusters stacked vertically, frames shelf-packed within
