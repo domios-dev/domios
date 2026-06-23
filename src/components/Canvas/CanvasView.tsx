@@ -37,6 +37,16 @@ export interface CanvasViewInnerProps {
   viewportPadding?: number;
 }
 
+// Deterministic [0,1) hash of an edge id → stable per-edge curvature jitter.
+function edgeJitter(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 1000) / 1000;
+}
+
 function lodForScale(scale: number): CanvasLod {
   const s = DEFAULT_CANVAS_SETTINGS;
   if (scale < s.zoomFarThreshold) return "far";
@@ -54,10 +64,15 @@ function nodeStyle(box: { x: number; y: number; width: number; height?: number }
   };
 }
 
+export interface ClusterCaptionModel {
+  kinds: { label: string; color: string }[];
+}
+
 interface CanvasLookups {
   nodeById: Map<string, LaidOutNode>;
   taskById: Map<string, Task>;
   milestoneModelById: Map<string, MilestoneBubbleModel>;
+  clusterModelById: Map<string, ClusterCaptionModel>;
   elementById: Map<string, CanvasElement>;
 }
 
@@ -124,18 +139,27 @@ export function CanvasViewInner({
     for (const frame of layout.frames) for (const n of frame.nodes) nodeById.set(n.id, n);
     const taskById = new Map<string, Task>();
     const milestoneModelById = new Map<string, MilestoneBubbleModel>();
+    const clusterModelById = new Map<string, ClusterCaptionModel>();
     const elementById = new Map<string, CanvasElement>();
     for (const plan of filteredPlans) {
       const colors = milestoneColorMap(plan);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
+        const seen = new Map<string, string>();
         for (const m of task.milestones) {
-          milestoneModelById.set(m.id, { milestone: m, color: colors.get(m.kind) ?? "var(--ct-border-focus)" });
+          const color = colors.get(m.kind) ?? "var(--ct-border-focus)";
+          milestoneModelById.set(m.id, { milestone: m, color });
+          if (!seen.has(m.kind)) seen.set(m.kind, color);
+        }
+        if (seen.size) {
+          clusterModelById.set(`${task.id}::cluster`, {
+            kinds: [...seen.entries()].map(([label, color]) => ({ label: label.replace(/_/g, " "), color })),
+          });
         }
       }
       for (const el of plan.elements) elementById.set(el.id, el);
     }
-    return { nodeById, taskById, milestoneModelById, elementById };
+    return { nodeById, taskById, milestoneModelById, clusterModelById, elementById };
   }, [layout, filteredPlans]);
 
   const resolveModel = useCallback(
@@ -149,6 +173,8 @@ export function CanvasViewInner({
           return lookups.taskById.get(node.id);
         case "milestone":
           return lookups.milestoneModelById.get(node.id);
+        case "cluster":
+          return lookups.clusterModelById.get(node.id);
         default:
           return lookups.elementById.get(node.id);
       }
@@ -332,14 +358,18 @@ export function CanvasViewInner({
                   const related = hoveredTask != null && (edge.from === hoveredTask || edge.to === hoveredTask);
                   const dimmed = hoveredTask != null && !related;
                   const planSpec = edge.kind === "plan-spec";
+                  // Per-edge jitter so near-parallel section→task beziers fan out
+                  // and each connection is individually traceable (deterministic).
+                  const j = sectionTask ? edgeJitter(edge.id) : 0.5;
+                  const curve = DEFAULT_CANVAS_SETTINGS.edgeCurve * (0.65 + 0.8 * j);
                   // Legible accent strokes at rest (~0.4); hover lifts brighter.
                   const baseW = sectionTask ? 1.6 : chain ? 1.2 : planSpec ? 1.6 : 1.4;
-                  const baseO = sectionTask ? 0.42 : chain ? 0.3 : planSpec ? 0.46 : 0.36;
+                  const baseO = (sectionTask ? 0.42 : chain ? 0.3 : planSpec ? 0.46 : 0.36) * (sectionTask ? 0.82 + 0.36 * j : 1);
                   const showDots = sectionTask || edge.kind === "task-cluster" || planSpec;
                   return (
                     <g key={edge.id}>
                       <path
-                        d={bezierPath(ends.a, ends.b, DEFAULT_CANVAS_SETTINGS.edgeCurve)}
+                        d={bezierPath(ends.a, ends.b, curve)}
                         fill="none"
                         stroke="var(--ct-border-focus)"
                         strokeWidth={related ? 2.6 : baseW}
