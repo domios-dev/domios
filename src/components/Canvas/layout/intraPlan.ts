@@ -1,4 +1,4 @@
-import type { Milestone, OrchestratorRef, Plan, Section, Task } from "../types";
+import type { OrchestratorRef, Plan, Section, Task } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
 import type { Box } from "./geometry";
 import { unionBox } from "./geometry";
