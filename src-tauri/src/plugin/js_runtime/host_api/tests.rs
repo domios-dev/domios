@@ -97,6 +97,33 @@ fn host_api_v2_gating_by_allowlist() {
 }
 
 #[test]
+fn can_exec_accepts_full_path_by_basename() {
+    use crate::plugin::js_runtime::manifest::{PermissionsConfig, SubprocessPermission};
+    let perms = PermissionsConfig {
+        subprocess: SubprocessPermission {
+            allow: vec!["ffmpeg".into(), "whisper-cli".into()],
+        },
+        ..Default::default()
+    };
+    let sb =
+        PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms("transcriber", &perms);
+
+    // Bare name still works.
+    assert!(sb.can_exec("ffmpeg"));
+    assert!(sb.can_exec("whisper-cli"));
+
+    // Full absolute paths allowed if basename matches.
+    assert!(sb.can_exec("/Users/dev/.codeterm/transcriber/bin/ffmpeg"));
+    assert!(sb.can_exec("/opt/homebrew/bin/ffmpeg"));
+    assert!(sb.can_exec("/Users/dev/.codeterm/transcriber/bin/whisper-cli"));
+
+    // Unrelated binaries still denied.
+    assert!(!sb.can_exec("rm"));
+    assert!(!sb.can_exec("/bin/rm"));
+    assert!(!sb.can_exec("/usr/bin/ffmpeg-evil"));
+}
+
+#[test]
 fn late_ref_resolves_only_after_population_while_target_lives() {
     // `LateRef` is the carrier `PluginSandbox.svc` uses. `ServiceContext`
     // cannot be built in a unit test (needs a `tauri::AppHandle` + ~40
