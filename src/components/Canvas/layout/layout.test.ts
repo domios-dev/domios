@@ -210,6 +210,16 @@ console.log("\nbubble cluster:");
   ok("all 4 milestones placed as bubbles", bubbles.length === 4);
   ok("task-cluster edge present", frame.edges.some((e) => e.kind === "task-cluster"));
   ok("milestone-chain edges present", frame.edges.filter((e) => e.kind === "milestone-chain").length === 2);
+
+  // The cluster ABUTS its task (≤ one gutter away), never floats far right, and
+  // wraps to ≤2 columns so it can't stream off-screen.
+  const t1 = frame.nodes.find((n) => n.id === "t1")!;
+  const t1Bubbles = [bubbles.find((b) => b.id === "m1")!, bubbles.find((b) => b.id === "m2")!, bubbles.find((b) => b.id === "m3")!];
+  const t1Right = t1.box.x + t1.box.width;
+  const nearest = Math.min(...t1Bubbles.map((b) => b.box.x));
+  ok("cluster abuts the task (≤ ~2 gutters)", nearest - t1Right > 0 && nearest - t1Right < 100);
+  const span = Math.max(...t1Bubbles.map((b) => b.box.x + b.box.width)) - nearest;
+  ok("cluster wraps to ≤2 columns (compact width)", span <= 2 * (DEFAULT_CANVAS_SETTINGS.bubbleRadius * 2) + DEFAULT_CANVAS_SETTINGS.bubbleGapX + 1);
 }
 
 // ── focus selection ───────────────────────────────────────────────

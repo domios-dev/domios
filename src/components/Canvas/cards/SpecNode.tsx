@@ -9,16 +9,15 @@ import type { CanvasCardStyleProps } from "./types";
 const shell: CSSProperties = {
   position: "absolute",
   boxSizing: "border-box",
-  border: "1px solid var(--ct-border-subtle)",
+  border: "1px solid var(--ct-border-default)",
   borderRadius: "var(--ct-radius-md)",
   background: "var(--ct-titlebar-bg)",
   color: "var(--ct-fg)",
   fontFamily: "var(--ct-font-ui)",
-  boxShadow: "none",
+  boxShadow: "var(--ct-shadow-sm)",
   overflow: "hidden",
   display: "flex",
   flexDirection: "column",
-  opacity: 0.96,
 };
 
 function SpecSection({ section, depth }: { section: Section; depth: number }) {
