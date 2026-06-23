@@ -27,6 +27,7 @@ pub mod multiplexer;
 mod notification;
 pub mod pasteboard;
 pub mod paths;
+pub mod plan;
 pub mod plugin;
 pub mod process_util;
 pub mod prompts;
