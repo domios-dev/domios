@@ -52,6 +52,20 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
         position: style?.position ?? "absolute",
       }}
     >
+      <span
+        data-testid="canvas-milestone-initial"
+        aria-hidden
+        style={{
+          fontWeight: 800,
+          fontSize: lod === "far" ? "0.8rem" : "0.95rem",
+          lineHeight: 1,
+          color: "var(--ct-fg)",
+          opacity: 0.92,
+          textShadow: "0 1px 2px color-mix(in srgb, var(--ct-bg) 60%, transparent)",
+        }}
+      >
+        {kindLabel.charAt(0).toUpperCase()}
+      </span>
       {milestone.iteration != null && lod !== "far" && (
         <span
           data-testid="canvas-milestone-iteration"

@@ -14,15 +14,15 @@ export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   cancelled: "rgba(100, 116, 139, 0.75)",
 };
 
-// Milestone kind lanes: a tight, theme-leaning blue→violet→teal ramp at a
-// consistent (muted) value — distinguishable without a circus rainbow.
+// Milestone kind lanes: ONE coherent indigo→periwinkle family at a consistent
+// value — distinguishable by hue step, never a rainbow of unrelated colors.
 export const MILESTONE_LANE_COLORS = [
   "rgba(129, 140, 248, 0.92)",
-  "rgba(96, 165, 210, 0.92)",
-  "rgba(125, 196, 184, 0.92)",
-  "rgba(159, 150, 214, 0.92)",
-  "rgba(112, 158, 214, 0.92)",
-  "rgba(180, 162, 200, 0.92)",
+  "rgba(120, 150, 240, 0.92)",
+  "rgba(140, 138, 232, 0.92)",
+  "rgba(112, 160, 224, 0.92)",
+  "rgba(155, 142, 236, 0.92)",
+  "rgba(126, 132, 226, 0.92)",
 ];
 
 export interface CanvasLayoutSettings {
