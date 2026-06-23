@@ -59,23 +59,56 @@ pub enum MemAction {
     Update {
         /// Mem item id
         id: String,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         title: Option<String>,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         summary: Option<String>,
         #[arg(long)]
         area: Option<String>,
         /// Comma-separated tags (REPLACES existing tags)
         #[arg(long)]
         tags: Option<String>,
-        /// New body content (re-indexes embedding)
-        #[arg(long)]
+        /// New body content (re-indexes embedding). Use `-` to read stdin.
+        /// REPLACES the whole body — to grow a body use `mem append`.
+        #[arg(long, allow_hyphen_values = true)]
         body: Option<String>,
+        /// Read the new body from a file instead of --body (bypasses shell quoting).
+        #[arg(long, value_name = "PATH")]
+        body_file: Option<String>,
         /// New importance 1-5
         #[arg(long)]
         importance: Option<f64>,
         /// Actor label for audit trail (defaults to "user"). Used by automated workflows.
+        #[arg(long, allow_hyphen_values = true)]
+        changed_by: Option<String>,
+    },
+    /// Append text to an existing item's body (non-destructive). Loads the
+    /// current body, appends with a blank-line separator, re-indexes the
+    /// embedding. Use this instead of a full `update --body` replace.
+    Append {
+        /// Mem item id
+        id: String,
+        /// Text to append (positional). Use `-` for stdin, or pass --file.
+        #[arg(allow_hyphen_values = true)]
+        text: Option<String>,
+        /// Read the text to append from a file instead (bypasses shell quoting).
+        #[arg(long, value_name = "PATH")]
+        file: Option<String>,
+        /// Actor label for audit trail (defaults to "user").
+        #[arg(long, allow_hyphen_values = true)]
+        changed_by: Option<String>,
+    },
+    /// Restore a prior body from the audit history (undo a bad replace).
+    /// With no --version, reverts to the body before the most recent change.
+    Restore {
+        /// Mem item id
+        id: String,
+        /// History row id (from `mem history <id>`) to restore the body of.
+        /// Omit to undo the latest body change.
         #[arg(long)]
+        version: Option<i64>,
+        /// Actor label for audit trail (defaults to "user").
+        #[arg(long, allow_hyphen_values = true)]
         changed_by: Option<String>,
     },
     /// Pin a mem item so it always loads in L1 wake-up.
@@ -97,12 +130,16 @@ pub enum MemAction {
         #[arg(long)]
         kind: String,
         /// Title (will be slugified into id). If omitted, first line of body.
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         title: Option<String>,
-        /// Body content. If omitted and stdin is piped, read stdin.
+        /// Body content. Use `-` (or omit with piped stdin) to read stdin.
+        #[arg(allow_hyphen_values = true)]
         body: Option<String>,
+        /// Read body from a file instead of the positional arg (bypasses shell quoting).
+        #[arg(long, value_name = "PATH")]
+        body_file: Option<String>,
         /// Optional summary (~50-200 chars)
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         summary: Option<String>,
         /// Comma-separated tags
         #[arg(long)]
@@ -172,6 +209,7 @@ pub enum MemAction {
     /// Capture a quick learning (insight, error, feature request)
     Learn {
         /// What you learned. If omitted and stdin piped, read stdin.
+        #[arg(allow_hyphen_values = true)]
         text: Option<String>,
         /// "insight" (default), "error", or "feature"
         #[arg(long)]
@@ -180,10 +218,10 @@ pub enum MemAction {
         #[arg(long)]
         tags: Option<String>,
         /// Shortcut: --error <text> = --kind error
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         error: Option<String>,
         /// Shortcut: --feature <text> = --kind feature
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         feature: Option<String>,
     },
     /// List pending learnings (kind=learning items)

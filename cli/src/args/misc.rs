@@ -64,7 +64,7 @@ pub enum PaneAction {
         title: Option<String>,
         /// Command to run on pane start (e.g. `"poetry run backend"`).
         /// Sent into the PTY after the shell is ready.
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         cmd: Option<String>,
         /// Spawn the shell PTY immediately on the daemon for headless/API use.
         #[arg(long)]
@@ -203,7 +203,7 @@ pub enum PasteAction {
     /// Stash a payload. Body from positional / --from-file / stdin.
     Put {
         /// Body (positional). Omit and use --from-file or --from-stdin.
-        #[arg(default_value = "")]
+        #[arg(default_value = "", allow_hyphen_values = true)]
         body: String,
         /// Read body from a file instead.
         #[arg(long, value_name = "PATH")]
@@ -297,6 +297,7 @@ pub enum BridgeAction {
     /// Send a message to Telegram or other service
     Send {
         /// Message text (also used as caption for media types)
+        #[arg(allow_hyphen_values = true)]
         text: Option<String>,
         /// Target service
         #[arg(long, default_value = "telegram")]

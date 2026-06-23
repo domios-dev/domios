@@ -16,7 +16,7 @@ pub enum CronAction {
         #[arg(long)]
         schedule: String,
         /// Task prompt for the agent
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         task: String,
         /// Workspace ID (default: active)
         #[arg(long)]
@@ -32,7 +32,7 @@ pub enum CronAction {
         #[arg(long)]
         cwd: Option<String>,
         /// Description
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         description: Option<String>,
         /// Pane ID to receive reports from cron agent (default: $CODETERM_PANE_ID)
         #[arg(long, env = "CODETERM_PANE_ID")]
@@ -60,11 +60,11 @@ pub enum CronAction {
         name: Option<String>,
         #[arg(long)]
         schedule: Option<String>,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         task: Option<String>,
         #[arg(long)]
         cwd: Option<String>,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         description: Option<String>,
         /// Agent provider override (e.g. "claude", "codex")
         #[arg(long)]

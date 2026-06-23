@@ -83,7 +83,8 @@ pub fn print_history_timeline(rows: &[serde_json::Value]) {
             .get("change_type")
             .and_then(|v| v.as_str())
             .unwrap_or("?");
-        println!("* {}  {:<15} {}", ts, changed_by, change_type);
+        let row_id = row.get("id").and_then(|v| v.as_i64()).unwrap_or(0);
+        println!("* [{}] {}  {:<15} {}", row_id, ts, changed_by, change_type);
         let diff_line =
             |label: &str, old: Option<&serde_json::Value>, new: Option<&serde_json::Value>| {
                 let has_old = old.map(|v| !v.is_null()).unwrap_or(false);

@@ -169,6 +169,52 @@ fn update_partial_only_changes_provided_fields() {
 }
 
 #[test]
+fn update_body_replace_retains_old_body_in_history() {
+    let (conn, blobs) = fresh();
+    let id = insert(
+        &conn,
+        &NewMemItem {
+            kind: MemKind::Skill,
+            scope: MemScope::Global,
+            title: "skill doc".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: "---\nname: skill\n---\noriginal long body".into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        },
+        &blobs,
+    )
+    .unwrap();
+
+    // Destructive full replace with a tiny body.
+    let replaced = update(
+        &conn,
+        &id,
+        &MemUpdate {
+            body: Some("oops".into()),
+            ..Default::default()
+        },
+        &blobs,
+    )
+    .unwrap();
+    assert!(replaced);
+    assert_eq!(get(&conn, &id, &blobs).unwrap().unwrap().body, "oops");
+
+    // The prior body must be recoverable from history.
+    let history = get_item_history(&conn, &id).unwrap();
+    let last = history.last().unwrap();
+    assert_eq!(
+        last.old_body.as_deref(),
+        Some("---\nname: skill\n---\noriginal long body")
+    );
+    assert_eq!(last.new_body.as_deref(), Some("oops"));
+}
+
+#[test]
 fn update_sets_is_pinned_wakeup() {
     let (conn, blobs) = fresh();
     let id = insert(
