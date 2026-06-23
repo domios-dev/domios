@@ -171,6 +171,11 @@ console.log("\nsection-row anchors:");
   // the section→task edge originates exactly at the section row anchor.
   const edge = frame.edges.find((e) => e.kind === "section-task" && e.to === "t1");
   ok("section-task edge starts at the row anchor", !!edge?.fromPoint && Math.abs(edge.fromPoint.x - a1.x) < 0.5 && Math.abs(edge.fromPoint.y - a1.y) < 0.5);
+
+  // t1's vertical center is anchored to its primary covered row (s1) → level edge.
+  const t1 = frame.nodes.find((n) => n.id === "t1")!;
+  const t1Center = t1.box.y + t1.box.height / 2;
+  ok("task center anchored to its primary covered-row Y (level edge)", Math.abs(t1Center - a1.y) < 1.5);
 }
 
 // ── spec node + plan-spec edge ────────────────────────────────────
