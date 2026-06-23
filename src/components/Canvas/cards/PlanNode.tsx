@@ -9,15 +9,17 @@ import type { CanvasCardStyleProps } from "./types";
 
 const S = DEFAULT_CANVAS_SETTINGS;
 
+// The hero of the board: elevated surface + prominent shadow + accent rail so
+// the eye lands here first, with the spec reading as a recessed reference doc.
 const frameStyle: CSSProperties = {
   position: "absolute",
   boxSizing: "border-box",
   border: "1px solid var(--ct-border-default)",
   borderRadius: "var(--ct-radius-lg)",
-  background: "linear-gradient(180deg, var(--ct-titlebar-bg) 0%, var(--ct-bg) 38%)",
+  background: "var(--ct-bg)",
   color: "var(--ct-fg)",
   fontFamily: "var(--ct-font-ui)",
-  boxShadow: "var(--ct-shadow-md)",
+  boxShadow: "0 10px 28px -8px rgba(0, 0, 0, 0.45), 0 2px 6px -2px rgba(0, 0, 0, 0.3)",
   overflow: "hidden",
   display: "flex",
   flexDirection: "column",
@@ -239,10 +241,7 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
               style={{
                 width: `${pct}%`,
                 height: "100%",
-                background:
-                  pct >= 100
-                    ? "rgba(74, 222, 128, 0.9)"
-                    : "linear-gradient(90deg, var(--ct-border-focus), rgba(99,102,241,0.65))",
+                background: pct >= 100 ? "rgba(52, 211, 153, 0.95)" : "var(--ct-border-focus)",
                 transition: lod === "far" ? "none" : "width var(--ct-duration-normal) var(--ct-ease-decel)",
               }}
             />

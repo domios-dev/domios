@@ -32,7 +32,8 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
   // Desaturate ~18% so bubbles read as supporting detail, not the loudest thing.
   const color = `color-mix(in srgb, ${rawColor} 82%, var(--ct-muted-fg, #94a3b8))`;
   const [hover, setHover] = useState(false);
-  const showText = (hover || lod === "near") && milestone.text.trim().length > 0;
+  const showTip = hover || lod === "near";
+  const kindLabel = milestone.kind.replace(/_/g, " ");
 
   return (
     <div
@@ -51,23 +52,6 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
         position: style?.position ?? "absolute",
       }}
     >
-      <span
-        data-testid="canvas-milestone-kind-label"
-        style={{
-          fontWeight: 700,
-          fontSize: lod === "far" ? "0.66rem" : "0.74rem",
-          lineHeight: 1.05,
-          textTransform: "capitalize",
-          padding: "0 5px",
-          maxWidth: "100%",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          textShadow: "0 1px 2px color-mix(in srgb, var(--ct-bg) 70%, transparent)",
-        }}
-      >
-        {milestone.kind.replace(/_/g, " ")}
-      </span>
       {milestone.iteration != null && lod !== "far" && (
         <span
           data-testid="canvas-milestone-iteration"
@@ -92,7 +76,7 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
           {milestone.iteration}
         </span>
       )}
-      {showText && (
+      {showTip && (
         <div
           data-testid="canvas-milestone-text"
           onWheel={(e) => e.stopPropagation()}
@@ -101,21 +85,35 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
             top: "calc(100% + 6px)",
             left: "50%",
             transform: "translateX(-50%)",
-            minWidth: 120,
-            maxWidth: 220,
+            minWidth: 130,
+            maxWidth: 230,
             zIndex: 5,
-            padding: "6px 9px",
+            padding: "7px 10px",
             borderRadius: "var(--ct-radius-md)",
-            border: `1px solid ${color}`,
+            border: `1px solid color-mix(in srgb, ${color} 60%, var(--ct-border-default))`,
             background: "var(--ct-bg)",
             boxShadow: "var(--ct-shadow-md)",
             fontSize: "0.72rem",
             textAlign: "left",
-            opacity: hover || lod === "near" ? 1 : 0,
+            opacity: 1,
             pointerEvents: hover ? "auto" : "none",
           }}
         >
-          <RichMarkdown text={milestone.text} />
+          <div
+            data-testid="canvas-milestone-kind-label"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontWeight: 700,
+              textTransform: "capitalize",
+              marginBottom: milestone.text.trim() ? 3 : 0,
+            }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
+            {kindLabel}
+          </div>
+          {milestone.text.trim().length > 0 && <RichMarkdown text={milestone.text} />}
         </div>
       )}
     </div>
