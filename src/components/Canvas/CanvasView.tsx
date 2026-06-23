@@ -319,17 +319,22 @@ export function CanvasViewInner({
                 return frame.edges.map((edge) => {
                   const ends = resolveEdgeEnds(edge, lookups.nodeById);
                   if (!ends) return null;
-                  const dim = edge.kind === "milestone-chain";
+                  const chain = edge.kind === "milestone-chain";
+                  const sectionTask = edge.kind === "section-task";
                   return (
-                    <path
-                      key={edge.id}
-                      d={bezierPath(ends.a, ends.b, DEFAULT_CANVAS_SETTINGS.edgeCurve)}
-                      fill="none"
-                      stroke="var(--ct-border-focus)"
-                      strokeWidth={dim ? 1 : 1.5}
-                      strokeLinecap="round"
-                      opacity={dim ? 0.35 : 0.5}
-                    />
+                    <g key={edge.id}>
+                      <path
+                        d={bezierPath(ends.a, ends.b, DEFAULT_CANVAS_SETTINGS.edgeCurve)}
+                        fill="none"
+                        stroke="var(--ct-border-focus)"
+                        strokeWidth={chain ? 1 : sectionTask ? 2 : 1.5}
+                        strokeLinecap="round"
+                        opacity={chain ? 0.4 : sectionTask ? 0.7 : 0.5}
+                      />
+                      {sectionTask && (
+                        <circle cx={ends.a.x} cy={ends.a.y} r={3.2} fill="var(--ct-border-focus)" opacity={0.95} />
+                      )}
+                    </g>
                   );
                 });
               })}

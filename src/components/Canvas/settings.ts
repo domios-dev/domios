@@ -82,28 +82,28 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   planFooterHeight: 40,
   planRowIndent: 16,
 
-  specWidth: 340,
+  specWidth: 320,
   specHeight: 460,
 
   taskWidth: 248,
   taskMinHeight: 72,
-  taskGapY: 28,
+  taskGapY: 20,
 
-  columnGapX: 140,
-  clusterGapX: 60,
+  columnGapX: 84,
+  clusterGapX: 40,
 
-  bubbleRadius: 26,
-  bubbleGapX: 18,
-  bubbleGapY: 16,
-  clusterLabelHeight: 18,
+  bubbleRadius: 30,
+  bubbleGapX: 14,
+  bubbleGapY: 26,
+  clusterLabelHeight: 22,
 
   anchorInset: 0,
-  edgeCurve: 0.45,
+  edgeCurve: 0.5,
 
   groupPadding: 44,
   groupLabelHeight: 34,
   groupGapX: 120,
-  groupGapY: 160,
+  groupGapY: 150,
 
   framePadding: 24,
   frameGap: 120,

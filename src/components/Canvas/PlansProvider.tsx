@@ -131,6 +131,13 @@ export function usePlanIndex(): PlanIndexResult {
   return { index, loading: indexLoading, error: indexError };
 }
 
+// Provider-optional index: empty result outside a PlansProvider (never throws).
+export function usePlanIndexOptional(): PlanIndexResult {
+  const ctx = useContext(PlansContext);
+  if (!ctx) return { index: [], loading: false, error: null };
+  return { index: ctx.index, loading: ctx.indexLoading, error: ctx.indexError };
+}
+
 // Full-plan consumer for focus canvas: ref-counts so bodies load only while open.
 export function useFullPlans(): UsePlansResult {
   const { full, acquireFull, releaseFull } = usePlansContext();
