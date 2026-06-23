@@ -63,9 +63,11 @@ Send a report to your parent in the hierarchy
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `<message>` — Report message (also accepts --message alias)
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--plan` — Plan id to append this report to
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
 - `--status` — Task outcome: done | blocked | partial
+- `--task` — Task id to append this report to
 - `--test_cmd` — Test command that was run
 - `--test_result` — Result of the test command (e.g. "42 passed")
 

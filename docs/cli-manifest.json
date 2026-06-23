@@ -192,6 +192,14 @@
               "aliases": []
             },
             {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": "Plan id to append this report to",
+              "aliases": []
+            },
+            {
               "name": "sha",
               "positional": false,
               "value_name": "SHA",
@@ -213,6 +221,14 @@
               "value_name": "STATUS",
               "default": null,
               "help": "Task outcome: done | blocked | partial",
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": "Task id to append this report to",
               "aliases": []
             },
             {
