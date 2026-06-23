@@ -155,6 +155,14 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
     taskY += rowHeight + s.taskGapY;
   }
 
+  // Free-form elements (§6.3): render only when explicitly positioned. Auto-layout
+  // for unpositioned free nodes is deferred (Phase 3); manual coords keep determinism.
+  for (const el of plan.elements) {
+    if (el.canvas.x == null || el.canvas.y == null) continue;
+    const box: Box = { x: el.canvas.x, y: el.canvas.y, width: s.cardWidth, height: s.cardMinHeight };
+    nodes.push({ id: el.id, kind: el.kind, planId: plan.id, box, iteration: null, manual: true });
+  }
+
   const allBoxes = nodes.map((n) => n.box);
   const content = unionBox(allBoxes);
   const width = Math.max(s.frameMinWidth, content.width + s.framePadding * 2);

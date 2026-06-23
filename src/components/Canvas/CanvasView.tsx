@@ -1,14 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { ApiConfig, Pane } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
-import {
-  MilestoneNode,
-  PlanFrame,
-  SectionCard,
-  TaskCard,
-  type CanvasLod,
-} from "./cards";
+import type { CanvasLod } from "./cards";
+import { getNodeRenderer } from "./nodeRegistry";
 import {
   layoutWorkspace,
   visibleFrameIds,
@@ -19,7 +14,7 @@ import {
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useFullPlans } from "./PlansProvider";
-import type { Milestone, Plan, Section, Task } from "./types";
+import type { CanvasElement, Milestone, Plan, Section, Task } from "./types";
 import { useCanvasViewport } from "./useCanvasViewport";
 
 export interface CanvasViewInnerProps {
@@ -72,6 +67,7 @@ interface CanvasLookups {
   sectionById: Map<string, Section>;
   taskById: Map<string, Task>;
   milestoneById: Map<string, Milestone>;
+  elementById: Map<string, CanvasElement>;
 }
 
 function collectSections(sections: Section[], out: Map<string, Section>): void {
@@ -122,15 +118,37 @@ export function CanvasViewInner({
     const sectionById = new Map<string, Section>();
     const taskById = new Map<string, Task>();
     const milestoneById = new Map<string, Milestone>();
+    const elementById = new Map<string, CanvasElement>();
     for (const plan of filteredPlans) {
       collectSections(plan.sections, sectionById);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
         for (const m of task.milestones) milestoneById.set(m.id, m);
       }
+      for (const el of plan.elements) elementById.set(el.id, el);
     }
-    return { nodeById, sectionById, taskById, milestoneById };
+    return { nodeById, sectionById, taskById, milestoneById, elementById };
   }, [layout, filteredPlans]);
+
+  // Resolve a node's model from the perf-fix memoized maps; keyed by where the
+  // data lives, not by renderer. Unknown kinds resolve from free-form elements.
+  const resolveModel = useCallback(
+    (node: LaidOutNode): unknown => {
+      switch (node.kind) {
+        case "plan":
+          return planById.get(node.id);
+        case "section":
+          return lookups.sectionById.get(node.id);
+        case "task":
+          return lookups.taskById.get(node.id);
+        case "milestone":
+          return lookups.milestoneById.get(node.id);
+        default:
+          return lookups.elementById.get(node.id);
+      }
+    },
+    [planById, lookups],
+  );
 
   const { transform, handlers, fitToView, isDragging, containerRef } = useCanvasViewport({
     width: size.width,
@@ -272,43 +290,35 @@ export function CanvasViewInner({
             </svg>
             {layout.frames.map((frame) => {
               if (!frameIds.has(frame.planId)) return null;
-              const plan = planById.get(frame.planId);
-              if (!plan) return null;
-              return (
-                <PlanFrame
-                  key={frame.planId}
-                  plan={plan}
-                  lod={lod}
-                  style={nodeStyle(frame.box)}
-                />
-              );
+              const planNode: LaidOutNode = {
+                id: frame.planId,
+                kind: "plan",
+                planId: frame.planId,
+                box: frame.box,
+                iteration: null,
+                manual: false,
+              };
+              const rendered = getNodeRenderer("plan")({
+                node: planNode,
+                model: resolveModel(planNode),
+                style: nodeStyle(frame.box),
+                lod,
+              });
+              return rendered ? <Fragment key={frame.planId}>{rendered}</Fragment> : null;
             })}
-            {layout.frames.flatMap((frame) => {
-              const plan = planById.get(frame.planId);
-              if (!plan) return [];
-              return frame.nodes
+            {layout.frames.flatMap((frame) =>
+              frame.nodes
                 .filter((n) => nodeIds.has(n.id))
                 .map((n) => {
-                  const style = nodeStyle(n.box);
-                  if (n.kind === "section") {
-                    const section = lookups.sectionById.get(n.id);
-                    if (!section) return null;
-                    return (
-                      <SectionCard key={n.id} section={section} style={style} lod={lod} />
-                    );
-                  }
-                  if (n.kind === "task") {
-                    const task = lookups.taskById.get(n.id);
-                    if (!task) return null;
-                    return <TaskCard key={n.id} task={task} style={style} lod={lod} />;
-                  }
-                  const milestone = lookups.milestoneById.get(n.id);
-                  if (!milestone) return null;
-                  return (
-                    <MilestoneNode key={n.id} milestone={milestone} style={style} lod={lod} />
-                  );
-                });
-            })}
+                  const rendered = getNodeRenderer(n.kind)({
+                    node: n,
+                    model: resolveModel(n),
+                    style: nodeStyle(n.box),
+                    lod,
+                  });
+                  return rendered ? <Fragment key={n.id}>{rendered}</Fragment> : null;
+                }),
+            )}
           </div>
         )}
       </div>
