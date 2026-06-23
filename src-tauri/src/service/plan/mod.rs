@@ -6,6 +6,7 @@ mod tests;
 
 use crate::plan::{OrchestratorRef, Plan, PlanStatus};
 use parking_lot::{Mutex, RwLock};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -56,7 +57,7 @@ pub struct NewTask {
     pub assigned_pane_id: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct IndexEntry {
     pub plan_id: String,
     pub file_path: PathBuf,

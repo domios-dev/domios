@@ -1,7 +1,7 @@
 use axum::{
     http::{HeaderMap, StatusCode},
     middleware,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer};
@@ -9,9 +9,9 @@ use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, co
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, delayed_send_routes,
     fs_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
-    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, services_routes,
-    session_routes, theme_routes, updater_routes, usage_routes, web_routes, webhook_routes,
-    workspace_routes,
+    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, plan_routes,
+    services_routes, session_routes, theme_routes, updater_routes, usage_routes, web_routes,
+    webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -99,6 +99,59 @@ pub fn create_router(state: AppState) -> Router {
             "/api/panes",
             get(pane_routes::list_panes).post(pane_routes::create_shell_pane),
         )
+        .route(
+            "/api/plans",
+            get(plan_routes::list).post(plan_routes::create),
+        )
+        .route(
+            "/api/plans/{id}",
+            get(plan_routes::get)
+                .patch(plan_routes::update)
+                .delete(plan_routes::delete_plan),
+        )
+        .route("/api/plans/{id}/archive", post(plan_routes::archive))
+        .route("/api/plans/{id}/transfer", post(plan_routes::transfer))
+        .route("/api/plans/{id}/disown", post(plan_routes::disown))
+        .route("/api/plans/{id}/claim", post(plan_routes::claim))
+        .route("/api/plans/{id}/sections", post(plan_routes::section_add))
+        .route(
+            "/api/plans/{id}/sections/{sid}",
+            patch(plan_routes::section_update).delete(plan_routes::section_rm),
+        )
+        .route("/api/plans/{id}/kinds", post(plan_routes::kinds_set))
+        .route("/api/plans/{id}/tasks", post(plan_routes::task_add))
+        .route(
+            "/api/plans/{id}/tasks/{tid}",
+            patch(plan_routes::task_update).delete(plan_routes::task_rm),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/close",
+            post(plan_routes::task_close),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/assign",
+            post(plan_routes::task_assign),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/milestones",
+            post(plan_routes::milestone_add),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/milestones/{ms_id}",
+            patch(plan_routes::milestone_update).delete(plan_routes::milestone_rm),
+        )
+        .route("/api/plans/{id}/loops", post(plan_routes::loop_create))
+        .route(
+            "/api/plans/{id}/loops/{lid}",
+            get(plan_routes::loop_status).patch(plan_routes::loop_set),
+        )
+        .route(
+            "/api/plans/{id}/loops/{lid}/stop",
+            post(plan_routes::loop_stop),
+        )
+        .route("/api/plans/{id}/layout", patch(plan_routes::layout_set))
+        .route("/api/plans/{id}/notes", post(plan_routes::note_add))
+        .route("/api/plans/{id}/elements", post(plan_routes::element_add))
         .route("/api/panes/{id}/send", post(pane_routes::send_text))
         .route("/api/panes/{id}/stop", post(pane_routes::stop_pane))
         .route("/api/panes/{id}/focus", post(pane_routes::focus_pane))
