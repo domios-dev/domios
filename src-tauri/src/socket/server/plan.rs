@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus};
+use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus, TaskGroup};
 use crate::service::plan::{NewTask, PlanError};
 use crate::service::ServiceState;
 
@@ -39,6 +39,21 @@ fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
             key: key.into(),
             label: key.into(),
             color: None,
+        })
+        .collect()
+}
+
+fn groups_from_csv(raw: &str) -> Vec<TaskGroup> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|item| {
+            let (key, label) = item.split_once(':').unwrap_or((item, item));
+            TaskGroup {
+                key: key.trim().into(),
+                label: label.trim().into(),
+                color: None,
+            }
         })
         .collect()
 }
@@ -259,6 +274,40 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
 
+        "plan.coverage" => {
+            let id = get_string_param(params, "plan_id")?;
+            let report = store
+                .coverage_report(&id)
+                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            Ok(serde_json::to_value(report).unwrap_or_default())
+        }
+
+        "plan.groups.set" => {
+            let id = get_string_param(params, "plan_id")?;
+            let groups = get_string_param(params, "groups")?;
+            store
+                .set_task_groups(&id, groups_from_csv(&groups), now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true }))
+        }
+
+        "plan.link" => {
+            let id = get_string_param(params, "plan_id")?;
+            let to = get_string_param(params, "to")?;
+            store.link_plan(&id, &to, now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true }))
+        }
+
+        "plan.unlink" => {
+            let id = get_string_param(params, "plan_id")?;
+            let to = get_string_param(params, "to")?;
+            store.unlink_plan(&id, &to, now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true }))
+        }
+
         "plan.task.add" => {
             let id = get_string_param(params, "plan_id")?;
             let name = get_string_param(params, "name")?;
@@ -307,6 +356,10 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("assign_pane"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        group: p
+                            .and_then(|x| x.get("group"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                     },
                     now,
                 )
@@ -346,6 +399,9 @@ pub(super) fn dispatch(
                     p.and_then(|x| x.get("body")).and_then(|v| v.as_str()),
                     Some(p.and_then(|x| x.get("intent")).and_then(|v| v.as_str())),
                     sections,
+                    p.and_then(|x| x.get("group"))
+                        .and_then(|v| v.as_str())
+                        .map(Some),
                     now,
                 )
                 .map_err(plan_rpc_err)?;
