@@ -118,13 +118,18 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span
+            title={plan.title}
             style={{
               fontWeight: 700,
               fontSize: "var(--ct-font-size-md)",
               flex: 1,
+              minWidth: 0,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
               overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              overflowWrap: "anywhere",
+              lineHeight: 1.2,
               letterSpacing: "-0.01em",
             }}
           >

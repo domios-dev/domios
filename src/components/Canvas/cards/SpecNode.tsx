@@ -22,16 +22,16 @@ const shell: CSSProperties = {
 
 function SpecSection({ section, depth }: { section: Section; depth: number }) {
   return (
-    <div style={{ marginTop: depth === 0 ? 11 : 7, paddingLeft: depth * 11 }}>
+    <div style={{ marginTop: depth === 0 ? 13 : 9, paddingLeft: depth * 11 }}>
       <div
         data-testid="canvas-spec-heading"
         role="heading"
         aria-level={Math.min(6, depth + 3)}
         style={{
           margin: 0,
-          fontSize: depth === 0 ? "var(--ct-font-size-sm)" : "0.72rem",
+          fontSize: depth === 0 ? "var(--ct-font-size-md)" : "0.74rem",
           fontWeight: 700,
-          letterSpacing: depth === 0 ? "-0.005em" : "0.02em",
+          letterSpacing: depth === 0 ? "-0.01em" : "0.03em",
           textTransform: depth === 0 ? "none" : "uppercase",
           color: depth === 0 ? "var(--ct-fg)" : "var(--ct-border-focus)",
         }}
@@ -41,10 +41,11 @@ function SpecSection({ section, depth }: { section: Section; depth: number }) {
       {section.body.trim().length > 0 && (
         <div
           style={{
-            marginTop: 3,
+            marginTop: 4,
             fontSize: "var(--ct-font-size-sm)",
-            opacity: "var(--ct-text-secondary-opacity)",
-            lineHeight: 1.42,
+            color: "var(--ct-fg)",
+            opacity: 0.82,
+            lineHeight: 1.55,
           }}
         >
           <RichMarkdown text={section.body} />
@@ -84,30 +85,17 @@ export function SpecNode({ plan, style }: SpecNodeProps) {
       </div>
       <div
         data-testid="canvas-spec-body"
-        className="ct-scroll"
-        style={{ flex: 1, overflowY: "auto", padding: "2px 18px 18px", marginLeft: 8, borderLeft: "1px dashed var(--ct-border-subtle)" }}
+        className="ct-canvas-scroll"
+        style={{ flex: 1, overflowY: "auto", padding: "2px 14px 16px 16px", marginLeft: 8, borderLeft: "1px dashed var(--ct-border-subtle)" }}
         onWheel={(e) => e.stopPropagation()}
       >
-        <div style={{ fontSize: "var(--ct-font-size-lg, 15px)", fontWeight: 700, letterSpacing: "-0.01em", marginTop: 12 }}>
+        <div style={{ fontSize: "var(--ct-font-size-lg, 15px)", fontWeight: 700, letterSpacing: "-0.01em", marginTop: 12, marginBottom: 2 }}>
           {plan.title}
         </div>
         {plan.sections.map((section) => (
           <SpecSection key={section.id} section={section} depth={0} />
         ))}
       </div>
-      <div
-        aria-hidden
-        style={{
-          position: "absolute",
-          left: 1,
-          right: 1,
-          bottom: 1,
-          height: 32,
-          borderRadius: "0 0 var(--ct-radius-md) var(--ct-radius-md)",
-          pointerEvents: "none",
-          background: "linear-gradient(180deg, transparent, color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg)))",
-        }}
-      />
     </div>
   );
 }

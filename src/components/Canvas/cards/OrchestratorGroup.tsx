@@ -63,7 +63,8 @@ export function OrchestratorGroup({ group, style, onOpen }: OrchestratorGroupPro
             width: 7,
             height: 7,
             borderRadius: "50%",
-            background: claimable ? "var(--ct-border-default)" : "rgba(74, 222, 128, 0.9)",
+            background: claimable ? "var(--ct-border-default)" : "rgba(56, 189, 248, 0.95)",
+            boxShadow: claimable ? "none" : "0 0 0 3px color-mix(in srgb, rgba(56,189,248,1) 22%, transparent)",
           }}
         />
       </button>
