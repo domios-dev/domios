@@ -103,7 +103,6 @@ const plugin: PluginModule = {
     const p = params || {};
     const parts: string[] = [];
     parts.push("codex");
-    parts.push("--dangerously-bypass-hook-trust");
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
@@ -116,7 +115,6 @@ const plugin: PluginModule = {
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
     const parts = ["codex", "resume"];
-    parts.push("--dangerously-bypass-hook-trust");
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
