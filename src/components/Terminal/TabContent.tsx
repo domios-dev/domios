@@ -44,6 +44,7 @@ export function TabContent({
   isVisible,
   chatFirst,
   chatDefaultPrompted,
+  api,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(pane?.agent_type);
 
@@ -88,6 +89,7 @@ export function TabContent({
           chatDefaultPrompted={chatDefaultPrompted}
           usageProvider={usageProvider}
           usageVisible={usageVisible}
+          api={api}
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
           {body}
