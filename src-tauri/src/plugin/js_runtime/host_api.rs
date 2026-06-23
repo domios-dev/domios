@@ -132,8 +132,17 @@ impl PluginSandbox {
     }
 
     /// May the plugin run `bin` via `host.exec`?
+    /// Accepts both bare names ("ffmpeg") and full paths ("/opt/homebrew/bin/ffmpeg")
+    /// as long as the basename is in the allowlist.
     pub(super) fn can_exec(&self, bin: &str) -> bool {
-        self.unrestricted || self.exec_allow.iter().any(|b| b == bin)
+        if self.unrestricted {
+            return true;
+        }
+        let basename = std::path::Path::new(bin)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(bin);
+        self.exec_allow.iter().any(|b| b == bin || b == basename)
     }
 
     /// May the plugin reach `host` (host or `host:port`) via `host.fetch`?

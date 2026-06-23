@@ -7,6 +7,7 @@
 #   CodeTerm_<ver>_aarch64.app.tar.gz(.sig) / _x64.app.tar.gz(.sig)
 #   CodeTerm_<ver>_x64-setup.exe(.sig) / _arm64-setup.exe(.sig)
 #   CodeTerm_<ver>_arm64.deb / _amd64.deb
+#   CodeTerm_<ver>_aarch64.AppImage(.sig)
 #
 # Usage: publish-release.sh <ver> [artifacts-dir]
 set -euo pipefail
@@ -25,6 +26,7 @@ cp -f "CodeTerm_${VER}_x64.app.tar.gz.sig"     CodeTerm_x64.app.tar.gz.sig
 ARM_SIG=$(tr -d '\n' < CodeTerm_aarch64.app.tar.gz.sig)
 X64_SIG=$(tr -d '\n' < CodeTerm_x64.app.tar.gz.sig)
 WIN_SIG=$(tr -d '\n' < "CodeTerm_${VER}_x64-setup.exe.sig")
+LINUX_ARM_SIG=$(tr -d '\n' < "CodeTerm_${VER}_aarch64.AppImage.sig")
 PUB=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 B="https://github.com/${MIRROR}/releases/latest/download"
 cat > latest.json <<JSON
@@ -35,7 +37,8 @@ cat > latest.json <<JSON
   "platforms": {
     "darwin-aarch64": { "url": "$B/CodeTerm_aarch64.app.tar.gz", "signature": "$ARM_SIG" },
     "darwin-x86_64":  { "url": "$B/CodeTerm_x64.app.tar.gz", "signature": "$X64_SIG" },
-    "windows-x86_64": { "url": "$B/CodeTerm_${VER}_x64-setup.exe", "signature": "$WIN_SIG" }
+    "windows-x86_64": { "url": "$B/CodeTerm_${VER}_x64-setup.exe", "signature": "$WIN_SIG" },
+    "linux-aarch64":  { "url": "$B/CodeTerm_${VER}_aarch64.AppImage", "signature": "$LINUX_ARM_SIG" }
   }
 }
 JSON
@@ -46,6 +49,7 @@ PRIV_ASSETS=( "CodeTerm_${VER}_aarch64.dmg" "CodeTerm_${VER}_x64.dmg"
   CodeTerm_x64.app.tar.gz CodeTerm_x64.app.tar.gz.sig
   "CodeTerm_${VER}_x64-setup.exe" "CodeTerm_${VER}_x64-setup.exe.sig"
   "CodeTerm_${VER}_arm64-setup.exe" "CodeTerm_${VER}_arm64-setup.exe.sig"
+  "CodeTerm_${VER}_aarch64.AppImage" "CodeTerm_${VER}_aarch64.AppImage.sig"
   "CodeTerm_${VER}_arm64.deb" "CodeTerm_${VER}_amd64.deb" )
 
 echo "### private release v$VER"
@@ -62,7 +66,7 @@ gh release edit "v$VER" --repo "$MIRROR" --draft=false --latest
 
 echo "### verify anon updater URLs"
 sleep 4
-for u in latest.json CodeTerm_aarch64.app.tar.gz CodeTerm_x64.app.tar.gz "CodeTerm_${VER}_x64-setup.exe"; do
+for u in latest.json CodeTerm_aarch64.app.tar.gz CodeTerm_x64.app.tar.gz "CodeTerm_${VER}_x64-setup.exe" "CodeTerm_${VER}_aarch64.AppImage"; do
   code=$(curl -sIL -o /dev/null -w '%{http_code}' "$B/$u")
   echo "  $code  $u"; [ "$code" = 200 ] || { echo "::error::updater URL $u -> $code"; exit 1; }
 done

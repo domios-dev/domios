@@ -11,7 +11,7 @@ on:
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   release:
@@ -45,6 +45,9 @@ jobs:
           echo "host: $(uname -msr)"
           security find-identity -v -p codesigning | grep -q ANDREY && echo "✅ Developer ID present" || { echo "::error::no Developer ID"; exit 1; }
           test -f "$HOME/.claude/.secrets/apple-notary.env" && echo "✅ notary env" || { echo "::error::missing apple-notary.env"; exit 1; }
+          xcrun notarytool history --keychain-profile codeterm >/tmp/codeterm-notary-preflight.log 2>&1 \
+            && echo "✅ Apple notary profile usable" \
+            || { cat /tmp/codeterm-notary-preflight.log; echo "::error::Apple notary profile unusable; check expired/missing Apple Developer agreements for the team"; exit 1; }
           test -f "$HOME/.tauri/codeterm.key" && echo "✅ minisign key" || { echo "::error::missing minisign key"; exit 1; }
           docker image inspect codeterm-build-linux-arm64 >/dev/null 2>&1 && echo "✅ docker arm64 image" || echo "::warning::bake codeterm-build-linux-arm64"
           docker image inspect codeterm-build-linux-x64   >/dev/null 2>&1 && echo "✅ docker x64 image"   || echo "::warning::bake codeterm-build-linux-x64"

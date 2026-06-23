@@ -84,8 +84,8 @@ mod store_index_tests {
         assert_eq!(manifest.name, "codeterm-core");
         assert_eq!(
             manifest.plugins.len(),
-            4,
-            "expected claude/codex/opencode/cursor in the core channel"
+            5,
+            "expected claude/codex/opencode/cursor/chat-preprocessor in the core channel"
         );
 
         for p in &manifest.plugins {
@@ -376,6 +376,7 @@ mod store_index_tests {
     fn install_from_git_channel_refreshes_before_resolving() {
         with_data_root(|root| {
             let prev_path = std::env::var("PATH").ok();
+            let prev_git_bin = std::env::var("CODETERM_TEST_GIT_BIN").ok();
             let prev_fresh = std::env::var("CODETERM_TEST_FRESH_CHANNEL").ok();
             let prev_log = std::env::var("CODETERM_TEST_GIT_LOG").ok();
 
@@ -428,7 +429,7 @@ mod store_index_tests {
 set -eu
 printf '%s\n' "$*" >> "$CODETERM_TEST_GIT_LOG"
 if [ "$1" = "clone" ]; then
-  dest="$5"
+  for arg do dest="$arg"; done
   mkdir -p "$dest"
   cp -R "$CODETERM_TEST_FRESH_CHANNEL/." "$dest/"
 fi
@@ -437,10 +438,38 @@ exit 0
             )
             .unwrap();
             make_executable(&git);
+            std::fs::write(
+                bin.join("git.cmd"),
+                r#"@echo off
+echo %*>>"%CODETERM_TEST_GIT_LOG%"
+if "%~1"=="clone" (
+  :last_arg
+  if "%~2"=="" (
+    set "dest=%~1"
+    goto copy_channel
+  )
+  shift
+  goto last_arg
+  :copy_channel
+  mkdir "%dest%" 2>nul
+  xcopy "%CODETERM_TEST_FRESH_CHANNEL%\*" "%dest%\" /E /I /Y >nul
+)
+exit /b 0
+"#,
+            )
+            .unwrap();
 
             let log = root.join("git.log");
             std::env::set_var("CODETERM_TEST_FRESH_CHANNEL", &fresh_channel);
             std::env::set_var("CODETERM_TEST_GIT_LOG", &log);
+            std::env::set_var(
+                "CODETERM_TEST_GIT_BIN",
+                if cfg!(windows) {
+                    bin.join("git.cmd")
+                } else {
+                    git.clone()
+                },
+            );
             let mut path_entries = vec![bin.clone()];
             if let Some(path) = &prev_path {
                 path_entries.extend(std::env::split_paths(path));
@@ -456,10 +485,15 @@ exit 0
             );
             assert_eq!(out["warnings"], serde_json::json!([]));
             let git_log = std::fs::read_to_string(log).expect("git stub should be invoked");
-            assert!(git_log.contains("clone --depth 1 https://example.invalid/demo.git"));
+            assert!(git_log.contains("clone"));
+            assert!(git_log.contains("core.longpaths=true"));
+            assert!(git_log.contains("--depth 1"));
+            assert!(git_log.contains("--filter=blob:none"));
+            assert!(git_log.contains("https://example.invalid/demo.git"));
             assert!(git_log.contains("fetch --depth 1 origin main"));
 
             restore_env("PATH", prev_path);
+            restore_env("CODETERM_TEST_GIT_BIN", prev_git_bin);
             restore_env("CODETERM_TEST_FRESH_CHANNEL", prev_fresh);
             restore_env("CODETERM_TEST_GIT_LOG", prev_log);
         });
