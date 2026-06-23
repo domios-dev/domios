@@ -113,7 +113,24 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
 - **Verified:** edges render at rest (board reads connected), title full, cards filled, bubbles
   quieter. Re-scoring with a fresh independent Dax.
 
-## Iteration 6 — Dax re-score + final polish — in progress
+## Iteration 6 — demote spec + tame color/packing (Mira) — in progress
+- **Dax2 (fresh independent critic) scored iter5 = 76/100.** Per-dim: Hierarchy 7, Connection 8,
+  Coverage 8 (best), Bounds 8, Packing **5** (weakest), Typography 7, Color 6, Nav 7, Markdown 8,
+  Polish 6. (Lower than Dax1's 80 = critic calibration drift, not regression; iter5 objectively
+  improved. Track the defect list, not just the number.)
+- **THE ONE THING:** demote the spec node — it's the brightest/tallest/leftmost mass and
+  out-shouts the compact plan node (design sin #4 alive). Make the PLAN node the hero.
+- **Ranked defects → Mira (iter6):** 1) spec node: surface-tone bg (not near-white), shorter
+  default height + clear scroll, narrower; plan node anchors the board. 2) ~40% dead space right
+  — pull clusters to their tasks, tighten vertical gaps, center composition. 3) bubble in-circle
+  labels truncate to 3-4 chars ('Han…','Deve…') — drop in-bubble text (color lane + hover) or
+  full-kind pill, never a stub. 4) edges over-saturated purple — desaturate to low-alpha
+  neutral at rest, brightness only on hover. 5) bubble palette rainbow → constrain to a tighter
+  theme-derived ramp. 6) orchestrator group needs a bounded tinted region + label chip. 7) align
+  task-card vertical centers to their covered-row anchors so edges run level. 8) coverage bar →
+  flat theme-accent fill (match row-tint language).
+- **Process note:** hover edge-lift imperceptible at board zoom — capture PER-ZONE screenshots
+  for the next Dax pass so edge/bubble detail is judgeable.
 - **Dax (independent opus+frontend-design critic) scored iter4 = 80/100.** Per-dim: Hierarchy
   7, Connection **4.5** (the drag), Coverage 8, Bounds 8, Packing 5.5, Typography 6, Color 7,
   Navigation 7, Markdown 8, Polish 6.
