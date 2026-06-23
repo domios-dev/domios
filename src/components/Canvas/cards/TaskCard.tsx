@@ -65,11 +65,12 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
               <span
                 data-testid="canvas-task-status"
                 style={{
-                  fontSize: "0.68rem",
-                  padding: "1px 8px",
+                  fontSize: "0.62rem",
+                  padding: "0 6px",
+                  lineHeight: "15px",
                   borderRadius: 999,
-                  background: `color-mix(in srgb, ${badgeColor} 16%, transparent)`,
-                  border: `1px solid color-mix(in srgb, ${badgeColor} 55%, transparent)`,
+                  background: `color-mix(in srgb, ${badgeColor} 14%, transparent)`,
+                  border: `1px solid color-mix(in srgb, ${badgeColor} 48%, transparent)`,
                   color: badgeColor,
                   textTransform: "capitalize",
                   fontWeight: 600,
