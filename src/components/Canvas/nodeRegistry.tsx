@@ -77,5 +77,19 @@ registerNodeRenderer("task", ({ model, style, lod, onOpenPane, onHoverTask }) =>
 registerNodeRenderer("milestone", ({ model, style, lod }) =>
   model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} /> : null,
 );
+// Faint enclosure behind a task's step-bubble cluster (no model needed).
+registerNodeRenderer("cluster", ({ style }) => (
+  <div
+    data-testid="canvas-cluster-bg"
+    style={{
+      ...style,
+      position: "absolute",
+      borderRadius: "var(--ct-radius-md)",
+      background: "color-mix(in srgb, var(--ct-fg) 3.5%, transparent)",
+      border: "1px solid var(--ct-border-subtle)",
+      pointerEvents: "none",
+    }}
+  />
+));
 
 registerProvenanceRenderers(registerNodeRenderer);

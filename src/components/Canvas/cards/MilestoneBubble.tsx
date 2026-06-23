@@ -1,5 +1,4 @@
 import { useState, type CSSProperties } from "react";
-import { RichMarkdown } from "@codeterm/chat-ui";
 import type { Milestone } from "../types";
 import type { CanvasCardStyleProps } from "./types";
 
@@ -32,7 +31,9 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
   // Desaturate ~18% so bubbles read as supporting detail, not the loudest thing.
   const color = `color-mix(in srgb, ${rawColor} 82%, var(--ct-muted-fg, #94a3b8))`;
   const [hover, setHover] = useState(false);
-  const showTip = hover || lod === "near";
+  // Hover-only: auto-opening every tooltip at near-LOD piled them into an
+  // overlapping, clipped, word-glued mess. One clean card on hover instead.
+  const showTip = hover;
   const kindLabel = milestone.kind.replace(/_/g, " ");
 
   return (
@@ -121,13 +122,33 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
               gap: 6,
               fontWeight: 700,
               textTransform: "capitalize",
-              marginBottom: milestone.text.trim() ? 3 : 0,
+              marginBottom: milestone.text.trim() ? 4 : 0,
             }}
           >
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
             {kindLabel}
           </div>
-          {milestone.text.trim().length > 0 && <RichMarkdown text={milestone.text} />}
+          {milestone.text.trim().length > 0 && (
+            <div
+              data-testid="canvas-milestone-detail"
+              style={{
+                color: "var(--ct-fg)",
+                opacity: 0.92,
+                lineHeight: 1.45,
+                // Clamp to 5 lines at a line boundary (never mid-glyph); wrap
+                // normally (spaces preserved) and break only overlong tokens.
+                display: "-webkit-box",
+                WebkitLineClamp: 5,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+                whiteSpace: "normal",
+                overflowWrap: "anywhere",
+                wordBreak: "break-word",
+              }}
+            >
+              {milestone.text}
+            </div>
+          )}
         </div>
       )}
     </div>

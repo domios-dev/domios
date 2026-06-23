@@ -27,12 +27,12 @@ const frameStyle: CSSProperties = {
 
 // Coverage is the row FILL TINT (primary signal): covered rows carry a clear
 // accent wash keyed by status; uncovered rows pop amber + dashed. Edges reinforce.
-// Covered rows stay QUIET (~0.10 wash + thin rail); the saturated color lives in
-// the status glyph only. Uncovered rows keep the loud amber pop + dashed rail.
+// LOCKED values (stop oscillating): covered rows = 0.18 fill + 3px accent rail
+// (the primary coverage signal); uncovered = stronger amber + dashed so it wins.
 const GLYPH = {
-  done: { Icon: Check, color: "rgba(52, 211, 153, 1)", tint: "rgba(52, 211, 153, 0.10)", rail: "rgba(52, 211, 153, 0.7)", dashed: false },
-  progress: { Icon: CircleDot, color: "rgba(129, 140, 248, 1)", tint: "rgba(99, 102, 241, 0.10)", rail: "rgba(99, 102, 241, 0.7)", dashed: false },
-  uncovered: { Icon: TriangleAlert, color: "rgba(251, 191, 36, 1)", tint: "rgba(251, 191, 36, 0.22)", rail: "rgba(251, 191, 36, 1)", dashed: true },
+  done: { Icon: Check, color: "rgba(52, 211, 153, 1)", tint: "rgba(52, 211, 153, 0.18)", rail: "rgba(52, 211, 153, 0.9)", dashed: false },
+  progress: { Icon: CircleDot, color: "rgba(129, 140, 248, 1)", tint: "rgba(99, 102, 241, 0.18)", rail: "rgba(99, 102, 241, 0.95)", dashed: false },
+  uncovered: { Icon: TriangleAlert, color: "rgba(251, 191, 36, 1)", tint: "rgba(251, 191, 36, 0.26)", rail: "rgba(251, 191, 36, 1)", dashed: true },
 } as const satisfies Record<SectionRowGlyph, { Icon: typeof Check; color: string; tint: string; rail: string; dashed: boolean }>;
 
 
@@ -229,9 +229,10 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
             data-testid="canvas-plan-done"
             style={{ fontVariantNumeric: "tabular-nums", opacity: "var(--ct-text-secondary-opacity)", flexShrink: 0 }}
           >
-            {doneCount}/{taskCount}
+            {doneCount}/{taskCount} tasks
           </span>
           <div
+            title={`${pct}% of sections covered`}
             style={{
               flex: 1,
               height: 6,
@@ -250,8 +251,8 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
               }}
             />
           </div>
-          <span data-testid="canvas-plan-coverage-pct" style={{ fontVariantNumeric: "tabular-nums" }}>
-            {pct}%
+          <span data-testid="canvas-plan-coverage-pct" style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+            {pct}% covered
           </span>
         </div>
       )}
