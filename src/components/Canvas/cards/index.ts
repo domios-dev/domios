@@ -1,7 +1,8 @@
-export { PlanFrame, type PlanFrameProps } from "./PlanFrame";
-export { SectionCard, type SectionCardProps } from "./SectionCard";
+export { PlanNode, type PlanNodeProps } from "./PlanNode";
+export { SpecNode, type SpecNodeProps } from "./SpecNode";
 export { TaskCard, type TaskCardProps } from "./TaskCard";
-export { MilestoneNode, type MilestoneNodeProps } from "./MilestoneNode";
+export { MilestoneBubble, type MilestoneBubbleProps, type MilestoneBubbleModel } from "./MilestoneBubble";
+export { OrchestratorGroup, type OrchestratorGroupProps } from "./OrchestratorGroup";
 export { NoteCard, type NoteCardProps } from "./NoteCard";
 export { DecisionCard, type DecisionCardProps } from "./DecisionCard";
 export { planCoverageFraction } from "./coverage";

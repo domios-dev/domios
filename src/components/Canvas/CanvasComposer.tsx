@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
-import { Send } from "lucide-react";
-import type { ApiConfig } from "../../lib/types";
+import { Loader, Send } from "lucide-react";
+import type { ApiConfig, Pane } from "../../lib/types";
 import { baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
 import { useCanvasFocusTarget } from "./canvasFocusStore";
 import { focusAt, type FocusResult, type Point, type WorkspaceLayout } from "./layout";
@@ -14,7 +14,13 @@ export interface CanvasComposerProps {
   // World-space point under the viewport center; drives focus-based targeting.
   viewportCenter: Point;
   mode: "workspace" | "focus";
+  panes?: Record<string, Pane>;
   settings?: CanvasLayoutSettings;
+}
+
+function truncate(text: string, max = 120): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
 interface ComposerTarget {
@@ -110,6 +116,7 @@ export function CanvasComposer({
   layout,
   viewportCenter,
   mode,
+  panes = {},
   settings = DEFAULT_CANVAS_SETTINGS,
 }: CanvasComposerProps) {
   const focusTarget = useCanvasFocusTarget();
@@ -121,6 +128,19 @@ export function CanvasComposer({
     () => resolveTarget(mode, plans, layout, viewportCenter, settings, focusTarget?.planId ?? null),
     [mode, plans, layout, viewportCenter, settings, focusTarget],
   );
+
+  const ownerState = target?.paneId ? panes[target.paneId]?.agent_state ?? null : null;
+  const activity = useMemo(() => {
+    if (sending) return { working: true, text: "working on it…" };
+    if (!ownerState) return null;
+    if (ownerState.state === "working") {
+      return { working: true, text: truncate(ownerState.status_line?.trim() || "working on it…") };
+    }
+    if (ownerState.last_turn_summary?.trim()) {
+      return { working: false, text: truncate(ownerState.last_turn_summary) };
+    }
+    return null;
+  }, [sending, ownerState]);
 
   const canSend = !!target?.paneId && text.trim().length > 0 && !sending;
 
@@ -168,6 +188,23 @@ export function CanvasComposer({
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
+      {activity && (
+        <div
+          data-testid="canvas-activity-bubble"
+          className="absolute -top-9 left-2 flex max-w-[90%] items-center gap-1.5 truncate rounded-full border px-2.5 py-1 text-xs shadow-md"
+          style={{
+            background: "var(--ct-bg)",
+            borderColor: activity.working ? "var(--ct-border-focus)" : "var(--ct-border)",
+            color: "var(--ct-fg)",
+          }}
+          title={activity.text}
+        >
+          {activity.working && <Loader size={11} className="ct-spin shrink-0" style={{ color: "var(--ct-border-focus)" }} />}
+          <span className="truncate" style={{ opacity: "var(--ct-text-secondary-opacity)" }}>
+            {activity.text}
+          </span>
+        </div>
+      )}
       <div className="flex items-center justify-between px-1 text-xs">
         {target ? (
           <span

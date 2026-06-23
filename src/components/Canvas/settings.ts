@@ -1,11 +1,11 @@
-// Single source of every layout constant (§6.2). The layout engine reads ONLY
-// from this object — no magic numbers inline. Strategy is swappable, not just numbers.
+// Single source of every layout constant. The layout engine and cards read ONLY
+// from this object — no magic numbers inline. Plan-node row geometry is shared
+// between the layout (anchor math) and PlanNode card (rendering) via these keys.
 
 import type { TaskStatus } from "./types";
 
 export type LayoutStrategy = "lanes" | "cluster" | "radial";
 
-// Centralized per §6.2: task status palette lives here, not inline in TaskCard.
 export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   pending: "rgba(148, 163, 184, 0.85)",
   in_progress: "rgba(99, 102, 241, 0.9)",
@@ -14,42 +14,61 @@ export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   cancelled: "rgba(100, 116, 139, 0.75)",
 };
 
-export interface CanvasLayoutSettings {
-  cardWidth: number;
-  cardMinHeight: number;
-  cardMaxHeight: number;
+// Fallback lane colors for milestone kinds that declare no color, indexed by lane.
+export const MILESTONE_LANE_COLORS = [
+  "rgba(99, 102, 241, 0.95)",
+  "rgba(45, 212, 191, 0.95)",
+  "rgba(244, 114, 182, 0.95)",
+  "rgba(251, 191, 36, 0.95)",
+  "rgba(96, 165, 250, 0.95)",
+  "rgba(167, 139, 250, 0.95)",
+];
 
-  sectionWidth: number;
-  sectionIndentX: number;
-  sectionGapY: number;
+export interface CanvasLayoutSettings {
+  // Compact sectioned plan node.
+  planWidth: number;
+  planHeaderHeight: number;
+  planRowHeight: number;
+  planFooterHeight: number;
+  planRowIndent: number;
+
+  // Spec document node.
+  specWidth: number;
+  specHeight: number;
+
+  // Satellite task nodes.
+  taskWidth: number;
+  taskMinHeight: number;
   taskGapY: number;
 
-  laneWidth: number;
-  laneGapX: number;
-  bandGapX: number;
+  // Column gaps between spec | plan | tasks | clusters.
+  columnGapX: number;
+  clusterGapX: number;
 
-  framePadding: number;
-  frameGap: number;
-  frameMinWidth: number;
-  rowMaxWidth: number;
-  ownerClusterGapY: number;
+  // Milestone bubble clusters.
+  bubbleRadius: number;
+  bubbleGapX: number;
+  bubbleGapY: number;
+  clusterLabelHeight: number;
 
-  chainWrapWidth: number;
-  clusterRadius: number;
-  collisionPadding: number;
-
-  milestoneNodeSize: number;
-  milestoneGapX: number;
-  milestoneGapY: number;
-
-  zoomFarThreshold: number;
-  zoomNearThreshold: number;
+  // Edge anchors.
+  anchorInset: number;
   edgeCurve: number;
 
-  taskScale: number;
-  milestoneNodeScale: number;
-  milestoneGroupScale: number;
+  // Orchestrator group wrapper.
+  groupPadding: number;
+  groupLabelHeight: number;
+  groupGapX: number;
+  groupGapY: number;
 
+  // Frame packing.
+  framePadding: number;
+  frameGap: number;
+  rowMaxWidth: number;
+
+  // LOD + virtualization.
+  zoomFarThreshold: number;
+  zoomNearThreshold: number;
   focusZoneRadius: number;
   cullPadding: number;
 
@@ -57,47 +76,53 @@ export interface CanvasLayoutSettings {
 }
 
 export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
-  cardWidth: 240,
-  cardMinHeight: 64,
-  cardMaxHeight: 320,
+  planWidth: 300,
+  planHeaderHeight: 64,
+  planRowHeight: 34,
+  planFooterHeight: 40,
+  planRowIndent: 16,
 
-  sectionWidth: 220,
-  sectionIndentX: 18,
-  sectionGapY: 16,
+  specWidth: 340,
+  specHeight: 460,
+
+  taskWidth: 248,
+  taskMinHeight: 72,
   taskGapY: 28,
 
-  laneWidth: 150,
-  laneGapX: 24,
-  bandGapX: 120,
+  columnGapX: 140,
+  clusterGapX: 60,
 
-  framePadding: 40,
-  frameGap: 80,
-  frameMinWidth: 360,
-  rowMaxWidth: 6000,
-  ownerClusterGapY: 200,
+  bubbleRadius: 26,
+  bubbleGapX: 18,
+  bubbleGapY: 16,
+  clusterLabelHeight: 18,
 
-  chainWrapWidth: 640,
-  clusterRadius: 90,
-  collisionPadding: 24,
+  anchorInset: 0,
+  edgeCurve: 0.45,
 
-  milestoneNodeSize: 96,
-  milestoneGapX: 24,
-  milestoneGapY: 20,
+  groupPadding: 44,
+  groupLabelHeight: 34,
+  groupGapX: 120,
+  groupGapY: 160,
+
+  framePadding: 24,
+  frameGap: 120,
+  rowMaxWidth: 9000,
 
   zoomFarThreshold: 0.45,
   zoomNearThreshold: 1.1,
-  edgeCurve: 0.3,
-
-  taskScale: 0.85,
-  milestoneNodeScale: 1,
-  milestoneGroupScale: 1,
-
-  focusZoneRadius: 220,
+  focusZoneRadius: 260,
   cullPadding: 300,
 
-  layoutStrategy: "lanes",
+  layoutStrategy: "cluster",
 };
 
 export const CANVAS_LAYOUT_SETTING_KEYS = Object.keys(
   DEFAULT_CANVAS_SETTINGS,
 ) as (keyof CanvasLayoutSettings)[];
+
+// Plan-node total height for a given visible section-row count. Shared so the
+// layout's anchor math and the PlanNode card agree on row positions.
+export function planNodeHeight(rowCount: number, s: CanvasLayoutSettings): number {
+  return s.planHeaderHeight + rowCount * s.planRowHeight + s.planFooterHeight;
+}

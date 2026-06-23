@@ -175,9 +175,9 @@ export function MeshCanvas({
     height,
     minScale: MIN_SCALE,
     maxScale: MAX_SCALE,
-    zoomStep: ZOOM_STEP,
     fitPadding: FIT_PADDING,
     ignoreSelector: "[data-peer-card]",
+    wheelBehavior: "zoom",
   });
   const lastAutoFitKeyRef = useRef<string | null>(null);
 
@@ -206,7 +206,6 @@ export function MeshCanvas({
       ref={containerRef}
       className="relative w-full h-full overflow-hidden"
       onMouseDown={handlers.onMouseDown}
-      onWheel={handlers.onWheel}
       style={{
         minHeight: height,
         background:

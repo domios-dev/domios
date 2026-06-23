@@ -39,9 +39,12 @@ export function focusAt(layout: WorkspaceLayout, center: Point, s: CanvasLayoutS
 
   for (const n of frame.nodes) {
     if (dist2(boxCenter(n.box), center) > r2) continue;
-    if (n.kind === "section") sectionIds.push(n.id);
-    else if (n.kind === "task") taskIds.push(n.id);
-    else milestoneIds.push(n.id);
+    if (n.kind === "task") taskIds.push(n.id);
+    else if (n.kind === "milestone") milestoneIds.push(n.id);
+  }
+  // Sections are anchors, not nodes; pick the ones whose row sits in the zone.
+  for (const [id, p] of frame.anchors) {
+    if (dist2(p, center) <= r2) sectionIds.push(id);
   }
 
   return { planId: frame.planId, sectionIds, taskIds, milestoneIds };

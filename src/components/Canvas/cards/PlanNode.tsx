@@ -1,0 +1,246 @@
+import type { CSSProperties } from "react";
+import { Archive, Check, CircleDot, TriangleAlert } from "lucide-react";
+import type { Plan } from "../types";
+import { DEFAULT_CANVAS_SETTINGS } from "../settings";
+import { sectionRows, type SectionRow, type SectionRowGlyph } from "../sectionRows";
+import { planCoverageFraction } from "./coverage";
+import type { CanvasCardStyleProps } from "./types";
+
+const S = DEFAULT_CANVAS_SETTINGS;
+
+const frameStyle: CSSProperties = {
+  position: "absolute",
+  boxSizing: "border-box",
+  border: "1px solid var(--ct-border-default)",
+  borderRadius: "var(--ct-radius-lg)",
+  background: "linear-gradient(180deg, var(--ct-titlebar-bg) 0%, var(--ct-bg) 38%)",
+  color: "var(--ct-fg)",
+  fontFamily: "var(--ct-font-ui)",
+  boxShadow: "var(--ct-shadow-md)",
+  overflow: "hidden",
+  display: "flex",
+  flexDirection: "column",
+};
+
+// Coverage is the row FILL TINT (primary signal): covered rows carry an accent
+// wash keyed by status; uncovered rows pop amber. Edges only reinforce.
+const GLYPH = {
+  done: { Icon: Check, color: "rgba(74, 222, 128, 0.95)", tint: "rgba(74, 222, 128, 0.12)", rail: "rgba(74, 222, 128, 0.9)" },
+  progress: { Icon: CircleDot, color: "rgba(129, 140, 248, 0.98)", tint: "rgba(99, 102, 241, 0.16)", rail: "rgba(99, 102, 241, 0.95)" },
+  uncovered: { Icon: TriangleAlert, color: "rgba(251, 191, 36, 0.98)", tint: "rgba(251, 191, 36, 0.12)", rail: "rgba(251, 191, 36, 0.9)" },
+} as const satisfies Record<SectionRowGlyph, { Icon: typeof Check; color: string; tint: string; rail: string }>;
+
+function ownerLabel(plan: Plan): string {
+  return plan.owner.title ?? plan.owner.pane_id ?? "Unowned";
+}
+
+function Row({ row }: { row: SectionRow }) {
+  const { Icon, color, tint, rail } = GLYPH[row.glyph];
+  const uncovered = row.glyph === "uncovered";
+  return (
+    <div
+      data-testid="canvas-plan-row"
+      data-section-id={row.section.id}
+      data-row-glyph={row.glyph}
+      style={{
+        height: S.planRowHeight,
+        boxSizing: "border-box",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        paddingRight: 12,
+        paddingLeft: 12 + row.depth * S.planRowIndent,
+        borderLeft: uncovered ? `2px dashed ${rail}` : `2px solid ${rail}`,
+        background: tint,
+      }}
+    >
+      <Icon size={13} color={color} style={{ flexShrink: 0 }} strokeWidth={uncovered ? 2.4 : 2} />
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          fontSize: "var(--ct-font-size-sm)",
+          fontWeight: uncovered ? 600 : 500,
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          opacity: uncovered ? 1 : 0.92,
+        }}
+      >
+        {row.section.title}
+      </span>
+      <span
+        data-testid="canvas-plan-row-count"
+        style={{
+          flexShrink: 0,
+          minWidth: 20,
+          textAlign: "center",
+          fontSize: "0.68rem",
+          fontFamily: "var(--ct-font-mono)",
+          fontWeight: 600,
+          padding: "1px 6px",
+          borderRadius: 999,
+          background: uncovered ? "rgba(251, 191, 36, 0.18)" : "var(--ct-bg-active)",
+          color: uncovered ? "rgba(251, 191, 36, 0.98)" : "var(--ct-fg)",
+        }}
+      >
+        {row.taskCount}
+      </span>
+    </div>
+  );
+}
+
+export interface PlanNodeProps extends CanvasCardStyleProps {
+  plan: Plan;
+  onArchive?: () => void;
+}
+
+export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps) {
+  const rows = sectionRows(plan);
+  const coverage = planCoverageFraction(plan);
+  const pct = Math.round(coverage * 100);
+  const taskCount = plan.tasks.length;
+  const doneCount = plan.tasks.filter((t) => t.status === "done").length;
+  const standalone = rows.length === 0;
+
+  return (
+    <div data-testid="canvas-plan-node" data-plan-id={plan.id} style={{ ...frameStyle, ...style }}>
+      <div
+        style={{
+          height: S.planHeaderHeight,
+          boxSizing: "border-box",
+          padding: "9px 12px",
+          borderBottom: "1px solid var(--ct-border-subtle)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              fontWeight: 700,
+              fontSize: "var(--ct-font-size-md)",
+              flex: 1,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {plan.title}
+          </span>
+          {onArchive && (
+            <button
+              type="button"
+              data-testid="canvas-plan-archive"
+              title="Archive plan"
+              onClick={(e) => {
+                e.stopPropagation();
+                onArchive();
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 24,
+                height: 24,
+                borderRadius: "var(--ct-radius-sm)",
+                border: "1px solid var(--ct-border-subtle)",
+                background: "var(--ct-bg)",
+                color: "var(--ct-fg)",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              <Archive size={13} />
+            </button>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--ct-font-size-sm)" }}>
+          <span
+            data-testid="canvas-plan-owner"
+            style={{
+              maxWidth: 150,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              padding: "1px 8px",
+              borderRadius: 999,
+              background: "var(--ct-bg-selected)",
+              border: "1px solid var(--ct-border-subtle)",
+              opacity: "var(--ct-text-secondary-opacity)",
+            }}
+          >
+            {ownerLabel(plan)}
+          </span>
+          <span style={{ marginLeft: "auto", opacity: "var(--ct-text-secondary-opacity)" }}>
+            {doneCount}/{taskCount}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {standalone ? (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "var(--ct-font-size-sm)",
+              opacity: "var(--ct-text-tertiary-opacity)",
+            }}
+          >
+            {taskCount} standalone task{taskCount === 1 ? "" : "s"}
+          </div>
+        ) : (
+          rows.map((row) => <Row key={row.section.id} row={row} />)
+        )}
+      </div>
+
+      {!standalone && (
+        <div
+          style={{
+            height: S.planFooterHeight,
+            boxSizing: "border-box",
+            padding: "0 12px",
+            borderTop: "1px solid var(--ct-border-subtle)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: "var(--ct-font-size-sm)",
+          }}
+        >
+          <span style={{ opacity: "var(--ct-text-tertiary-opacity)" }}>Coverage</span>
+          <div
+            style={{
+              flex: 1,
+              height: 6,
+              borderRadius: 3,
+              background: "var(--ct-bg-active)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              data-testid="canvas-plan-coverage-bar"
+              style={{
+                width: `${pct}%`,
+                height: "100%",
+                background:
+                  pct >= 100
+                    ? "rgba(74, 222, 128, 0.9)"
+                    : "linear-gradient(90deg, var(--ct-border-focus), rgba(99,102,241,0.65))",
+                transition: lod === "far" ? "none" : "width var(--ct-duration-normal) var(--ct-ease-decel)",
+              }}
+            />
+          </div>
+          <span data-testid="canvas-plan-coverage-pct" style={{ fontVariantNumeric: "tabular-nums" }}>
+            {pct}%
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
