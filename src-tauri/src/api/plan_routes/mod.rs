@@ -139,12 +139,15 @@ pub async fn list(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let mut entries = state.svc.plan_store.list_index();
     if let Some(project) = &q.project {
+        let want = crate::service::plan::paths::project_root(std::path::Path::new(project))
+            .display()
+            .to_string();
         entries.retain(|e| {
             state
                 .svc
                 .plan_store
                 .get(&e.plan_id)
-                .map(|p| p.project_path == *project)
+                .map(|p| p.project_path == want)
                 .unwrap_or(false)
         });
     }

@@ -103,10 +103,13 @@ pub(super) fn dispatch(
         "plan.list" => {
             let mut entries = store.list_index();
             if let Some(project) = p.and_then(|x| x.get("project")).and_then(|v| v.as_str()) {
+                let want = crate::service::plan::paths::project_root(std::path::Path::new(project))
+                    .display()
+                    .to_string();
                 entries.retain(|e| {
                     store
                         .get(&e.plan_id)
-                        .map(|pl| pl.project_path == project)
+                        .map(|pl| pl.project_path == want)
                         .unwrap_or(false)
                 });
             }
