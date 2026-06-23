@@ -30,4 +30,7 @@ export interface ParsedInput {
   command: string;
   args: string[];
   currentArg: string;
+  cursor: number;
+  currentArgStart: number;
+  currentArgEnd: number;
 }

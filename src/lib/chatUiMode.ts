@@ -1,9 +1,14 @@
 import { getAgentDescriptor } from "./agentDescriptorCache";
 import { invoke } from "./bridge";
-import { setUiSettings } from "./clientSettings";
+import {
+  clearTerminalClientPaneUiModeOverrides,
+  markTerminalPaneUiModeOverridesNormalizedForChatDefault,
+  normalizeTerminalPaneUiModeOverridesForChatDefault,
+  publishPaneUiModeDefaultChanged,
+  resetTerminalPaneUiModeOverrideNormalization,
+} from "./clientPaneUiMode";
 import type { AppConfig, PaneBacking } from "./types";
 
-export const CHAT_UI_DEFAULT_KEY = "codeterm-chat-ui-default-enabled";
 // Sync mirror of the chat-default so the FIRST render resolves the right view
 // before the async get_config warms the cache — kills the terminal→chat flash.
 const CHAT_DEFAULT_SYNC_KEY = "codeterm:chat-default-new-agent-pane";
@@ -51,61 +56,22 @@ let configLoad: Promise<boolean> | null = null;
  *  Warmed by loadDefaultNewAgentPaneChat() at startup — lets a pane pick its
  *  initial view without awaiting config or the descriptor cache. */
 export function isChatDefaultEnabled(): boolean {
+  const synced = readChatDefaultSync();
+  if (synced !== null) cachedDefaultNewAgentPaneChat = synced;
   return cachedDefaultNewAgentPaneChat;
-}
-
-function readLegacyDefault(): boolean | null {
-  try {
-    const value = localStorage.getItem(CHAT_UI_DEFAULT_KEY);
-    return value === null ? null : value === "true";
-  } catch {
-    return null;
-  }
-}
-
-function clearLegacyDefault(): void {
-  try {
-    localStorage.removeItem(CHAT_UI_DEFAULT_KEY);
-  } catch {
-    // localStorage can be unavailable in tests or hardened webviews.
-  }
-}
-
-async function writeDefaultToConfig(enabled: boolean): Promise<void> {
-  const config = await invoke<AppConfig>("get_config");
-  await invoke("update_config", {
-    config: {
-      ...config,
-      ui: {
-        ...config.ui,
-        default_new_agent_pane_chat: enabled,
-      },
-    },
-  });
 }
 
 export function loadDefaultNewAgentPaneChat(): Promise<boolean> {
   if (configLoad) return configLoad;
   configLoad = (async () => {
     const config = await invoke<AppConfig>("get_config");
-    const legacy = readLegacyDefault();
-    if (legacy !== null) {
-      cachedDefaultNewAgentPaneChat = legacy;
-      persistChatDefaultSync(legacy);
-      await invoke("update_config", {
-        config: {
-          ...config,
-          ui: {
-            ...config.ui,
-            default_new_agent_pane_chat: legacy,
-          },
-        },
-      });
-      clearLegacyDefault();
-      return legacy;
-    }
     cachedDefaultNewAgentPaneChat = config.ui?.default_new_agent_pane_chat === true;
     persistChatDefaultSync(cachedDefaultNewAgentPaneChat);
+    if (cachedDefaultNewAgentPaneChat) {
+      normalizeTerminalPaneUiModeOverridesForChatDefault();
+    } else {
+      resetTerminalPaneUiModeOverrideNormalization();
+    }
     return cachedDefaultNewAgentPaneChat;
   })().catch((err) => {
     configLoad = null;
@@ -115,17 +81,42 @@ export function loadDefaultNewAgentPaneChat(): Promise<boolean> {
 }
 
 export async function setDefaultNewAgentPaneToChat(enabled: boolean): Promise<void> {
-  await writeDefaultToConfig(enabled);
+  const config = await invoke<AppConfig>("get_config");
+  await invoke("update_config", {
+    config: {
+      ...config,
+      ui: {
+        ...config.ui,
+        default_new_agent_pane_chat: enabled,
+        chat_ui_default_prompted: true,
+      },
+    },
+  });
   cachedDefaultNewAgentPaneChat = enabled;
   persistChatDefaultSync(enabled);
   configLoad = Promise.resolve(enabled);
-  await markChatDefaultPrompted();
+  if (enabled) {
+    clearTerminalClientPaneUiModeOverrides();
+    markTerminalPaneUiModeOverridesNormalizedForChatDefault();
+  } else {
+    resetTerminalPaneUiModeOverrideNormalization();
+  }
+  publishPaneUiModeDefaultChanged(enabled);
 }
 
 // Records that the chat-default suggestion has been answered, so the inline
 // prompt never reappears once the user accepts or dismisses it.
 export async function markChatDefaultPrompted(): Promise<void> {
-  await setUiSettings({ chat_ui_default_prompted: true });
+  const config = await invoke<AppConfig>("get_config");
+  await invoke("update_config", {
+    config: {
+      ...config,
+      ui: {
+        ...config.ui,
+        chat_ui_default_prompted: true,
+      },
+    },
+  });
 }
 
 export function emitPaneUiMode(paneId: string, mode: PaneUiMode): void {

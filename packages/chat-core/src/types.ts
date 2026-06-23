@@ -58,6 +58,11 @@ export interface NormalizedChatMessage {
   subtype?: string;
   tagName?: string;
   systemSubtype?: string;
+  sourceType?: string;
+  sourceSubtype?: string;
+  level?: string;
+  isCompactSummary?: boolean;
+  isVisibleInTranscriptOnly?: boolean;
   imageData?: string;
   imageMimeType?: string;
   toolName?: string;

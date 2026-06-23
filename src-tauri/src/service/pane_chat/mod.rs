@@ -192,6 +192,31 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
         .unwrap_or_else(|| base_id.to_string());
     let id_at = |i: usize| format!("{base}-{i}");
     let ts = rich.timestamp.clone();
+    let source_subtype = rich.source_subtype.as_deref();
+
+    if rich.is_compact_summary == Some(true) {
+        let content = rich
+            .blocks
+            .iter()
+            .filter(|b| b.kind == "text")
+            .filter_map(|b| b.data.get("text").and_then(|v| v.as_str()))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !content.is_empty() {
+            out.push(ChatMsg {
+                id: id_at(0),
+                kind: "system".into(),
+                content,
+                system_subtype: Some("compact_summary".into()),
+                collapsed: true,
+                timestamp: ts,
+                ..Default::default()
+            });
+        }
+        return out;
+    }
 
     if role == "system" {
         let content = rich
@@ -206,7 +231,25 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
             .first()
             .and_then(|b| b.data.get("subtype"))
             .and_then(|v| v.as_str())
+            .or(source_subtype)
             .map(String::from);
+        if matches!(
+            subtype.as_deref(),
+            Some("turn_duration" | "stop_hook_summary")
+        ) {
+            return out;
+        }
+        if subtype.as_deref() == Some("compact_boundary") {
+            out.push(ChatMsg {
+                id: id_at(0),
+                kind: "status".into(),
+                content: "Context compacted".into(),
+                system_subtype: subtype,
+                timestamp: ts,
+                ..Default::default()
+            });
+            return out;
+        }
         if let Some((tag, body)) = extract_local_command(&content) {
             let kind = if tag == "local-command-caveat" {
                 "system"
@@ -282,6 +325,18 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
         // Pure-text user turns may be a local-command echo or an isMeta system
         // row — mirror the desktop's string-content handling.
         if attachments.is_empty() && !emitted_tool_result && !content.is_empty() {
+            if rich.is_visible_in_transcript_only == Some(true) {
+                out.push(ChatMsg {
+                    id: id_at(0),
+                    kind: "system".into(),
+                    content: content.clone(),
+                    system_subtype: Some("compact_summary".into()),
+                    collapsed: true,
+                    timestamp: ts,
+                    ..Default::default()
+                });
+                return out;
+            }
             if let Some((tag, body)) = extract_local_command(&content) {
                 let kind = if tag == "local-command-caveat" {
                     "system"
@@ -351,6 +406,12 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, base_id: usize) -> Vec<ChatMsg> 
                     id,
                     kind: role.to_string(),
                     content: t.trim().to_string(),
+                    system_subtype: b
+                        .data
+                        .get("subtype")
+                        .and_then(|v| v.as_str())
+                        .or(source_subtype)
+                        .map(String::from),
                     ..Default::default()
                 }
             }
@@ -791,5 +852,82 @@ mod chat_snapshot_tests {
             msgs[1].tool_input.as_ref().unwrap()["command"],
             "codeterm pane list"
         );
+    }
+
+    #[test]
+    fn compact_summary_normalizes_to_collapsed_system_item() {
+        let rich = RichMessage {
+            role: "user".into(),
+            blocks: vec![MessageBlock {
+                kind: "text".into(),
+                data: json!({"text": "This session is being continued from a previous conversation."}),
+            }],
+            uuid: Some("compact-user".into()),
+            is_compact_summary: Some(true),
+            is_visible_in_transcript_only: Some(true),
+            source_type: Some("user".into()),
+            ..Default::default()
+        };
+
+        let msgs = rich_to_chat_msgs(&rich, 7);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].kind, "system");
+        assert_eq!(msgs[0].system_subtype.as_deref(), Some("compact_summary"));
+        assert!(msgs[0].collapsed);
+        assert_eq!(msgs[0].seq, 7);
+    }
+
+    #[test]
+    fn compact_boundary_is_status_and_noisy_system_rows_are_hidden() {
+        let boundary = RichMessage {
+            role: "system".into(),
+            blocks: vec![MessageBlock {
+                kind: "text".into(),
+                data: json!({"text": "", "subtype": "compact_boundary"}),
+            }],
+            uuid: Some("compact-boundary".into()),
+            source_type: Some("system".into()),
+            source_subtype: Some("compact_boundary".into()),
+            ..Default::default()
+        };
+        let msgs = rich_to_chat_msgs(&boundary, 8);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].kind, "status");
+        assert_eq!(msgs[0].content, "Context compacted");
+        assert_eq!(msgs[0].system_subtype.as_deref(), Some("compact_boundary"));
+
+        let turn_duration = RichMessage {
+            role: "system".into(),
+            blocks: vec![MessageBlock {
+                kind: "text".into(),
+                data: json!({"text": "123ms", "subtype": "turn_duration"}),
+            }],
+            source_type: Some("system".into()),
+            source_subtype: Some("turn_duration".into()),
+            ..Default::default()
+        };
+        assert!(rich_to_chat_msgs(&turn_duration, 9).is_empty());
+    }
+
+    #[test]
+    fn provider_status_row_normalizes_to_status() {
+        let rich = RichMessage {
+            role: "status".into(),
+            blocks: vec![MessageBlock {
+                kind: "text".into(),
+                data: json!({"text": "Task completed", "subtype": "task_notification"}),
+            }],
+            uuid: Some("task-notification".into()),
+            source_type: Some("user".into()),
+            source_subtype: Some("task_notification".into()),
+            ..Default::default()
+        };
+
+        let msgs = rich_to_chat_msgs(&rich, 10);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].kind, "status");
+        assert_eq!(msgs[0].content, "Task completed");
+        assert_eq!(msgs[0].system_subtype.as_deref(), Some("task_notification"));
+        assert_eq!(msgs[0].seq, 10);
     }
 }
