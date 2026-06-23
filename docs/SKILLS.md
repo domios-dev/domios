@@ -26,7 +26,7 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `$CODETERM=1` env var and `$CODETERM_PANE_ID` for self-identification), it can use the `codeterm` CLI to:
 
-1. **Send commands**: `codeterm send "npm test"` (sends immediately to current pane, newline appended automatically). For quote-heavy or multiline text, use `codeterm send --stdin --pane ID` and pipe/heredoc the payload. For terminal keys, use `codeterm send --actions "esc,delay:200ms,up,enter" --pane ID` (`enter`, arrows, `tab`, `backspace`, `ctrl-c`, `key*3`, and `delay:250ms` are supported). To schedule a future pane message without blocking yourself, use `codeterm send --delay 10m --pane ID "text"`, `--delay 4h`, `--delay 1d`, or `--at 2026-06-15T09:00`; manage queued items with `codeterm delayed list|edit|send-now|delete`.
+1. **Send commands**: `codeterm send "npm test"` (sends immediately to current pane, newline appended automatically). Sending to a **shell** pane delivers the raw text/keys verbatim — no `-=-codeterm:pane...-=-` return-address marker is injected, so the shell runs exactly what you send; the marker is added only when the target is an **agent** pane (so it knows who to reply to). For quote-heavy or multiline text, use `codeterm send --stdin --pane ID` and pipe/heredoc the payload. For terminal keys, use `codeterm send --actions "esc,delay:200ms,up,enter" --pane ID` (`enter`, arrows, `tab`, `backspace`, `ctrl-c`, `key*3`, and `delay:250ms` are supported) — these deliver as raw key bytes to a shell, with no wrapping. To spawn a bare terminal that runs a command on start, use `codeterm pane new --cmd "cd /repo && ./build.sh dev"` (waits for the PTY to be ready before delivering, so it runs reliably). To schedule a future pane message without blocking yourself, use `codeterm send --delay 10m --pane ID "text"`, `--delay 4h`, `--delay 1d`, or `--at 2026-06-15T09:00`; manage queued items with `codeterm delayed list|edit|send-now|delete`.
 2. **Send notifications**: `codeterm notify "Done" --level info`
 3. **Create workspaces**: `codeterm workspace create "Feature X"`
 4. **Read output**: `codeterm get-output` (reads from current pane)
@@ -251,4 +251,4 @@ CodeTerm tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's on-disk sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`). `codeterm sessions resume` opens the pane in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 31 -->
+<!-- revision: 32 -->

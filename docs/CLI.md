@@ -1131,7 +1131,7 @@ List all panes as a workspace-grouped tree. `--agents` filters to agent panes on
 Plain shell pane. For an AI pane use `codeterm agent spawn` instead
 
 - `--chat_backend` — Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`get-output` then route to the plugin, not a shell
-- `--cmd` — Command to run on pane start (e.g. `"poetry run backend"`). Sent into the PTY after the shell is ready
+- `--cmd` — Spawn a shell that runs this command on start (e.g. `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created pane
 - `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new pane
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use

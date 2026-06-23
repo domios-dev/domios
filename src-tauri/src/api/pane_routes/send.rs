@@ -15,6 +15,17 @@ pub(crate) fn default_true() -> bool {
     true
 }
 
+/// Whether to inject the sender return-address marker into the PTY text. The
+/// marker is meaningful only to an AGENT reading its input; a bare shell runs
+/// the bytes verbatim and a chatBackend carries identity structurally.
+pub(crate) fn should_prepend_source(
+    has_source: bool,
+    target_has_agent: bool,
+    target_is_chat: bool,
+) -> bool {
+    has_source && target_has_agent && !target_is_chat
+}
+
 #[derive(Deserialize)]
 pub(crate) struct SendTextBody {
     pub(crate) text: Option<String>,
@@ -128,6 +139,9 @@ pub async fn send_text(
     let pane_id = resolve_pane(&state, &raw_pane_id)?;
 
     let target_is_chat = state.svc.pane_chat_backing(&pane_id).is_some();
+    // The return-address marker is meaningful only to an AGENT reading its input.
+    // A bare shell PTY must run the injected bytes verbatim — never prefix it.
+    let target_has_agent = state.svc.pane_has_agent(&pane_id);
     if !target_is_chat {
         state
             .svc
@@ -175,17 +189,18 @@ pub async fn send_text(
                 }
             }
         });
+    let prefix_source =
+        should_prepend_source(source_envelope.is_some(), target_has_agent, target_is_chat);
     let prepend = |s: &str| -> String {
         match &source_envelope {
-            Some(envelope) if !target_is_chat => {
+            Some(envelope) if prefix_source => {
                 format!(
                     "{}{}",
                     crate::service::messenger::Messenger::pty_prefix(envelope),
                     s
                 )
             }
-            None => s.to_string(),
-            Some(_) => s.to_string(),
+            _ => s.to_string(),
         }
     };
 
@@ -194,7 +209,7 @@ pub async fn send_text(
     let run_stages = crate::chatpipeline::is_user_turn_send(
         svc_token_match.is_some(),
         body.source_pane.is_some(),
-        state.svc.pane_has_agent(&pane_id),
+        target_has_agent,
     );
     let stage = |s: String| -> String {
         if run_stages {
