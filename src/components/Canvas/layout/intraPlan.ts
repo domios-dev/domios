@@ -62,13 +62,29 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
   const lanes = buildLaneIndex(plan);
   const taskX = planX + s.planWidth + s.columnGapX;
 
-  let taskY = 0;
-  for (const task of plan.tasks) {
-    const cluster = layoutCluster(task, plan.id, lanes, s);
-    const taskHeight = estimateTaskHeight(task, s);
-    const rowHeight = Math.max(taskHeight, cluster.height);
+  // Bin-pack tasks near the Y of the section row(s) they cover so edges stay
+  // short and the board has no dead vertical space. Stable + deterministic:
+  // sort by desired Y (uncovered tasks keep input order, appended), then place
+  // greedily top-down so nothing overlaps.
+  const placements = plan.tasks.map((task, i) => {
+    const ys = task.section_ids.map((sid) => anchors.get(sid)?.y).filter((y): y is number => y != null);
+    const desired = ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : null;
+    return { task, i, desired, height: estimateTaskHeight(task, s), cluster: layoutCluster(task, plan.id, lanes, s) };
+  });
+  placements.sort((a, b) => {
+    if (a.desired == null && b.desired == null) return a.i - b.i;
+    if (a.desired == null) return 1;
+    if (b.desired == null) return -1;
+    return a.desired - b.desired || a.i - b.i;
+  });
 
-    const box: Box = { x: taskX, y: taskY, width: s.taskWidth, height: taskHeight };
+  let cursor = 0;
+  for (const { task, desired, height, cluster } of placements) {
+    const rowHeight = Math.max(height, cluster.height);
+    const wanted = desired != null ? desired - height / 2 : cursor;
+    const y = Math.max(cursor, wanted);
+
+    const box: Box = { x: taskX, y, width: s.taskWidth, height };
     nodes.push({ id: task.id, kind: "task", planId: plan.id, box, iteration: null, manual: false });
 
     for (const sid of task.section_ids) {
@@ -78,7 +94,7 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
 
     if (cluster.nodes.length) {
       const clusterX = box.x + box.width + s.clusterGapX;
-      const clusterY = box.y;
+      const clusterY = box.y + Math.max(0, (height - cluster.height) / 2);
       for (const cn of cluster.nodes) {
         nodes.push({ ...cn, box: { ...cn.box, x: cn.box.x + clusterX, y: cn.box.y + clusterY } });
       }
@@ -88,7 +104,7 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
       edges.push({ id: `${task.id}~cluster`, kind: "task-cluster", from: task.id, toPoint: clusterAnchor });
     }
 
-    taskY += rowHeight + s.taskGapY;
+    cursor = y + rowHeight + s.taskGapY;
   }
 
   // Free-form elements (open registry kinds) render only when explicitly placed;
