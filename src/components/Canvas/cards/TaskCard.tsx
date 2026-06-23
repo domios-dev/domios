@@ -43,6 +43,19 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
       style={{ ...cardStyle, ...style, borderLeft: `3px solid ${badgeColor}` }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <span
+          data-testid="canvas-task-marker"
+          aria-hidden
+          style={{
+            width: 9,
+            height: 9,
+            borderRadius: "50%",
+            marginTop: 5,
+            flexShrink: 0,
+            background: badgeColor,
+            boxShadow: `0 0 0 3px color-mix(in srgb, ${badgeColor} 22%, transparent)`,
+          }}
+        />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
             <span data-testid="canvas-task-name" style={{ fontWeight: 700, fontSize: "var(--ct-font-size-md)" }}>
