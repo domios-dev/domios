@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { Archive } from "lucide-react";
 import type { Plan } from "../types";
 import { planCoverageFraction } from "./coverage";
 import type { CanvasCardStyleProps } from "./types";
@@ -19,9 +20,10 @@ const frameStyle: CSSProperties = {
 
 export interface PlanFrameProps extends CanvasCardStyleProps {
   plan: Plan;
+  onArchive?: () => void;
 }
 
-export function PlanFrame({ plan, style, lod = "near" }: PlanFrameProps) {
+export function PlanFrame({ plan, style, lod = "near", onArchive }: PlanFrameProps) {
   const coverage = planCoverageFraction(plan);
   const pct = Math.round(coverage * 100);
   const taskCount = plan.tasks.length;
@@ -64,6 +66,33 @@ export function PlanFrame({ plan, style, lod = "near" }: PlanFrameProps) {
           >
             {doneCount}/{taskCount} tasks
           </span>
+        )}
+        {onArchive && (
+          <button
+            type="button"
+            data-testid="canvas-plan-archive"
+            title="Archive plan"
+            onClick={(e) => {
+              e.stopPropagation();
+              onArchive();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 26,
+              height: 26,
+              borderRadius: "var(--ct-radius-sm)",
+              border: "1px solid var(--ct-border-subtle)",
+              background: "var(--ct-bg)",
+              color: "var(--ct-fg)",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            <Archive size={14} />
+          </button>
         )}
       </div>
       <div style={{ padding: "8px 12px 10px" }}>
