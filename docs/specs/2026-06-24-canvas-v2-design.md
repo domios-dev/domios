@@ -108,6 +108,27 @@ go to an "Unowned / claimable" group.
 `plan↔plan` (`Plan.links`), `task→assigned-pane` (badge link, not a drawn line).
 All curved, subtle, no arrowheads (direction implicit). Virtualized with the nodes.
 
+## 2.7 No manual dragging — deterministic realtime auto-packing
+Plan nodes are **not draggable** (drop the v1 drag-persist path for plan/section/task
+nodes). Position is decided entirely by a deterministic layout that **packs cleanly as
+nodes stream in at realtime** — adding a task/section/milestone grows the arrangement
+in place without reshuffling existing nodes or overlapping. Same data → same layout.
+- **Coverage = section-row fill tint, not edges-only.** A covered section row is filled
+  a different (accent) color than an uncovered one; the task→row edge reinforces it but
+  the tint is the primary signal. Uncovered rows read instantly.
+- **Markdown everywhere.** Section bodies, task bodies, milestone text, spec node — all
+  render markdown (reuse `RichMarkdown` from `@codeterm/chat-ui`). Nodes must size to
+  content and never clip/overflow their box.
+- **Internal packing algorithm.** Within a plan node, section rows stack with consistent
+  rhythm; task satellites pack around the plan without overlap (bin-pack by nearest
+  covered row, collision-avoided); milestone bubbles cluster per task without spilling.
+  All gaps/sizes from `settings.ts`.
+
+> **Authoring guideline (put in CANVAS docs):** plans are meant to be filled
+> **completely and in detail** — every section with a real body, every task with model
+> + rationale + body, milestones as work progresses. A sparse plan is a smell; the
+> board's value is a fully-authored, self-documenting plan.
+
 ## 3. Navigation — Figma-grade (rewrite `useCanvasViewport`)
 
 - **Two-finger trackpad scroll → PAN** both axes. `wheel` with `ctrlKey === false`
@@ -240,6 +261,26 @@ This very refactor is built AS a plan in this workspace's canvas: sections = the
 areas above (§2 layout, §3 nav, §4 isolation, §5 standalone, §6 CLI, §7 buttons), tasks
 = the worker lanes with real model routing + rationale, milestones = each lane's
 report chain. The board must end up rendering its own construction.
+
+## 11.1 Visual feedback loop (MANDATORY methodology)
+Visual quality cannot be achieved blind. Building this canvas REQUIRES a Playwright
+screenshot feedback loop, not just unit tests.
+- **Harness:** a Playwright helper (under `tests/playwright/`) that, on macOS web-mode
+  (`/web/` against dev on 7686), opens the workspace canvas / a pane's Plan mode,
+  **navigates the canvas** (programmatic wheel-pan, cmd-wheel-zoom, fit-to-view, focus a
+  node), and captures **screenshots** (full board + per-region). It must be able to
+  assert no-overflow / no-overlap structurally (bounding-box checks) AND produce images
+  for human/agent visual review.
+- **Loop (≥20 iterations):** run dev with the v2 build → screenshot the dogfood plan →
+  assess (does it look good? markdown rendered? nothing clipped? sections tinted by
+  coverage? bubbles grouped? realtime add of a node packs correctly?) → fix → hot-reload
+  → screenshot again. Repeat until the board is genuinely polished. Dogfood realtime:
+  add a section/task/milestone via the API mid-loop and confirm it slots in cleanly.
+- **Canvas navigation in Playwright is itself a deliverable** — we must be able to drive
+  pan/zoom and read the rendered result to evaluate correctness; this is how every later
+  canvas change is verified.
+- The orchestrator owns running this loop (can view screenshots); the FE lane provides
+  the harness + reaches a screenshottable state and iterates on critique.
 
 ## 12. Done
 Figma-grade board: sectioned plan node + spec node + edge-connected satellite tasks +
