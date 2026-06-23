@@ -75,4 +75,20 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   fill. (3) optional: full-row amber fill on uncovered rows for more pop. (4) confirm
   trackpad pan-vs-zoom branch (useCanvasViewport).
 
-## Iteration 3 — density/packing + owner fix (Mira) — in progress
+## Iteration 3 — density/packing + owner fix (Mira) ✅
+- Mira pushed f087ede9 (merged 39eac663): owner.ts `ownerName()` helper (empty ref → unowned,
+  chip hidden / composer 'unowned' / group 'Unowned · claimable'); packing columnGapX 84→48,
+  clusterGapX 40→32; fit-to-view zooms IN (cap 1.6, padding 52) so content fills viewport;
+  uncovered amber wash full-row 0.24 + bright dashed rail; pan-vs-zoom confirmed. tsc clean,
+  13/13 tests.
+- **PERSISTENCE VERIFIED:** restarted dev → both dogfood plans loaded from disk WITHOUT
+  re-seeding (Rex's fix works). Recurring "plans disappear" bug is dead. Cleaned duplicates →
+  canonical dogfood now **pl_b011bbdd** (7 sections incl 1 uncovered, 2 tasks).
+- **Score: ~78/100.** fit-to-view fills viewport, packing tighter, uncovered row pops amber.
+- **Iteration-4 backlog → Mira:** (1) orchestrator GROUP label still shows "unknown" (the
+  ownerName fix didn't reach OrchestratorGroup label — make it 'Unowned · claimable'). (2)
+  edge clarity — many colored edges cross; consider de-emphasizing/curving so the task→row
+  mapping stays readable. (3) spec node is very text-dense — tighten line-height/spacing,
+  maybe collapse long bodies. (4) general typographic polish toward 90.
+
+## Iteration 4 — group label + edge clarity + typography (Mira) — in progress
