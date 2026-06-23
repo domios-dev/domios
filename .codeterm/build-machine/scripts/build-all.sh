@@ -30,6 +30,22 @@ HELPERS="$REPO/.agents/skills/github-release/scripts"
 ART="${ART:-/tmp/codeterm-${VER}-artifacts}"; mkdir -p "$ART"
 LWORK=/tmp/ct-linux-build; mkdir -p "$LWORK"
 
+cleanup_children() {
+  local pids
+  pids="$(jobs -pr || true)"
+  [ -n "$pids" ] || return 0
+  for pid in $pids; do
+    pkill -TERM -P "$pid" 2>/dev/null || true
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  sleep 2
+  for pid in $pids; do
+    pkill -KILL -P "$pid" 2>/dev/null || true
+    kill -KILL "$pid" 2>/dev/null || true
+  done
+}
+trap 'cleanup_children' INT TERM
+
 echo "### creating auth-free source bundle for $TAG"
 git -C "$REPO" bundle create "/tmp/codeterm-${TAG}.bundle" "$TAG"
 cp "/tmp/codeterm-${TAG}.bundle" "$LWORK/${TAG}.bundle"
@@ -60,6 +76,10 @@ DOCKER="docker run --rm -v $LWORK:/work -v /tmp/ct-cargo-registry:/usr/local/car
 # node_modules, so install once up front (linux/windows engines install inside themselves).
 echo "### pnpm install (mac engine, $REPO)"
 ( cd "$REPO" && { corepack enable >/dev/null 2>&1 || true; }; pnpm install )
+
+echo "### cleaning mac release target dirs (avoid interrupted prior release state)"
+rm -rf "$REPO/src-tauri/target/release" \
+       "$REPO/src-tauri/target/x86_64-apple-darwin/release"
 
 rc=0
 
