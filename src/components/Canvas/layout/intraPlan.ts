@@ -67,8 +67,10 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
   // sort by desired Y (uncovered tasks keep input order, appended), then place
   // greedily top-down so nothing overlaps.
   const placements = plan.tasks.map((task, i) => {
-    const ys = task.section_ids.map((sid) => anchors.get(sid)?.y).filter((y): y is number => y != null);
-    const desired = ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : null;
+    // Primary covered row = first section_id with an anchor; its Y anchors the
+    // task's vertical center so the section→task edge runs level.
+    const primarySid = task.section_ids.find((sid) => anchors.has(sid));
+    const desired = primarySid != null ? anchors.get(primarySid)!.y : null;
     return { task, i, desired, height: estimateTaskHeight(task, s), cluster: layoutCluster(task, plan.id, lanes, s) };
   });
   placements.sort((a, b) => {

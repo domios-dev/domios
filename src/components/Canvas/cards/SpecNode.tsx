@@ -45,7 +45,7 @@ function SpecSection({ section, depth }: { section: Section; depth: number }) {
             marginTop: 4,
             fontSize: "var(--ct-font-size-sm)",
             color: "var(--ct-fg)",
-            opacity: 0.82,
+            opacity: 0.72,
             lineHeight: 1.55,
           }}
         >
@@ -90,9 +90,6 @@ export function SpecNode({ plan, style }: SpecNodeProps) {
         style={{ flex: 1, overflowY: "auto", padding: "2px 14px 16px 16px", marginLeft: 8, borderLeft: "1px dashed var(--ct-border-subtle)" }}
         onWheel={(e) => e.stopPropagation()}
       >
-        <div style={{ fontSize: "var(--ct-font-size-lg, 15px)", fontWeight: 700, letterSpacing: "-0.01em", marginTop: 12, marginBottom: 2 }}>
-          {plan.title}
-        </div>
         {plan.sections.map((section) => (
           <SpecSection key={section.id} section={section} depth={0} />
         ))}

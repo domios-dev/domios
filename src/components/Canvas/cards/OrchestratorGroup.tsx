@@ -20,11 +20,11 @@ export function OrchestratorGroup({ group, style, onOpen }: OrchestratorGroupPro
         ...style,
         position: "absolute",
         boxSizing: "border-box",
-        border: `1.5px ${claimable ? "dashed" : "solid"} ${claimable ? "var(--ct-border-subtle)" : "color-mix(in srgb, var(--ct-border-focus) 35%, var(--ct-border-subtle))"}`,
+        border: `1px ${claimable ? "dashed" : "solid"} ${claimable ? "var(--ct-border-subtle)" : "color-mix(in srgb, var(--ct-border-focus) 30%, var(--ct-border-subtle))"}`,
         borderRadius: "var(--ct-radius-lg)",
         background: claimable
-          ? "color-mix(in srgb, var(--ct-fg) 2.5%, transparent)"
-          : "color-mix(in srgb, var(--ct-border-focus) 8%, transparent)",
+          ? "color-mix(in srgb, var(--ct-fg) 2%, transparent)"
+          : "color-mix(in srgb, var(--ct-border-focus) 4.5%, transparent)",
         pointerEvents: "none",
       }}
     >
