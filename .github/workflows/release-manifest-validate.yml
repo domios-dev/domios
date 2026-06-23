@@ -8,15 +8,13 @@ name: release-manifest-validate
 # so this guard catches a broken manifest before users try to update.
 #
 # Triggers:
-#   - workflow_run after release-macos / release-windows / release-linux
-#     finish on a tag push. The mirror step inside each release workflow
-#     uploads/refreshes latest.json, so by the time all three complete the
-#     manifest should be correct.
+#   - workflow_run after the self-hosted release finishes. The mirror step inside
+#     that workflow uploads/refreshes latest.json before this validation runs.
 #   - workflow_dispatch for manual re-checks.
 
 on:
   workflow_run:
-    workflows: [Release (self-hosted build machine), release-macos, release-windows, release-linux]
+    workflows: [Release (self-hosted build machine)]
     types: [completed]
   workflow_dispatch:
 

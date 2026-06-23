@@ -16,6 +16,9 @@ on:
       - '.github/workflows/comment-length.yml'
   push:
     branches: [develop, master]
+    paths-ignore:
+      - '.codeterm/build-machine/**'
+      - '.github/workflows/release*.yml'
 
 jobs:
   check:
