@@ -125,7 +125,18 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   edges quiet, group bounded, edges run level. Clean and restrained.
 - Re-scoring with a fresh Dax (full + zoom detail crop).
 
-## Iteration 7 — EDGES + CAMERA + ANCHORING pass (Mira) — in progress
+## Iteration 7 — EDGES + CAMERA + ANCHORING pass (Mira) ✅
+- Mira pushed 3f66010b (merged f42bbf00): edges legible (border-focus @ 0.42/1.6px + 3px filled
+  dot on covered-row anchor; hover 0.95/2.6px); task Y anchored to PRIMARY covered row (level
+  edges, locked w/ test center==anchor ±1.5px); fit-to-view frames real content bbox
+  (FIT_MAX_ZOOM 2.0, padding 40); bubbles get 1-glyph kind INITIAL (D/T/R) + one indigo→periwinkle
+  ramp; dropped duplicate spec H1; group region 4.5% fill + 1px tinted border; spec body 0.72
+  muted; composer blur backdrop. tsc clean, 13/13 (+level-edge test).
+- **Verified:** edges traceable now, bubbles meaningful (D/T/R coherent ramp), tasks anchored,
+  composition fills viewport. Targeting >85.
+- Re-scoring with fresh Dax (full + zoom).
+
+## Iteration 8 — Dax re-score + final polish — in progress
 - **Dax3 scored iter6 = 80/100.** Per-dim: Hierarchy 7.5, Connection **6.0** (weakest), Coverage
   8.5, Bounds **9.0** (best), Packing **6.0**, Typography 7.5, Color 7.5, Nav 8, Markdown 8,
   Polish 6.5. (Critic scores plateau ~80 across Dax1/2/3 = calibration; Connection+Packing are
