@@ -14,6 +14,8 @@ export interface ProviderTranscriptFixture {
     thinkingNeedle: string;
     toolLabels: string[];
     resultNeedle: string;
+    diffNeedle?: string;
+    diffRemovedNeedle?: string;
   };
 }
 
@@ -105,6 +107,29 @@ const claudeMessages: NormalizedChatMessage[] = [
   },
 ];
 
+/** Real-session apply_patch hunk on cli/src/cmd/mem/mod.rs (trimmed from rollout JSONL). */
+export const codexMemModPatch = [
+  "*** Begin Patch",
+  "*** Update File: cli/src/cmd/mem/mod.rs",
+  "@@",
+  "     let text = resp.text().unwrap_or_default();",
+  "     let val: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();",
+  "     if !status.is_success() {",
+  "-        return Err(if text.is_empty() {",
+  "-            val.to_string()",
+  "+        let body = text.trim();",
+  "+        return Err(if body.is_empty() {",
+  "+            status.to_string()",
+  "         } else {",
+  "-            text",
+  "+            format!(\"{} {}\", status, body)",
+  "         });",
+  "     }",
+  "     Ok(val)",
+  " }",
+  "*** End Patch",
+].join("\n");
+
 const codexMessages: NormalizedChatMessage[] = [
   {
     id: "codex-system-1",
@@ -187,10 +212,47 @@ const codexMessages: NormalizedChatMessage[] = [
     toolName: "apply_patch",
     toolId: "call_codex_2",
     toolInput: {
-      old_string: "const covered = false;",
-      new_string: "const covered = true;",
+      patch: codexMemModPatch,
     },
-    toolArgs: '{"old_string":"const covered = false;","new_string":"const covered = true;"}',
+    toolArgs: '{"patch":"*** Begin Patch"}',
+  },
+  {
+    id: "codex-tool-result-2",
+    provider: "codex",
+    type: "tool_result",
+    toolId: "call_codex_2",
+    content: "Success. Updated the following files:\nM cli/src/cmd/mem/mod.rs\n",
+    toolResult: "Success. Updated the following files:\nM cli/src/cmd/mem/mod.rs\n",
+  },
+];
+
+export const codexStructuredEditMessages: NormalizedChatMessage[] = [
+  {
+    id: "codex-rg-search",
+    provider: "codex",
+    type: "tool_call",
+    toolName: "exec_command",
+    toolId: "call_rg_1",
+    toolInput: { cmd: 'rg -n "mem_post_request" cli/src' },
+    toolArgs: '{"cmd":"rg -n \\"mem_post_request\\" cli/src"}',
+    content: 'rg -n "mem_post_request" cli/src',
+  },
+  {
+    id: "codex-structured-apply-patch",
+    provider: "codex",
+    type: "tool_call",
+    toolName: "apply_patch",
+    toolId: "call_zegiw0ZHuMspcZ1NRWT7WcWQ",
+    toolInput: { patch: codexMemModPatch },
+    toolArgs: '{"patch":"*** Begin Patch"}',
+  },
+  {
+    id: "codex-structured-patch-result",
+    provider: "codex",
+    type: "tool_result",
+    toolId: "call_zegiw0ZHuMspcZ1NRWT7WcWQ",
+    content: "Success. Updated the following files:\nM cli/src/cmd/mem/mod.rs\n",
+    toolResult: "Success. Updated the following files:\nM cli/src/cmd/mem/mod.rs\n",
   },
 ];
 
@@ -308,6 +370,8 @@ export const providerTranscriptFixtures: ProviderTranscriptFixture[] = [
       thinkingNeedle: "Codex reasoning summary",
       toolLabels: ["shell", "apply_patch"],
       resultNeedle: "Exit code: 0",
+      diffNeedle: "let body = text.trim()",
+      diffRemovedNeedle: "val.to_string()",
     },
   },
   {
