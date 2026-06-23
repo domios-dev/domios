@@ -637,6 +637,7 @@ pub fn run() {
                 agent_tracker: states.agent_tracker.clone(),
                 shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
+                plan_store: Arc::new(crate::service::plan::PlanStore::new()),
                 agent_registry,
                 mem,
                 mem_supervisor,
