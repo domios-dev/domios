@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
 import { CanvasViewInner } from "./CanvasView";
+import { registerNodeRenderer } from "./nodeRegistry";
+import type { CanvasElement, Plan } from "./types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -64,6 +66,42 @@ test("CanvasViewInner renders plan frame and task card from fixture", async () =
   assert(host.querySelector('[data-testid="canvas-section-card"]'), "section card");
   assert(host.querySelector('[data-testid="canvas-task-card"]'), "task card");
   assert(host.querySelector('[data-testid="canvas-task-name"]')?.textContent === "Dante", "task name");
+  await act(async () => root.unmount());
+});
+
+function elementAt(id: string, kind: string, x: number, y: number): CanvasElement {
+  return { id, kind, canvas: { x, y, collapsed: false }, content: `**${kind}** body`, links: [] };
+}
+
+// Extensibility gate (§6.3): a NEW kind plugs in via one registerNodeRenderer
+// call — CanvasView dispatches it through the registry with ZERO core edits —
+// and an unregistered kind safely hits the fallback card (no crash).
+test("CanvasViewInner renders a registered new kind via the registry and falls back on unknown kinds", async () => {
+  registerNodeRenderer("note", ({ node, style }) => (
+    <div data-testid="canvas-note-element" data-id={node.id} style={style}>
+      sticky note
+    </div>
+  ));
+
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-ext",
+    elements: [
+      elementAt("el-note", "note", 600, 40),
+      elementAt("el-mystery", "mystery-kind", 600, 200),
+    ],
+  };
+
+  const { host, root } = await render(
+    <CanvasViewInner mode="workspace" plans={[plan]} viewportPadding={10000} />,
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+  });
+  assert(host.querySelector('[data-testid="canvas-note-element"]'), "note kind dispatched via registry");
+  const fb = host.querySelector('[data-testid="canvas-fallback-node"]');
+  assert(fb, "unknown kind hit the fallback card");
+  assert(fb?.getAttribute("data-node-kind") === "mystery-kind", "fallback carries the unknown kind");
   await act(async () => root.unmount());
 });
 
