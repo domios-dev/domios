@@ -24,7 +24,7 @@ export interface TaskCardProps extends CanvasCardStyleProps {
   task: Task;
 }
 
-export function TaskCard({ task, style, lod = "near" }: TaskCardProps) {
+export function TaskCard({ task, style, lod = "near", onMouseDown, dragging }: TaskCardProps) {
   const [whyOpen, setWhyOpen] = useState(false);
   const badgeColor = TASK_STATUS_COLORS[task.status];
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
@@ -33,7 +33,13 @@ export function TaskCard({ task, style, lod = "near" }: TaskCardProps) {
     <div
       data-testid="canvas-task-card"
       data-task-id={task.id}
-      style={{ ...cardStyle, ...style }}
+      data-canvas-draggable={onMouseDown ? "true" : undefined}
+      onMouseDown={onMouseDown}
+      style={{
+        ...cardStyle,
+        ...style,
+        cursor: onMouseDown ? (dragging ? "grabbing" : "grab") : undefined,
+      }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
         <span

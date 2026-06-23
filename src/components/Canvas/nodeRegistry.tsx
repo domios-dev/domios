@@ -18,6 +18,9 @@ export interface NodeRenderArgs {
   model: unknown;
   style: CSSProperties;
   lod: CanvasLod;
+  onMouseDown?: (e: React.MouseEvent) => void;
+  dragging?: boolean;
+  onArchive?: () => void;
 }
 
 export type NodeRenderer = (args: NodeRenderArgs) => ReactNode;
@@ -42,14 +45,20 @@ const fallbackStyle: CSSProperties = {
 
 // Unknown kind → generic card, never crash. Renders the kind + markdown content
 // when the model is a CanvasElement carrying a string payload.
-export const fallbackRenderer: NodeRenderer = ({ node, model, style }) => {
+export const fallbackRenderer: NodeRenderer = ({ node, model, style, onMouseDown, dragging }) => {
   const el = model as CanvasElement | undefined;
   const content = typeof el?.content === "string" ? el.content : null;
   return (
     <div
       data-testid="canvas-fallback-node"
       data-node-kind={node.kind}
-      style={{ ...fallbackStyle, ...style }}
+      data-canvas-draggable={onMouseDown ? "true" : undefined}
+      onMouseDown={onMouseDown}
+      style={{
+        ...fallbackStyle,
+        ...style,
+        cursor: onMouseDown ? (dragging ? "grabbing" : "grab") : undefined,
+      }}
     >
       <div
         style={{
@@ -74,17 +83,23 @@ export function getNodeRenderer(kind: string): NodeRenderer {
 }
 
 // Built-in kinds wrap the existing cards — their internals are unchanged.
-registerNodeRenderer("plan", ({ model, style, lod }) =>
-  model ? <PlanFrame plan={model as Plan} style={style} lod={lod} /> : null,
+registerNodeRenderer("plan", ({ model, style, lod, onArchive }) =>
+  model ? <PlanFrame plan={model as Plan} style={style} lod={lod} onArchive={onArchive} /> : null,
 );
-registerNodeRenderer("section", ({ model, style, lod }) =>
-  model ? <SectionCard section={model as Section} style={style} lod={lod} /> : null,
+registerNodeRenderer("section", ({ model, style, lod, onMouseDown, dragging }) =>
+  model ? (
+    <SectionCard section={model as Section} style={style} lod={lod} onMouseDown={onMouseDown} dragging={dragging} />
+  ) : null,
 );
-registerNodeRenderer("task", ({ model, style, lod }) =>
-  model ? <TaskCard task={model as Task} style={style} lod={lod} /> : null,
+registerNodeRenderer("task", ({ model, style, lod, onMouseDown, dragging }) =>
+  model ? (
+    <TaskCard task={model as Task} style={style} lod={lod} onMouseDown={onMouseDown} dragging={dragging} />
+  ) : null,
 );
-registerNodeRenderer("milestone", ({ model, style, lod }) =>
-  model ? <MilestoneNode milestone={model as Milestone} style={style} lod={lod} /> : null,
+registerNodeRenderer("milestone", ({ model, style, lod, onMouseDown, dragging }) =>
+  model ? (
+    <MilestoneNode milestone={model as Milestone} style={style} lod={lod} onMouseDown={onMouseDown} dragging={dragging} />
+  ) : null,
 );
 
 registerProvenanceRenderers(registerNodeRenderer);

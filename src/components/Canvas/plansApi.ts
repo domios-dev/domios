@@ -1,6 +1,6 @@
-import { authHeaders, baseUrl } from "../MemoryPanel/memoryApi";
+import { authHeaders, baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
-import type { Plan, PlanStatus } from "./types";
+import type { OrchestratorRef, Plan, PlanStatus } from "./types";
 
 // Lightweight list row (GET /api/plans) — enough for PlanButton visibility/pulse
 // without fetching full plan bodies.
@@ -51,4 +51,75 @@ export async function fetchPlans(api: ApiConfig, signal?: AbortSignal): Promise<
   if (!res.ok) throw new Error(`plans list failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as PlansFullResponse;
   return body.plans ?? [];
+}
+
+export async function fetchUnownedPlanIndex(
+  api: ApiConfig,
+  signal?: AbortSignal,
+): Promise<PlanIndexEntry[]> {
+  const res = await fetch(`${baseUrl(api)}/api/plans?unowned=1`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (!res.ok) throw new Error(`unowned plans list failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as PlanIndexResponse;
+  return body.plans ?? [];
+}
+
+export interface CreatePlanParams {
+  title: string;
+  project_path?: string;
+  owner?: OrchestratorRef;
+  kinds?: string;
+  spec?: string;
+}
+
+export async function createPlan(api: ApiConfig, params: CreatePlanParams): Promise<Plan> {
+  const res = await fetch(`${baseUrl(api)}/api/plans`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`plan create failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as { plan_id?: string; plan?: Plan };
+  if (body.plan) return body.plan;
+  if (body.plan_id) return fetchPlan(api, body.plan_id);
+  throw new Error("plan create returned no plan");
+}
+
+export async function patchPlanLayout(
+  api: ApiConfig,
+  planId: string,
+  elementId: string,
+  x: number,
+  y: number,
+): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/layout`, {
+    method: "PATCH",
+    headers: jsonHeaders(api),
+    body: JSON.stringify({ element: elementId, x, y }),
+  });
+  if (!res.ok) throw new Error(`plan layout failed: ${res.status} ${await res.text()}`);
+}
+
+export async function archivePlan(api: ApiConfig, planId: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/archive`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: "{}",
+  });
+  if (!res.ok) throw new Error(`plan archive failed: ${res.status} ${await res.text()}`);
+}
+
+export async function claimPlan(
+  api: ApiConfig,
+  planId: string,
+  owner: OrchestratorRef,
+): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/claim`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: JSON.stringify({ owner }),
+  });
+  if (!res.ok) throw new Error(`plan claim failed: ${res.status} ${await res.text()}`);
 }

@@ -3,6 +3,8 @@ import { X } from "lucide-react";
 import type { ApiConfig, Pane } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { CanvasComposer } from "./CanvasComposer";
+import { CanvasEmptyActions } from "./CanvasEmptyActions";
+import { CanvasUnownedTray } from "./CanvasUnownedTray";
 import type { CanvasLod } from "./cards";
 import { getNodeRenderer } from "./nodeRegistry";
 import {
@@ -12,10 +14,12 @@ import {
   type LaidOutEdge,
   type LaidOutNode,
 } from "./layout";
+import { archivePlan } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useFullPlans } from "./PlansProvider";
-import type { CanvasElement, Milestone, Plan, Section, Task } from "./types";
+import type { CanvasElement, Milestone, OrchestratorRef, Plan, Section, Task } from "./types";
+import { isDraggableNodeKind, useCanvasNodeDrag } from "./useCanvasNodeDrag";
 import { useCanvasViewport } from "./useCanvasViewport";
 
 export interface CanvasViewInnerProps {
@@ -158,7 +162,41 @@ export function CanvasViewInner({
     width: size.width,
     height: size.height,
     panButton: "middle",
+    ignoreSelector: "[data-canvas-draggable]",
   });
+
+  const { dragOverride, draggingNodeId, onNodeMouseDown } = useCanvasNodeDrag({
+    api,
+    containerRef,
+    transform,
+    layout,
+  });
+
+  const handleArchive = useCallback(
+    (planId: string) => {
+      if (!api) return;
+      void archivePlan(api, planId).catch(() => {});
+    },
+    [api],
+  );
+
+  const claimOwner = useMemo((): OrchestratorRef | undefined => {
+    if (orchestratorPaneId) {
+      return { pane_id: orchestratorPaneId, session_id: null, title: null };
+    }
+    const first = filteredPlans.find((p) => p.owner.pane_id);
+    return first?.owner;
+  }, [orchestratorPaneId, filteredPlans]);
+
+  const effectiveBox = useCallback(
+    (n: LaidOutNode) => {
+      if (dragOverride && dragOverride.nodeId === n.id) {
+        return { ...n.box, x: dragOverride.x, y: dragOverride.y };
+      }
+      return n.box;
+    },
+    [dragOverride],
+  );
 
   const lod = lodForScale(transform.scale);
   const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
@@ -258,11 +296,11 @@ export function CanvasViewInner({
         {!loading && !error && filteredPlans.length === 0 && (
           <div
             data-testid="canvas-empty"
-            className="absolute inset-0 flex items-center justify-center text-sm px-6 text-center"
+            className="absolute inset-0 flex flex-col items-center justify-center text-sm px-6 text-center gap-4"
             style={{ color: "var(--ct-fg)", opacity: "var(--ct-text-secondary-opacity)" }}
           >
-            No active plans yet. Create one with{" "}
-            <code className="mx-1">codeterm plan create</code>.
+            <p>No active plans yet.</p>
+            {mode === "workspace" && api && <CanvasEmptyActions api={api} />}
           </div>
         )}
         {!loading && filteredPlans.length > 0 && (
@@ -316,6 +354,7 @@ export function CanvasViewInner({
                 model: resolveModel(planNode),
                 style: nodeStyle(frame.box),
                 lod,
+                onArchive: api ? () => handleArchive(frame.planId) : undefined,
               });
               return rendered ? <Fragment key={frame.planId}>{rendered}</Fragment> : null;
             })}
@@ -323,11 +362,15 @@ export function CanvasViewInner({
               frame.nodes
                 .filter((n) => nodeIds.has(n.id))
                 .map((n) => {
+                  const box = effectiveBox(n);
+                  const draggable = isDraggableNodeKind(n.kind);
                   const rendered = getNodeRenderer(n.kind)({
-                    node: n,
+                    node: { ...n, box },
                     model: resolveModel(n),
-                    style: nodeStyle(n.box),
+                    style: nodeStyle(box),
                     lod,
+                    onMouseDown: draggable ? (e) => onNodeMouseDown(e, { ...n, box }) : undefined,
+                    dragging: draggingNodeId === n.id,
                   });
                   return rendered ? <Fragment key={n.id}>{rendered}</Fragment> : null;
                 }),
@@ -344,6 +387,7 @@ export function CanvasViewInner({
           mode={mode}
         />
       )}
+      {api && mode === "workspace" && <CanvasUnownedTray api={api} claimOwner={claimOwner} />}
     </div>
   );
 }

@@ -165,6 +165,21 @@ console.log("\nchain bounds:");
   ok("chain uses vertical space", maxY - minY > 0);
 }
 
+// ── manual clamp ──────────────────────────────────────────────────
+console.log("\nmanual clamp:");
+{
+  const manualSection = section("s-manual");
+  manualSection.canvas = { x: 99999, y: 99999, collapsed: false };
+  const p = plan("pclamp", "o", 0, [manualSection], [task("t1", ["s-manual"])]);
+  const layout = layoutWorkspace([p]);
+  const frame = layout.frames[0];
+  const secNode = frame.nodes.find((n) => n.id === "s-manual")!;
+  const pad = DEFAULT_CANVAS_SETTINGS.framePadding;
+  ok("manual x clamped inside frame", secNode.box.x < frame.box.width - pad);
+  ok("manual y clamped inside frame", secNode.box.y < frame.box.height - pad);
+  ok("manual x respects padding", secNode.box.x >= pad);
+}
+
 // ── archived filtered ─────────────────────────────────────────────
 console.log("\nfiltering:");
 {

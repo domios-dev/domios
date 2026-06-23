@@ -3,7 +3,8 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
+import type { ApiConfig } from "../../lib/types";
+import { FIXTURE_PLAN, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import { CanvasViewInner } from "./CanvasView";
 import { registerNodeRenderer } from "./nodeRegistry";
 import type { CanvasElement, Plan } from "./types";
@@ -16,6 +17,14 @@ function test(name: string, fn: TestFn) {
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
+
+const API: ApiConfig = {
+  enabled: true,
+  host: "127.0.0.1",
+  port: 7686,
+  token: "test-token",
+  cors: true,
+};
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -108,6 +117,63 @@ test("CanvasViewInner renders a registered new kind via the registry and falls b
 test("CanvasViewInner shows empty state without plans", async () => {
   const { host, root } = await render(<CanvasViewInner mode="workspace" plans={[]} />);
   assert(host.querySelector('[data-testid="canvas-empty"]'), "empty hint");
+  await act(async () => root.unmount());
+});
+
+test("dragging a task card PATCHes layout in frame-local coords", async () => {
+  const patches: Array<{ url: string; body: unknown }> = [];
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/layout") && init?.method === "PATCH") {
+      patches.push({ url, body: JSON.parse(String(init.body)) });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return origFetch(input, init);
+  };
+
+  const api = API;
+  const { host, root } = await render(
+    <CanvasViewInner
+      mode="workspace"
+      plans={[FIXTURE_PLAN]}
+      viewportPadding={10000}
+      api={api}
+    />,
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  const card = host.querySelector('[data-testid="canvas-task-card"]') as HTMLElement | null;
+  assert(card, "task card present");
+
+  const pan = host.querySelector(".relative.h-full.w-full.overflow-hidden") as HTMLElement | null;
+  assert(pan, "pan container");
+  const rect = { left: 0, top: 0, width: 1200, height: 800, right: 1200, bottom: 800, x: 0, y: 0, toJSON: () => ({}) };
+  pan.getBoundingClientRect = () => rect as DOMRect;
+
+  await act(async () => {
+    card.dispatchEvent(
+      new window.MouseEvent("mousedown", { bubbles: true, clientX: 200, clientY: 200, button: 0 }),
+    );
+  });
+  await act(async () => {
+    window.dispatchEvent(
+      new window.MouseEvent("mousemove", { bubbles: true, clientX: 260, clientY: 240 }),
+    );
+  });
+  await act(async () => {
+    window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  assert(patches.length === 1, "one layout PATCH");
+  const body = patches[0].body as { element: string; x: number; y: number };
+  assert(body.element === FIXTURE_TASK.id, "PATCH targets task id");
+  assert(typeof body.x === "number" && typeof body.y === "number", "PATCH has coords");
+
+  globalThis.fetch = origFetch;
   await act(async () => root.unmount());
 });
 
