@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
 import { getAgentProvider } from "../../lib/agentProviders";
-import { useTauriFileDrop } from "../../hooks/terminal";
+import { useTauriFileDrop, materializeDroppedPaths } from "../../hooks/terminal";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { extractFilePathsFromClipboard } from "../../lib/clipboardPaste";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
@@ -278,13 +278,16 @@ export function ChatView({ paneId, ptyId, agentType, onToggle: _onToggle }: Chat
 
     if (pathsFromClipboard.length > 0) {
       e.preventDefault();
-      const newAttachments: Attachment[] = pathsFromClipboard.map((p) => ({
-        id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-        name: basename(p),
-        path: p,
-        type: mimeFromPath(p),
-      }));
-      setAttachments(prev => [...prev, ...newAttachments]);
+      // Native FS paths may be unicode/spaces — alias to a safe ASCII path the agent can read.
+      void materializeDroppedPaths(pathsFromClipboard).then((safePaths) => {
+        const newAttachments: Attachment[] = safePaths.map((p, i) => ({
+          id: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 5)}-${i}`,
+          name: basename(pathsFromClipboard[i] ?? p),
+          path: p,
+          type: mimeFromPath(p),
+        }));
+        setAttachments(prev => [...prev, ...newAttachments]);
+      });
       return;
     }
 
