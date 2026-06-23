@@ -52,4 +52,27 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   5. Typography/rhythm/shadows not yet Figma-grade; spec vs plan nodes look too similar.
   6. Step bubbles small — verify kind grouping + labels legible at default zoom.
 
-## Iteration 2 — fix rescan (Rex) + polish pass 1 (Mira) — in progress
+## Iteration 2 — polish pass 1 (Mira) + rescan fix (Rex) ✅
+- **Mira** pushed 3779a109: coverage tint (green/indigo covered vs amber-dashed uncovered),
+  edges anchored to row right-edge + anchor dots, tasks bin-packed near covered row, owner
+  chip hide-when-unowned, spec=document/plan=dashboard differentiation, bigger legible
+  bubbles. Also delivered the Playwright canvas harness (tests/playwright/helpers/
+  canvas-inspect.ts) + panePlanMode. tsc clean, 13/13 canvas tests green.
+- **Rex** fixed the rescan bug (20c28e72, merged b7be4c68): list-by-project now lazily scans
+  <proj>/.codeterm/plans/, startup scans open-workspace CWDs, watchers retained for
+  pre-existing dirs, regression test added. cargo test plan 45 green. **Plans now survive
+  restart** — loop no longer needs re-seeding (verify next restart).
+- **node_modules incident #2 (resolved):** commit 56d59cea tracked a node_modules symlink
+  whose target is the repo's own node_modules → self-loop on checkout in main; every merge
+  carrying it re-broke tsx (exit 194). Purged from git on all branches + added bare
+  `node_modules` to .gitignore; rebuilt working trees. Should not recur.
+- **Score: ~70/100** (up from 58). Coverage tint VERIFIED via realtime dogfood: added an
+  uncovered section live → it slotted in cleanly, rendered amber warning, coverage dropped
+  to 86%. Realtime add + coverage signal both work.
+- **Iteration-3 backlog → Mira:** (1) owner chip STILL shows "unknown" (empty ref not
+  treated as unowned — hide it). (2) PACKING: board fills only ~half the viewport, big empty
+  right side — pull satellites/bubbles toward the plan, and fit-to-view should zoom in to
+  fill. (3) optional: full-row amber fill on uncovered rows for more pop. (4) confirm
+  trackpad pan-vs-zoom branch (useCanvasViewport).
+
+## Iteration 3 — density/packing + owner fix (Mira) — in progress
