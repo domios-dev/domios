@@ -8,10 +8,10 @@ export type LayoutStrategy = "lanes" | "cluster" | "radial";
 
 export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   pending: "rgba(148, 163, 184, 0.85)",
-  in_progress: "rgba(99, 102, 241, 0.9)",
-  blocked: "rgba(248, 113, 113, 0.95)",
-  done: "rgba(74, 222, 128, 0.9)",
-  cancelled: "rgba(100, 116, 139, 0.75)",
+  in_progress: "rgba(129, 140, 248, 0.92)",
+  blocked: "rgba(239, 130, 130, 0.92)",
+  done: "rgba(82, 180, 145, 0.9)",
+  cancelled: "rgba(100, 116, 139, 0.7)",
 };
 
 // Milestone kind lanes: ONE coherent indigo→periwinkle family at a consistent
@@ -93,13 +93,13 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
 
   // Gutter rhythm: GUTTER intra-frame (spec→plan, plan→tasks), GUTTER*2 between
   // frames/owner groups, ~GUTTER for group padding. One base, no ad-hoc gaps.
-  columnGapX: 48,
-  clusterGapX: 24,
+  columnGapX: 32,
+  clusterGapX: 16,
 
   bubbleRadius: 28,
   bubbleGapX: 12,
   bubbleGapY: 12,
-  clusterLabelHeight: 0,
+  clusterLabelHeight: 17,
 
   anchorInset: 0,
   edgeCurve: 0.5,

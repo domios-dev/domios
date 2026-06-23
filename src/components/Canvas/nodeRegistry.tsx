@@ -77,19 +77,51 @@ registerNodeRenderer("task", ({ model, style, lod, onOpenPane, onHoverTask }) =>
 registerNodeRenderer("milestone", ({ model, style, lod }) =>
   model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} /> : null,
 );
-// Faint enclosure behind a task's step-bubble cluster (no model needed).
-registerNodeRenderer("cluster", ({ style }) => (
-  <div
-    data-testid="canvas-cluster-bg"
-    style={{
-      ...style,
-      position: "absolute",
-      borderRadius: "var(--ct-radius-md)",
-      background: "color-mix(in srgb, var(--ct-fg) 3.5%, transparent)",
-      border: "1px solid var(--ct-border-subtle)",
-      pointerEvents: "none",
-    }}
-  />
-));
+// Faint enclosure behind a task's step-bubble cluster + a kind caption row.
+registerNodeRenderer("cluster", ({ model, style }) => {
+  const kinds = (model as { kinds?: { label: string; color: string }[] } | undefined)?.kinds ?? [];
+  return (
+    <div
+      data-testid="canvas-cluster-bg"
+      style={{
+        ...style,
+        position: "absolute",
+        borderRadius: "var(--ct-radius-md)",
+        background: "color-mix(in srgb, var(--ct-fg) 3.5%, transparent)",
+        border: "1px solid var(--ct-border-subtle)",
+        pointerEvents: "none",
+        fontFamily: "var(--ct-font-ui)",
+      }}
+    >
+      {kinds.length > 0 && (
+        <div
+          data-testid="canvas-cluster-caption"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "2px 7px 0",
+            height: 17,
+            fontSize: "0.6rem",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.03em",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            color: "var(--ct-fg)",
+            opacity: 0.7,
+          }}
+        >
+          {kinds.slice(0, 3).map((k) => (
+            <span key={k.label} style={{ display: "inline-flex", alignItems: "center", gap: 3, minWidth: 0 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: k.color, flexShrink: 0 }} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{k.label}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
 
 registerProvenanceRenderers(registerNodeRenderer);

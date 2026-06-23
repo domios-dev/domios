@@ -46,7 +46,7 @@ const DEF_MAX_SCALE = 2.5;
 const DEF_FIT_PADDING = 28;
 // Fit may zoom IN so a small board fills the viewport, but not past this so a
 // single tiny plan doesn't blow up to fill the screen.
-const FIT_MAX_ZOOM = 2.4;
+const FIT_MAX_ZOOM = 3;
 const LINE_PX = 16;
 const ZOOM_INTENSITY = 0.0016;
 
