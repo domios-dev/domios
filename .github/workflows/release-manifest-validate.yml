@@ -16,7 +16,7 @@ name: release-manifest-validate
 
 on:
   workflow_run:
-    workflows: [release-macos, release-windows, release-linux]
+    workflows: [Release (self-hosted build machine), release-macos, release-windows, release-linux]
     types: [completed]
   workflow_dispatch:
 
@@ -37,7 +37,7 @@ jobs:
 
           darwin=$(echo "$JSON" | jq -r '.platforms["darwin-x86_64"].url // .platforms["darwin-aarch64"].url // empty')
           windows=$(echo "$JSON" | jq -r '.platforms["windows-x86_64"].url // empty')
-          linux=$(echo "$JSON" | jq -r '.platforms["linux-x86_64"].url // empty')
+          linux=$(echo "$JSON" | jq -r '.platforms["linux-x86_64"].url // .platforms["linux-aarch64"].url // empty')
 
           fail=0
           if [ -z "$darwin" ]; then
@@ -53,7 +53,7 @@ jobs:
             echo "$windows" | grep -qE '\.exe(\?|$)' || { echo "::error::windows url missing .exe: $windows"; fail=1; }
           fi
           if [ -z "$linux" ]; then
-            echo "::error::manifest missing linux-x86_64 entry"
+            echo "::error::manifest missing linux updater entry"
             fail=1
           else
             echo "$linux" | grep -qE '\.AppImage(\?|$)' || { echo "::error::linux url missing .AppImage: $linux"; fail=1; }
