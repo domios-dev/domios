@@ -468,6 +468,8 @@ pub fn create_router(state: AppState) -> Router {
                 .patch(mem_routes::mem_update),
         )
         .route("/api/mem/items/{id}/history", get(mem_routes::mem_history))
+        .route("/api/mem/items/{id}/append", post(mem_routes::mem_append))
+        .route("/api/mem/items/{id}/restore", post(mem_routes::mem_restore))
         .route("/api/mem/taxonomy", get(mem_routes::mem_taxonomy))
         .route("/api/mem/tail", get(mem_routes::mem_tail))
         .route(

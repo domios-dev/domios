@@ -3,6 +3,31 @@ use std::io::Read;
 use super::{mem_get_request, mem_post_request};
 use crate::MemAction;
 
+/// Resolve free-text content from (inline value, file path, `-`=stdin).
+/// `--file` wins; otherwise a literal `-` reads stdin; otherwise the value
+/// is returned verbatim. Returns None when nothing was supplied.
+fn resolve_text(value: Option<String>, file: Option<String>) -> Result<Option<String>, String> {
+    if let Some(path) = file {
+        return read_path_or_stdin(&path).map(Some);
+    }
+    match value {
+        Some(v) if v == "-" => read_path_or_stdin("-").map(Some),
+        other => Ok(other),
+    }
+}
+
+fn read_path_or_stdin(path: &str) -> Result<String, String> {
+    if path == "-" {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("failed to read stdin: {}", e))?;
+        Ok(buf)
+    } else {
+        std::fs::read_to_string(path).map_err(|e| format!("failed to read {}: {}", path, e))
+    }
+}
+
 pub(crate) fn handle_mem_items(
     http: &reqwest::blocking::Client,
     base: &str,
@@ -69,9 +94,17 @@ pub(crate) fn handle_mem_items(
             area,
             tags,
             body,
+            body_file,
             importance,
             changed_by,
         } => {
+            let body = match resolve_text(body, body_file) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
             let tag_list: Option<Vec<String>> = tags.map(|t| {
                 t.split(',')
                     .map(|s| s.trim().to_string())
@@ -158,6 +191,7 @@ pub(crate) fn handle_mem_items(
             kind,
             title,
             body,
+            body_file,
             summary,
             tags,
             area,
@@ -169,15 +203,19 @@ pub(crate) fn handle_mem_items(
             replace,
             skip_extract,
         } => {
-            let resolved_body = match body {
-                Some(b) => b,
-                None => {
+            let resolved_body = match resolve_text(body, body_file) {
+                Ok(Some(b)) => b,
+                Ok(None) => {
                     let mut s = String::new();
                     if std::io::stdin().read_to_string(&mut s).is_err() || s.trim().is_empty() {
                         eprintln!("Error: no body provided (pass as arg or pipe to stdin)");
                         std::process::exit(1);
                     }
                     s
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
                 }
             };
             let resolved_title = title.unwrap_or_else(|| {
@@ -329,6 +367,47 @@ pub(crate) fn handle_mem_items(
             }
             mem_post_request(http, &url, &serde_json::json!({}))
         }
+        MemAction::Append {
+            id,
+            text,
+            file,
+            changed_by,
+        } => {
+            let resolved = match resolve_text(text, file) {
+                Ok(Some(t)) => t,
+                Ok(None) => match read_path_or_stdin("-") {
+                    Ok(s) if !s.trim().is_empty() => s,
+                    _ => {
+                        eprintln!(
+                            "Error: no text provided (pass as arg, --file, or pipe to stdin)"
+                        );
+                        std::process::exit(1);
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let payload = serde_json::json!({ "text": resolved, "changed_by": changed_by });
+            mem_post_request(
+                http,
+                &format!("{}/api/mem/items/{}/append", base, id),
+                &payload,
+            )
+        }
+        MemAction::Restore {
+            id,
+            version,
+            changed_by,
+        } => {
+            let payload = serde_json::json!({ "version": version, "changed_by": changed_by });
+            mem_post_request(
+                http,
+                &format!("{}/api/mem/items/{}/restore", base, id),
+                &payload,
+            )
+        }
         _ => unreachable!("invalid item action passed to handle_mem_items"),
     }
 }
@@ -372,4 +451,42 @@ pub(crate) fn handle_mem_taxonomy(
         }
     }
     Ok(Some(val?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_text;
+
+    #[test]
+    fn resolve_text_returns_verbatim_value() {
+        let out = resolve_text(Some("---\nname: x".into()), None).unwrap();
+        assert_eq!(out.as_deref(), Some("---\nname: x"));
+    }
+
+    #[test]
+    fn resolve_text_none_is_none() {
+        assert!(resolve_text(None, None).unwrap().is_none());
+    }
+
+    #[test]
+    fn resolve_text_reads_file() {
+        let path = std::env::temp_dir().join(format!("memtest-{}-a.md", std::process::id()));
+        std::fs::write(&path, "---\nfrom file\nbody").unwrap();
+        let out = resolve_text(None, Some(path.to_string_lossy().to_string())).unwrap();
+        assert_eq!(out.as_deref(), Some("---\nfrom file\nbody"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn resolve_text_file_wins_over_value() {
+        let path = std::env::temp_dir().join(format!("memtest-{}-b.md", std::process::id()));
+        std::fs::write(&path, "file body").unwrap();
+        let out = resolve_text(
+            Some("inline".into()),
+            Some(path.to_string_lossy().to_string()),
+        )
+        .unwrap();
+        assert_eq!(out.as_deref(), Some("file body"));
+        let _ = std::fs::remove_file(&path);
+    }
 }
