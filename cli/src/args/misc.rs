@@ -65,7 +65,7 @@ pub enum PaneAction {
         /// Spawn a shell that runs this command on start (e.g.
         /// `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be
         /// ready, so the command runs reliably even on a freshly-created pane.
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         cmd: Option<String>,
         /// Spawn the shell PTY immediately on the daemon for headless/API use.
         #[arg(long)]
@@ -204,7 +204,7 @@ pub enum PasteAction {
     /// Stash a payload. Body from positional / --from-file / stdin.
     Put {
         /// Body (positional). Omit and use --from-file or --from-stdin.
-        #[arg(default_value = "")]
+        #[arg(default_value = "", allow_hyphen_values = true)]
         body: String,
         /// Read body from a file instead.
         #[arg(long, value_name = "PATH")]
@@ -298,6 +298,7 @@ pub enum BridgeAction {
     /// Send a message to Telegram or other service
     Send {
         /// Message text (also used as caption for media types)
+        #[arg(allow_hyphen_values = true)]
         text: Option<String>,
         /// Target service
         #[arg(long, default_value = "telegram")]

@@ -176,7 +176,7 @@ pub enum AgentAction {
         #[arg(long)]
         can_spawn: bool,
         /// Task to send after agent starts
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         task: Option<String>,
         /// Read the task body from a file (or `-` for stdin) instead of --task.
         /// Bypasses the caller's shell, so backticks / $(...) in the body are
@@ -196,7 +196,7 @@ pub enum AgentAction {
         #[arg(long)]
         model: Option<String>,
         /// Override the shell system prompt when spawning a chatBackend shell.
-        #[arg(long = "system")]
+        #[arg(long = "system", allow_hyphen_values = true)]
         system_prompt: Option<String>,
         /// Select a chatBackend shell preset. Omit to use the plugin default preset.
         #[arg(long)]

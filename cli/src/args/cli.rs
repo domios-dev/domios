@@ -103,6 +103,7 @@ pub enum Commands {
     #[command(name = "send")]
     SendText {
         /// Text to send (positional, or omit and use --from-file/--stdin)
+        #[arg(allow_hyphen_values = true)]
         text: Option<String>,
 
         /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)

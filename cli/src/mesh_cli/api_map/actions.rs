@@ -9,6 +9,37 @@ use serde_json::json;
 
 use super::unsupported;
 
+/// Resolve free-text content for mesh relay from (inline value, file, `-`=stdin).
+/// File wins; a literal `-` reads stdin; otherwise the value is cloned.
+fn resolve_remote_text(value: &Option<String>, file: &Option<String>) -> Option<String> {
+    use std::io::Read as _;
+    let read = |path: &str| -> String {
+        let res = if path == "-" {
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .map(|_| buf)
+                .map_err(|e| format!("failed to read stdin: {}", e))
+        } else {
+            std::fs::read_to_string(path).map_err(|e| format!("failed to read {}: {}", path, e))
+        };
+        match res {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        }
+    };
+    if let Some(path) = file {
+        return Some(read(path));
+    }
+    match value {
+        Some(v) if v == "-" => Some(read("-")),
+        other => other.clone(),
+    }
+}
+
 pub(crate) fn send_text_to_api<R: std::io::Read>(
     text: &Option<String>,
     pane: &Option<String>,
@@ -120,6 +151,22 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         MemAction::Delete { id } => ("DELETE".into(), format!("/api/mem/items/{}", enc(id)), None),
         MemAction::Forget { area } => ("DELETE".into(), format!("/api/mem/forget/{}", enc(area)), None),
         MemAction::History { id } => ("GET".into(), format!("/api/mem/items/{}/history", enc(id)), None),
+        MemAction::Append { id, text, file, changed_by } => {
+            let resolved = resolve_remote_text(text, file).unwrap_or_else(|| {
+                eprintln!("Error: no text provided (pass as arg, --file, or pipe to stdin)");
+                std::process::exit(1);
+            });
+            let mut payload = json!({"text": resolved});
+            if let Some(v) = changed_by { payload["changed_by"] = json!(v.trim()); }
+            ("POST".into(), format!("/api/mem/items/{}/append", enc(id)), Some(payload.to_string()))
+        }
+        MemAction::Restore { id, version, changed_by } => {
+            let mut payload = serde_json::Map::new();
+            if let Some(v) = version { payload.insert("version".into(), json!(v)); }
+            if let Some(v) = changed_by { payload.insert("changed_by".into(), json!(v.trim())); }
+            ("POST".into(), format!("/api/mem/items/{}/restore", enc(id)),
+                Some(serde_json::Value::Object(payload).to_string()))
+        }
         MemAction::Taxonomy { workspace } => {
             let path = match workspace {
                 Some(w) => format!("/api/mem/taxonomy?workspace={}", enc(w)),
@@ -130,13 +177,13 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         MemAction::Tail { limit, .. } => {
             ("GET".into(), format!("/api/mem/tail?limit={}", limit), None)
         }
-        MemAction::Update { id, title, summary, area, tags, body, importance, changed_by } => {
+        MemAction::Update { id, title, summary, area, tags, body, body_file, importance, changed_by } => {
             let mut payload = serde_json::Map::new();
             if let Some(v) = title { payload.insert("title".into(), json!(v)); }
             if let Some(v) = summary { payload.insert("summary".into(), json!(v)); }
             if let Some(v) = area { payload.insert("area".into(), json!(v)); }
             if let Some(v) = tags { payload.insert("tags".into(), json!(v)); }
-            if let Some(v) = body { payload.insert("body".into(), json!(v)); }
+            if let Some(v) = resolve_remote_text(body, body_file) { payload.insert("body".into(), json!(v)); }
             if let Some(v) = importance { payload.insert("importance".into(), json!(v)); }
             if let Some(v) = changed_by {
                 let trimmed = v.trim();
@@ -149,10 +196,10 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             ("PATCH".into(), format!("/api/mem/items/{}", enc(id)),
                 Some(serde_json::Value::Object(payload).to_string()))
         }
-        MemAction::Save { kind, title, body, summary, tags, area, importance, scope, workspace, pin, source_path, replace, skip_extract } => {
+        MemAction::Save { kind, title, body, body_file, summary, tags, area, importance, scope, workspace, pin, source_path, replace, skip_extract } => {
             let mut payload = json!({"kind": kind, "importance": importance});
             if let Some(v) = title { payload["title"] = json!(v); }
-            if let Some(v) = body { payload["body"] = json!(v); }
+            if let Some(v) = resolve_remote_text(body, body_file) { payload["body"] = json!(v); }
             if let Some(v) = summary { payload["summary"] = json!(v); }
             if let Some(v) = tags { payload["tags"] = json!(v); }
             if let Some(v) = area { payload["area"] = json!(v); }

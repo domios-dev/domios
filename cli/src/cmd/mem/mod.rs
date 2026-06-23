@@ -37,7 +37,19 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             area: _,
             tags: _,
             body: _,
+            body_file: _,
             importance: _,
+            changed_by: _,
+        }
+        | MemAction::Append {
+            id: _,
+            text: _,
+            file: _,
+            changed_by: _,
+        }
+        | MemAction::Restore {
+            id: _,
+            version: _,
             changed_by: _,
         }
         | MemAction::Pin { id: _ }
@@ -47,6 +59,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             kind: _,
             title: _,
             body: _,
+            body_file: _,
             summary: _,
             tags: _,
             area: _,
