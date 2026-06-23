@@ -51,7 +51,7 @@ const node = (kind: string): LaidOutNode => ({
 });
 
 test("built-in kinds resolve to a registered renderer (not the fallback)", () => {
-  for (const kind of ["plan", "section", "task", "milestone"]) {
+  for (const kind of ["plan", "spec", "task", "milestone"]) {
     assert(getNodeRenderer(kind) !== fallbackRenderer, `${kind} should be registered`);
   }
 });

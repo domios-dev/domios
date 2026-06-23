@@ -922,6 +922,20 @@ button,
   }
 }
 
+/* Canvas focus blink: ring pulses when canvas-focus targets a node. */
+.ct-canvas-blink {
+  animation: ct-canvas-blink 0.7s ease-in-out 4;
+}
+
+@keyframes ct-canvas-blink {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-border-focus) 60%, transparent); opacity: 1; }
+  50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--ct-border-focus) 0%, transparent); opacity: 0.55; }
+}
+
+/* Composer activity bubble spinner. */
+.ct-spin { animation: ct-spin 0.9s linear infinite; }
+@keyframes ct-spin { to { transform: rotate(360deg); } }
+
 /* =========================================================================
    Agent icon working-state animations
    Each provider has its own visual language: Claude rotates + breathes,

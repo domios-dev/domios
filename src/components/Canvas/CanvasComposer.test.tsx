@@ -139,6 +139,36 @@ test("disables send and hints when the focused plan has no owner pane", async ()
   await act(async () => root.unmount());
 });
 
+test("clears the input after a successful send (clear-on-send bug fix)", async () => {
+  const layout = layoutWorkspace([FIXTURE_PLAN]);
+  const node = layout.nodeIndex.get("task-dante");
+  assert(node, "node laid out");
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = (async () =>
+    ({ ok: true, status: 200, text: async () => "" }) as Response) as unknown as typeof fetch;
+
+  const { host, root } = await render(
+    <CanvasComposer api={API} plans={[FIXTURE_PLAN]} layout={layout} viewportCenter={boxCenter(node.box)} mode="workspace" />,
+  );
+
+  const ta = host.querySelector('[data-testid="canvas-composer-input"]') as HTMLTextAreaElement;
+  await act(async () => {
+    typeInto(ta, "ship it");
+  });
+  assert(ta.value === "ship it", "text present before send");
+
+  const sendBtn = host.querySelector('[data-testid="canvas-composer-send"]') as HTMLButtonElement;
+  await act(async () => {
+    sendBtn.click();
+  });
+  await act(async () => {
+    await Promise.resolve();
+  });
+
+  const after = host.querySelector('[data-testid="canvas-composer-input"]') as HTMLTextAreaElement;
+  assert(after.value === "", `input cleared after send, got: "${after.value}"`);
+  await act(async () => root.unmount());
+});
+
 async function main() {
   let passed = 0;
   for (const [name, fn] of tests) {
