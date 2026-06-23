@@ -20,6 +20,7 @@ pub mod os_notify;
 pub mod pane_chat_routes;
 pub mod pane_routes;
 pub mod pasteboard_routes;
+pub mod plan_routes;
 pub mod services_routes;
 pub mod session_routes;
 pub mod theme_routes;
