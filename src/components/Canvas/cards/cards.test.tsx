@@ -67,6 +67,21 @@ test("PlanNode renders title, section rows, and 50% coverage", async () => {
   await act(async () => root.unmount());
 });
 
+test("PlanNode: owner chip hidden for an all-empty OrchestratorRef (no 'unknown')", async () => {
+  const empty = {
+    ...FIXTURE_PLAN,
+    owner: { pane_id: "", session_id: "", title: "" },
+  };
+  const { host, root } = await render(<PlanNode plan={empty} style={cardStyle} lod="near" />);
+  assert(!host.querySelector('[data-testid="canvas-plan-owner"]'), "owner chip hidden when unowned");
+  assert(!host.textContent?.toLowerCase().includes("unknown"), "no literal 'unknown' rendered");
+  await act(async () => root.unmount());
+
+  const owned = await render(<PlanNode plan={FIXTURE_PLAN} style={cardStyle} lod="near" />);
+  assert(owned.host.querySelector('[data-testid="canvas-plan-owner"]')?.textContent?.includes("Orchestrator"), "owner chip shows title when owned");
+  await act(async () => owned.root.unmount());
+});
+
 test("PlanNode: uncovered section row pops with uncovered glyph", async () => {
   const { host, root } = await render(
     <PlanNode plan={FIXTURE_PLAN} style={cardStyle} lod="near" />,
