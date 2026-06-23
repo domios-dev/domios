@@ -5,7 +5,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
+use crate::multiplexer::types::AgentRole;
 use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus, TaskGroup};
+use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{NewTask, PlanError};
 use crate::service::ServiceState;
 
@@ -29,6 +31,10 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+}
+
+fn emit_canvas_focus(app: &AppHandle, payload: Value) {
+    crate::api::events::emit_everywhere(app, "canvas-focus", payload);
 }
 
 fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
@@ -67,6 +73,32 @@ fn owner_from_params(p: &Value) -> OrchestratorRef {
                 .map(OrchestratorRef::from_pane)
         })
         .unwrap_or_else(|| OrchestratorRef::from_pane("unknown"))
+}
+
+fn pane_role(svc: &ServiceState, pane_id: &str) -> Option<&'static str> {
+    svc.mux
+        .read()
+        .get_pane(pane_id)
+        .and_then(|pane| pane.role)
+        .map(|role| match role {
+            AgentRole::Orchestrator => "orchestrator",
+            AgentRole::Worker => "worker",
+        })
+}
+
+fn pane_and_ancestors(svc: &ServiceState, pane_id: &str) -> std::collections::HashSet<String> {
+    let mux = svc.mux.read();
+    let mut out = std::collections::HashSet::new();
+    let mut current = Some(pane_id.to_string());
+    while let Some(id) = current {
+        if !out.insert(id.clone()) {
+            break;
+        }
+        current = mux
+            .get_pane(&id)
+            .and_then(|pane| pane.parent_pane_id.clone());
+    }
+    out
 }
 
 pub(super) fn dispatch(
@@ -139,6 +171,139 @@ pub(super) fn dispatch(
                 });
             }
             Ok(json!({ "plans": entries }))
+        }
+
+        "task.list" => {
+            let caller = p
+                .and_then(|x| x.get("caller_pane_id"))
+                .and_then(|v| v.as_str());
+            let mine = p.and_then(|x| x.get("mine")).and_then(|v| v.as_bool()) == Some(true);
+            let tasks = store.list_tasks(TaskListFilter {
+                project_path: p
+                    .and_then(|x| x.get("project"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                active_only: p.and_then(|x| x.get("active")).and_then(|v| v.as_bool())
+                    != Some(false),
+                mine_panes: if mine {
+                    caller
+                        .map(|id| pane_and_ancestors(svc, id))
+                        .unwrap_or_default()
+                } else {
+                    Default::default()
+                },
+                unassigned: p
+                    .and_then(|x| x.get("unassigned"))
+                    .and_then(|v| v.as_bool())
+                    == Some(true),
+                plan_id: p
+                    .and_then(|x| x.get("plan_id"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+            });
+            Ok(json!({ "tasks": tasks }))
+        }
+
+        "task.show" => {
+            let task_id = get_string_param(params, "task_id")?;
+            let detail = store
+                .show_task(&task_id)
+                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+            Ok(serde_json::to_value(detail).unwrap_or_default())
+        }
+
+        "task.take" => {
+            let task_id = get_string_param(params, "task_id")?;
+            let pane_id = get_string_param(params, "caller_pane_id")?;
+            let role = pane_role(svc, &pane_id);
+            let plan_id = store
+                .set_task_assignment(&task_id, Some(&pane_id), role, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &plan_id);
+            Ok(json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }))
+        }
+
+        "task.drop" => {
+            let task_id = get_string_param(params, "task_id")?;
+            let plan_id = store
+                .set_task_assignment(&task_id, None, None, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &plan_id);
+            Ok(json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }))
+        }
+
+        "task.add" => {
+            let body = p.ok_or(JsonRpcError {
+                code: -32602,
+                message: "params required".to_string(),
+                data: None,
+            })?;
+            let project = body
+                .get("project")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    std::env::current_dir()
+                        .map(|d| d.display().to_string())
+                        .unwrap_or_default()
+                });
+            let owner = owner_from_params(body);
+            let assign_pane = body
+                .get("assign_pane")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let assign_role = assign_pane.as_deref().and_then(|pane| pane_role(svc, pane));
+            let (plan_id, task_id) = store
+                .add_inbox_task(
+                    &project,
+                    owner,
+                    NewTask {
+                        name: get_string_param(params, "name")?,
+                        kind: body
+                            .get("type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("task")
+                            .into(),
+                        model: body
+                            .get("model")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        model_rationale: body
+                            .get("why")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        body: body
+                            .get("body")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .into(),
+                        intent: body
+                            .get("intent")
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        assigned_pane_id: assign_pane.clone(),
+                        ..Default::default()
+                    },
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            if let Some(pane) = assign_pane.as_deref() {
+                store
+                    .set_task_assignment(&task_id, Some(pane), assign_role, now)
+                    .map_err(plan_rpc_err)?;
+            }
+            emit_plan_changed(app, &plan_id);
+            Ok(json!({ "plan_id": plan_id, "task_id": task_id }))
+        }
+
+        "canvas.focus" => {
+            let payload = json!({
+                "task_id": p.and_then(|x| x.get("task_id")).and_then(|v| v.as_str()),
+                "pane_id": p.and_then(|x| x.get("pane_id")).and_then(|v| v.as_str()),
+                "plan_id": p.and_then(|x| x.get("plan_id")).and_then(|v| v.as_str()),
+            });
+            emit_canvas_focus(app, payload.clone());
+            Ok(json!({ "ok": true, "event": "canvas-focus", "payload": payload }))
         }
 
         "plan.get" => {

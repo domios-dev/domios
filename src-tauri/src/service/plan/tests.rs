@@ -1,5 +1,6 @@
 use super::*;
 use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, Plan, PlanStatus, TaskStatus};
+use crate::service::plan::task_queries::TaskListFilter;
 
 #[test]
 fn store_saves_loads_indexes() {
@@ -261,4 +262,128 @@ fn coverage_report_reports_gaps() {
     let report = store.coverage_report(&id).unwrap();
     assert!(report.gaps.contains(&"Backend".to_string()));
     assert!(report.sections.iter().any(|s| s.section_id == sid));
+}
+
+#[test]
+fn list_tasks_is_strictly_project_scoped() {
+    let root = tempfile::tempdir().unwrap();
+    let project_a = root.path().join("a");
+    let project_b = root.path().join("b");
+    std::fs::create_dir_all(&project_a).unwrap();
+    std::fs::create_dir_all(&project_b).unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let plan_a = store
+        .create_plan(
+            "A".into(),
+            project_a.display().to_string(),
+            OrchestratorRef::from_pane("owner"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let plan_b = store
+        .create_plan(
+            "B".into(),
+            project_b.display().to_string(),
+            OrchestratorRef::from_pane("owner"),
+            vec![],
+            2,
+        )
+        .unwrap();
+    store
+        .add_task(
+            &plan_a.id,
+            NewTask {
+                name: "only-a".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    store
+        .add_task(
+            &plan_b.id,
+            NewTask {
+                name: "only-b".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            4,
+        )
+        .unwrap();
+
+    let tasks = store.list_tasks(TaskListFilter {
+        project_path: Some(project_b.display().to_string()),
+        active_only: true,
+        ..Default::default()
+    });
+
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].plan_id, plan_b.id);
+    assert_eq!(tasks[0].task.name, "only-b");
+}
+
+#[test]
+fn inbox_plan_is_lazy_and_idempotent() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let first = store
+        .ensure_inbox_plan(
+            root.path().to_str().unwrap(),
+            OrchestratorRef::from_pane("owner"),
+            1,
+        )
+        .unwrap();
+    let second = store
+        .ensure_inbox_plan(
+            root.path().to_str().unwrap(),
+            OrchestratorRef::from_pane("other"),
+            2,
+        )
+        .unwrap();
+
+    assert_eq!(first.id, crate::plan::INBOX_PLAN_ID);
+    assert_eq!(first.title, crate::plan::INBOX_PLAN_TITLE);
+    assert!(first.sections.is_empty());
+    assert_eq!(second.created_at, first.created_at);
+    assert!(root.path().join(".codeterm/plans/_inbox.json").exists());
+}
+
+#[test]
+fn add_inbox_task_lands_in_reserved_plan() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let (plan_id, task_id) = store
+        .add_inbox_task(
+            root.path().to_str().unwrap(),
+            OrchestratorRef::from_pane("owner"),
+            NewTask {
+                name: "standalone".into(),
+                kind: "fix".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+
+    assert_eq!(plan_id, crate::plan::INBOX_PLAN_ID);
+    let plan = store.get(&plan_id).unwrap();
+    assert_eq!(plan.tasks.len(), 1);
+    assert_eq!(plan.tasks[0].id, task_id);
+    assert_eq!(plan.tasks[0].name, "standalone");
+}
+
+#[test]
+fn task_queries_exclude_archived_plans() {
+    let (store, id, _) = store_with_task(&["status_update"]);
+    store.archive(&id, 99).unwrap();
+
+    let tasks = store.list_tasks(TaskListFilter {
+        active_only: false,
+        ..Default::default()
+    });
+
+    assert!(tasks.is_empty());
+    assert!(store.coverage_report(&id).is_none());
 }

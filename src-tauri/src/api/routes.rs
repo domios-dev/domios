@@ -10,8 +10,8 @@ use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, delayed_send_routes,
     fs_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
     notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, plan_routes,
-    services_routes, session_routes, theme_routes, updater_routes, usage_routes, web_routes,
-    webhook_routes, workspace_routes,
+    services_routes, session_routes, task_routes, theme_routes, updater_routes, usage_routes,
+    web_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -124,6 +124,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/plans/{id}/links", post(plan_routes::link))
         .route("/api/plans/{id}/links/{to}", delete(plan_routes::unlink))
         .route("/api/plans/{id}/tasks", post(plan_routes::task_add))
+        .route("/api/tasks", get(task_routes::list).post(task_routes::add))
+        .route("/api/tasks/{id}", get(task_routes::show))
+        .route("/api/tasks/{id}/take", post(task_routes::take))
+        .route("/api/tasks/{id}/drop", post(task_routes::drop_task))
+        .route("/api/canvas/focus", post(task_routes::canvas_focus))
         .route(
             "/api/plans/{id}/tasks/{tid}",
             patch(plan_routes::task_update).delete(plan_routes::task_rm),

@@ -36,6 +36,8 @@ pub enum PlanAction {
     Get { plan_id: String },
     /// Show section coverage (% + gaps)
     Coverage { plan_id: String },
+    /// Show sections with zero tasks
+    Gaps { plan_id: String },
     /// Set task groups (phases)
     Groups {
         #[command(subcommand)]

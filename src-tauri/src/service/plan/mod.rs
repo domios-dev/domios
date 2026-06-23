@@ -1,12 +1,13 @@
 pub mod mutations;
 pub mod paths;
 pub mod reminders;
+pub mod task_queries;
 pub mod watcher;
 
 #[cfg(test)]
 mod tests;
 
-use crate::plan::{OrchestratorRef, Plan, PlanStatus};
+use crate::plan::{OrchestratorRef, Plan, PlanStatus, INBOX_PLAN_FILE_STEM, INBOX_PLAN_ID};
 use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -108,7 +109,12 @@ impl PlanStore {
 
     fn file_path(plan: &Plan) -> std::io::Result<PathBuf> {
         let dir = paths::plans_dir(Path::new(&plan.project_path))?;
-        Ok(dir.join(format!("{}.json", plan.id)))
+        let stem = if plan.id == INBOX_PLAN_ID {
+            INBOX_PLAN_FILE_STEM
+        } else {
+            &plan.id
+        };
+        Ok(dir.join(format!("{stem}.json")))
     }
 
     fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
@@ -181,9 +187,10 @@ impl PlanStore {
     }
 
     pub fn coverage_report(&self, id: &str) -> Option<crate::plan::coverage::CoverageReport> {
-        self.get(id)
-            .as_ref()
-            .map(crate::plan::coverage::compute_coverage_report)
+        self.get(id).and_then(|plan| {
+            (plan.status != PlanStatus::Archived)
+                .then(|| crate::plan::coverage::compute_coverage_report(&plan))
+        })
     }
 
     pub fn reload_from_disk(&self, id: &str) -> Result<(), PlanError> {

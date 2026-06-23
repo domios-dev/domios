@@ -660,6 +660,46 @@
       ]
     },
     {
+      "name": "canvas",
+      "about": "Canvas control commands",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "focus",
+          "about": "Focus the open canvas on a task, pane, or plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "capabilities",
       "about": "List all available API methods",
       "aliases": [],
@@ -4529,6 +4569,22 @@
           ]
         },
         {
+          "name": "gaps",
+          "about": "Show sections with zero tasks",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "get",
           "about": "Get a plan (markdown by default)",
           "aliases": [],
@@ -6456,6 +6512,206 @@
               "value_name": "BINARY",
               "default": null,
               "help": "Override the path to the CodeTerm executable. Defaults to the installed app binary for the current platform",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "task",
+      "about": "Standalone and plan-backed tasks",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "add",
+          "about": "Add a standalone task to the workspace Inbox",
+          "aliases": [],
+          "args": [
+            {
+              "name": "assign_pane",
+              "positional": false,
+              "value_name": "ASSIGN_PANE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body",
+              "positional": false,
+              "value_name": "BODY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "intent",
+              "positional": false,
+              "value_name": "INTENT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "intent_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "model",
+              "positional": false,
+              "value_name": "MODEL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "why",
+              "positional": false,
+              "value_name": "WHY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "why_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "drop",
+          "about": "Release the task assignment",
+          "aliases": [],
+          "args": [
+            {
+              "name": "task_id",
+              "positional": true,
+              "value_name": "TASK_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List tasks across active plans",
+          "aliases": [],
+          "args": [
+            {
+              "name": "active",
+              "positional": false,
+              "value_name": "ACTIVE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "mine",
+              "positional": false,
+              "value_name": "MINE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "unassigned",
+              "positional": false,
+              "value_name": "UNASSIGNED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show one task with plan and section context",
+          "aliases": [],
+          "args": [
+            {
+              "name": "task_id",
+              "positional": true,
+              "value_name": "TASK_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "take",
+          "about": "Assign the task to the caller's pane",
+          "aliases": [],
+          "args": [
+            {
+              "name": "task_id",
+              "positional": true,
+              "value_name": "TASK_ID",
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
