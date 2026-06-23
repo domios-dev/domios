@@ -309,7 +309,7 @@ function QueueCard({
       data-testid="delayed-send-queue-item"
       data-delayed-message-id={msg.id}
       data-delayed-message-state={msg.state}
-      className="group rounded-xl border px-2.5 py-2 transition-colors"
+      className="group min-w-0 rounded-xl border px-2.5 py-2 transition-colors"
       style={{
         borderColor: failed
           ? "color-mix(in srgb, var(--ct-red, #f85149) 30%, transparent)"
@@ -358,14 +358,14 @@ function QueueCard({
           </div>
         </div>
       ) : (
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0" style={{ color: meta.color }}>
+        <div className="flex min-w-0 items-start gap-2">
+          <span className="mt-0.5 shrink-0" style={{ color: meta.color }}>
             {meta.icon}
           </span>
           <FloatingTooltip
             content={msg.text}
             touchMode={touchMode}
-            className="min-w-0 flex-1 cursor-default truncate text-[13px] outline-none"
+            className="min-w-0 flex-1 cursor-default whitespace-normal break-words text-[13px] leading-5 outline-none"
             style={{ color: "var(--ct-fg)" }}
           >
             {msg.text}
@@ -458,7 +458,7 @@ export function DelayedSendQueuePanel({
         title={`${messages.length} queued`}
         onClose={onClose}
       />
-      <div className="grid max-h-72 gap-2 overflow-y-auto pr-0.5">
+      <div className="grid max-h-72 min-w-0 gap-2 overflow-y-auto overflow-x-hidden pr-0.5">
         {messages.length === 0 ? (
           <div
             data-testid="delayed-send-queue-empty"
