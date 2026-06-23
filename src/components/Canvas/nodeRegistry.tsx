@@ -21,6 +21,7 @@ export interface NodeRenderArgs {
   lod: CanvasLod;
   onArchive?: () => void;
   onOpenPane?: (paneId: string) => void;
+  onHoverTask?: (taskId: string | null) => void;
 }
 
 export type NodeRenderer = (args: NodeRenderArgs) => ReactNode;
@@ -70,8 +71,8 @@ registerNodeRenderer("plan", ({ model, style, lod, onArchive }) =>
 registerNodeRenderer("spec", ({ model, style, lod }) =>
   model ? <SpecNode plan={model as Plan} style={style} lod={lod} /> : null,
 );
-registerNodeRenderer("task", ({ model, style, lod, onOpenPane }) =>
-  model ? <TaskCard task={model as Task} style={style} lod={lod} onOpenPane={onOpenPane} /> : null,
+registerNodeRenderer("task", ({ model, style, lod, onOpenPane, onHoverTask }) =>
+  model ? <TaskCard task={model as Task} style={style} lod={lod} onOpenPane={onOpenPane} onHover={onHoverTask} /> : null,
 );
 registerNodeRenderer("milestone", ({ model, style, lod }) =>
   model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} /> : null,

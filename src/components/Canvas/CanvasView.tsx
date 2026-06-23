@@ -66,17 +66,19 @@ interface CanvasNodeCardProps {
   model: unknown;
   lod: CanvasLod;
   onOpenPane?: (paneId: string) => void;
+  onHoverTask?: (taskId: string | null) => void;
   onArchive?: () => void;
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, onOpenPane, onArchive }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, onOpenPane, onHoverTask, onArchive }: CanvasNodeCardProps) {
     const rendered = getNodeRenderer(node.kind)({
       node,
       model,
       style: nodeStyle(node.box),
       lod,
       onOpenPane,
+      onHoverTask,
       onArchive,
     });
     return rendered ? <Fragment key={node.id}>{rendered}</Fragment> : null;
@@ -178,6 +180,9 @@ export function CanvasViewInner({
     }
     return undefined;
   }, [orchestratorPaneId, filteredPlans, focusedPaneId, panes]);
+
+  const [hoveredTask, setHoveredTask] = useState<string | null>(null);
+  const onHoverTask = useCallback((id: string | null) => setHoveredTask(id), []);
 
   const lod = lodForScale(transform.scale);
   const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
@@ -321,18 +326,30 @@ export function CanvasViewInner({
                   if (!ends) return null;
                   const chain = edge.kind === "milestone-chain";
                   const sectionTask = edge.kind === "section-task";
+                  // De-emphasized by default; hovering a task lifts its own edges
+                  // and dims the rest so the row→task mapping reads at a glance.
+                  const related = hoveredTask != null && (edge.from === hoveredTask || edge.to === hoveredTask);
+                  const dimmed = hoveredTask != null && !related;
+                  const baseW = sectionTask ? 1.4 : chain ? 1 : 1.2;
+                  const baseO = sectionTask ? 0.42 : chain ? 0.3 : 0.34;
                   return (
                     <g key={edge.id}>
                       <path
                         d={bezierPath(ends.a, ends.b, DEFAULT_CANVAS_SETTINGS.edgeCurve)}
                         fill="none"
                         stroke="var(--ct-border-focus)"
-                        strokeWidth={chain ? 1 : sectionTask ? 2 : 1.5}
+                        strokeWidth={related ? 2.4 : baseW}
                         strokeLinecap="round"
-                        opacity={chain ? 0.4 : sectionTask ? 0.7 : 0.5}
+                        opacity={related ? 0.92 : dimmed ? 0.1 : baseO}
                       />
                       {sectionTask && (
-                        <circle cx={ends.a.x} cy={ends.a.y} r={3.2} fill="var(--ct-border-focus)" opacity={0.95} />
+                        <circle
+                          cx={ends.a.x}
+                          cy={ends.a.y}
+                          r={related ? 4 : 3}
+                          fill="var(--ct-border-focus)"
+                          opacity={dimmed ? 0.25 : 0.9}
+                        />
                       )}
                     </g>
                   );
@@ -349,6 +366,7 @@ export function CanvasViewInner({
                     model={resolveModel(n)}
                     lod={lod}
                     onOpenPane={onOpenPane}
+                    onHoverTask={onHoverTask}
                     onArchive={n.kind === "plan" && api ? () => handleArchive(n.id) : undefined}
                   />
                 )),

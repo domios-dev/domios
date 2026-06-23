@@ -77,6 +77,13 @@ test("PlanNode: owner chip hidden for an all-empty OrchestratorRef (no 'unknown'
   assert(!host.textContent?.toLowerCase().includes("unknown"), "no literal 'unknown' rendered");
   await act(async () => root.unmount());
 
+  // Backend placeholder "unknown" must also read as unowned, not literal text.
+  const sentinel = { ...FIXTURE_PLAN, owner: { pane_id: "unknown", session_id: null, title: "unknown" } };
+  const s = await render(<PlanNode plan={sentinel} style={cardStyle} lod="near" />);
+  assert(!s.host.querySelector('[data-testid="canvas-plan-owner"]'), "sentinel 'unknown' owner hides chip");
+  assert(!s.host.textContent?.toLowerCase().includes("unknown"), "no literal 'unknown' rendered for sentinel");
+  await act(async () => s.root.unmount());
+
   const owned = await render(<PlanNode plan={FIXTURE_PLAN} style={cardStyle} lod="near" />);
   assert(owned.host.querySelector('[data-testid="canvas-plan-owner"]')?.textContent?.includes("Orchestrator"), "owner chip shows title when owned");
   await act(async () => owned.root.unmount());
