@@ -189,6 +189,12 @@ The whole canvas is one small primitive set — **typed nodes** (each a `CanvasE
 - **Task groups:** `Plan.task_groups` + `Task.group` are the one non-graph addition — a lightweight grouping attribute (≈ phases), declared like `milestone_kinds`, rendered as labeled bands/clusters; ungrouped tasks are fine.
 This keeps the canvas a "film" of the work via the primitives it already has — kind-typed nodes + `links` edges + the §6.3 renderer registry. **Phase 3+ enhancement** (not in read-only v1).
 
+### 3.9 Live mutability & context-resilient editing
+The plan/canvas is a **live object edited WHILE work runs** — not a write-once artifact. Requirements evolve mid-execution (sections re-scoped, tasks added, a Phase-2 task amended while Phase-2 workers are mid-flight — exactly how this very plan was built). The design makes that safe and easy:
+- **In-flight mutation:** every `codeterm plan ...` handle mutates a running plan; the daemon serializes writes (single-writer, §3.7) and fans out `plan-changed` so the canvas + every consumer live-update (§4 real-time). No stop-the-world — add / change / close while agents work.
+- **Easy find-and-change:** read current state with `plan get <id>` (markdown), discover handles via `plan --help` / `codeterm docs ORCHESTRATION`, change one thing with a single targeted command (`plan task update`, `plan section update`, …). Dig in, change, done.
+- **Context-resilient (load-bearing):** an agent whose context was compacted or scrolled off still edits safely — it re-orients by re-reading current state (`plan get`), the commands self-document, and teaching errors (§4.3) + adherence reminders (§4.2, with the "if you forgot, re-read X" pointer) catch drift. You never need the whole history in context to change the plan correctly: **read current → change via guided commands.** Same discipline as the orchestrator's self-recovery heartbeat, made intrinsic to plan editing.
+
 ## 4. Backend
 
 New Rust surfaces (each file < 1000 lines, split by responsibility):
@@ -210,7 +216,9 @@ Agents forget they are inside a plan and stop reporting. The daemon nudges them 
 - **Reset to 0** whenever that pane runs any `codeterm plan ...` or `codeterm agent report --plan ...`. A diligent agent is therefore never nagged; only a silent one is.
 - When the counter crosses `nudge_after_turns` (default 12), inject a system reminder into the pane via the existing report/reminder injection path. After each nudge the interval grows ×1.5 (capped) to avoid spam.
 - Differentiated copy for Worker vs Orchestrator (see §7). Escalation: after several ignored nudges the final one is blunt ("UNREPORTED task; your parent is blind until you report").
-- Config: `[orchestration]` in `config.toml` — `plan_reminders = true|false`, `nudge_after_turns = 12`. The human tunes their own cadence.
+- **Two trigger modes, both config-driven:** (a) **message-count** — the `turns_since_plan_touch` threshold above; (b) **time interval** — an active plan also pings its **owner orchestrator** every `nudge_interval_secs` of wall-clock (default 1800 = 30 min), independent of message activity. Either trigger fires a nudge; both reset on a plan-touch.
+- **This replaces the orchestrator's manual `--delay` self-heartbeats:** once a plan exists, the daemon's plan-adherence pinger IS the heartbeat — the orchestrator no longer hand-schedules delayed self-messages; the active plan periodically pings it (time + count) with the self-recovery pointer baked in.
+- Config: `[orchestration]` in `config.toml` — `plan_reminders = true|false`, `nudge_after_turns = 12`, `nudge_interval_secs = 1800`. CodeTerm-internal config: defaults ship in code, the human tunes their own cadence (per-instance, so dev/prod can differ); agents do not need to edit it.
 
 ### 4.3 Teaching errors (self-correcting CLI)
 The second in-band training channel (the first is §4.2 reminders): every validation failure in `codeterm plan ...` / `codeterm agent report` returns an **actionable, teaching** message on stdout — what was wrong, the valid options, and the exact command to fix — never a bare "invalid argument". The agent reads it inline and self-corrects. Required cases:
