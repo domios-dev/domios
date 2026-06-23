@@ -3,6 +3,7 @@ import { Archive, Check, CircleDot, TriangleAlert } from "lucide-react";
 import type { Plan } from "../types";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import { sectionRows, type SectionRow, type SectionRowGlyph } from "../sectionRows";
+import { ownerName } from "../owner";
 import { planCoverageFraction } from "./coverage";
 import type { CanvasCardStyleProps } from "./types";
 
@@ -27,12 +28,9 @@ const frameStyle: CSSProperties = {
 const GLYPH = {
   done: { Icon: Check, color: "rgba(74, 222, 128, 1)", tint: "rgba(52, 211, 153, 0.16)", rail: "rgba(52, 211, 153, 0.95)", dashed: false },
   progress: { Icon: CircleDot, color: "rgba(129, 140, 248, 1)", tint: "rgba(99, 102, 241, 0.20)", rail: "rgba(99, 102, 241, 1)", dashed: false },
-  uncovered: { Icon: TriangleAlert, color: "rgba(251, 191, 36, 1)", tint: "rgba(251, 191, 36, 0.18)", rail: "rgba(251, 191, 36, 0.95)", dashed: true },
+  uncovered: { Icon: TriangleAlert, color: "rgba(251, 191, 36, 1)", tint: "rgba(251, 191, 36, 0.24)", rail: "rgba(251, 191, 36, 1)", dashed: true },
 } as const satisfies Record<SectionRowGlyph, { Icon: typeof Check; color: string; tint: string; rail: string; dashed: boolean }>;
 
-function ownerLabel(plan: Plan): string | null {
-  return plan.owner.title ?? plan.owner.pane_id ?? null;
-}
 
 function Row({ row }: { row: SectionRow }) {
   const { Icon, color, tint, rail, dashed } = GLYPH[row.glyph];
@@ -102,7 +100,7 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
   const taskCount = plan.tasks.length;
   const doneCount = plan.tasks.filter((t) => t.status === "done").length;
   const standalone = rows.length === 0;
-  const owner = ownerLabel(plan);
+  const owner = ownerName(plan.owner);
 
   return (
     <div data-testid="canvas-plan-node" data-plan-id={plan.id} style={{ ...frameStyle, ...style }}>
