@@ -56,6 +56,16 @@ pub(super) fn dispatch(
         "agent.report" => {
             let pane_id = get_string_param(params, "pane_id")?;
             let message = get_string_param(params, "message")?;
+            let plan_id = params
+                .as_ref()
+                .and_then(|p| p.get("plan_id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let task_id = params
+                .as_ref()
+                .and_then(|p| p.get("task_id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
             // Optional structured fields (status/branch/sha/...) ride alongside
             // the freeform message; absent keys deserialize to None.
             let details = params
@@ -64,7 +74,13 @@ pub(super) fn dispatch(
                 .unwrap_or_default();
             let svc_ref = &**svc;
             let result = svc_ref
-                .submit_report(&pane_id, &message, details)
+                .submit_report(
+                    &pane_id,
+                    &message,
+                    details,
+                    plan_id.as_deref(),
+                    task_id.as_deref(),
+                )
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,

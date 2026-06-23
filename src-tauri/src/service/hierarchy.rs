@@ -4,7 +4,9 @@ use serde::Serialize;
 use tauri::Emitter;
 
 use super::{ReportResult, ServiceContext};
+use crate::agent::reports::{ReportDetails, ReportStatus};
 use crate::multiplexer::types::AgentRole;
+use crate::plan::AgentRef;
 
 impl ServiceContext {
     pub fn set_pane_role(
@@ -46,16 +48,65 @@ impl ServiceContext {
         &self,
         pane_id: &str,
         message: &str,
-        details: crate::agent::reports::ReportDetails,
+        details: ReportDetails,
+        plan_id: Option<&str>,
+        task_id: Option<&str>,
     ) -> Result<ReportResult, String> {
-        let (from_title, target_opt, model) = {
+        let (from_title, default_target_opt, model, from_ref, role) = {
             let mux = self.mux.read();
             let (from_title, target_opt) = resolve_report_target(&mux, pane_id)?;
-            let model = mux
-                .get_pane(pane_id)
-                .and_then(|p| p.agent_session_model.clone());
-            (from_title, target_opt, model)
+            let pane = mux.get_pane(pane_id);
+            let model = pane.and_then(|p| p.agent_session_model.clone());
+            let from_ref = pane.map_or_else(
+                || AgentRef::from_pane(pane_id),
+                |p| AgentRef {
+                    pane_id: Some(pane_id.to_string()),
+                    session_id: p.agent_session_id.clone(),
+                    title: Some(p.title.clone()),
+                },
+            );
+            let role = pane.and_then(|p| p.role);
+            (from_title, target_opt, model, from_ref, role)
         };
+        let target_opt = plan_id
+            .and_then(|id| self.plan_store.owner_of(id))
+            .and_then(|owner| owner.pane_id)
+            .filter(|target| !target.is_empty() && target != pane_id)
+            .or(default_target_opt);
+
+        if let Some(plan_id) = plan_id {
+            let task_id = task_id
+                .map(str::to_string)
+                .or_else(|| {
+                    self.plan_store.task_binding_for_pane(pane_id).and_then(
+                        |(bound_plan, bound_task)| {
+                            if bound_plan == plan_id {
+                                Some(bound_task)
+                            } else {
+                                None
+                            }
+                        },
+                    )
+                })
+                .ok_or_else(|| "task_id required for plan report".to_string())?;
+            self.plan_store
+                .add_milestone(
+                    plan_id,
+                    &task_id,
+                    "status_update",
+                    &milestone_text(message, details.status),
+                    from_ref,
+                    false,
+                    epoch_ms(),
+                )
+                .map_err(|e| e.to_string())?;
+            self.plan_turn_counter.reset(pane_id);
+            crate::api::events::emit_everywhere(
+                &self.app_handle,
+                "plan-changed",
+                serde_json::json!({ "plan_id": plan_id }),
+            );
+        }
 
         let storage_key = target_opt
             .clone()
@@ -120,10 +171,37 @@ impl ServiceContext {
             }
         }
 
+        if plan_id.is_none() {
+            self.maybe_send_plan_reminder(pane_id, role);
+        }
+
         Ok(ReportResult {
             report_id: report.id,
             orchestrator_pane_id: storage_key,
         })
+    }
+
+    fn maybe_send_plan_reminder(&self, pane_id: &str, role: Option<AgentRole>) {
+        if self.plan_store.task_binding_for_pane(pane_id).is_none() {
+            return;
+        }
+        let (turns, last_nudge) = self.plan_turn_counter.increment(pane_id);
+        let cfg = crate::config::load_config().orchestration;
+        let nudge_cfg = crate::service::plan::reminders::NudgeConfig {
+            plan_reminders: cfg.plan_reminders,
+            nudge_after_turns: cfg.nudge_after_turns,
+            role,
+        };
+        let Some(kind) =
+            crate::service::plan::reminders::should_nudge(turns, last_nudge, &nudge_cfg)
+        else {
+            return;
+        };
+        let text = crate::service::plan::reminders::nudge_text(kind);
+        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+        if crate::service::messenger::Messenger::deliver(self, pane_id, envelope, text).is_ok() {
+            self.plan_turn_counter.mark_nudged(pane_id, turns);
+        }
     }
 
     /// True when the target pane currently shows a live agent TUI. A report is
@@ -203,6 +281,22 @@ impl ServiceContext {
     }
 }
 
+fn milestone_text(message: &str, status: Option<ReportStatus>) -> String {
+    match status {
+        Some(ReportStatus::Done) => format!("DONE: {message}"),
+        Some(ReportStatus::Partial) => format!("PARTIAL: {message}"),
+        Some(ReportStatus::Blocked) => format!("BLOCKED: {message}"),
+        None => message.to_string(),
+    }
+}
+
+fn epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Storage key used when a report cannot be routed to any specific pane
 /// (no parent, no report_target, no spawner). Reachable via
 /// `agent reports --pane __system__` and via the agent-report event stream.
@@ -276,8 +370,8 @@ pub struct PaneStatusInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_report_target, worker_death_report};
-    use crate::agent::reports::ReportStore;
+    use super::{milestone_text, resolve_report_target, worker_death_report};
+    use crate::agent::reports::{ReportStatus, ReportStore};
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
 
@@ -333,6 +427,27 @@ mod tests {
             "submit_report write key and agent.reports query key must agree"
         );
         assert_eq!(store.get(query_key, false).len(), 1);
+    }
+
+    #[test]
+    fn no_plan_routing_keeps_parent_priority() {
+        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-A");
+        let (_from_title, storage_key) =
+            resolve_report_target(&mux, &worker).expect("resolve target");
+        assert_eq!(storage_key.as_deref(), Some(orch.as_str()));
+    }
+
+    #[test]
+    fn milestone_text_prefixes_structured_status_only() {
+        assert_eq!(milestone_text("shipped", None), "shipped");
+        assert_eq!(
+            milestone_text("shipped", Some(ReportStatus::Done)),
+            "DONE: shipped"
+        );
+        assert_eq!(
+            milestone_text("needs help", Some(ReportStatus::Blocked)),
+            "BLOCKED: needs help"
+        );
     }
 
     #[test]
