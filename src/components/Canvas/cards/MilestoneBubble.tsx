@@ -53,14 +53,15 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
         data-testid="canvas-milestone-kind-label"
         style={{
           fontWeight: 700,
-          fontSize: lod === "far" ? "0.6rem" : "0.66rem",
-          lineHeight: 1.1,
+          fontSize: lod === "far" ? "0.66rem" : "0.74rem",
+          lineHeight: 1.05,
           textTransform: "capitalize",
-          padding: "0 4px",
+          padding: "0 5px",
           maxWidth: "100%",
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          textShadow: "0 1px 2px color-mix(in srgb, var(--ct-bg) 70%, transparent)",
         }}
       >
         {milestone.kind.replace(/_/g, " ")}

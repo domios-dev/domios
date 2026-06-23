@@ -22,20 +22,20 @@ const frameStyle: CSSProperties = {
   flexDirection: "column",
 };
 
-// Coverage is the row FILL TINT (primary signal): covered rows carry an accent
-// wash keyed by status; uncovered rows pop amber. Edges only reinforce.
+// Coverage is the row FILL TINT (primary signal): covered rows carry a clear
+// accent wash keyed by status; uncovered rows pop amber + dashed. Edges reinforce.
 const GLYPH = {
-  done: { Icon: Check, color: "rgba(74, 222, 128, 0.95)", tint: "rgba(74, 222, 128, 0.12)", rail: "rgba(74, 222, 128, 0.9)" },
-  progress: { Icon: CircleDot, color: "rgba(129, 140, 248, 0.98)", tint: "rgba(99, 102, 241, 0.16)", rail: "rgba(99, 102, 241, 0.95)" },
-  uncovered: { Icon: TriangleAlert, color: "rgba(251, 191, 36, 0.98)", tint: "rgba(251, 191, 36, 0.12)", rail: "rgba(251, 191, 36, 0.9)" },
-} as const satisfies Record<SectionRowGlyph, { Icon: typeof Check; color: string; tint: string; rail: string }>;
+  done: { Icon: Check, color: "rgba(74, 222, 128, 1)", tint: "rgba(52, 211, 153, 0.16)", rail: "rgba(52, 211, 153, 0.95)", dashed: false },
+  progress: { Icon: CircleDot, color: "rgba(129, 140, 248, 1)", tint: "rgba(99, 102, 241, 0.20)", rail: "rgba(99, 102, 241, 1)", dashed: false },
+  uncovered: { Icon: TriangleAlert, color: "rgba(251, 191, 36, 1)", tint: "rgba(251, 191, 36, 0.18)", rail: "rgba(251, 191, 36, 0.95)", dashed: true },
+} as const satisfies Record<SectionRowGlyph, { Icon: typeof Check; color: string; tint: string; rail: string; dashed: boolean }>;
 
-function ownerLabel(plan: Plan): string {
-  return plan.owner.title ?? plan.owner.pane_id ?? "Unowned";
+function ownerLabel(plan: Plan): string | null {
+  return plan.owner.title ?? plan.owner.pane_id ?? null;
 }
 
 function Row({ row }: { row: SectionRow }) {
-  const { Icon, color, tint, rail } = GLYPH[row.glyph];
+  const { Icon, color, tint, rail, dashed } = GLYPH[row.glyph];
   const uncovered = row.glyph === "uncovered";
   return (
     <div
@@ -49,12 +49,12 @@ function Row({ row }: { row: SectionRow }) {
         alignItems: "center",
         gap: 8,
         paddingRight: 12,
-        paddingLeft: 12 + row.depth * S.planRowIndent,
-        borderLeft: uncovered ? `2px dashed ${rail}` : `2px solid ${rail}`,
+        paddingLeft: 10 + row.depth * S.planRowIndent,
+        borderLeft: `3px ${dashed ? "dashed" : "solid"} ${rail}`,
         background: tint,
       }}
     >
-      <Icon size={13} color={color} style={{ flexShrink: 0 }} strokeWidth={uncovered ? 2.4 : 2} />
+      <Icon size={13} color={color} style={{ flexShrink: 0 }} strokeWidth={uncovered ? 2.4 : 2.2} />
       <span
         style={{
           flex: 1,
@@ -102,9 +102,11 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
   const taskCount = plan.tasks.length;
   const doneCount = plan.tasks.filter((t) => t.status === "done").length;
   const standalone = rows.length === 0;
+  const owner = ownerLabel(plan);
 
   return (
     <div data-testid="canvas-plan-node" data-plan-id={plan.id} style={{ ...frameStyle, ...style }}>
+      <div style={{ height: 3, flexShrink: 0, background: "linear-gradient(90deg, var(--ct-border-focus), rgba(52,211,153,0.85))" }} />
       <div
         style={{
           height: S.planHeaderHeight,
@@ -159,24 +161,30 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--ct-font-size-sm)" }}>
-          <span
-            data-testid="canvas-plan-owner"
-            style={{
-              maxWidth: 150,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              padding: "1px 8px",
-              borderRadius: 999,
-              background: "var(--ct-bg-selected)",
-              border: "1px solid var(--ct-border-subtle)",
-              opacity: "var(--ct-text-secondary-opacity)",
-            }}
-          >
-            {ownerLabel(plan)}
-          </span>
-          <span style={{ marginLeft: "auto", opacity: "var(--ct-text-secondary-opacity)" }}>
-            {doneCount}/{taskCount}
+          {owner && (
+            <span
+              data-testid="canvas-plan-owner"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                maxWidth: 160,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                padding: "1px 8px 1px 6px",
+                borderRadius: 999,
+                background: "var(--ct-bg-selected)",
+                border: "1px solid var(--ct-border-subtle)",
+                opacity: "var(--ct-text-secondary-opacity)",
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(74,222,128,0.9)", flexShrink: 0 }} />
+              {owner}
+            </span>
+          )}
+          <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", opacity: "var(--ct-text-secondary-opacity)" }}>
+            {doneCount}/{taskCount} done
           </span>
         </div>
       </div>
