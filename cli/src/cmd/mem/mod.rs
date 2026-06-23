@@ -168,10 +168,11 @@ fn mem_post_request(
     let text = resp.text().unwrap_or_default();
     let val: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
     if !status.is_success() {
-        return Err(if text.is_empty() {
-            val.to_string()
+        let body = text.trim();
+        return Err(if body.is_empty() {
+            status.to_string()
         } else {
-            text
+            format!("{} {}", status, body)
         });
     }
     Ok(val)
