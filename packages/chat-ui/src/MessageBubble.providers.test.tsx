@@ -322,14 +322,14 @@ test("Codex injected transcript rows render as collapsed neutral artifacts", asy
     },
   ]);
   try {
-    assertIncludes(host, "Agent instructions", "Codex instructions label");
+    assertIncludes(host, "System context", "Codex instructions label");
     assertIncludes(host, "Turn interrupted", "Codex turn aborted label");
     assert(
       !textOf(host).includes("Full instructions visible only after expansion."),
       "Codex instructions should be collapsed by default",
     );
 
-    await clickButtonContaining(host, "Agent instructions");
+    await clickButtonContaining(host, "System context");
     assertIncludes(host, "Full instructions visible only after expansion.", "expanded Codex instructions body");
   } finally {
     await act(async () => root.unmount());
