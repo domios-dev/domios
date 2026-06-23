@@ -4377,6 +4377,22 @@
           "subcommands": []
         },
         {
+          "name": "coverage",
+          "about": "Show section coverage (% + gaps)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "create",
           "about": "Create a new plan",
           "aliases": [],
@@ -4529,6 +4545,38 @@
           "subcommands": []
         },
         {
+          "name": "groups",
+          "about": "Set task groups (phases)",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "groups",
+                  "positional": false,
+                  "value_name": "GROUPS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "kinds",
           "about": "Set milestone kind columns",
           "aliases": [],
@@ -4607,6 +4655,30 @@
               "subcommands": []
             }
           ]
+        },
+        {
+          "name": "link",
+          "about": "Link this plan to a related plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         },
         {
           "name": "list",
@@ -5164,6 +5236,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "group",
+                  "positional": false,
+                  "value_name": "GROUP",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "intent",
                   "positional": false,
                   "value_name": "INTENT",
@@ -5380,6 +5460,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "group",
+                  "positional": false,
+                  "value_name": "GROUP",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "intent",
                   "positional": false,
                   "value_name": "INTENT",
@@ -5489,6 +5577,30 @@
               "name": "reason",
               "positional": false,
               "value_name": "REASON",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "unlink",
+          "about": "Remove a plan link",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
               "default": null,
               "help": null,
               "aliases": []
