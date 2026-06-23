@@ -56,10 +56,17 @@ export function PlanButton({ paneId, panes }: PlanButtonProps) {
   const pulsing = canvasFocusStore.anyPulsing(planIds);
   const orchestratorPaneId = resolveOrchestratorPaneId(paneId, panes);
 
+  // Role-driven label (§7): orchestrator owns a plan → "Plan"; a worker bound to
+  // a task only → "Tasks". Owner-match (self or pane chain) decides.
+  const ownsPlan = relevantPlans.some(
+    (p) => p.owner.pane_id === paneId || p.owner.pane_id === orchestratorPaneId,
+  );
+  const label = ownsPlan ? "Plan" : "Tasks";
+
   const open = () => {
     for (const id of planIds) canvasFocusStore.clearPulse(id);
     canvasFocusStore.openFocus({
-      orchestratorPaneId,
+      orchestratorPaneId: ownsPlan ? orchestratorPaneId : paneId,
       planId: relevantPlans.length === 1 ? relevantPlans[0].plan_id : undefined,
     });
   };
@@ -68,8 +75,9 @@ export function PlanButton({ paneId, panes }: PlanButtonProps) {
     <button
       type="button"
       data-testid="plan-button"
+      data-role-label={label}
       onClick={open}
-      title="Open plan canvas"
+      title={ownsPlan ? "Open plan canvas" : "Open your tasks on the canvas"}
       className={`flex shrink-0 items-center gap-1 rounded border px-2 text-[11px] font-medium cursor-pointer ${pulsing ? "ct-plan-button-pulse" : ""}`}
       style={{
         height: PANE_BAR_CONTROL_H,
@@ -79,7 +87,7 @@ export function PlanButton({ paneId, panes }: PlanButtonProps) {
       }}
     >
       <Map size={13} />
-      Plan
+      {label}
     </button>
   );
 }
