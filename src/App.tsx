@@ -21,6 +21,8 @@ import { CrashReportToast } from "./components/CrashReportToast";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { HamburgerIcon } from "./components/Icons";
+import { CanvasView } from "./components/Canvas/CanvasView";
+import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget } from "./components/Canvas/canvasFocusStore";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
@@ -268,6 +270,10 @@ function AppInner() {
     () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
     [activeWs, state.activeTabIds],
   );
+  const showWorkspaceCanvas =
+    mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
+  const canvasFocusOpen = useCanvasFocusOpen();
+  const canvasFocusTarget = useCanvasFocusTarget();
   useEffect(() => {
     if (!activeTab?.id) return;
     setMountedTabIds((prev) => {
@@ -594,6 +600,26 @@ function AppInner() {
               <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={() => setPluginViewId(null)} />
             </div>
           )}
+          {showWorkspaceCanvas && (
+            <div className="absolute inset-0" style={{ zIndex: 1 }}>
+              <CanvasView
+                mode="workspace"
+                workspaceId={activeWs?.id}
+                api={stableApiConfig}
+              />
+            </div>
+          )}
+          {canvasFocusOpen && canvasFocusTarget && (
+            <div className="absolute inset-0" style={{ zIndex: 25 }}>
+              <CanvasView
+                mode="focus"
+                planId={canvasFocusTarget.planId}
+                orchestratorPaneId={canvasFocusTarget.orchestratorPaneId}
+                api={stableApiConfig}
+                onClose={() => canvasFocusStore.close()}
+              />
+            </div>
+          )}
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
@@ -638,12 +664,7 @@ function AppInner() {
               })
             )
           ) : mainView === "workspace" ? (
-            <div
-              className="flex items-center justify-center w-full h-full text-sm"
-              style={{ color: stableTheme.bright_black }}
-            >
-              Loading...
-            </div>
+            <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
         </main>
         </div>
