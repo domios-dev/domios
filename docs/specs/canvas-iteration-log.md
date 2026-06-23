@@ -125,7 +125,23 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   edges quiet, group bounded, edges run level. Clean and restrained.
 - Re-scoring with a fresh Dax (full + zoom detail crop).
 
-## Iteration 7 — Dax re-score + remaining polish — in progress
+## Iteration 7 — EDGES + CAMERA + ANCHORING pass (Mira) — in progress
+- **Dax3 scored iter6 = 80/100.** Per-dim: Hierarchy 7.5, Connection **6.0** (weakest), Coverage
+  8.5, Bounds **9.0** (best), Packing **6.0**, Typography 7.5, Color 7.5, Nav 8, Markdown 8,
+  Polish 6.5. (Critic scores plateau ~80 across Dax1/2/3 = calibration; Connection+Packing are
+  the two cheap wins to break past 85.)
+- **OVER-CORRECTION caught:** iter6 quieted edges (per Dax2's 'too loud') so much they're now
+  INVISIBLE on the dark canvas. Find the MIDDLE: accent-border ~0.4 alpha / 1.5px + 3px endpoint
+  dot on the covered-row anchor. Stop oscillating.
+- **THE ONE THING:** edges legible AND landed on the exact covered row (defect 1+5) — the board's
+  whole value is 'this task covers that section'; today that's hidden.
+- **Ranked → Mira (iter7, edges+camera ONLY, no spec/plan tuning):** 1) edges to ~0.4 alpha
+  1.5px + endpoint dots. 2) fit-to-view frames the REAL content bbox (kill the ~55% void) /
+  shrink satellite orbit so tasks sit beside their rows. 3) bubbles: 1-glyph kind label or a
+  per-cluster legend chip + ONE coherent color ramp. 4) drop the duplicate H1 from the spec node.
+  5) anchor each task's y to its primary covered row's y (iter6 alignment didn't land). 6) real
+  tinted group container. 7) right-align row count badges into a column. 8) spec body → 70%
+  muted. 9) composer/tooltip backdrop so it doesn't occlude nodes.
 - **Dax2 (fresh independent critic) scored iter5 = 76/100.** Per-dim: Hierarchy 7, Connection 8,
   Coverage 8 (best), Bounds 8, Packing **5** (weakest), Typography 7, Color 6, Nav 7, Markdown 8,
   Polish 6. (Lower than Dax1's 80 = critic calibration drift, not regression; iter5 objectively
