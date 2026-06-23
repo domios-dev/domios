@@ -362,6 +362,50 @@ fn rich_flatten_parity_system_meta_local_command() {
 }
 
 #[test]
+fn rich_flatten_parity_classifies_dante_system_user_rows() {
+    if require_plugins().is_none() {
+        return;
+    }
+    use crate::service::pane_chat::rich_to_chat_msgs;
+    let j = load_js("claude");
+
+    let jsonl = concat!(
+        r#"{"parentUuid":"908feb2c-701a-4612-87b0-f36105adca1a","isSidechain":false,"promptId":"fa97afe2-3473-45a9-8e7f-a12f698367cc","type":"user","message":{"role":"user","content":"This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. Primary Request and Intent:\n   - I (Dante, Opus) was made the CodeTerm orchestrator.\n"},"isVisibleInTranscriptOnly":true,"isCompactSummary":true,"uuid":"9c469a99-438b-4051-af05-ab2460f5be37","timestamp":"2026-06-23T02:31:14.443Z","userType":"external","entrypoint":"cli","cwd":"/Users/dev/Developer/codeterm-alpha","sessionId":"0b688a01-2ea9-49c8-b045-d2c4b70a09ec","version":"2.1.185","gitBranch":"master","slug":"binary-churning-yao"}"#,
+        "\n",
+        r#"{"parentUuid":"2945e439-1fd9-4416-8270-3052cd9cc92b","isSidechain":false,"promptId":"7c598803-7747-4e0a-ba9a-d081b2687028","type":"user","message":{"role":"user","content":"<task-notification>\n<task-id>bawoofxfm</task-id>\n<tool-use-id>toolu_015s315pBKC2AjB7FrfdKDy2</tool-use-id>\n<output-file>/private/tmp/claude/tasks/bawoofxfm.output</output-file>\n<status>completed</status>\n<summary>Background command \"Wait for real SSH up (exits only on success)\" completed (exit code 0)</summary>\n</task-notification>"},"uuid":"4cd5c262-c942-455c-b9c0-32d2322da0f6","timestamp":"2026-06-23T05:30:25.000Z","permissionMode":"auto","origin":{"kind":"task-notification"},"promptSource":"system","userType":"external","entrypoint":"cli","cwd":"/Users/dev/Developer/codeterm-alpha","sessionId":"0b688a01-2ea9-49c8-b045-d2c4b70a09ec","version":"2.1.185","gitBranch":"fix/web-stream","slug":"binary-churning-yao"}"#,
+        "\n",
+        r#"{"type":"user","uuid":"u1","message":{"role":"user","content":"real user message"}}"#,
+        "\n",
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), jsonl).unwrap();
+
+    let delta = j.parse_session_delta(tmp.path(), 0);
+    let msgs: Vec<_> = delta
+        .messages
+        .iter()
+        .enumerate()
+        .flat_map(|(i, r)| rich_to_chat_msgs(r, i))
+        .collect();
+
+    assert!(
+        msgs.iter()
+            .all(|m| !m.content.contains("<task-notification>")),
+        "task notification leaked into chat: {msgs:#?}"
+    );
+    assert_eq!(msgs.len(), 3);
+    assert_eq!(msgs[0].kind, "system");
+    assert_eq!(msgs[0].system_subtype.as_deref(), Some("compact_summary"));
+    assert!(msgs[0].collapsed);
+    assert!(msgs[0].content.contains("Dante, Opus"));
+    assert_eq!(msgs[1].kind, "status");
+    assert_eq!(msgs[1].system_subtype.as_deref(), Some("task_notification"));
+    assert_eq!(msgs[1].content, "Task completed");
+    assert_eq!(msgs[2].kind, "user");
+    assert_eq!(msgs[2].content, "real user message");
+}
+
+#[test]
 fn parse_session_delta_holds_back_partial_line() {
     if require_plugins().is_none() {
         return;

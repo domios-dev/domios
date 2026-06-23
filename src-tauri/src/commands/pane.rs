@@ -17,7 +17,7 @@ pub async fn get_pane_output(
         strip_ansi: true,
         full: true,
     };
-    let result = crate::dispatch::dispatch(&cmd, svc.as_ref())?;
+    let result = crate::dispatch::dispatch_blocking(cmd, svc.inner().clone()).await?;
     Ok(result
         .into_json()
         .get("output")
@@ -347,12 +347,14 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
     let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let path_ms = path_started.elapsed().as_millis();
 
-    // Sessions over the cap skip the full parse to avoid blocking: return empty
-    // messages and start the tailer at offset 0 so history streams in as deltas.
     const JSONL_SNAPSHOT_CAP: u64 = 10 * 1024 * 1024;
+    const JSONL_SNAPSHOT_WINDOW: u64 = 4 * 1024 * 1024;
     let read_started = std::time::Instant::now();
     let (messages, msg_count, tailer_start_offset) = if total > JSONL_SNAPSHOT_CAP {
-        (vec![], 0usize, 0u64)
+        let start = jsonl_tail_window_start(&path, total, JSONL_SNAPSHOT_WINDOW);
+        let msgs = jsonl_snapshot_from_offset(&svc.agent_registry, &provider_id, &path, start);
+        let count = msgs.len();
+        (msgs, count, total)
     } else {
         let (msgs, count) =
             crate::service::pane_chat::pane_chat_snapshot(svc, &pane_id, 0).unwrap_or_default();
@@ -409,6 +411,51 @@ pub fn chat_start_core(svc: &ServiceState, pane_id: String) -> Result<ChatStartR
         messages: Some(messages),
         cursor: None,
     })
+}
+
+fn jsonl_tail_window_start(path: &std::path::Path, total: u64, window: u64) -> u64 {
+    let rough = total.saturating_sub(window);
+    if rough == 0 {
+        return 0;
+    }
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return rough;
+    };
+    if file.seek(SeekFrom::Start(rough)).is_err() {
+        return rough;
+    }
+    let mut buf = [0u8; 8192];
+    let Ok(n) = file.read(&mut buf) else {
+        return rough;
+    };
+    buf[..n]
+        .iter()
+        .position(|b| *b == b'\n')
+        .map(|idx| rough + idx as u64 + 1)
+        .unwrap_or(rough)
+}
+
+fn jsonl_snapshot_from_offset(
+    registry: &std::sync::Arc<crate::agent::registry::AgentRegistry>,
+    provider_id: &str,
+    path: &std::path::Path,
+    offset: u64,
+) -> Vec<crate::agent::chat_types::ChatMsg> {
+    registry
+        .with_provider(provider_id, |p| {
+            let mut delta = p.parse_session_delta(path, offset);
+            for m in &mut delta.messages {
+                crate::service::pane_chat::enrich_interactive(m, p);
+            }
+            delta
+                .messages
+                .iter()
+                .enumerate()
+                .flat_map(|(i, r)| crate::service::pane_chat::rich_to_chat_msgs(r, i))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -603,4 +650,107 @@ pub fn chatbackend_switch_model(
     model: String,
 ) -> Result<crate::chatbackend::ChatSessionInfo, String> {
     svc.chatbackend_set_model(&plugin_id, &session_id, &model)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn workspace_plugins_root() -> std::path::PathBuf {
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).join("plugins")
+    }
+
+    fn claude_registry() -> Arc<crate::agent::registry::AgentRegistry> {
+        let plugin_js = std::fs::read_to_string(
+            workspace_plugins_root()
+                .join("provider-claude")
+                .join("plugin.js"),
+        )
+        .expect("read claude plugin.js");
+        let manifest_json = r#"{
+            "id": "claude",
+            "version": "0.1.0",
+            "displayName": "Claude Code",
+            "spawn": {
+                "readinessStrategy": {"kind": "fixed_delay", "durationMs": 0},
+                "taskDelivery": "pty_input",
+                "verifySubmit": {"kind": "none"}
+            },
+            "sessions": {
+                "rootDir": "~/.claude/projects",
+                "cwdEncoding": "dash_encoded",
+                "fileExtension": "jsonl"
+            }
+        }"#;
+        let manifest: crate::plugin::js_runtime::PluginManifest =
+            serde_json::from_str(manifest_json).expect("parse claude manifest");
+        let vm = crate::plugin::js_runtime::PluginVm::from_source_with(
+            "claude",
+            plugin_js,
+            Some(manifest_json.to_string()),
+        )
+        .expect("init claude VM");
+        let provider = crate::plugin::js_runtime::JsProvider::new(manifest, Arc::new(vm));
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(provider));
+        Arc::new(registry)
+    }
+
+    #[test]
+    fn large_jsonl_tail_window_returns_normalized_history() {
+        if !workspace_plugins_root().join("provider-claude").exists() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("dante.jsonl");
+        let compact = serde_json::json!({
+            "type": "user",
+            "uuid": "compact-user",
+            "isVisibleInTranscriptOnly": true,
+            "isCompactSummary": true,
+            "message": {
+                "role": "user",
+                "content": "This session is being continued from a previous conversation.\n\nSummary:\n- Dante context"
+            }
+        });
+        let task = serde_json::json!({
+            "type": "user",
+            "uuid": "task-user",
+            "origin": {"kind": "task-notification"},
+            "message": {
+                "role": "user",
+                "content": "<task-notification>\n<status>completed</status>\n</task-notification>"
+            }
+        });
+        let normal = serde_json::json!({
+            "type": "user",
+            "uuid": "normal-user",
+            "message": {"role": "user", "content": "real user message"}
+        });
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n{}\n{}\n",
+                compact,
+                task,
+                normal
+            ),
+        )
+        .unwrap();
+
+        let total = std::fs::metadata(&path).unwrap().len();
+        let start = jsonl_tail_window_start(&path, total, 1024 * 1024);
+        let msgs = jsonl_snapshot_from_offset(&claude_registry(), "claude", &path, start);
+
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].kind, "system");
+        assert_eq!(msgs[0].system_subtype.as_deref(), Some("compact_summary"));
+        assert!(msgs[0].collapsed);
+        assert_eq!(msgs[1].kind, "status");
+        assert_eq!(msgs[1].content, "Task completed");
+        assert_eq!(msgs[1].system_subtype.as_deref(), Some("task_notification"));
+        assert_eq!(msgs[2].kind, "user");
+        assert_eq!(msgs[2].content, "real user message");
+    }
 }

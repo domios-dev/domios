@@ -1,10 +1,10 @@
 ---
-title: End-to-end GitHub release for CodeTerm
-area: deploy
-tags: [release, github, macos, windows, notarize, brew, mesh]
-owner: mac
-scope: shared
-source: git
+name: github-release
+description: >-
+  End-to-end GitHub release workflow for CodeTerm. Use when asked to release,
+  ship, tag, publish, bump a version, trigger the self-hosted build machine,
+  monitor release CI, produce signed/notarized macOS/Linux/Windows artifacts,
+  update the public updater mirror, or debug the CodeTerm release pipeline.
 ---
 
 
@@ -80,7 +80,7 @@ failed run never half-publishes.
 
 User says: «сделай релиз», «выпусти vX.Y.Z», «ship it», «bump version + release», «assemble the binaries and put on github».
 
-For just **building locally** (no release), use `prod-build`. For **just** the macOS x86_64 cross-compile gotchas, see `macos-x86_64-release`. This skill ties all three targets + upload + brew in one flow.
+For just **building locally** (no release), use `prod-build`. For **just** the macOS x86_64 cross-compile gotchas, read `references/macos-x86-64.md`. This skill ties all three targets + upload + brew in one flow.
 
 ## Agent report contract — machine-token first line
 
@@ -217,7 +217,7 @@ You're now in detached HEAD on the exact tagged commit. All builds below use thi
 ```bash
 WORK=/tmp/codeterm-${VER}-mirror
 mkdir -p "$WORK"
-HELPERS=.codeterm/skills/github-release/scripts
+HELPERS=.agents/skills/github-release/scripts
 ARM_SIG=$("$HELPERS/mac-bundle.sh" "$VER" arm64   "$WORK")
 X64_SIG=$("$HELPERS/mac-bundle.sh" "$VER" x86_64 "$WORK")
 ```
@@ -232,12 +232,12 @@ The captured `ARM_SIG` / `X64_SIG` go straight into latest.json below.
 ### Status dashboard (any time during the flow)
 
 ```bash
-.codeterm/skills/github-release/scripts/release-status.sh "$VER"
+.agents/skills/github-release/scripts/release-status.sh "$VER"
 ```
 
 Compact one-shot view of: private/public assets, latest.json manifest plat coverage, and per-platform CI run state. Replaces 3-4 separate `gh` queries.
 
-Cross-compile detail (why this script exists): `macos-x86_64-release` skill.
+Cross-compile detail (why this script exists): `references/macos-x86-64.md`.
 
 ### 7. Upload macOS DMGs to the private (source) repo
 
@@ -260,7 +260,7 @@ Pointing macOS `latest.json` at `.dmg` makes `codeterm update install --auto` fa
 **Preferred path:** tag-push CI builds each platform, uploads source artifacts to `rollacode/codeterm`, writes updater fragments whose URLs point at `rollacode/codeterm-releases`, then mirrors public assets and merged `latest.json`.
 
 ```bash
-.codeterm/skills/github-release/scripts/release-status.sh "$VER"
+.agents/skills/github-release/scripts/release-status.sh "$VER"
 ```
 
 **Manual mirror fallback:** use only when CI produced source assets but the public mirror failed (usually `PACKAGE_REPOS_TOKEN` 403 or a workflow script bug). This is what keeps the release shippable without rebuilding all platforms.
@@ -360,7 +360,7 @@ codeterm --mesh BLACKSTAR agent spawn claude \
   --title "v$VER windows release" \
   --role Orchestrator \
   --model haiku \
-  --task "bash .codeterm/skills/github-release/scripts/win-release.sh $VER"
+  --task "bash .agents/skills/github-release/scripts/win-release.sh $VER"
 ```
 
 The agent's final `codeterm agent report` line is parseable:
@@ -389,7 +389,7 @@ Direct local invocation (on a Windows machine with a checkout, e.g. for testing 
 
 ```bash
 # In Git Bash on BLACKSTAR / ROG:
-bash .codeterm/skills/github-release/scripts/win-release.sh $VER
+bash .agents/skills/github-release/scripts/win-release.sh $VER
 # stdout is the machine-parseable agent report
 ```
 
@@ -631,7 +631,7 @@ powershell -ExecutionPolicy Bypass `
   -Resume
 ```
 
-The script lives in this skill's folder at `<repo>/.codeterm/skills/github-release/scripts/self-install-local.ps1`.
+The script lives in this skill's folder at `<repo>/.agents/skills/github-release/scripts/self-install-local.ps1`.
 
 Gotchas:
 - Don't pass `-Verb RunAs` to the installer. `installMode=currentUser` doesn't need elevation; RunAs triggers UAC and hangs on headless.

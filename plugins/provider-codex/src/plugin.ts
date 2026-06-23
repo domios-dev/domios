@@ -194,6 +194,18 @@ const plugin: PluginModule = {
           text = p.content;
         }
         if (!text) continue;
+        const systemSubtype = classifyCodexSystemText(text);
+        if (systemSubtype) {
+          out.push({
+            role: "system",
+            blocks: [{ kind: "text", data: { text: text, subtype: systemSubtype } }],
+            sourceType: v.type,
+            sourceSubtype: systemSubtype,
+            ts: ts,
+            timestamp: tsIso,
+          });
+          continue;
+        }
         out.push({ role: role, blocks: [{ kind: "text", data: { text: text } }], ts: ts, timestamp: tsIso });
       } else if (p.type === "function_call") {
         let input: Record<string, unknown> = {};
@@ -448,7 +460,12 @@ const plugin: PluginModule = {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
-      out.push({ role: role, text: text2, ts: ts, isMeta: false });
+      const systemSubtype = classifyCodexSystemText(text2);
+      if (systemSubtype) {
+        out.push({ role: "system", text: text2, ts: ts, isMeta: true, sourceSubtype: systemSubtype });
+      } else {
+        out.push({ role: role, text: text2, ts: ts, isMeta: false });
+      }
     }
     return out;
   },
@@ -873,6 +890,24 @@ function hasUsefulFunctionCall(name: string, input: Record<string, unknown>, arg
   if (name) return true;
   if (typeof args === "string" && args.trim() && args.trim() !== "{}") return true;
   return Object.keys(input || {}).length > 0;
+}
+
+function classifyCodexSystemText(text: string): string | null {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return null;
+  if (
+    trimmed.indexOf("<turn_aborted>") === 0 &&
+    trimmed.indexOf("</turn_aborted>") !== -1
+  ) {
+    return "turn_aborted";
+  }
+  if (
+    /^# AGENTS\.md instructions for /m.test(trimmed) &&
+    trimmed.indexOf("<INSTRUCTIONS>") !== -1
+  ) {
+    return "agent_instructions";
+  }
+  return null;
 }
 
 function isValidCodexSessionMessage(v: CodexEntry): boolean {

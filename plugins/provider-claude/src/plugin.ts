@@ -48,6 +48,35 @@ const NOISE_FRAGMENTS = [
   "hold Space",
 ];
 
+function xmlTagBody(content: string, tag: string): string | null {
+  const open = `<${tag}>`;
+  const close = `</${tag}>`;
+  const start = content.indexOf(open);
+  if (start < 0) return null;
+  const bodyStart = start + open.length;
+  const end = content.indexOf(close, bodyStart);
+  if (end < 0) return null;
+  return content.slice(bodyStart, end).trim();
+}
+
+function taskNotificationStatus(content: string): string | null {
+  const trimmed = content.trim();
+  const start = trimmed.indexOf("<task-notification>");
+  const end = trimmed.indexOf("</task-notification>", start);
+  if (start < 0 || end < 0) {
+    return null;
+  }
+  const block = trimmed.slice(start, end + "</task-notification>".length);
+  const status = xmlTagBody(block, "status");
+  return status ? `Task ${status}` : "Task notification";
+}
+
+function isCompactSummaryRow(entry: ClaudeEntry, content: string): boolean {
+  if (entry.isCompactSummary === true) return true;
+  return entry.isVisibleInTranscriptOnly === true
+    && content.trimStart().startsWith("This session is being continued from a previous conversation");
+}
+
 const TUI_FRAGMENTS = [
   "? for shortcuts",
   "for shortcuts",
@@ -682,6 +711,7 @@ const plugin: PluginModule = {
       const t = v && v.type;
       const blocks: Array<{ kind: string; data: Record<string, unknown> }> = [];
       let role: string;
+      let sourceSubtype: string | null = (typeof v.subtype === "string") ? v.subtype : null;
       if (t === "system") {
         // System rows carry top-level `content` + `subtype`; the host turns them into system/local_command cards.
         role = "system";
@@ -693,6 +723,7 @@ const plugin: PluginModule = {
               : "");
         const sdata: Record<string, unknown> = { text: sysText };
         if (typeof v.subtype === "string") sdata.subtype = v.subtype;
+        if (typeof v.level === "string") sdata.level = v.level;
         blocks.push({ kind: "text", data: sdata });
       } else if (t === "user" || t === "assistant") {
         role = t;
@@ -700,7 +731,18 @@ const plugin: PluginModule = {
         if (!msg) continue;
         const content = msg.content;
         if (typeof content === "string") {
-          if (content) blocks.push({ kind: "text", data: { text: content } });
+          const taskStatus = t === "user" ? taskNotificationStatus(content) : null;
+          if (taskStatus) {
+            role = "status";
+            sourceSubtype = "task_notification";
+            blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
+          } else if (t === "user" && isCompactSummaryRow(v, content)) {
+            role = "system";
+            sourceSubtype = "compact_summary";
+            blocks.push({ kind: "text", data: { text: content, subtype: sourceSubtype } });
+          } else if (content) {
+            blocks.push({ kind: "text", data: { text: content } });
+          }
         } else if (Array.isArray(content)) {
           for (let j = 0; j < content.length; j++) {
             const b = content[j];
@@ -722,8 +764,17 @@ const plugin: PluginModule = {
         if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
           continue;
         }
-        role = "user";
-        blocks.push({ kind: "text", data: { text: att.prompt } });
+        const taskStatus = att.commandMode === "task-notification"
+          ? taskNotificationStatus(att.prompt) ?? "Task notification"
+          : taskNotificationStatus(att.prompt);
+        if (taskStatus) {
+          role = "status";
+          sourceSubtype = "task_notification";
+          blocks.push({ kind: "text", data: { text: taskStatus, subtype: sourceSubtype } });
+        } else {
+          role = "user";
+          blocks.push({ kind: "text", data: { text: att.prompt } });
+        }
       } else {
         continue;
       }
@@ -739,6 +790,11 @@ const plugin: PluginModule = {
         ts: ts,
         uuid: (typeof v.uuid === "string") ? v.uuid : null,
         isMeta: v.isMeta === true ? true : null,
+        sourceType: (typeof v.type === "string") ? v.type : null,
+        sourceSubtype,
+        level: (typeof v.level === "string") ? v.level : null,
+        isCompactSummary: v.isCompactSummary === true ? true : null,
+        isVisibleInTranscriptOnly: v.isVisibleInTranscriptOnly === true ? true : null,
         timestamp: (typeof v.timestamp === "string") ? v.timestamp : null,
       });
     }

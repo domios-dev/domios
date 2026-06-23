@@ -23,6 +23,7 @@ interface TabContentProps {
   api?: ApiConfig;
   workspaceCwd?: string | null;
   uiFontScale?: number;
+  isVisible: boolean;
   /** From App's single useConfig — chat is the default view (leads the picker). */
   chatFirst: boolean;
   /** From App's single useConfig — chat-default nudge already answered. */
@@ -40,6 +41,7 @@ export function TabContent({
   usageEnabledByProvider,
   workspaceCwd,
   uiFontScale,
+  isVisible,
   chatFirst,
   chatDefaultPrompted,
 }: TabContentProps) {
@@ -57,13 +59,14 @@ export function TabContent({
   const cwd = pane.cwd ?? workspaceCwd ?? null;
 
   const body = isChatBackend ? (
-    <PaneSessionChat paneId={pane.id} chatBackend uiFontScale={uiFontScale} />
+    <PaneSessionChat paneId={pane.id} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (
     <TerminalPane
       key={pane.id}
       paneId={pane.id}
       ptyId={pane.pty_id}
       isFocused={isFocused}
+      isVisible={isVisible}
       hasSplits={false}
       onFocus={onFocusPane}
       onPtySpawned={onPtySpawned}
