@@ -97,6 +97,16 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
     if (cluster.nodes.length) {
       const clusterX = box.x + box.width + s.clusterGapX;
       const clusterY = box.y + Math.max(0, (height - cluster.height) / 2);
+      const pad = 8;
+      // Faint container behind the cluster (rendered first → sits under bubbles).
+      nodes.push({
+        id: `${task.id}::cluster`,
+        kind: "cluster",
+        planId: plan.id,
+        box: { x: clusterX - pad, y: clusterY - pad, width: cluster.width + pad * 2, height: cluster.height + pad * 2 },
+        iteration: null,
+        manual: false,
+      });
       for (const cn of cluster.nodes) {
         nodes.push({ ...cn, box: { ...cn.box, x: cn.box.x + clusterX, y: cn.box.y + clusterY } });
       }
