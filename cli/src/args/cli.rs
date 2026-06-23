@@ -89,7 +89,17 @@ pub enum Commands {
         lines: u32,
     },
 
-    /// Send text to a pane (default: current pane)
+    /// Send text to a pane (default: current pane).
+    ///
+    /// Sending to a SHELL pane delivers raw text/keys verbatim — no agent
+    /// return-address marker is injected, so the shell runs exactly what you
+    /// send. Sending to an AGENT pane prepends the sender marker so the agent
+    /// knows who to reply to. Key/sequence examples (use --actions):
+    ///   --actions "up,up,enter"   replay last commands
+    ///   --actions "ctrl-c"        interrupt
+    ///   --actions "esc"           dismiss
+    ///   --actions "down*3,enter"  repeat with *N
+    ///   "git status" --actions "enter"   text then submit
     #[command(name = "send")]
     SendText {
         /// Text to send (positional, or omit and use --from-file/--stdin)

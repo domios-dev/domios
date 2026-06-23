@@ -62,8 +62,9 @@ pub enum PaneAction {
         /// Tab title
         #[arg(long)]
         title: Option<String>,
-        /// Command to run on pane start (e.g. `"poetry run backend"`).
-        /// Sent into the PTY after the shell is ready.
+        /// Spawn a shell that runs this command on start (e.g.
+        /// `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be
+        /// ready, so the command runs reliably even on a freshly-created pane.
         #[arg(long)]
         cmd: Option<String>,
         /// Spawn the shell PTY immediately on the daemon for headless/API use.
