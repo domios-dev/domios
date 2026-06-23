@@ -1,0 +1,240 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanStatus {
+    Active,
+    Archived,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskStatus {
+    Pending,
+    InProgress,
+    Blocked,
+    Done,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum LoopStatus {
+    Running,
+    Done,
+    Exhausted,
+    Stopped,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ElementCanvas {
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    #[serde(default)]
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct OrchestratorRef {
+    pub pane_id: Option<String>,
+    pub session_id: Option<String>,
+    pub title: Option<String>,
+}
+
+impl OrchestratorRef {
+    pub fn from_pane(p: &str) -> Self {
+        Self {
+            pane_id: Some(p.into()),
+            ..Default::default()
+        }
+    }
+}
+
+pub type AgentRef = OrchestratorRef;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TransferRecord {
+    pub from: OrchestratorRef,
+    pub to: OrchestratorRef,
+    pub ts: u64,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MilestoneKind {
+    pub key: String,
+    pub label: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Section {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub body: String,
+    #[serde(default)]
+    pub subsections: Vec<Section>,
+    #[serde(default)]
+    pub canvas: ElementCanvas,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Milestone {
+    pub id: String,
+    pub from: AgentRef,
+    pub kind: String,
+    #[serde(default)]
+    pub text: String,
+    pub ts: u64,
+    #[serde(default)]
+    pub links: Vec<String>,
+    pub loop_id: Option<String>,
+    pub iteration: Option<u32>,
+    #[serde(default)]
+    pub canvas: ElementCanvas,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Task {
+    pub id: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub model: Option<String>,
+    pub model_rationale: Option<String>,
+    pub status: TaskStatus,
+    pub status_label: Option<String>,
+    #[serde(default)]
+    pub section_ids: Vec<String>,
+    #[serde(default)]
+    pub body: String,
+    pub intent: Option<String>,
+    pub assigned_pane_id: Option<String>,
+    pub peer: Option<String>,
+    #[serde(default)]
+    pub canvas: ElementCanvas,
+    #[serde(default)]
+    pub milestones: Vec<Milestone>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LoopStage {
+    pub key: String,
+    pub role: String,
+    pub model: Option<String>,
+    pub why: Option<String>,
+    pub prompt: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LoopSpec {
+    pub id: String,
+    pub target: String,
+    #[serde(default)]
+    pub stages: Vec<LoopStage>,
+    pub budget: u32,
+    #[serde(default)]
+    pub count: u32,
+    pub stop_when: Option<String>,
+    pub status: LoopStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CanvasElement {
+    pub id: String,
+    pub kind: String,
+    #[serde(default)]
+    pub canvas: ElementCanvas,
+    #[serde(default)]
+    pub content: serde_json::Value,
+    #[serde(default)]
+    pub links: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Viewport {
+    pub pan_x: f64,
+    pub pan_y: f64,
+    pub scale: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct PlanCanvas {
+    pub viewport: Option<Viewport>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Plan {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub sections: Vec<Section>,
+    pub status: PlanStatus,
+    pub owner: OrchestratorRef,
+    pub project_path: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    #[serde(default)]
+    pub milestone_kinds: Vec<MilestoneKind>,
+    #[serde(default)]
+    pub loops: Vec<LoopSpec>,
+    #[serde(default)]
+    pub elements: Vec<CanvasElement>,
+    #[serde(default)]
+    pub tasks: Vec<Task>,
+    #[serde(default)]
+    pub canvas: PlanCanvas,
+    #[serde(default)]
+    pub owner_history: Vec<TransferRecord>,
+}
+
+impl Plan {
+    pub fn new(title: String, project_path: String, owner: OrchestratorRef) -> Self {
+        let id = format!("pl_{}", uuid::Uuid::new_v4().simple());
+        Self {
+            id,
+            title,
+            sections: vec![],
+            status: PlanStatus::Active,
+            owner,
+            project_path,
+            created_at: 0,
+            updated_at: 0,
+            milestone_kinds: vec![],
+            loops: vec![],
+            elements: vec![],
+            tasks: vec![],
+            canvas: PlanCanvas::default(),
+            owner_history: vec![],
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_roundtrips_and_defaults() {
+        let p = Plan::new(
+            "Voice UX".into(),
+            "/repo".into(),
+            OrchestratorRef::from_pane("abc123"),
+        );
+        assert_eq!(p.status, PlanStatus::Active);
+        assert!(p.sections.is_empty() && p.tasks.is_empty() && p.loops.is_empty());
+        let json = serde_json::to_string(&p).unwrap();
+        let back: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, p.id);
+        assert_eq!(back.title, "Voice UX");
+    }
+
+    #[test]
+    fn task_status_is_closed_enum() {
+        let t: Result<TaskStatus, _> = serde_json::from_str("\"reviewing\"");
+        assert!(t.is_err(), "unknown status must reject");
+        let ok: TaskStatus = serde_json::from_str("\"in_progress\"").unwrap();
+        assert_eq!(ok, TaskStatus::InProgress);
+    }
+}
