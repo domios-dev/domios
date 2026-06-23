@@ -89,8 +89,8 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   taskMinHeight: 72,
   taskGapY: 20,
 
-  columnGapX: 84,
-  clusterGapX: 40,
+  columnGapX: 48,
+  clusterGapX: 32,
 
   bubbleRadius: 30,
   bubbleGapX: 14,

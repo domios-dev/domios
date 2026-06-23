@@ -43,7 +43,10 @@ export interface UseCanvasViewportResult {
 
 const DEF_MIN_SCALE = 0.08;
 const DEF_MAX_SCALE = 2.5;
-const DEF_FIT_PADDING = 80;
+const DEF_FIT_PADDING = 52;
+// Fit may zoom IN so a small board fills the viewport, but not past this so a
+// single tiny plan doesn't blow up to fill the screen.
+const FIT_MAX_ZOOM = 1.6;
 const LINE_PX = 16;
 const ZOOM_INTENSITY = 0.0016;
 
@@ -105,7 +108,7 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
       if (width <= 0 || height <= 0 || bounds.width <= 0 || bounds.height <= 0) return;
       const scaleX = (width - fitPadding * 2) / bounds.width;
       const scaleY = (height - fitPadding * 2) / bounds.height;
-      const scale = clamp(Math.min(scaleX, scaleY, 1), minScale, maxScale);
+      const scale = clamp(Math.min(scaleX, scaleY, FIT_MAX_ZOOM), minScale, maxScale);
       const cx = bounds.x + bounds.width / 2;
       const cy = bounds.y + bounds.height / 2;
       setTransform({ x: width / 2 - cx * scale, y: height / 2 - cy * scale, scale });
