@@ -104,11 +104,11 @@ pub async fn create_shell_pane(
         })
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if let Some(cmd) = body.cmd {
-        // send_text ensures the PTY itself (ensure_pane_pty_for_send), which a
-        // lazy pane needs — a pre-existence poll would never see one appear.
+        // Script-exec path: bypasses bracketed-paste markers that leak into
+        // bare shells which haven't armed DECSET ?2004 yet.
         state
             .svc
-            .send_text(&handle.pane_id, &cmd, true)
+            .send_shell_cmd(&handle.pane_id, &cmd)
             .map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -291,10 +291,25 @@ pub async fn exec_in_pane(
         .map(|t| t.len())
         .unwrap_or(0);
 
-    state
-        .svc
-        .send_text(&pane_id, &body.command, true)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
+    // Branch on agent presence: agent panes use the verified bracketed-paste
+    // path; plain shell panes use script-exec so markers never leak literally.
+    let has_agent = {
+        let mux = state.svc.mux.write();
+        mux.get_pane(&pane_id)
+            .and_then(|p| p.agent_type.as_deref())
+            .is_some()
+    };
+    if has_agent {
+        state
+            .svc
+            .send_text(&pane_id, &body.command, true)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
+    } else {
+        state
+            .svc
+            .send_shell_spawn(&pty_id, &body.command)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write to PTY"))?;
+    }
 
     let timeout_ms = body.timeout_ms.unwrap_or(10000);
     let buf_clone = state.svc.output_buf.clone();

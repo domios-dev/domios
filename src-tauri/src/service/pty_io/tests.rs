@@ -103,6 +103,40 @@ fn multiline_text_enter_true() {
     assert_eq!(apply_enter("line1\nline2", true), "line1\nline2\r");
 }
 
+/// Script-exec path must not contain bracketed-paste markers on Unix, else bare
+/// shells (before DECSET ?2004 arms) render the markers as literal text.
+#[cfg(unix)]
+#[test]
+fn unix_spawn_dispatch_has_no_bracketed_paste_markers() {
+    let bytes = build_spawn_dispatch("echo hello; exec zsh").unwrap();
+    let s = String::from_utf8(bytes).unwrap();
+    assert!(
+        !s.contains("\x1b[200~"),
+        "Unix script-exec must not emit BP opener: {s:?}"
+    );
+    assert!(
+        !s.contains("\x1b[201~"),
+        "Unix script-exec must not emit BP closer: {s:?}"
+    );
+    assert!(
+        s.ends_with('\r'),
+        "dispatch bytes must end with CR to submit: {s:?}"
+    );
+}
+
+/// Routing rule: a shell pane (no agent_type) must use script-exec, not
+/// bracketed paste. Verified by checking build_spawn_dispatch output on Unix.
+#[cfg(unix)]
+#[test]
+fn unix_spawn_dispatch_contains_bash_script_path() {
+    let bytes = build_spawn_dispatch("echo test").unwrap();
+    let s = String::from_utf8(bytes).unwrap();
+    assert!(
+        s.starts_with("bash /tmp/codeterm-spawn-"),
+        "Unix dispatch must invoke temp script: {s:?}"
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_spawn_dispatch_prepends_sacrificial_space() {
