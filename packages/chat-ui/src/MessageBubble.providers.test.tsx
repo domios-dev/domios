@@ -225,6 +225,118 @@ for (const fixture of providerTranscriptFixtures) {
   });
 }
 
+test("Claude compact summary renders as collapsed neutral system artifact", async () => {
+  const compactBody = [
+    "This session is being continued from a previous conversation.",
+    "Summary preview line.",
+    "Full compact body visible only after expansion.",
+  ].join("\n");
+  const { host, root } = await renderMessages([
+    {
+      id: "compact-summary",
+      type: "system",
+      systemSubtype: "compact_summary",
+      content: compactBody,
+      collapsed: true,
+    },
+    {
+      id: "compact-boundary",
+      type: "status",
+      systemSubtype: "compact_boundary",
+      content: "Context compacted",
+    },
+  ]);
+  try {
+    assertIncludes(host, "Session continued from summary", "compact summary label");
+    assertIncludes(host, "Context compacted", "compact boundary status");
+    assert(
+      !textOf(host).includes("Full compact body visible only after expansion."),
+      "compact summary body should be collapsed by default",
+    );
+
+    await clickButtonContaining(host, "Session continued from summary");
+    assertIncludes(host, "Full compact body visible only after expansion.", "expanded compact summary body");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("Claude system-shaped user rows render neutral after normalization", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "dante-compact-summary",
+      type: "system",
+      systemSubtype: "compact_summary",
+      content: [
+        "This session is being continued from a previous conversation that ran out of context.",
+        "",
+        "Summary:",
+        "- I (Dante, Opus) was made the CodeTerm orchestrator.",
+      ].join("\n"),
+      collapsed: true,
+      isCompactSummary: true,
+      isVisibleInTranscriptOnly: true,
+    },
+    {
+      id: "dante-task-notification",
+      type: "status",
+      systemSubtype: "task_notification",
+      content: "Task completed",
+    },
+  ]);
+  try {
+    assertIncludes(host, "Session continued from summary", "Dante compact summary label");
+    assertIncludes(host, "Task completed", "Dante task notification status");
+    assert(!textOf(host).includes("<task-notification>"), "raw task notification XML should not render");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("Codex injected transcript rows render as collapsed neutral artifacts", async () => {
+  const agentInstructions = [
+    "# AGENTS.md instructions for /Users/dev/Developer/codeterm-alpha",
+    "",
+    "<INSTRUCTIONS>",
+    "Full instructions visible only after expansion.",
+    "</INSTRUCTIONS>",
+  ].join("\n");
+  const { host, root } = await renderMessages([
+    {
+      id: "codex-agent-instructions",
+      provider: "codex",
+      type: "system",
+      systemSubtype: "agent_instructions",
+      content: agentInstructions,
+      collapsed: true,
+    },
+    {
+      id: "codex-turn-aborted",
+      provider: "codex",
+      type: "system",
+      systemSubtype: "turn_aborted",
+      content: "<turn_aborted>\nThe user interrupted the previous turn on purpose.\n</turn_aborted>",
+      collapsed: true,
+    },
+  ]);
+  try {
+    assertIncludes(host, "Agent instructions", "Codex instructions label");
+    assertIncludes(host, "Turn interrupted", "Codex turn aborted label");
+    assert(
+      !textOf(host).includes("Full instructions visible only after expansion."),
+      "Codex instructions should be collapsed by default",
+    );
+
+    await clickButtonContaining(host, "Agent instructions");
+    assertIncludes(host, "Full instructions visible only after expansion.", "expanded Codex instructions body");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("chatBackend exec tool_call renders command card and attached result", async () => {
   const { host, root } = await renderMessages([
     {

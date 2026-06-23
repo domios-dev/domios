@@ -19,6 +19,7 @@ import { registerPanePaste } from "../../lib/panePasteRegistry";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import {
   listenClientPaneUiMode,
+  listenPaneUiModeDefaultChanged,
   publishCurrentPaneUiMode,
   resolveInitialPaneUiMode,
   setClientPaneUiMode,
@@ -42,6 +43,7 @@ interface TerminalPaneProps {
   paneId: string;
   ptyId?: string | null;
   isFocused?: boolean;
+  isVisible?: boolean;
   hasSplits?: boolean;
   onFocus?: (paneId: string) => void;
   onPtySpawned?: (paneId: string, ptyId: string) => void;
@@ -55,6 +57,7 @@ export const TerminalPane = memo(function TerminalPane({
   paneId,
   ptyId,
   isFocused = false,
+  isVisible = true,
   hasSplits = false,
   onFocus,
   onPtySpawned,
@@ -218,6 +221,11 @@ export const TerminalPane = memo(function TerminalPane({
     userModeOverrideRef.current = mode;
     setUiMode(mode === "chat" && !chatCapable ? "terminal" : mode);
   }), [paneId, chatCapable]);
+
+  useEffect(() => listenPaneUiModeDefaultChanged(() => {
+    userModeOverrideRef.current = null;
+    setUiMode(computeMode());
+  }), [computeMode]);
 
   // Remote-control: an explicit REST /chat-view call (bridge, agents, tests)
   // broadcasts `pane-chat-view`; apply it as if the user toggled locally.
@@ -550,6 +558,7 @@ export const TerminalPane = memo(function TerminalPane({
           <PaneSessionChat
             paneId={paneId}
             uiFontScale={uiFontScale}
+            isVisible={isVisible}
             onError={() => {
               // Automatic fallback, NOT a user choice: never write the
               // client-mode store here or the pane gets pinned to terminal.

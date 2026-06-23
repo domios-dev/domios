@@ -4,15 +4,20 @@ import { manifest } from "./shared";
 
 export interface ClaudeContentBlock { type?: string; text?: string; [k: string]: unknown }
 export interface ClaudeMessage { content?: string | ClaudeContentBlock[]; model?: string }
+export interface ClaudeAttachment { type?: string; prompt?: string; commandMode?: string }
+
 export interface ClaudeEntry {
   type?: string;
   subtype?: string;
+  level?: string;
   content?: string | ClaudeContentBlock[];
   message?: ClaudeMessage;
-  attachment?: { type?: string; prompt?: string };
+  attachment?: ClaudeAttachment;
   timestamp?: string;
   uuid?: string;
   isMeta?: boolean;
+  isCompactSummary?: boolean;
+  isVisibleInTranscriptOnly?: boolean;
 }
 
 const CLAUDE_SESSION_DELTA_TYPES: Record<string, boolean> = { system: true, user: true, assistant: true, attachment: true };
@@ -64,7 +69,8 @@ function isValidClaudeSessionDelta(v: ClaudeEntry): boolean {
   if (!CLAUDE_SESSION_DELTA_TYPES[v.type as string]) return false;
   if (v.type === "system") {
     const sc = v.content;
-    return typeof sc === "string" || Array.isArray(sc);
+    if (typeof sc === "string" || Array.isArray(sc)) return true;
+    return typeof v.subtype === "string" && v.subtype.length > 0;
   }
   if (v.type === "attachment") {
     const a = v.attachment;

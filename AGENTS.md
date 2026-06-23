@@ -197,26 +197,34 @@ frontend-dev, code-reviewer, docs-sync, release) live in
 `src-tauri/`; your task: …") — there are no per-role `codeterm mem` entries to
 fetch (do not try `codeterm mem get skill_<role>_role` — those do not exist).
 
-**`.claude/skills/`** holds skills with runnable code (e.g.
-`prompt-evaluator/runner.py`) — their `SKILL.md` is the on-disk entry point.
+**`.agents/skills/`** is the canonical project-local skill directory. **`.claude/skills/`**
+is a mirror for Claude Code compatibility, synced from `.agents/skills/`.
 
 ### Where the codeterm-specific skill folders live
 
-CodeTerm-project skills (release pipeline) live in **`<repo>/.codeterm/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs. Currently:
+CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs, and mirrors to `.claude/skills/` for Claude Code. Currently:
 
-- `.codeterm/skills/github-release/` — release pipeline procedure
+- `.agents/skills/codeterm-orchestrator/` — orchestration discipline and gates
+- `.agents/skills/dev-run/` — dev daemon start/restart/diagnostics
+- `.agents/skills/dev-testing/` — dev API testing helpers
+- `.agents/skills/github-release/` — release pipeline procedure
+- `.agents/skills/prompt-evaluator/` — prompt regression harness
 
 Prod build lives in `./build.sh build`; Windows local NSIS self-install in `scripts/self-install-local.ps1`.
+
+After editing project skills, sync the Claude mirror:
+
+```bash
+node scripts/sync-agent-skills.mjs
+```
 
 On a fresh clone, register them with mem so the Librarian indexes them:
 
 ```bash
-for s in .codeterm/skills/*/; do codeterm mem skill add "$(pwd)/$s"; done
+for s in .agents/skills/*/; do codeterm mem skill add "$(pwd)/$s"; done
 ```
 
-This is one-time per machine. After registration, the Librarian re-indexes whenever a `SKILL.md` changes — edits flow through mem search automatically.
-
-User-scoped or cross-project skills (not codeterm-specific) live in `~/.codeterm/skills/` (canonical watcher path that auto-mirrors to `~/.claude/skills/` and `~/.agents/skills/`).
+User-scoped or cross-project skills live in `~/.agents/skills/` for Codex/GPT and `~/.claude/skills/` for Claude Code. CodeTerm mem can index either with `codeterm mem skill add`.
 
 **Full delegation manual** — when to delegate vs DIY, how to spawn, role assignment, recursion limits, proactive doc/eval/review hooks: see **`docs/contributing/agents.md`**.
 
