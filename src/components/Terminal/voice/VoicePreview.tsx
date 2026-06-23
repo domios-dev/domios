@@ -83,13 +83,13 @@ export function VoicePreview({
         {playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" className="ml-0.5" />}
       </button>
 
-      <div className="flex h-7 flex-1 items-center gap-[2px] overflow-hidden">
+      <div className="flex h-7 flex-1 items-center gap-[1.5px] overflow-hidden">
         {data.peaks.map((h, i) => {
           const played = i / data.peaks.length <= progress;
           return (
             <span
               key={i}
-              className="w-[3px] shrink-0 rounded-full"
+              className="w-[2px] shrink-0 rounded-[1px]"
               style={{
                 height: `${Math.round(h * 100)}%`,
                 background: played

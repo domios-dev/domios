@@ -305,8 +305,12 @@ body {
 
 .ct-composer-voice-bubble.is-active {
   box-shadow:
-    0 0 0 5px color-mix(in srgb, var(--ct-accent) 20%, transparent),
-    0 10px 28px color-mix(in srgb, var(--ct-accent) 38%, transparent);
+    0 0 0 6px color-mix(in srgb, var(--ct-accent) 20%, transparent),
+    0 12px 34px color-mix(in srgb, var(--ct-accent) 38%, transparent);
+}
+
+.ct-composer-voice-bubble.is-active:active {
+  filter: brightness(1.05);
 }
 
 .ct-composer-voice-bubble.is-active::before {
