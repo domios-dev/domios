@@ -242,7 +242,11 @@ impl PlanStore {
     }
 
     pub fn list_full(&self) -> Vec<Plan> {
-        self.plans.read().values().map(|p| p.lock().clone()).collect()
+        self.plans
+            .read()
+            .values()
+            .map(|p| p.lock().clone())
+            .collect()
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
