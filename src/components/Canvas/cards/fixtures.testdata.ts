@@ -1,0 +1,65 @@
+import type { Milestone, Plan, Section, Task } from "../types";
+
+const emptyCanvas = { x: null, y: null, collapsed: false };
+
+export const FIXTURE_SECTION: Section = {
+  id: "sec-auth",
+  title: "Authentication",
+  body: "Users **sign in** via OAuth.",
+  subsections: [
+    {
+      id: "sec-auth-oauth",
+      title: "OAuth flow",
+      body: "Redirect to provider.",
+      subsections: [],
+      canvas: emptyCanvas,
+    },
+  ],
+  canvas: emptyCanvas,
+};
+
+export const FIXTURE_TASK: Task = {
+  id: "task-dante",
+  name: "Dante",
+  type: "implement",
+  model: "claude:opus",
+  model_rationale: "Complex auth logic needs a strong model.",
+  status: "in_progress",
+  status_label: "90% done",
+  section_ids: ["sec-auth"],
+  body: "Implement the **login** endpoint.",
+  intent: null,
+  assigned_pane_id: null,
+  peer: null,
+  canvas: emptyCanvas,
+  milestones: [],
+};
+
+export const FIXTURE_MILESTONE: Milestone = {
+  id: "ms-1",
+  from: { pane_id: "p1", session_id: null, title: "Worker" },
+  kind: "status_update",
+  text: "Initial scaffold **landed**.",
+  ts: 1_700_000_000_000,
+  links: [],
+  loop_id: null,
+  iteration: 2,
+  canvas: emptyCanvas,
+};
+
+export const FIXTURE_PLAN: Plan = {
+  id: "plan-alpha",
+  title: "Auth rollout",
+  sections: [FIXTURE_SECTION],
+  status: "active",
+  owner: { pane_id: "orch-1", session_id: "sess-1", title: "Orchestrator" },
+  project_path: "/tmp/project",
+  created_at: 1_700_000_000_000,
+  updated_at: 1_700_000_100_000,
+  milestone_kinds: [{ key: "status_update", label: "Status", color: null }],
+  loops: [],
+  elements: [],
+  tasks: [FIXTURE_TASK],
+  canvas: { viewport: null },
+  owner_history: [],
+};
