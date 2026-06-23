@@ -70,6 +70,10 @@ test("CanvasViewInner renders compact plan node, section rows, and task card", a
   assert(host.querySelector('[data-testid="canvas-task-card"]'), "task card");
   assert(host.querySelector('[data-testid="canvas-task-name"]')?.textContent === "Dante", "task name");
   assert(host.querySelector('[data-testid="canvas-orchestrator-group"]'), "orchestrator group wrapper");
+  // Connective edges must render AT REST (no hover) — nothing floats untied.
+  const paths = host.querySelectorAll("svg path");
+  assert(paths.length >= 2, `edges drawn at rest (plan↔spec + section→task), got ${paths.length}`);
+  assert(host.querySelector("svg circle"), "section-row anchor dot drawn at rest");
   await act(async () => root.unmount());
 });
 

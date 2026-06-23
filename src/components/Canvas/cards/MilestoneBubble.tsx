@@ -28,7 +28,9 @@ export interface MilestoneBubbleProps extends CanvasCardStyleProps {
 // Circular milestone bubble (§2.4): colored by kind lane, hover reveals the
 // kind label + markdown text, iteration badge stacks. Sized to its layout box.
 export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleProps) {
-  const { milestone, color } = model;
+  const { milestone, color: rawColor } = model;
+  // Desaturate ~18% so bubbles read as supporting detail, not the loudest thing.
+  const color = `color-mix(in srgb, ${rawColor} 82%, var(--ct-muted-fg, #94a3b8))`;
   const [hover, setHover] = useState(false);
   const showText = (hover || lod === "near") && milestone.text.trim().length > 0;
 
@@ -42,8 +44,8 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
       style={{
         ...base,
         ...style,
-        background: `radial-gradient(circle at 35% 30%, color-mix(in srgb, ${color} 55%, var(--ct-bg)), color-mix(in srgb, ${color} 22%, var(--ct-bg)))`,
-        border: `2px solid ${color}`,
+        background: `radial-gradient(circle at 35% 30%, color-mix(in srgb, ${color} 44%, var(--ct-bg)), color-mix(in srgb, ${color} 17%, var(--ct-bg)))`,
+        border: `2px solid color-mix(in srgb, ${color} 85%, transparent)`,
         boxShadow: hover ? `0 0 0 4px color-mix(in srgb, ${color} 25%, transparent)` : "var(--ct-shadow-sm)",
         transition: "box-shadow var(--ct-duration-fast) var(--ct-ease-decel)",
         position: style?.position ?? "absolute",
