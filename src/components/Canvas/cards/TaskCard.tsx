@@ -26,9 +26,10 @@ function statusLabel(status: TaskStatus): string {
 export interface TaskCardProps extends CanvasCardStyleProps {
   task: Task;
   onOpenPane?: (paneId: string) => void;
+  onHover?: (taskId: string | null) => void;
 }
 
-export function TaskCard({ task, style, lod = "near", onOpenPane }: TaskCardProps) {
+export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: TaskCardProps) {
   const [whyOpen, setWhyOpen] = useState(false);
   const badgeColor = TASK_STATUS_COLORS[task.status];
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
@@ -37,6 +38,8 @@ export function TaskCard({ task, style, lod = "near", onOpenPane }: TaskCardProp
     <div
       data-testid="canvas-task-card"
       data-task-id={task.id}
+      onMouseEnter={() => onHover?.(task.id)}
+      onMouseLeave={() => onHover?.(null)}
       style={{ ...cardStyle, ...style, borderLeft: `3px solid ${badgeColor}` }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
