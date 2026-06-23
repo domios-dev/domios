@@ -148,7 +148,22 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   connected diagram (spec→plan→tasks→steps); fills viewport. Big jump.
 - Re-scoring with fresh Dax (full + zoom). Target >85.
 
-## Iteration 9 — Dax re-score — in progress
+## Iteration 9 — fix clipped step-text + tint balance (Mira) — in progress
+- **Dax5 scored iter8 = 79/100.** Hierarchy 7, Connection 6.5, Coverage **6** (tint now invisible),
+  Bounds **6** (text CLIPS — regression), Packing 6, Typo 6.5, Color 8, Nav 8, Markdown **6** (run-
+  together text), Polish 6.5. Plateau persists; iter8 fixed floating but introduced text-clipping.
+- **NEW BUG (iter8): step detail cards clip + run-together text** ('PlanFrameworkSectionCard…',
+  '12/12 tests pass; no clean…' cut mid-phrase) — Bounds×2 + Markdown failure, the worst 'not
+  shipped' tell. THE ONE THING.
+- **OSCILLATION (must stop):** coverage covered-row fill swung wall-of-green (0.20) → invisible
+  (0.10). Target the MIDDLE: **0.18** + left accent rule. Give Mira explicit values, no more swings.
+- **Ranked → Mira (iter9):** 1) step detail cards: measure content, clamp to N lines + fade, fix
+  inline-code/word-spacing leak (run-together), raise contrast. NOTHING clips. 2) covered-row fill
+  → 0.18 + left accent (coverage is PRIMARY signal again; keep amber stronger). 3) dead bottom ~45%
+  — fit-to-view center vertically / tighter bbox; composer not over a void. 4) plan footer: label
+  '2/2 tasks' vs '86% covered' (two metrics, ambiguous now). 5) clusters: faint container + abut
+  tighter. 6) orchestrator group: real rounded tint/border enclosure + label chip on edge. 7)
+  task→row edges: endpoint dot/slightly stronger at far LOD. 8) spec body → brighter fg.
 - **Dax4 scored iter7 = 74/100** (Hierarchy 7.5, Connection **5.5**, Coverage 8.5, Bounds 9,
   Packing **6**, Typo 7.5, Color 7, Nav 8, Markdown 8.5, Polish 6.5). Harsher calibration, but
   the defect theme is now consistent across Dax2/3/4: CONNECTION + PACKING, same root.
