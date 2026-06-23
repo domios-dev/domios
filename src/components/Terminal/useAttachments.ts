@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { useTauriFileDrop } from "../../hooks/terminal";
+import { useTauriFileDrop, materializeDroppedPaths } from "../../hooks/terminal";
 import { useWebFileDrop } from "./composerFiles";
 import { storeBlob } from "./voice/audio";
 
@@ -93,7 +93,7 @@ export function useAttachments({
       const paths = await invoke<string[]>("read_clipboard_files");
       if (paths && paths.length > 0) {
         e.preventDefault();
-        addAttachments(paths);
+        addAttachments(await materializeDroppedPaths(paths));
         return;
       }
     } catch {

@@ -10,6 +10,13 @@ use std::time::SystemTime;
 /// Default eviction: keep total bucket size under 100 MB.
 pub const DEFAULT_MAX_BYTES: u64 = 100 * 1024 * 1024;
 
+/// Inbound chat files land here as short safe ASCII paths: `codeterm-chat/<id>.<ext>`.
+const CHAT_BUCKET: &str = "chat";
+
+/// Below this size we byte-copy (cheap, and decouples from the source's lifetime).
+/// At or above it we prefer a symlink/hardlink so large files aren't duplicated into temp.
+pub const SAFE_LINK_THRESHOLD: u64 = 4 * 1024 * 1024;
+
 /// Eviction policy for a bucket.
 #[derive(Debug, Clone, Copy)]
 pub enum EvictionPolicy {
@@ -78,35 +85,121 @@ pub fn save_with_prefixed_name(
     save(bucket, &filename, bytes, policy)
 }
 
-/// Copy a source file into a durable attachment bucket, preserving its filename
-/// behind a short UUID prefix.
-pub fn save_file_with_prefixed_name(
-    bucket: &str,
-    source: &Path,
-    policy: EvictionPolicy,
-) -> Result<PathBuf, String> {
-    let dir = bucket_dir(bucket);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("create bucket dir: {}", e))?;
-    let prefix = &uuid::Uuid::new_v4().to_string()[..8];
-    let name = source
-        .file_name()
-        .map(|n| n.to_string_lossy().trim().to_string())
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| "drop".to_string());
-    let path = dir.join(format!("{}-{}", prefix, name));
-    std::fs::copy(source, &path).map_err(|e| format!("copy dropped file: {}", e))?;
-    evict(&dir, policy);
-    Ok(path)
-}
-
+/// Normalize an inbound native chat file to a short safe ASCII path under the
+/// chat temp dir (`codeterm-chat/<id>.<ext>`) so downstream tooling and the
+/// agent's file-read can always open it. Unicode/space/special-char basenames
+/// (e.g. a macOS screenshot `Снимок экрана — 2026-... .png`) otherwise break.
+///
+/// Pass-through (no alias) when the path is already safe ASCII and stable, or
+/// already inside the chat bucket (idempotent). Large stable files are linked,
+/// not copied, to avoid duplicating bytes into temp; ephemeral/small files copy.
 pub fn materialize_dropped_path(path: &Path) -> Result<PathBuf, String> {
-    if !is_volatile_macos_screenshot_path(path) {
+    let dir = bucket_dir(CHAT_BUCKET);
+    if path.starts_with(&dir) {
         return Ok(path.to_path_buf());
     }
-    save_file_with_prefixed_name("drops", path, EvictionPolicy::MaxBytes(DEFAULT_MAX_BYTES))
+    let basename = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ephemeral = is_volatile_source(path);
+    if is_safe_ascii_basename(&basename) && !ephemeral {
+        return Ok(path.to_path_buf());
+    }
+
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create chat dir: {}", e))?;
+    sweep_dangling_symlinks(&dir);
+
+    let id = short_id(path);
+    let target = match lower_ext(path) {
+        Some(ext) => dir.join(format!("{}.{}", id, ext)),
+        None => dir.join(id),
+    };
+    // Idempotent reuse: a valid alias/copy for this source already exists.
+    if std::fs::metadata(&target).is_ok() {
+        return Ok(target);
+    }
+    let _ = std::fs::remove_file(&target);
+
+    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if ephemeral || size < SAFE_LINK_THRESHOLD {
+        std::fs::copy(path, &target).map_err(|e| format!("copy attachment: {}", e))?;
+    } else {
+        link_or_copy(path, &target)?;
+    }
+    evict(&dir, EvictionPolicy::MaxBytes(DEFAULT_MAX_BYTES));
+    Ok(target)
 }
 
-fn is_volatile_macos_screenshot_path(path: &Path) -> bool {
+fn is_safe_ascii_basename(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '-' | '_'))
+}
+
+/// Short stable id derived from the absolute source path — same source reuses
+/// the same alias slot, so repeated drops of one file don't pile up.
+fn short_id(source: &Path) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    source.to_string_lossy().hash(&mut h);
+    format!("{:08x}", h.finish() as u32)
+}
+
+fn lower_ext(source: &Path) -> Option<String> {
+    source
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .filter(|e| !e.is_empty() && e.chars().all(|c| c.is_ascii_alphanumeric()))
+}
+
+/// Symlink first (zero data copy), hardlink if same volume, copy as last resort.
+fn link_or_copy(source: &Path, target: &Path) -> Result<(), String> {
+    if symlink_file(source, target).is_ok() {
+        return Ok(());
+    }
+    if std::fs::hard_link(source, target).is_ok() {
+        return Ok(());
+    }
+    std::fs::copy(source, target)
+        .map(|_| ())
+        .map_err(|e| format!("copy attachment: {}", e))
+}
+
+#[cfg(unix)]
+fn symlink_file(source: &Path, target: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(source, target)
+}
+
+#[cfg(windows)]
+fn symlink_file(source: &Path, target: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_file(source, target)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn symlink_file(_source: &Path, _target: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "symlink unsupported",
+    ))
+}
+
+/// A symlink whose target vanished (`metadata` follows the link and fails) is
+/// dead weight — drop it so a fresh drop re-materializes cleanly.
+fn sweep_dangling_symlinks(dir: &Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in rd.flatten() {
+        let is_symlink = entry.file_type().map(|t| t.is_symlink()).unwrap_or(false);
+        if is_symlink && std::fs::metadata(entry.path()).is_err() {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+fn is_volatile_source(path: &Path) -> bool {
     path.components()
         .any(|c| c.as_os_str().to_string_lossy() == "TemporaryItems")
         && path
@@ -312,19 +405,94 @@ mod tests {
 
         assert!(materialized.exists());
         assert_ne!(materialized, source);
+        // Ephemeral source is copied, not linked, so it survives the original being reaped.
         assert_eq!(std::fs::read(&materialized).unwrap(), b"screenshot");
-        assert!(materialized.starts_with(bucket_dir("drops")));
+        assert!(materialized.starts_with(bucket_dir(CHAT_BUCKET)));
 
-        let _ = std::fs::remove_dir_all(bucket_dir("drops"));
+        let _ = std::fs::remove_file(&materialized);
         let _ = std::fs::remove_dir_all(temp_root);
     }
 
     #[test]
-    fn test_non_temp_drop_path_is_referenced_raw() {
+    fn test_non_temp_safe_ascii_path_is_referenced_raw() {
         let source = std::env::temp_dir().join(format!("normal-drop-{}.txt", uuid::Uuid::new_v4()));
         std::fs::write(&source, b"normal").unwrap();
         let referenced = materialize_dropped_path(&source).unwrap();
         assert_eq!(referenced, source);
         let _ = std::fs::remove_file(source);
+    }
+
+    #[test]
+    fn test_unsafe_unicode_path_maps_to_safe_chat_path() {
+        let dir = std::env::temp_dir().join(format!("codeterm-src-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("Снимок экрана — 2026-06-23 в 14.07.27.png");
+        std::fs::write(&source, b"img").unwrap();
+
+        let safe = materialize_dropped_path(&source).unwrap();
+        let name = safe.file_name().unwrap().to_string_lossy().to_string();
+
+        assert!(safe.starts_with(bucket_dir(CHAT_BUCKET)));
+        assert!(
+            is_safe_ascii_basename(&name),
+            "basename not safe ASCII: {name}"
+        );
+        // Extension preserved (lowercased) so type detection + image read still work.
+        assert!(name.ends_with(".png"), "ext not preserved: {name}");
+        assert!(std::fs::metadata(&safe).is_ok(), "safe path unreadable");
+
+        let _ = std::fs::remove_file(&safe);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_extension_lowercased_and_preserved() {
+        let dir = std::env::temp_dir().join(format!("codeterm-src-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("файл копия.JPG");
+        std::fs::write(&source, b"x").unwrap();
+
+        let safe = materialize_dropped_path(&source).unwrap();
+        let name = safe.file_name().unwrap().to_string_lossy().to_string();
+        assert!(name.ends_with(".jpg"), "ext should be lowercased: {name}");
+
+        let _ = std::fs::remove_file(&safe);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_idempotent_on_already_safe_chat_path() {
+        let dir = std::env::temp_dir().join(format!("codeterm-src-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("отчёт.pdf");
+        std::fs::write(&source, b"pdf").unwrap();
+
+        let safe = materialize_dropped_path(&source).unwrap();
+        // Re-feeding an already-safe chat-bucket path returns it unchanged (no double-copy).
+        let again = materialize_dropped_path(&safe).unwrap();
+        assert_eq!(safe, again);
+
+        let _ = std::fs::remove_file(&safe);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_large_stable_file_is_linked_not_copied() {
+        let dir = std::env::temp_dir().join(format!("codeterm-src-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Unsafe name + above the link threshold -> aliased without byte duplication.
+        let source = dir.join("большой файл.bin");
+        std::fs::write(&source, vec![7u8; (SAFE_LINK_THRESHOLD + 1024) as usize]).unwrap();
+
+        let safe = materialize_dropped_path(&source).unwrap();
+        assert!(safe.starts_with(bucket_dir(CHAT_BUCKET)));
+        assert_eq!(std::fs::read(&safe).unwrap().len(), source_len(&source));
+
+        let _ = std::fs::remove_file(&safe);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn source_len(p: &Path) -> usize {
+        std::fs::metadata(p).unwrap().len() as usize
     }
 }
