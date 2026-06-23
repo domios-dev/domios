@@ -14,6 +14,9 @@ on:
     branches:
       - develop
       - master
+    paths-ignore:
+      - '.codeterm/build-machine/**'
+      - '.github/workflows/release*.yml'
 
 jobs:
   source-of-truth:
