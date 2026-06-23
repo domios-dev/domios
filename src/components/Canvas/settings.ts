@@ -96,10 +96,10 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   columnGapX: 48,
   clusterGapX: 24,
 
-  bubbleRadius: 30,
-  bubbleGapX: 14,
-  bubbleGapY: 26,
-  clusterLabelHeight: 22,
+  bubbleRadius: 28,
+  bubbleGapX: 12,
+  bubbleGapY: 12,
+  clusterLabelHeight: 0,
 
   anchorInset: 0,
   edgeCurve: 0.5,

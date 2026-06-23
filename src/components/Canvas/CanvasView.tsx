@@ -331,10 +331,11 @@ export function CanvasViewInner({
                   // dims the rest so the row→task mapping reads at a glance.
                   const related = hoveredTask != null && (edge.from === hoveredTask || edge.to === hoveredTask);
                   const dimmed = hoveredTask != null && !related;
-                  // Middle ground: legible accent strokes at rest (~0.4), the
-                  // hover-lift goes brighter+thicker. Neutral-on-dark vanished.
-                  const baseW = sectionTask ? 1.6 : chain ? 1.2 : 1.4;
-                  const baseO = sectionTask ? 0.42 : chain ? 0.3 : 0.36;
+                  const planSpec = edge.kind === "plan-spec";
+                  // Legible accent strokes at rest (~0.4); hover lifts brighter.
+                  const baseW = sectionTask ? 1.6 : chain ? 1.2 : planSpec ? 1.6 : 1.4;
+                  const baseO = sectionTask ? 0.42 : chain ? 0.3 : planSpec ? 0.46 : 0.36;
+                  const showDots = sectionTask || edge.kind === "task-cluster" || planSpec;
                   return (
                     <g key={edge.id}>
                       <path
@@ -345,7 +346,7 @@ export function CanvasViewInner({
                         strokeLinecap="round"
                         opacity={related ? 0.95 : dimmed ? 0.12 : baseO}
                       />
-                      {(sectionTask || edge.kind === "task-cluster") && (
+                      {showDots && (
                         <circle
                           cx={ends.a.x}
                           cy={ends.a.y}
@@ -353,6 +354,9 @@ export function CanvasViewInner({
                           fill="var(--ct-border-focus)"
                           opacity={related ? 1 : dimmed ? 0.3 : 0.75}
                         />
+                      )}
+                      {planSpec && (
+                        <circle cx={ends.b.x} cy={ends.b.y} r={3} fill="var(--ct-border-focus)" opacity={0.75} />
                       )}
                     </g>
                   );

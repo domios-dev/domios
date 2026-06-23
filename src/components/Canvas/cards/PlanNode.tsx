@@ -27,10 +27,12 @@ const frameStyle: CSSProperties = {
 
 // Coverage is the row FILL TINT (primary signal): covered rows carry a clear
 // accent wash keyed by status; uncovered rows pop amber + dashed. Edges reinforce.
+// Covered rows stay QUIET (~0.10 wash + thin rail); the saturated color lives in
+// the status glyph only. Uncovered rows keep the loud amber pop + dashed rail.
 const GLYPH = {
-  done: { Icon: Check, color: "rgba(74, 222, 128, 1)", tint: "rgba(52, 211, 153, 0.16)", rail: "rgba(52, 211, 153, 0.95)", dashed: false },
-  progress: { Icon: CircleDot, color: "rgba(129, 140, 248, 1)", tint: "rgba(99, 102, 241, 0.20)", rail: "rgba(99, 102, 241, 1)", dashed: false },
-  uncovered: { Icon: TriangleAlert, color: "rgba(251, 191, 36, 1)", tint: "rgba(251, 191, 36, 0.24)", rail: "rgba(251, 191, 36, 1)", dashed: true },
+  done: { Icon: Check, color: "rgba(52, 211, 153, 1)", tint: "rgba(52, 211, 153, 0.10)", rail: "rgba(52, 211, 153, 0.7)", dashed: false },
+  progress: { Icon: CircleDot, color: "rgba(129, 140, 248, 1)", tint: "rgba(99, 102, 241, 0.10)", rail: "rgba(99, 102, 241, 0.7)", dashed: false },
+  uncovered: { Icon: TriangleAlert, color: "rgba(251, 191, 36, 1)", tint: "rgba(251, 191, 36, 0.22)", rail: "rgba(251, 191, 36, 1)", dashed: true },
 } as const satisfies Record<SectionRowGlyph, { Icon: typeof Check; color: string; tint: string; rail: string; dashed: boolean }>;
 
 
@@ -184,13 +186,10 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
                 opacity: "var(--ct-text-secondary-opacity)",
               }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(74,222,128,0.9)", flexShrink: 0 }} />
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(56,189,248,0.95)", flexShrink: 0 }} />
               {owner}
             </span>
           )}
-          <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", opacity: "var(--ct-text-secondary-opacity)" }}>
-            {doneCount}/{taskCount} done
-          </span>
         </div>
       </div>
 
@@ -226,7 +225,12 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
             fontSize: "var(--ct-font-size-sm)",
           }}
         >
-          <span style={{ opacity: "var(--ct-text-tertiary-opacity)" }}>Coverage</span>
+          <span
+            data-testid="canvas-plan-done"
+            style={{ fontVariantNumeric: "tabular-nums", opacity: "var(--ct-text-secondary-opacity)", flexShrink: 0 }}
+          >
+            {doneCount}/{taskCount}
+          </span>
           <div
             style={{
               flex: 1,
