@@ -14,13 +14,13 @@ import {
   visibleFrameIds,
   visibleNodeIds,
   type LaidOutEdge,
-  type PlanFrame as LayoutFrame,
+  type LaidOutNode,
 } from "./layout";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
-import { filterPlansForCanvas, findSectionInPlan } from "./planPaneMatch";
-import type { Plan } from "./types";
+import { filterPlansForCanvas } from "./planPaneMatch";
+import { useFullPlans } from "./PlansProvider";
+import type { Milestone, Plan, Section, Task } from "./types";
 import { useCanvasViewport } from "./useCanvasViewport";
-import { usePlans } from "./usePlans";
 
 export interface CanvasViewInnerProps {
   mode: "workspace" | "focus";
@@ -54,10 +54,10 @@ function nodeStyle(box: { x: number; y: number; width: number; height?: number }
 
 function edgeEndpoints(
   edge: LaidOutEdge,
-  frame: LayoutFrame,
+  nodeById: Map<string, LaidOutNode>,
 ): { x1: number; y1: number; x2: number; y2: number } | null {
-  const from = frame.nodes.find((n) => n.id === edge.from);
-  const to = frame.nodes.find((n) => n.id === edge.to);
+  const from = nodeById.get(edge.from);
+  const to = nodeById.get(edge.to);
   if (!from || !to) return null;
   return {
     x1: from.box.x + from.box.width / 2,
@@ -65,6 +65,20 @@ function edgeEndpoints(
     x2: to.box.x + to.box.width / 2,
     y2: to.box.y + to.box.height / 2,
   };
+}
+
+interface CanvasLookups {
+  nodeById: Map<string, LaidOutNode>;
+  sectionById: Map<string, Section>;
+  taskById: Map<string, Task>;
+  milestoneById: Map<string, Milestone>;
+}
+
+function collectSections(sections: Section[], out: Map<string, Section>): void {
+  for (const s of sections) {
+    out.set(s.id, s);
+    if (s.subsections.length) collectSections(s.subsections, out);
+  }
 }
 
 export function CanvasViewInner({
@@ -97,6 +111,27 @@ export function CanvasViewInner({
   );
 
   const layout = useMemo(() => layoutWorkspace(filteredPlans), [filteredPlans]);
+
+  // Build id→node/section/task/milestone maps ONCE per layout/plans change so the
+  // pan/drag RAF path never rescans O(E*N) per edge or O(N) per visible node.
+  const lookups = useMemo<CanvasLookups>(() => {
+    const nodeById = new Map<string, LaidOutNode>();
+    for (const frame of layout.frames) {
+      for (const n of frame.nodes) nodeById.set(n.id, n);
+    }
+    const sectionById = new Map<string, Section>();
+    const taskById = new Map<string, Task>();
+    const milestoneById = new Map<string, Milestone>();
+    for (const plan of filteredPlans) {
+      collectSections(plan.sections, sectionById);
+      for (const task of plan.tasks) {
+        taskById.set(task.id, task);
+        for (const m of task.milestones) milestoneById.set(m.id, m);
+      }
+    }
+    return { nodeById, sectionById, taskById, milestoneById };
+  }, [layout, filteredPlans]);
+
   const { transform, handlers, fitToView, isDragging, containerRef } = useCanvasViewport({
     width: size.width,
     height: size.height,
@@ -105,7 +140,10 @@ export function CanvasViewInner({
 
   const lod = lodForScale(transform.scale);
   const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
-  const canvasSize = { width: size.width, height: size.height };
+  const canvasSize = useMemo(
+    () => ({ width: size.width, height: size.height }),
+    [size.width, size.height],
+  );
   const frameIds = useMemo(
     () => new Set(visibleFrameIds(layout, transform, canvasSize, padding)),
     [layout, transform, canvasSize, padding],
@@ -215,7 +253,7 @@ export function CanvasViewInner({
               {layout.frames.map((frame) => {
                 if (!frameIds.has(frame.planId)) return null;
                 return frame.edges.map((edge) => {
-                  const pts = edgeEndpoints(edge, frame);
+                  const pts = edgeEndpoints(edge, lookups.nodeById);
                   if (!pts) return null;
                   return (
                     <line
@@ -253,21 +291,18 @@ export function CanvasViewInner({
                 .map((n) => {
                   const style = nodeStyle(n.box);
                   if (n.kind === "section") {
-                    const section = findSectionInPlan(plan, n.id);
+                    const section = lookups.sectionById.get(n.id);
                     if (!section) return null;
                     return (
                       <SectionCard key={n.id} section={section} style={style} lod={lod} />
                     );
                   }
                   if (n.kind === "task") {
-                    const task = plan.tasks.find((t) => t.id === n.id);
+                    const task = lookups.taskById.get(n.id);
                     if (!task) return null;
                     return <TaskCard key={n.id} task={task} style={style} lod={lod} />;
                   }
-                  const task = plan.tasks.find((t) =>
-                    t.milestones.some((m) => m.id === n.id),
-                  );
-                  const milestone = task?.milestones.find((m) => m.id === n.id);
+                  const milestone = lookups.milestoneById.get(n.id);
                   if (!milestone) return null;
                   return (
                     <MilestoneNode key={n.id} milestone={milestone} style={style} lod={lod} />
@@ -290,8 +325,8 @@ export interface CanvasViewProps {
   onClose?: () => void;
 }
 
-export function CanvasView({ api, mode, planId, orchestratorPaneId, onClose }: CanvasViewProps) {
-  const { plans, loading, error } = usePlans(api);
+export function CanvasView({ mode, planId, orchestratorPaneId, onClose }: CanvasViewProps) {
+  const { plans, loading, error } = useFullPlans();
   const { state } = useMultiplexer();
   return (
     <CanvasViewInner

@@ -85,6 +85,7 @@ pub struct IndexEntry {
     pub title: String,
     pub status: PlanStatus,
     pub updated_at: u64,
+    pub assigned_pane_ids: Vec<String>,
 }
 
 #[derive(Default)]
@@ -150,6 +151,11 @@ impl PlanStore {
             title: plan.title.clone(),
             status: plan.status.clone(),
             updated_at: plan.updated_at,
+            assigned_pane_ids: plan
+                .tasks
+                .iter()
+                .filter_map(|t| t.assigned_pane_id.clone())
+                .collect(),
         }
     }
 
@@ -233,6 +239,10 @@ impl PlanStore {
 
     pub fn list_index(&self) -> Vec<IndexEntry> {
         self.index.read().values().cloned().collect()
+    }
+
+    pub fn list_full(&self) -> Vec<Plan> {
+        self.plans.read().values().map(|p| p.lock().clone()).collect()
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {

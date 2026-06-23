@@ -1,32 +1,31 @@
 import { useEffect, useMemo } from "react";
 import { Map } from "lucide-react";
 import { listen } from "../../lib/bridge";
-import type { ApiConfig, Pane } from "../../lib/types";
+import type { Pane } from "../../lib/types";
 import { PANE_BAR_CONTROL_H } from "../Terminal/paneBarConstants";
 import {
   canvasFocusStore,
   usePlanPulseVersion,
 } from "./canvasFocusStore";
 import {
-  findPlansForPane,
+  findPlanIndexForPane,
   resolveOrchestratorPaneId,
 } from "./planPaneMatch";
-import { usePlans } from "./usePlans";
+import { usePlanIndex } from "./PlansProvider";
 
 interface PlanButtonProps {
   paneId: string;
-  api: ApiConfig;
   panes: Record<string, Pane>;
 }
 
-export function PlanButton({ paneId, api, panes }: PlanButtonProps) {
-  const { plans } = usePlans(api);
+export function PlanButton({ paneId, panes }: PlanButtonProps) {
+  const { index } = usePlanIndex();
 
   const relevantPlans = useMemo(
-    () => findPlansForPane(plans, paneId, panes),
-    [plans, paneId, panes],
+    () => findPlanIndexForPane(index, paneId, panes),
+    [index, paneId, panes],
   );
-  const planIds = useMemo(() => relevantPlans.map((p) => p.id), [relevantPlans]);
+  const planIds = useMemo(() => relevantPlans.map((p) => p.plan_id), [relevantPlans]);
   usePlanPulseVersion(planIds);
 
   useEffect(() => {
@@ -61,7 +60,7 @@ export function PlanButton({ paneId, api, panes }: PlanButtonProps) {
     for (const id of planIds) canvasFocusStore.clearPulse(id);
     canvasFocusStore.openFocus({
       orchestratorPaneId,
-      planId: relevantPlans.length === 1 ? relevantPlans[0].id : undefined,
+      planId: relevantPlans.length === 1 ? relevantPlans[0].plan_id : undefined,
     });
   };
 

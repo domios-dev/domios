@@ -7,6 +7,7 @@ import type { ApiConfig } from "../../lib/types";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
 import { canvasFocusStore } from "./canvasFocusStore";
 import { PlanButton } from "./PlanButton";
+import { PlansProvider } from "./PlansProvider";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -40,7 +41,16 @@ function setupDom() {
     value: async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/api/plans") && (!init || init.method === undefined || init.method === "GET")) {
-        return new Response(JSON.stringify({ plans: [{ plan_id: FIXTURE_PLAN.id }] }), { status: 200 });
+        const entry = {
+          plan_id: FIXTURE_PLAN.id,
+          file_path: "/tmp/plan.json",
+          owner: FIXTURE_PLAN.owner,
+          title: FIXTURE_PLAN.title,
+          status: FIXTURE_PLAN.status,
+          updated_at: FIXTURE_PLAN.updated_at,
+          assigned_pane_ids: [],
+        };
+        return new Response(JSON.stringify({ plans: [entry] }), { status: 200 });
       }
       if (url.includes(`/api/plans/${FIXTURE_PLAN.id}`)) {
         return new Response(JSON.stringify(FIXTURE_PLAN), { status: 200 });
@@ -60,7 +70,11 @@ async function renderButton(paneId: string): Promise<{ host: HTMLDivElement; roo
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(<PlanButton paneId={paneId} api={API} panes={{}} />);
+    root.render(
+      <PlansProvider api={API}>
+        <PlanButton paneId={paneId} panes={{}} />
+      </PlansProvider>,
+    );
   });
   await act(async () => {
     await new Promise((r) => setTimeout(r, 30));
