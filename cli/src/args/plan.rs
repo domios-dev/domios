@@ -34,6 +34,25 @@ pub enum PlanAction {
     },
     /// Get a plan (markdown by default)
     Get { plan_id: String },
+    /// Show section coverage (% + gaps)
+    Coverage { plan_id: String },
+    /// Set task groups (phases)
+    Groups {
+        #[command(subcommand)]
+        action: PlanGroupsAction,
+    },
+    /// Link this plan to a related plan
+    Link {
+        plan_id: String,
+        #[arg(long)]
+        to: String,
+    },
+    /// Remove a plan link
+    Unlink {
+        plan_id: String,
+        #[arg(long)]
+        to: String,
+    },
     /// Update plan metadata
     Update {
         plan_id: String,
@@ -143,6 +162,15 @@ pub enum PlanKindsAction {
 }
 
 #[derive(Subcommand)]
+pub enum PlanGroupsAction {
+    Set {
+        plan_id: String,
+        #[arg(long)]
+        groups: String,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum PlanLoopAction {
     Create {
         plan_id: String,
@@ -195,6 +223,8 @@ pub enum PlanTaskAction {
         #[arg(long)]
         assign_pane: Option<String>,
         #[arg(long)]
+        group: Option<String>,
+        #[arg(long)]
         loop_from: Option<String>,
     },
     Update {
@@ -222,6 +252,8 @@ pub enum PlanTaskAction {
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
+        #[arg(long)]
+        group: Option<String>,
     },
     Close {
         plan_id: String,

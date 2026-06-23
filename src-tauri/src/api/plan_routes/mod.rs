@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus};
+use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus, TaskGroup};
 use crate::service::plan::{NewTask, PlanError};
 
 type PlanRouteResult = Result<Json<Value>, (StatusCode, Json<Value>)>;
@@ -56,6 +56,22 @@ fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
             key: key.into(),
             label: key.into(),
             color: None,
+        })
+        .collect()
+}
+
+// Parse `key:Label,key2:Label2` into task groups; missing label defaults to key.
+fn groups_from_csv(raw: &str) -> Vec<TaskGroup> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|item| {
+            let (key, label) = item.split_once(':').unwrap_or((item, item));
+            TaskGroup {
+                key: key.trim().into(),
+                label: label.trim().into(),
+                color: None,
+            }
         })
         .collect()
 }
@@ -425,6 +441,8 @@ pub(crate) struct TaskAddBody {
     intent: Option<String>,
     #[serde(default)]
     assign_pane: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 pub async fn task_add(
@@ -463,6 +481,7 @@ pub async fn task_add(
                 body: body.body.unwrap_or_default(),
                 intent: body.intent,
                 assigned_pane_id: body.assign_pane,
+                group: body.group,
             },
             epoch_ms(),
         )
@@ -491,6 +510,8 @@ pub(crate) struct TaskUpdateBody {
     intent: Option<String>,
     #[serde(default)]
     sections: Option<String>,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 pub async fn task_update(
@@ -522,6 +543,7 @@ pub async fn task_update(
             body.body.as_deref(),
             Some(body.intent.as_deref()),
             section_ids,
+            body.group.as_ref().map(|s| Some(s.as_str())),
             epoch_ms(),
         )
         .map_err(plan_err)?;
@@ -873,9 +895,90 @@ pub async fn element_add(
     Ok(Json(serde_json::json!({ "element_id": eid })))
 }
 
+pub async fn coverage(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let report = state
+        .svc
+        .plan_store
+        .coverage_report(&id)
+        .ok_or_else(|| plan_err(PlanError::NotFound))?;
+    Ok(Json(serde_json::to_value(report).unwrap_or_default()))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct GroupsSetBody {
+    groups: String,
+}
+
+pub async fn groups_set(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<GroupsSetBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .plan_store
+        .set_task_groups(&id, groups_from_csv(&body.groups), epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct LinkBody {
+    to: String,
+}
+
+pub async fn link(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<LinkBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .plan_store
+        .link_plan(&id, &body.to, epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn unlink(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, to)): Path<(String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .plan_store
+        .unlink_plan(&id, &to, epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn groups_from_csv_parses_key_label() {
+        let g = groups_from_csv("phase-1:Phase 1,phase-2:Phase 2,solo");
+        assert_eq!(g.len(), 3);
+        assert_eq!(g[0].key, "phase-1");
+        assert_eq!(g[0].label, "Phase 1");
+        assert_eq!(g[2].key, "solo");
+        assert_eq!(g[2].label, "solo");
+    }
 
     #[test]
     fn full_and_unowned_query_accept_1_and_true() {

@@ -2,7 +2,7 @@ use super::{NewTask, PlanError, PlanStore};
 use crate::plan::loop_engine::stop_for;
 use crate::plan::{
     AgentRef, CanvasElement, LoopSpec, LoopStage, LoopStatus, Milestone, MilestoneKind,
-    OrchestratorRef, Plan, PlanStatus, Section, Task, TaskStatus, TransferRecord,
+    OrchestratorRef, Plan, PlanStatus, Section, Task, TaskGroup, TaskStatus, TransferRecord,
 };
 
 fn gen_id(prefix: &str) -> String {
@@ -133,6 +133,34 @@ impl PlanStore {
         })
     }
 
+    pub fn set_task_groups(
+        &self,
+        plan_id: &str,
+        groups: Vec<TaskGroup>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            p.task_groups = groups;
+            Ok(())
+        })
+    }
+
+    pub fn link_plan(&self, plan_id: &str, to: &str, now_ms: u64) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            if !p.links.iter().any(|l| l == to) {
+                p.links.push(to.into());
+            }
+            Ok(())
+        })
+    }
+
+    pub fn unlink_plan(&self, plan_id: &str, to: &str, now_ms: u64) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            p.links.retain(|l| l != to);
+            Ok(())
+        })
+    }
+
     fn with_plan<T, F>(&self, id: &str, now_ms: u64, f: F) -> Result<T, PlanError>
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
@@ -202,6 +230,7 @@ impl PlanStore {
             intent: new.intent,
             assigned_pane_id: new.assigned_pane_id,
             peer: None,
+            group: new.group,
             canvas: Default::default(),
             milestones: vec![],
         };
@@ -401,6 +430,7 @@ impl PlanStore {
         body: Option<&str>,
         intent: Option<Option<&str>>,
         section_ids: Option<Vec<String>>,
+        group: Option<Option<&str>>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
@@ -435,6 +465,9 @@ impl PlanStore {
             }
             if let Some(ids) = section_ids {
                 task.section_ids = ids;
+            }
+            if let Some(g) = group {
+                task.group = g.map(|s| s.into());
             }
             Ok(())
         })

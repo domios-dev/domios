@@ -68,6 +68,13 @@ pub struct MilestoneKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TaskGroup {
+    pub key: String,
+    pub label: String,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Section {
     pub id: String,
     pub title: String,
@@ -112,6 +119,8 @@ pub struct Task {
     pub intent: Option<String>,
     pub assigned_pane_id: Option<String>,
     pub peer: Option<String>,
+    #[serde(default)]
+    pub group: Option<String>,
     #[serde(default)]
     pub canvas: ElementCanvas,
     #[serde(default)]
@@ -184,6 +193,10 @@ pub struct Plan {
     #[serde(default)]
     pub tasks: Vec<Task>,
     #[serde(default)]
+    pub task_groups: Vec<TaskGroup>,
+    #[serde(default)]
+    pub links: Vec<String>,
+    #[serde(default)]
     pub canvas: PlanCanvas,
     #[serde(default)]
     pub owner_history: Vec<TransferRecord>,
@@ -205,6 +218,8 @@ impl Plan {
             loops: vec![],
             elements: vec![],
             tasks: vec![],
+            task_groups: vec![],
+            links: vec![],
             canvas: PlanCanvas::default(),
             owner_history: vec![],
         }
@@ -228,6 +243,48 @@ mod tests {
         let back: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(back.id, p.id);
         assert_eq!(back.title, "Voice UX");
+    }
+
+    #[test]
+    fn task_groups_and_links_roundtrip() {
+        let mut p = Plan::new("T".into(), "/repo".into(), Default::default());
+        p.task_groups = vec![TaskGroup {
+            key: "phase-1".into(),
+            label: "Phase 1".into(),
+            color: None,
+        }];
+        p.links = vec!["pl_other".into()];
+        let json = serde_json::to_string(&p).unwrap();
+        let back: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.task_groups.len(), 1);
+        assert_eq!(back.task_groups[0].key, "phase-1");
+        assert_eq!(back.links, vec!["pl_other".to_string()]);
+    }
+
+    #[test]
+    fn old_json_without_new_fields_still_loads() {
+        // A plan file written before task_groups / links / Task.group existed.
+        let raw = r#"{
+            "id": "pl_old",
+            "title": "Legacy",
+            "status": "active",
+            "owner": {},
+            "project_path": "/repo",
+            "created_at": 1,
+            "updated_at": 2,
+            "tasks": [
+                {"id":"task_1","name":"n","type":"implement","model":null,
+                 "model_rationale":null,"status":"pending","status_label":null,
+                 "section_ids":[],"body":"","intent":null,"assigned_pane_id":null,
+                 "peer":null}
+            ]
+        }"#;
+        let p: Plan = serde_json::from_str(raw).unwrap();
+        assert_eq!(p.id, "pl_old");
+        assert!(p.task_groups.is_empty());
+        assert!(p.links.is_empty());
+        assert_eq!(p.tasks.len(), 1);
+        assert_eq!(p.tasks[0].group, None);
     }
 
     #[test]

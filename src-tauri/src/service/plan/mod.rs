@@ -75,6 +75,7 @@ pub struct NewTask {
     pub body: String,
     pub intent: Option<String>,
     pub assigned_pane_id: Option<String>,
+    pub group: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -177,6 +178,12 @@ impl PlanStore {
 
     pub fn get(&self, id: &str) -> Option<Plan> {
         self.plans.read().get(id).map(|p| p.lock().clone())
+    }
+
+    pub fn coverage_report(&self, id: &str) -> Option<crate::plan::coverage::CoverageReport> {
+        self.get(id)
+            .as_ref()
+            .map(crate::plan::coverage::compute_coverage_report)
     }
 
     pub fn reload_from_disk(&self, id: &str) -> Result<(), PlanError> {

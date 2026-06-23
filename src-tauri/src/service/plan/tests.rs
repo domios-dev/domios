@@ -222,3 +222,43 @@ fn unknown_plan_errors_not_found() {
     let err = store.archive("missing", 1).unwrap_err();
     assert!(matches!(err, PlanError::NotFound));
 }
+
+#[test]
+fn set_task_groups_persists_and_reloads() {
+    use crate::plan::TaskGroup;
+    let (store, id, _) = store_with_task(&["status_update"]);
+    store
+        .set_task_groups(
+            &id,
+            vec![TaskGroup {
+                key: "phase-1".into(),
+                label: "Phase 1".into(),
+                color: None,
+            }],
+            70,
+        )
+        .unwrap();
+    store.reload_from_disk(&id).unwrap();
+    let p = store.get(&id).unwrap();
+    assert_eq!(p.task_groups.len(), 1);
+    assert_eq!(p.task_groups[0].key, "phase-1");
+}
+
+#[test]
+fn link_and_unlink_plan_dedup_and_remove() {
+    let (store, id, _) = store_with_task(&["status_update"]);
+    store.link_plan(&id, "pl_other", 71).unwrap();
+    store.link_plan(&id, "pl_other", 72).unwrap();
+    assert_eq!(store.get(&id).unwrap().links, vec!["pl_other".to_string()]);
+    store.unlink_plan(&id, "pl_other", 73).unwrap();
+    assert!(store.get(&id).unwrap().links.is_empty());
+}
+
+#[test]
+fn coverage_report_reports_gaps() {
+    let (store, id, _) = store_with_task(&["status_update"]);
+    let sid = store.add_section(&id, "Backend", "", None, 80).unwrap();
+    let report = store.coverage_report(&id).unwrap();
+    assert!(report.gaps.contains(&"Backend".to_string()));
+    assert!(report.sections.iter().any(|s| s.section_id == sid));
+}

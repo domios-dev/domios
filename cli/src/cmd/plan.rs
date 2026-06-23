@@ -1,8 +1,8 @@
 use std::io::Read;
 
 use crate::args::plan::{
-    PlanAction, PlanElementAction, PlanKindsAction, PlanLayoutAction, PlanLoopAction,
-    PlanMilestoneAction, PlanNoteAction, PlanSectionAction, PlanTaskAction,
+    PlanAction, PlanElementAction, PlanGroupsAction, PlanKindsAction, PlanLayoutAction,
+    PlanLoopAction, PlanMilestoneAction, PlanNoteAction, PlanSectionAction, PlanTaskAction,
 };
 use crate::client::{SocketCallError, SocketClient};
 use crate::cmd::print::print_object;
@@ -153,6 +153,34 @@ fn render_plan_markdown(plan: &Value) -> String {
     out
 }
 
+fn render_coverage(val: &Value) -> String {
+    let mut out = String::new();
+    let frac = val
+        .get("plan_covered_fraction")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    out.push_str(&format!("Coverage: {:.0}%\n", frac * 100.0));
+    if let Some(sections) = val.get("sections").and_then(|v| v.as_array()) {
+        for s in sections {
+            let title = s.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+            let total = s.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+            let status = s.get("status").and_then(|v| v.as_str()).unwrap_or("none");
+            out.push_str(&format!("  - {title}: {total} task(s) [{status}]\n"));
+        }
+    }
+    let gaps: Vec<&str> = val
+        .get("gaps")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default();
+    if gaps.is_empty() {
+        out.push_str("Gaps: none — every section has at least one task.\n");
+    } else {
+        out.push_str(&format!("Gaps ({}): {}\n", gaps.len(), gaps.join(", ")));
+    }
+    out
+}
+
 pub fn handle_plan(client: &mut SocketClient, json: bool, action: PlanAction) {
     match run_plan(client, json, action) {
         Ok(None) => {}
@@ -230,6 +258,35 @@ fn run_plan(
             println!("{}", render_plan_markdown(&val));
             return Ok(None);
         }
+
+        PlanAction::Coverage { plan_id } => {
+            let val = call(client, "plan.coverage", json!({ "plan_id": plan_id }))?;
+            if json {
+                return Ok(Some(val));
+            }
+            println!("{}", render_coverage(&val));
+            return Ok(None);
+        }
+
+        PlanAction::Groups { action } => match action {
+            PlanGroupsAction::Set { plan_id, groups } => call(
+                client,
+                "plan.groups.set",
+                json!({ "plan_id": plan_id, "groups": groups }),
+            ),
+        },
+
+        PlanAction::Link { plan_id, to } => call(
+            client,
+            "plan.link",
+            json!({ "plan_id": plan_id, "to": to }),
+        ),
+
+        PlanAction::Unlink { plan_id, to } => call(
+            client,
+            "plan.unlink",
+            json!({ "plan_id": plan_id, "to": to }),
+        ),
 
         PlanAction::Update {
             plan_id,
@@ -388,6 +445,7 @@ fn run_plan(
                 intent,
                 intent_file,
                 assign_pane,
+                group,
                 loop_from: _,
             } => {
                 let why_text = resolve_text(why, why_file)?;
@@ -415,6 +473,9 @@ fn run_plan(
                 if let Some(p) = assign_pane {
                     params["assign_pane"] = json!(p);
                 }
+                if let Some(g) = group {
+                    params["group"] = json!(g);
+                }
                 call(client, "plan.task.add", params)
             }
             PlanTaskAction::Update {
@@ -431,6 +492,7 @@ fn run_plan(
                 body_file,
                 intent,
                 intent_file,
+                group,
             } => {
                 let why_text = resolve_text(why, why_file)?;
                 let body_text = resolve_text(body, body_file)?;
@@ -459,6 +521,9 @@ fn run_plan(
                 }
                 if let Some(i) = intent_text {
                     params["intent"] = json!(i);
+                }
+                if let Some(g) = group {
+                    params["group"] = json!(g);
                 }
                 call(client, "plan.task.update", params)
             }
