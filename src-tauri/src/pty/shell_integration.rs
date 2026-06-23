@@ -102,9 +102,18 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
         } else if shell.contains("bash") {
             let bashrc_path = dir.join("bashrc");
             if bashrc_path.exists() {
-                // --rcfile drives interactive non-login bash; BASH_ENV covers non-interactive.
-                cmd.arg("--rcfile");
-                cmd.arg(bashrc_path.to_string_lossy().as_ref());
+                // The default plain terminal is built via `new_default_prog()` (a
+                // login shell), which PANICS if `arg()` is called on it — that
+                // panic crashed spawn_pty and left bash terminals blank (zsh was
+                // unaffected: env-only). `--rcfile` is only valid on an explicit
+                // -prog builder; for the login shell, integration rides BASH_ENV
+                // plus the rc sourcing ~/.bashrc.
+                if !cmd.is_default_prog() {
+                    // --rcfile drives interactive non-login bash.
+                    cmd.arg("--rcfile");
+                    cmd.arg(bashrc_path.to_string_lossy().as_ref());
+                }
+                // BASH_ENV covers non-interactive subshells (and the login shell).
                 cmd.env("BASH_ENV", bashrc_path.to_string_lossy().as_ref());
             }
         } else if shell.contains("fish") {
@@ -385,4 +394,44 @@ end
 __ct_esc P HasRichCommandDetection=True
 __preserve_ct_fish_prompt
 "####
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The portable-pty invariant behind the prod crash: a default-prog (login)
+    /// builder panics the instant an arg is added.
+    #[test]
+    #[should_panic(expected = "default_prog")]
+    fn default_prog_builder_panics_on_arg() {
+        let mut cmd = CommandBuilder::new_default_prog();
+        cmd.arg("--rcfile");
+    }
+
+    /// Regression guard. The plain terminal is built with `new_default_prog()`
+    /// (a login shell). Before the fix the bash branch called
+    /// `cmd.arg("--rcfile")` on it, panicking `spawn_pty` and leaving bash
+    /// terminals blank — zsh used env only, so it was spared (the "x64 vs arm"
+    /// report was really bash vs zsh). `apply_env` must never add args to a
+    /// default-prog builder.
+    #[test]
+    fn apply_env_never_adds_args_to_default_prog_bash() {
+        ensure_scripts(); // make the bashrc integration file exist — the panic precondition
+        let mut cmd = CommandBuilder::new_default_prog();
+        apply_env(&mut cmd, "/bin/bash"); // must not panic
+        assert!(
+            cmd.is_default_prog(),
+            "apply_env must not add args to the default login-shell builder"
+        );
+    }
+
+    /// An explicit-prog builder (specific shell/command) safely takes --rcfile.
+    #[test]
+    fn apply_env_keeps_explicit_bash_prog_spawnable() {
+        ensure_scripts();
+        let mut cmd = CommandBuilder::new("/bin/bash");
+        apply_env(&mut cmd, "/bin/bash"); // must not panic
+        assert!(!cmd.is_default_prog());
+    }
 }
