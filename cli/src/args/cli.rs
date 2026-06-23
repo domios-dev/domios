@@ -23,6 +23,7 @@ use super::plugin::PluginAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::system::SystemAction;
+use super::task::{CanvasAction, TaskAction};
 use super::update::UpdateAction;
 use super::usage::UsageAction;
 
@@ -261,6 +262,18 @@ pub enum Commands {
     Plan {
         #[command(subcommand)]
         action: PlanAction,
+    },
+
+    /// Standalone and plan-backed tasks
+    Task {
+        #[command(subcommand)]
+        action: TaskAction,
+    },
+
+    /// Canvas control commands
+    Canvas {
+        #[command(subcommand)]
+        action: CanvasAction,
     },
 
     /// Past agent sessions — search conversations across all providers

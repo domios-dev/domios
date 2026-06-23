@@ -10,5 +10,6 @@ pub mod plugin;
 pub mod service;
 pub mod sessions;
 pub mod system;
+pub mod task;
 pub mod update;
 pub mod usage;

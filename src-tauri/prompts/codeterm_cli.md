@@ -426,6 +426,7 @@ codeterm plan create --title "My plan" [--kinds status_update,testing,review] [-
 codeterm plan list [--active|--archived|--unowned]
 codeterm plan get PLAN_ID
 codeterm plan coverage PLAN_ID
+codeterm plan gaps PLAN_ID
 codeterm plan update PLAN_ID [--title T] [--status active|archived]
 codeterm plan archive PLAN_ID
 codeterm plan groups set PLAN_ID --groups phase-1:Phase 1,phase-2:Phase 2
@@ -441,6 +442,12 @@ codeterm plan milestone add PLAN_ID TASK_ID --kind status_update [--text "..." |
 codeterm plan loop create PLAN_ID --target "..." --budget 25 [--stop-when "..."]
 codeterm plan loop stop LOOP_ID
 codeterm plan layout set PLAN_ID --element task:TASK_ID --x 0 --y 0
+codeterm task list [--active|--all] [--mine] [--unassigned] [--plan PLAN_ID]
+codeterm task show TASK_ID
+codeterm task take TASK_ID
+codeterm task drop TASK_ID
+codeterm task add --name N --type implement [--body "..." | --body-file PATH]
+codeterm canvas focus [--task TASK_ID | --pane PANE_ID | --plan PLAN_ID]
 ```
 
 Workers bound to a task report via env: `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID`. Free-text fields accept `--field-file PATH` or `-` for stdin.

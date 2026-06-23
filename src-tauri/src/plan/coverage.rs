@@ -149,6 +149,7 @@ mod tests {
             body: String::new(),
             intent: None,
             assigned_pane_id: None,
+            taken_by_role: None,
             peer: None,
             group: None,
             canvas: Default::default(),
