@@ -223,7 +223,9 @@ export function useComposerVoice({
         resetVoicePointer();
         return;
       }
-      if (voiceModeRef.current === "locked") {
+      // voiceModeRef lags a render behind setVoiceMode; voiceLockedFromDragRef is
+      // set synchronously, so a quick release right after drag-lock still latches.
+      if (voiceModeRef.current === "locked" || voiceLockedFromDragRef.current) {
         setVoicePressed(false);
         return;
       }

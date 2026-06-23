@@ -1,4 +1,4 @@
-import { ChevronUp, Lock, Mic, Square } from "lucide-react";
+import { ChevronUp, Lock, Mic, Square, X } from "lucide-react";
 import { ComposerSendIcon } from "./composerBubble";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
@@ -6,6 +6,8 @@ const btnBase =
   "flex items-center justify-center shrink-0 transition-all duration-150";
 
 const accentFg = "var(--ct-on-accent, #fff)";
+const recordingFg = "var(--ct-red, #f85149)";
+const lockedFg = "var(--ct-bg, #0d1117)";
 
 export function ComposerActionButton({
   voiceUi,
@@ -30,6 +32,7 @@ export function ComposerActionButton({
     mainIsSend,
     mainTitle,
     voicePressed,
+    cancelArmed,
     startVoice,
     moveVoice,
     stopToPreview,
@@ -80,7 +83,12 @@ export function ComposerActionButton({
         style={actionButtonStyle(voiceActive, mainIsSend, isLocked, bubblePose)}
         disabled={voiceBusy || (mainIsSend && sendDisabled)}
       >
-        <ActionButtonIcon mainIsSend={mainIsSend} isLocked={isLocked} voiceActive={voiceActive} />
+        <ActionButtonIcon
+          mainIsSend={mainIsSend}
+          isLocked={isLocked}
+          voiceActive={voiceActive}
+          cancelArmed={cancelArmed}
+        />
       </button>
     </div>
   );
@@ -106,14 +114,19 @@ function ActionButtonIcon({
   mainIsSend,
   isLocked,
   voiceActive,
+  cancelArmed,
 }: {
   mainIsSend: boolean;
   isLocked: boolean;
   voiceActive: boolean;
+  cancelArmed: boolean;
 }) {
   if (mainIsSend) return <ComposerSendIcon size={20} />;
-  if (isLocked) return <Square size={18} fill="currentColor" />;
-  return <Mic size={voiceActive ? 30 : 20} strokeWidth={voiceActive ? 2.4 : 2.2} />;
+  // Armed to cancel: red cross. Locked: dark pause. Recording: red mic.
+  if (cancelArmed) return <X size={30} strokeWidth={2.6} color={recordingFg} />;
+  if (isLocked) return <Square size={18} fill={lockedFg} color={lockedFg} />;
+  if (voiceActive) return <Mic size={30} strokeWidth={2.4} color={recordingFg} />;
+  return <Mic size={20} strokeWidth={2.2} />;
 }
 
 function actionButtonStyle(
@@ -124,7 +137,11 @@ function actionButtonStyle(
 ) {
   const accent = voiceActive || mainIsSend || isLocked;
   return {
-    background: accent ? "var(--ct-accent)" : "var(--ct-surface, #161b22)",
+    background: mainIsSend
+      ? "color-mix(in srgb, var(--ct-accent) 78%, var(--ct-bg))"
+      : accent
+        ? "var(--ct-accent)"
+        : "var(--ct-surface, #161b22)",
     border: accent
       ? "1px solid color-mix(in srgb, var(--ct-on-accent, #fff) 22%, var(--ct-accent))"
       : "1px solid var(--ct-border)",
