@@ -690,35 +690,35 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            let (prefix, raw) = element_id.split_once(':').ok_or(PlanError::NotFound)?;
-            let found = match prefix {
-                "section" => set_section_canvas(&mut p.sections, raw, x, y),
-                "task" => p.tasks.iter_mut().find(|t| t.id == raw).is_some_and(|t| {
-                    t.canvas.x = x;
-                    t.canvas.y = y;
-                    true
-                }),
-                "ms" => p
-                    .tasks
+            // Match the FULL id the frontend sends (node.id). Ids carry their own
+            // unique prefix (sec_/task_/ms_/el_), so no namespace parsing is needed —
+            // the old split_once(':') rejected the underscore ids and 404'd every drag.
+            let found = set_section_canvas(&mut p.sections, element_id, x, y)
+                || p.tasks
+                    .iter_mut()
+                    .find(|t| t.id == element_id)
+                    .is_some_and(|t| {
+                        t.canvas.x = x;
+                        t.canvas.y = y;
+                        true
+                    })
+                || p.tasks
                     .iter_mut()
                     .flat_map(|t| t.milestones.iter_mut())
-                    .find(|m| m.id == raw)
+                    .find(|m| m.id == element_id)
                     .is_some_and(|m| {
                         m.canvas.x = x;
                         m.canvas.y = y;
                         true
-                    }),
-                "el" => p
-                    .elements
+                    })
+                || p.elements
                     .iter_mut()
-                    .find(|e| e.id == raw)
+                    .find(|e| e.id == element_id)
                     .is_some_and(|e| {
                         e.canvas.x = x;
                         e.canvas.y = y;
                         true
-                    }),
-                _ => false,
-            };
+                    });
             if found {
                 Ok(())
             } else {
