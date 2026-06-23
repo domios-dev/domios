@@ -481,7 +481,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   );
   eq(
     p.buildResumeCommand("11111111-1111-1111-1111-111111111111"),
-    "codex resume --dangerously-bypass-hook-trust Q(windows:11111111-1111-1111-1111-111111111111)",
+    "codex resume Q(windows:11111111-1111-1111-1111-111111111111)",
     "buildResumeCommand quotes session id with quoteFor(platform)",
   );
 }
