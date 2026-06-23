@@ -73,6 +73,13 @@ pub(crate) struct CreatePlanBody {
     spec: Option<String>,
 }
 
+// Query bools must accept "1" as well as "true" — serde's bool only takes
+// "true"/"false", so a raw `Option<bool>` 400s on `?full=1` (the form the UI sends).
+fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
+    let s = <Option<String> as serde::Deserialize>::deserialize(d)?;
+    Ok(s.map(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on")))
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct ListPlansQuery {
     #[serde(default)]
@@ -81,9 +88,9 @@ pub(crate) struct ListPlansQuery {
     status: Option<String>,
     #[serde(default)]
     orchestrator: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_truthy")]
     unowned: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_truthy")]
     full: Option<bool>,
 }
 
@@ -866,6 +873,19 @@ pub async fn element_add(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_and_unowned_query_accept_1_and_true() {
+        use axum::extract::Query;
+        for raw in ["/?full=1", "/?full=true"] {
+            let uri: axum::http::Uri = raw.parse().unwrap();
+            let q: Query<ListPlansQuery> = Query::try_from_uri(&uri).unwrap();
+            assert_eq!(q.full, Some(true), "full from {raw}");
+        }
+        let uri: axum::http::Uri = "/?unowned=1".parse().unwrap();
+        let q: Query<ListPlansQuery> = Query::try_from_uri(&uri).unwrap();
+        assert_eq!(q.unowned, Some(true));
+    }
 
     #[test]
     fn kinds_from_csv_splits() {
