@@ -4,6 +4,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { ApiConfig } from "../../lib/types";
+import { __setListenForTest } from "../../lib/bridge";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import { CanvasViewInner } from "./CanvasView";
 import { registerNodeRenderer } from "./nodeRegistry";
@@ -46,6 +47,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
   (globalThis as unknown as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame =
     (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0) as unknown as number;
+  __setListenForTest(async () => () => {});
 }
 
 async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
@@ -125,11 +127,14 @@ test("dragging a task card PATCHes layout in frame-local coords", async () => {
   const origFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = String(input);
+    if (url.includes("unowned=1")) {
+      return new Response(JSON.stringify({ plans: [] }), { status: 200 });
+    }
     if (url.includes("/layout") && init?.method === "PATCH") {
       patches.push({ url, body: JSON.parse(String(init.body)) });
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }
-    return origFetch(input, init);
+    return new Response("not found", { status: 404 });
   };
 
   const api = API;
@@ -162,6 +167,7 @@ test("dragging a task card PATCHes layout in frame-local coords", async () => {
     window.dispatchEvent(
       new window.MouseEvent("mousemove", { bubbles: true, clientX: 260, clientY: 240 }),
     );
+    await new Promise((r) => setTimeout(r, 5));
   });
   await act(async () => {
     window.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true }));
@@ -175,6 +181,50 @@ test("dragging a task card PATCHes layout in frame-local coords", async () => {
 
   globalThis.fetch = origFetch;
   await act(async () => root.unmount());
+});
+
+test("CanvasViewInner scopes workspace plans by project_path from fetch", async () => {
+  const planA = { ...FIXTURE_PLAN, id: "plan-a", project_path: "/repo/a", title: "Plan A" };
+  const planB = {
+    ...FIXTURE_PLAN,
+    id: "plan-b",
+    project_path: "/repo/b",
+    title: "Plan B",
+    tasks: [],
+    sections: [],
+  };
+
+  const { host, root } = await render(
+    <CanvasViewInner
+      mode="workspace"
+      plans={[planA]}
+      projectPath="/repo/a"
+      viewportPadding={10000}
+    />,
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+  });
+  assert(host.querySelector('[data-testid="canvas-plan-frame"]'), "plan A frame visible");
+  const titles = [...host.querySelectorAll('[data-testid="canvas-plan-frame"]')].map(
+    (el) => el.textContent ?? "",
+  );
+  assert(!titles.some((t) => t.includes("Plan B")), "plan B not rendered when scoped to A");
+  assert(titles.some((t) => t.includes("Plan A")), "plan A rendered");
+
+  await act(async () => root.unmount());
+
+  const { host: host2, root: root2 } = await render(
+    <CanvasViewInner mode="workspace" plans={[planB]} projectPath="/repo/b" viewportPadding={10000} />,
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+  });
+  const titlesB = [...host2.querySelectorAll('[data-testid="canvas-plan-frame"]')].map(
+    (el) => el.textContent ?? "",
+  );
+  assert(titlesB.some((t) => t.includes("Plan B")), "plan B rendered for its project");
+  await act(async () => root2.unmount());
 });
 
 async function main() {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { listen } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
 import { claimPlan, fetchUnownedPlanIndex, type PlanIndexEntry } from "./plansApi";
 import type { OrchestratorRef } from "./types";
@@ -24,6 +25,24 @@ export function CanvasUnownedTray({ api, claimOwner }: CanvasUnownedTrayProps) {
 
   useEffect(() => {
     void reload();
+  }, [reload]);
+
+  useEffect(() => {
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    void listen<{ plan_id?: string }>("plan-changed", () => {
+      if (active) void reload();
+    }).then((fn) => {
+      if (!active) {
+        fn();
+        return;
+      }
+      unlisten = fn;
+    });
+    return () => {
+      active = false;
+      unlisten?.();
+    };
   }, [reload]);
 
   const onClaim = useCallback(

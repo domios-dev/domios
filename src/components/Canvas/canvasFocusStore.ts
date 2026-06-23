@@ -7,6 +7,8 @@ export interface CanvasFocusTarget {
 
 let open = false;
 let target: CanvasFocusTarget | null = null;
+let workspaceOpen = false;
+let workspaceDismissed = false;
 const pulsing = new Set<string>();
 const listeners = new Set<() => void>();
 
@@ -26,6 +28,37 @@ export const canvasFocusStore = {
     open = false;
     target = null;
     notify();
+  },
+  openWorkspace() {
+    workspaceOpen = true;
+    workspaceDismissed = false;
+    notify();
+  },
+  closeWorkspace() {
+    workspaceOpen = false;
+    workspaceDismissed = true;
+    notify();
+  },
+  toggleWorkspace(currentlyVisible: boolean) {
+    if (currentlyVisible) {
+      workspaceOpen = false;
+      workspaceDismissed = true;
+    } else {
+      workspaceOpen = true;
+      workspaceDismissed = false;
+    }
+    notify();
+  },
+  resetWorkspaceDismissed() {
+    if (!workspaceDismissed) return;
+    workspaceDismissed = false;
+    notify();
+  },
+  isWorkspaceOpen(): boolean {
+    return workspaceOpen;
+  },
+  isWorkspaceDismissed(): boolean {
+    return workspaceDismissed;
   },
   isOpen(): boolean {
     return open;
@@ -56,6 +89,22 @@ export const canvasFocusStore = {
 
 export function useCanvasFocusOpen(): boolean {
   return useSyncExternalStore(canvasFocusStore.subscribe, () => canvasFocusStore.isOpen(), () => false);
+}
+
+export function useCanvasWorkspaceOpen(): boolean {
+  return useSyncExternalStore(
+    canvasFocusStore.subscribe,
+    () => canvasFocusStore.isWorkspaceOpen(),
+    () => false,
+  );
+}
+
+export function useCanvasWorkspaceDismissed(): boolean {
+  return useSyncExternalStore(
+    canvasFocusStore.subscribe,
+    () => canvasFocusStore.isWorkspaceDismissed(),
+    () => false,
+  );
 }
 
 export function useCanvasFocusTarget(): CanvasFocusTarget | null {
