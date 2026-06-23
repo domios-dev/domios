@@ -25,13 +25,30 @@ struct JsonRpcResponse {
     #[allow(dead_code)]
     id: Option<serde_json::Value>,
     result: Option<serde_json::Value>,
-    error: Option<JsonRpcError>,
+    error: Option<RpcError>,
 }
 
-#[derive(Deserialize)]
-struct JsonRpcError {
-    code: i32,
-    message: String,
+#[derive(Debug, Deserialize)]
+pub struct RpcError {
+    pub code: i32,
+    pub message: String,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+}
+
+#[derive(Debug)]
+pub enum SocketCallError {
+    Transport(String),
+    Rpc(RpcError),
+}
+
+impl std::fmt::Display for SocketCallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SocketCallError::Transport(message) => write!(f, "{message}"),
+            SocketCallError::Rpc(err) => write!(f, "RPC error {}: {}", err.code, err.message),
+        }
+    }
 }
 
 impl SocketClient {
@@ -84,6 +101,15 @@ impl SocketClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, String> {
+        self.call_detailed(method, params)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError> {
         let req = JsonRpcRequest {
             jsonrpc: "2.0",
             id: self.next_id,
@@ -92,44 +118,47 @@ impl SocketClient {
         };
         self.next_id += 1;
 
-        let payload = serde_json::to_string(&req).map_err(|e| format!("Serialize error: {}", e))?;
+        let payload = serde_json::to_string(&req)
+            .map_err(|e| SocketCallError::Transport(format!("Serialize error: {}", e)))?;
 
         // Write request line
         let writer = self.reader.get_mut();
         writer
             .write_all(payload.as_bytes())
-            .map_err(|e| format!("Write error: {}", e))?;
+            .map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
         writer
             .write_all(b"\n")
-            .map_err(|e| format!("Write error: {}", e))?;
-        writer.flush().map_err(|e| format!("Flush error: {}", e))?;
+            .map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
+        writer
+            .flush()
+            .map_err(|e| SocketCallError::Transport(format!("Flush error: {}", e)))?;
 
         // Read response line
         let mut line = String::new();
         let bytes_read = self
             .reader
             .read_line(&mut line)
-            .map_err(|e| format!("Read error: {}", e))?;
+            .map_err(|e| SocketCallError::Transport(format!("Read error: {}", e)))?;
 
         if bytes_read == 0 || line.trim().is_empty() {
-            return Err(format!(
+            return Err(SocketCallError::Transport(format!(
                 "daemon closed the socket without responding to '{}' (read {} bytes). \
                  The server-side handler may have panicked during dispatch, or the daemon \
                  restarted mid-request. Retry usually clears it; if it persists, check daemon logs.",
                 method, bytes_read
-            ));
+            )));
         }
 
         let resp: JsonRpcResponse = serde_json::from_str(line.trim()).map_err(|e| {
             let preview: String = line.chars().take(200).collect();
-            format!(
+            SocketCallError::Transport(format!(
                 "malformed JSON-RPC response from daemon for '{}' ({} bytes, first 200 chars: {:?}): {}",
                 method, line.len(), preview, e
-            )
+            ))
         })?;
 
         if let Some(err) = resp.error {
-            return Err(format!("RPC error {}: {}", err.code, err.message));
+            return Err(SocketCallError::Rpc(err));
         }
 
         Ok(resp.result.unwrap_or(serde_json::Value::Null))

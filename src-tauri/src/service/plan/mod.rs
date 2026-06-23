@@ -48,6 +48,23 @@ impl fmt::Display for PlanError {
 
 impl std::error::Error for PlanError {}
 
+impl PlanError {
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            PlanError::NotFound => serde_json::json!({ "type": "not_found" }),
+            PlanError::TaskNotFound => serde_json::json!({ "type": "task_not_found" }),
+            PlanError::UndeclaredKind { declared } => {
+                serde_json::json!({ "type": "undeclared_kind", "declared": declared })
+            }
+            PlanError::BudgetExhausted { count, budget } => {
+                serde_json::json!({ "type": "budget_exhausted", "count": count, "budget": budget })
+            }
+            PlanError::BadStatus => serde_json::json!({ "type": "bad_status" }),
+            PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct NewTask {
     pub name: String,

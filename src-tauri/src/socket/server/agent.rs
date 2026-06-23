@@ -18,11 +18,13 @@ pub(super) fn dispatch(
             let p = params.as_ref().ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
+                data: None,
             })?;
             let spawn_params =
                 crate::service::SpawnAgentParams::from_json(p).map_err(|e| JsonRpcError {
                     code: -32602,
                     message: e,
+                    data: None,
                 })?;
 
             let svc_ref = &**svc;
@@ -31,6 +33,7 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             {
                 let h = app.clone();
@@ -84,6 +87,7 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             Ok(serde_json::json!({
                 "ok": true,
@@ -107,6 +111,7 @@ pub(super) fn dispatch(
             serde_json::to_value(&reports).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
@@ -117,12 +122,14 @@ pub(super) fn dispatch(
             serde_json::to_value(&rows).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }

@@ -12,6 +12,8 @@ use crate::api::routes::{check_auth, AppState};
 use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus};
 use crate::service::plan::{NewTask, PlanError};
 
+type PlanRouteResult = Result<Json<Value>, (StatusCode, Json<Value>)>;
+
 fn epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -19,8 +21,23 @@ fn epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn plan_err(e: PlanError) -> (StatusCode, String) {
-    (StatusCode::BAD_REQUEST, e.to_string())
+fn text_err(status: StatusCode, message: impl ToString) -> (StatusCode, Json<Value>) {
+    (
+        status,
+        Json(serde_json::json!({ "error": message.to_string() })),
+    )
+}
+
+fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
+    let status = match e {
+        PlanError::NotFound | PlanError::TaskNotFound => StatusCode::NOT_FOUND,
+        _ => StatusCode::BAD_REQUEST,
+    };
+    let body = serde_json::json!({
+        "error": e.to_string(),
+        "plan_error": e.to_json(),
+    });
+    (status, Json(body))
 }
 
 fn emit_plan_changed(state: &AppState, plan_id: &str) {
@@ -72,8 +89,8 @@ pub async fn create(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(body): Json<CreatePlanBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let project = body.project_path.unwrap_or_else(|| {
         std::env::current_dir()
             .map(|p| p.display().to_string())
@@ -109,8 +126,8 @@ pub async fn list(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Query(q): Query<ListPlansQuery>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let mut entries = state.svc.plan_store.list_index();
     if let Some(project) = &q.project {
         entries.retain(|e| {
@@ -145,13 +162,13 @@ pub async fn get(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let plan = state
         .svc
         .plan_store
         .get(&id)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, PlanError::NotFound.to_string()))?;
+        .ok_or_else(|| plan_err(PlanError::NotFound))?;
     Ok(Json(serde_json::to_value(plan).unwrap_or_default()))
 }
 
@@ -168,8 +185,8 @@ pub async fn update(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<UpdatePlanBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let status = body
         .status
         .as_deref()
@@ -190,13 +207,13 @@ pub async fn delete_plan(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
         .delete(&id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(|e| text_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -205,8 +222,8 @@ pub async fn archive(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -228,8 +245,8 @@ pub async fn transfer(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<TransferBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -243,8 +260,8 @@ pub async fn disown(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -264,8 +281,8 @@ pub async fn claim(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<ClaimBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -289,8 +306,8 @@ pub async fn section_add(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<SectionAddBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let sid = state
         .svc
         .plan_store
@@ -319,8 +336,8 @@ pub async fn section_update(
     headers: HeaderMap,
     Path((id, sid)): Path<(String, String)>,
     Json(body): Json<SectionUpdateBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -340,8 +357,8 @@ pub async fn section_rm(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path((id, sid)): Path<(String, String)>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -361,8 +378,8 @@ pub async fn kinds_set(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<KindsSetBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -396,8 +413,8 @@ pub async fn task_add(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<TaskAddBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let section_ids = body
         .sections
         .as_deref()
@@ -462,8 +479,8 @@ pub async fn task_update(
     headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<TaskUpdateBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let section_ids = body.sections.as_ref().map(|s| {
         s.split(',')
             .map(str::trim)
@@ -506,8 +523,8 @@ pub async fn task_close(
     headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<TaskCloseBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let from = body.from.unwrap_or_else(|| AgentRef::from_pane("unknown"));
     state
         .svc
@@ -530,8 +547,8 @@ pub async fn task_assign(
     headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<TaskAssignBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -545,8 +562,8 @@ pub async fn task_rm(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -572,8 +589,8 @@ pub async fn milestone_add(
     headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<MilestoneAddBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let from = body.from.unwrap_or_else(|| AgentRef::from_pane("unknown"));
     let mid = state
         .svc
@@ -605,8 +622,8 @@ pub async fn milestone_update(
     headers: HeaderMap,
     Path((id, tid, ms_id)): Path<(String, String, String)>,
     Json(body): Json<MilestoneUpdateBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -627,8 +644,8 @@ pub async fn milestone_rm(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path((id, tid, ms_id)): Path<(String, String, String)>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -653,8 +670,8 @@ pub async fn loop_create(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<LoopCreateBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let lid = state
         .svc
         .plan_store
@@ -684,8 +701,8 @@ pub async fn loop_set(
     headers: HeaderMap,
     Path((_id, lid)): Path<(String, String)>,
     Json(body): Json<LoopSetBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -713,13 +730,13 @@ pub async fn loop_status(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path((_id, lid)): Path<(String, String)>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let spec = state
         .svc
         .plan_store
         .loop_status(&lid)
-        .ok_or_else(|| (StatusCode::NOT_FOUND, PlanError::NotFound.to_string()))?;
+        .ok_or_else(|| plan_err(PlanError::NotFound))?;
     Ok(Json(serde_json::to_value(spec).unwrap_or_default()))
 }
 
@@ -727,8 +744,8 @@ pub async fn loop_stop(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path((_id, lid)): Path<(String, String)>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -761,8 +778,8 @@ pub async fn layout_set(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<LayoutSetBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -789,8 +806,8 @@ pub async fn note_add(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<NoteAddBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let eid = state
         .svc
         .plan_store
@@ -818,8 +835,8 @@ pub async fn element_add(
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<ElementAddBody>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let eid = state
         .svc
         .plan_store

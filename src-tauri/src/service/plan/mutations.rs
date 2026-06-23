@@ -534,6 +534,9 @@ impl PlanStore {
         stop_when: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
+        if budget == 0 {
+            return Err(PlanError::BudgetExhausted { count: 0, budget });
+        }
         let lid = gen_id("loop");
         let spec = LoopSpec {
             id: lid.clone(),
@@ -568,6 +571,12 @@ impl PlanStore {
                 .find(|l| l.id == loop_id)
                 .ok_or(PlanError::NotFound)?;
             if let Some(b) = budget {
+                if lp.count >= b {
+                    return Err(PlanError::BudgetExhausted {
+                        count: lp.count,
+                        budget: b,
+                    });
+                }
                 lp.budget = b;
             }
             if let Some(sw) = stop_when {

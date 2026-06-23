@@ -62,16 +62,19 @@ pub(crate) fn route(
     let (id, verb) = parse_method(method).ok_or_else(|| JsonRpcError {
         code: -32600,
         message: format!("malformed plugin command method: {method} (expected plugin:<id>.<verb>)"),
+        data: None,
     })?;
 
     let handler = registry.get(&id).ok_or_else(|| JsonRpcError {
         code: -32601,
         message: format!("plugin '{id}' has no agent_commands handler"),
+        data: None,
     })?;
     if !handler.granted() {
         return Err(JsonRpcError {
             code: -32603,
             message: format!("plugin '{id}' is not granted agent_commands"),
+            data: None,
         });
     }
     if let Some(verbs) = allowed_verbs {
@@ -79,6 +82,7 @@ pub(crate) fn route(
             return Err(JsonRpcError {
                 code: -32603,
                 message: format!("verb '{verb}' is not in the spawned worker's granted commands"),
+                data: None,
             });
         }
     }
@@ -102,6 +106,7 @@ pub(super) fn dispatch(
     let (id, _) = parse_method(method).ok_or_else(|| JsonRpcError {
         code: -32600,
         message: format!("malformed plugin command method: {method} (expected plugin:<id>.<verb>)"),
+        data: None,
     })?;
 
     // C2 MINOR-2: a worker the plugin spawned (`spawned_by == plugin:<id>`) is

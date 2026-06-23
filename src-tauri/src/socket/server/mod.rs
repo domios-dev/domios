@@ -52,6 +52,8 @@ struct JsonRpcResponse {
 pub(super) struct JsonRpcError {
     pub(super) code: i32,
     pub(super) message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) data: Option<serde_json::Value>,
 }
 
 impl JsonRpcResponse {
@@ -69,7 +71,11 @@ impl JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
             id,
             result: None,
-            error: Some(JsonRpcError { code, message }),
+            error: Some(JsonRpcError {
+                code,
+                message,
+                data: None,
+            }),
         }
     }
 }
@@ -268,7 +274,12 @@ fn handle_connection(
                             }));
                         match dispatched {
                             Ok(Ok(result)) => JsonRpcResponse::success(id, result),
-                            Ok(Err(err)) => JsonRpcResponse::error(id, err.code, err.message),
+                            Ok(Err(err)) => JsonRpcResponse {
+                                jsonrpc: "2.0".to_string(),
+                                id,
+                                result: None,
+                                error: Some(err),
+                            },
                             Err(panic) => {
                                 let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
                                     (*s).to_string()
@@ -371,6 +382,7 @@ fn dispatch(
             crate::crash::trigger_test_crash(&kind).map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })?;
             return Ok(serde_json::json!({"ok": true, "kind": kind}));
         }
@@ -393,6 +405,7 @@ fn dispatch(
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }
@@ -410,5 +423,6 @@ pub(super) fn get_string_param(
         .ok_or_else(|| JsonRpcError {
             code: -32602,
             message: format!("Missing required parameter: {}", key),
+            data: None,
         })
 }

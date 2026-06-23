@@ -22,6 +22,7 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })
         }
 
@@ -54,6 +55,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
+                data: None,
             })
         }
 
@@ -69,6 +71,7 @@ pub(super) fn dispatch(
                     .map_err(|e| JsonRpcError {
                         code: -32602,
                         message: e,
+                        data: None,
                     })?;
             let _ = svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
             let pty_id = if eager {
@@ -76,6 +79,7 @@ pub(super) fn dispatch(
                     .map_err(|e| JsonRpcError {
                         code: -32603,
                         message: e,
+                        data: None,
                     })?;
                 svc.mux
                     .write()
@@ -98,6 +102,7 @@ pub(super) fn dispatch(
                 mux.set_active_workspace(&id).map_err(|e| JsonRpcError {
                     code: -32602,
                     message: e,
+                    data: None,
                 })?;
             }
             {
@@ -120,6 +125,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -133,6 +139,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -146,6 +153,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
+                data: None,
             })
         }
 
@@ -167,6 +175,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -180,6 +189,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -193,6 +203,7 @@ pub(super) fn dispatch(
                     .map_err(|e| JsonRpcError {
                         code: -32602,
                         message: e,
+                        data: None,
                     })?;
             }
             {
@@ -207,6 +218,7 @@ pub(super) fn dispatch(
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }
