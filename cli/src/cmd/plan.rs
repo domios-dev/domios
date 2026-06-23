@@ -276,11 +276,9 @@ fn run_plan(
             ),
         },
 
-        PlanAction::Link { plan_id, to } => call(
-            client,
-            "plan.link",
-            json!({ "plan_id": plan_id, "to": to }),
-        ),
+        PlanAction::Link { plan_id, to } => {
+            call(client, "plan.link", json!({ "plan_id": plan_id, "to": to }))
+        }
 
         PlanAction::Unlink { plan_id, to } => call(
             client,
