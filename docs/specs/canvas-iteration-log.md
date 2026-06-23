@@ -113,7 +113,19 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
 - **Verified:** edges render at rest (board reads connected), title full, cards filled, bubbles
   quieter. Re-scoring with a fresh independent Dax.
 
-## Iteration 6 — demote spec + tame color/packing (Mira) — in progress
+## Iteration 6 — demote spec + tame color/packing (Mira) ✅
+- Mira pushed 174e81f1 (merged c48da58b): spec DEMOTED (titlebar-bg surface, no shadow, 320→270
+  w / 460→348 h) + plan node ELEVATED as hero (flat bg + layered shadow + accent rail); bubble
+  in-circle text stubs dropped (clean color-lane circles + iteration badge + hover tooltip);
+  edges quieter at rest (fg 0.16-0.24, accent only on hover); bubble palette → tight blue→violet→
+  teal muted ramp (no rainbow); packing tightened; task vertical centers aligned to covered-row
+  anchor Y (edges run LEVEL); orchestrator group → bounded accent-tinted region + bold pill chip;
+  coverage bar → flat border-focus fill (no gradient). tsc clean, 13/13.
+- **Verified (full + zoom):** plan node is the hero now, spec recessed, bubbles calm muted,
+  edges quiet, group bounded, edges run level. Clean and restrained.
+- Re-scoring with a fresh Dax (full + zoom detail crop).
+
+## Iteration 7 — Dax re-score + remaining polish — in progress
 - **Dax2 (fresh independent critic) scored iter5 = 76/100.** Per-dim: Hierarchy 7, Connection 8,
   Coverage 8 (best), Bounds 8, Packing **5** (weakest), Typography 7, Color 6, Nav 7, Markdown 8,
   Polish 6. (Lower than Dax1's 80 = critic calibration drift, not regression; iter5 objectively
