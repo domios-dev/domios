@@ -22,11 +22,11 @@
 #   - minisign updater key on the Mac: ~/.tauri/codeterm.key (updater .sig signed on the Mac)
 #
 # Usage:  build-all.sh vX.Y.Z
-set -uo pipefail
+set -euo pipefail
 TAG="${1:?usage: build-all.sh vX.Y.Z}"; VER="${TAG#v}"
 REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
 BM="$REPO/.codeterm/build-machine"
-HELPERS="$REPO/.codeterm/skills/github-release/scripts"
+HELPERS="$REPO/.agents/skills/github-release/scripts"
 ART="${ART:-/tmp/codeterm-${VER}-artifacts}"; mkdir -p "$ART"
 LWORK=/tmp/ct-linux-build; mkdir -p "$LWORK"
 
@@ -51,6 +51,7 @@ run_wave() {
   for c in "$@"; do ( eval "$c" ) >"$ART/.$label.$RANDOM.log" 2>&1 & pids+=($!); done
   for p in "${pids[@]}"; do wait "$p" || rc=1; done
   echo "### WAVE $label done (rc=$rc)"
+  return "$rc"
 }
 
 DOCKER="docker run --rm -v $LWORK:/work -v /tmp/ct-cargo-registry:/usr/local/cargo/registry -v $BM/scripts/build-linux.sh:/build-linux.sh -e CARGO_BUILD_JOBS=2 -w /work"
