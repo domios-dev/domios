@@ -136,7 +136,25 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   composition fills viewport. Targeting >85.
 - Re-scoring with fresh Dax (full + zoom).
 
-## Iteration 8 — Dax re-score + final polish — in progress
+## Iteration 8 — KILL THE FLOATING (cluster placement root-cause) (Mira) — in progress
+- **Dax4 scored iter7 = 74/100** (Hierarchy 7.5, Connection **5.5**, Coverage 8.5, Bounds 9,
+  Packing **6**, Typo 7.5, Color 7, Nav 8, Markdown 8.5, Polish 6.5). Harsher calibration, but
+  the defect theme is now consistent across Dax2/3/4: CONNECTION + PACKING, same root.
+- **ROOT CAUSE (not a symptom):** step-bubble clusters are placed at a fixed far orbit ~500-600px
+  right of their task card with no visible task→cluster edge → 4 scattered regions, dead bands.
+  Mira keeps tweaking gaps; the fix is the CLUSTER PLACEMENT ALGORITHM — clusters must be a direct
+  extension of the task card (adjacent, ~24px, wrapped 2-col), with a drawn edge.
+- **Also:** iter7's spec demotion lost card chrome → spec reads as floating text + plan↔spec edge
+  absent (§2.3 violated). Demoted ≠ chromeless: keep muted/recessed BUT a subtle card + the edge.
+- **THE ONE THING (Dax4):** kill the floating — clusters tight to tasks w/ visible edge + spec↔plan
+  edge + spec card chrome. Converts 4 regions into 1 connected diagram, reclaims dead space.
+- **Ranked → Mira (iter8, connection+packing ONLY):** 1) cluster placement: adjacent to task right
+  edge (gap ~24), 2-col wrap, drawn task→cluster edge. 2) spec: subtle card (1px border/surface/pad)
+  + plan↔spec edge to a real anchor. 3) plan→task edges: stagger per-row anchor Y so beziers fan
+  out (not a bunched smear); keep 0.42 alpha. 4) tighten inter-column gaps + raise zoom so content
+  fills (iter7 went too sparse). 5) coverage tint → LOW alpha (~0.10), saturated green only on the
+  status dot (kill the 'wall of green'). 6) task card: ONE green signal + readable type subtitle.
+  7) co-locate plan header task-count + coverage on one band.
 - **Dax3 scored iter6 = 80/100.** Per-dim: Hierarchy 7.5, Connection **6.0** (weakest), Coverage
   8.5, Bounds **9.0** (best), Packing **6.0**, Typography 7.5, Color 7.5, Nav 8, Markdown 8,
   Polish 6.5. (Critic scores plateau ~80 across Dax1/2/3 = calibration; Connection+Packing are
