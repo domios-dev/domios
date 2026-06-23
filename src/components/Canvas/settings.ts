@@ -76,8 +76,8 @@ export interface CanvasLayoutSettings {
 }
 
 export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
-  planWidth: 300,
-  planHeaderHeight: 64,
+  planWidth: 308,
+  planHeaderHeight: 76,
   planRowHeight: 34,
   planFooterHeight: 40,
   planRowIndent: 16,
@@ -85,10 +85,12 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   specWidth: 320,
   specHeight: 460,
 
-  taskWidth: 248,
-  taskMinHeight: 72,
-  taskGapY: 20,
+  taskWidth: 252,
+  taskMinHeight: 58,
+  taskGapY: 18,
 
+  // Gutter rhythm: GUTTER intra-frame (spec→plan, plan→tasks), GUTTER*2 between
+  // frames/owner groups, ~GUTTER for group padding. One base, no ad-hoc gaps.
   columnGapX: 48,
   clusterGapX: 32,
 
@@ -100,13 +102,13 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   anchorInset: 0,
   edgeCurve: 0.5,
 
-  groupPadding: 44,
+  groupPadding: 40,
   groupLabelHeight: 34,
-  groupGapX: 120,
-  groupGapY: 150,
+  groupGapX: 96,
+  groupGapY: 120,
 
   framePadding: 24,
-  frameGap: 120,
+  frameGap: 96,
   rowMaxWidth: 9000,
 
   zoomFarThreshold: 0.45,
