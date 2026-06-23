@@ -626,6 +626,11 @@ pub fn run() {
                 agent_registry.clone(),
                 chatbackend_registry.clone(),
             ));
+            let plan_store = Arc::new(crate::service::plan::PlanStore::new());
+            let plan_turn_counter =
+                Arc::new(crate::service::plan::reminders::TurnCounter::new());
+            plan_store.bind_turn_counter(plan_turn_counter.clone());
+
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -637,7 +642,8 @@ pub fn run() {
                 agent_tracker: states.agent_tracker.clone(),
                 shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
-                plan_store: Arc::new(crate::service::plan::PlanStore::new()),
+                plan_store,
+                plan_turn_counter,
                 agent_registry,
                 mem,
                 mem_supervisor,

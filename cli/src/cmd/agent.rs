@@ -264,6 +264,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         AgentAction::Report {
             message,
             pane,
+            plan,
+            task,
             status,
             branch,
             sha,
@@ -277,6 +279,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 "pane_id": pane_id,
                 "message": message,
             });
+            if let Some(p) = plan {
+                body["plan_id"] = serde_json::json!(p);
+            }
+            if let Some(t) = task {
+                body["task_id"] = serde_json::json!(t);
+            }
             if let Some(s) = status {
                 body["status"] = serde_json::json!(s.as_str());
             }

@@ -1,5 +1,7 @@
 pub mod mutations;
 pub mod paths;
+pub mod reminders;
+pub mod watcher;
 
 #[cfg(test)]
 mod tests;
@@ -11,6 +13,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 #[derive(Debug)]
 pub enum PlanError {
@@ -71,6 +74,8 @@ pub struct IndexEntry {
 pub struct PlanStore {
     plans: RwLock<HashMap<String, Arc<Mutex<Plan>>>>,
     index: RwLock<HashMap<String, IndexEntry>>,
+    last_writes: RwLock<HashMap<PathBuf, SystemTime>>,
+    turn_counter: RwLock<Option<Arc<reminders::TurnCounter>>>,
 }
 
 impl PlanStore {
@@ -97,6 +102,29 @@ impl PlanStore {
         Ok(path)
     }
 
+    fn note_write(&self, path: &Path) {
+        if let Ok(meta) = std::fs::metadata(path) {
+            if let Ok(modified) = meta.modified() {
+                self.last_writes
+                    .write()
+                    .insert(path.to_path_buf(), modified);
+            }
+        }
+    }
+
+    pub fn is_own_recent_write(&self, path: &Path) -> bool {
+        let Ok(meta) = std::fs::metadata(path) else {
+            return false;
+        };
+        let Ok(modified) = meta.modified() else {
+            return false;
+        };
+        self.last_writes
+            .read()
+            .get(path)
+            .is_some_and(|last| *last == modified)
+    }
+
     fn index_entry(plan: &Plan, file_path: PathBuf) -> IndexEntry {
         IndexEntry {
             plan_id: plan.id.clone(),
@@ -114,6 +142,7 @@ impl PlanStore {
         }
         plan.updated_at = now_ms;
         let path = Self::write_atomic(plan)?;
+        self.note_write(&path);
         self.index
             .write()
             .insert(plan.id.clone(), Self::index_entry(plan, path));
@@ -125,6 +154,64 @@ impl PlanStore {
 
     pub fn get(&self, id: &str) -> Option<Plan> {
         self.plans.read().get(id).map(|p| p.lock().clone())
+    }
+
+    pub fn reload_from_disk(&self, id: &str) -> Result<(), PlanError> {
+        let path = self
+            .index
+            .read()
+            .get(id)
+            .map(|e| e.file_path.clone())
+            .ok_or(PlanError::NotFound)?;
+        let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
+        let plan: Plan = serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
+        if plan.id != id {
+            return Err(PlanError::Io(format!(
+                "plan id mismatch: expected {id}, found {}",
+                plan.id
+            )));
+        }
+        self.index
+            .write()
+            .insert(plan.id.clone(), Self::index_entry(&plan, path));
+        self.plans
+            .write()
+            .insert(plan.id.clone(), Arc::new(Mutex::new(plan)));
+        Ok(())
+    }
+
+    pub fn bind_turn_counter(&self, counter: Arc<reminders::TurnCounter>) {
+        *self.turn_counter.write() = Some(counter);
+    }
+
+    fn reset_bound_panes(&self, plan: &Plan) {
+        let Some(counter) = self.turn_counter.read().clone() else {
+            return;
+        };
+        for pane_id in plan
+            .tasks
+            .iter()
+            .filter_map(|t| t.assigned_pane_id.as_deref())
+        {
+            counter.reset(pane_id);
+        }
+    }
+
+    pub fn task_binding_for_pane(&self, pane_id: &str) -> Option<(String, String)> {
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active {
+                continue;
+            }
+            if let Some(task) = plan
+                .tasks
+                .iter()
+                .find(|t| t.assigned_pane_id.as_deref() == Some(pane_id))
+            {
+                return Some((plan.id.clone(), task.id.clone()));
+            }
+        }
+        None
     }
 
     pub fn list_index(&self) -> Vec<IndexEntry> {

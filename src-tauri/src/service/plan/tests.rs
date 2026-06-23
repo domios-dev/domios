@@ -22,6 +22,38 @@ fn store_saves_loads_indexes() {
     assert_eq!(loaded.updated_at, 1000);
 }
 
+#[test]
+fn reload_from_disk_replaces_memory_and_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Original".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("abc"),
+    );
+    store.save(&mut p, 1000).unwrap();
+
+    let path = dir
+        .path()
+        .join(".codeterm/plans")
+        .join(format!("{}.json", p.id));
+    let mut edited: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    edited.title = "Edited".into();
+    edited.updated_at = 2000;
+    std::fs::write(&path, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
+
+    store.reload_from_disk(&p.id).unwrap();
+
+    assert_eq!(store.get(&p.id).unwrap().title, "Edited");
+    let entry = store
+        .list_index()
+        .into_iter()
+        .find(|e| e.plan_id == p.id)
+        .unwrap();
+    assert_eq!(entry.title, "Edited");
+    assert_eq!(entry.updated_at, 2000);
+}
+
 fn store_with_task(kinds: &[&str]) -> (PlanStore, String, String) {
     let root = tempfile::tempdir().unwrap().keep();
     let store = PlanStore::new_for_test(&root);
