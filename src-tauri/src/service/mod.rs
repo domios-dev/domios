@@ -165,6 +165,7 @@ pub struct ServiceContext {
     pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
     /// Canvas plan store — per-project JSON plans + in-memory index. Sole writer.
     pub plan_store: Arc<crate::service::plan::PlanStore>,
+    pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
 }
 
 pub type ServiceState = Arc<ServiceContext>;

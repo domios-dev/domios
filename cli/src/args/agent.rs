@@ -77,6 +77,12 @@ pub enum AgentAction {
         /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
         #[arg(long)]
         pane: Option<String>,
+        /// Plan id to append this report to
+        #[arg(long)]
+        plan: Option<String>,
+        /// Task id to append this report to
+        #[arg(long)]
+        task: Option<String>,
         /// Task outcome: done | blocked | partial
         #[arg(long)]
         status: Option<ReportStatusArg>,
