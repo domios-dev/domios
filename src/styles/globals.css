@@ -296,17 +296,12 @@ body {
   transition:
     width 320ms cubic-bezier(0.34, 1.56, 0.64, 1),
     height 320ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 280ms ease,
     transform 90ms cubic-bezier(0.22, 1, 0.36, 1);
-  box-shadow:
-    0 0 0 0 color-mix(in srgb, var(--ct-accent) 0%, transparent),
-    0 4px 14px color-mix(in srgb, var(--ct-accent) 28%, transparent);
+  box-shadow: none;
 }
 
 .ct-composer-voice-bubble.is-active {
-  box-shadow:
-    0 0 0 6px color-mix(in srgb, var(--ct-accent) 20%, transparent),
-    0 12px 34px color-mix(in srgb, var(--ct-accent) 38%, transparent);
+  box-shadow: none;
 }
 
 .ct-composer-voice-bubble.is-active:active {
@@ -314,17 +309,7 @@ body {
 }
 
 .ct-composer-voice-bubble.is-active::before {
-  content: "";
-  position: absolute;
-  inset: -6px;
-  border-radius: 9999px;
-  z-index: -1;
-  background: radial-gradient(
-    circle,
-    color-mix(in srgb, var(--ct-accent) 34%, transparent) 0%,
-    transparent 72%
-  );
-  animation: ct-voice-bubble-pulse 1.8s ease-in-out infinite;
+  content: none;
 }
 
 @keyframes ct-voice-bubble-pulse {
