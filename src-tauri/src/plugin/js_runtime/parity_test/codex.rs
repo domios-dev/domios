@@ -21,12 +21,12 @@ fn build_launch_command_shape() {
         return;
     }
     let j = codex();
-    // Plain launch: codex binary + hook-trust bypass, no approval bypass.
+    // Plain launch: codex binary only, no bypass flags.
     let plain = j.build_launch_command(&AgentLaunchParams::default());
     assert!(plain.starts_with("codex"), "must invoke codex: {plain}");
     assert!(
-        plain.contains("--dangerously-bypass-hook-trust"),
-        "hook-trust bypass always present: {plain}"
+        !plain.contains("--dangerously-bypass-hook-trust"),
+        "removed Codex CLI flag must stay absent: {plain}"
     );
     assert!(
         !plain.contains("--dangerously-bypass-approvals-and-sandbox"),
@@ -72,6 +72,7 @@ fn build_resume_command_shape() {
     // Without skip, no approval bypass.
     let no_skip = j.build_resume_command(CODEX_UUID, false).unwrap();
     assert!(!no_skip.contains("--dangerously-bypass-approvals-and-sandbox"));
+    assert!(!no_skip.contains("--dangerously-bypass-hook-trust"));
     assert!(no_skip.contains(CODEX_UUID));
 }
 

@@ -320,7 +320,6 @@ var plugin = {
     const p = params || {};
     const parts = [];
     parts.push("codex");
-    parts.push("--dangerously-bypass-hook-trust");
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
@@ -331,7 +330,6 @@ var plugin = {
   },
   buildResumeCommand(sessionId, skipPermissions) {
     const parts = ["codex", "resume"];
-    parts.push("--dangerously-bypass-hook-trust");
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
     }
