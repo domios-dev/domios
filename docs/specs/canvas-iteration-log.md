@@ -103,7 +103,17 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
 - Bringing in **Dax** (independent opus+frontend-design critic) to score iter4 screenshots
   (/tmp/v2-iter4.png + hover) and produce the next ranked defect list — fresh adversarial eyes.
 
-## Iteration 5 — driven by Dax's independent review — in progress
+## Iteration 5 — connect the board (Mira) ✅
+- Mira pushed eb5ef957 (merged d420efdc): EDGES AT REST (all connective strokes neutral ~0.28,
+  hover lifts to accent + dims rest); plan↔spec + task→bubble edges now visible with anchor
+  dots (spec no longer floats); TaskCard filled (marker/name/type/model/status); spec typography
+  fg@0.82 + heading step + line-height 1.55 + REAL thin scrollbar; bubbles desaturated ~18%;
+  gutters standardized (48/96/40); plan title 2-line clamp (no mid-word cut); group live badge
+  → sky (no coverage-green clash). tsc clean, 13/13.
+- **Verified:** edges render at rest (board reads connected), title full, cards filled, bubbles
+  quieter. Re-scoring with a fresh independent Dax.
+
+## Iteration 6 — Dax re-score + final polish — in progress
 - **Dax (independent opus+frontend-design critic) scored iter4 = 80/100.** Per-dim: Hierarchy
   7, Connection **4.5** (the drag), Coverage 8, Bounds 8, Packing 5.5, Typography 6, Color 7,
   Navigation 7, Markdown 8, Polish 6.
