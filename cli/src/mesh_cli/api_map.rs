@@ -37,6 +37,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Plugin { .. } => {
             unsupported("plugin management is local-only — run it on the target machine")
         }
+        Commands::Plan { .. } => {
+            unsupported("plan management is local-only — run it on the target machine")
+        }
         // `cli-manifest` introspects the local clap binary — no remote form.
         Commands::CliManifest { .. } => {
             unsupported("cli-manifest is local-only — it dumps this binary's own command tree")

@@ -164,6 +164,7 @@ pub use args::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
     ThemeAction, WebAction, WorkspaceAction,
 };
+pub use args::plan::PlanAction;
 pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::service::ServiceAction;
 pub use args::sessions::SessionsAction;
@@ -504,6 +505,11 @@ fn main() {
 
         Commands::Agent { action } => {
             cmd::agent::handle_agent(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Plan { action } => {
+            cmd::plan::handle_plan(&mut client, cli.json, action);
             return;
         }
 

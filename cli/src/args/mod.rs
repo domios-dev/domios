@@ -5,6 +5,7 @@ pub mod debug;
 pub mod delayed;
 pub mod mem;
 pub mod misc;
+pub mod plan;
 pub mod plugin;
 pub mod service;
 pub mod sessions;
