@@ -10,7 +10,7 @@
 # On failure, emits BLOCKED step=<name> err=<short> with prose detail.
 #
 # Spawn from the orchestrator pane with something like:
-#   codeterm agent spawn claude --task "bash .codeterm/skills/github-release/scripts/win-release.sh 1.3.3"
+#   codeterm agent spawn claude --task "bash .agents/skills/github-release/scripts/win-release.sh 1.3.3"
 # The agent then dispatches stdout into `codeterm agent report` so the parent
 # orchestrator parses the first line as a structured event.
 #

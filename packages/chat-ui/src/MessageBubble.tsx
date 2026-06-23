@@ -503,6 +503,31 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const label = message.tagName || message.systemSubtype || "system";
     const isCaveat = message.tagName === "local-command-caveat";
     const isSkillContext = message.systemSubtype === "skill_context";
+    const isCompactSummary = message.systemSubtype === "compact_summary" || message.isCompactSummary === true;
+    const isAgentInstructions = message.systemSubtype === "agent_instructions";
+    const isTurnAborted = message.systemSubtype === "turn_aborted";
+    if (isCompactSummary) {
+      return (
+        <LongArtifact
+          label="Session continued from summary"
+          text={message.content}
+          expanded={expanded}
+          onToggle={() => setExpanded(!expanded)}
+          markdown
+        />
+      );
+    }
+    if (isAgentInstructions || isTurnAborted) {
+      return (
+        <LongArtifact
+          label={isAgentInstructions ? "Agent instructions" : "Turn interrupted"}
+          text={message.content}
+          expanded={expanded}
+          onToggle={() => setExpanded(!expanded)}
+          markdown={isAgentInstructions}
+        />
+      );
+    }
     if (isSkillContext || isLargeArtifact(message.content)) {
       return (
         <LongArtifact

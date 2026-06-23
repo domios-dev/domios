@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { Segmented, type SegmentedOption } from "../shared/Segmented";
 import { emitPaneUiMode, isChatDefaultEnabled, type PaneUiMode } from "../../lib/chatUiMode";
-import { listenCurrentPaneUiMode, resolveInitialPaneUiMode } from "../../lib/clientPaneUiMode";
+import {
+  listenCurrentPaneUiMode,
+  listenPaneUiModeDefaultChanged,
+  resolveInitialPaneUiMode,
+} from "../../lib/clientPaneUiMode";
 import { useMultiplexer } from "../../store/multiplexer";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 
@@ -40,13 +44,25 @@ export function PaneModeSwitch({
       chatDefault: isChatDefaultEnabled(),
     }),
   );
+  const [defaultChatFirst, setDefaultChatFirst] = useState(() => chatFirst || isChatDefaultEnabled());
   useEffect(() => listenCurrentPaneUiMode(paneId, setMode), [paneId]);
+  useEffect(() => {
+    setDefaultChatFirst(chatFirst || isChatDefaultEnabled());
+  }, [chatFirst]);
+  useEffect(() => listenPaneUiModeDefaultChanged((enabled) => {
+    setDefaultChatFirst(enabled);
+    setMode(resolveInitialPaneUiMode(paneId, {
+      chatCapable,
+      chatViewFlag: pane?.chat_view === true,
+      chatDefault: enabled,
+    }));
+  }), [paneId, chatCapable, pane?.chat_view]);
 
   return (
     <Segmented
       data-testid="pane-mode-switch"
       value={mode}
-      options={chatFirst ? [CHAT, TERMINAL] : [TERMINAL, CHAT]}
+      options={defaultChatFirst ? [CHAT, TERMINAL] : [TERMINAL, CHAT]}
       height={height}
       onChange={(next) => {
         setMode(next);
