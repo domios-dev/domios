@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { X } from "lucide-react";
 import type { ApiConfig, Pane } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
+import { CanvasComposer } from "./CanvasComposer";
 import type { CanvasLod } from "./cards";
 import { getNodeRenderer } from "./nodeRegistry";
 import {
@@ -26,6 +27,8 @@ export interface CanvasViewInnerProps {
   orchestratorPaneId?: string;
   panes?: Record<string, Pane>;
   onClose?: () => void;
+  /** Talk-to-area composer needs an API config to POST to the owner pane. */
+  api?: ApiConfig;
   /** Test hook: expand viewport culling margin. */
   viewportPadding?: number;
 }
@@ -86,6 +89,7 @@ export function CanvasViewInner({
   orchestratorPaneId,
   panes = {},
   onClose,
+  api,
   viewportPadding,
 }: CanvasViewInnerProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -195,6 +199,15 @@ export function CanvasViewInner({
 
   const worldW = Math.max(layout.bounds.width + 400, size.width);
   const worldH = Math.max(layout.bounds.height + 400, size.height);
+
+  // World-space point under the viewport center drives the composer's targeting.
+  const viewportCenter = useMemo(
+    () => ({
+      x: (size.width / 2 - transform.x) / transform.scale,
+      y: (size.height / 2 - transform.y) / transform.scale,
+    }),
+    [size.width, size.height, transform.x, transform.y, transform.scale],
+  );
 
   return (
     <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view">
@@ -322,6 +335,15 @@ export function CanvasViewInner({
           </div>
         )}
       </div>
+      {api && filteredPlans.length > 0 && (
+        <CanvasComposer
+          api={api}
+          plans={filteredPlans}
+          layout={layout}
+          viewportCenter={viewportCenter}
+          mode={mode}
+        />
+      )}
     </div>
   );
 }
@@ -335,7 +357,7 @@ export interface CanvasViewProps {
   onClose?: () => void;
 }
 
-export function CanvasView({ mode, planId, orchestratorPaneId, onClose }: CanvasViewProps) {
+export function CanvasView({ mode, planId, orchestratorPaneId, api, onClose }: CanvasViewProps) {
   const { plans, loading, error } = useFullPlans();
   const { state } = useMultiplexer();
   return (
@@ -348,6 +370,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, onClose }: Canvas
       orchestratorPaneId={orchestratorPaneId}
       panes={state.panes}
       onClose={onClose}
+      api={api}
     />
   );
 }
