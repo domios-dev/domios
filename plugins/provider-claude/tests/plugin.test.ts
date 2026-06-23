@@ -206,6 +206,122 @@ try {
 assert(parsed.messages.length === 1, "parseSessionDelta corrupted lines are skipped");
 assert(warned === 1, "parseSessionDelta emits one warning for a session with invalid entries");
 
+console.log("\n--- parseSessionDelta compact metadata ---\n");
+{
+  const compactText = "This session is being continued from a previous conversation.";
+  const compact = hostPlugin.parseSessionDelta([
+    JSON.stringify({
+      type: "user",
+      uuid: "compact-user",
+      isCompactSummary: true,
+      isVisibleInTranscriptOnly: true,
+      message: { role: "user", content: compactText },
+    }),
+    JSON.stringify({
+      type: "system",
+      subtype: "compact_boundary",
+      level: "info",
+      uuid: "compact-boundary",
+    }),
+  ].join("\n")) as { messages: Array<Record<string, unknown>> };
+
+  eq(
+    compact.messages.map((m) => ({
+      role: m.role,
+      uuid: m.uuid,
+      sourceType: m.sourceType,
+      sourceSubtype: m.sourceSubtype,
+      level: m.level,
+      isCompactSummary: m.isCompactSummary,
+      isVisibleInTranscriptOnly: m.isVisibleInTranscriptOnly,
+      text: ((m.blocks as Array<{ data: { text?: string; subtype?: string } }>)[0]).data.text,
+      subtype: ((m.blocks as Array<{ data: { text?: string; subtype?: string } }>)[0]).data.subtype,
+    })),
+    [
+      {
+        role: "system",
+        uuid: "compact-user",
+        sourceType: "user",
+        sourceSubtype: "compact_summary",
+        level: null,
+        isCompactSummary: true,
+        isVisibleInTranscriptOnly: true,
+        text: compactText,
+        subtype: "compact_summary",
+      },
+      {
+        role: "system",
+        uuid: "compact-boundary",
+        sourceType: "system",
+        sourceSubtype: "compact_boundary",
+        level: "info",
+        isCompactSummary: null,
+        isVisibleInTranscriptOnly: null,
+        text: "",
+        subtype: "compact_boundary",
+      },
+    ],
+    "compact summaries and boundaries preserve Claude row metadata",
+  );
+}
+
+console.log("\n--- parseSessionDelta task notification ---\n");
+{
+  const parsed = hostPlugin.parseSessionDelta(JSON.stringify({
+    type: "user",
+    uuid: "task-notification",
+    origin: { kind: "task-notification" },
+    message: {
+      role: "user",
+      content: "<task-notification>\n<status>failed</status>\n<summary>Background command failed</summary>\n</task-notification>",
+    },
+  })) as { messages: Array<Record<string, unknown>> };
+  eq(
+    parsed.messages.map((m) => ({
+      role: m.role,
+      sourceSubtype: m.sourceSubtype,
+      text: ((m.blocks as Array<{ data: { text?: string; subtype?: string } }>)[0]).data.text,
+      subtype: ((m.blocks as Array<{ data: { text?: string; subtype?: string } }>)[0]).data.subtype,
+    })),
+    [
+      {
+        role: "status",
+        sourceSubtype: "task_notification",
+        text: "Task failed",
+        subtype: "task_notification",
+      },
+    ],
+    "task notifications normalize to status rows in the Claude provider",
+  );
+
+  const attachmentParsed = hostPlugin.parseSessionDelta(JSON.stringify({
+    type: "attachment",
+    uuid: "task-notification-attachment",
+    attachment: {
+      type: "queued_command",
+      commandMode: "task-notification",
+      prompt: "<task-notification>\n<status>completed</status>\n<summary>Background command completed</summary>\n</task-notification>",
+    },
+  })) as { messages: Array<Record<string, unknown>> };
+  eq(
+    attachmentParsed.messages.map((m) => ({
+      role: m.role,
+      sourceSubtype: m.sourceSubtype,
+      text: ((m.blocks as Array<{ data: { text?: string; subtype?: string } }>)[0]).data.text,
+      subtype: ((m.blocks as Array<{ data: { text?: string; subtype?: string } }>)[0]).data.subtype,
+    })),
+    [
+      {
+        role: "status",
+        sourceSubtype: "task_notification",
+        text: "Task completed",
+        subtype: "task_notification",
+      },
+    ],
+    "queued task-notification attachments normalize to status rows",
+  );
+}
+
 console.log("\n--- discoverModels ---\n");
 
 {

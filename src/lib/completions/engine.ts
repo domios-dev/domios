@@ -68,7 +68,6 @@ export class CompletionEngine {
       // flags already added above via fuzzyMatch("--flag", "")
     }
 
-    // Sort: exact prefix first, then fuzzy
     items.sort((a, b) => {
       const aExact = a.text.toLowerCase().startsWith(prefix) ? 0 : 1;
       const bExact = b.text.toLowerCase().startsWith(prefix) ? 0 : 1;
@@ -82,23 +81,7 @@ export class CompletionEngine {
   }
 }
 
-/** Fuzzy prefix match — returns true if candidate starts with or contains prefix. */
 function fuzzyMatch(candidate: string, prefix: string): boolean {
   if (!prefix) return true;
-  const c = candidate.toLowerCase();
-  const p = prefix.toLowerCase();
-
-  // Exact prefix
-  if (c.startsWith(p)) return true;
-
-  // Subsequence match (for short prefixes)
-  if (p.length <= 3) {
-    let ci = 0;
-    for (let pi = 0; pi < p.length && ci < c.length; ci++) {
-      if (c[ci] === p[pi]) pi++;
-      if (pi === p.length) return true;
-    }
-  }
-
-  return false;
+  return candidate.toLowerCase().startsWith(prefix.toLowerCase());
 }

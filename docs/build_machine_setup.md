@@ -57,7 +57,7 @@ The Mac builds the macOS artifacts directly and is the only place the signing ke
 (The Developer ID cert is **not** in the vault — it lives only in the login keychain. Back it up
 via Keychain Access → export `.p12`.)
 
-**Build:** `.codeterm/skills/github-release/scripts/mac-bundle.sh <ver> {arm64|x86_64} <workdir>`
+**Build:** `.agents/skills/github-release/scripts/mac-bundle.sh <ver> {arm64|x86_64} <workdir>`
 — builds, verifies Developer-ID + hardened-runtime + arch, notarizes + staples the DMG, packs the
 `.app.tar.gz` updater bundle, minisign-signs it, echoes the signature for `latest.json`.
 x86_64 goes through `scripts/release-macos-x86_64.sh` (ONNX Runtime 1.23.2 Intel dylib + `CARGO_BUILD_TARGET`
