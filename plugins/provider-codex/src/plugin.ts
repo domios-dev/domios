@@ -171,16 +171,26 @@ const plugin: PluginModule = {
         }
         continue;
       }
-      if (!v || v.type !== "response_item" || !v.payload) continue;
-      const p = v.payload;
       let ts: number | null = null;
-      // Forward the raw ISO string too (parity with claude): RichMessage.timestamp is what
-      // flows to ChatMsg.timestamp and the optimistic-echo matcher — `ts` (seconds) alone
       const tsIso: string | null = (typeof v.timestamp === "string") ? v.timestamp : null;
       if (typeof v.timestamp === "string") {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
+      if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
+        const p = v.payload;
+        const content = typeof p.stdout === "string" ? p.stdout : "";
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_result", data: { content: content, tool_use_id: callId } }],
+          ts: ts,
+          timestamp: tsIso,
+        });
+        continue;
+      }
+      if (!v || v.type !== "response_item" || !v.payload) continue;
+      const p = v.payload;
       if (p.type === "message") {
         const role = p.role === "assistant" ? "assistant" : (p.role === "user" ? "user" : null);
         if (!role) continue; // skip developer/system noise
@@ -225,6 +235,24 @@ const plugin: PluginModule = {
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_result", data: { content: String(content == null ? "" : content) } }],
+          ts: ts,
+          timestamp: tsIso,
+        });
+      } else if (p.type === "custom_tool_call") {
+        const name = typeof p.name === "string" ? p.name.trim() : "";
+        if (!name) continue;
+        let input: Record<string, unknown> = {};
+        if (name === "apply_patch" && typeof p.input === "string") {
+          input = { patch: p.input };
+        } else if (typeof p.input === "string") {
+          try { input = JSON.parse(p.input); } catch (_) { input = { raw: p.input }; }
+        } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
+          input = p.input as Record<string, unknown>;
+        }
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_use", data: { name: name, id: callId, input: input } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -622,6 +650,10 @@ interface CodexPayload {
   name?: string;
   output?: unknown;
   model?: string;
+  input?: string | Record<string, unknown>;
+  call_id?: string;
+  stdout?: string;
+  success?: boolean;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
 interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
@@ -875,10 +907,21 @@ const CODEX_MONTHS: Record<string, number> = {
 
 function isValidCodexSessionDelta(v: CodexEntry): boolean {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type === "event_msg") {
+    if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
+    return v.payload.type === "patch_apply_end";
+  }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   const kind = v.payload.type;
-  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output") return false;
+  if (
+    kind !== "message" &&
+    kind !== "function_call" &&
+    kind !== "function_call_output" &&
+    kind !== "custom_tool_call"
+  ) {
+    return false;
+  }
   return true;
 }
 
