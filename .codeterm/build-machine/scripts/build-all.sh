@@ -27,8 +27,10 @@ TAG="${1:?usage: build-all.sh vX.Y.Z}"; VER="${TAG#v}"
 REPO="$(cd "$(dirname "$0")/../../.." && pwd)"
 BM="$REPO/.codeterm/build-machine"
 HELPERS="$REPO/.agents/skills/github-release/scripts"
-ART="${ART:-/tmp/codeterm-${VER}-artifacts}"; mkdir -p "$ART"
-LWORK=/tmp/ct-linux-build; mkdir -p "$LWORK"
+ART="${ART:-/tmp/codeterm-${VER}-artifacts}"
+LWORK=/tmp/ct-linux-build
+rm -rf "$ART" "$LWORK"
+mkdir -p "$ART" "$LWORK"
 
 cleanup_children() {
   local pids
