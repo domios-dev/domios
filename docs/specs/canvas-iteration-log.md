@@ -91,4 +91,16 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   mapping stays readable. (3) spec node is very text-dense — tighten line-height/spacing,
   maybe collapse long bodies. (4) general typographic polish toward 90.
 
-## Iteration 4 — group label + edge clarity + typography (Mira) — in progress
+## Iteration 4 — group label + edge clarity + typography (Mira) ✅
+- Mira pushed 21e90a2f (merged 903dd9d6): group label now 'Unowned · claimable' (ownerName
+  treats sentinel 'unknown'/'none'/'null'/'__unowned__' + empty as unowned); edges
+  de-emphasized by default + HOVER-LIFT (hovered task's edges brighten 2.4px/0.92, others dim
+  to 0.1); spec node tighter line-height 1.42 + uppercased subsection headings + soft bottom
+  fade; typographic rhythm. tsc clean, 13/13.
+- **Verified:** group label reads 'Unowned · claimable' ✓; hover on FE task lifts its edges
+  to its section rows while others dim ✓; persistence held across restart.
+- **Score: ~82/100** (58→70→78→82).
+- Bringing in **Dax** (independent opus+frontend-design critic) to score iter4 screenshots
+  (/tmp/v2-iter4.png + hover) and produce the next ranked defect list — fresh adversarial eyes.
+
+## Iteration 5 — driven by Dax's independent review — pending
