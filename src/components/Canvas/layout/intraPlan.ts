@@ -27,6 +27,24 @@ function manualBox(canvas: { x: number | null; y: number | null }, auto: Box): {
   return { box: auto, manual: false };
 }
 
+function clampManualPoint(
+  x: number,
+  y: number,
+  size: { width: number; height: number },
+  frameW: number,
+  frameH: number,
+  s: CanvasLayoutSettings,
+): { x: number; y: number } {
+  const minX = s.framePadding;
+  const minY = s.framePadding;
+  const maxX = Math.max(minX, frameW - s.framePadding - size.width);
+  const maxY = Math.max(minY, frameH - s.framePadding - size.height);
+  return {
+    x: Math.max(minX, Math.min(maxX, x)),
+    y: Math.max(minY, Math.min(maxY, y)),
+  };
+}
+
 interface ChainResult {
   nodes: LaidOutNode[];
   edges: LaidOutEdge[];
@@ -163,10 +181,17 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
     nodes.push({ id: el.id, kind: el.kind, planId: plan.id, box, iteration: null, manual: true });
   }
 
-  const allBoxes = nodes.map((n) => n.box);
-  const content = unionBox(allBoxes);
-  const width = Math.max(s.frameMinWidth, content.width + s.framePadding * 2);
-  const height = content.height + s.framePadding * 2;
+  const autoBoxes = nodes.filter((n) => !n.manual).map((n) => n.box);
+  const autoContent = unionBox(autoBoxes);
+  const width = Math.max(s.frameMinWidth, autoContent.width + s.framePadding * 2);
+  const height = autoContent.height + s.framePadding * 2;
+
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    if (!n.manual) continue;
+    const c = clampManualPoint(n.box.x, n.box.y, n.box, width, height, s);
+    nodes[i] = { ...n, box: { ...n.box, x: c.x, y: c.y } };
+  }
 
   return {
     planId: plan.id,

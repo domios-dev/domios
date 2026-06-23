@@ -27,14 +27,20 @@ export interface SectionCardProps extends CanvasCardStyleProps {
   section: Section;
 }
 
-export function SectionCard({ section, style, lod = "near" }: SectionCardProps) {
+export function SectionCard({ section, style, lod = "near", onMouseDown, dragging }: SectionCardProps) {
   const nested = subsectionCount(section.subsections);
 
   return (
     <div
       data-testid="canvas-section-card"
       data-section-id={section.id}
-      style={{ ...cardStyle, ...style }}
+      data-canvas-draggable={onMouseDown ? "true" : undefined}
+      onMouseDown={onMouseDown}
+      style={{
+        ...cardStyle,
+        ...style,
+        cursor: onMouseDown ? (dragging ? "grabbing" : "grab") : undefined,
+      }}
     >
       <div
         style={{

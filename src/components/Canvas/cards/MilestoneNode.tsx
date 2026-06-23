@@ -18,13 +18,15 @@ export interface MilestoneNodeProps extends CanvasCardStyleProps {
   milestone: Milestone;
 }
 
-export function MilestoneNode({ milestone, style, lod = "near" }: MilestoneNodeProps) {
+export function MilestoneNode({ milestone, style, lod = "near", onMouseDown, dragging }: MilestoneNodeProps) {
   const size = lod === "far" ? 28 : lod === "mid" ? 36 : 48;
 
   return (
     <div
       data-testid="canvas-milestone-node"
       data-milestone-id={milestone.id}
+      data-canvas-draggable={onMouseDown ? "true" : undefined}
+      onMouseDown={onMouseDown}
       style={{
         ...nodeStyle,
         ...style,
@@ -35,6 +37,7 @@ export function MilestoneNode({ milestone, style, lod = "near" }: MilestoneNodeP
         background: "var(--ct-bg)",
         padding: lod === "near" ? 6 : 4,
         fontSize: "var(--ct-font-size-sm)",
+        cursor: onMouseDown ? (dragging ? "grabbing" : "grab") : undefined,
       }}
     >
       <span

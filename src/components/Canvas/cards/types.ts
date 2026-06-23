@@ -5,4 +5,6 @@ export type CanvasLod = "far" | "mid" | "near";
 export interface CanvasCardStyleProps {
   style: CSSProperties;
   lod?: CanvasLod;
+  onMouseDown?: (e: React.MouseEvent) => void;
+  dragging?: boolean;
 }
