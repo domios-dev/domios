@@ -4,15 +4,14 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import {
-  MilestoneNode,
-  PlanFrame,
-  SectionCard,
+  MilestoneBubble,
+  PlanNode,
+  SpecNode,
   TaskCard,
 } from "./index";
 import {
   FIXTURE_MILESTONE,
   FIXTURE_PLAN,
-  FIXTURE_SECTION,
   FIXTURE_TASK,
 } from "./fixtures.testdata";
 
@@ -55,24 +54,37 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
   return { host, root };
 }
 
-const cardStyle = { position: "absolute" as const, left: 0, top: 0, width: 240 };
+const cardStyle = { position: "absolute" as const, left: 0, top: 0, width: 300 };
 
-test("PlanFrame renders title and coverage meter", async () => {
+test("PlanNode renders title, section rows, and 50% coverage", async () => {
   const { host, root } = await render(
-    <PlanFrame plan={FIXTURE_PLAN} style={cardStyle} lod="near" />,
+    <PlanNode plan={FIXTURE_PLAN} style={cardStyle} lod="near" />,
   );
   assert(host.textContent?.includes("Auth rollout"), "plan title visible");
   assert(host.querySelector('[data-testid="canvas-plan-coverage-pct"]')?.textContent === "50%", "coverage pct");
+  const rows = host.querySelectorAll('[data-testid="canvas-plan-row"]');
+  assert(rows.length === 2, `two section rows (parent + subsection), got ${rows.length}`);
   await act(async () => root.unmount());
 });
 
-test("SectionCard renders title, subsections indicator, and markdown body", async () => {
+test("PlanNode: uncovered section row pops with uncovered glyph", async () => {
   const { host, root } = await render(
-    <SectionCard section={FIXTURE_SECTION} style={cardStyle} lod="near" />,
+    <PlanNode plan={FIXTURE_PLAN} style={cardStyle} lod="near" />,
   );
-  assert(host.textContent?.includes("Authentication"), "section title");
-  assert(host.querySelector('[data-testid="canvas-section-subsections"]')?.textContent?.includes("1 subsection"), "subsection count");
-  assert(host.querySelector('[data-testid="canvas-section-body"]'), "markdown body mounted");
+  const oauth = host.querySelector('[data-section-id="sec-auth-oauth"]');
+  assert(oauth?.getAttribute("data-row-glyph") === "uncovered", "uncovered subsection pops");
+  const covered = host.querySelector('[data-section-id="sec-auth"]');
+  assert(covered?.getAttribute("data-row-glyph") === "progress", "covered row is in-progress");
+  await act(async () => root.unmount());
+});
+
+test("SpecNode renders headings and markdown body", async () => {
+  const { host, root } = await render(
+    <SpecNode plan={FIXTURE_PLAN} style={cardStyle} lod="near" />,
+  );
+  const headings = host.querySelectorAll('[data-testid="canvas-spec-heading"]');
+  assert(headings.length >= 2, `spec renders section + subsection headings, got ${headings.length}`);
+  assert(host.querySelector('[data-testid="canvas-spec-body"]'), "spec body mounted");
   await act(async () => root.unmount());
 });
 
@@ -87,6 +99,19 @@ test("TaskCard renders name, model chip, status, and markdown body", async () =>
   await act(async () => root.unmount());
 });
 
+test("TaskCard pane link chip appears for assigned tasks and fires onOpenPane", async () => {
+  let opened: string | null = null;
+  const assigned = { ...FIXTURE_TASK, assigned_pane_id: "pane-42" };
+  const { host, root } = await render(
+    <TaskCard task={assigned} style={cardStyle} lod="near" onOpenPane={(id) => (opened = id)} />,
+  );
+  const chip = host.querySelector('[data-testid="canvas-task-pane-link"]') as HTMLButtonElement;
+  assert(chip, "pane link chip rendered");
+  await act(async () => chip.click());
+  assert(opened === "pane-42", `onOpenPane fired with pane id, got ${opened}`);
+  await act(async () => root.unmount());
+});
+
 test("TaskCard far LOD hides model and body", async () => {
   const { host, root } = await render(
     <TaskCard task={FIXTURE_TASK} style={cardStyle} lod="far" />,
@@ -97,11 +122,11 @@ test("TaskCard far LOD hides model and body", async () => {
   await act(async () => root.unmount());
 });
 
-test("MilestoneNode renders kind, markdown text, and iteration badge", async () => {
+test("MilestoneBubble renders kind label and iteration badge", async () => {
   const { host, root } = await render(
-    <MilestoneNode milestone={FIXTURE_MILESTONE} style={cardStyle} lod="near" />,
+    <MilestoneBubble model={{ milestone: FIXTURE_MILESTONE, color: "rgba(99,102,241,0.9)" }} style={cardStyle} lod="near" />,
   );
-  assert(host.querySelector('[data-testid="canvas-milestone-kind"]')?.textContent?.includes("status update"), "kind label");
+  assert(host.querySelector('[data-testid="canvas-milestone-kind-label"]')?.textContent?.includes("status update"), "kind label");
   assert(host.querySelector('[data-testid="canvas-milestone-text"]'), "milestone markdown");
   assert(host.querySelector('[data-testid="canvas-milestone-iteration"]')?.textContent === "2", "iteration badge");
   await act(async () => root.unmount());

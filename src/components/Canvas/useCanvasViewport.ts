@@ -20,15 +20,15 @@ export interface UseCanvasViewportOptions {
   height: number;
   minScale?: number;
   maxScale?: number;
-  zoomStep?: number;
   fitPadding?: number;
   panButton?: PanButton;
   ignoreSelector?: string;
+  /** Plain (no modifier) wheel: "pan" both axes (canvas) or "zoom" (mesh graph). */
+  wheelBehavior?: "pan" | "zoom";
 }
 
 export interface CanvasViewportHandlers {
   onMouseDown: (e: React.MouseEvent) => void;
-  onWheel: (e: React.WheelEvent) => void;
 }
 
 export interface UseCanvasViewportResult {
@@ -41,29 +41,36 @@ export interface UseCanvasViewportResult {
   containerRef: React.MutableRefObject<HTMLDivElement | null>;
 }
 
-const DEF_MIN_SCALE = 0.1;
+const DEF_MIN_SCALE = 0.08;
 const DEF_MAX_SCALE = 2.5;
-const DEF_ZOOM_STEP = 0.06;
 const DEF_FIT_PADDING = 80;
+const LINE_PX = 16;
+const ZOOM_INTENSITY = 0.0016;
 
-function buttonAllowed(button: number, mode: PanButton): boolean {
-  if (mode === "any") return true;
-  if (mode === "middle") return button === 1;
-  return button === 0;
+// deltaMode: 0 pixel, 1 line, 2 page → normalize to pixels.
+function pixelDelta(value: number, mode: number): number {
+  if (mode === 1) return value * LINE_PX;
+  if (mode === 2) return value * LINE_PX * 24;
+  return value;
 }
 
-// Shared pan/zoom for absolutely-positioned canvases (§6 decision 2). Drag to pan,
-// wheel to zoom around the cursor; fitToView frames a content bbox.
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+// Figma-grade pan/zoom (§3): two-finger scroll pans, cmd/ctrl+scroll (and pinch,
+// which the browser reports as ctrlKey) zooms around the pointer. Middle-drag and
+// space+drag pan. Wheel is bound non-passive so preventDefault stops rubber-band.
 export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasViewportResult {
   const {
     width,
     height,
     minScale = DEF_MIN_SCALE,
     maxScale = DEF_MAX_SCALE,
-    zoomStep = DEF_ZOOM_STEP,
     fitPadding = DEF_FIT_PADDING,
     panButton = "any",
     ignoreSelector,
+    wheelBehavior = "pan",
   } = opts;
 
   const [transform, setTransformState] = useState<ViewportTransform>({ x: 0, y: 0, scale: 1 });
@@ -71,8 +78,9 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
 
   const transformRef = useRef(transform);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const spaceRef = useRef(false);
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
-  const dragFrameRef = useRef<number | null>(null);
+  const frameRef = useRef<number | null>(null);
   const pendingRef = useRef<ViewportTransform | null>(null);
 
   const setTransform = useCallback((next: ViewportTransform) => {
@@ -80,12 +88,12 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     setTransformState(next);
   }, []);
 
-  const scheduleTransform = useCallback((next: ViewportTransform) => {
+  const schedule = useCallback((next: ViewportTransform) => {
     transformRef.current = next;
     pendingRef.current = next;
-    if (dragFrameRef.current != null) return;
-    dragFrameRef.current = requestAnimationFrame(() => {
-      dragFrameRef.current = null;
+    if (frameRef.current != null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
       const pending = pendingRef.current;
       pendingRef.current = null;
       if (pending) setTransformState(pending);
@@ -97,31 +105,72 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
       if (width <= 0 || height <= 0 || bounds.width <= 0 || bounds.height <= 0) return;
       const scaleX = (width - fitPadding * 2) / bounds.width;
       const scaleY = (height - fitPadding * 2) / bounds.height;
-      const scale = Math.max(minScale, Math.min(maxScale, Math.min(scaleX, scaleY, 1)));
-      const cxModel = bounds.x + bounds.width / 2;
-      const cyModel = bounds.y + bounds.height / 2;
-      setTransform({
-        x: width / 2 - cxModel * scale,
-        y: height / 2 - cyModel * scale,
-        scale,
-      });
+      const scale = clamp(Math.min(scaleX, scaleY, 1), minScale, maxScale);
+      const cx = bounds.x + bounds.width / 2;
+      const cy = bounds.y + bounds.height / 2;
+      setTransform({ x: width / 2 - cx * scale, y: height / 2 - cy * scale, scale });
     },
     [width, height, fitPadding, minScale, maxScale, setTransform],
   );
 
-  const zoomBy = useCallback(
-    (delta: number) => {
+  const zoomAround = useCallback(
+    (factor: number, px: number, py: number) => {
       const t = transformRef.current;
-      const nextScale = Math.max(minScale, Math.min(maxScale, t.scale + delta));
+      const nextScale = clamp(t.scale * factor, minScale, maxScale);
       if (nextScale === t.scale) return;
-      setTransform({ ...t, scale: nextScale });
+      const ratio = nextScale / t.scale;
+      schedule({ scale: nextScale, x: px - (px - t.x) * ratio, y: py - (py - t.y) * ratio });
     },
-    [minScale, maxScale, setTransform],
+    [minScale, maxScale, schedule],
   );
+
+  const zoomBy = useCallback(
+    (delta: number) => zoomAround(1 + delta, width / 2, height / 2),
+    [zoomAround, width, height],
+  );
+
+  // Native non-passive wheel: pan on plain scroll, zoom-around-pointer on cmd/ctrl/pinch.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey || wheelBehavior === "zoom") {
+        const dy = pixelDelta(e.deltaY, e.deltaMode);
+        zoomAround(Math.exp(-dy * ZOOM_INTENSITY), e.clientX - rect.left, e.clientY - rect.top);
+        return;
+      }
+      const dx = pixelDelta(e.deltaX, e.deltaMode);
+      const dy = pixelDelta(e.deltaY, e.deltaMode);
+      const t = transformRef.current;
+      schedule({ ...t, x: t.x - dx, y: t.y - dy });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoomAround, schedule, wheelBehavior]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space") spaceRef.current = true;
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") spaceRef.current = false;
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, []);
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      if (!buttonAllowed(e.button, panButton)) return;
+      const middle = e.button === 1;
+      const spaceLeft = e.button === 0 && spaceRef.current;
+      const allowed = middle || spaceLeft || panButton === "any";
+      if (!allowed) return;
       if (ignoreSelector && (e.target as HTMLElement).closest(ignoreSelector)) return;
       dragRef.current = {
         startX: e.clientX,
@@ -139,11 +188,7 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     const onMove = (e: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      scheduleTransform({
-        ...transformRef.current,
-        x: d.baseX + (e.clientX - d.startX),
-        y: d.baseY + (e.clientY - d.startY),
-      });
+      schedule({ ...transformRef.current, x: d.baseX + (e.clientX - d.startX), y: d.baseY + (e.clientY - d.startY) });
     };
     const onUp = () => {
       dragRef.current = null;
@@ -154,41 +199,17 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
-      if (dragFrameRef.current != null) {
-        cancelAnimationFrame(dragFrameRef.current);
-        dragFrameRef.current = null;
+      if (frameRef.current != null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
       }
     };
-  }, [isDragging, scheduleTransform]);
-
-  const onWheel = useCallback(
-    (e: React.WheelEvent) => {
-      e.preventDefault();
-      const delta = e.deltaY < 0 ? zoomStep : -zoomStep;
-      const t = transformRef.current;
-      const nextScale = Math.max(minScale, Math.min(maxScale, t.scale + delta));
-      if (nextScale === t.scale) return;
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) {
-        setTransform({ ...t, scale: nextScale });
-        return;
-      }
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      const ratio = nextScale / t.scale;
-      setTransform({
-        scale: nextScale,
-        x: cx - (cx - t.x) * ratio,
-        y: cy - (cy - t.y) * ratio,
-      });
-    },
-    [zoomStep, minScale, maxScale, setTransform],
-  );
+  }, [isDragging, schedule]);
 
   return {
     transform,
     setTransform,
-    handlers: { onMouseDown, onWheel },
+    handlers: { onMouseDown },
     fitToView,
     zoomBy,
     isDragging,

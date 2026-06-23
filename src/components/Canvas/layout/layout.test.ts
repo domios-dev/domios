@@ -1,3 +1,5 @@
+// Run: npx tsx src/components/Canvas/layout/layout.test.ts
+
 import type { Plan, Section, Task, Milestone, OrchestratorRef } from "../types";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import { layoutWorkspace, focusAt, visibleNodeIds, boxesOverlap, boxCenter } from "./index";
@@ -24,7 +26,7 @@ function owner(id: string): OrchestratorRef {
 }
 
 function section(id: string, subs: Section[] = []): Section {
-  return { id, title: id, body: "", subsections: subs, canvas: canvas() };
+  return { id, title: id, body: "body", subsections: subs, canvas: canvas() };
 }
 
 function milestone(id: string, kind: string, iteration: number | null = null, links: string[] = []): Milestone {
@@ -99,34 +101,110 @@ console.log("determinism:");
   const a = layoutWorkspace(samplePlans());
   const b = layoutWorkspace(samplePlans());
   ok("frame count stable", a.frames.length === b.frames.length && a.frames.length === 3);
-  ok("identical positions", JSON.stringify(a.frames) === JSON.stringify(b.frames));
+  const stripAnchors = (l: ReturnType<typeof layoutWorkspace>) =>
+    l.frames.map((f) => ({ ...f, anchors: [...f.anchors.entries()] }));
+  ok("identical positions", JSON.stringify(stripAnchors(a)) === JSON.stringify(stripAnchors(b)));
   ok("bounds identical", JSON.stringify(a.bounds) === JSON.stringify(b.bounds));
 }
 
-// ── no frame overlap ──────────────────────────────────────────────
+// ── no overlap ────────────────────────────────────────────────────
 console.log("\nno overlap:");
 {
   const layout = layoutWorkspace(samplePlans());
-  let overlap = false;
+  let frameOverlap = false;
   for (let i = 0; i < layout.frames.length; i++) {
     for (let j = i + 1; j < layout.frames.length; j++) {
-      if (boxesOverlap(layout.frames[i].box, layout.frames[j].box)) overlap = true;
+      if (boxesOverlap(layout.frames[i].box, layout.frames[j].box)) frameOverlap = true;
     }
   }
-  ok("no two frames overlap", !overlap);
+  ok("no two frames overlap", !frameOverlap);
+
+  // tasks/spec/plan nodes inside one frame never overlap each other.
+  const frame = layout.frames.find((f) => f.planId === "p1")!;
+  let nodeOverlap = false;
+  for (let i = 0; i < frame.nodes.length; i++) {
+    for (let j = i + 1; j < frame.nodes.length; j++) {
+      if (boxesOverlap(frame.nodes[i].box, frame.nodes[j].box)) nodeOverlap = true;
+    }
+  }
+  ok("no two nodes overlap within a frame", !nodeOverlap);
+
+  let groupOverlap = false;
+  for (let i = 0; i < layout.groups.length; i++) {
+    for (let j = i + 1; j < layout.groups.length; j++) {
+      if (boxesOverlap(layout.groups[i].box, layout.groups[j].box)) groupOverlap = true;
+    }
+  }
+  ok("orchestrator groups do not overlap", !groupOverlap);
 }
 
-// ── owner clustering ──────────────────────────────────────────────
-console.log("\nclustering:");
+// ── owner grouping ────────────────────────────────────────────────
+console.log("\ngrouping:");
 {
   const layout = layoutWorkspace(samplePlans());
-  const byPlan = new Map(layout.frames.map((f) => [f.planId, f]));
-  // orchA cluster (p1,p2) shares a y-band distinct from orchB (p3).
-  const aTop = Math.min(byPlan.get("p1")!.box.y, byPlan.get("p2")!.box.y);
-  const bTop = byPlan.get("p3")!.box.y;
-  ok("orchA cluster above orchB", aTop < bTop);
-  // within orchA, p2 (updatedAt 50) sorts before p1 (updatedAt 100).
-  ok("intra-cluster sorted by updatedAt", byPlan.get("p2")!.box.x < byPlan.get("p1")!.box.x);
+  ok("one group per distinct owner", layout.groups.length === 2);
+  const byKey = new Map(layout.groups.map((g) => [g.title, g]));
+  ok("orchA group above orchB", byKey.get("orchA")!.box.y < byKey.get("orchB")!.box.y);
+  // every frame sits inside its owner group box.
+  const groupByKey = new Map(layout.groups.map((g) => [g.ownerKey, g]));
+  const inside = layout.frames.every((f) => {
+    const g = groupByKey.get(f.ownerKey)!;
+    return f.box.x >= g.box.x && f.box.y >= g.box.y;
+  });
+  ok("frames nested in their owner group", inside);
+}
+
+// ── section-row anchors ───────────────────────────────────────────
+console.log("\nsection-row anchors:");
+{
+  const layout = layoutWorkspace(samplePlans());
+  const frame = layout.frames.find((f) => f.planId === "p1")!;
+  ok("anchor per flattened section (s1,s1a,s2)", frame.anchors.size === 3);
+  const planNode = frame.nodes.find((n) => n.kind === "plan")!;
+  const planRight = planNode.box.x + planNode.box.width;
+  const a1 = frame.anchors.get("s1")!;
+  ok("anchor on plan node right edge", Math.abs(a1.x - planRight) <= DEFAULT_CANVAS_SETTINGS.anchorInset + 1);
+  ok("anchor y within plan node bounds", a1.y >= planNode.box.y && a1.y <= planNode.box.y + planNode.box.height);
+  // s1a row sits below s1 row by exactly one row height.
+  const a1a = frame.anchors.get("s1a")!;
+  ok("subsection anchor one row below parent", Math.abs(a1a.y - a1.y - DEFAULT_CANVAS_SETTINGS.planRowHeight) < 0.5);
+  // the section→task edge originates exactly at the section row anchor.
+  const edge = frame.edges.find((e) => e.kind === "section-task" && e.to === "t1");
+  ok("section-task edge starts at the row anchor", !!edge?.fromPoint && Math.abs(edge.fromPoint.x - a1.x) < 0.5 && Math.abs(edge.fromPoint.y - a1.y) < 0.5);
+}
+
+// ── spec node + plan-spec edge ────────────────────────────────────
+console.log("\nspec node:");
+{
+  const layout = layoutWorkspace(samplePlans());
+  const frame = layout.frames.find((f) => f.planId === "p1")!;
+  const spec = frame.nodes.find((n) => n.kind === "spec");
+  ok("spec node emitted for a plan with sections", !!spec);
+  ok("plan-spec edge present", frame.edges.some((e) => e.kind === "plan-spec"));
+  ok("spec sits left of plan node", spec!.box.x < frame.nodes.find((n) => n.kind === "plan")!.box.x);
+}
+
+// ── standalone / inbox plan (no sections) ─────────────────────────
+console.log("\nstandalone plan:");
+{
+  const inbox = plan("inbox", "orchA", 10, [], [task("ti", [])]);
+  const layout = layoutWorkspace([inbox]);
+  const frame = layout.frames[0];
+  ok("no spec node without sections", !frame.nodes.some((n) => n.kind === "spec"));
+  ok("plan node still present", frame.nodes.some((n) => n.kind === "plan"));
+  ok("task node present", frame.nodes.some((n) => n.kind === "task"));
+  ok("no anchors without sections", frame.anchors.size === 0);
+}
+
+// ── milestone bubble cluster ──────────────────────────────────────
+console.log("\nbubble cluster:");
+{
+  const layout = layoutWorkspace(samplePlans());
+  const frame = layout.frames.find((f) => f.planId === "p1")!;
+  const bubbles = frame.nodes.filter((n) => n.kind === "milestone");
+  ok("all 4 milestones placed as bubbles", bubbles.length === 4);
+  ok("task-cluster edge present", frame.edges.some((e) => e.kind === "task-cluster"));
+  ok("milestone-chain edges present", frame.edges.filter((e) => e.kind === "milestone-chain").length === 2);
 }
 
 // ── focus selection ───────────────────────────────────────────────
@@ -137,47 +215,16 @@ console.log("\nfocus:");
   const center = boxCenter(frame.box);
   const focus = focusAt(layout, center, DEFAULT_CANVAS_SETTINGS);
   ok("center → correct plan", focus.planId === "p1");
-  ok("focus returns in-view ids", focus.sectionIds.length + focus.taskIds.length + focus.milestoneIds.length > 0);
 
-  // a point far outside everything still resolves to nearest plan, never crashes.
   const far = focusAt(layout, { x: 999999, y: 999999 }, DEFAULT_CANVAS_SETTINGS);
   ok("far point → some plan", far.planId !== null);
 
-  const empty = focusAt({ frames: [], nodeIndex: new Map(), bounds: { x: 0, y: 0, width: 0, height: 0 } }, { x: 0, y: 0 }, DEFAULT_CANVAS_SETTINGS);
+  const empty = focusAt(
+    { frames: [], nodeIndex: new Map(), groups: [], bounds: { x: 0, y: 0, width: 0, height: 0 } },
+    { x: 0, y: 0 },
+    DEFAULT_CANVAS_SETTINGS,
+  );
   ok("empty layout → null plan", empty.planId === null);
-}
-
-// ── chain width-bounded ───────────────────────────────────────────
-console.log("\nchain bounds:");
-{
-  const ms: Milestone[] = [];
-  for (let i = 0; i < 30; i++) ms.push(milestone(`mm${i}`, "status_update", i));
-  const big = plan("pb", "o", 0, [section("s")], [task("tb", ["s"], ms)]);
-  const layout = layoutWorkspace([big]);
-  const frame = layout.frames[0];
-  const msNodes = frame.nodes.filter((n) => n.kind === "milestone");
-  ok("all 30 milestones placed", msNodes.length === 30);
-  const minX = Math.min(...msNodes.map((n) => n.box.x));
-  const maxX = Math.max(...msNodes.map((n) => n.box.x + n.box.width));
-  ok("chain width bounded (folds vertically)", maxX - minX <= DEFAULT_CANVAS_SETTINGS.chainWrapWidth + 1);
-  const maxY = Math.max(...msNodes.map((n) => n.box.y + n.box.height));
-  const minY = Math.min(...msNodes.map((n) => n.box.y));
-  ok("chain uses vertical space", maxY - minY > 0);
-}
-
-// ── manual clamp ──────────────────────────────────────────────────
-console.log("\nmanual clamp:");
-{
-  const manualSection = section("s-manual");
-  manualSection.canvas = { x: 99999, y: 99999, collapsed: false };
-  const p = plan("pclamp", "o", 0, [manualSection], [task("t1", ["s-manual"])]);
-  const layout = layoutWorkspace([p]);
-  const frame = layout.frames[0];
-  const secNode = frame.nodes.find((n) => n.id === "s-manual")!;
-  const pad = DEFAULT_CANVAS_SETTINGS.framePadding;
-  ok("manual x clamped inside frame", secNode.box.x < frame.box.width - pad);
-  ok("manual y clamped inside frame", secNode.box.y < frame.box.height - pad);
-  ok("manual x respects padding", secNode.box.x >= pad);
 }
 
 // ── archived filtered ─────────────────────────────────────────────
@@ -196,7 +243,7 @@ console.log("\nvirtualization:");
   const frame = layout.frames.find((f) => f.planId === "p1")!;
   const c = boxCenter(frame.box);
   const tight = visibleNodeIds(layout, { x: -c.x + 100, y: -c.y + 100, scale: 1 }, { width: 200, height: 200 }, 0);
-  const all = visibleNodeIds(layout, { x: 0, y: 0, scale: 0.01 }, { width: 20000, height: 20000 }, 0);
+  const all = visibleNodeIds(layout, { x: 0, y: 0, scale: 0.01 }, { width: 40000, height: 40000 }, 0);
   ok("tight viewport culls", tight.length < all.length);
   ok("wide viewport sees all nodes", all.length === [...layout.nodeIndex.keys()].length);
 }
