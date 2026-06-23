@@ -177,8 +177,78 @@ fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{bump_on_get, wake_up_options_from_params, WakeUpParams};
+    use super::{
+        bump_on_get, compose_appended_body, pick_restore_body, wake_up_options_from_params,
+        WakeUpParams,
+    };
+    use crate::mem::store::HistoryEntry;
     use rusqlite::Connection;
+
+    fn hist(id: i64, old: Option<&str>, new: Option<&str>) -> HistoryEntry {
+        HistoryEntry {
+            id,
+            item_id: "x".into(),
+            changed_at: "t".into(),
+            changed_by: "user".into(),
+            change_type: "update".into(),
+            old_title: None,
+            new_title: None,
+            old_body: old.map(String::from),
+            new_body: new.map(String::from),
+            old_importance: None,
+            new_importance: None,
+            old_kind: None,
+            new_kind: None,
+            reason: None,
+        }
+    }
+
+    #[test]
+    fn append_to_empty_replaces_outright() {
+        assert_eq!(compose_appended_body("", "section"), "section");
+        assert_eq!(compose_appended_body("   \n", "section"), "section");
+    }
+
+    #[test]
+    fn append_separates_with_blank_line_and_keeps_old() {
+        let out = compose_appended_body("old body", "new section");
+        assert_eq!(out, "old body\n\nnew section");
+        assert!(out.starts_with("old body"));
+    }
+
+    #[test]
+    fn append_collapses_trailing_newlines_before_separator() {
+        assert_eq!(compose_appended_body("old\n\n", "new"), "old\n\nnew");
+    }
+
+    #[test]
+    fn restore_default_picks_latest_old_body() {
+        let h = vec![
+            hist(1, None, Some("v1")),
+            hist(2, Some("v1"), Some("v2")),
+            hist(3, Some("v2"), Some("v3")),
+        ];
+        assert_eq!(pick_restore_body(&h, None).unwrap(), "v2");
+    }
+
+    #[test]
+    fn restore_version_picks_that_rows_new_body() {
+        let h = vec![hist(1, None, Some("v1")), hist(2, Some("v1"), Some("v2"))];
+        assert_eq!(pick_restore_body(&h, Some(1)).unwrap(), "v1");
+        assert_eq!(pick_restore_body(&h, Some(2)).unwrap(), "v2");
+    }
+
+    #[test]
+    fn restore_unknown_version_errors() {
+        let h = vec![hist(1, None, Some("v1"))];
+        assert!(pick_restore_body(&h, Some(99)).is_err());
+    }
+
+    #[test]
+    fn restore_with_no_body_history_errors() {
+        let h = vec![hist(1, None, None)];
+        assert!(pick_restore_body(&h, None).is_err());
+    }
 
     fn open_test_conn() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -820,6 +890,152 @@ pub async fn mem_history(
         .get_item_history(&id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "history": history })))
+}
+
+/// Join an existing body and appended text with a blank-line separator.
+/// Empty/whitespace-only bodies are replaced outright (no leading blank lines).
+fn compose_appended_body(old: &str, text: &str) -> String {
+    if old.trim().is_empty() {
+        text.to_string()
+    } else {
+        format!("{}\n\n{}", old.trim_end_matches('\n'), text)
+    }
+}
+
+/// Choose the body to restore from an item's history. `version` targets a
+/// specific history row id (its `new_body`, falling back to `old_body`);
+/// `None` undoes the most recent body change (latest non-null `old_body`).
+fn pick_restore_body(
+    history: &[crate::mem::store::HistoryEntry],
+    version: Option<i64>,
+) -> Result<String, (StatusCode, String)> {
+    match version {
+        Some(v) => {
+            let entry = history.iter().find(|h| h.id == v).ok_or((
+                StatusCode::NOT_FOUND,
+                format!("history version {} not found", v),
+            ))?;
+            entry
+                .new_body
+                .clone()
+                .or_else(|| entry.old_body.clone())
+                .ok_or((
+                    StatusCode::BAD_REQUEST,
+                    format!("history row {} has no body snapshot", v),
+                ))
+        }
+        None => history
+            .iter()
+            .rev()
+            .find_map(|h| h.old_body.clone())
+            .ok_or((
+                StatusCode::BAD_REQUEST,
+                "no prior body to restore".to_string(),
+            )),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct AppendBody {
+    pub text: String,
+    #[serde(default)]
+    pub changed_by: Option<String>,
+}
+
+/// Non-destructive grow: load the current body, append `text` with a
+/// blank-line separator, persist via the normal update path (re-embeds +
+/// logs a history row). Never clobbers the prior content.
+pub async fn mem_append(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(b): Json<AppendBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    if b.text.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "text required".into()));
+    }
+    let item = state
+        .svc
+        .mem
+        .get(&id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?
+        .ok_or((StatusCode::NOT_FOUND, format!("mem item {} not found", id)))?;
+    let new_body = compose_appended_body(&item.body, &b.text);
+    if new_body.len() > 1_048_576 {
+        return Err((StatusCode::BAD_REQUEST, "body too large (max 1 MB)".into()));
+    }
+    let patch = MemUpdate {
+        body: Some(new_body.clone()),
+        ..Default::default()
+    };
+    let changed_by = b
+        .changed_by
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(sanitize_actor)
+        .unwrap_or_else(|| changed_by_from_headers(&headers));
+    let updated =
+        crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.update(&id, patch))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !updated {
+        return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
+    }
+    emit_activity(&state, &headers, "update", vec![id.clone()]);
+    Ok(Json(
+        serde_json::json!({ "appended": id, "new_len": new_body.len() }),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct RestoreBody {
+    #[serde(default)]
+    pub version: Option<i64>,
+    #[serde(default)]
+    pub changed_by: Option<String>,
+}
+
+/// Recover a prior body from `mem_item_history`. With `version` set, restore
+/// the body snapshot of that history row; otherwise undo the most recent body
+/// change (revert to the latest `old_body`).
+pub async fn mem_restore(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(b): Json<RestoreBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let history = state
+        .svc
+        .mem
+        .get_item_history(&id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if history.is_empty() {
+        return Err((StatusCode::NOT_FOUND, format!("no history for {}", id)));
+    }
+    let restored_body = pick_restore_body(&history, b.version)?;
+    let patch = MemUpdate {
+        body: Some(restored_body.clone()),
+        ..Default::default()
+    };
+    let changed_by = b
+        .changed_by
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(sanitize_actor)
+        .unwrap_or_else(|| "restore".to_string());
+    let updated =
+        crate::mem::store::with_changed_by(&changed_by, || state.svc.mem.update(&id, patch))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    if !updated {
+        return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
+    }
+    emit_activity(&state, &headers, "update", vec![id.clone()]);
+    Ok(Json(
+        serde_json::json!({ "restored": id, "body_len": restored_body.len() }),
+    ))
 }
 
 #[derive(Deserialize)]
