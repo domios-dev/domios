@@ -83,6 +83,8 @@ pub(crate) struct ListPlansQuery {
     orchestrator: Option<String>,
     #[serde(default)]
     unowned: Option<bool>,
+    #[serde(default)]
+    full: Option<bool>,
 }
 
 pub async fn create(
@@ -154,6 +156,13 @@ pub async fn list(
             e.owner.pane_id.as_deref() == Some(orch.as_str())
                 || e.owner.session_id.as_deref() == Some(orch.as_str())
         });
+    }
+    if q.full == Some(true) {
+        let plans: Vec<_> = entries
+            .iter()
+            .filter_map(|e| state.svc.plan_store.get(&e.plan_id))
+            .collect();
+        return Ok(Json(serde_json::json!({ "plans": plans })));
     }
     Ok(Json(serde_json::json!({ "plans": entries })))
 }

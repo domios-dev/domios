@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import { RichMarkdown } from "@codeterm/chat-ui";
+import { TASK_STATUS_COLORS } from "../settings";
 import type { Task, TaskStatus } from "../types";
 import type { CanvasCardStyleProps } from "./types";
 
@@ -15,14 +16,6 @@ const cardStyle: CSSProperties = {
   boxShadow: "var(--ct-shadow-sm)",
 };
 
-const STATUS_COLORS: Record<TaskStatus, string> = {
-  pending: "rgba(148, 163, 184, 0.85)",
-  in_progress: "rgba(99, 102, 241, 0.9)",
-  blocked: "rgba(248, 113, 113, 0.95)",
-  done: "rgba(74, 222, 128, 0.9)",
-  cancelled: "rgba(100, 116, 139, 0.75)",
-};
-
 function statusLabel(status: TaskStatus): string {
   return status.replace(/_/g, " ");
 }
@@ -33,7 +26,7 @@ export interface TaskCardProps extends CanvasCardStyleProps {
 
 export function TaskCard({ task, style, lod = "near" }: TaskCardProps) {
   const [whyOpen, setWhyOpen] = useState(false);
-  const badgeColor = STATUS_COLORS[task.status];
+  const badgeColor = TASK_STATUS_COLORS[task.status];
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
 
   return (

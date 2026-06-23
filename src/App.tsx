@@ -22,6 +22,7 @@ import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { HamburgerIcon } from "./components/Icons";
 import { CanvasView } from "./components/Canvas/CanvasView";
+import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget } from "./components/Canvas/canvasFocusStore";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
@@ -547,6 +548,7 @@ function AppInner() {
         )}
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+        <PlansProvider api={stableApiConfig}>
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
           {/* All panels stay mounted — switching mainView only changes visibility.
               Unmounting the workspace would tear down xterm + re-run get_pane_text
@@ -667,6 +669,7 @@ function AppInner() {
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
         </main>
+        </PlansProvider>
         </div>
       </div>
 

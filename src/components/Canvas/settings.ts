@@ -1,7 +1,18 @@
 // Single source of every layout constant (§6.2). The layout engine reads ONLY
 // from this object — no magic numbers inline. Strategy is swappable, not just numbers.
 
+import type { TaskStatus } from "./types";
+
 export type LayoutStrategy = "lanes" | "cluster" | "radial";
+
+// Centralized per §6.2: task status palette lives here, not inline in TaskCard.
+export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
+  pending: "rgba(148, 163, 184, 0.85)",
+  in_progress: "rgba(99, 102, 241, 0.9)",
+  blocked: "rgba(248, 113, 113, 0.95)",
+  done: "rgba(74, 222, 128, 0.9)",
+  cancelled: "rgba(100, 116, 139, 0.75)",
+};
 
 export interface CanvasLayoutSettings {
   cardWidth: number;
