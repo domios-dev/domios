@@ -37,9 +37,7 @@ export function ComposerActionButton({
   } = voiceUi;
 
   return (
-    <div
-      className={`ct-composer-action-shell relative shrink-0 ${voiceActive ? "h-[5.5rem] w-[5.5rem]" : "h-10 w-10"}`}
-    >
+    <div className="ct-composer-action-shell relative shrink-0 h-10 w-10">
       {isHold && <VoiceLockPill />}
       <button
         ref={buttonRef}
