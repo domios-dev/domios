@@ -165,6 +165,14 @@ pub struct ServiceContext {
     pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
     /// Canvas plan store — per-project JSON plans + in-memory index. Sole writer.
     pub plan_store: Arc<crate::service::plan::PlanStore>,
+    pub plan_watchers: Arc<
+        parking_lot::Mutex<
+            std::collections::HashMap<
+                std::path::PathBuf,
+                crate::service::plan::watcher::PlanWatcher,
+            >,
+        >,
+    >,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
 }
 
@@ -242,6 +250,27 @@ impl ServiceContext {
         for id in pty_ids {
             let _ = manager.kill(id);
         }
+    }
+
+    pub fn ensure_plan_project_loaded(
+        &self,
+        project_path: &std::path::Path,
+    ) -> Result<std::path::PathBuf, crate::service::plan::PlanError> {
+        let project_root = self.plan_store.scan_project(project_path)?;
+        let mut watchers = self.plan_watchers.lock();
+        if !watchers.contains_key(&project_root) {
+            match crate::service::plan::watcher::PlanWatcher::watch_project(
+                &project_root,
+                self.plan_store.clone(),
+                self.app_handle.clone(),
+            ) {
+                Ok(watcher) => {
+                    watchers.insert(project_root.clone(), watcher);
+                }
+                Err(e) => log::warn!("[plan] failed to watch {}: {}", project_root.display(), e),
+            }
+        }
+        Ok(project_root)
     }
 
     /// Unified event dispatch — sends to Tauri frontend and external webhooks.

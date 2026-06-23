@@ -148,15 +148,23 @@ pub(super) fn dispatch(
         }
 
         "plan.list" => {
+            let want =
+                if let Some(project) = p.and_then(|x| x.get("project")).and_then(|v| v.as_str()) {
+                    Some(
+                        svc.ensure_plan_project_loaded(std::path::Path::new(project))
+                            .map_err(plan_rpc_err)?
+                            .display()
+                            .to_string(),
+                    )
+                } else {
+                    None
+                };
             let mut entries = store.list_index();
-            if let Some(project) = p.and_then(|x| x.get("project")).and_then(|v| v.as_str()) {
-                let want = crate::service::plan::paths::project_root(std::path::Path::new(project))
-                    .display()
-                    .to_string();
+            if let Some(want) = &want {
                 entries.retain(|e| {
                     store
                         .get(&e.plan_id)
-                        .map(|pl| pl.project_path == want)
+                        .map(|pl| pl.project_path == *want)
                         .unwrap_or(false)
                 });
             }
