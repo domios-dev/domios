@@ -517,14 +517,28 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         />
       );
     }
-    if (isAgentInstructions || isTurnAborted) {
+    if (isTurnAborted) {
+      // Synthetic provider envelope (codex <turn_aborted>) — a meta event, not a
+      // chat turn. Render as the centered status chip, never the raw XML text.
+      return (
+        <div className="flex w-full max-w-4xl min-w-0 justify-center mb-2 mx-auto">
+          <span
+            className="inline-flex items-center gap-1 text-[10px] px-2.5 py-0.5 rounded-full"
+            style={{ color: "var(--ct-muted-fg)", background: "var(--ct-surface)" }}
+          >
+            ⊘ Turn interrupted
+          </span>
+        </div>
+      );
+    }
+    if (isAgentInstructions) {
       return (
         <LongArtifact
-          label={isAgentInstructions ? "Agent instructions" : "Turn interrupted"}
+          label="System context"
           text={message.content}
           expanded={expanded}
           onToggle={() => setExpanded(!expanded)}
-          markdown={isAgentInstructions}
+          markdown
         />
       );
     }
