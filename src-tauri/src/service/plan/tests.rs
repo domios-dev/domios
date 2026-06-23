@@ -203,15 +203,17 @@ fn owner_of_returns_current_owner() {
 }
 
 #[test]
-fn set_layout_routes_by_namespaced_id() {
+fn set_layout_uses_the_real_id_the_frontend_sends() {
+    // The frontend (useCanvasNodeDrag) sends node.id — the bare 'task_<uuid>' id,
+    // NOT a 'task:<id>' namespace. Regression for the drag-never-persists 404:
+    // set_layout used split_once(':') which rejected every underscore id.
     let (store, id, tid) = store_with_task(&["status_update"]);
     store
-        .set_layout(&id, &format!("task:{tid}"), Some(12.0), Some(34.0), 60)
+        .set_layout(&id, &tid, Some(12.0), Some(34.0), 60)
         .unwrap();
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
-    assert_eq!(t.canvas.x, Some(12.0));
-    assert_eq!(t.canvas.y, Some(34.0));
+    assert_eq!((t.canvas.x, t.canvas.y), (Some(12.0), Some(34.0)));
 }
 
 #[test]
