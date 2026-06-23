@@ -5,5 +5,5 @@ export { useTabCompletion } from "./useTabCompletion";
 export { usePtyConnection } from "./usePtyConnection";
 export { useTerminalInput } from "./useTerminalInput";
 export { useAgentDetection } from "./useAgentDetection";
-export { useTauriFileDrop } from "./useTauriFileDrop";
+export { useTauriFileDrop, materializeDroppedPaths } from "./useTauriFileDrop";
 export { useTouchScroll } from "./useTouchScroll";
