@@ -19,9 +19,11 @@ fn epoch_ms() -> u64 {
 }
 
 fn plan_rpc_err(e: PlanError) -> JsonRpcError {
+    let data = e.to_json();
     JsonRpcError {
         code: -32603,
         message: e.to_string(),
+        data: Some(data),
     }
 }
 
@@ -67,6 +69,7 @@ pub(super) fn dispatch(
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
+                data: None,
             })?;
             let title = get_string_param(params, "title")?;
             let project = body
@@ -122,10 +125,9 @@ pub(super) fn dispatch(
 
         "plan.get" => {
             let id = get_string_param(params, "plan_id")?;
-            let plan = store.get(&id).ok_or(JsonRpcError {
-                code: -32603,
-                message: PlanError::NotFound.to_string(),
-            })?;
+            let plan = store
+                .get(&id)
+                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
             Ok(serde_json::to_value(plan).unwrap_or_default())
         }
 
@@ -161,6 +163,7 @@ pub(super) fn dispatch(
             store.delete(&id).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
@@ -174,6 +177,7 @@ pub(super) fn dispatch(
                 .ok_or(JsonRpcError {
                     code: -32602,
                     message: "to required".into(),
+                    data: None,
                 })?;
             let reason = p
                 .and_then(|x| x.get("reason"))
@@ -493,10 +497,9 @@ pub(super) fn dispatch(
 
         "plan.loop.status" => {
             let lid = get_string_param(params, "loop_id")?;
-            let spec = store.loop_status(&lid).ok_or(JsonRpcError {
-                code: -32603,
-                message: PlanError::NotFound.to_string(),
-            })?;
+            let spec = store
+                .loop_status(&lid)
+                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
             Ok(serde_json::to_value(spec).unwrap_or_default())
         }
 
@@ -583,6 +586,7 @@ pub(super) fn dispatch(
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }

@@ -178,7 +178,16 @@ pub use args::usage::UsageAction;
 /// This ensures commands like `pane split` always target the caller's pane,
 /// not whatever pane the user happens to have focused.
 fn main() {
-    let cli = Cli::try_parse_from(std::env::args()).unwrap_or_else(|e| e.exit());
+    let args: Vec<String> = std::env::args().collect();
+    let cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
+        if is_plan_dash_leading_text_error(&args, &e) {
+            println!(
+                "✗ dash-leading free text was parsed as a flag.\nfix: use --field=value or --field-file PATH, for example --body='- note' or --body-file notes.md."
+            );
+            std::process::exit(2);
+        }
+        e.exit()
+    });
 
     // `plugin` is filesystem-local (no daemon) — handle before socket/mesh.
     if matches!(cli.command, Commands::Plugin { .. }) {
@@ -710,10 +719,43 @@ fn main() {
     handle_result(cli.json, result);
 }
 
+fn is_plan_dash_leading_text_error(args: &[String], _err: &clap::Error) -> bool {
+    args.iter().any(|arg| arg == "plan")
+        && args.iter().skip(1).any(|arg| {
+            arg.starts_with('-')
+                && !arg.starts_with("--")
+                && arg.len() > 1
+                && arg.chars().nth(1).is_some_and(|ch| !ch.is_ascii_digit())
+        })
+}
+
 #[cfg(test)]
 fn test_env_lock() -> &'static std::sync::Mutex<()> {
     static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
     LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+#[cfg(test)]
+mod plan_cli_error_tests {
+    use super::*;
+
+    #[test]
+    fn detects_dash_leading_plan_text_parse_error() {
+        let args = vec![
+            "codeterm".to_string(),
+            "plan".to_string(),
+            "task".to_string(),
+            "add".to_string(),
+            "plan_1".to_string(),
+            "--body".to_string(),
+            "- starts with a dash".to_string(),
+        ];
+        let err = match Cli::try_parse_from(&args) {
+            Ok(_) => panic!("dash-leading text should fail clap parsing"),
+            Err(err) => err,
+        };
+        assert!(is_plan_dash_leading_text_error(&args, &err));
+    }
 }
 
 #[cfg(test)]
