@@ -4,20 +4,21 @@ import { RichMarkdown } from "@codeterm/chat-ui";
 import type { Plan, Section } from "../types";
 import type { CanvasCardStyleProps } from "./types";
 
-// Document feel (distinct from the compact plan dashboard): flat paper surface,
-// dashed left "margin rule" down the prose, quieter chrome, soft shadow.
+// A RECESSED reference doc — not the hero. Surface/titlebar tone (never paper-
+// white), quiet chrome, no shadow so the compact plan node reads as the anchor.
 const shell: CSSProperties = {
   position: "absolute",
   boxSizing: "border-box",
   border: "1px solid var(--ct-border-subtle)",
   borderRadius: "var(--ct-radius-md)",
-  background: "color-mix(in srgb, var(--ct-fg) 2.5%, var(--ct-bg))",
+  background: "var(--ct-titlebar-bg)",
   color: "var(--ct-fg)",
   fontFamily: "var(--ct-font-ui)",
-  boxShadow: "var(--ct-shadow-sm)",
+  boxShadow: "none",
   overflow: "hidden",
   display: "flex",
   flexDirection: "column",
+  opacity: 0.96,
 };
 
 function SpecSection({ section, depth }: { section: Section; depth: number }) {

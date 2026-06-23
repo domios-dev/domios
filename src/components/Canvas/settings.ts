@@ -14,14 +14,15 @@ export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   cancelled: "rgba(100, 116, 139, 0.75)",
 };
 
-// Fallback lane colors for milestone kinds that declare no color, indexed by lane.
+// Milestone kind lanes: a tight, theme-leaning blue→violet→teal ramp at a
+// consistent (muted) value — distinguishable without a circus rainbow.
 export const MILESTONE_LANE_COLORS = [
-  "rgba(99, 102, 241, 0.95)",
-  "rgba(45, 212, 191, 0.95)",
-  "rgba(244, 114, 182, 0.95)",
-  "rgba(251, 191, 36, 0.95)",
-  "rgba(96, 165, 250, 0.95)",
-  "rgba(167, 139, 250, 0.95)",
+  "rgba(129, 140, 248, 0.92)",
+  "rgba(96, 165, 210, 0.92)",
+  "rgba(125, 196, 184, 0.92)",
+  "rgba(159, 150, 214, 0.92)",
+  "rgba(112, 158, 214, 0.92)",
+  "rgba(180, 162, 200, 0.92)",
 ];
 
 export interface CanvasLayoutSettings {
@@ -82,17 +83,18 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   planFooterHeight: 40,
   planRowIndent: 16,
 
-  specWidth: 320,
-  specHeight: 460,
+  // Spec is a reference doc, NOT the hero: narrower + shorter than the plan mass.
+  specWidth: 270,
+  specHeight: 348,
 
   taskWidth: 252,
   taskMinHeight: 58,
-  taskGapY: 18,
+  taskGapY: 16,
 
   // Gutter rhythm: GUTTER intra-frame (spec→plan, plan→tasks), GUTTER*2 between
   // frames/owner groups, ~GUTTER for group padding. One base, no ad-hoc gaps.
   columnGapX: 48,
-  clusterGapX: 32,
+  clusterGapX: 24,
 
   bubbleRadius: 30,
   bubbleGapX: 14,
