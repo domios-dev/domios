@@ -29,6 +29,7 @@ mod pane;
 pub mod pane_chat;
 pub mod pane_transport;
 pub mod pane_transport_chat;
+pub mod plan;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
