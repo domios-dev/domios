@@ -103,4 +103,20 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
 - Bringing in **Dax** (independent opus+frontend-design critic) to score iter4 screenshots
   (/tmp/v2-iter4.png + hover) and produce the next ranked defect list — fresh adversarial eyes.
 
-## Iteration 5 — driven by Dax's independent review — pending
+## Iteration 5 — driven by Dax's independent review — in progress
+- **Dax (independent opus+frontend-design critic) scored iter4 = 80/100.** Per-dim: Hierarchy
+  7, Connection **4.5** (the drag), Coverage 8, Bounds 8, Packing 5.5, Typography 6, Color 7,
+  Navigation 7, Markdown 8, Polish 6.
+- **THE ONE THING:** edges render ONLY on hover → at rest the board is 3 disconnected islands;
+  the whole thesis ("tasks joined to section rows, nothing floats") is invisible by default.
+  Iter4's de-emphasis over-dimmed. → draw ALL connective edges AT REST (subtle ~25% opacity),
+  hover lifts to accent.
+- **Ranked defects (Dax):** 1) edges-at-rest (above). 2) plan↔spec + task→step-cluster edges
+  missing entirely. 3) dead space — fit-to-view frame tighter. 4) task cards nearly empty —
+  fill name/type/model/status per §13.3. 5) spec typography weak (tiny low-contrast). 6) spec
+  scroll affordance (fade is ambiguous). 7) inconsistent column gutters → settings constants.
+  8) step bubbles over-saturated — desaturate ~15-20%. 9) plan title over-truncated. 10) group
+  status badge green collides with coverage green.
+- **Dispatch:** Mira takes the full batch (one coherent pass — files overlap, avoid seams);
+  headline = edges-at-rest + missing edges + task-card content + spec typography; mechanical
+  tail (bubble desat, gutter constants, title, badge color) in the same pass.
