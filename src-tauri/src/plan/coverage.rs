@@ -70,6 +70,8 @@ pub struct CoverageReport {
     pub plan_covered_fraction: f64,
     pub sections: Vec<SectionCoverageReport>,
     pub gaps: Vec<String>,
+    pub unlinked_count: usize,
+    pub unlinked_tasks: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -132,10 +134,18 @@ pub fn compute_coverage_report(plan: &Plan) -> CoverageReport {
             status,
         });
     }
+    let unlinked_tasks = plan
+        .tasks
+        .iter()
+        .filter(|task| task.section_ids.is_empty())
+        .map(|task| task.name.clone())
+        .collect::<Vec<_>>();
     CoverageReport {
         plan_covered_fraction: cov.plan_covered_fraction,
         sections,
         gaps,
+        unlinked_count: unlinked_tasks.len(),
+        unlinked_tasks,
     }
 }
 
@@ -291,6 +301,7 @@ mod tests {
             &[(&["s1"], TaskStatus::Done), (&["s1"], TaskStatus::Pending)],
         ));
         assert_eq!(report.gaps, vec!["s2".to_string()]);
+        assert_eq!(report.unlinked_count, 0);
         assert!((report.plan_covered_fraction - 0.5).abs() < 1e-9);
         let s1 = report.sections.iter().find(|s| s.title == "s1").unwrap();
         assert_eq!(s1.total, 2);
@@ -298,5 +309,15 @@ mod tests {
         assert_eq!(s1.status, "in_progress");
         let s2 = report.sections.iter().find(|s| s.title == "s2").unwrap();
         assert_eq!(s2.status, "none");
+    }
+
+    #[test]
+    fn report_counts_unlinked_tasks() {
+        let report = compute_coverage_report(&plan_with(
+            &["s1"],
+            &[(&[], TaskStatus::Pending), (&["s1"], TaskStatus::Done)],
+        ));
+        assert_eq!(report.unlinked_count, 1);
+        assert_eq!(report.unlinked_tasks, vec!["n".to_string()]);
     }
 }

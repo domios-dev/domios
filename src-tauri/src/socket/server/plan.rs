@@ -10,6 +10,7 @@ use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
 use crate::service::ServiceState;
 
+use super::plan_linking::{csv_string_field, owner_from_params, plan_with_linking, tags_field};
 use super::{get_string_param, JsonRpcError};
 
 fn epoch_ms() -> u64 {
@@ -59,17 +60,6 @@ fn groups_from_csv(raw: &str) -> Vec<TaskGroup> {
         .collect()
 }
 
-fn owner_from_params(p: &Value) -> OrchestratorRef {
-    p.get("owner")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .or_else(|| {
-            p.get("pane_id")
-                .and_then(|v| v.as_str())
-                .map(OrchestratorRef::from_pane)
-        })
-        .unwrap_or_else(|| OrchestratorRef::from_pane("unknown"))
-}
-
 fn pane_role(svc: &ServiceState, pane_id: &str) -> Option<&'static str> {
     svc.mux
         .read()
@@ -98,13 +88,6 @@ fn pane_and_ancestors(svc: &ServiceState, pane_id: &str) -> std::collections::Ha
 
 fn optional_string_field<'a>(params: Option<&'a Value>, key: &str) -> Option<Option<&'a str>> {
     params.and_then(|x| x.get(key).map(|v| v.as_str()))
-}
-
-fn tags_field(params: Option<&Value>) -> Vec<String> {
-    params
-        .and_then(|x| x.get("tags"))
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default()
 }
 
 pub(super) fn dispatch(
@@ -403,7 +386,7 @@ pub(super) fn dispatch(
             let plan = store
                 .get(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-            Ok(serde_json::to_value(plan).unwrap_or_default())
+            Ok(plan_with_linking(&plan))
         }
 
         "plan.spec" => {
@@ -623,17 +606,10 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .unwrap_or("implement")
                 .to_string();
-            let section_ids: Vec<String> = p
-                .and_then(|x| x.get("sections"))
-                .and_then(|v| v.as_str())
-                .map(|s| {
-                    s.split(',')
-                        .map(str::trim)
-                        .filter(|x| !x.is_empty())
-                        .map(|x| x.to_string())
-                        .collect()
-                })
-                .unwrap_or_default();
+            let requested_sections = csv_string_field(p, "sections");
+            let section_ids = store
+                .resolve_task_section_ids(&id, &requested_sections)
+                .map_err(plan_rpc_err)?;
             let has_sections = !section_ids.is_empty();
             let has_model = p
                 .and_then(|x| x.get("model"))
@@ -695,25 +671,35 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
+            let linked = store
+                .get(&id)
+                .and_then(|plan| {
+                    plan.tasks
+                        .iter()
+                        .find(|task| task.id == tid)
+                        .map(|task| task.section_ids.clone())
+                })
+                .unwrap_or_default();
+            let linked_has_sections = !linked.is_empty();
             Ok(json!({
                 "task_id": tid.clone(),
-                "_hints": hints::task_create_hints(&id, &tid, has_sections, has_model, has_why)
+                "section_ids": linked,
+                "_hints": hints::task_create_hints(&id, &tid, has_sections || linked_has_sections, has_model, has_why)
             }))
         }
 
         "plan.task.update" => {
             let id = get_string_param(params, "plan_id")?;
             let tid = get_string_param(params, "task_id")?;
-            let sections = p
-                .and_then(|x| x.get("sections"))
-                .and_then(|v| v.as_str())
-                .map(|s| {
-                    s.split(',')
-                        .map(str::trim)
-                        .filter(|x| !x.is_empty())
-                        .map(|x| x.to_string())
-                        .collect()
-                });
+            let sections = p.and_then(|x| x.get("sections")).map(|_| {
+                store
+                    .resolve_task_section_ids(&id, &csv_string_field(p, "sections"))
+                    .map_err(plan_rpc_err)
+            });
+            let sections = match sections {
+                Some(result) => Some(result?),
+                None => None,
+            };
             store
                 .update_task(
                     &id,
@@ -741,6 +727,29 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
+        }
+
+        "plan.task.link" => {
+            let id = get_string_param(params, "plan_id")?;
+            let tid = get_string_param(params, "task_id")?;
+            let sections = csv_string_field(p, "sections");
+            let linked = store
+                .link_task_sections(&id, &tid, &sections, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "section_ids": linked }))
+        }
+
+        "plan.task.relink" => {
+            let id = get_string_param(params, "plan_id")?;
+            let apply = p.and_then(|x| x.get("apply")).and_then(|v| v.as_bool()) == Some(true);
+            let report = store
+                .relink_unlinked_tasks(&id, apply, now)
+                .map_err(plan_rpc_err)?;
+            if apply && !report.applied.is_empty() {
+                emit_plan_changed(app, &id);
+            }
+            Ok(serde_json::to_value(report).unwrap_or_default())
         }
 
         "plan.task.close" => {

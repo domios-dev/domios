@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 
 pub fn task_sections_hint(plan_id: &str, task_id: &str) -> String {
     format!(
-        "hint: task is not linked to a plan section. If it belongs to a plan, connect it: codeterm plan task update {plan_id} {task_id} --sections <id> (ids: codeterm plan get {plan_id} --sections)"
+        "hint: task is not linked to a plan section. If it belongs to a plan, connect it: codeterm plan task link {plan_id} {task_id} --sections <id-or-handle> (ids: codeterm plan get {plan_id} --sections)"
     )
 }
 
@@ -59,7 +59,7 @@ mod tests {
     #[test]
     fn section_hint_points_to_update_and_section_ids() {
         let hint = task_sections_hint("pl_1", "task_1");
-        assert!(hint.contains("codeterm plan task update pl_1 task_1 --sections <id>"));
+        assert!(hint.contains("codeterm plan task link pl_1 task_1 --sections <id-or-handle>"));
         assert!(hint.contains("codeterm plan get pl_1 --sections"));
     }
 
