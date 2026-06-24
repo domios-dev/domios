@@ -54,14 +54,19 @@ jobs:
           nc -z 127.0.0.1 2222 && echo "✅ windows VM ssh up" || echo "::warning::windows VM not reachable on :2222"
           gh auth status 2>&1 | grep -q "Logged in" && echo "✅ gh auth" || { echo "::error::gh not authed"; exit 1; }
 
-      - name: Build the v${{ steps.ver.outputs.ver }} tag exists on origin
+      - name: Stamp the v${{ steps.ver.outputs.ver }} build tag at the release commit
         run: |
-          # The CodeTerm release tags are vX.Y.Z; the trigger tag is release-X.Y.Z.
-          # Ensure the buildable vX.Y.Z tag (bumped + tagged on master) is present.
-          git fetch origin "refs/tags/${{ steps.ver.outputs.tag }}:refs/tags/${{ steps.ver.outputs.tag }}" || true
-          git rev-parse "${{ steps.ver.outputs.tag }}^{commit}" >/dev/null 2>&1 \
-            && echo "✅ ${{ steps.ver.outputs.tag }} present" \
-            || { echo "::error::tag ${{ steps.ver.outputs.tag }} not found — bump+tag the release commit first"; exit 1; }
+          # Single trigger tag: push release-X.Y.Z. build-all.sh wants a stable
+          # vX.Y.Z ref, so materialize it here at the triggering commit. Idempotent.
+          TAG="${{ steps.ver.outputs.tag }}"
+          git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
+          if git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
+            echo "✅ $TAG already present"
+          else
+            git tag -a "$TAG" "$GITHUB_SHA" -m "$TAG"
+            git push origin "$TAG"
+            echo "✅ created $TAG at $GITHUB_SHA"
+          fi
 
       - name: Ensure Docker is running (Linux engines)
         run: |
