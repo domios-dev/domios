@@ -803,3 +803,13 @@ KILL the Auto-by-zoom view mode + any content-driven node height in layout. Lock
 constants (planTileH/planDocH/railW/maxTaskCols). Emit rail-row OUTPUT anchors BEFORE the task
 sweep. Change default mount fit-all → focused-plan@90%. Playwright mode×camera-zoom visual loop
 asserts FIXED node sizes + no overflow (content scrolls inside frame) + anchors on rail rows.
+
+### 23.6 Distance-gated internal scroll (wheel = pan FAR / scroll-content NEAR)
+The fixed-frame internal scroll (Document body, §23.1) must NOT fight canvas panning:
+- **FAR / not-focused:** wheel over a node = PAN/zoom the CANVAS (no scroll interception). The
+  node does not capture the wheel.
+- **NEAR / focused (zoomed into / camera-focused a node above a threshold scale):** wheel over the
+  node's body = SCROLL its internal content; at the scroll boundary, release back to canvas pan
+  (no trap). Threshold = the same camera scale that enters Document reading (~>1.0).
+- Never annoy: a gentle hand-off, momentum respected; horizontal pan unaffected; a subtle scroll
+  affordance only appears when scroll is active (near). This resolves opus's scroll-vs-pan gate.
