@@ -172,6 +172,13 @@ export function TaskCard({
   const freshColor = freshKind ? (stepColors?.get(freshKind) ?? "var(--ct-border-focus)") : null;
   const titleText = showTitle ? task.name : (task.handle?.trim() || task.name);
   const tagValues = task.tags?.filter((tag) => tag.trim().length > 0).slice(0, 3) ?? [];
+  const contentRows = showBodySlot ? "auto 20px 0 minmax(36px, 1fr)" : "auto 26px 42px minmax(0, 1fr)";
+  const contentGap = showBodySlot ? 4 : 7;
+  const contentPadding = showBodySlot ? "8px 10px" : "10px 12px";
+  const bodyRows = showFullBody
+    ? (showDeepDive ? "auto minmax(0, 1fr)" : "minmax(36px, 0.8fr) minmax(28px, 1fr)")
+    : (showBodySlot ? "minmax(36px, 1fr) 0" : "minmax(36px, 0.8fr) minmax(28px, 1fr)");
+  const bodyGap = showFullBody || !showBodySlot ? 10 : 0;
 
   // chrome overrides win over the box geometry (§32.3 surface chrome by shelf).
   const chromeOverrides: CSSProperties = {
@@ -214,7 +221,7 @@ export function TaskCard({
       onMouseLeave={() => onHover?.(null)}
       style={{ ...cardStyle, ...boxStyle, ...chromeOverrides }}
     >
-      <div style={{ flex: 1, display: "grid", gridTemplateRows: "auto 26px 42px minmax(0, 1fr)", gap: 7, padding: "10px 12px", minWidth: 0, overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "grid", gridTemplateRows: contentRows, gap: contentGap, padding: contentPadding, minWidth: 0, overflow: "hidden" }}>
         {/* Header — present at every band (the navigation layer). Solid status chip. */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -257,10 +264,10 @@ export function TaskCard({
             zoom, never click) — body markdown when present, an empty-state otherwise
             so the slot never collapses/shifts. Clamped at W2, full+scroll at W3; the
             stride snake blooms below it. W0/W1 = snake preview pinned to the bottom. */}
-        <div className="ct-canvas-scroll ct-canvas-fade-in" data-canvas-scroll-body="1" style={{ marginTop: 2, overflowY: showFullBody ? "auto" : "hidden", minHeight: 0, display: "grid", gridTemplateRows: showDeepDive ? "auto minmax(0, 1fr)" : "minmax(36px, 0.8fr) minmax(28px, 1fr)", gap: 10, ...revealStyle(showBodySlot || strideCount > 0) }}>
+        <div className="ct-canvas-scroll ct-canvas-fade-in" data-canvas-scroll-body="1" style={{ marginTop: 2, overflowY: showFullBody ? "auto" : "hidden", minHeight: 0, display: "grid", gridTemplateRows: bodyRows, gap: bodyGap, ...revealStyle(showBodySlot || strideCount > 0) }}>
           <div data-testid={showBodySlot ? "canvas-task-body" : "canvas-task-body-slot"} data-visible={showBodySlot ? "true" : "false"} data-canvas-selectable className="ct-canvas-text" style={showFullBody
             ? { fontSize: "0.92em", lineHeight: 1.5, minHeight: "1.2em", overflowWrap: "anywhere", ...revealStyle(showBodySlot) }
-            : { fontSize: "0.9em", lineHeight: 1.45, minHeight: "1.2em", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", ...revealStyle(showBodySlot) }}>
+            : { fontSize: "0.9em", lineHeight: 1.45, minHeight: showBodySlot ? 36 : "1.2em", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", ...revealStyle(showBodySlot) }}>
               {task.intent && <div data-testid="canvas-task-intent" style={{ marginBottom: 6, fontStyle: "italic" }}>{task.intent}</div>}
               {showFullBody && task.model_rationale && (
                 <div data-testid="canvas-task-why" style={{ marginBottom: 6, borderLeft: "2px solid var(--ct-border-subtle)", paddingLeft: 8 }}>
