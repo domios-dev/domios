@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::{
-    AgentRef, CanvasElement, ElementCanvas, Milestone, MilestoneKind, Task, TaskPriority,
-    TaskStatus, TransferRecord,
+    AgentRef, CanvasElement, ElementCanvas, Milestone, MilestoneKind, Plan, Section, Spec, Task,
+    TaskPriority, TaskStatus, TransferRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -215,6 +215,30 @@ fn next_handoff_seq(plan: &crate::plan::Plan) -> u64 {
         + 1
 }
 
+fn staged_spec<'a>(
+    staged_specs: &'a mut HashMap<String, Spec>,
+    store: &PlanStore,
+    spec_id: &str,
+) -> Result<&'a mut Spec, PlanError> {
+    if !staged_specs.contains_key(spec_id) {
+        let spec = store.get_spec(spec_id).ok_or(PlanError::NotFound)?;
+        staged_specs.insert(spec_id.to_string(), spec);
+    }
+    staged_specs.get_mut(spec_id).ok_or(PlanError::NotFound)
+}
+
+fn find_section_mut<'a>(sections: &'a mut [Section], id: &str) -> Option<&'a mut Section> {
+    for section in sections {
+        if section.id == id {
+            return Some(section);
+        }
+        if let Some(found) = find_section_mut(&mut section.subsections, id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 impl PlanStore {
     pub fn apply_batch(
         &self,
@@ -222,457 +246,472 @@ impl PlanStore {
         request: BatchRequest,
         now_ms: u64,
     ) -> Result<BatchResult, PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let mut working = plan.clone();
-            let mut result = BatchResult::default();
-            let mut pending_markdown_writes: Vec<(PathBuf, String)> = Vec::new();
-            for op in request.ops {
-                match op {
-                    BatchOp::UpsertTask {
-                        client_id,
-                        handle,
-                        name,
-                        kind,
-                        sections,
-                        status,
-                        body,
-                        model,
-                        why,
-                        priority,
-                        group,
-                    } => {
-                        let task_id = if let Some(task) = working.tasks.iter_mut().find(|task| {
-                            task.id == handle || task.handle.as_deref() == Some(handle.as_str())
-                        }) {
-                            if let Some(name) = name {
-                                task.name = name;
-                            }
-                            if let Some(kind) = kind {
-                                task.kind = kind;
-                            }
-                            if !sections.is_empty() {
-                                task.section_ids = sections;
-                            }
-                            if let Some(status) = status {
-                                let parsed = parse_status(&status)?;
-                                if task.status != parsed {
-                                    task.status = parsed;
-                                    task.status_changed_at = now_ms;
+        let (result, pending_markdown_writes, staged_specs, staged_plans) =
+            self.with_plan(plan_id, now_ms, |plan| {
+                let mut working = plan.clone();
+                let mut result = BatchResult::default();
+                let mut pending_markdown_writes: Vec<(PathBuf, String)> = Vec::new();
+                let mut staged_specs: HashMap<String, Spec> = HashMap::new();
+                let mut staged_plans: Vec<Plan> = Vec::new();
+                for op in request.ops {
+                    match op {
+                        BatchOp::UpsertTask {
+                            client_id,
+                            handle,
+                            name,
+                            kind,
+                            sections,
+                            status,
+                            body,
+                            model,
+                            why,
+                            priority,
+                            group,
+                        } => {
+                            let task_id = if let Some(task) =
+                                working.tasks.iter_mut().find(|task| {
+                                    task.id == handle
+                                        || task.handle.as_deref() == Some(handle.as_str())
+                                }) {
+                                if let Some(name) = name {
+                                    task.name = name;
                                 }
-                            }
-                            if let Some(body) = body {
-                                task.body = body;
-                            }
-                            if let Some(model) = model {
-                                task.model = Some(model);
-                            }
-                            if let Some(why) = why {
-                                task.model_rationale = Some(why);
-                            }
-                            if let Some(priority) = priority {
-                                task.priority = parse_priority(&priority)?;
-                            }
-                            if let Some(group) = group {
-                                task.group = Some(group);
-                            }
-                            task.updated_at = now_ms;
-                            task.id.clone()
-                        } else {
-                            let id = gen_id("task");
-                            let task = Task {
-                                id: id.clone(),
-                                name: name.unwrap_or_else(|| handle.clone()),
-                                kind: kind.unwrap_or_else(|| "implement".into()),
-                                model,
-                                model_rationale: why,
-                                status: status
-                                    .as_deref()
-                                    .map(parse_status)
-                                    .transpose()?
-                                    .unwrap_or(TaskStatus::Pending),
-                                status_label: None,
-                                priority: priority
-                                    .as_deref()
-                                    .map(parse_priority)
-                                    .transpose()?
-                                    .unwrap_or_default(),
-                                created_at: now_ms,
-                                updated_at: now_ms,
-                                status_changed_at: now_ms,
-                                handle: Some(handle),
-                                tags: vec![],
-                                section_ids: sections,
-                                body: body.unwrap_or_default(),
-                                intent: None,
-                                parent_task_id: None,
-                                assigned_pane_id: None,
-                                taken_by_role: None,
-                                peer: None,
-                                group,
-                                canvas: Default::default(),
-                                milestones: vec![],
+                                if let Some(kind) = kind {
+                                    task.kind = kind;
+                                }
+                                if !sections.is_empty() {
+                                    task.section_ids = sections;
+                                }
+                                if let Some(status) = status {
+                                    let parsed = parse_status(&status)?;
+                                    if task.status != parsed {
+                                        task.status = parsed;
+                                        task.status_changed_at = now_ms;
+                                    }
+                                }
+                                if let Some(body) = body {
+                                    task.body = body;
+                                }
+                                if let Some(model) = model {
+                                    task.model = Some(model);
+                                }
+                                if let Some(why) = why {
+                                    task.model_rationale = Some(why);
+                                }
+                                if let Some(priority) = priority {
+                                    task.priority = parse_priority(&priority)?;
+                                }
+                                if let Some(group) = group {
+                                    task.group = Some(group);
+                                }
+                                task.updated_at = now_ms;
+                                task.id.clone()
+                            } else {
+                                let id = gen_id("task");
+                                let task = Task {
+                                    id: id.clone(),
+                                    name: name.unwrap_or_else(|| handle.clone()),
+                                    kind: kind.unwrap_or_else(|| "implement".into()),
+                                    model,
+                                    model_rationale: why,
+                                    status: status
+                                        .as_deref()
+                                        .map(parse_status)
+                                        .transpose()?
+                                        .unwrap_or(TaskStatus::Pending),
+                                    status_label: None,
+                                    priority: priority
+                                        .as_deref()
+                                        .map(parse_priority)
+                                        .transpose()?
+                                        .unwrap_or_default(),
+                                    created_at: now_ms,
+                                    updated_at: now_ms,
+                                    status_changed_at: now_ms,
+                                    handle: Some(handle),
+                                    tags: vec![],
+                                    section_ids: sections,
+                                    body: body.unwrap_or_default(),
+                                    intent: None,
+                                    parent_task_id: None,
+                                    assigned_pane_id: None,
+                                    taken_by_role: None,
+                                    peer: None,
+                                    group,
+                                    canvas: Default::default(),
+                                    milestones: vec![],
+                                };
+                                working.tasks.push(task);
+                                id
                             };
-                            working.tasks.push(task);
-                            id
-                        };
-                        if let Some(client_id) = client_id {
-                            result.ids.insert(client_id, task_id.clone());
+                            if let Some(client_id) = client_id {
+                                result.ids.insert(client_id, task_id.clone());
+                            }
+                            if !result.task_ids.iter().any(|id| id == &task_id) {
+                                result.task_ids.push(task_id);
+                            }
                         }
-                        if !result.task_ids.iter().any(|id| id == &task_id) {
-                            result.task_ids.push(task_id);
+                        BatchOp::SetTaskBody { task, body } => {
+                            let task_id = resolve_ref(&task, &result.ids);
+                            let task = find_task_mut(&mut working.tasks, &task_id)
+                                .ok_or(PlanError::TaskNotFound)?;
+                            task.body = body;
+                            task.updated_at = now_ms;
+                            if !result.task_ids.iter().any(|id| id == &task.id) {
+                                result.task_ids.push(task.id.clone());
+                            }
                         }
-                    }
-                    BatchOp::SetTaskBody { task, body } => {
-                        let task_id = resolve_ref(&task, &result.ids);
-                        let task = find_task_mut(&mut working.tasks, &task_id)
-                            .ok_or(PlanError::TaskNotFound)?;
-                        task.body = body;
-                        task.updated_at = now_ms;
-                        if !result.task_ids.iter().any(|id| id == &task.id) {
-                            result.task_ids.push(task.id.clone());
+                        BatchOp::AddMilestone {
+                            client_id,
+                            task,
+                            kind,
+                            text,
+                            from,
+                            key,
+                            links,
+                        } => {
+                            let task_id = resolve_ref(&task, &result.ids);
+                            ensure_kind(&mut working.milestone_kinds, &kind);
+                            let key_link = milestone_key(key.as_deref(), request.key.as_deref());
+                            let task = find_task_mut(&mut working.tasks, &task_id)
+                                .ok_or(PlanError::TaskNotFound)?;
+                            let existing = key_link.as_ref().and_then(|key_link| {
+                                task.milestones
+                                    .iter()
+                                    .find(|ms| {
+                                        ms.kind == kind
+                                            && ms.links.iter().any(|link| link == key_link)
+                                    })
+                                    .map(|ms| ms.id.clone())
+                            });
+                            let milestone_id = if let Some(existing) = existing {
+                                existing
+                            } else {
+                                let id = gen_id("ms");
+                                let mut all_links = links
+                                    .into_iter()
+                                    .map(|link| resolve_ref(&link, &result.ids))
+                                    .collect::<Vec<_>>();
+                                if let Some(key_link) = key_link {
+                                    all_links.push(key_link);
+                                }
+                                task.milestones.push(Milestone {
+                                    id: id.clone(),
+                                    from: from.unwrap_or_else(|| AgentRef::from_pane("unknown")),
+                                    kind,
+                                    text,
+                                    ts: now_ms,
+                                    links: all_links,
+                                    loop_id: None,
+                                    iteration: None,
+                                    canvas: Default::default(),
+                                });
+                                task.updated_at = now_ms;
+                                id
+                            };
+                            if let Some(client_id) = client_id {
+                                result.ids.insert(client_id, milestone_id.clone());
+                            }
+                            if !result.milestone_ids.iter().any(|id| id == &milestone_id) {
+                                result.milestone_ids.push(milestone_id);
+                            }
                         }
-                    }
-                    BatchOp::AddMilestone {
-                        client_id,
-                        task,
-                        kind,
-                        text,
-                        from,
-                        key,
-                        links,
-                    } => {
-                        let task_id = resolve_ref(&task, &result.ids);
-                        ensure_kind(&mut working.milestone_kinds, &kind);
-                        let key_link = milestone_key(key.as_deref(), request.key.as_deref());
-                        let task = find_task_mut(&mut working.tasks, &task_id)
-                            .ok_or(PlanError::TaskNotFound)?;
-                        let existing = key_link.as_ref().and_then(|key_link| {
-                            task.milestones
-                                .iter()
-                                .find(|ms| {
-                                    ms.kind == kind && ms.links.iter().any(|link| link == key_link)
-                                })
-                                .map(|ms| ms.id.clone())
-                        });
-                        let milestone_id = if let Some(existing) = existing {
-                            existing
-                        } else {
-                            let id = gen_id("ms");
+                        BatchOp::AddElement {
+                            client_id,
+                            kind,
+                            content,
+                            link,
+                            links,
+                            x,
+                            y,
+                        } => {
+                            let id = gen_id("el");
                             let mut all_links = links
                                 .into_iter()
                                 .map(|link| resolve_ref(&link, &result.ids))
                                 .collect::<Vec<_>>();
-                            if let Some(key_link) = key_link {
-                                all_links.push(key_link);
+                            if let Some(link) = link {
+                                all_links.push(resolve_ref(&link, &result.ids));
                             }
-                            task.milestones.push(Milestone {
+                            working.elements.push(CanvasElement {
                                 id: id.clone(),
-                                from: from.unwrap_or_else(|| AgentRef::from_pane("unknown")),
                                 kind,
-                                text,
-                                ts: now_ms,
+                                canvas: ElementCanvas {
+                                    x,
+                                    y,
+                                    collapsed: false,
+                                },
+                                content,
                                 links: all_links,
-                                loop_id: None,
-                                iteration: None,
-                                canvas: Default::default(),
                             });
-                            task.updated_at = now_ms;
-                            id
-                        };
-                        if let Some(client_id) = client_id {
-                            result.ids.insert(client_id, milestone_id.clone());
+                            if let Some(client_id) = client_id {
+                                result.ids.insert(client_id, id.clone());
+                            }
+                            result.element_ids.push(id);
                         }
-                        if !result.milestone_ids.iter().any(|id| id == &milestone_id) {
-                            result.milestone_ids.push(milestone_id);
-                        }
-                    }
-                    BatchOp::AddElement {
-                        client_id,
-                        kind,
-                        content,
-                        link,
-                        links,
-                        x,
-                        y,
-                    } => {
-                        let id = gen_id("el");
-                        let mut all_links = links
-                            .into_iter()
-                            .map(|link| resolve_ref(&link, &result.ids))
-                            .collect::<Vec<_>>();
-                        if let Some(link) = link {
-                            all_links.push(resolve_ref(&link, &result.ids));
-                        }
-                        working.elements.push(CanvasElement {
-                            id: id.clone(),
-                            kind,
-                            canvas: ElementCanvas {
-                                x,
-                                y,
-                                collapsed: false,
-                            },
-                            content,
-                            links: all_links,
-                        });
-                        if let Some(client_id) = client_id {
-                            result.ids.insert(client_id, id.clone());
-                        }
-                        result.element_ids.push(id);
-                    }
-                    BatchOp::AddHandoff {
-                        client_id,
-                        mode,
-                        mut content,
-                        body,
-                        task,
-                        from,
-                        to,
-                    } => {
-                        let id = gen_id("el");
-                        let seq = next_handoff_seq(&working);
-                        let body_path = super::body_files::handoff_path(&working, &id)
-                            .map_err(|e| PlanError::Io(e.to_string()))?;
-                        pending_markdown_writes.push((body_path, body));
-                        let relative_body_path =
-                            format!(".codeterm/plans/{}/handoffs/{}.md", working.id, id);
-                        if !content.is_object() {
-                            content = serde_json::json!({});
-                        }
-                        if let Some(obj) = content.as_object_mut() {
-                            obj.insert("seq".into(), Value::from(seq));
-                            obj.insert(
-                                "mode".into(),
-                                Value::from(mode.unwrap_or_else(|| "record".into())),
-                            );
-                            obj.insert("plan_id".into(), Value::from(working.id.clone()));
-                            obj.insert("plan_title".into(), Value::from(working.title.clone()));
-                            obj.insert("ts".into(), Value::from(now_ms));
-                            obj.insert("body_path".into(), Value::from(relative_body_path));
-                            obj.entry("reseed_state")
-                                .or_insert_with(|| Value::from("created"));
-                        }
-                        let mut links = vec![format!("plan:{}", working.id)];
-                        if seq > 1 {
-                            links.push(format!("handoff:{}", seq - 1));
-                        }
-                        if let Some(task) = task.as_ref() {
-                            links.push(resolve_ref(task, &result.ids));
-                        }
-                        working.elements.push(CanvasElement {
-                            id: id.clone(),
-                            kind: "handoff".into(),
-                            canvas: ElementCanvas {
-                                x: None,
-                                y: None,
-                                collapsed: false,
-                            },
-                            content,
-                            links,
-                        });
-                        if let Some(task) = task {
-                            let task_id = resolve_ref(&task, &result.ids);
-                            ensure_kind(&mut working.milestone_kinds, "handoff");
-                            let task = find_task_mut(&mut working.tasks, &task_id)
-                                .ok_or(PlanError::TaskNotFound)?;
-                            let milestone_id = gen_id("ms");
-                            task.milestones.push(Milestone {
-                                id: milestone_id.clone(),
-                                from: from
-                                    .clone()
-                                    .unwrap_or_else(|| AgentRef::from_pane("unknown")),
-                                kind: "handoff".into(),
-                                text: format!("handoff #{}", seq),
-                                ts: now_ms,
-                                links: vec![id.clone()],
-                                loop_id: None,
-                                iteration: None,
-                                canvas: Default::default(),
-                            });
-                            task.updated_at = now_ms;
-                            result.milestone_ids.push(milestone_id);
-                        }
-                        let from = from.unwrap_or_else(|| working.owner.clone());
-                        let to = to.unwrap_or_else(|| working.owner.clone());
-                        working.owner_history.push(TransferRecord {
+                        BatchOp::AddHandoff {
+                            client_id,
+                            mode,
+                            mut content,
+                            body,
+                            task,
                             from,
                             to,
-                            ts: now_ms,
-                            reason: format!("handoff #{}", seq),
-                        });
-                        if let Some(client_id) = client_id {
-                            result.ids.insert(client_id, id.clone());
+                        } => {
+                            let id = gen_id("el");
+                            let seq = next_handoff_seq(&working);
+                            let body_path = super::body_files::handoff_path(&working, &id)
+                                .map_err(|e| PlanError::Io(e.to_string()))?;
+                            pending_markdown_writes.push((body_path, body));
+                            let relative_body_path =
+                                format!(".codeterm/plans/{}/handoffs/{}.md", working.id, id);
+                            if !content.is_object() {
+                                content = serde_json::json!({});
+                            }
+                            if let Some(obj) = content.as_object_mut() {
+                                obj.insert("seq".into(), Value::from(seq));
+                                obj.insert(
+                                    "mode".into(),
+                                    Value::from(mode.unwrap_or_else(|| "record".into())),
+                                );
+                                obj.insert("plan_id".into(), Value::from(working.id.clone()));
+                                obj.insert("plan_title".into(), Value::from(working.title.clone()));
+                                obj.insert("ts".into(), Value::from(now_ms));
+                                obj.insert("body_path".into(), Value::from(relative_body_path));
+                                obj.entry("reseed_state")
+                                    .or_insert_with(|| Value::from("created"));
+                            }
+                            let mut links = vec![format!("plan:{}", working.id)];
+                            if seq > 1 {
+                                links.push(format!("handoff:{}", seq - 1));
+                            }
+                            if let Some(task) = task.as_ref() {
+                                links.push(resolve_ref(task, &result.ids));
+                            }
+                            working.elements.push(CanvasElement {
+                                id: id.clone(),
+                                kind: "handoff".into(),
+                                canvas: ElementCanvas {
+                                    x: None,
+                                    y: None,
+                                    collapsed: false,
+                                },
+                                content,
+                                links,
+                            });
+                            if let Some(task) = task {
+                                let task_id = resolve_ref(&task, &result.ids);
+                                ensure_kind(&mut working.milestone_kinds, "handoff");
+                                let task = find_task_mut(&mut working.tasks, &task_id)
+                                    .ok_or(PlanError::TaskNotFound)?;
+                                let milestone_id = gen_id("ms");
+                                task.milestones.push(Milestone {
+                                    id: milestone_id.clone(),
+                                    from: from
+                                        .clone()
+                                        .unwrap_or_else(|| AgentRef::from_pane("unknown")),
+                                    kind: "handoff".into(),
+                                    text: format!("handoff #{}", seq),
+                                    ts: now_ms,
+                                    links: vec![id.clone()],
+                                    loop_id: None,
+                                    iteration: None,
+                                    canvas: Default::default(),
+                                });
+                                task.updated_at = now_ms;
+                                result.milestone_ids.push(milestone_id);
+                            }
+                            let from = from.unwrap_or_else(|| working.owner.clone());
+                            let to = to.unwrap_or_else(|| working.owner.clone());
+                            working.owner_history.push(TransferRecord {
+                                from,
+                                to,
+                                ts: now_ms,
+                                reason: format!("handoff #{}", seq),
+                            });
+                            if let Some(client_id) = client_id {
+                                result.ids.insert(client_id, id.clone());
+                            }
+                            result.element_ids.push(id);
                         }
-                        result.element_ids.push(id);
-                    }
-                    BatchOp::Link { to } => {
-                        let to = resolve_ref(&to, &result.ids);
-                        if !working.links.iter().any(|link| link == &to) {
-                            working.links.push(to);
+                        BatchOp::Link { to } => {
+                            let to = resolve_ref(&to, &result.ids);
+                            if !working.links.iter().any(|link| link == &to) {
+                                working.links.push(to);
+                            }
                         }
-                    }
-                    BatchOp::UpsertSpec {
-                        client_id,
-                        spec_id,
-                        title,
-                    } => {
-                        let spec_id = spec_id.map(|id| resolve_ref(&id, &result.ids));
-                        let id = if let Some(spec_id) = spec_id {
-                            self.update_spec(&spec_id, Some(&title), None, now_ms)?;
-                            spec_id
-                        } else {
-                            let spec =
-                                self.create_spec(title, working.project_path.clone(), now_ms)?;
-                            spec.id
-                        };
-                        if let Some(client_id) = client_id {
-                            result.ids.insert(client_id, id.clone());
-                        }
-                        if !result.spec_ids.iter().any(|existing| existing == &id) {
-                            result.spec_ids.push(id);
-                        }
-                    }
-                    BatchOp::UpsertSpecSection {
-                        client_id,
-                        spec,
-                        section_id,
-                        title,
-                        body,
-                    } => {
-                        let spec_id = resolve_ref(&spec, &result.ids);
-                        let section_id = section_id.map(|id| resolve_ref(&id, &result.ids));
-                        let id = if let Some(section_id) = section_id {
-                            self.update_spec_section(
-                                &spec_id,
-                                &section_id,
-                                Some(&title),
-                                body.as_deref(),
-                                &[],
-                                None,
-                                None,
-                                now_ms,
-                            )?;
-                            section_id
-                        } else {
-                            self.add_spec_section(
-                                &spec_id,
-                                &title,
-                                body.as_deref().unwrap_or_default(),
-                                None,
-                                &[],
-                                None,
-                                None,
-                                now_ms,
-                            )?
-                        };
-                        if let Some(client_id) = client_id {
-                            result.ids.insert(client_id, id.clone());
-                        }
-                        if !result
-                            .spec_section_ids
-                            .iter()
-                            .any(|existing| existing == &id)
-                        {
-                            result.spec_section_ids.push(id);
-                        }
-                    }
-                    BatchOp::SetSpecSectionBody {
-                        spec,
-                        section,
-                        body,
-                    } => {
-                        let spec_id = resolve_ref(&spec, &result.ids);
-                        let section_id = resolve_ref(&section, &result.ids);
-                        self.update_spec_section(
-                            &spec_id,
-                            &section_id,
-                            None,
-                            Some(&body),
-                            &[],
-                            None,
-                            None,
-                            now_ms,
-                        )?;
-                        if !result
-                            .spec_section_ids
-                            .iter()
-                            .any(|existing| existing == &section_id)
-                        {
-                            result.spec_section_ids.push(section_id);
-                        }
-                    }
-                    BatchOp::LinkSpecSection {
-                        spec,
-                        spec_section,
-                        plan_section,
-                    } => {
-                        let spec_id = resolve_ref(&spec, &result.ids);
-                        let spec_section_id = resolve_ref(&spec_section, &result.ids);
-                        let plan_section_id = resolve_ref(&plan_section, &result.ids);
-                        if !working.spec_refs.iter().any(|id| id == &spec_id) {
-                            working.spec_refs.push(spec_id.clone());
-                        }
-                        if working.primary_spec_id.is_none() {
-                            working.primary_spec_id = Some(spec_id.clone());
-                        }
-                        let link = crate::plan::SpecLink {
+                        BatchOp::UpsertSpec {
+                            client_id,
                             spec_id,
-                            spec_section_id,
-                            plan_section_id,
-                        };
-                        if !working.spec_links.iter().any(|existing| existing == &link) {
-                            working.spec_links.push(link);
-                        }
-                    }
-                    BatchOp::UnlinkSpecSection {
-                        spec,
-                        spec_section,
-                        plan_section,
-                    } => {
-                        let spec_id = resolve_ref(&spec, &result.ids);
-                        let spec_section = spec_section.map(|id| resolve_ref(&id, &result.ids));
-                        let plan_section = plan_section.map(|id| resolve_ref(&id, &result.ids));
-                        working.spec_links.retain(|link| {
-                            !(link.spec_id == spec_id
-                                && spec_section
-                                    .as_deref()
-                                    .is_none_or(|sid| link.spec_section_id == sid)
-                                && plan_section
-                                    .as_deref()
-                                    .is_none_or(|sid| link.plan_section_id == sid))
-                        });
-                    }
-                    BatchOp::CreatePlanFromSpec {
-                        client_id,
-                        spec,
-                        title,
-                    } => {
-                        let spec_id = resolve_ref(&spec, &result.ids);
-                        let owner = working.owner.clone();
-                        let plan = self.create_plan(
                             title,
-                            working.project_path.clone(),
-                            owner,
-                            working.milestone_kinds.clone(),
-                            now_ms,
-                        )?;
-                        self.with_plan(&plan.id, now_ms, |plan| {
+                        } => {
+                            let spec_id = spec_id.map(|id| resolve_ref(&id, &result.ids));
+                            let id = if let Some(spec_id) = spec_id {
+                                let spec = staged_spec(&mut staged_specs, self, &spec_id)?;
+                                spec.title = title;
+                                spec.updated_at = now_ms;
+                                spec_id
+                            } else {
+                                let mut spec = Spec::new(title, working.project_path.clone());
+                                spec.created_at = now_ms;
+                                spec.updated_at = now_ms;
+                                let id = spec.id.clone();
+                                staged_specs.insert(id.clone(), spec);
+                                id
+                            };
+                            if let Some(client_id) = client_id {
+                                result.ids.insert(client_id, id.clone());
+                            }
+                            if !result.spec_ids.iter().any(|existing| existing == &id) {
+                                result.spec_ids.push(id);
+                            }
+                        }
+                        BatchOp::UpsertSpecSection {
+                            client_id,
+                            spec,
+                            section_id,
+                            title,
+                            body,
+                        } => {
+                            let spec_id = resolve_ref(&spec, &result.ids);
+                            let section_id = section_id.map(|id| resolve_ref(&id, &result.ids));
+                            let id = if let Some(section_id) = section_id {
+                                let spec = staged_spec(&mut staged_specs, self, &spec_id)?;
+                                let section = find_section_mut(&mut spec.sections, &section_id)
+                                    .ok_or(PlanError::NotFound)?;
+                                section.title = title;
+                                if let Some(body) = body {
+                                    section.body = body;
+                                }
+                                spec.updated_at = now_ms;
+                                section_id
+                            } else {
+                                let spec = staged_spec(&mut staged_specs, self, &spec_id)?;
+                                let id = gen_id("sec");
+                                spec.sections.push(Section {
+                                    id: id.clone(),
+                                    title,
+                                    handle: None,
+                                    tags: vec![],
+                                    body: body.unwrap_or_default(),
+                                    subsections: vec![],
+                                    canvas: Default::default(),
+                                });
+                                spec.updated_at = now_ms;
+                                id
+                            };
+                            if let Some(client_id) = client_id {
+                                result.ids.insert(client_id, id.clone());
+                            }
+                            if !result
+                                .spec_section_ids
+                                .iter()
+                                .any(|existing| existing == &id)
+                            {
+                                result.spec_section_ids.push(id);
+                            }
+                        }
+                        BatchOp::SetSpecSectionBody {
+                            spec,
+                            section,
+                            body,
+                        } => {
+                            let spec_id = resolve_ref(&spec, &result.ids);
+                            let section_id = resolve_ref(&section, &result.ids);
+                            let spec = staged_spec(&mut staged_specs, self, &spec_id)?;
+                            let section = find_section_mut(&mut spec.sections, &section_id)
+                                .ok_or(PlanError::NotFound)?;
+                            section.body = body;
+                            spec.updated_at = now_ms;
+                            if !result
+                                .spec_section_ids
+                                .iter()
+                                .any(|existing| existing == &section_id)
+                            {
+                                result.spec_section_ids.push(section_id);
+                            }
+                        }
+                        BatchOp::LinkSpecSection {
+                            spec,
+                            spec_section,
+                            plan_section,
+                        } => {
+                            let spec_id = resolve_ref(&spec, &result.ids);
+                            let spec_section_id = resolve_ref(&spec_section, &result.ids);
+                            let plan_section_id = resolve_ref(&plan_section, &result.ids);
+                            if !working.spec_refs.iter().any(|id| id == &spec_id) {
+                                working.spec_refs.push(spec_id.clone());
+                            }
+                            if working.primary_spec_id.is_none() {
+                                working.primary_spec_id = Some(spec_id.clone());
+                            }
+                            let link = crate::plan::SpecLink {
+                                spec_id,
+                                spec_section_id,
+                                plan_section_id,
+                            };
+                            if !working.spec_links.iter().any(|existing| existing == &link) {
+                                working.spec_links.push(link);
+                            }
+                        }
+                        BatchOp::UnlinkSpecSection {
+                            spec,
+                            spec_section,
+                            plan_section,
+                        } => {
+                            let spec_id = resolve_ref(&spec, &result.ids);
+                            let spec_section = spec_section.map(|id| resolve_ref(&id, &result.ids));
+                            let plan_section = plan_section.map(|id| resolve_ref(&id, &result.ids));
+                            working.spec_links.retain(|link| {
+                                !(link.spec_id == spec_id
+                                    && spec_section
+                                        .as_deref()
+                                        .is_none_or(|sid| link.spec_section_id == sid)
+                                    && plan_section
+                                        .as_deref()
+                                        .is_none_or(|sid| link.plan_section_id == sid))
+                            });
+                        }
+                        BatchOp::CreatePlanFromSpec {
+                            client_id,
+                            spec,
+                            title,
+                        } => {
+                            let spec_id = resolve_ref(&spec, &result.ids);
+                            if !staged_specs.contains_key(&spec_id)
+                                && self.get_spec(&spec_id).is_none()
+                            {
+                                return Err(PlanError::NotFound);
+                            }
+                            let owner = working.owner.clone();
+                            let mut plan = Plan::new(title, working.project_path.clone(), owner);
+                            plan.milestone_kinds = working.milestone_kinds.clone();
+                            plan.created_at = now_ms;
+                            plan.updated_at = now_ms;
                             plan.spec_refs.push(spec_id.clone());
-                            plan.primary_spec_id = Some(spec_id.clone());
-                            Ok(())
-                        })?;
-                        if let Some(client_id) = client_id {
-                            result.ids.insert(client_id, plan.id);
+                            plan.primary_spec_id = Some(spec_id);
+                            let plan_id = plan.id.clone();
+                            staged_plans.push(plan);
+                            if let Some(client_id) = client_id {
+                                result.ids.insert(client_id, plan_id);
+                            }
                         }
                     }
                 }
-            }
-            for (path, body) in pending_markdown_writes {
-                super::body_files::write_markdown_atomic(&path, &body)
-                    .map_err(|e| PlanError::Io(e.to_string()))?;
-            }
-            *plan = working;
-            Ok(result)
-        })
+                *plan = working;
+                Ok((result, pending_markdown_writes, staged_specs, staged_plans))
+            })?;
+        for (path, body) in pending_markdown_writes {
+            super::body_files::write_markdown_atomic(&path, &body)
+                .map_err(|e| PlanError::Io(e.to_string()))?;
+        }
+        for spec in staged_specs.into_values() {
+            self.commit_loaded_spec(spec)?;
+        }
+        for plan in staged_plans {
+            self.commit_loaded_plan(plan)?;
+        }
+        Ok(result)
     }
 }
 
@@ -700,205 +739,4 @@ impl From<NewTask> for BatchOp {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::plan::{OrchestratorRef, Plan};
-    use std::path::PathBuf;
-
-    fn store_with_plan() -> (PlanStore, String) {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().to_path_buf();
-        std::mem::forget(dir);
-        let store = PlanStore::new_for_test(&root);
-        let mut plan = Plan::new(
-            "Batch".into(),
-            root.display().to_string(),
-            OrchestratorRef::default(),
-        );
-        plan.id = "pl_batch".into();
-        store.save(&mut plan, 1).unwrap();
-        (store, plan.id)
-    }
-
-    fn store_with_plan_root() -> (PathBuf, PlanStore, String) {
-        let root = tempfile::tempdir().unwrap().keep();
-        let store = PlanStore::new_for_test(&root);
-        let mut plan = Plan::new(
-            "Batch".into(),
-            root.display().to_string(),
-            OrchestratorRef::default(),
-        );
-        plan.id = "pl_batch".into();
-        store.save(&mut plan, 1).unwrap();
-        (root, store, plan.id)
-    }
-
-    #[test]
-    fn batch_resolves_refs_and_writes_in_one_plan_mutation() {
-        let (store, plan_id) = store_with_plan();
-        let result = store
-            .apply_batch(
-                &plan_id,
-                BatchRequest {
-                    key: Some("k1".into()),
-                    ops: vec![
-                        BatchOp::UpsertTask {
-                            client_id: Some("t".into()),
-                            handle: "handoff-cli".into(),
-                            name: Some("Handoff CLI".into()),
-                            kind: None,
-                            sections: vec![],
-                            status: Some("in_progress".into()),
-                            body: None,
-                            model: None,
-                            why: None,
-                            priority: None,
-                            group: None,
-                        },
-                        BatchOp::AddMilestone {
-                            client_id: Some("m".into()),
-                            task: "$t".into(),
-                            kind: "decision".into(),
-                            text: "ship batch first".into(),
-                            from: None,
-                            key: None,
-                            links: vec![],
-                        },
-                        BatchOp::AddElement {
-                            client_id: Some("e".into()),
-                            kind: "note".into(),
-                            content: serde_json::json!({"text":"x"}),
-                            link: Some("$t".into()),
-                            links: vec![],
-                            x: None,
-                            y: None,
-                        },
-                    ],
-                },
-                2,
-            )
-            .unwrap();
-        assert!(result.ids.contains_key("t"));
-        assert!(result.ids.contains_key("m"));
-        assert!(result.ids.contains_key("e"));
-        let plan = store.get(&plan_id).unwrap();
-        assert_eq!(plan.tasks.len(), 1);
-        assert_eq!(plan.tasks[0].milestones.len(), 1);
-        assert_eq!(plan.elements[0].links, vec![plan.tasks[0].id.clone()]);
-    }
-
-    #[test]
-    fn batch_is_atomic_when_later_op_fails() {
-        let (store, plan_id) = store_with_plan();
-        let err = store
-            .apply_batch(
-                &plan_id,
-                BatchRequest {
-                    key: None,
-                    ops: vec![
-                        BatchOp::UpsertTask {
-                            client_id: Some("t".into()),
-                            handle: "created".into(),
-                            name: None,
-                            kind: None,
-                            sections: vec![],
-                            status: None,
-                            body: None,
-                            model: None,
-                            why: None,
-                            priority: None,
-                            group: None,
-                        },
-                        BatchOp::SetTaskBody {
-                            task: "missing".into(),
-                            body: "nope".into(),
-                        },
-                    ],
-                },
-                2,
-            )
-            .unwrap_err();
-        assert!(matches!(err, PlanError::TaskNotFound));
-        assert!(store.get(&plan_id).unwrap().tasks.is_empty());
-    }
-
-    #[test]
-    fn batch_handoff_sidecar_is_not_written_when_later_op_fails() {
-        let (root, store, plan_id) = store_with_plan_root();
-        let err = store
-            .apply_batch(
-                &plan_id,
-                BatchRequest {
-                    key: None,
-                    ops: vec![
-                        BatchOp::AddHandoff {
-                            client_id: Some("h".into()),
-                            mode: None,
-                            content: serde_json::json!({"goal":"rollback"}),
-                            body: "must not remain".into(),
-                            task: None,
-                            from: None,
-                            to: None,
-                        },
-                        BatchOp::SetTaskBody {
-                            task: "missing".into(),
-                            body: "fail".into(),
-                        },
-                    ],
-                },
-                2,
-            )
-            .unwrap_err();
-        assert!(matches!(err, PlanError::TaskNotFound));
-        assert!(store.get(&plan_id).unwrap().elements.is_empty());
-        let handoffs_dir = root
-            .join(".codeterm")
-            .join("plans")
-            .join(&plan_id)
-            .join("handoffs");
-        let leftover = handoffs_dir
-            .read_dir()
-            .map(|mut entries| entries.next().is_some())
-            .unwrap_or(false);
-        assert!(!leftover);
-    }
-
-    #[test]
-    fn batch_upsert_and_milestone_key_are_idempotent() {
-        let (store, plan_id) = store_with_plan();
-        let request = BatchRequest {
-            key: Some("stable".into()),
-            ops: vec![
-                BatchOp::UpsertTask {
-                    client_id: Some("t".into()),
-                    handle: "same".into(),
-                    name: Some("Same".into()),
-                    kind: None,
-                    sections: vec![],
-                    status: None,
-                    body: None,
-                    model: None,
-                    why: None,
-                    priority: None,
-                    group: None,
-                },
-                BatchOp::AddMilestone {
-                    client_id: Some("m".into()),
-                    task: "$t".into(),
-                    kind: "testing".into(),
-                    text: "ran".into(),
-                    from: None,
-                    key: None,
-                    links: vec![],
-                },
-            ],
-        };
-        let first = store.apply_batch(&plan_id, request.clone(), 2).unwrap();
-        let second = store.apply_batch(&plan_id, request, 3).unwrap();
-        assert_eq!(first.task_ids, second.task_ids);
-        assert_eq!(first.milestone_ids, second.milestone_ids);
-        let plan = store.get(&plan_id).unwrap();
-        assert_eq!(plan.tasks.len(), 1);
-        assert_eq!(plan.tasks[0].milestones.len(), 1);
-    }
-}
+mod tests;
