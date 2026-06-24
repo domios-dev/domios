@@ -686,3 +686,33 @@ Replaces the single tall task column with a bounded-width grid anchored to secti
   (§16.9).
 - **PLAN-REGION** (§2.5): always a soft labeled band; orchestrator title = the "territory name",
   dominant at far zoom; never collapses its children (containment ≠ hiding).
+
+## 21. Project plan-memory (mem layer) — RESEARCH verdict (2 brainstorms converged)
+
+<!-- revision: 3 -->
+
+Question: should plan tasks/sections/discussions flow into a project-isolated mem (vectorized)
+for recall/dedup/authoring-assist? **Verdict: WORTH DOING, NARROWLY — an embed-only sidecar
+INDEX, NOT the extraction/graph/dreaming stack** (the infra is ~80% there; the only expensive
+parts are exactly the ones we don't need). NOT a Canvas-v2 blocker; do it after.
+
+- **THE ONE THING TO GET RIGHT (opus):** derive a STABLE scope from the canonicalized PROJECT
+  ROOT — `scope = "workspace:plan_<hash(project_root)>"` — NEVER the ephemeral workspace id
+  (else isolation breaks on workspace churn and diverges from §4 path-scoping). mem scope is an
+  opaque string, so this reuses every existing scope query.
+- **Embed-only:** POST mem items with `skip_extract=true` → local/free fastembed (384-dim) on the
+  async bg queue, OFF the write path. No LLM extraction worker, no dreaming, no graph for plan items.
+- **Staleness free:** save with `--source-path` → the §17 externalized .md + Librarian re-vectorize
+  on mtime change automatically. Tags map 1:1 onto §19 facets+topics (the spec already anticipated
+  reusing the mem extraction pattern, §19.6).
+- **One-way DERIVED read-model:** plans stay JSON (§2 #1); mem is an INDEX only. Plan write →
+  idempotent upsert (id=`plantask_<uuid>`, delete+insert); archive/delete → mem delete. Mem is
+  NEVER authoritative for task state/status/edges.
+- **Use cases (ranked):** HIGH = semantic+keyword search over plan history / cross-plan (killer
+  feature, reuses RRF fusion); HIGH = authoring assist (similar past tasks, up-weight cancelled/
+  stalled); MED = cross-plan dedup; LOW = drawn "related" edges (n² clutter — use a panel); SKIP =
+  graph/dreaming over plan items.
+- **Smallest first step:** one-way mirror on plan write + a thin `codeterm plan search` reusing
+  `/api/mem/search`. NO UI yet; validate recall with `evals/mem-recall`. Then add the authoring
+  "Related" strip. Features: F1 Plan Recall Index (sidecar), F2 "Related past work" strip,
+  F3 Stalled-work recall ("ghosts" — abandoned tasks semantically near active work).
