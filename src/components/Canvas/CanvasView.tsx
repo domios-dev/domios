@@ -113,6 +113,8 @@ interface CanvasNodeCardProps {
   lod: CanvasLod;
   world: World;
   dimmed?: boolean;
+  softDim?: boolean;
+  elevated?: boolean;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
   onArchive?: () => void;
@@ -120,9 +122,15 @@ interface CanvasNodeCardProps {
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, world, dimmed, onOpenPane, onHoverTask, onArchive, onFitNode }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, world, dimmed, softDim, elevated, onOpenPane, onHoverTask, onArchive, onFitNode }: CanvasNodeCardProps) {
     const base = nodeStyle(node.box);
-    const style = dimmed ? { ...base, opacity: 0.22, transition: "opacity var(--ct-duration-normal) var(--ct-ease-decel)" } : base;
+    const opacity = dimmed ? 0.22 : softDim ? 0.45 : 1;
+    const style: typeof base & { opacity?: number; zIndex?: number; transition?: string; filter?: string } =
+      dimmed || softDim
+        ? { ...base, opacity, transition: "opacity var(--ct-duration-normal) var(--ct-ease-decel)" }
+        : elevated
+          ? { ...base, zIndex: 20, filter: "drop-shadow(0 18px 40px rgba(0,0,0,0.55))", transition: "filter var(--ct-duration-normal) var(--ct-ease-decel)" }
+          : base;
     const rendered = getNodeRenderer(node.kind)({
       node,
       model,
@@ -141,6 +149,8 @@ const CanvasNodeCard = memo(
     if (prev.lod !== next.lod) return false;
     if (prev.world !== next.world) return false;
     if (prev.dimmed !== next.dimmed) return false;
+    if (prev.softDim !== next.softDim) return false;
+    if (prev.elevated !== next.elevated) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;
     const b = next.node.box;
@@ -304,6 +314,26 @@ export function CanvasViewInner({
   // Camera-focus reading gesture (§23.4): the focused node locks Document + dims
   // neighbours; Esc/back clears it. null = no focus.
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+
+  // §25.3 DOMINANCE (focus-assist for the task you "fell into"): when one task fills
+  // ≳60% of the viewport it ELEVATES (paint above + shadow, NO footprint change) and
+  // soft-dims sibling tasks. Viewport-relative, transient, no auto-camera-move.
+  const dominantNodeId = useMemo(() => {
+    if (focusedNodeId) return null;
+    let best: string | null = null;
+    let bestArea = 0;
+    for (const frame of layout.frames) {
+      for (const n of frame.nodes) {
+        if (n.kind !== "task" || n.box.width <= 0 || !nodeIds.has(n.id)) continue;
+        const aw = n.box.width * transform.scale;
+        const ah = n.box.height * transform.scale;
+        if (aw < 0.6 * size.width && ah < 0.6 * size.height) continue;
+        const area = aw * ah;
+        if (area > bestArea) { bestArea = area; best = n.id; }
+      }
+    }
+    return best;
+  }, [layout, nodeIds, transform.scale, size.width, size.height, focusedNodeId]);
 
   // §31 change signal: a plan whose updated_at advanced changed live. The camera
   // does NOT move — in-viewport plans pulse gently, off-screen ones surface a
@@ -653,6 +683,8 @@ export function CanvasViewInner({
                     lod={lod}
                     world={worldByNode.get(n.id) ?? "W1"}
                     dimmed={focusedNodeId != null && n.planId !== focusedPlanId && n.id !== focusedNodeId}
+                    softDim={dominantNodeId != null && n.kind === "task" && n.id !== dominantNodeId}
+                    elevated={dominantNodeId != null && n.id === dominantNodeId}
                     onOpenPane={onOpenPane}
                     onHoverTask={onHoverTask}
                     onArchive={n.kind === "plan" && api ? () => handleArchive(n.id) : undefined}
