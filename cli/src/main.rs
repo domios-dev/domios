@@ -190,6 +190,7 @@ pub use args::agent::AgentAction;
 pub use args::cli::{Cli, Commands};
 pub use args::cron::CronAction;
 pub use args::delayed::DelayedAction;
+pub use args::effort::EffortAction;
 pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
     MemSkillAction, MemWorkerAction,
@@ -202,6 +203,7 @@ pub use args::plan::PlanAction;
 pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::service::ServiceAction;
 pub use args::sessions::SessionsAction;
+pub use args::spec::SpecAction;
 pub use args::system::SystemAction;
 pub use args::task::{CanvasAction, TaskAction};
 pub use args::update::UpdateAction;
@@ -562,6 +564,16 @@ fn main() {
 
         Commands::Plan { action } => {
             cmd::plan::handle_plan(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Spec { action } => {
+            cmd::spec::handle_spec(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Effort { action } => {
+            cmd::effort::handle_effort(&mut client, cli.json, action);
             return;
         }
 

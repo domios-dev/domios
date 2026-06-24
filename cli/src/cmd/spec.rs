@@ -1,0 +1,227 @@
+use crate::args::spec::{SpecAction, SpecLinkAction, SpecSectionAction};
+use crate::client::SocketClient;
+use serde_json::{json, Value};
+
+fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
+    crate::cmd::plan::call_plan_rpc(client, method, params)
+}
+
+fn render_spec_markdown(spec: &Value) -> String {
+    let spec = spec.get("spec").unwrap_or(spec);
+    let mut out = String::new();
+    let title = spec.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+    let id = spec.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+    out.push_str(&format!("# {title} (`{id}`)\n\n"));
+    if let Some(sections) = spec.get("sections").and_then(|v| v.as_array()) {
+        for section in sections {
+            render_section(section, 2, &mut out);
+        }
+    }
+    out
+}
+
+fn render_section(section: &Value, depth: usize, out: &mut String) {
+    let title = section.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+    out.push_str(&format!("{} {title}\n\n", "#".repeat(depth.min(6))));
+    if let Some(body) = section.get("body").and_then(|v| v.as_str()) {
+        if !body.is_empty() {
+            out.push_str(body);
+            out.push_str("\n\n");
+        }
+    }
+    if let Some(children) = section.get("subsections").and_then(|v| v.as_array()) {
+        for child in children {
+            render_section(child, depth + 1, out);
+        }
+    }
+}
+
+fn render_file_manifest(val: &Value) -> String {
+    let mut out = String::new();
+    if let Some(index_path) = val.get("index_path").and_then(|v| v.as_str()) {
+        out.push_str(&format!("INDEX.md\t{index_path}\n"));
+    }
+    if let Some(entries) = val.get("entries").and_then(|v| v.as_array()) {
+        for entry in entries {
+            let title = entry.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+            let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("?");
+            out.push_str(&format!("{title}\t{path}\n"));
+        }
+    }
+    out
+}
+
+pub fn handle_spec(client: &mut SocketClient, json_output: bool, action: SpecAction) {
+    match run_spec(client, json_output, action) {
+        Ok(None) => {}
+        Ok(Some(val)) if json_output => {
+            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+        }
+        Ok(Some(val)) => crate::cmd::print::print_object(&val),
+        Err(e) => {
+            println!("{e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+fn run_spec(
+    client: &mut SocketClient,
+    json_output: bool,
+    action: SpecAction,
+) -> Result<Option<Value>, String> {
+    let result = match action {
+        SpecAction::Create { title, project } => {
+            let mut params = json!({ "title": title });
+            if let Some(project) = project {
+                params["project_path"] = json!(project);
+            }
+            call(client, "spec.create", params)
+        }
+        SpecAction::List {
+            project,
+            active,
+            archived,
+            all,
+        } => {
+            let mut params = json!({});
+            if let Some(project) = project {
+                params["project"] = json!(project);
+            }
+            if active {
+                params["status"] = json!("active");
+            } else if archived {
+                params["status"] = json!("archived");
+            } else if !all {
+                params["status"] = json!("active");
+            }
+            call(client, "spec.list", params)
+        }
+        SpecAction::Show { spec_id } => {
+            let val = call(
+                client,
+                "spec.show",
+                json!({ "spec_id": spec_id, "full": true }),
+            )?;
+            if json_output {
+                return Ok(Some(val));
+            }
+            println!("{}", render_spec_markdown(&val));
+            return Ok(None);
+        }
+        SpecAction::Files { spec_id } => {
+            let val = call(client, "spec.files", json!({ "spec_id": spec_id }))?;
+            if json_output {
+                return Ok(Some(val));
+            }
+            print!("{}", render_file_manifest(&val));
+            return Ok(None);
+        }
+        SpecAction::Section { action } => match action {
+            SpecSectionAction::Add {
+                spec_id,
+                title,
+                body,
+                body_file,
+                parent,
+                tags,
+                primary,
+                handle,
+            } => {
+                let body = crate::cmd::plan::resolve_text(body, body_file)?.unwrap_or_default();
+                let mut params = json!({ "spec_id": spec_id, "title": title, "body": body });
+                if let Some(parent) = parent {
+                    params["parent"] = json!(parent);
+                }
+                if !tags.is_empty() {
+                    params["tags"] = json!(tags);
+                }
+                if let Some(primary) = primary {
+                    params["primary"] = json!(primary);
+                }
+                if let Some(handle) = handle {
+                    params["handle"] = json!(handle);
+                }
+                call(client, "spec.section.add", params)
+            }
+            SpecSectionAction::Update {
+                spec_id,
+                section_id,
+                title,
+                body,
+                body_file,
+                tags,
+                primary,
+                handle,
+            } => {
+                let body = crate::cmd::plan::resolve_text(body, body_file)?;
+                let mut params = json!({ "spec_id": spec_id, "section_id": section_id });
+                if let Some(title) = title {
+                    params["title"] = json!(title);
+                }
+                if let Some(body) = body {
+                    params["body"] = json!(body);
+                }
+                if !tags.is_empty() {
+                    params["tags"] = json!(tags);
+                }
+                if let Some(primary) = primary {
+                    params["primary"] = json!(primary);
+                }
+                if let Some(handle) = handle {
+                    params["handle"] = json!(handle);
+                }
+                call(client, "spec.section.update", params)
+            }
+            SpecSectionAction::Rm {
+                spec_id,
+                section_id,
+            } => call(
+                client,
+                "spec.section.rm",
+                json!({ "spec_id": spec_id, "section_id": section_id }),
+            ),
+        },
+        SpecAction::Link { action } => match action {
+            SpecLinkAction::Add {
+                plan_id,
+                spec,
+                spec_section,
+                plan_section,
+            } => call(
+                client,
+                "spec.link.add",
+                json!({
+                    "plan_id": plan_id,
+                    "spec_id": spec,
+                    "spec_section_id": spec_section,
+                    "plan_section_id": plan_section,
+                }),
+            ),
+            SpecLinkAction::Rm {
+                plan_id,
+                spec,
+                spec_section,
+                plan_section,
+            } => {
+                let mut params = json!({ "plan_id": plan_id, "spec_id": spec });
+                if let Some(spec_section) = spec_section {
+                    params["spec_section_id"] = json!(spec_section);
+                }
+                if let Some(plan_section) = plan_section {
+                    params["plan_section_id"] = json!(plan_section);
+                }
+                call(client, "spec.link.rm", params)
+            }
+            SpecLinkAction::List { spec_id } => {
+                call(client, "spec.link.list", json!({ "spec_id": spec_id }))
+            }
+        },
+    }?;
+    if json_output {
+        Ok(Some(result))
+    } else {
+        crate::cmd::print::print_object(&result);
+        Ok(None)
+    }
+}
