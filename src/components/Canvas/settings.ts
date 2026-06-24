@@ -46,6 +46,12 @@ export interface CanvasLayoutSettings {
   taskMinHeight: number;
   taskGapY: number;
 
+  // Subtask nesting (parent_task_id → children grouped under the parent).
+  subtaskIndentX: number;
+  subtaskGapY: number;
+  subtaskHeaderGap: number;
+  subtaskGroupPad: number;
+
   // Column gaps between spec | plan | tasks | clusters.
   columnGapX: number;
   clusterGapX: number;
@@ -81,14 +87,15 @@ export interface CanvasLayoutSettings {
 }
 
 export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
-  planWidth: 308,
+  planWidth: 420,
   planHeaderHeight: 76,
   planRowHeight: 34,
   planFooterHeight: 40,
   planRowIndent: 16,
 
   // Spec column: one expanded section card per plan section, left of the plan.
-  specWidth: 280,
+  // Wider per §16.8 for real markdown line length.
+  specWidth: 440,
   specHeight: 348,
   specHeaderHeight: 30,
   specMinHeight: 60,
@@ -98,6 +105,11 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   taskWidth: 252,
   taskMinHeight: 58,
   taskGapY: 16,
+
+  subtaskIndentX: 22,
+  subtaskGapY: 12,
+  subtaskHeaderGap: 14,
+  subtaskGroupPad: 10,
 
   // Gutter rhythm: GUTTER intra-frame (spec→plan, plan→tasks), GUTTER*2 between
   // frames/owner groups, ~GUTTER for group padding. One base, no ad-hoc gaps.

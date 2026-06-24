@@ -28,6 +28,7 @@ export type CanvasEdgeKind =
   | "spec-row"
   | "task-cluster"
   | "milestone-chain"
+  | "subtask"
   | "plan-spec"
   | "plan-plan";
 

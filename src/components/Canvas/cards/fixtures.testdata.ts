@@ -32,6 +32,7 @@ export const FIXTURE_TASK: Task = {
   parent_task_id: null,
   assigned_pane_id: null,
   peer: null,
+  parent_task_id: null,
   canvas: emptyCanvas,
   milestones: [],
 };

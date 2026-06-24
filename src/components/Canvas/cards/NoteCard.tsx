@@ -23,32 +23,19 @@ export interface NoteCardProps extends CanvasCardStyleProps {
   element: CanvasElement;
 }
 
-export function NoteCard({ element, style, lod = "near" }: NoteCardProps) {
+export function NoteCard({ element, style }: NoteCardProps) {
   const text = elementMarkdown(element);
 
   return (
     <div
       data-testid="canvas-note-card"
       data-element-id={element.id}
+      className="ct-canvas-node"
       style={{ ...cardStyle, ...style }}
     >
-      {lod === "near" && text.trim().length > 0 && (
-        <div data-testid="canvas-note-body" style={{ fontSize: "var(--ct-font-size-sm)" }}>
+      {text.trim().length > 0 && (
+        <div data-testid="canvas-note-body" style={{ fontSize: "0.92em" }}>
           <RichMarkdown text={text} />
-        </div>
-      )}
-      {lod !== "near" && text.trim().length > 0 && (
-        <div
-          data-testid="canvas-note-preview"
-          style={{
-            fontSize: "var(--ct-font-size-sm)",
-            opacity: "var(--ct-text-secondary-opacity)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {text.replace(/\s+/g, " ").trim()}
         </div>
       )}
     </div>

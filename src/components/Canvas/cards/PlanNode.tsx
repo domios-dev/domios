@@ -58,10 +58,10 @@ function Row({ row }: { row: SectionRow }) {
     >
       <Icon size={13} color={color} style={{ flexShrink: 0 }} strokeWidth={uncovered ? 2.4 : 2.2} />
       <span
+        className="ct-canvas-title"
         style={{
           flex: 1,
           minWidth: 0,
-          fontSize: "var(--ct-font-size-sm)",
           fontWeight: uncovered ? 600 : 500,
           whiteSpace: "nowrap",
           overflow: "hidden",
@@ -77,7 +77,7 @@ function Row({ row }: { row: SectionRow }) {
           flexShrink: 0,
           minWidth: 20,
           textAlign: "center",
-          fontSize: "0.68rem",
+          fontSize: "0.74em",
           fontFamily: "var(--ct-font-mono)",
           fontWeight: 600,
           padding: "1px 6px",
@@ -107,7 +107,7 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
   const owner = ownerName(plan.owner);
 
   return (
-    <div data-testid="canvas-plan-node" data-plan-id={plan.id} style={{ ...frameStyle, ...style }}>
+    <div data-testid="canvas-plan-node" data-plan-id={plan.id} className="ct-canvas-node" style={{ ...frameStyle, ...style }}>
       <div style={{ height: 3, flexShrink: 0, background: "linear-gradient(90deg, var(--ct-border-focus), rgba(52,211,153,0.85))" }} />
       <div
         style={{
@@ -123,9 +123,9 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span
             title={plan.title}
+            className="ct-canvas-title"
             style={{
               fontWeight: 700,
-              fontSize: "var(--ct-font-size-md)",
               flex: 1,
               minWidth: 0,
               display: "-webkit-box",
@@ -167,7 +167,7 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
             </button>
           )}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--ct-font-size-sm)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.92em" }}>
           {owner && (
             <span
               data-testid="canvas-plan-owner"
@@ -201,7 +201,7 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: "var(--ct-font-size-sm)",
+              fontSize: "0.92em",
               opacity: "var(--ct-text-tertiary-opacity)",
             }}
           >
@@ -222,7 +222,7 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
             display: "flex",
             alignItems: "center",
             gap: 8,
-            fontSize: "var(--ct-font-size-sm)",
+            fontSize: "0.92em",
           }}
         >
           <span
