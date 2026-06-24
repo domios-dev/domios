@@ -62,6 +62,7 @@ export interface Task {
   section_ids: string[];
   body: string;
   intent: string | null;
+  parent_task_id: string | null;
   assigned_pane_id: string | null;
   peer: string | null;
   canvas: ElementCanvas;

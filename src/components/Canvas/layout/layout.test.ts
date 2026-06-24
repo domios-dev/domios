@@ -45,6 +45,7 @@ function task(id: string, sectionIds: string[], milestones: Milestone[] = []): T
     section_ids: sectionIds,
     body: "",
     intent: null,
+    parent_task_id: null,
     assigned_pane_id: null,
     peer: null,
     canvas: canvas(),

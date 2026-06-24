@@ -29,6 +29,7 @@ export const FIXTURE_TASK: Task = {
   section_ids: ["sec-auth"],
   body: "Implement the **login** endpoint.",
   intent: null,
+  parent_task_id: null,
   assigned_pane_id: null,
   peer: null,
   canvas: emptyCanvas,
