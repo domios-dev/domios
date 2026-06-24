@@ -542,3 +542,67 @@ this section?"). Fix with an auto-generated map + read commands:
 - **`codeterm plan files <id>`** — lists section/task title → `.md` path (for scripting / quick
   "which file do I edit").
 INDEX.md is generated, gitignored with the rest of `.codeterm/plans/`, never hand-edited.
+
+## 19. Tag system (synthesized: opus two-tier + codex typed-payload)
+
+<!-- revision: 3 -->
+
+Tags give every node a purposeful payload at every zoom band, readable task/file names, and
+future grouping/filtering. Synthesized from 2 brainstorms (opus + codex).
+
+### 19.1 Two-tier model (THE load-bearing decision — opus)
+A flat folksonomy rots at scale (synonym drift, unstable colors, n² edges). Split:
+- **FACETS — declared, controlled, COLORED, structural.** A small per-plan vocabulary of
+  *dimensions* with value sets (`area`, `phase`, `risk`). ONLY facets drive color/group/filter.
+  This reuses the existing `milestone_kinds`/`task_groups` "declared color lane" idiom (§2.4/§13.5).
+- **TOPICS — free kebab keywords, UNCOLORED, the long tail** (`mermaid`, `bin-pack`, `debounce`).
+  Power search + handles; never colored; allowed to be messy.
+
+### 19.2 Schema
+String form, parsed on `:`. Faceted `"area:layout"` / `"phase:v3"`; topic `"semantic-zoom"`.
+```
+Plan.tag_facets: [ { key:"area", label:"Area", color_lane:true,
+                     values:[{v:"layout",color},{v:"nav",color},{v:"storage",color},…] },
+                   { key:"phase", values:[{v:"v2"},{v:"v3"}] } ]
+Section.tags: ["area:layout","semantic-zoom","bin-pack"]   // first faceted = PRIMARY
+Task.tags:    ["area:nav","pan-zoom"]                       // inherits section tags + execution tags
+```
+- **PRIMARY** = first faceted value = the headline essence: biggest at distance, tints the node
+  (left-border accent), seeds the handle. One node = one dominant color + neutral secondary chips.
+  Topics never color → no rainbow. Coverage tint (§13.1, row background) and facet accent
+  (left border) are two non-clashing channels.
+
+### 19.3 Handles — readable names for tasks AND .md files (kills T10 + opaque filenames)
+- **Handle = `<primary-facet-value>-<most-distinctive-topic>`** → `nav-pan-zoom`,
+  `storage-externalize`, `playwright-zoom-matrix`. Daemon-generated, unique per plan (collision →
+  short suffix), author-overridable via explicit `handle`. `task_<uuid>` stays the real key;
+  handle is a display alias + CLI selector (`codeterm task show nav-pan-zoom`).
+- **Externalized .md named by handle** (supersedes §17 opaque names): `sections/layout-binpack.md`,
+  `tasks/nav-pan-zoom.md`. INDEX.md lists handle → path. One mechanism fixes "what is T10?" AND
+  "which .md is this?".
+
+### 19.4 Per-distance payload — tags INVERT role by §18 view mode (substitute→companion→ornament)
+- **TILE (far):** tags SUBSTITUTE for body — Title · ●primary-facet (colored) · 1–2 top topic
+  chips · ready glyph · `[n]`. The far board becomes a readable CONCEPT MAP, not gray micro-text.
+  THE biggest payoff (fixes the gray far-view). Tasks: handle · primary color · status · model chip.
+- **CARD (mid):** tags ACCOMPANY a 1-line digest (authored `summary`, fallback first sentence) +
+  all topic chips + ready/`[n]` badges + strongest linked task handles.
+- **DOCUMENT (near):** tags RECEDE to a clickable chip strip in the header; PRIMARY tints the
+  header bar; full markdown body dominates. Extends §16.8's meta band; every band = designed payload.
+
+### 19.5 Tag Map = HUD legend+filter (not a word cloud)
+A pinned panel (with §18.2 controls): each facet → colored values + counts (sections/tasks/
+active/done/uncovered). Click a value = filter/highlight (dim others, optional convex-hull lasso —
+NOT n² edges; if edges wanted, route through a per-facet HUB star = n edges). Multi-select within
+facet = OR, across facets = AND; topic search box substring-filters. Optional small on-canvas
+Legend node near origin so one screenshot tells the whole story (dogfood §11).
+
+### 19.6 Authoring (manual wins; auto only suggests)
+- **Front-matter in the .md** (best fit with §17 watcher): YAML `tags: [area:layout, semantic-zoom]`
+  at the top of `sections/<handle>.md` → save → live tag update, no CLI.
+- **CLI:** `plan section update <id> --tag area:layout --primary area:layout`,
+  `plan task update <id> --tag area:nav`, `plan tags <plan>` (facet vocab + counts + fuzzy-dup
+  warning = vocab governance), `task show <handle>`, `canvas filter --facet area:layout`.
+- **Auto-suggest:** a tagger pass (reuse mem extraction-worker pattern) writes `suggested_tags`
+  (ghosted, distinct from confirmed); author promotes with one action; auto NEVER colors/groups
+  until confirmed → keeps the controlled vocab clean.
