@@ -13,15 +13,15 @@ use super::{emit_plan_changed, epoch_ms, kinds_from_csv, plan_err, text_err, Pla
 
 #[derive(Deserialize, Default)]
 pub(crate) struct CreatePlanBody {
-    title: String,
+    pub(crate) title: String,
     #[serde(default)]
-    project_path: Option<String>,
+    pub(crate) project_path: Option<String>,
     #[serde(default)]
-    owner: Option<OrchestratorRef>,
+    pub(crate) owner: Option<OrchestratorRef>,
     #[serde(default)]
-    kinds: Option<String>,
+    pub(crate) kinds: Option<String>,
     #[serde(default)]
-    spec: Option<String>,
+    pub(crate) spec: Option<String>,
 }
 
 fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
@@ -32,15 +32,15 @@ fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::
 #[derive(Deserialize, Default)]
 pub(crate) struct ListPlansQuery {
     #[serde(default)]
-    project: Option<String>,
+    pub(crate) project: Option<String>,
     #[serde(default)]
-    status: Option<String>,
+    pub(crate) status: Option<String>,
     #[serde(default)]
-    orchestrator: Option<String>,
+    pub(crate) orchestrator: Option<String>,
     #[serde(default, deserialize_with = "de_truthy")]
-    unowned: Option<bool>,
+    pub(crate) unowned: Option<bool>,
     #[serde(default, deserialize_with = "de_truthy")]
-    full: Option<bool>,
+    pub(crate) full: Option<bool>,
 }
 
 pub async fn create(
