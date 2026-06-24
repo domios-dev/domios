@@ -528,3 +528,17 @@ visual review loop the orchestrator runs. Agents may be launched to iterate the 
 > Net change from §16.2/§16.8: keep "never hide info accidentally", wider nodes, badges, and the
 > doc↔index intent — but deliver it via DISCRETE designed view modes + manual controls, NOT
 > continuous text scaling.
+
+### 17.5 File-map manifest + read CLIs (so editing the .md files is convenient)
+Opaque `sec_<uuid>.md` / `task_<uuid>.md` filenames make hand-editing hard ("which file is
+this section?"). Fix with an auto-generated map + read commands:
+- **`<plan_id>/INDEX.md`** — the daemon regenerates this on every write: the plan title, then a
+  list mapping each section/task TITLE → its relative `.md` path (a clickable markdown link).
+  Open the folder, read INDEX.md, jump to the right file. Always current (single-writer rewrites
+  it alongside the body write).
+- **`codeterm plan get <id>`** — already assembles the full plan markdown (hydrated). 
+- **`codeterm plan spec <id>`** — prints just the sections (the spec prose) assembled, for
+  reading the full spec without the task/meta chrome.
+- **`codeterm plan files <id>`** — lists section/task title → `.md` path (for scripting / quick
+  "which file do I edit").
+INDEX.md is generated, gitignored with the rest of `.codeterm/plans/`, never hand-edited.
