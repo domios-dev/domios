@@ -1174,3 +1174,35 @@ canvas un-fork lands AFTER §26 worlds stabilizes (it reshapes the SPEC node).
 
 Minimal rename: only NEW words are **Effort** and **Stride**; Spec/Plan/Task kept. "group/phase" is reused
 for both task-groups and stride-groups. `milestone_kinds` → `stride_kinds`.
+
+## 31. FOUNDATIONAL UX — live changes NEVER disrupt the camera (Andrey)
+
+<!-- revision: 9 -->
+
+A hard rule, on the level of §22. The board is live (workers add tasks/strides, plans mutate, other panes
+act). **None of that may EVER move the user's camera, zoom, or focus.** The user's viewport changes ONLY
+in response to THIS user's own direct interaction.
+
+### 31.1 The rule
+- **Programmatic / remote change → zero camera movement.** A `plan-changed` event, a new task/stride/handoff,
+  an agent action, another pane's activity — the node updates IN PLACE; the camera does NOT pan, zoom, recenter,
+  refit, or steal focus. No surprise motion, ever.
+- **User-initiated motion is fine** (it's expected): the user clicking a minimap dot, pressing the Plan/"show me"
+  button, a `canvas focus` they triggered, double-click drill, zoom/fit controls. The test: did THIS user, in
+  THIS session, just act? If not, the camera stays put.
+- **Agent/CLI `canvas focus` does NOT auto-move the user's camera.** It raises an off-screen change signal
+  (31.2), not a pan — unless the user themselves invoked the focus. (Refines the earlier `canvas focus`
+  emit-pan behavior: pan only on local user action; remote/agent focus = signal only.)
+
+### 31.2 Off-screen change signal (instead of moving the camera)
+When something changes outside the current viewport, show a subtle, non-stealing indicator: an edge marker
+(a dot / soft glow) on the side of the screen toward the change, optionally with a small count. Clicking it
+(user-initiated) flies there; ignoring it does nothing. In-viewport changes may use a gentle in-place pulse
+(§24.5 / handoff §27.4) — still no camera move. The minimap may tint the region that changed. The signal
+informs; it never grabs.
+
+### 31.3 Applies to everything live
+Dominance focus-assist (§25.3), handoff markers (§27.4), status emphasis (§25.6), worlds LOD (§26), new
+nodes from auto-pack — all update in place. fit-to-view runs ONLY on explicit mount/fit, never on data change.
+Auto-pack may re-slot nodes, but the camera transform is untouched. Playwright must assert: after a live data
+mutation, the camera transform (pan x/y + zoom) is byte-identical to before.
