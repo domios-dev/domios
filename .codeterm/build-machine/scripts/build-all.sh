@@ -61,14 +61,47 @@ if [ -x "$VM_DIR/vm.sh" ] && ! pgrep -f qemu-system-aarch64 >/dev/null 2>&1; the
   ( cd "$VM_DIR" && nohup ./vm.sh run >/tmp/win-vm-boot.log 2>&1 & ) 2>/dev/null || true
 fi
 
+# Short engine name from its command, so per-engine logs are attributable.
+engine_name() {
+  case "$1" in
+    *mac-bundle*)    echo "macos" ;;
+    *build-linux*)   echo "linux" ;;
+    *build-windows*) echo "windows" ;;
+    *)               echo "engine" ;;
+  esac
+}
+
 # Run N engine commands concurrently, wait for all (a failing engine doesn't abort the wave).
+# Each engine's output is captured then replayed into the Actions log inside a foldable
+# ::group:: with status + duration, so the build is no longer a black box.
 run_wave() {
   local label="$1"; shift
-  echo "### WAVE $label : launching $# engines concurrently"
-  local pids=() rc=0
-  for c in "$@"; do ( eval "$c" ) >"$ART/.$label.$RANDOM.log" 2>&1 & pids+=($!); done
-  for p in "${pids[@]}"; do wait "$p" || rc=1; done
-  echo "### WAVE $label done (rc=$rc)"
+  local n=$#
+  echo "### WAVE $label : launching $n engines concurrently at $(date -u +%H:%M:%SZ)"
+  local pids=() names=() logs=() starts=() i=0 rc=0
+  for c in "$@"; do
+    local name log
+    name="$(engine_name "$c")-$label"
+    log="$ART/.build-$label-$i-$name.log"
+    names+=("$name"); logs+=("$log"); starts+=("$(date +%s)")
+    echo "  ▶ [$name] launched ($(date -u +%H:%M:%SZ))"
+    ( eval "$c" ) >"$log" 2>&1 &
+    pids+=($!)
+    i=$((i + 1))
+  done
+  local idx
+  for idx in "${!pids[@]}"; do
+    local prc=0
+    wait "${pids[$idx]}" || prc=1
+    local dur=$(( $(date +%s) - ${starts[$idx]} ))
+    local st="✅ ok"
+    [ "$prc" -eq 0 ] || { st="❌ FAILED (rc=$prc)"; rc=1; }
+    echo "::group::[$label] ${names[$idx]} — $st in ${dur}s"
+    cat "${logs[$idx]}" 2>/dev/null || true
+    echo "::endgroup::"
+    echo "  ◀ [${names[$idx]}] $st in ${dur}s"
+  done
+  echo "### WAVE $label done (rc=$rc) at $(date -u +%H:%M:%SZ)"
   return "$rc"
 }
 
