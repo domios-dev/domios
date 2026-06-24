@@ -42,23 +42,28 @@ const docNodes = (m: CanvasViewMode) =>
 const heightOf = (m: CanvasViewMode, kind: string) =>
   docNodes(m).find((n) => n.kind === kind)!.box.height;
 
-// Fixed frames per mode (§18): the box equals exactly the designed height, so a
-// node is never an empty shell (box matches content) and never overflows it.
-ok("plan tile box == tileHeight", heightOf("tile", "plan") === S.tileHeight);
-ok("plan card box == planCardHeight", heightOf("card", "plan") === S.planCardHeight);
-ok("spec tile box == tileHeight", heightOf("tile", "spec-section") === S.tileHeight);
-ok("spec card box == specCardHeight", heightOf("card", "spec-section") === S.specCardHeight);
+// FIXED plan-node frame per MANUAL mode (§22.1) — content-INDEPENDENT, the MODE
+// (not zoom, not content) sets the size. Tile/Card/Document = fixed planТH/CH/DH.
+ok("plan tile box == planTileH", heightOf("tile", "plan") === S.planTileH);
+ok("plan card box == planCardH", heightOf("card", "plan") === S.planCardH);
+ok("plan document box == planDocH", heightOf("document", "plan") === S.planDocH);
+ok("plan document taller than card taller than tile", S.planDocH > S.planCardH && S.planCardH > S.planTileH);
+const planWidthsFixed = (["tile", "card", "document"] as CanvasViewMode[]).every((m) => docNodes(m).find((n) => n.kind === "plan")!.box.width === S.planWidth);
+ok("plan width fixed at planWidth across modes", planWidthsFixed);
+
+// Task cells stay fixed per mode (tile/card); document is content-fit (§23.2 cells).
 ok("task tile box == tileHeight", heightOf("tile", "task") === S.tileHeight);
 ok("task card box == taskCardHeight", heightOf("card", "task") === S.taskCardHeight);
-
-// Document mode (content-fit) reserves MORE than the compact modes for big bodies.
-ok("doc spec taller than card", heightOf("document", "spec-section") > heightOf("card", "spec-section"));
 ok("doc task taller than card", heightOf("document", "task") > heightOf("card", "task"));
-ok("card taller than tile (spec)", heightOf("card", "spec-section") > heightOf("tile", "spec-section"));
+
+// Merged node: there are NO standalone spec-section nodes in any mode (§22.2).
+for (const m of ["tile", "card", "document"] as CanvasViewMode[]) {
+  ok(`no spec-section nodes in ${m} mode`, !docNodes(m).some((n) => n.kind === "spec-section"));
+}
 
 // No node overlaps another in any mode (containers excluded — they wrap children).
 function noOverlap(m: CanvasViewMode): boolean {
-  const real = docNodes(m).filter((n) => n.kind === "plan" || n.kind === "spec-section" || n.kind === "task");
+  const real = docNodes(m).filter((n) => n.kind === "plan" || n.kind === "task");
   for (let i = 0; i < real.length; i++)
     for (let j = i + 1; j < real.length; j++)
       if (boxesOverlap(real[i].box, real[j].box)) return false;

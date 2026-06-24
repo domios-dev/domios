@@ -168,9 +168,10 @@ console.log("\nsection-row anchors:");
   const a1 = frame.anchors.get("s1")!;
   ok("anchor on plan node right edge", Math.abs(a1.x - planRight) <= DEFAULT_CANVAS_SETTINGS.anchorInset + 1);
   ok("anchor y within plan node bounds", a1.y >= planNode.box.y && a1.y <= planNode.box.y + planNode.box.height);
-  // s1a row sits below s1 row by exactly one row height.
+  // Rail outputs are evenly distributed (§23.1): s1a sits one rail-span below s1.
   const a1a = frame.anchors.get("s1a")!;
-  ok("subsection anchor one row below parent", Math.abs(a1a.y - a1.y - DEFAULT_CANVAS_SETTINGS.planRowHeight) < 0.5);
+  const railSpan = (DEFAULT_CANVAS_SETTINGS.planDocH - DEFAULT_CANVAS_SETTINGS.planHeaderHeight) / 3;
+  ok("rail outputs evenly distributed (one span apart)", Math.abs(a1a.y - a1.y - railSpan) < 0.5);
   // the section→task edge originates exactly at the section row anchor.
   const edge = frame.edges.find((e) => e.kind === "section-task" && e.to === "t1");
   ok("section-task edge starts at the row anchor", !!edge?.fromPoint && Math.abs(edge.fromPoint.x - a1.x) < 0.5 && Math.abs(edge.fromPoint.y - a1.y) < 0.5);
@@ -183,27 +184,22 @@ console.log("\nsection-row anchors:");
   ok("task cell hugs its primary covered-row Y (banded sweep)", cellTop <= a1.y + 1 && cellBottom >= a1.y - 1);
 }
 
-// ── spec-section column + per-row edges ───────────────────────────
-console.log("\nspec column:");
+// ── ONE merged SectionedPlanNode (§22.2): no separate spec nodes ──
+console.log("\nmerged plan node:");
 {
   const layout = layoutWorkspace(samplePlans());
   const frame = layout.frames.find((f) => f.planId === "p1")!;
-  const specCards = frame.nodes.filter((n) => n.kind === "spec-section");
-  // p1 has 3 flattened sections (s1, s1a, s2) → one expanded card each.
-  ok("one spec-section card per section", specCards.length === 3);
-  const planNode = frame.nodes.find((n) => n.kind === "plan")!;
-  ok("spec column sits left of plan node", specCards.every((c) => c.box.x + c.box.width <= planNode.box.x));
-  // one spec-row edge per section, tying spec card[i] → its plan row.
-  ok("a spec-row edge per section", frame.edges.filter((e) => e.kind === "spec-row").length === 3);
-  const e = frame.edges.find((e) => e.kind === "spec-row" && e.from === "p1::spec::s1");
-  ok("spec-row edge lands on the s1 left-row anchor", !!e?.toPoint && Math.abs(e.toPoint.x - planNode.box.x) < 1);
-
-  // Spec column and the plan+tasks block are vertically centered against each other.
-  const blockBoxes = frame.nodes.filter((n) => ["plan", "task", "milestone", "cluster"].includes(n.kind)).map((n) => n.box);
-  const blockCenter = (Math.min(...blockBoxes.map((b) => b.y)) + Math.max(...blockBoxes.map((b) => b.y + b.height))) / 2;
-  const specTop = Math.min(...specCards.map((c) => c.box.y));
-  const specCenter = (specTop + Math.max(...specCards.map((c) => c.box.y + c.box.height))) / 2;
-  ok("spec column ↕centered against the plan+tasks block", Math.abs(specCenter - blockCenter) < 2);
+  ok("no separate spec-section nodes (folded into the plan node)", !frame.nodes.some((n) => n.kind === "spec-section"));
+  ok("no spec-row edges (rail outputs replace them)", !frame.edges.some((e) => e.kind === "spec-row"));
+  const planNodes = frame.nodes.filter((n) => n.kind === "plan");
+  ok("exactly one plan node", planNodes.length === 1);
+  // Fixed Document height (§22.1) — content-independent.
+  ok("plan node is the fixed Document height", planNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.planDocH);
+  ok("plan node is the fixed width", planNodes[0].box.width === DEFAULT_CANVAS_SETTINGS.planWidth);
+  // Tasks sit to the RIGHT of the plan node (banded), anchored to rail outputs.
+  const planRight = planNodes[0].box.x + planNodes[0].box.width;
+  const tasks = frame.nodes.filter((n) => n.kind === "task");
+  ok("tasks sit right of the plan node", tasks.every((t) => t.box.x >= planRight - 1));
 }
 
 // ── standalone / inbox plan (no sections) ─────────────────────────

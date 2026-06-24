@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
-import { Eye, EyeOff, FileText, LayoutGrid, Maximize2, Minus, Plus, RotateCcw, Square, Wand2 } from "lucide-react";
-import type { CanvasViewMode, CanvasViewModeSetting } from "./cards";
+import { Eye, EyeOff, FileText, LayoutGrid, Maximize2, Minus, Plus, RotateCcw, Square } from "lucide-react";
+import type { CanvasViewModeSetting } from "./cards";
 
 const bar: CSSProperties = {
   position: "absolute",
@@ -41,7 +41,6 @@ const iconBtn = (active = false): CSSProperties => ({
 const divider: CSSProperties = { width: 1, height: 20, background: "var(--ct-border-subtle)", margin: "0 2px" };
 
 const MODES: { key: CanvasViewModeSetting; label: string; Icon: typeof Square; title: string }[] = [
-  { key: "auto", label: "Auto", Icon: Wand2, title: "Auto — pick by zoom distance" },
   { key: "document", label: "Doc", Icon: FileText, title: "Document — full markdown body" },
   { key: "card", label: "Card", Icon: LayoutGrid, title: "Card — title + digest" },
   { key: "tile", label: "Tile", Icon: Square, title: "Tile — title + status only" },
@@ -50,7 +49,6 @@ const MODES: { key: CanvasViewModeSetting; label: string; Icon: typeof Square; t
 export interface CanvasToolbarProps {
   scale: number;
   viewModeSetting: CanvasViewModeSetting;
-  resolvedMode: CanvasViewMode;
   showText: boolean;
   onZoomIn: () => void;
   onZoomOut: () => void;
@@ -63,7 +61,6 @@ export interface CanvasToolbarProps {
 export function CanvasToolbar({
   scale,
   viewModeSetting,
-  resolvedMode,
   showText,
   onZoomIn,
   onZoomOut,
@@ -100,7 +97,7 @@ export function CanvasToolbar({
             type="button"
             data-testid={`canvas-mode-${key}`}
             data-active={active ? "true" : "false"}
-            title={key === "auto" ? `${title} (now: ${resolvedMode})` : title}
+            title={title}
             style={iconBtn(active)}
             onClick={() => onSetMode(key)}
           >
