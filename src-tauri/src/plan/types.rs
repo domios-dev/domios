@@ -161,6 +161,10 @@ pub struct Task {
     pub kind: String,
     pub model: Option<String>,
     pub model_rationale: Option<String>,
+    #[serde(default)]
+    pub acceptance_criteria: Vec<String>,
+    pub test_plan: Option<String>,
+    pub correctness: Option<String>,
     pub status: TaskStatus,
     pub status_label: Option<String>,
     #[serde(default)]

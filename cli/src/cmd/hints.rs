@@ -12,6 +12,32 @@ pub fn task_model_hint(plan_id: &str, task_id: &str) -> String {
     )
 }
 
+pub fn task_quality_guard_hint(
+    plan_id: &str,
+    task_id: &str,
+    has_criteria: bool,
+    has_test_plan: bool,
+    has_correctness: bool,
+) -> Option<String> {
+    let mut missing = vec![];
+    if !has_criteria {
+        missing.push("acceptance criteria");
+    }
+    if !has_test_plan {
+        missing.push("test plan");
+    }
+    if !has_correctness {
+        missing.push("correctness vector");
+    }
+    if missing.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "WARNING: task is missing {}. Add checkable work definition now: codeterm plan task add {plan_id} --name <name> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
+        missing.join(", ")
+    ))
+}
+
 pub fn push_hints(value: &mut Value, hints: Vec<String>) {
     let hints: Vec<String> = hints
         .into_iter()
@@ -69,5 +95,14 @@ mod tests {
         push_hints(&mut value, vec!["hint: x".into()]);
         assert_eq!(value["_hints"][0], "hint: x");
         assert_eq!(value["task_id"], "task_1");
+    }
+
+    #[test]
+    fn quality_guard_is_loud_and_actionable() {
+        let hint = task_quality_guard_hint("pl_1", "task_1", false, false, false).unwrap();
+        assert!(hint.starts_with("WARNING:"));
+        assert!(hint.contains("--criterion <condition>"));
+        assert!(hint.contains("--test-plan <how verified>"));
+        assert!(hint.contains("--correctness <one-line vector>"));
     }
 }
