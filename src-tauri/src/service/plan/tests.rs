@@ -150,6 +150,102 @@ fn add_task_supports_many_to_many_sections() {
 }
 
 #[test]
+fn add_task_persists_parent_task_id() {
+    let (store, id, parent_id) = store_with_task(&["status_update"]);
+    let child_id = store
+        .add_task(
+            &id,
+            NewTask {
+                name: "Child".into(),
+                kind: "implement".into(),
+                parent_task_id: Some(parent_id.clone()),
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+    let p = store.get(&id).unwrap();
+    let child = p.tasks.iter().find(|t| t.id == child_id).unwrap();
+    assert_eq!(child.parent_task_id.as_deref(), Some(parent_id.as_str()));
+}
+
+#[test]
+fn update_task_sets_and_clears_parent_task_id() {
+    let (store, id, parent_id) = store_with_task(&["status_update"]);
+    let child_id = store
+        .add_task(
+            &id,
+            NewTask {
+                name: "Child".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+    store
+        .update_task(
+            &id,
+            &child_id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(Some(parent_id.as_str())),
+            None,
+            21,
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .get(&id)
+            .unwrap()
+            .tasks
+            .iter()
+            .find(|t| t.id == child_id)
+            .unwrap()
+            .parent_task_id
+            .as_deref(),
+        Some(parent_id.as_str())
+    );
+
+    store
+        .update_task(
+            &id,
+            &child_id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(None),
+            None,
+            22,
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .get(&id)
+            .unwrap()
+            .tasks
+            .iter()
+            .find(|t| t.id == child_id)
+            .unwrap()
+            .parent_task_id,
+        None
+    );
+}
+
+#[test]
 fn close_task_sets_done_and_optional_milestone() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store

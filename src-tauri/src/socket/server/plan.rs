@@ -525,6 +525,10 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("intent"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        parent_task_id: p
+                            .and_then(|x| x.get("parent"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                         assigned_pane_id: p
                             .and_then(|x| x.get("assign_pane"))
                             .and_then(|v| v.as_str())
@@ -572,6 +576,8 @@ pub(super) fn dispatch(
                     p.and_then(|x| x.get("body")).and_then(|v| v.as_str()),
                     Some(p.and_then(|x| x.get("intent")).and_then(|v| v.as_str())),
                     sections,
+                    p.and_then(|x| x.get("parent_task_id").or_else(|| x.get("parent")))
+                        .map(|v| v.as_str()),
                     p.and_then(|x| x.get("group"))
                         .and_then(|v| v.as_str())
                         .map(Some),

@@ -223,6 +223,8 @@ pub enum PlanTaskAction {
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
         #[arg(long)]
+        parent: Option<String>,
+        #[arg(long)]
         assign_pane: Option<String>,
         #[arg(long)]
         group: Option<String>,
@@ -254,6 +256,8 @@ pub enum PlanTaskAction {
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
+        #[arg(long)]
+        parent: Option<String>,
         #[arg(long)]
         group: Option<String>,
     },
