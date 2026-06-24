@@ -21,6 +21,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::BadPriority
         | PlanError::UndeclaredKind { .. }
         | PlanError::OpenSubtasks { .. }
+        | PlanError::TransitionDenied { .. }
         | PlanError::BudgetExhausted { .. } => StatusCode::BAD_REQUEST,
         PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
