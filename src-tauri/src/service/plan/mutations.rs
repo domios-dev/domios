@@ -1,4 +1,4 @@
-use super::{NewTask, PlanError, PlanStore};
+use super::{NewTask, OpenSubtask, PlanError, PlanStore};
 use crate::plan::loop_engine::stop_for;
 use crate::plan::{
     AgentRef, CanvasElement, Goal, LoopSpec, LoopStage, LoopStatus, Milestone, MilestoneKind,
@@ -119,6 +119,33 @@ fn parse_task_status(raw: &str) -> Result<TaskStatus, PlanError> {
 fn parse_task_priority(raw: &str) -> Result<TaskPriority, PlanError> {
     serde_json::from_value(serde_json::Value::String(raw.into()))
         .map_err(|_| PlanError::BadPriority)
+}
+
+fn is_terminal_task_status(status: &TaskStatus) -> bool {
+    matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
+}
+
+fn open_subtasks(plan: &Plan, parent_task_id: &str) -> Vec<OpenSubtask> {
+    plan.tasks
+        .iter()
+        .filter(|task| task.parent_task_id.as_deref() == Some(parent_task_id))
+        .filter(|task| !is_terminal_task_status(&task.status))
+        .map(|task| OpenSubtask {
+            id: task.id.clone(),
+            name: task.name.clone(),
+            status: task.status.clone(),
+            handle: task.handle.clone(),
+        })
+        .collect()
+}
+
+pub(super) fn reject_done_with_open_subtasks(plan: &Plan, task_id: &str) -> Result<(), PlanError> {
+    let subtasks = open_subtasks(plan, task_id);
+    if subtasks.is_empty() {
+        Ok(())
+    } else {
+        Err(PlanError::OpenSubtasks { subtasks })
+    }
 }
 
 impl PlanStore {
@@ -315,11 +342,14 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            let task = p
+            let task_index = p
                 .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .iter()
+                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
+            let task_id = p.tasks[task_index].id.clone();
+            reject_done_with_open_subtasks(p, &task_id)?;
+            let task = &mut p.tasks[task_index];
             if task.status != TaskStatus::Done {
                 task.status_changed_at = now_ms;
             }
@@ -512,11 +542,17 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
-            let task = p
+            let task_index = p
                 .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .iter()
+                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
+            let task_id = p.tasks[task_index].id.clone();
+            let parsed_status = status.map(parse_task_status).transpose()?;
+            if matches!(parsed_status, Some(TaskStatus::Done)) {
+                reject_done_with_open_subtasks(p, &task_id)?;
+            }
+            let task = &mut p.tasks[task_index];
             if let Some(n) = name {
                 task.name = n.into();
                 task.handle = None;
@@ -530,8 +566,7 @@ impl PlanStore {
             if let Some(w) = model_rationale {
                 task.model_rationale = w.map(|s| s.into());
             }
-            if let Some(s) = status {
-                let status = parse_task_status(s)?;
+            if let Some(status) = parsed_status {
                 if task.status != status {
                     task.status = status;
                     task.status_changed_at = now_ms;

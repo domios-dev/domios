@@ -18,11 +18,15 @@ mod body_file_tests;
 #[cfg(test)]
 mod goal_tests;
 #[cfg(test)]
+mod subtask_close_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod timestamp_tests;
 
-use crate::plan::{OrchestratorRef, Plan, PlanStatus, Spec, INBOX_PLAN_FILE_STEM, INBOX_PLAN_ID};
+use crate::plan::{
+    OrchestratorRef, Plan, PlanStatus, Spec, TaskStatus, INBOX_PLAN_FILE_STEM, INBOX_PLAN_ID,
+};
 use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -35,6 +39,7 @@ use std::time::SystemTime;
 pub enum PlanError {
     NotFound,
     TaskNotFound,
+    OpenSubtasks { subtasks: Vec<OpenSubtask> },
     UndeclaredKind { declared: Vec<String> },
     BudgetExhausted { count: u32, budget: u32 },
     BadStatus,
@@ -42,11 +47,34 @@ pub enum PlanError {
     Io(String),
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct OpenSubtask {
+    pub id: String,
+    pub name: String,
+    pub status: TaskStatus,
+    pub handle: Option<String>,
+}
+
 impl fmt::Display for PlanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PlanError::NotFound => write!(f, "plan not found"),
             PlanError::TaskNotFound => write!(f, "task not found"),
+            PlanError::OpenSubtasks { subtasks } => {
+                let listed = subtasks
+                    .iter()
+                    .map(|task| {
+                        let name = if task.name.is_empty() {
+                            task.id.as_str()
+                        } else {
+                            task.name.as_str()
+                        };
+                        format!("{name} ({})", task.id)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "task has open subtasks: {listed}")
+            }
             PlanError::UndeclaredKind { declared } => {
                 write!(
                     f,
@@ -71,6 +99,9 @@ impl PlanError {
         match self {
             PlanError::NotFound => serde_json::json!({ "type": "not_found" }),
             PlanError::TaskNotFound => serde_json::json!({ "type": "task_not_found" }),
+            PlanError::OpenSubtasks { subtasks } => {
+                serde_json::json!({ "type": "open_subtasks", "subtasks": subtasks })
+            }
             PlanError::UndeclaredKind { declared } => {
                 serde_json::json!({ "type": "undeclared_kind", "declared": declared })
             }
