@@ -14,6 +14,7 @@ use crate::service::plan::{NewTask, PlanError};
 
 pub mod batch;
 pub mod handoff;
+pub mod spec;
 
 #[cfg(test)]
 mod tests;

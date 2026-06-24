@@ -228,6 +228,40 @@ pub struct PlanCanvas {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SpecLink {
+    pub spec_id: String,
+    pub spec_section_id: String,
+    pub plan_section_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum EffortLinkRel {
+    Follows,
+    Supersedes,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EffortLink {
+    pub to: String,
+    pub rel: EffortLinkRel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Spec {
+    pub id: String,
+    pub title: String,
+    pub project_path: String,
+    pub status: PlanStatus,
+    #[serde(default)]
+    pub sections: Vec<Section>,
+    pub created_at: u64,
+    pub updated_at: u64,
+    #[serde(default)]
+    pub canvas: PlanCanvas,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Plan {
     pub id: String,
     pub title: String,
@@ -253,6 +287,14 @@ pub struct Plan {
     #[serde(default)]
     pub links: Vec<String>,
     #[serde(default)]
+    pub spec_refs: Vec<String>,
+    #[serde(default)]
+    pub spec_links: Vec<SpecLink>,
+    #[serde(default)]
+    pub primary_spec_id: Option<String>,
+    #[serde(default)]
+    pub lineage: Vec<EffortLink>,
+    #[serde(default)]
     pub canvas: PlanCanvas,
     #[serde(default)]
     pub owner_history: Vec<TransferRecord>,
@@ -277,8 +319,27 @@ impl Plan {
             task_groups: vec![],
             tag_facets: vec![],
             links: vec![],
+            spec_refs: vec![],
+            spec_links: vec![],
+            primary_spec_id: None,
+            lineage: vec![],
             canvas: PlanCanvas::default(),
             owner_history: vec![],
+        }
+    }
+}
+
+impl Spec {
+    pub fn new(title: String, project_path: String) -> Self {
+        Self {
+            id: format!("sp_{}", uuid::Uuid::new_v4().simple()),
+            title,
+            project_path,
+            status: PlanStatus::Active,
+            sections: vec![],
+            created_at: 0,
+            updated_at: 0,
+            canvas: PlanCanvas::default(),
         }
     }
 }
