@@ -32,6 +32,8 @@ function snap(over: Partial<UsageSnapshot>): UsageSnapshot {
     weekly_pct: null,
     weekly_resets_at: null,
     spend_cents: null,
+    spend_limit_cents: null,
+    spend_remaining_cents: null,
     spend_resets_at: null,
     ...over,
   };

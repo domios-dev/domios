@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS usage_snapshots (
   weekly_pct REAL,
   weekly_resets_at INTEGER,
   spend_cents REAL,
+  spend_limit_cents REAL,
+  spend_remaining_cents REAL,
   spend_resets_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_usage_provider_ts ON usage_snapshots(provider, captured_at DESC);

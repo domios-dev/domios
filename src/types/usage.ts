@@ -11,6 +11,10 @@ export interface UsageSnapshot {
   /** Spend-based providers (e.g. cursor): cents used in the current billing
       cycle. Null for percentage-based providers. */
   spend_cents: number | null;
+  /** Included spend allowance for the current billing cycle, in cents. */
+  spend_limit_cents: number | null;
+  /** Remaining included spend allowance for the current billing cycle, in cents. */
+  spend_remaining_cents: number | null;
   /** Billing-cycle reset for spend-based providers. */
   spend_resets_at: number | null;
 }
