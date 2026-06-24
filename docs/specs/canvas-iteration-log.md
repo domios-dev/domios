@@ -289,3 +289,14 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
 - STILL OPEN (v3): pagination/§16.3 (board tall, 16 sections stack — bound to A4 pages next);
   mermaid+code in nodes (§16.4); Thread-and-Coil bubbles (§16.9); externalized .md bodies (§17,
   codex lane c564479b). dev=f4c561af.
+
+## v3 — view-modes landed (96356437); next = Banded Multi-Column (§20.3)
+- FE (Mira) delivered §18 discrete view modes (Document/Card/Tile) + CanvasToolbar (zoom in/out/
+  fit/reset + Auto/Doc/Card/Tile + text on/off), continuous counter-scale REMOVED, no empty shells/
+  overflow (layout test). 16 canvas tsx suites green. DOGFOODED (4 milestones on view-mode tasks).
+- Visual review: toolbar works, but the dogfood (24 sec + 38 tasks) is a tall портянka → fit=13%,
+  modes unreadable. → directed Mira to §20.3 Banded Multi-Column FIRST (tames the stack), then
+  §20.4 spec pagination+rail, mermaid/code, bubbles.
+- NOTE: owner pane dies on every dev restart (panes ephemeral) → plan goes unowned → reach it via
+  workspace-overview (click workspace; 'Canvas' nav item was removed). Plan-button path needs a
+  live owner. Consider re-binding owner or a 'claim on focus'.
