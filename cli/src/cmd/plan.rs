@@ -8,7 +8,10 @@ use crate::client::{SocketCallError, SocketClient};
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
 
-fn resolve_text(value: Option<String>, file: Option<String>) -> Result<Option<String>, String> {
+pub(crate) fn resolve_text(
+    value: Option<String>,
+    file: Option<String>,
+) -> Result<Option<String>, String> {
     if let Some(path) = file {
         return read_path_or_stdin(&path).map(Some);
     }
@@ -30,7 +33,7 @@ fn read_path_or_stdin(path: &str) -> Result<String, String> {
     }
 }
 
-fn owner_from_env() -> Value {
+pub(crate) fn owner_from_env() -> Value {
     let pane = std::env::var("CODETERM_PANE_ID").ok();
     json!({
         "pane_id": pane,
@@ -424,6 +427,10 @@ fn run_plan(
             links,
             key,
         ),
+
+        PlanAction::Handoff { action } => {
+            return crate::cmd::plan_handoff::handle(client, json, action);
+        }
 
         PlanAction::Section { action } => match action {
             PlanSectionAction::Add {

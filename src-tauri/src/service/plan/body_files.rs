@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 enum BodyKind {
     Section,
     Task,
+    Handoff,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -26,6 +27,7 @@ impl BodyKind {
         match self {
             BodyKind::Section => "sections",
             BodyKind::Task => "tasks",
+            BodyKind::Handoff => "handoffs",
         }
     }
 }
@@ -51,6 +53,10 @@ pub fn task_path(plan: &Plan, task_id: &str) -> std::io::Result<PathBuf> {
         .map(super::tag_model::task_handle)
         .unwrap_or(task_id);
     body_path(plan, BodyKind::Task, handle)
+}
+
+pub fn handoff_path(plan: &Plan, element_id: &str) -> std::io::Result<PathBuf> {
+    body_path(plan, BodyKind::Handoff, element_id)
 }
 
 pub fn index_path(plan: &Plan) -> std::io::Result<PathBuf> {
@@ -93,6 +99,13 @@ pub fn body_paths(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     collect_section_paths(plan, &plan.sections, &mut paths)?;
     for task in &plan.tasks {
         paths.push(task_path(plan, &task.id)?);
+    }
+    for element in plan
+        .elements
+        .iter()
+        .filter(|element| element.kind == "handoff")
+    {
+        paths.push(handoff_path(plan, &element.id)?);
     }
     paths.push(index_path(plan)?);
     Ok(paths)
@@ -178,6 +191,13 @@ fn index_entries(plan: &Plan) -> std::io::Result<Vec<IndexEntryRaw>> {
     for task in &plan.tasks {
         entries.push(task_index_entry(plan, task)?);
     }
+    for element in plan
+        .elements
+        .iter()
+        .filter(|element| element.kind == "handoff")
+    {
+        entries.push(handoff_index_entry(plan, element)?);
+    }
     Ok(entries)
 }
 
@@ -212,11 +232,29 @@ fn task_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntryRaw> 
     })
 }
 
+fn handoff_index_entry(
+    plan: &Plan,
+    element: &crate::plan::CanvasElement,
+) -> std::io::Result<IndexEntryRaw> {
+    let seq = element
+        .content
+        .get("seq")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    Ok(IndexEntryRaw {
+        kind: "handoff",
+        title: format!("handoff #{} ({})", seq, element.id),
+        path: handoff_path(plan, &element.id)?,
+        index_link_path: format!("handoffs/{}.md", element.id),
+    })
+}
+
 fn write_index(plan: &Plan) -> std::io::Result<()> {
     let entries = index_entries(plan)?;
     let mut out = format!("# {}\n\n", plan.title);
     write_index_group(&mut out, "Sections", &entries, "section");
     write_index_group(&mut out, "Tasks", &entries, "task");
+    write_index_group(&mut out, "Handoffs", &entries, "handoff");
     write_markdown_atomic(&index_path(plan)?, &out)
 }
 

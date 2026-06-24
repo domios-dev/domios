@@ -122,6 +122,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/plans/{id}/coverage", get(plan_routes::coverage))
         .route("/api/plans/{id}/groups", post(plan_routes::groups_set))
         .route("/api/plans/{id}/batch", post(plan_routes::batch::batch))
+        .route(
+            "/api/plans/{id}/handoffs",
+            get(plan_routes::handoff::list).post(plan_routes::handoff::create),
+        )
+        .route(
+            "/api/plans/{id}/handoffs/show",
+            get(plan_routes::handoff::show),
+        )
         .route("/api/plans/{id}/links", post(plan_routes::link))
         .route("/api/plans/{id}/links/{to}", delete(plan_routes::unlink))
         .route("/api/plans/{id}/tasks", post(plan_routes::task_add))
