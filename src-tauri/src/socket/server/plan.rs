@@ -32,10 +32,6 @@ fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
 
-fn emit_canvas_focus(app: &AppHandle, payload: Value) {
-    crate::api::events::emit_everywhere(app, "canvas-focus", payload);
-}
-
 fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
     raw.split(',')
         .map(str::trim)
@@ -119,6 +115,9 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     if method.starts_with("plan.handoff.") {
         return super::plan_handoff::dispatch(method, params, app, svc);
+    }
+    if method.starts_with("plan.goal.") {
+        return super::plan_goal::dispatch(method, params, app, svc);
     }
 
     let p = params.as_ref();
@@ -397,23 +396,6 @@ pub(super) fn dispatch(
                 "task_id": task_id.clone(),
                 "_hints": hints::task_create_hints(&plan_id, &task_id, false, has_model, has_why)
             }))
-        }
-
-        "canvas.focus" => {
-            let payload = json!({
-                "task_id": p.and_then(|x| x.get("task_id")).and_then(|v| v.as_str()),
-                "pane_id": p.and_then(|x| x.get("pane_id")).and_then(|v| v.as_str()),
-                "plan_id": p.and_then(|x| x.get("plan_id")).and_then(|v| v.as_str()),
-            });
-            emit_canvas_focus(app, payload.clone());
-            Ok(json!({ "ok": true, "event": "canvas-focus", "payload": payload }))
-        }
-
-        "canvas.filter" => {
-            let facet = get_string_param(params, "facet")?;
-            let payload = json!({ "facet": facet, "dim": true });
-            emit_canvas_focus(app, payload.clone());
-            Ok(json!({ "ok": true, "event": "canvas-focus", "payload": payload }))
         }
 
         "plan.get" => {

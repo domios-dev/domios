@@ -300,6 +300,61 @@ fn plan_get_parses_sections_lookup() {
 }
 
 #[test]
+fn plan_goal_subcommands_parse() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "goal",
+        "set",
+        "pl_1",
+        "--vector",
+        "Ship foundation",
+        "--vision-file",
+        "goal.md",
+        "--constraint",
+        "backend only",
+        "--postulate",
+        "reread plan",
+    ])
+    .expect("plan goal set parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Goal {
+                    action:
+                        crate::args::plan::PlanGoalAction::Set {
+                            plan_id,
+                            vector,
+                            vision_file,
+                            constraint,
+                            postulate,
+                            ..
+                        },
+                },
+        } => {
+            assert_eq!(plan_id, "pl_1");
+            assert_eq!(vector, "Ship foundation");
+            assert_eq!(vision_file.as_deref(), Some("goal.md"));
+            assert_eq!(constraint, vec!["backend only"]);
+            assert_eq!(postulate, vec!["reread plan"]);
+        }
+        _ => panic!("expected plan goal set"),
+    }
+
+    let parsed =
+        Cli::try_parse_from(["codeterm", "plan", "goal", "show", "pl_1"]).expect("show parses");
+    assert!(matches!(
+        parsed.command,
+        Commands::Plan {
+            action:
+                PlanAction::Goal {
+                    action: crate::args::plan::PlanGoalAction::Show { plan_id },
+                },
+        } if plan_id == "pl_1"
+    ));
+}
+
+#[test]
 fn plan_handoff_subcommands_parse() {
     let parsed = Cli::try_parse_from([
         "codeterm",

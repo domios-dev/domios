@@ -63,6 +63,10 @@ pub fn index_path(plan: &Plan) -> std::io::Result<PathBuf> {
     Ok(plan_body_dir(plan)?.join("INDEX.md"))
 }
 
+pub fn goal_path(plan: &Plan) -> std::io::Result<PathBuf> {
+    Ok(plan_body_dir(plan)?.join("goal.md"))
+}
+
 fn body_path(plan: &Plan, kind: BodyKind, id: &str) -> std::io::Result<PathBuf> {
     Ok(plan_body_dir(plan)?
         .join(kind.dir_name())
@@ -71,6 +75,9 @@ fn body_path(plan: &Plan, kind: BodyKind, id: &str) -> std::io::Result<PathBuf> 
 
 pub fn strip_bodies(plan: &Plan) -> Plan {
     let mut stripped = plan.clone();
+    if let Some(goal) = &mut stripped.goal {
+        goal.vision.clear();
+    }
     clear_section_bodies(&mut stripped.sections);
     for task in &mut stripped.tasks {
         task.body.clear();
@@ -80,6 +87,9 @@ pub fn strip_bodies(plan: &Plan) -> Plan {
 
 pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     let paths = body_paths(plan)?;
+    if let Some(goal) = &plan.goal {
+        write_markdown_atomic(&goal_path(plan)?, &goal.vision)?;
+    }
     for section in flatten_sections(&plan.sections) {
         let path = section_path(plan, &section.id)?;
         write_markdown_atomic(&path, &body_with_frontmatter(&section.tags, &section.body))?;
@@ -96,6 +106,9 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
 
 pub fn body_paths(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     let mut paths = vec![];
+    if plan.goal.is_some() {
+        paths.push(goal_path(plan)?);
+    }
     collect_section_paths(plan, &plan.sections, &mut paths)?;
     for task in &plan.tasks {
         paths.push(task_path(plan, &task.id)?);
@@ -137,6 +150,10 @@ pub fn hydrate_and_migrate(plan: &mut Plan) -> std::io::Result<bool> {
     let mut migrated = false;
     super::tag_model::normalize_plan(plan);
     let base_dir = plan_body_dir(plan)?;
+    if let Some(goal) = &mut plan.goal {
+        let mut tags = vec![];
+        migrated |= hydrate_body(&base_dir.join("goal.md"), None, &mut goal.vision, &mut tags)?;
+    }
     hydrate_sections(&base_dir, &mut plan.sections, &mut migrated)?;
     for task in &mut plan.tasks {
         let path = base_dir
@@ -187,6 +204,14 @@ struct IndexEntryRaw {
 
 fn index_entries(plan: &Plan) -> std::io::Result<Vec<IndexEntryRaw>> {
     let mut entries = vec![];
+    if plan.goal.is_some() {
+        entries.push(IndexEntryRaw {
+            kind: "goal",
+            title: "Goal".into(),
+            path: goal_path(plan)?,
+            index_link_path: "goal.md".into(),
+        });
+    }
     collect_section_index_entries(plan, &plan.sections, &mut entries)?;
     for task in &plan.tasks {
         entries.push(task_index_entry(plan, task)?);
@@ -252,6 +277,7 @@ fn handoff_index_entry(
 fn write_index(plan: &Plan) -> std::io::Result<()> {
     let entries = index_entries(plan)?;
     let mut out = format!("# {}\n\n", plan.title);
+    write_index_group(&mut out, "Goal", &entries, "goal");
     write_index_group(&mut out, "Sections", &entries, "section");
     write_index_group(&mut out, "Tasks", &entries, "task");
     write_index_group(&mut out, "Handoffs", &entries, "handoff");

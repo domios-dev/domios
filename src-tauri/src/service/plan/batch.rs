@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::{
-    AgentRef, CanvasElement, ElementCanvas, Milestone, MilestoneKind, Plan, Section, Spec, Task,
-    TaskPriority, TaskStatus, TransferRecord,
+    AgentRef, CanvasElement, ElementCanvas, Goal, Milestone, MilestoneKind, Plan, Section, Spec,
+    Task, TaskPriority, TaskStatus, TransferRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -57,6 +57,17 @@ pub enum BatchOp {
         client_id: Option<String>,
         task: String,
         status: String,
+    },
+    SetGoal {
+        #[serde(default)]
+        client_id: Option<String>,
+        vector: String,
+        #[serde(default)]
+        vision: String,
+        #[serde(default)]
+        constraints: Vec<String>,
+        #[serde(default)]
+        postulates: Vec<String>,
     },
     AddMilestone {
         #[serde(default)]
@@ -444,6 +455,23 @@ impl PlanStore {
                             }
                             if !result.task_ids.iter().any(|id| id == &task.id) {
                                 result.task_ids.push(task.id.clone());
+                            }
+                        }
+                        BatchOp::SetGoal {
+                            client_id,
+                            vector,
+                            vision,
+                            constraints,
+                            postulates,
+                        } => {
+                            working.goal = Some(Goal {
+                                vector,
+                                vision,
+                                constraints,
+                                postulates,
+                            });
+                            if let Some(client_id) = client_id {
+                                result.ids.insert(client_id, working.id.clone());
                             }
                         }
                         BatchOp::AddMilestone {

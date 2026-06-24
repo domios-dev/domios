@@ -1,7 +1,7 @@
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::loop_engine::stop_for;
 use crate::plan::{
-    AgentRef, CanvasElement, LoopSpec, LoopStage, LoopStatus, Milestone, MilestoneKind,
+    AgentRef, CanvasElement, Goal, LoopSpec, LoopStage, LoopStatus, Milestone, MilestoneKind,
     OrchestratorRef, Plan, PlanStatus, Section, Task, TaskGroup, TaskPriority, TaskStatus,
     TransferRecord,
 };
@@ -181,6 +181,13 @@ impl PlanStore {
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
             p.task_groups = groups;
+            Ok(())
+        })
+    }
+
+    pub fn set_goal(&self, plan_id: &str, goal: Goal, now_ms: u64) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            p.goal = Some(goal);
             Ok(())
         })
     }
