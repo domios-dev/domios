@@ -58,7 +58,7 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
 
 test("CanvasViewInner renders compact plan node, section rows, and task card", async () => {
   const { host, root } = await render(
-    <CanvasViewInner mode="workspace" plans={[FIXTURE_PLAN]} viewportPadding={10000} />,
+    <CanvasViewInner mode="workspace" plans={[FIXTURE_PLAN]} viewportPadding={10000} initialViewMode="document" />,
   );
   await act(async () => {
     await new Promise((r) => setTimeout(r, 10));

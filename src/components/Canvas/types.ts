@@ -65,7 +65,6 @@ export interface Task {
   parent_task_id: string | null;
   assigned_pane_id: string | null;
   peer: string | null;
-  parent_task_id: string | null;
   canvas: ElementCanvas;
   milestones: Milestone[];
 }

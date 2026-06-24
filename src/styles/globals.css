@@ -946,24 +946,17 @@ button,
 .ct-spin { animation: ct-spin 0.9s linear infinite; }
 @keyframes ct-spin { to { transform: rotate(360deg); } }
 
-/* Counter-scale typography for canvas nodes (semantic/PDF zoom). The world layer
-   is CSS-scaled by --ct-canvas-zoom; this dampens text so it shrinks with zoom but
-   never disappears: world font = max(6px screen floor / zoom, base*clamp(.55,1/zoom,1)).
-   Cards set their text in `em` relative to this root so all text scales together.
-   No JS re-render — pure CSS reacts to the zoom var. */
+/* Fixed readable typography for canvas nodes (§18 — discrete view modes REPLACE
+   the old continuous counter-scale). Each mode is hand-designed at a fixed size;
+   the world layer still scales with zoom (Figma-like), but text never stretches
+   independently. Cards size their text in `em` relative to this 13px root. */
 .ct-canvas-node {
-  font-size: max(
-    calc(6px / var(--ct-canvas-zoom, 1)),
-    calc(13px * clamp(0.55, calc(1 / var(--ct-canvas-zoom, 1)), 1))
-  );
+  font-size: 13px;
 }
 
-/* TITLE curve (gentle): nearly screen-CONSTANT ~15px so titles form a stable
-   navigation/index layer — never balloon at far zoom, never vanish. The min cap
-   bounds world size at extreme zoom-out (so it can't explode). Counters the body's
-   aggressive curve: at distance titles read while bodies go micro. */
+/* Titles a touch larger than body — the stable label layer within each mode. */
 .ct-canvas-title {
-  font-size: min(calc(15px / var(--ct-canvas-zoom, 1)), 72px) !important;
+  font-size: 14px;
   line-height: 1.2;
 }
 
