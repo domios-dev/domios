@@ -380,6 +380,56 @@ fn plan_get_parses_sections_lookup() {
 }
 
 #[test]
+fn orchestrator_heartbeat_commands_parse() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "orchestrator",
+        "learn",
+        "resolve heartbeat at send time",
+        "--plan",
+        "pl_1",
+        "--tag",
+        "heartbeat",
+    ])
+    .expect("orchestrator learn parses");
+    match parsed.command {
+        Commands::Orchestrator {
+            action:
+                crate::args::orchestrator::OrchestratorAction::Learn {
+                    text,
+                    plan,
+                    tag,
+                },
+        } => {
+            assert_eq!(text, "resolve heartbeat at send time");
+            assert_eq!(plan.as_deref(), Some("pl_1"));
+            assert_eq!(tag.as_deref(), Some("heartbeat"));
+        }
+        _ => panic!("expected orchestrator learn"),
+    }
+
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "orchestrator",
+        "heartbeat",
+        "show",
+        "--plan",
+        "pl_1",
+    ])
+    .expect("orchestrator heartbeat show parses");
+    match parsed.command {
+        Commands::Orchestrator {
+            action:
+                crate::args::orchestrator::OrchestratorAction::Heartbeat {
+                    action:
+                        crate::args::orchestrator::OrchestratorHeartbeatAction::Show { plan },
+                },
+        } => assert_eq!(plan.as_deref(), Some("pl_1")),
+        _ => panic!("expected orchestrator heartbeat show"),
+    }
+}
+
+#[test]
 fn plan_goal_subcommands_parse() {
     let parsed = Cli::try_parse_from([
         "codeterm",

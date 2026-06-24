@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-use crate::args::orchestrator::OrchestratorAction;
+use crate::args::orchestrator::{OrchestratorAction, OrchestratorHeartbeatAction};
 use crate::client::SocketClient;
 use crate::cmd::plan::{call_plan_rpc, owner_from_env, resolve_text};
 use crate::resolve_pane;
@@ -11,6 +11,10 @@ pub fn handle(
     action: OrchestratorAction,
 ) -> Result<Option<Value>, String> {
     match action {
+        OrchestratorAction::Learn { text, plan, tag } => learn(client, json_output, text, plan, tag),
+        OrchestratorAction::Heartbeat { action } => match action {
+            OrchestratorHeartbeatAction::Show { plan } => heartbeat_show(client, json_output, plan),
+        },
         OrchestratorAction::Handoff {
             plan,
             task,
@@ -36,6 +40,110 @@ pub fn handle(
             next_actions,
             from_file,
         ),
+    }
+}
+
+fn heartbeat_params(plan: Option<String>) -> Value {
+    json!({
+        "plan_id": plan,
+        "pane_id": std::env::var("CODETERM_PANE_ID").ok(),
+        "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
+    })
+}
+
+fn learn(
+    client: &mut SocketClient,
+    json_output: bool,
+    text: String,
+    plan: Option<String>,
+    tag: Option<String>,
+) -> Result<Option<Value>, String> {
+    let mut params = heartbeat_params(plan);
+    params["text"] = json!(text);
+    if let Some(tag) = tag {
+        params["tag"] = json!(tag);
+    }
+    let result = call_plan_rpc(client, "plan.heartbeat.learn", params)?;
+    if json_output {
+        return Ok(Some(result));
+    }
+    let plan_id = result
+        .get("plan_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    let deduped = result
+        .get("deduped")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let state = if deduped { "deduped" } else { "added" };
+    println!("learning {state} for {plan_id}");
+    Ok(None)
+}
+
+fn heartbeat_show(
+    client: &mut SocketClient,
+    json_output: bool,
+    plan: Option<String>,
+) -> Result<Option<Value>, String> {
+    let result = call_plan_rpc(client, "plan.heartbeat.show", heartbeat_params(plan))?;
+    if json_output {
+        return Ok(Some(result));
+    }
+    print_heartbeat(&result);
+    Ok(None)
+}
+
+fn print_heartbeat(value: &Value) {
+    let plan_id = value
+        .get("plan_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    println!("Heartbeat for {plan_id}");
+    let Some(heartbeat) = value.get("heartbeat") else {
+        println!("(empty)");
+        return;
+    };
+    if let Some(focus) = heartbeat.get("current_focus").and_then(|v| v.as_str()) {
+        if !focus.trim().is_empty() {
+            println!("focus: {}", focus.trim());
+        }
+    }
+    print_string_array(heartbeat, "active_lanes", "lanes");
+    print_string_array(heartbeat, "rules", "rules");
+    if let Some(learnings) = heartbeat.get("learnings").and_then(|v| v.as_array()) {
+        if !learnings.is_empty() {
+            println!("learnings:");
+            for learning in learnings {
+                if let Some(text) = learning.get("text").and_then(|v| v.as_str()) {
+                    println!("- {}", text.trim());
+                }
+            }
+        }
+    }
+    if value
+        .get("reinjection")
+        .and_then(|v| v.as_str())
+        .map_or(true, |text| text.trim().is_empty())
+    {
+        println!("(empty)");
+    }
+}
+
+fn print_string_array(value: &Value, key: &str, label: &str) {
+    let Some(items) = value.get(key).and_then(|v| v.as_array()) else {
+        return;
+    };
+    let items: Vec<&str> = items
+        .iter()
+        .filter_map(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .collect();
+    if items.is_empty() {
+        return;
+    }
+    println!("{label}:");
+    for item in items {
+        println!("- {}", item.trim());
     }
 }
 

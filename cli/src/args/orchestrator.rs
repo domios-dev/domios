@@ -2,6 +2,20 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum OrchestratorAction {
+    /// Append a persistent learning to this orchestrator's heartbeat
+    Learn {
+        #[arg(allow_hyphen_values = true)]
+        text: String,
+        #[arg(long, env = "CODETERM_PLAN_ID")]
+        plan: Option<String>,
+        #[arg(long)]
+        tag: Option<String>,
+    },
+    /// Orchestrator heartbeat helpers
+    Heartbeat {
+        #[command(subcommand)]
+        action: OrchestratorHeartbeatAction,
+    },
     /// Create an orchestrator handoff and optionally reseed this pane
     Handoff {
         #[arg(long, env = "CODETERM_PLAN_ID")]
@@ -24,5 +38,14 @@ pub enum OrchestratorAction {
         next_actions: Vec<String>,
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum OrchestratorHeartbeatAction {
+    /// Show the current heartbeat and learnings
+    Show {
+        #[arg(long, env = "CODETERM_PLAN_ID")]
+        plan: Option<String>,
     },
 }

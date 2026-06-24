@@ -3,13 +3,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::multiplexer::types::AgentRole;
-use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus, TaskGroup};
+use crate::plan::{AgentRef, OrchestratorRef, PlanStatus};
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
 use crate::service::ServiceState;
 
+use super::plan_fields::{
+    groups_from_csv, kinds_from_csv, optional_string_field, pane_and_ancestors, pane_role,
+    string_array_field,
+};
 use super::plan_linking::{csv_string_field, owner_from_params, plan_with_linking, tags_field};
 use super::{get_string_param, JsonRpcError};
 
@@ -33,70 +36,6 @@ fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
 
-fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
-    raw.split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|key| MilestoneKind {
-            key: key.into(),
-            label: key.into(),
-            color: None,
-        })
-        .collect()
-}
-
-fn groups_from_csv(raw: &str) -> Vec<TaskGroup> {
-    raw.split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|item| {
-            let (key, label) = item.split_once(':').unwrap_or((item, item));
-            TaskGroup {
-                key: key.trim().into(),
-                label: label.trim().into(),
-                color: None,
-            }
-        })
-        .collect()
-}
-
-fn string_array_field(params: Option<&Value>, key: &str) -> Vec<String> {
-    params
-        .and_then(|x| x.get(key))
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default()
-}
-
-fn pane_role(svc: &ServiceState, pane_id: &str) -> Option<&'static str> {
-    svc.mux
-        .read()
-        .get_pane(pane_id)
-        .and_then(|pane| pane.role)
-        .map(|role| match role {
-            AgentRole::Orchestrator => "orchestrator",
-            AgentRole::Worker => "worker",
-        })
-}
-
-fn pane_and_ancestors(svc: &ServiceState, pane_id: &str) -> std::collections::HashSet<String> {
-    let mux = svc.mux.read();
-    let mut out = std::collections::HashSet::new();
-    let mut current = Some(pane_id.to_string());
-    while let Some(id) = current {
-        if !out.insert(id.clone()) {
-            break;
-        }
-        current = mux
-            .get_pane(&id)
-            .and_then(|pane| pane.parent_pane_id.clone());
-    }
-    out
-}
-
-fn optional_string_field<'a>(params: Option<&'a Value>, key: &str) -> Option<Option<&'a str>> {
-    params.and_then(|x| x.get(key).map(|v| v.as_str()))
-}
-
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -106,10 +45,12 @@ pub(super) fn dispatch(
     if method.starts_with("plan.handoff.") {
         return super::plan_handoff::dispatch(method, params, app, svc);
     }
+    if method.starts_with("plan.heartbeat.") {
+        return super::plan_heartbeat::dispatch(method, params, app, svc);
+    }
     if method.starts_with("plan.goal.") {
         return super::plan_goal::dispatch(method, params, app, svc);
     }
-
     let p = params.as_ref();
     let store = &svc.plan_store;
     let now = epoch_ms();
