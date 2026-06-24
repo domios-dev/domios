@@ -11,6 +11,7 @@ import { OrchestratorGroup } from "./cards";
 import { getNodeRenderer } from "./nodeRegistry";
 import { bezierPath, resolveEdgeEnds } from "./edges";
 import { milestoneColorMap } from "./milestoneColors";
+import { sectionRows, type SectionRowGlyph } from "./sectionRows";
 import { layoutWorkspace, visibleFrameIds, visibleNodeIds, type LaidOutNode } from "./layout";
 import { archivePlan } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
@@ -70,10 +71,17 @@ export interface ClusterCaptionModel {
   kinds: { label: string; color: string }[];
 }
 
+export interface SpecSectionModel {
+  section: Section;
+  glyph: SectionRowGlyph;
+  taskCount: number;
+}
+
 interface CanvasLookups {
   nodeById: Map<string, LaidOutNode>;
   taskById: Map<string, Task>;
   sectionById: Map<string, Section>;
+  specSectionById: Map<string, SpecSectionModel>;
   milestoneModelById: Map<string, MilestoneBubbleModel>;
   clusterModelById: Map<string, ClusterCaptionModel>;
   elementById: Map<string, CanvasElement>;
@@ -150,11 +158,19 @@ export function CanvasViewInner({
     for (const frame of layout.frames) for (const n of frame.nodes) nodeById.set(n.id, n);
     const taskById = new Map<string, Task>();
     const sectionById = new Map<string, Section>();
+    const specSectionById = new Map<string, SpecSectionModel>();
     const milestoneModelById = new Map<string, MilestoneBubbleModel>();
     const clusterModelById = new Map<string, ClusterCaptionModel>();
     const elementById = new Map<string, CanvasElement>();
     for (const plan of filteredPlans) {
       collectSections(plan.sections, sectionById);
+      for (const row of sectionRows(plan)) {
+        specSectionById.set(`${plan.id}::spec::${row.section.id}`, {
+          section: row.section,
+          glyph: row.glyph,
+          taskCount: row.taskCount,
+        });
+      }
       const colors = milestoneColorMap(plan);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
@@ -172,7 +188,7 @@ export function CanvasViewInner({
       }
       for (const el of plan.elements) elementById.set(el.id, el);
     }
-    return { nodeById, taskById, sectionById, milestoneModelById, clusterModelById, elementById };
+    return { nodeById, taskById, sectionById, specSectionById, milestoneModelById, clusterModelById, elementById };
   }, [layout, filteredPlans]);
 
   const resolveModel = useCallback(
@@ -181,7 +197,7 @@ export function CanvasViewInner({
         case "plan":
           return planById.get(node.id);
         case "spec-section":
-          return lookups.sectionById.get(node.id.split("::spec::")[1] ?? "");
+          return lookups.specSectionById.get(node.id);
         case "task":
           return lookups.taskById.get(node.id);
         case "milestone":
@@ -368,6 +384,9 @@ export function CanvasViewInner({
               width: worldW,
               height: worldH,
               position: "relative",
+              // Counter-scale base for canvas node text (PDF-zoom feel). Cards read
+              // this via .ct-canvas-node so text shrinks with zoom but never vanishes.
+              ["--ct-canvas-zoom" as string]: transform.scale,
             }}
           >
             {layout.groups.map((group) => (

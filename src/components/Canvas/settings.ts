@@ -81,14 +81,15 @@ export interface CanvasLayoutSettings {
 }
 
 export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
-  planWidth: 308,
+  planWidth: 420,
   planHeaderHeight: 76,
   planRowHeight: 34,
   planFooterHeight: 40,
   planRowIndent: 16,
 
   // Spec column: one expanded section card per plan section, left of the plan.
-  specWidth: 280,
+  // Wider per §16.8 for real markdown line length.
+  specWidth: 440,
   specHeight: 348,
   specHeaderHeight: 30,
   specMinHeight: 60,

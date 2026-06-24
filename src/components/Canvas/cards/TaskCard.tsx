@@ -5,6 +5,8 @@ import { TASK_STATUS_COLORS } from "../settings";
 import type { Task, TaskStatus } from "../types";
 import type { CanvasCardStyleProps } from "./types";
 
+// All content is ALWAYS mounted (no subtraction LOD → no empty boxes). Text sizes
+// are `em` relative to the counter-scaled .ct-canvas-node root (semantic zoom).
 const cardStyle: CSSProperties = {
   position: "absolute",
   boxSizing: "border-box",
@@ -29,7 +31,7 @@ export interface TaskCardProps extends CanvasCardStyleProps {
   onHover?: (taskId: string | null) => void;
 }
 
-export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: TaskCardProps) {
+export function TaskCard({ task, style, onOpenPane, onHover }: TaskCardProps) {
   const [whyOpen, setWhyOpen] = useState(false);
   const badgeColor = TASK_STATUS_COLORS[task.status];
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
@@ -38,6 +40,7 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
     <div
       data-testid="canvas-task-card"
       data-task-id={task.id}
+      className="ct-canvas-node"
       onMouseEnter={() => onHover?.(task.id)}
       onMouseLeave={() => onHover?.(null)}
       style={{ ...cardStyle, ...style }}
@@ -47,47 +50,45 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
           data-testid="canvas-task-marker"
           aria-hidden
           style={{
-            width: 9,
-            height: 9,
+            width: "0.7em",
+            height: "0.7em",
             borderRadius: "50%",
-            marginTop: 5,
+            marginTop: "0.4em",
             flexShrink: 0,
             background: badgeColor,
-            boxShadow: `0 0 0 3px color-mix(in srgb, ${badgeColor} 22%, transparent)`,
+            boxShadow: `0 0 0 0.22em color-mix(in srgb, ${badgeColor} 22%, transparent)`,
           }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
-            <span data-testid="canvas-task-name" style={{ fontWeight: 700, fontSize: "var(--ct-font-size-md)" }}>
+            <span data-testid="canvas-task-name" style={{ fontWeight: 700, fontSize: "1.05em" }}>
               {task.name}
             </span>
-            {lod !== "far" && (
-              <span
-                data-testid="canvas-task-status"
-                style={{
-                  fontSize: "0.62rem",
-                  padding: "0 6px",
-                  lineHeight: "15px",
-                  borderRadius: 999,
-                  background: `color-mix(in srgb, ${badgeColor} 14%, transparent)`,
-                  border: `1px solid color-mix(in srgb, ${badgeColor} 48%, transparent)`,
-                  color: badgeColor,
-                  textTransform: "capitalize",
-                  fontWeight: 600,
-                }}
-              >
-                {displayStatus}
-              </span>
-            )}
+            <span
+              data-testid="canvas-task-status"
+              style={{
+                fontSize: "0.74em",
+                padding: "0 0.5em",
+                lineHeight: 1.7,
+                borderRadius: 999,
+                background: `color-mix(in srgb, ${badgeColor} 14%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${badgeColor} 48%, transparent)`,
+                color: badgeColor,
+                textTransform: "capitalize",
+                fontWeight: 600,
+              }}
+            >
+              {displayStatus}
+            </span>
           </div>
-          {lod !== "far" && (task.type || task.model) && (
+          {(task.type || task.model) && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
               {task.type && (
                 <span
                   data-testid="canvas-task-type"
                   style={{
-                    fontSize: "0.66rem",
-                    padding: "1px 6px",
+                    fontSize: "0.78em",
+                    padding: "0.08em 0.45em",
                     borderRadius: "var(--ct-radius-sm)",
                     border: "1px solid var(--ct-border-subtle)",
                     background: "var(--ct-bg-active)",
@@ -102,9 +103,9 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
                 <span
                   data-testid="canvas-task-model"
                   style={{
-                    fontSize: "0.66rem",
+                    fontSize: "0.78em",
                     fontFamily: "var(--ct-font-mono)",
-                    padding: "1px 6px",
+                    padding: "0.08em 0.45em",
                     borderRadius: "var(--ct-radius-sm)",
                     background: "var(--ct-bg-selected)",
                     border: "1px solid var(--ct-border-subtle)",
@@ -131,8 +132,8 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
               alignItems: "center",
               gap: 4,
               flexShrink: 0,
-              fontSize: "0.66rem",
-              padding: "2px 7px",
+              fontSize: "0.78em",
+              padding: "0.15em 0.55em",
               borderRadius: 999,
               border: "1px solid var(--ct-border-focus)",
               background: "color-mix(in srgb, var(--ct-border-focus) 12%, transparent)",
@@ -146,23 +147,23 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
         )}
       </div>
 
-      {lod === "near" && task.intent && (
+      {task.intent && (
         <div
           data-testid="canvas-task-intent"
-          style={{ marginTop: 7, fontSize: "var(--ct-font-size-sm)", fontStyle: "italic", opacity: "var(--ct-text-secondary-opacity)" }}
+          style={{ marginTop: 7, fontSize: "0.92em", fontStyle: "italic", opacity: "var(--ct-text-secondary-opacity)" }}
         >
           {task.intent}
         </div>
       )}
 
-      {lod === "near" && task.model_rationale && (
+      {task.model_rationale && (
         <div style={{ marginTop: 6 }}>
           <button
             type="button"
             data-testid="canvas-task-why-toggle"
             onClick={() => setWhyOpen((open) => !open)}
             style={{
-              fontSize: "var(--ct-font-size-sm)",
+              fontSize: "0.92em",
               color: "var(--ct-border-focus)",
               background: "none",
               border: "none",
@@ -175,7 +176,7 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
           {whyOpen && (
             <div
               data-testid="canvas-task-why"
-              style={{ marginTop: 4, fontSize: "var(--ct-font-size-sm)", opacity: "var(--ct-text-secondary-opacity)" }}
+              style={{ marginTop: 4, fontSize: "0.92em", opacity: "var(--ct-text-secondary-opacity)" }}
             >
               {task.model_rationale}
             </div>
@@ -183,8 +184,8 @@ export function TaskCard({ task, style, lod = "near", onOpenPane, onHover }: Tas
         </div>
       )}
 
-      {lod === "near" && task.body.trim().length > 0 && (
-        <div data-testid="canvas-task-body" style={{ marginTop: 8, fontSize: "var(--ct-font-size-sm)", lineHeight: 1.5 }}>
+      {task.body.trim().length > 0 && (
+        <div data-testid="canvas-task-body" style={{ marginTop: 8, fontSize: "0.92em", lineHeight: 1.5 }}>
           <RichMarkdown text={task.body} />
         </div>
       )}
