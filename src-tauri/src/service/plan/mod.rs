@@ -1,6 +1,7 @@
 pub mod batch;
 pub mod body_files;
 pub mod handoff;
+pub mod heartbeat;
 pub mod hints;
 pub mod ingest;
 pub mod mutations;
@@ -18,6 +19,8 @@ pub mod watcher;
 mod body_file_tests;
 #[cfg(test)]
 mod goal_tests;
+#[cfg(test)]
+mod heartbeat_tests;
 #[cfg(test)]
 mod subtask_close_tests;
 #[cfg(test)]

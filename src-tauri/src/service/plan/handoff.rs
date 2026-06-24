@@ -575,6 +575,7 @@ impl PlanStore {
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
                     .unwrap_or(fallback_resume_prompt);
+                let text = self.prepend_heartbeat_for_plan(&entry.plan_id, &text);
                 pending.insert("state".into(), Value::from("session_seen"));
                 pending.insert("target_session_id".into(), Value::from(new_session_id));
                 pending.insert("updated_at".into(), Value::from(now_ms));

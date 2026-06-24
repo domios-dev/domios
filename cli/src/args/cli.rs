@@ -77,7 +77,7 @@ pub enum Commands {
         action: WorkspaceAction,
     },
 
-    /// Orchestrator handoff helpers
+    /// Orchestrator helpers
     Orchestrator {
         #[command(subcommand)]
         action: OrchestratorAction,

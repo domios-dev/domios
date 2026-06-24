@@ -4013,10 +4013,34 @@
     },
     {
       "name": "orchestrator",
-      "about": "Orchestrator handoff helpers",
+      "about": "Orchestrator helpers",
       "aliases": [],
       "args": [],
       "subcommands": [
+        {
+          "name": "heartbeat",
+          "about": "Orchestrator heartbeat helpers",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "show",
+              "about": "Show the current heartbeat and learnings",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
         {
           "name": "handoff",
           "about": "Create an orchestrator handoff and optionally reseed this pane",
@@ -4098,6 +4122,38 @@
               "name": "task",
               "positional": false,
               "value_name": "TASK",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "learn",
+          "about": "Append a persistent learning to this orchestrator's heartbeat",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tag",
+              "positional": false,
+              "value_name": "TAG",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "text",
+              "positional": true,
+              "value_name": "TEXT",
               "default": null,
               "help": null,
               "aliases": []

@@ -120,6 +120,27 @@ pub struct Goal {
     pub postulates: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct HeartbeatLearning {
+    pub id: String,
+    pub text: String,
+    pub ts: u64,
+    #[serde(default)]
+    pub tag: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct OrchestratorHeartbeat {
+    #[serde(default)]
+    pub current_focus: Option<String>,
+    #[serde(default)]
+    pub active_lanes: Vec<String>,
+    #[serde(default)]
+    pub rules: Vec<String>,
+    #[serde(default)]
+    pub learnings: Vec<HeartbeatLearning>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Section {
     pub id: String,
@@ -314,6 +335,8 @@ pub struct Plan {
     #[serde(default)]
     pub goal: Option<Goal>,
     #[serde(default)]
+    pub heartbeat: OrchestratorHeartbeat,
+    #[serde(default)]
     pub canvas: PlanCanvas,
     #[serde(default)]
     pub owner_history: Vec<TransferRecord>,
@@ -343,6 +366,7 @@ impl Plan {
             primary_spec_id: None,
             lineage: vec![],
             goal: None,
+            heartbeat: OrchestratorHeartbeat::default(),
             canvas: PlanCanvas::default(),
             owner_history: vec![],
         }
