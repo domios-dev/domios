@@ -26,9 +26,14 @@ export const MILESTONE_LANE_COLORS = [
 ];
 
 export interface CanvasLayoutSettings {
-  // ONE SectionedPlanNode (§22.2/§23.1): header + right-edge rail + body. FIXED
-  // bbox per MANUAL mode — zoom is camera-only, never resizes a node (§22.1).
+  // §24.3 un-merge: TWO connected sectioned nodes, SPEC | PLAN, plus the task
+  // field. FIXED frames (§24.1) — zoom is camera-only; content adapts (content-LOD).
+  // Spec + Plan share sectionNodeH so their per-section rows line up for 1:1 edges.
+  specNodeW: number;
   planWidth: number;
+  sectionNodeH: number;
+  taskW: number;
+  taskH: number;
   planHeaderHeight: number;
   planRowHeight: number;
   planFooterHeight: number;
@@ -115,7 +120,11 @@ export interface CanvasLayoutSettings {
 }
 
 export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
-  planWidth: 480,
+  specNodeW: 360,
+  planWidth: 300,
+  sectionNodeH: 460,
+  taskW: 244,
+  taskH: 132,
   planHeaderHeight: 80,
   planRowHeight: 34,
   planFooterHeight: 40,
@@ -200,12 +209,10 @@ export function planNodeHeight(rowCount: number, s: CanvasLayoutSettings): numbe
   return s.planHeaderHeight + rowCount * s.planRowHeight + s.planFooterHeight;
 }
 
-// FIXED SectionedPlanNode height per manual view mode (§22.1/§23.1). The MODE
-// sets the size; zoom never does. Content scrolls/adapts inside these bounds.
-export function planModeHeight(mode: "document" | "card" | "tile", s: CanvasLayoutSettings): number {
-  if (mode === "tile") return s.planTileH;
-  if (mode === "card") return s.planCardH;
-  return s.planDocH;
+// §24.1: ONE fixed frame — spec and plan nodes share this height so their
+// per-section rows align for the 1:1 edges. Content adapts to zoom, not the size.
+export function sectionNodeHeight(s: CanvasLayoutSettings): number {
+  return s.sectionNodeH;
 }
 
 // Interior height of a Document task cell's step CARDS (§16.9) — bounded: past
@@ -216,12 +223,10 @@ export function stepsInteriorHeight(count: number, s: CanvasLayoutSettings): num
   return s.stepsHeaderGap + visible * s.stepCardH + (visible - 1) * s.stepGapY;
 }
 
-// FIXED task-cell size per MANUAL mode (§23.2). Only Document grows — and only by
-// the bounded step interior; Tile/Card are content-independent fixed frames.
-export function taskCellSize(mode: "document" | "card" | "tile", stepCount: number, s: CanvasLayoutSettings): { w: number; h: number } {
-  if (mode === "tile") return { w: s.taskTileW, h: s.taskTileH };
-  if (mode === "card") return { w: s.taskCardW, h: s.taskCardH };
-  return { w: s.taskDocW, h: s.taskDocH + stepsInteriorHeight(stepCount, s) };
+// §24.1: ONE fixed task-cell size — content (body, steps) adapts to zoom and
+// scrolls inside this frame; the footprint never changes.
+export function taskCellSize(s: CanvasLayoutSettings): { w: number; h: number } {
+  return { w: s.taskW, h: s.taskH };
 }
 
 // Stable rail-row output-anchor Y offsets (local, from node top) for N sections.

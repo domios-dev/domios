@@ -1,10 +1,5 @@
 import type { OrchestratorRef } from "../types";
-import type { CanvasViewMode } from "../cards/types";
 import type { Box, Point } from "./geometry";
-
-// Resolves the discrete view mode (§18) for one node so layout reserves the
-// correct fixed frame per mode — Document/Card/Tile have different heights.
-export type NodeModeResolver = (nodeId: string, kind: CanvasNodeKind, planId: string) => CanvasViewMode;
 
 // OPEN by design: kinds grow (spec/orchestrator/note/html/…) without editing
 // core. The structured model emits the known kinds below; free-form
@@ -12,11 +7,9 @@ export type NodeModeResolver = (nodeId: string, kind: CanvasNodeKind, planId: st
 export type CanvasNodeKind = string;
 
 export const KNOWN_NODE_KINDS = [
+  "spec",
   "plan",
-  "spec-section",
   "task",
-  "milestone",
-  "cluster",
 ] as const;
 
 export interface LaidOutNode {

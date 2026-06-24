@@ -1,50 +1,57 @@
 import type { OrchestratorRef, Plan } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
-import { planModeHeight, railAnchorOffsets } from "../settings";
+import { sectionNodeHeight, railAnchorOffsets } from "../settings";
 import { flatSections } from "../sectionRows";
 import type { Box, Point } from "./geometry";
 import { unionBox } from "./geometry";
 import { layoutTaskBands } from "./taskBands";
-import type { IntraPlanLayout, LaidOutEdge, LaidOutNode, NodeModeResolver } from "./types";
+import type { IntraPlanLayout, LaidOutEdge, LaidOutNode } from "./types";
 
 export function ownerKeyOf(owner: OrchestratorRef): string {
   return owner.session_id ?? owner.pane_id ?? owner.title ?? "__unowned__";
 }
 
-const DOCUMENT_MODE: NodeModeResolver = () => "document";
-
-// ONE SectionedPlanNode (§22.2/§23.1) + banded task field. The plan node is a
-// FIXED-size frame per manual mode (§22.1); each section emits a rail OUTPUT
-// anchor on the node's right edge (stable Y), tasks band off those anchors.
-export function layoutPlanIntra(
-  plan: Plan,
-  s: CanvasLayoutSettings,
-  modeFor: NodeModeResolver = DOCUMENT_MODE,
-): IntraPlanLayout {
+// §24.3 three connected columns: SPEC | PLAN | tasks. Spec + plan are two fixed
+// sectioned nodes sharing one height so their per-section rows align for the 1:1
+// spec↔plan edges; plan's right-edge OUTPUT anchors feed the banded task field.
+export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanLayout {
   const nodes: LaidOutNode[] = [];
   const edges: LaidOutEdge[] = [];
   const anchors = new Map<string, Point>();
   const extraPoints: Point[] = [];
 
   const flat = flatSections(plan);
-  const planMode = modeFor(plan.id, "plan", plan.id);
-  const planHeight = planModeHeight(planMode, s);
+  const H = sectionNodeHeight(s);
+  const hasSpec = flat.length > 0;
 
-  const planBox: Box = { x: 0, y: 0, width: s.planWidth, height: planHeight };
+  const specBox: Box = { x: 0, y: 0, width: s.specNodeW, height: H };
+  const planX = hasSpec ? s.specNodeW + s.columnGapX : 0;
+  const planBox: Box = { x: planX, y: 0, width: s.planWidth, height: H };
+
+  if (hasSpec) nodes.push({ id: `${plan.id}::spec`, kind: "spec", planId: plan.id, box: specBox, iteration: null, manual: false });
   nodes.push({ id: plan.id, kind: "plan", planId: plan.id, box: planBox, iteration: null, manual: false });
 
-  // Rail OUTPUT anchors (§23.1): one per section on the node's right edge, evenly
-  // distributed so they always fit the fixed frame and stay stable per (i, mode) →
-  // stable task edges. These replace the old plan-row + spec-row anchors.
-  const offsets = railAnchorOffsets(flat.length, planHeight, s);
+  // Per-section anchors at evenly-distributed offsets (stable, fit the fixed frame).
+  // Spec right-edge dot → plan-row left edge (1:1, same section). Plan right-edge
+  // OUTPUT → tasks. Spec + plan share H so these line up row-for-row.
+  const offsets = railAnchorOffsets(flat.length, H, s);
   flat.forEach((section, i) => {
-    anchors.set(section.id, { x: planBox.x + planBox.width, y: planBox.y + offsets[i] });
+    const y = offsets[i];
+    if (hasSpec) {
+      edges.push({
+        id: `${section.id}~specrow`,
+        kind: "spec-row",
+        fromPoint: { x: specBox.x + specBox.width, y: specBox.y + y },
+        toPoint: { x: planBox.x, y: planBox.y + y },
+      });
+    }
+    anchors.set(section.id, { x: planBox.x + planBox.width, y: planBox.y + y });
   });
 
   const taskX = planBox.x + planBox.width + s.columnGapX;
 
-  // Banded multi-column task sweep (§20.3) anchored to the rail outputs.
-  const band = layoutTaskBands(plan, s, modeFor, anchors, taskX);
+  // Banded multi-column task sweep (§20.3) anchored to the plan rail outputs.
+  const band = layoutTaskBands(plan, s, anchors, taskX);
   nodes.push(...band.nodes);
   edges.push(...band.edges);
   extraPoints.push(...band.extraPoints);

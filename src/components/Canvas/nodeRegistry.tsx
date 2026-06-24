@@ -2,17 +2,14 @@ import type { CSSProperties, ReactNode } from "react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import {
   MilestoneBubble,
-  SectionedPlanNode,
-  SpecSectionCard,
+  SectionNode,
   TaskCard,
   type CanvasLod,
-  type CanvasViewMode,
   type MilestoneBubbleModel,
 } from "./cards";
 import type { LaidOutNode } from "./layout";
 import { registerProvenanceRenderers } from "./registerProvenanceRenderers";
-import type { SectionRowGlyph as SpecGlyph } from "./sectionRows";
-import type { CanvasElement, Plan, Section, Task } from "./types";
+import type { CanvasElement, Plan, Task } from "./types";
 
 // kind → renderer dispatch. Adding a node kind = one register call; canvas core,
 // layout, pan/zoom and focus detection stay untouched. Open-kind fallback kept.
@@ -21,13 +18,11 @@ export interface NodeRenderArgs {
   model: unknown;
   style: CSSProperties;
   lod: CanvasLod;
-  viewMode: CanvasViewMode;
   onArchive?: () => void;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
-  onSetNodeMode?: (nodeId: string, mode: CanvasViewMode) => void;
   onFitNode?: (nodeId: string) => void;
-  /** §23.7 content-LOD: camera zoomed past the reveal threshold → show bodies. */
+  /** §23.7/§24.1 content-LOD: camera zoomed past the reveal threshold → bodies. */
   contentNear?: boolean;
 }
 
@@ -72,27 +67,25 @@ export function getNodeRenderer(kind: string): NodeRenderer {
   return renderers[kind] ?? fallbackRenderer;
 }
 
-registerNodeRenderer("plan", ({ node, model, style, lod, viewMode, contentNear, onArchive, onSetNodeMode, onFitNode }) =>
+registerNodeRenderer("plan", ({ node, model, style, lod, contentNear, onArchive, onFitNode }) =>
   model ? (
-    <SectionedPlanNode
+    <SectionNode
+      variant="plan"
       plan={model as Plan}
       style={style}
       lod={lod}
-      viewMode={viewMode}
       contentNear={contentNear}
       onArchive={onArchive}
-      onSetMode={onSetNodeMode ? (m) => onSetNodeMode(node.id, m) : undefined}
       onFitNode={onFitNode ? () => onFitNode(node.id) : undefined}
     />
   ) : null,
 );
-registerNodeRenderer("spec-section", ({ model, style, viewMode }) => {
-  const m = model as { section: Section; glyph?: SpecGlyph; taskCount?: number } | undefined;
-  return m ? <SpecSectionCard section={m.section} glyph={m.glyph} taskCount={m.taskCount} viewMode={viewMode} style={style} /> : null;
-});
-registerNodeRenderer("task", ({ model, style, viewMode, onOpenPane, onHoverTask }) => {
+registerNodeRenderer("spec", ({ model, style, lod, contentNear }) =>
+  model ? <SectionNode variant="spec" plan={model as Plan} style={style} lod={lod} contentNear={contentNear} /> : null,
+);
+registerNodeRenderer("task", ({ model, style, contentNear, onOpenPane, onHoverTask }) => {
   const m = model as { task: Task; childCount?: number; stepColors?: Map<string, string> } | undefined;
-  return m ? <TaskCard task={m.task} childCount={m.childCount} stepColors={m.stepColors} style={style} viewMode={viewMode} onOpenPane={onOpenPane} onHover={onHoverTask} /> : null;
+  return m ? <TaskCard task={m.task} childCount={m.childCount} stepColors={m.stepColors} style={style} contentNear={contentNear} onOpenPane={onOpenPane} onHover={onHoverTask} /> : null;
 });
 // Soft container behind a parent task's nested subtask children.
 registerNodeRenderer("subtask-group", ({ style }) => (

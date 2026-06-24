@@ -3,11 +3,11 @@ import { ExternalLink } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { Task, TaskStatus } from "../types";
-import type { CanvasCardStyleProps, CanvasViewMode } from "./types";
+import type { CanvasCardStyleProps } from "./types";
 import { digestMarkdown } from "./digest";
 import { TaskSteps } from "./TaskSteps";
 
-// Three discrete view modes (§18) — text fixed-size in each, no continuous scaling.
+// §24.1 content-LOD task cell — compact far / full near, fixed footprint.
 const cardStyle: CSSProperties = {
   position: "absolute",
   boxSizing: "border-box",
@@ -90,6 +90,7 @@ export interface TaskCardProps extends CanvasCardStyleProps {
   task: Task;
   childCount?: number;
   stepColors?: Map<string, string>;
+  contentNear?: boolean;
   onOpenPane?: (paneId: string) => void;
   onHover?: (taskId: string | null) => void;
 }
@@ -99,7 +100,7 @@ export function TaskCard({
   childCount = 0,
   stepColors,
   style,
-  viewMode = "document",
+  contentNear = false,
   onOpenPane,
   onHover,
 }: TaskCardProps) {
@@ -107,11 +108,11 @@ export function TaskCard({
   const badgeColor = TASK_STATUS_COLORS[task.status];
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
 
-  const wrap = (children: React.ReactNode, mode: CanvasViewMode) => (
+  const wrap = (children: React.ReactNode) => (
     <div
       data-testid="canvas-task-card"
       data-task-id={task.id}
-      data-view-mode={mode}
+      data-content={contentNear ? "full" : "compact"}
       className="ct-canvas-node"
       onMouseEnter={() => onHover?.(task.id)}
       onMouseLeave={() => onHover?.(null)}
@@ -121,58 +122,29 @@ export function TaskCard({
     </div>
   );
 
-  if (viewMode === "tile") {
+  // §24.1 content-LOD: far = compact (name + status + step dots); near = full body
+  // + step cards, scrolling inside the FIXED cell. No manual mode.
+  if (!contentNear) {
+    const digest = digestMarkdown(task.intent?.trim() ? task.intent : task.body, 110);
     return wrap(
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, padding: "8px 12px", minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <StatusDot color={badgeColor} size="0.85em" />
-          <span data-testid="canvas-task-name" style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: "1.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {task.name}
-          </span>
-          {childCount > 0 && <SubtaskBadge count={childCount} />}
-        </div>
-        <TaskSteps milestones={task.milestones} colors={stepColors} mode="tile" />
-      </div>,
-      "tile",
-    );
-  }
-
-  if (viewMode === "card") {
-    const digest = digestMarkdown(task.intent?.trim() ? task.intent : task.body, 150);
-    return wrap(
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, padding: "10px 12px", minWidth: 0 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6, padding: "9px 11px", minWidth: 0, overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           <StatusDot color={badgeColor} />
-          <span
-            data-testid="canvas-task-name"
-            style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: "1.05em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-          >
+          <span data-testid="canvas-task-name" style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: "1.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {task.name}
           </span>
           {childCount > 0 && <SubtaskBadge count={childCount} />}
           <StatusBadge color={badgeColor} label={displayStatus} />
         </div>
         {digest && (
-          <div
-            data-testid="canvas-task-digest"
-            style={{
-              fontSize: "0.92em",
-              lineHeight: 1.45,
-              opacity: "var(--ct-text-secondary-opacity)",
-              display: "-webkit-box",
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: "vertical",
-              overflow: "hidden",
-            }}
-          >
+          <div data-testid="canvas-task-digest" style={{ fontSize: "0.9em", lineHeight: 1.4, opacity: "var(--ct-text-secondary-opacity)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
             {digest}
           </div>
         )}
         <div style={{ marginTop: "auto" }}>
-          <TaskSteps milestones={task.milestones} colors={stepColors} mode="card" />
+          <TaskSteps milestones={task.milestones} colors={stepColors} mode="tile" />
         </div>
       </div>,
-      "card",
     );
   }
 
@@ -308,6 +280,5 @@ export function TaskCard({
         </div>
       )}
     </div>,
-    "document",
   );
 }
