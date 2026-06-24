@@ -1662,3 +1662,27 @@ GOAL/vector + spec, optionally via a fast branch-local Playwright verifier e.g. 
 DECIDES `done`. Match verifier cost to the claim; don't take the worker's word; don't always need a
 heavy agent. `in_review` → (orchestrator verification) → `done` or bounce (loop/pass). In the live
 orchestrator SKILL (Acceptance section) + worker preamble (workers report in_review).
+
+## 39. Canvas IMPROVEMENT LOOP (Andrey: the mechanism that polishes the board to "красиво")
+<!-- revision: 1 -->
+The canvas is iterated to quality through a LOOP, not one-off fixes. Each iteration:
+1. **Render + capture** the live board across the FULL zoom range (fit → 1000% / maxScale 10) at many
+   steps — screenshots at each band boundary, not 3 arbitrary scales.
+2. **Verify with GOOD tests + a frontend-designer eye.** Run the Playwright criterion
+   (`@canvas-worlds-v3`) AND a `claude frontend designer`-style visual assessment of the screenshots
+   against the design vector (§22.1 fixed footprint, §26/§35 worlds-dive, §37 boxiness, legible titles).
+3. **Enumerate concrete defects** the pass found (bad titles, node reflow on zoom, no deep-dive detail,
+   text garbling, etc.).
+4. **Each defect → a CRITERIA-bearing task** (§ acceptance_criteria + test_plan) → fix → re-verify.
+5. **Repeat ~15–20×** until the criteria pass AND the visual matches the vector.
+
+**HARD DEPENDENCY — the tests must be GOOD or the loop is blind.** A criterion that samples WITHIN a
+single LOD band false-greens while the node visibly reflows across band boundaries (this happened: a
+within-band footprint test passed while the sectioned node grew on zoom). Good criteria: span the LOD
+band transitions (W0→W3), span the full zoom range (fit→1000%), check title legibility, assert
+no-reflow, and the frontend-designer eye covers taste/vector-alignment tests can't express.
+
+**The worlds VECTOR (the dive):** zooming deeper must reveal progressively MORE — title → tags →
+body → strides → into a stride. Deep zoom (to 1000%) is the granularity dial (§37.2). A node that
+just gets bigger with no new detail (or that reflows/garbles) fails the vector. This is the loop's
+north-star: zoom in and in and keep finding more, with the frame fixed and content adapting.
