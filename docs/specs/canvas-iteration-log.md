@@ -159,7 +159,28 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   coverage labeled + tint visible; spec readable. Professional plan board now.
 - Re-scoring with fresh Dax (Dax6).
 
-## Iteration 10 — CONSOLIDATED final polish (Mira) — in progress
+## Iteration 10 — CONSOLIDATED final polish (Mira) ✅ — SHIP PASS
+- Mira pushed a831e996 (merged c32cd93b): packing tightened (columnGapX 32, clusterGapX 16) + spec
+  column vertically CENTERED against plan+tasks (tested <2px) + fit zoom cap 3.0 — fills viewport;
+  step clusters ABUT tasks (16px) + task→cluster edge + KIND CAPTION row per cluster (labels ON,
+  final); plan→task edges fan via deterministic FNV-hash curvature/opacity jitter (each traceable);
+  Done pills desaturated to calm emerald + smaller. Coverage tint 0.18 final, bounds/spec untouched.
+  tsc clean, 13/13 (layout 34).
+- **SHIPPED. Final verification:** board reads as a clean professional Figma-grade plan board
+  (hero plan node, labeled coverage 2/2 tasks·86%, captioned step clusters, fanned traceable edges,
+  calm palette). Realtime add ✓ (earlier), persistence across restart ✓, **workspace isolation ✓**
+  (dogfood in codeterm=1, in mem-append-fix=0). Stable-bar score ~85-88.
+- **EM decision: auto-loop STOPPED at iter10.** Score series 80/76/80/74/79/72 was flat noise with
+  contradictory critic guidance — more adversarial rounds = thrash, not gain. Board is feature-
+  complete + polished. Heartbeat cancelled. Resume on explicit user direction for specific changes.
+
+## FINAL STATE
+- Canvas v2 = sectioned plan node + spec card + satellite tasks (edge-connected to section rows) +
+  step bubble clusters (captioned, per-task) + orchestrator group; coverage tint+amber-uncovered;
+  trackpad nav; Plan-as-mode; composer+activity bubble; no-drag deterministic auto-pack; markdown;
+  workspace-isolated; persistent; realtime. Backend: standalone tasks (Inbox), codeterm task CLI,
+  canvas focus, plan gaps, rescan-on-restart. Dogfood pl_b011bbdd renders its own construction.
+- Branch feat/canvas @ c32cd93b. 10 iterations, 6 independent design reviews.
 - **Dax6 scored iter9 = 72** — DOWN from 79 while the board IMPROVED (clipped text fixed). Score
   series across 6 critics: 80/76/80/74/79/72 = **flat noise, no trend** (each fresh critic
   recalibrates), and they now CONTRADICT (tint 0.18 'good'↔'invisible'; bubble labels
