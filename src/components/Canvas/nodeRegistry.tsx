@@ -100,13 +100,13 @@ registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive
 registerNodeRenderer("spec", ({ model, style, world, crispScale, onSectionClick, onSectionFrame }) =>
   model ? <SectionNode variant="spec" plan={model as Plan} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} /> : null,
 );
-registerNodeRenderer("task", ({ model, style, world, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride }) => {
+registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride }) => {
   const m = model as { task: Task; childCount?: number; childDone?: number; stepColors?: Map<string, string> } | undefined;
   if (!m) return null;
   // §32.3: subtasks are SOLID satellite tiles swarming around their parent (packed
   // by the same cloud logic, smaller footprint) — never gated, never faded. Opacity
   // is NEVER a hierarchy/zoom signal; a subtask reads at every zoom, just smaller.
-  return <TaskCard task={m.task} childCount={m.childCount} childDone={m.childDone} stepColors={m.stepColors} style={style} world={world} onOpenPane={onOpenPane} onHover={onHoverTask} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} />;
+  return <TaskCard task={m.task} childCount={m.childCount} childDone={m.childDone} stepColors={m.stepColors} style={style} world={world} crispScale={crispScale} onOpenPane={onOpenPane} onHover={onHoverTask} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} />;
 });
 registerNodeRenderer("milestone", ({ model, style, lod }) =>
   model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} /> : null,
