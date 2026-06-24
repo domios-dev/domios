@@ -34,6 +34,10 @@ pub enum PlanAction {
     },
     /// Get a plan (markdown by default)
     Get { plan_id: String },
+    /// Print only the hydrated section prose
+    Spec { plan_id: String },
+    /// List generated section/task body files
+    Files { plan_id: String },
     /// Show section coverage (% + gaps)
     Coverage { plan_id: String },
     /// Show sections with zero tasks

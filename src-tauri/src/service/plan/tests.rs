@@ -174,11 +174,153 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
     assert_eq!(std::fs::read_to_string(&task_path).unwrap(), "task\nbody");
     assert!(!raw_json.contains("section\\nbody"));
     assert!(!raw_json.contains("task\\nbody"));
+    let index_path = dir
+        .path()
+        .join(format!(".codeterm/plans/{}/INDEX.md", plan.id));
+    let index = std::fs::read_to_string(index_path).unwrap();
+    assert!(index.contains("# External"));
+    assert!(index.contains(&format!("- [Spec](sections/{section_id}.md)")));
+    assert!(index.contains(&format!("- [Implement](tasks/{task_id}.md)")));
 
     store.reload_from_disk(&plan.id).unwrap();
     let loaded = store.get(&plan.id).unwrap();
     assert_eq!(loaded.sections[0].body, "section\nbody");
     assert_eq!(loaded.tasks[0].body, "task\nbody");
+}
+
+#[test]
+fn generated_index_regenerates_with_current_titles() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Before".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let section_id = store
+        .add_section(&plan.id, "Old Spec", "", None, 2)
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Old Task".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+
+    store.update_plan(&plan.id, Some("After"), None, 4).unwrap();
+    store
+        .update_section(&plan.id, &section_id, Some("New Spec"), None, 5)
+        .unwrap();
+    store
+        .update_task(
+            &plan.id,
+            &task_id,
+            Some("New Task"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            6,
+        )
+        .unwrap();
+
+    let index_path = dir
+        .path()
+        .join(format!(".codeterm/plans/{}/INDEX.md", plan.id));
+    let index = std::fs::read_to_string(index_path).unwrap();
+    assert!(index.contains("# After"));
+    assert!(index.contains(&format!("- [New Spec](sections/{section_id}.md)")));
+    assert!(index.contains(&format!("- [New Task](tasks/{task_id}.md)")));
+    assert!(!index.contains("Old Spec"));
+    assert!(!index.contains("Old Task"));
+}
+
+#[test]
+fn plan_spec_markdown_assembles_only_sections() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Spec Plan".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let section_id = store
+        .add_section(&plan.id, "Overview", "overview body", None, 2)
+        .unwrap();
+    store
+        .add_section(&plan.id, "Detail", "detail body", Some(&section_id), 3)
+        .unwrap();
+    store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Implement".into(),
+                kind: "implement".into(),
+                body: "task body".into(),
+                ..Default::default()
+            },
+            4,
+        )
+        .unwrap();
+
+    let spec = store.spec_markdown(&plan.id).unwrap();
+    assert!(spec.contains("# Overview\n\noverview body"));
+    assert!(spec.contains("## Detail\n\ndetail body"));
+    assert!(!spec.contains("Implement"));
+    assert!(!spec.contains("task body"));
+}
+
+#[test]
+fn plan_file_manifest_lists_index_and_body_paths() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Files".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let section_id = store.add_section(&plan.id, "Spec", "", None, 2).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Build".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+
+    let manifest = store.file_manifest(&plan.id).unwrap();
+    assert_eq!(
+        manifest.index_path,
+        format!(".codeterm/plans/{}/INDEX.md", plan.id)
+    );
+    assert!(manifest.entries.iter().any(|entry| {
+        entry.kind == "section"
+            && entry.title == "Spec"
+            && entry.path == format!(".codeterm/plans/{}/sections/{section_id}.md", plan.id)
+    }));
+    assert!(manifest.entries.iter().any(|entry| {
+        entry.kind == "task"
+            && entry.title == "Build"
+            && entry.path == format!(".codeterm/plans/{}/tasks/{task_id}.md", plan.id)
+    }));
 }
 
 #[test]
@@ -413,6 +555,49 @@ fn update_task_sets_and_clears_parent_task_id() {
             .parent_task_id,
         None
     );
+}
+
+#[test]
+fn update_task_preserves_model_when_patching_parent() {
+    let (store, id, parent_id) = store_with_task(&["status_update"]);
+    let child_id = store
+        .add_task(
+            &id,
+            NewTask {
+                name: "Child".into(),
+                kind: "implement".into(),
+                model: Some("opus".into()),
+                model_rationale: Some("deep reasoning".into()),
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+
+    store
+        .update_task(
+            &id,
+            &child_id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(Some(parent_id.as_str())),
+            None,
+            21,
+        )
+        .unwrap();
+
+    let plan = store.get(&id).unwrap();
+    let child = plan.tasks.iter().find(|t| t.id == child_id).unwrap();
+    assert_eq!(child.parent_task_id.as_deref(), Some(parent_id.as_str()));
+    assert_eq!(child.model.as_deref(), Some("opus"));
+    assert_eq!(child.model_rationale.as_deref(), Some("deep reasoning"));
 }
 
 #[test]

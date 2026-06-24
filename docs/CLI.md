@@ -1283,6 +1283,12 @@ Generic canvas elements
 - `--link` — 
 - `<plan_id>` — 
 
+#### `codeterm plan files`
+
+List generated section/task body files
+
+- `<plan_id>` — 
+
 #### `codeterm plan gaps`
 
 Show sections with zero tasks
@@ -1434,6 +1440,12 @@ Plan sections
 - `<section_id>` — 
 - `--title` — 
 
+#### `codeterm plan spec`
+
+Print only the hydrated section prose
+
+- `<plan_id>` — 
+
 #### `codeterm plan task`
 
 Plan tasks
@@ -1450,6 +1462,7 @@ Plan tasks
 - `--loop_from` — 
 - `--model` — 
 - `--name` — 
+- `--parent` — 
 - `<plan_id>` — 
 - `--sections` — 
 - `--why` — 
@@ -1485,6 +1498,7 @@ Plan tasks
 - `--kind` — 
 - `--model` — 
 - `--name` — 
+- `--parent` — 
 - `<plan_id>` — 
 - `--status` — 
 - `--status_label` — 

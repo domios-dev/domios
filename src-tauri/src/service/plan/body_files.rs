@@ -1,9 +1,23 @@
-use crate::plan::{Plan, Section};
+use crate::plan::{Plan, Section, Task};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 
 enum BodyKind {
     Section,
     Task,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct PlanFileEntry {
+    pub kind: &'static str,
+    pub title: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct PlanFileManifest {
+    pub index_path: String,
+    pub entries: Vec<PlanFileEntry>,
 }
 
 impl BodyKind {
@@ -25,6 +39,10 @@ pub fn section_path(plan: &Plan, section_id: &str) -> std::io::Result<PathBuf> {
 
 pub fn task_path(plan: &Plan, task_id: &str) -> std::io::Result<PathBuf> {
     body_path(plan, BodyKind::Task, task_id)
+}
+
+pub fn index_path(plan: &Plan) -> std::io::Result<PathBuf> {
+    Ok(plan_body_dir(plan)?.join("INDEX.md"))
 }
 
 fn body_path(plan: &Plan, kind: BodyKind, id: &str) -> std::io::Result<PathBuf> {
@@ -52,6 +70,7 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
         let path = task_path(plan, &task.id)?;
         write_markdown_atomic(&path, &task.body)?;
     }
+    write_index(plan)?;
     Ok(paths)
 }
 
@@ -61,7 +80,30 @@ pub fn body_paths(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     for task in &plan.tasks {
         paths.push(task_path(plan, &task.id)?);
     }
+    paths.push(index_path(plan)?);
     Ok(paths)
+}
+
+pub fn file_manifest(plan: &Plan) -> std::io::Result<PlanFileManifest> {
+    let project = Path::new(&plan.project_path);
+    let entries = index_entries(plan)?
+        .into_iter()
+        .map(|entry| PlanFileEntry {
+            kind: entry.kind,
+            title: entry.title,
+            path: project_relative(project, &entry.path),
+        })
+        .collect();
+    Ok(PlanFileManifest {
+        index_path: project_relative(project, &index_path(plan)?),
+        entries,
+    })
+}
+
+pub fn spec_markdown(plan: &Plan) -> String {
+    let mut out = String::new();
+    render_sections(&plan.sections, 1, &mut out);
+    out
 }
 
 pub fn hydrate_and_migrate(plan: &mut Plan) -> std::io::Result<bool> {
@@ -103,6 +145,97 @@ fn flatten_sections(sections: &[Section]) -> Vec<&Section> {
         out.extend(flatten_sections(&section.subsections));
     }
     out
+}
+
+struct IndexEntryRaw {
+    kind: &'static str,
+    title: String,
+    path: PathBuf,
+    index_link_path: String,
+}
+
+fn index_entries(plan: &Plan) -> std::io::Result<Vec<IndexEntryRaw>> {
+    let mut entries = vec![];
+    collect_section_index_entries(plan, &plan.sections, &mut entries)?;
+    for task in &plan.tasks {
+        entries.push(task_index_entry(plan, task)?);
+    }
+    Ok(entries)
+}
+
+fn collect_section_index_entries(
+    plan: &Plan,
+    sections: &[Section],
+    entries: &mut Vec<IndexEntryRaw>,
+) -> std::io::Result<()> {
+    for section in sections {
+        let path = section_path(plan, &section.id)?;
+        entries.push(IndexEntryRaw {
+            kind: "section",
+            title: section.title.clone(),
+            path,
+            index_link_path: format!("sections/{}.md", section.id),
+        });
+        collect_section_index_entries(plan, &section.subsections, entries)?;
+    }
+    Ok(())
+}
+
+fn task_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntryRaw> {
+    Ok(IndexEntryRaw {
+        kind: "task",
+        title: task.name.clone(),
+        path: task_path(plan, &task.id)?,
+        index_link_path: format!("tasks/{}.md", task.id),
+    })
+}
+
+fn write_index(plan: &Plan) -> std::io::Result<()> {
+    let entries = index_entries(plan)?;
+    let mut out = format!("# {}\n\n", plan.title);
+    write_index_group(&mut out, "Sections", &entries, "section");
+    write_index_group(&mut out, "Tasks", &entries, "task");
+    write_markdown_atomic(&index_path(plan)?, &out)
+}
+
+fn write_index_group(out: &mut String, heading: &str, entries: &[IndexEntryRaw], kind: &str) {
+    out.push_str(&format!("## {heading}\n\n"));
+    let mut any = false;
+    for entry in entries.iter().filter(|entry| entry.kind == kind) {
+        any = true;
+        out.push_str(&format!(
+            "- [{}]({})\n",
+            escape_markdown_link_text(&entry.title),
+            entry.index_link_path
+        ));
+    }
+    if !any {
+        out.push_str("- (none)\n");
+    }
+    out.push('\n');
+}
+
+fn render_sections(sections: &[Section], depth: usize, out: &mut String) {
+    for section in sections {
+        let level = "#".repeat(depth.min(6));
+        out.push_str(&format!("{level} {}\n\n", section.title));
+        if !section.body.is_empty() {
+            out.push_str(&section.body);
+            out.push_str("\n\n");
+        }
+        render_sections(&section.subsections, depth + 1, out);
+    }
+}
+
+fn escape_markdown_link_text(text: &str) -> String {
+    text.replace('\\', "\\\\").replace(']', "\\]")
+}
+
+fn project_relative(project: &Path, path: &Path) -> String {
+    path.strip_prefix(project)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace(std::path::MAIN_SEPARATOR, "/")
 }
 
 fn hydrate_sections(
