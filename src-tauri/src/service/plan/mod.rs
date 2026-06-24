@@ -75,6 +75,7 @@ pub struct NewTask {
     pub model_rationale: Option<String>,
     pub body: String,
     pub intent: Option<String>,
+    pub parent_task_id: Option<String>,
     pub assigned_pane_id: Option<String>,
     pub group: Option<String>,
 }
