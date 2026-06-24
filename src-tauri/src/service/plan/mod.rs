@@ -1,3 +1,4 @@
+pub mod body_files;
 pub mod mutations;
 pub mod paths;
 pub mod reminders;
@@ -121,7 +122,9 @@ impl PlanStore {
     fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
         let path = Self::file_path(plan)?;
         let tmp = path.with_extension("json.tmp");
-        let json = serde_json::to_string_pretty(plan)
+        body_files::persist_bodies(plan)?;
+        let json_plan = body_files::strip_bodies(plan);
+        let json = serde_json::to_string_pretty(&json_plan)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         std::fs::write(&tmp, json)?;
         std::fs::rename(&tmp, &path)?;
@@ -134,6 +137,15 @@ impl PlanStore {
                 self.last_writes
                     .write()
                     .insert(path.to_path_buf(), modified);
+            }
+        }
+    }
+
+    fn note_plan_write(&self, plan: &Plan, path: &Path) {
+        self.note_write(path);
+        if let Ok(body_paths) = body_files::body_paths(plan) {
+            for path in body_paths {
+                self.note_write(&path);
             }
         }
     }
@@ -172,6 +184,12 @@ impl PlanStore {
         let mut plan: Plan =
             serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
         plan.project_path = project_root.display().to_string();
+        let migrated =
+            body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
+        if migrated {
+            let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
+            self.note_plan_write(&plan, &path);
+        }
         let entry = Self::index_entry(&plan, path);
         self.index.write().insert(plan.id.clone(), entry);
         self.plans
@@ -206,7 +224,7 @@ impl PlanStore {
         }
         plan.updated_at = now_ms;
         let path = Self::write_atomic(plan)?;
-        self.note_write(&path);
+        self.note_plan_write(plan, &path);
         self.index
             .write()
             .insert(plan.id.clone(), Self::index_entry(plan, path));
@@ -245,6 +263,12 @@ impl PlanStore {
         }
         let project_root = paths::project_root(Path::new(&plan.project_path));
         plan.project_path = project_root.display().to_string();
+        let migrated =
+            body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
+        if migrated {
+            let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
+            self.note_plan_write(&plan, &path);
+        }
         self.index
             .write()
             .insert(plan.id.clone(), Self::index_entry(&plan, path));
@@ -301,10 +325,17 @@ impl PlanStore {
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
+        let plan = self
+            .plans
+            .write()
+            .remove(id)
+            .map(|plan| plan.lock().clone());
         if let Some(entry) = self.index.write().remove(id) {
             let _ = std::fs::remove_file(&entry.file_path);
         }
-        self.plans.write().remove(id);
+        if let Some(plan) = plan {
+            let _ = body_files::remove_body_dir(&plan);
+        }
         Ok(())
     }
 }
