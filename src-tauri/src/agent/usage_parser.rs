@@ -14,6 +14,10 @@ pub struct UsageSnapshot {
     #[serde(default)]
     pub spend_cents: Option<f64>,
     #[serde(default)]
+    pub spend_limit_cents: Option<f64>,
+    #[serde(default)]
+    pub spend_remaining_cents: Option<f64>,
+    #[serde(default)]
     pub spend_resets_at_ms: Option<i64>,
     pub raw_text: String,
 }
@@ -50,12 +54,18 @@ impl UsageSnapshot {
             weekly_pct: None,
             weekly_resets_at_ms: None,
             spend_cents: None,
+            spend_limit_cents: None,
+            spend_remaining_cents: None,
             spend_resets_at_ms: None,
             raw_text: raw_text.to_string(),
         }
     }
 
     pub fn has_any_field(&self) -> bool {
-        self.session_pct.is_some() || self.weekly_pct.is_some() || self.spend_cents.is_some()
+        self.session_pct.is_some()
+            || self.weekly_pct.is_some()
+            || self.spend_cents.is_some()
+            || self.spend_limit_cents.is_some()
+            || self.spend_remaining_cents.is_some()
     }
 }

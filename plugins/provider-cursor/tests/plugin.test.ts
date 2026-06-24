@@ -592,8 +592,11 @@ console.log("\n--- usage (dashboard API fetch + parse) ---\n");
   // Real api2.cursor.sh response shapes (values sanitized), captured live.
   const invoiceFixture = readFixture("usage-invoice.json");
   const aggFixture = readFixture("usage-aggregated.json");
+  const currentFixture = readFixture("usage-current-period.json");
   const PERIOD_END = 1782864000000;
   const SPEND_CENTS = 1250.5;
+  const LIMIT_CENTS = 2000;
+  const REMAINING_CENTS = 749.5;
   const nowMs = 1781000000000;
 
   const usageHost = (over: Record<string, unknown> = {}) =>
@@ -604,6 +607,7 @@ console.log("\n--- usage (dashboard API fetch + parse) ---\n");
         const url = String(JSON.parse(optsJson).url || "");
         if (url.indexOf("GetMonthlyInvoice") !== -1) return JSON.stringify({ status: 200, body: invoiceFixture });
         if (url.indexOf("GetAggregatedUsageEvents") !== -1) return JSON.stringify({ status: 200, body: aggFixture });
+        if (url.indexOf("GetCurrentPeriodUsage") !== -1) return JSON.stringify({ status: 200, body: currentFixture });
         return JSON.stringify({ status: 404, body: "{}" });
       },
       ...over,
@@ -613,12 +617,16 @@ console.log("\n--- usage (dashboard API fetch + parse) ---\n");
   const raw = p.fetchUsage(nowMs);
   assert(typeof raw === "string", "fetchUsage returns a raw JSON string");
   const payload = JSON.parse(String(raw));
-  eq(payload.spendCents, SPEND_CENTS, "fetchUsage spend = aggregated totalCostCents");
+  eq(payload.spendCents, SPEND_CENTS, "fetchUsage spend = current period planUsage.includedSpend");
+  eq(payload.limitCents, LIMIT_CENTS, "fetchUsage limit = current period planUsage.limit");
+  eq(payload.remainingCents, REMAINING_CENTS, "fetchUsage remaining = current period planUsage.remaining");
   eq(payload.resetsAtMs, PERIOD_END, "fetchUsage reset = invoice periodEndMs");
 
   const snap = p.parseUsage(String(raw), nowMs) as Record<string, unknown>;
   eq(snap.provider, "cursor", "parseUsage provider is cursor");
   eq(snap.spend_cents, SPEND_CENTS, "parseUsage spend_cents from payload");
+  eq(snap.spend_limit_cents, LIMIT_CENTS, "parseUsage spend_limit_cents from payload");
+  eq(snap.spend_remaining_cents, REMAINING_CENTS, "parseUsage spend_remaining_cents from payload");
   eq(snap.spend_resets_at_ms, PERIOD_END, "parseUsage spend_resets_at_ms from payload");
   eq(snap.session_pct, null, "parseUsage leaves session_pct null (spend-based)");
   eq(snap.weekly_pct, null, "parseUsage leaves weekly_pct null (spend-based)");

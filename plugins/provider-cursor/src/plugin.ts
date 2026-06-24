@@ -302,10 +302,19 @@ const plugin: PluginModule = {
       token,
     );
     if (!agg) return null;
+    const current = cursorApi("GetCurrentPeriodUsage", {}, token);
     const spendCents = numFrom(agg.totalCostCents);
     if (spendCents == null) return null;
+    const planUsage = current && typeof current.planUsage === "object"
+      ? current.planUsage as Record<string, unknown>
+      : null;
+    const limitCents = planUsage ? numFrom(planUsage.limit) : null;
+    const remainingCents = planUsage ? numFrom(planUsage.remaining) : null;
+    const includedSpendCents = planUsage ? numFrom(planUsage.includedSpend) : null;
     return JSON.stringify({
-      spendCents: spendCents,
+      spendCents: includedSpendCents != null ? includedSpendCents : spendCents,
+      limitCents: limitCents,
+      remainingCents: remainingCents,
       resetsAtMs: periodEnd,
       periodStartMs: periodStart,
       fetchedAtMs: nowMs,
@@ -316,7 +325,7 @@ const plugin: PluginModule = {
   // is billed by spend, not a session/weekly %, so only the spend_* fields fill.
   parseUsage(rawText: string, nowMs: number): unknown {
     const data = safeJson(String(rawText || "")) as
-      | { spendCents?: number; resetsAtMs?: number }
+      | { spendCents?: number; limitCents?: number | null; remainingCents?: number | null; resetsAtMs?: number }
       | null;
     if (!data || typeof data.spendCents !== "number") return null;
     return {
@@ -328,6 +337,8 @@ const plugin: PluginModule = {
       weekly_pct: null,
       weekly_resets_at_ms: null,
       spend_cents: data.spendCents,
+      spend_limit_cents: typeof data.limitCents === "number" ? data.limitCents : null,
+      spend_remaining_cents: typeof data.remainingCents === "number" ? data.remainingCents : null,
       spend_resets_at_ms: typeof data.resetsAtMs === "number" ? data.resetsAtMs : null,
       raw_text: String(rawText || ""),
     };

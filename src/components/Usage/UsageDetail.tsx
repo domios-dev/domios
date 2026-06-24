@@ -172,6 +172,9 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailPro
   const refreshStartRef = useRef<number>(0);
   const now = Date.now();
   const isStale = now - snapshot.captured_at > STALE_MS;
+  const remainingCents = snapshot.spend_remaining_cents;
+  const limitCents = snapshot.spend_limit_cents;
+  const hasQuota = remainingCents != null || limitCents != null;
 
   useEffect(() => {
     if (!refreshing) return;
@@ -220,6 +223,12 @@ export function UsageSpendDetail({ snapshot, flipUp, onRefresh }: UsageDetailPro
       <div className="ct-usage-spend">
         <span className="amount">{formatSpend(snapshot.spend_cents ?? 0)}</span>
         <span className="caption">spent this cycle</span>
+        {hasQuota && (
+          <div className="quota">
+            <span>{remainingCents != null ? formatSpend(remainingCents) : "—"} left</span>
+            <span>{limitCents != null ? `${formatSpend(limitCents)} limit` : "limit —"}</span>
+          </div>
+        )}
         <span className="reset">
           {snapshot.spend_resets_at ? formatResetsAt(snapshot.spend_resets_at, now) : "—"}
         </span>
