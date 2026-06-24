@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{PlanError, PlanStore};
-use crate::plan::{HeartbeatLearning, OrchestratorHeartbeat, PlanStatus};
+use crate::plan::{HeartbeatLearning, OrchestratorHeartbeat, Plan, PlanStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HeartbeatLearnResult {
@@ -104,6 +104,18 @@ fn prepend_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat, text: &st
     } else {
         format!("{block}\n\n{text}")
     }
+}
+
+pub(super) fn prepend_plan_heartbeat(plan: &Plan, text: &str) -> String {
+    prepend_heartbeat(&plan.id, &plan.heartbeat, text)
+}
+
+pub(super) fn prepend_heartbeat_snapshot(
+    plan_id: &str,
+    heartbeat: &OrchestratorHeartbeat,
+    text: &str,
+) -> String {
+    prepend_heartbeat(plan_id, heartbeat, text)
 }
 
 impl PlanStore {
@@ -209,7 +221,7 @@ impl PlanStore {
         let Some(plan) = self.get(plan_id) else {
             return text.to_string();
         };
-        prepend_heartbeat(&plan.id, &plan.heartbeat, text)
+        prepend_plan_heartbeat(&plan, text)
     }
 
     pub fn prepend_heartbeat_for_orchestrator_pane(&self, pane_id: &str, text: &str) -> String {
