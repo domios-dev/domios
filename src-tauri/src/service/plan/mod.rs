@@ -249,7 +249,7 @@ impl PlanStore {
 
     fn upsert_plan_arc(&self, plan: Plan) -> Plan {
         let id = plan.id.clone();
-        let existing = self.plans.read().get(&id).cloned();
+        let existing = { self.plans.read().get(&id).cloned() };
         if let Some(arc) = existing {
             let Some(mut guard) = arc.try_lock() else {
                 let mut guard = arc.lock();
@@ -290,7 +290,7 @@ impl PlanStore {
 
     fn upsert_spec_arc(&self, spec: Spec) -> Spec {
         let id = spec.id.clone();
-        let existing = self.specs.read().get(&id).cloned();
+        let existing = { self.specs.read().get(&id).cloned() };
         if let Some(arc) = existing {
             let Some(mut guard) = arc.try_lock() else {
                 let mut guard = arc.lock();
@@ -440,7 +440,8 @@ impl PlanStore {
         plan.updated_at = now_ms;
         tag_model::normalize_plan(plan);
         let id = plan.id.clone();
-        let arc = if let Some(arc) = self.plans.read().get(&id).cloned() {
+        let existing = { self.plans.read().get(&id).cloned() };
+        let arc = if let Some(arc) = existing {
             arc
         } else {
             let mut plans = self.plans.write();
@@ -471,7 +472,8 @@ impl PlanStore {
         spec.updated_at = now_ms;
         tag_model::normalize_sections_for_spec(&mut spec.sections);
         let id = spec.id.clone();
-        let arc = if let Some(arc) = self.specs.read().get(&id).cloned() {
+        let existing = { self.specs.read().get(&id).cloned() };
+        let arc = if let Some(arc) = existing {
             arc
         } else {
             let mut specs = self.specs.write();
