@@ -313,3 +313,14 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
   change. (2) cross-daemon report (prod pane → dev plan) 'Pane not found' → tasked.
 - BE tag-model fully integrated: priority/timestamps/tags/facets/handles/.md-by-handle/--doc/
   canvas-filter + create-parent & PATCH-merge fixes (7 tasks done).
+
+## §23 STEP 3 + height-fix landed (4c0e4d29) — BOARD NAVIGABLE (breakthrough)
+- FE fixed the km-strip via anchor-hugging SKYLINE column packing (Tile world 1584px, was ~20000;
+  fit-all ~50% not 5%). STEP 3: default = Tile overview + camera-focus on active plan (NOT fit-all);
+  Overview/Read presets + minimap toggle; dbl-click node→camera-focus+lock Document+dim+breadcrumb;
+  minimap HUD. 18 suites green. CLI friction resolved (--kind/--text/--doc work after rebuild).
+- VISUAL: default mounts camera-focused @~250% on the plan node (readable!) — SectionedPlanNode Tile
+  (title/owner/13-45/coverage) + right-edge rail OUTPUT dots → edges fanning to banded task field +
+  minimap + Overview/Read/Doc/Card/Tile toolbar. The §22/§23 design realized; navigable at last.
+- NIT: Tile coverage block oversized (giant green panel) — should be compact bar; Tile should show
+  section rows. Sent to FE. Deferred: SectionChunk>30, minimap drag-pan.
