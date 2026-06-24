@@ -300,3 +300,16 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
 - NOTE: owner pane dies on every dev restart (panes ephemeral) → plan goes unowned → reach it via
   workspace-overview (click workspace; 'Canvas' nav item was removed). Plan-button path needs a
   live owner. Consider re-binding owner or a 'claim on focus'.
+
+## §23 STEP 1 landed (99c62f56) — one SectionedPlanNode; dogfood friction surfaced+fixed
+- FE merged §23 STEP 1: ONE fixed-size SectionedPlanNode (plan+spec merged) = header + right-edge
+  RAIL (per-section glyph·title·[n]·OUTPUT dot = TOC + stable task anchors) + body fixed-frame per
+  MANUAL mode (Document=RichMarkdown internal-scroll / Card=digests / Tile=coverage). Auto-by-zoom
+  KILLED. Fixed bbox 280/400/640, w480, railW100. 18 canvas tsx suites green. Dogfooded (milestone).
+- Visual review blocked until STEP 2 (banded task layout, fixed cells) + STEP 3 (default focus@90%,
+  Tile overview) — board still 41 tasks tall at 11% fit-all. FE proceeding to STEP 2+3.
+- DOGFOOD FRICTION (the protocol working): (1) installed CLI lacked --kind/--text/--doc (BE added
+  them but binary not rebuilt) → FIXED by ./build.sh cli; LESSON: rebuild CLI after any BE CLI
+  change. (2) cross-daemon report (prod pane → dev plan) 'Pane not found' → tasked.
+- BE tag-model fully integrated: priority/timestamps/tags/facets/handles/.md-by-handle/--doc/
+  canvas-filter + create-parent & PATCH-merge fixes (7 tasks done).
