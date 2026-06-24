@@ -13,6 +13,10 @@ import { StrideSnake } from "./StrideSnake";
 // §32.3: status/hierarchy is SPATIAL (shelf position, set by the packer), never
 // opacity — primary content text is ALWAYS opacity 1.0; done gets a RECESSED
 // surface, not a faded one. Opacity is reserved for transient focus only (§32.1).
+// §32.10 slot animation: a task re-slotting (status/priority change) eases to its
+// new cloud position — fires only on data repack, never on pan/zoom (camera fixed).
+const SLOT_TRANSITION = "left 0.3s var(--ct-ease-decel), top 0.3s var(--ct-ease-decel)";
+
 const cardStyle: CSSProperties = {
   position: "absolute",
   boxSizing: "border-box",
@@ -25,10 +29,7 @@ const cardStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
-  // §32.10 slot animation: a task re-slotting (status/priority change) eases to its
-  // new cloud position. Footprint is fixed across zoom, so this only fires on data
-  // repack — never on pan/zoom, and the camera never moves (§31).
-  transition: "left 0.3s var(--ct-ease-decel), top 0.3s var(--ct-ease-decel)",
+  transition: SLOT_TRANSITION,
 };
 
 function statusLabel(status: TaskStatus): string {
@@ -123,6 +124,8 @@ export interface TaskCardProps extends CanvasCardStyleProps {
   childDone?: number;
   stepColors?: Map<string, string>;
   world: World;
+  /** §34 crisp text: >1 → re-rasterize at on-screen size (zoom + counter-scale). */
+  crispScale?: number;
   onOpenPane?: (paneId: string) => void;
   onHover?: (taskId: string | null) => void;
   onCopyLink?: (taskId: string) => void;
@@ -137,6 +140,7 @@ export function TaskCard({
   stepColors,
   style,
   world,
+  crispScale = 1,
   onOpenPane,
   onHover,
   onCopyLink,
@@ -157,9 +161,8 @@ export function TaskCard({
   const freshKind = strideCount ? [...task.milestones].sort((a, b) => b.ts - a.ts)[0].kind : null;
   const freshColor = freshKind ? (stepColors?.get(freshKind) ?? "var(--ct-border-focus)") : null;
 
-  const mergedStyle: CSSProperties = {
-    ...cardStyle,
-    ...style,
+  // chrome overrides win over the box geometry (§32.3 surface chrome by shelf).
+  const chromeOverrides: CSSProperties = {
     ...(chrome.recessed ? { background: "color-mix(in srgb, var(--ct-fg) 4%, var(--ct-bg))", boxShadow: "inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 6%, transparent)" } : null),
     ...(chrome.ring ? { boxShadow: chrome.ring } : null),
     ...(chrome.warnBorder ? { borderLeft: "3px solid var(--ct-error, #ef8282)" } : null),
@@ -188,7 +191,7 @@ export function TaskCard({
     </div>
   );
 
-  return (
+  const card = (boxStyle: CSSProperties) => (
     <div
       data-testid="canvas-task-card"
       data-task-id={task.id}
@@ -197,7 +200,7 @@ export function TaskCard({
       className={`ct-canvas-node${chrome.pulse ? " ct-canvas-live" : ""}`}
       onMouseEnter={() => onHover?.(task.id)}
       onMouseLeave={() => onHover?.(null)}
-      style={mergedStyle}
+      style={{ ...cardStyle, ...boxStyle, ...chromeOverrides }}
     >
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7, padding: "10px 12px", minWidth: 0, overflow: "hidden" }}>
         {/* Header — present at every band (the navigation layer). Solid status chip. */}
@@ -286,6 +289,18 @@ export function TaskCard({
             </div>
           )
         )}
+      </div>
+    </div>
+  );
+
+  // §34: birds-eye / 1× → single layer, GPU upscale is imperceptible while small.
+  if (crispScale <= 1) return card(style);
+  // Readable band → zoom to display px (crisp reflow incl. body + stride snake) then
+  // counter-scale back to world size. transform-origin 0,0 keeps footprint identity.
+  return (
+    <div style={{ ...style, transition: SLOT_TRANSITION }}>
+      <div className="ct-canvas-crisp" style={{ width: "100%", height: "100%", zoom: crispScale, transform: `scale(${1 / crispScale})`, transformOrigin: "0 0" }}>
+        {card({ width: "100%", height: "100%" })}
       </div>
     </div>
   );

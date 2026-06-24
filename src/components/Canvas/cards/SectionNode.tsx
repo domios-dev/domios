@@ -171,9 +171,11 @@ export function SectionNode({ variant, plan, style, world, crispScale = 1, onArc
   if (crispScale <= 1) return card(style);
   // Readable band → zoom the card to display px (crisp reflow) then counter-scale it
   // back to world size on its own compositing layer. zoom × scale(1/zoom) = 1× world.
+  // transform-origin MUST be top-left: default center drifts the box by (k-1)/2·size
+  // → footprint appears to move/resize on zoom (§22.1/§37.1 boxiness). 0,0 = identity.
   return (
     <div style={style}>
-      <div className="ct-canvas-crisp" style={{ width: "100%", height: "100%", zoom: crispScale, transform: `scale(${1 / crispScale})` }}>
+      <div className="ct-canvas-crisp" style={{ width: "100%", height: "100%", zoom: crispScale, transform: `scale(${1 / crispScale})`, transformOrigin: "0 0" }}>
         {card({ width: "100%", height: "100%" })}
       </div>
     </div>
