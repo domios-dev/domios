@@ -8,7 +8,8 @@ use crate::service::plan::{task_queries::TaskListFilter, NewTask, PlanStore};
 
 fn store_and_root() -> (tempfile::TempDir, PlanStore) {
     let root = tempfile::tempdir().unwrap();
-    (root, PlanStore::new_for_test(Path::new("/unused")))
+    let store = PlanStore::new_for_test(root.path());
+    (root, store)
 }
 
 fn run_git(cwd: &Path, args: &[&str]) {

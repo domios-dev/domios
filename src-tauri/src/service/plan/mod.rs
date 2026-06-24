@@ -133,7 +133,9 @@ impl PlanStore {
         Self::default()
     }
 
-    pub fn new_for_test(_root: &Path) -> Self {
+    pub fn new_for_test(root: &Path) -> Self {
+        #[cfg(test)]
+        paths::mark_test_project_root(root);
         Self::default()
     }
 

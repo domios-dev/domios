@@ -2,6 +2,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub fn project_root(cwd: &Path) -> PathBuf {
+    #[cfg(test)]
+    if test_project_root_marker(cwd).is_some() {
+        return cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+    }
     if let Some(root) = main_worktree_root(cwd) {
         return root;
     }
@@ -19,6 +23,29 @@ pub fn project_root(cwd: &Path) -> PathBuf {
         }
     }
     cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())
+}
+
+#[cfg(test)]
+const TEST_PROJECT_ROOT_MARKER: &str = ".codeterm-test-project-root";
+
+#[cfg(test)]
+pub fn mark_test_project_root(root: &Path) {
+    if root.is_dir() {
+        let _ = std::fs::write(root.join(TEST_PROJECT_ROOT_MARKER), "");
+    }
+}
+
+#[cfg(test)]
+fn test_project_root_marker(cwd: &Path) -> Option<PathBuf> {
+    let mut current = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+    loop {
+        if current.join(TEST_PROJECT_ROOT_MARKER).is_file() {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
 }
 
 fn main_worktree_root(cwd: &Path) -> Option<PathBuf> {
