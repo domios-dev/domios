@@ -1424,6 +1424,21 @@ Free-form notes on the canvas
 - `--text`
 - `--text_file`
 
+#### `codeterm plan record`
+
+Record task progress with one atomic plan write
+
+- `--body_file`
+- `--key`
+- `--links`
+- `--name`
+- `<plan_id>`
+- `--sections`
+- `--status`
+- `--steps`
+- `--task`
+- `--upsert_task`
+
 #### `codeterm plan section`
 
 Plan sections

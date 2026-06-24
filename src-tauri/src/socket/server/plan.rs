@@ -7,6 +7,7 @@ use tauri::AppHandle;
 
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus, TaskGroup};
+use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{NewTask, PlanError};
 use crate::service::ServiceState;
@@ -123,6 +124,40 @@ pub(super) fn dispatch(
     let now = epoch_ms();
 
     match method {
+        "plan.batch" => {
+            let id = get_string_param(params, "plan_id")?;
+            let body = p.ok_or(JsonRpcError {
+                code: -32602,
+                message: "params required".to_string(),
+                data: None,
+            })?;
+            let request = BatchRequest {
+                key: body.get("key").and_then(|v| v.as_str()).map(str::to_string),
+                ops: body
+                    .get("ops")
+                    .cloned()
+                    .ok_or(JsonRpcError {
+                        code: -32602,
+                        message: "Missing required parameter: ops".to_string(),
+                        data: None,
+                    })
+                    .and_then(|v| {
+                        serde_json::from_value(v).map_err(|e| JsonRpcError {
+                            code: -32602,
+                            message: format!("invalid batch ops: {e}"),
+                            data: None,
+                        })
+                    })?,
+            };
+            let result = store.apply_batch(&id, request, now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            serde_json::to_value(result).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+                data: None,
+            })
+        }
+
         "plan.create" => {
             let body = p.ok_or(JsonRpcError {
                 code: -32602,

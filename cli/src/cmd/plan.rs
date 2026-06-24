@@ -39,10 +39,18 @@ fn owner_from_env() -> Value {
     })
 }
 
-fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
+pub(crate) fn call_plan_rpc(
+    client: &mut SocketClient,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
     client
         .call_detailed(method, Some(params.clone()))
         .map_err(|e| render_plan_call_error(e, &params))
+}
+
+fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
+    call_plan_rpc(client, method, params)
 }
 
 fn render_plan_call_error(err: SocketCallError, params: &Value) -> String {
@@ -234,7 +242,7 @@ fn run_plan(
             if let Some(s) = spec_text {
                 params["spec"] = json!(s);
             }
-            call(client, "plan.create", params)
+            call_plan_rpc(client, "plan.create", params)
         }
 
         PlanAction::List {
@@ -390,6 +398,31 @@ fn run_plan(
             client,
             "plan.claim",
             json!({ "plan_id": plan_id, "owner": owner_from_env() }),
+        ),
+
+        PlanAction::Record {
+            plan_id,
+            task,
+            upsert_task,
+            name,
+            sections,
+            status,
+            body_file,
+            steps,
+            links,
+            key,
+        } => crate::cmd::plan_record::record(
+            client,
+            plan_id,
+            task,
+            upsert_task,
+            name,
+            sections,
+            status,
+            body_file,
+            steps,
+            links,
+            key,
         ),
 
         PlanAction::Section { action } => match action {

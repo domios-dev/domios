@@ -189,6 +189,61 @@ fn top_level_docs_parse() {
 }
 
 #[test]
+fn plan_record_parses_batch_sugar() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "record",
+        "pl_1",
+        "--upsert-task",
+        "handoff-cli",
+        "--name",
+        "Handoff CLI",
+        "--sections",
+        "cli,backend",
+        "--status",
+        "in_progress",
+        "--body-file",
+        "body.md",
+        "--step",
+        "decision:ship batch first",
+        "--link",
+        "docs/spec.md",
+        "--key",
+        "stable-key",
+    ])
+    .expect("plan record parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Record {
+                    plan_id,
+                    upsert_task,
+                    name,
+                    sections,
+                    status,
+                    body_file,
+                    steps,
+                    links,
+                    key,
+                    ..
+                },
+        } => {
+            assert_eq!(plan_id, "pl_1");
+            assert_eq!(upsert_task.as_deref(), Some("handoff-cli"));
+            assert_eq!(name.as_deref(), Some("Handoff CLI"));
+            assert_eq!(sections.as_deref(), Some("cli,backend"));
+            assert_eq!(status.as_deref(), Some("in_progress"));
+            assert_eq!(body_file.as_deref(), Some("body.md"));
+            assert_eq!(steps, vec!["decision:ship batch first"]);
+            assert_eq!(links, vec!["docs/spec.md"]);
+            assert_eq!(key.as_deref(), Some("stable-key"));
+        }
+        _ => panic!("expected plan record"),
+    }
+}
+
+#[test]
 fn pane_new_chat_backend_parses() {
     // P1: `codeterm pane new --chat-backend <id> --config <json>` is the CLI
     // entry point that opens a plugin-driven chat pane.

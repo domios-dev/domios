@@ -14,6 +14,7 @@ pub mod mesh;
 pub mod pane;
 pub mod paste;
 pub mod plan;
+pub mod plan_record;
 pub mod plugin;
 pub mod print;
 pub mod send_text;

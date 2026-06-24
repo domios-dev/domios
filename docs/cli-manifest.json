@@ -5185,6 +5185,94 @@
           ]
         },
         {
+          "name": "record",
+          "about": "Record task progress with one atomic plan write",
+          "aliases": [],
+          "args": [
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "key",
+              "positional": false,
+              "value_name": "KEY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "links",
+              "positional": false,
+              "value_name": "LINKS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "sections",
+              "positional": false,
+              "value_name": "SECTIONS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "status",
+              "positional": false,
+              "value_name": "STATUS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "steps",
+              "positional": false,
+              "value_name": "STEPS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "upsert_task",
+              "positional": false,
+              "value_name": "UPSERT_TASK",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "section",
           "about": "Plan sections",
           "aliases": [],

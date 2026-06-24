@@ -89,6 +89,28 @@ pub enum PlanAction {
     Disown { plan_id: String },
     /// Claim an unowned plan
     Claim { plan_id: String },
+    /// Record task progress with one atomic plan write
+    Record {
+        plan_id: String,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        upsert_task: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        name: Option<String>,
+        #[arg(long)]
+        sections: Option<String>,
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        body_file: Option<String>,
+        #[arg(long = "step", allow_hyphen_values = true)]
+        steps: Vec<String>,
+        #[arg(long = "link", allow_hyphen_values = true)]
+        links: Vec<String>,
+        #[arg(long)]
+        key: Option<String>,
+    },
     /// Plan sections
     Section {
         #[command(subcommand)]
