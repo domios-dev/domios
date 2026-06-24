@@ -1349,6 +1349,23 @@ Get a plan (markdown by default)
 - `<plan_id>`
 - `--sections`
 
+#### `codeterm plan goal`
+
+Plan north-star goal
+
+#### `codeterm plan goal set`
+
+- `--constraint`
+- `<plan_id>`
+- `--postulate`
+- `--vector`
+- `--vision`
+- `--vision_file`
+
+#### `codeterm plan goal show`
+
+- `<plan_id>`
+
 #### `codeterm plan groups`
 
 Set task groups (phases)
@@ -1384,6 +1401,13 @@ Orchestrator handoffs attached to the plan
 - `--markdown`
 - `<plan_id>`
 - `<selector>`
+
+#### `codeterm plan ingest`
+
+Ingest markdown headings as plan sections
+
+- `<markdown>`
+- `<plan_id>`
 
 #### `codeterm plan kinds`
 
@@ -1535,6 +1559,14 @@ Plan sections
 
 #### `codeterm plan section rm`
 
+- `<plan_id>`
+- `<section_id>`
+
+#### `codeterm plan section set`
+
+- `--body`
+- `--body_file`
+- `--name`
 - `<plan_id>`
 - `<section_id>`
 

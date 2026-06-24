@@ -48,6 +48,11 @@ pub enum PlanAction {
     Coverage { plan_id: String },
     /// Show sections with zero tasks
     Gaps { plan_id: String },
+    /// Plan north-star goal
+    Goal {
+        #[command(subcommand)]
+        action: PlanGoalAction,
+    },
     /// Show structural neighbors for a plan/spec/task/section unit
     Related {
         #[arg(long)]
@@ -177,6 +182,26 @@ pub enum PlanAction {
     Element {
         #[command(subcommand)]
         action: PlanElementAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PlanGoalAction {
+    Set {
+        plan_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        vector: String,
+        #[arg(long, allow_hyphen_values = true)]
+        vision: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        vision_file: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        constraint: Vec<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        postulate: Vec<String>,
+    },
+    Show {
+        plan_id: String,
     },
 }
 
