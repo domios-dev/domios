@@ -4569,6 +4569,22 @@
           ]
         },
         {
+          "name": "files",
+          "about": "List generated section/task body files",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "gaps",
           "about": "Show sections with zero tasks",
           "aliases": [],
@@ -5257,6 +5273,22 @@
           ]
         },
         {
+          "name": "spec",
+          "about": "Print only the hydrated section prose",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "task",
           "about": "Plan tasks",
           "aliases": [],
@@ -5343,6 +5375,14 @@
                   "name": "name",
                   "positional": false,
                   "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5559,6 +5599,14 @@
                   "name": "name",
                   "positional": false,
                   "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
                   "default": null,
                   "help": null,
                   "aliases": []

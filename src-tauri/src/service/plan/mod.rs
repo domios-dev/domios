@@ -245,6 +245,15 @@ impl PlanStore {
         })
     }
 
+    pub fn spec_markdown(&self, id: &str) -> Option<String> {
+        self.get(id).map(|plan| body_files::spec_markdown(&plan))
+    }
+
+    pub fn file_manifest(&self, id: &str) -> Result<body_files::PlanFileManifest, PlanError> {
+        let plan = self.get(id).ok_or(PlanError::NotFound)?;
+        body_files::file_manifest(&plan).map_err(|e| PlanError::Io(e.to_string()))
+    }
+
     pub fn reload_from_disk(&self, id: &str) -> Result<(), PlanError> {
         let path = self
             .index

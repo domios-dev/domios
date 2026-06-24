@@ -181,6 +181,21 @@ fn render_coverage(val: &Value) -> String {
     out
 }
 
+fn render_file_manifest(val: &Value) -> String {
+    let mut out = String::new();
+    if let Some(index_path) = val.get("index_path").and_then(|v| v.as_str()) {
+        out.push_str(&format!("INDEX.md\t{index_path}\n"));
+    }
+    if let Some(entries) = val.get("entries").and_then(|v| v.as_array()) {
+        for entry in entries {
+            let title = entry.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+            let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("?");
+            out.push_str(&format!("{title}\t{path}\n"));
+        }
+    }
+    out
+}
+
 pub fn handle_plan(client: &mut SocketClient, json: bool, action: PlanAction) {
     match run_plan(client, json, action) {
         Ok(None) => {}
@@ -256,6 +271,27 @@ fn run_plan(
                 return Ok(Some(val));
             }
             println!("{}", render_plan_markdown(&val));
+            return Ok(None);
+        }
+
+        PlanAction::Spec { plan_id } => {
+            let val = call(client, "plan.spec", json!({ "plan_id": plan_id }))?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!(
+                "{}",
+                val.get("spec").and_then(|v| v.as_str()).unwrap_or_default()
+            );
+            return Ok(None);
+        }
+
+        PlanAction::Files { plan_id } => {
+            let val = call(client, "plan.files", json!({ "plan_id": plan_id }))?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", render_file_manifest(&val));
             return Ok(None);
         }
 
@@ -825,5 +861,27 @@ mod tests {
         .unwrap();
         assert!(msg.contains("✗ loop budget 3/3 reached"));
         assert!(msg.contains("codeterm plan loop set loop_1 --budget N"));
+    }
+
+    #[test]
+    fn renders_file_manifest() {
+        let rendered = render_file_manifest(&json!({
+            "index_path": ".codeterm/plans/pl_1/INDEX.md",
+            "entries": [
+                {
+                    "kind": "section",
+                    "title": "Spec",
+                    "path": ".codeterm/plans/pl_1/sections/sec_1.md"
+                },
+                {
+                    "kind": "task",
+                    "title": "Build",
+                    "path": ".codeterm/plans/pl_1/tasks/task_1.md"
+                }
+            ]
+        }));
+        assert!(rendered.contains("INDEX.md\t.codeterm/plans/pl_1/INDEX.md"));
+        assert!(rendered.contains("Spec\t.codeterm/plans/pl_1/sections/sec_1.md"));
+        assert!(rendered.contains("Build\t.codeterm/plans/pl_1/tasks/task_1.md"));
     }
 }
