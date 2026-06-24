@@ -825,3 +825,31 @@ This reveals the spec on approach and makes zoom responsive, while honoring "bou
 The MANUAL Doc/Card/Tile toggle still overrides the frame SIZE/base; content-LOD layers on top
 (an "Auto" content behavior). FE killed auto entirely — bring back AUTO CONTENT (not auto size).
 Playwright must verify content-LOD at far/mid/near camera zoom (index→bodies) with FIXED node size.
+
+## 24. ANDREY OVERRIDES (supersede §22.2 merge, §23 manual modes, §23.6 release)
+
+<!-- revision: 5 -->
+
+Direct corrections from Andrey — these WIN.
+
+### 24.1 ONE mode — no Doc/Card/Tile buttons; it's just a canvas
+REMOVE the Doc/Card/Tile mode switcher from the toolbar. There is ONE behavior: every node
+ADAPTS ITS CONTENT to camera zoom (far = compact section index/title; near = full bodies/prose/
+mermaid) inside a FIXED frame (§23.7 content-LOD, now the ONLY behavior, no manual toggle). Zoom
+in/out/fit + minimap + Overview/Read camera presets may remain (they're camera, not node-mode).
+
+### 24.2 Scroll = node-only when hovering it; NEVER hand off to canvas
+When the mouse is OVER a node's body, the wheel scrolls ONLY that node — never releases to canvas
+pan, even at the scroll boundary (§23.6's boundary-release is REMOVED). To pan/zoom the canvas,
+the user moves the mouse OFF the node. Simple, no hijack, no "throw up to canvas".
+
+### 24.3 SEPARATE Spec node connected to the Plan (un-merge §22.2)
+Spec is its OWN sectioned node again, NOT merged into the plan node:
+- **SPEC node** (left): one block per section showing the section's TITLE + BODY (the prose) —
+  content-LOD per §24.1 (far=titles, near=full prose).
+- **PLAN node** (middle): one row per section (title · coverage/ready · [n] · OUTPUT dot).
+- **1:1 edges SPEC-section-block ↔ PLAN-section-row** (same section id) — shows which plan section
+  maps to which spec section. Both reflect coverage.
+- PLAN row OUTPUT dots → tasks (banded, as now). So: SPEC | PLAN | tasks, three connected columns.
+(The §22.2/§23.1 "one merged SectionedPlanNode" is reverted to two connected nodes; the rail/
+content-LOD/banded mechanics carry over to BOTH the spec and plan nodes.)
