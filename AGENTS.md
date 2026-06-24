@@ -170,6 +170,8 @@ netstat -ano | grep :7685 | grep LISTENING | awk '{print $5}'   # PROD — NEVER
 
 Prefer `./build.sh kill` (only touches dev). When unsure, ask the user.
 
+**Non-canonical worktree?** Set `CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port>` before `./build.sh dev` — you get your own `~/.codeterm-dev-<name>` data dir + port, and `./build.sh kill` only touches your instance. Without it all worktrees share `.codeterm-dev`/7686 and `kill` would take down another worktree's dev.
+
 ## Cross-platform
 
 Verify on macOS, Windows, Linux. Never add platform-specific code without handling all targets.
@@ -312,6 +314,16 @@ build:    build / CI
 ```
 
 No `[Tag]`, `[Idea]`, `[Bug]` brackets — just the scope prefix.
+
+## Release pipeline & issue lifecycle
+
+Branch as you like, then:
+
+1. **Develop → `develop`.** PR feature branches into `develop`. Reference issues with a **bare `#N`** (NOT `Closes #N` — that would let GitHub close on master-merge, before the build actually ships). On push to `develop` the referenced open issues get the **`ready-for-release`** label (still open).
+2. **Cut a release.** PR `develop` → `master`, merge it. Then on `master`, manually tag: `git tag release-X.Y.Z && git push origin release-X.Y.Z` (single tag — the workflow stamps `vX.Y.Z` itself). The self-hosted build machine builds + publishes.
+3. **Published → done.** On a successful publish the release workflow closes every `ready-for-release` issue ("Released in vX.Y.Z") and drops the label. Close-on-publish, never on merge, so a failed build never closes an unshipped issue.
+
+Before tagging, a fast `cargo check` precheck (linux+macOS) gates the long build; failures surface per-engine in the Actions log.
 
 ## Documentation
 

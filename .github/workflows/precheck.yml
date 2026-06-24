@@ -1,0 +1,37 @@
+name: Cross-platform compile precheck (self-hosted)
+
+# Fast `cargo check` for linux (arm64+x86_64) and macOS (arm64+x86_64) on the
+# build machine. Used to validate the precheck script before it gates releases,
+# and runnable on demand. Windows is build-time only (VM-boot-bound).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "version X.Y.Z to precheck (a vX.Y.Z tag must exist)"
+        required: true
+        default: "1.5.2"
+
+jobs:
+  precheck:
+    runs-on: [self-hosted, codeterm-builder]
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure Docker is running
+        run: |
+          if ! docker info >/dev/null 2>&1; then
+            open -a Docker || true
+            for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 5; done
+          fi
+          docker info >/dev/null 2>&1 || { echo "::error::Docker not available"; exit 1; }
+
+      - name: Cross-platform compile precheck
+        run: |
+          TAG="v${{ inputs.version }}"
+          git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null \
+            || git tag -a "$TAG" "$GITHUB_SHA" -m "$TAG" 2>/dev/null || true
+          .codeterm/build-machine/scripts/precheck.sh "$TAG"

@@ -21,6 +21,19 @@ cd /src
 git checkout -q "tags/${TAG}"
 echo "HEAD=$(git rev-parse HEAD)  bundles=$BUNDLES  target=${CARGO_BUILD_TARGET:-native}"
 
+# Fast compile gate: cargo check only, no frontend/bundle/sign. Catches
+# target-gated compile breaks in ~1 min. Stub tauri-build resources so its glob
+# validation passes without a real dist/cli/embed.
+if [ "${CHECK:-0}" = "1" ]; then
+  mkdir -p dist src-tauri/bundled-embed src-tauri/bundled-cli
+  touch dist/index.html src-tauri/bundled-cli/codeterm
+  touch "src-tauri/bundled-embed/codeterm-embed-$(rustc -vV | awk '/^host:/{print $2}')"
+  [ -n "${CARGO_BUILD_TARGET:-}" ] && touch "src-tauri/bundled-embed/codeterm-embed-${CARGO_BUILD_TARGET}"
+  cargo check --manifest-path src-tauri/Cargo.toml ${CARGO_BUILD_TARGET:+--target "$CARGO_BUILD_TARGET"}
+  echo "CHECK_LINUX_DONE tag=$TAG target=${CARGO_BUILD_TARGET:-native}"
+  exit 0
+fi
+
 corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
 # Cross builds need externalBin/resource stubs pre-created (tauri-build glob validation runs
 # during the embed/cli cargo builds, before bundle scripts stage the real cross binaries).

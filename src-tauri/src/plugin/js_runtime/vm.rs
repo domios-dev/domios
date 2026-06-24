@@ -105,6 +105,54 @@ const PLUGIN_PREAMBLE: &str = r#"
 })();
 "#;
 
+// Compiled once per VM right after the bootstrap. Per-call dispatch sets
+// __ct_method__/__ct_args__ globals then invokes these cached Functions, so the
+// hot path never recompiles JS source (#186).
+const INVOKE_HELPERS: &str = r#"
+globalThis.__ct_invoke__ = function () {
+    var m = globalThis.__ct_method__;
+    var p = globalThis.__plugin__;
+    var fn = p ? p[m] : undefined;
+    if (typeof fn !== 'function') { throw new Error('not a function: ' + m); }
+    var out = fn.apply(p, JSON.parse(globalThis.__ct_args__));
+    if (out && typeof out.then === 'function') {
+        throw new Error(m + ' returned a Promise; plugin methods must be synchronous');
+    }
+    return JSON.stringify(out === undefined ? null : out);
+};
+globalThis.__ct_has__ = function () {
+    var p = globalThis.__plugin__;
+    return (typeof p === 'object' && p !== null
+        && typeof p[globalThis.__ct_method__] === 'function') ? '1' : '0';
+};
+"#;
+
+use std::cell::Cell;
+
+thread_local! {
+    // Per-thread count of QuickJS source-string compilations. The per-method
+    // invoke path compiles once at VM init, then calls a cached wrapper — never
+    // recompiling per call (#186 hot-path guard). Thread-local isolates the perf
+    // test from parallel tests sharing the process.
+    static SOURCE_COMPILES: Cell<u64> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn source_compiles() -> u64 {
+    SOURCE_COMPILES.with(|c| c.get())
+}
+
+// Every QuickJS source-string compile goes through here so the counter is the
+// single source of truth for "did we recompile". Cached-Function calls bypass it.
+fn eval_source<'js, V, S>(ctx: &rquickjs::Ctx<'js>, src: S) -> rquickjs::Result<V>
+where
+    V: rquickjs::FromJs<'js>,
+    S: Into<Vec<u8>>,
+{
+    SOURCE_COMPILES.with(|c| c.set(c.get() + 1));
+    ctx.eval(src)
+}
+
 #[derive(Debug)]
 pub enum VmError {
     ReadFile {
@@ -271,12 +319,15 @@ impl PluginVm {
         let sandbox_for_install = sandbox.clone();
         ctx.with(|ctx| -> Result<(), VmError> {
             super::host_api::install(&ctx, manifest_for_install.as_deref(), sandbox_for_install)?;
-            ctx.eval::<(), _>(PLUGIN_PREAMBLE)
+            eval_source::<(), _>(&ctx, PLUGIN_PREAMBLE)
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("preamble: {e:?}")))?;
-            ctx.eval::<(), _>(bootstrap.clone())
+            eval_source::<(), _>(&ctx, bootstrap.clone())
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("{e:?}")))?;
+            eval_source::<(), _>(&ctx, INVOKE_HELPERS)
+                .catch(&ctx)
+                .map_err(|e| VmError::Script(format!("invoke-helpers: {e:?}")))?;
             Ok(())
         })?;
 
@@ -336,12 +387,15 @@ impl PluginVm {
         let sandbox_for_install = inner.sandbox.clone();
         ctx.with(|ctx| -> Result<(), VmError> {
             super::host_api::install(&ctx, manifest_for_install.as_deref(), sandbox_for_install)?;
-            ctx.eval::<(), _>(PLUGIN_PREAMBLE)
+            eval_source::<(), _>(&ctx, PLUGIN_PREAMBLE)
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("preamble: {e:?}")))?;
-            ctx.eval::<(), _>(bootstrap)
+            eval_source::<(), _>(&ctx, bootstrap)
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("{e:?}")))?;
+            eval_source::<(), _>(&ctx, INVOKE_HELPERS)
+                .catch(&ctx)
+                .map_err(|e| VmError::Script(format!("invoke-helpers: {e:?}")))?;
             Ok(())
         })?;
         inner._ctx = ctx;
@@ -405,35 +459,26 @@ fn call_json_inner<R: serde::de::DeserializeOwned>(
             .catch(&ctx)
             .map_err(|_| VmError::MissingFunction(method.to_string()))?;
 
-        // Encode args as a single JSON string, parse inside the VM, spread into the call. This avoids per-arg Value construction and keeps the bridge boundary simple.
+        // Encode args as one JSON string parsed inside the VM — avoids per-arg
+        // Value construction. Method + args go to globals; the cached invoke
+        // wrapper (compiled once at init) does the parse/call/serialize.
         let args_json = serde_json::to_string(args)
             .map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
-        ctx.globals()
-            .set("__plugin_args__", args_json)
+        let globals = ctx.globals();
+        globals
+            .set("__ct_method__", method)
+            .catch(&ctx)
+            .map_err(|e| VmError::Script(format!("setting method failed: {e:?}")))?;
+        globals
+            .set("__ct_args__", args_json)
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("setting args failed: {e:?}")))?;
-
-        // Run a tiny helper that parses args + calls + serializes result.
-        let helper = format!(
-            r#"
-            (function() {{
-                const args = JSON.parse(globalThis.__plugin_args__);
-                const fn = globalThis.__plugin__[{name:?}];
-                if (typeof fn !== 'function') {{
-                    throw new Error('not a function: ' + {name:?});
-                }}
-                const out = fn.apply(globalThis.__plugin__, args);
-                // Promise returns aren't supported here — providers declare sync methods only.
-                if (out && typeof out.then === 'function') {{
-                    throw new Error({name:?} + ' returned a Promise; plugin methods must be synchronous');
-                }}
-                return JSON.stringify(out === undefined ? null : out);
-            }})()
-            "#,
-            name = method,
-        );
-        let result: String = ctx
-            .eval(helper)
+        let invoke: Function = globals
+            .get("__ct_invoke__")
+            .catch(&ctx)
+            .map_err(|e| VmError::Script(format!("__ct_invoke__ missing: {e:?}")))?;
+        let result: String = invoke
+            .call(())
             .catch(&ctx)
             .map_err(|e| VmError::Script(format!("{method}: {e:?}")))?;
         Ok(result)
@@ -452,11 +497,16 @@ pub fn has_method(vm: &PluginVm, method: &str) -> bool {
     inner
         ._ctx
         .with(|ctx| -> Result<String, VmError> {
-            let expr = format!(
-                "(typeof globalThis.__plugin__ === 'object' && globalThis.__plugin__ !== null \
-                 && typeof globalThis.__plugin__[{method:?}] === 'function') ? '1' : '0'"
-            );
-            ctx.eval(expr)
+            let globals = ctx.globals();
+            globals
+                .set("__ct_method__", method)
+                .catch(&ctx)
+                .map_err(|e| VmError::Script(format!("{e:?}")))?;
+            let has: Function = globals
+                .get("__ct_has__")
+                .catch(&ctx)
+                .map_err(|e| VmError::Script(format!("{e:?}")))?;
+            has.call(())
                 .catch(&ctx)
                 .map_err(|e| VmError::Script(format!("{e:?}")))
         })
@@ -576,6 +626,46 @@ mod tests {
         let no: bool = call_json(&vm, "no", &[]).unwrap();
         assert!(yes);
         assert!(!no);
+    }
+
+    #[test]
+    fn hot_path_no_per_call_recompile() {
+        // Mirrors the PTY hot path: process_pty_output -> has_event_markers ->
+        // try_call("hasEventMarkers") -> call_json, fired per output chunk (#186).
+        let vm = fixture(
+            r#"
+            module.exports.default = {
+                hasEventMarkers(chunk) {
+                    return chunk.includes("❯")
+                        || chunk.includes("Proceed?")
+                        || (chunk.includes("1.") && chunk.includes("2."));
+                }
+            };
+        "#,
+        );
+        let chunk = "\u{1b}[2mthinking...\u{1b}[0m\n\u{276f} 1. Yes  2. No\nProceed?";
+        // Warm one call so lazy state settles before the snapshot.
+        let _: bool = call_json(&vm, "hasEventMarkers", &[json!(chunk)]).unwrap();
+        let before = source_compiles();
+        let n = 20_000u64;
+        let t0 = std::time::Instant::now();
+        for _ in 0..n {
+            let hit: bool = call_json(&vm, "hasEventMarkers", &[json!(chunk)]).unwrap();
+            assert!(hit);
+        }
+        let elapsed = t0.elapsed();
+        let compiles = source_compiles() - before;
+        eprintln!(
+            "[#186 hot-path load] {n} calls in {elapsed:?} -> {:.3} us/call, {:.0} calls/sec; \
+             source recompiles during loop = {compiles}",
+            elapsed.as_micros() as f64 / n as f64,
+            n as f64 / elapsed.as_secs_f64(),
+        );
+        assert_eq!(
+            compiles, 0,
+            "per-call JS source recompile detected (#186): call_json must invoke a cached \
+             wrapper Function, not ctx.eval(source) on every call"
+        );
     }
 
     #[test]

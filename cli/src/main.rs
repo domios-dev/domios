@@ -14,22 +14,46 @@ pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
 }
 
 /// Determine the CodeTerm data directory.
-/// Dev instances use `~/.codeterm-dev/`, prod uses `~/.codeterm/`.
+/// Dev instances use `~/.codeterm-dev[-<slug>]/`, prod uses `~/.codeterm/`.
 /// Detection priority:
 ///   1. CODETERM_SOCKET_PATH containing "codeterm-dev" (set by dev PTYs)
 ///   2. CODETERM_API_PORT == 7686 (dev's port — useful when calling CLI from
 ///      outside a dev pane, e.g. tests)
 ///   3. Default: prod
-pub fn data_dir_name() -> &'static str {
-    if let Ok(sp) = std::env::var("CODETERM_SOCKET_PATH") {
-        if sp.contains("codeterm-dev") {
-            return ".codeterm-dev";
+/// When a dev context is detected and CODETERM_INSTANCE is set, the slug is
+/// appended (`~/.codeterm-dev-<slug>`) so per-worktree instances stay isolated.
+pub fn data_dir_name() -> String {
+    let is_dev = std::env::var("CODETERM_SOCKET_PATH")
+        .map(|sp| sp.contains("codeterm-dev"))
+        .unwrap_or(false)
+        || std::env::var("CODETERM_API_PORT").as_deref() == Ok("7686");
+    if is_dev {
+        return format!(".codeterm-dev{}", instance_suffix());
+    }
+    ".codeterm".to_string()
+}
+
+/// Suffix for a named dev instance selected via CODETERM_INSTANCE.
+/// Sanitized to `[a-z0-9-]+`; empty when unset.
+fn instance_suffix() -> String {
+    match std::env::var("CODETERM_INSTANCE") {
+        Ok(s) if !s.trim().is_empty() => {
+            let slug: String = s
+                .trim()
+                .to_lowercase()
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
+                .collect();
+            format!("-{}", slug)
         }
+        _ => String::new(),
     }
-    if std::env::var("CODETERM_API_PORT").as_deref() == Ok("7686") {
-        return ".codeterm-dev";
-    }
-    ".codeterm"
 }
 
 /// Resolve the CodeTerm data root used by local filesystem commands.

@@ -16,6 +16,7 @@ mod crash;
 pub mod cron;
 pub mod delayed_send;
 pub mod dispatch;
+mod fdlimit;
 pub mod glance;
 mod keepawake;
 mod liveness;
@@ -86,6 +87,9 @@ pub fn run() {
     startup::setup_logging();
 
     log::info!("CodeTerm starting...");
+
+    // Lift the open-file soft limit before anything opens fds (#186).
+    fdlimit::raise_fd_limit();
 
     // Reap msedgewebview2.exe orphaned by a prior hard GUI crash, before window init (GH #183).
     webview2_reap::reap_orphaned_webview2();

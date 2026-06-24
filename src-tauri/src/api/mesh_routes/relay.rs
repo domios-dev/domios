@@ -12,7 +12,7 @@ pub async fn mesh_sync(
     headers: HeaderMap,
     Json(payload): Json<crate::mesh::types::MeshSyncPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    log::info!("[mesh/sync] Incoming sync: {} peers", payload.peers.len());
+    log::debug!("[mesh/sync] Incoming sync: {} peers", payload.peers.len());
     check_auth(&state, &headers).map_err(|(s, e)| {
         log::warn!("[mesh/sync] Auth FAILED: {}", e);
         (s, e.to_string())

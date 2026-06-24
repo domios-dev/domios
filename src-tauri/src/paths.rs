@@ -6,26 +6,68 @@
 
 use std::path::PathBuf;
 
-/// Directory name for CodeTerm data.
+/// Sanitize a raw instance slug to `[a-z0-9-]+` (lowercase; other chars → `-`).
 #[cfg(debug_assertions)]
-pub const DIR_NAME: &str = ".codeterm-dev";
+fn sanitize_slug(raw: &str) -> String {
+    raw.trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect()
+}
 
-#[cfg(not(debug_assertions))]
-pub const DIR_NAME: &str = ".codeterm";
+/// Suffix for the named dev instance selected via `CODETERM_INSTANCE`.
+/// Debug only — release ignores the env var entirely (always prod).
+pub fn instance_suffix() -> String {
+    #[cfg(debug_assertions)]
+    {
+        match std::env::var("CODETERM_INSTANCE") {
+            Ok(s) if !s.trim().is_empty() => format!("-{}", sanitize_slug(&s)),
+            _ => String::new(),
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        String::new()
+    }
+}
 
-/// Socket/pipe prefix for IPC.
-#[cfg(debug_assertions)]
-pub const SOCKET_PREFIX: &str = "codeterm-dev";
+/// Directory name for CodeTerm data (`~/.codeterm` or `~/.codeterm-dev[-<slug>]`).
+pub fn dir_name() -> String {
+    #[cfg(debug_assertions)]
+    {
+        format!(".codeterm-dev{}", instance_suffix())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        ".codeterm".to_string()
+    }
+}
 
-#[cfg(not(debug_assertions))]
-pub const SOCKET_PREFIX: &str = "codeterm";
+/// Socket/pipe prefix for IPC (`codeterm` or `codeterm-dev[-<slug>]`).
+pub fn socket_prefix() -> String {
+    #[cfg(debug_assertions)]
+    {
+        format!("codeterm-dev{}", instance_suffix())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        "codeterm".to_string()
+    }
+}
 
 /// Get the CodeTerm data directory (`~/.codeterm` or `~/.codeterm-dev`).
 /// Creates the directory if it doesn't exist.
 pub fn data_dir() -> PathBuf {
     let dir = dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(DIR_NAME);
+        .join(dir_name());
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -33,7 +75,7 @@ pub fn data_dir() -> PathBuf {
 /// Get the config file path.
 pub fn config_path() -> Result<PathBuf, String> {
     let dir = dirs::home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
-    Ok(dir.join(DIR_NAME).join("config.toml"))
+    Ok(dir.join(dir_name()).join("config.toml"))
 }
 
 /// Normalize a workspace `cwd` for comparison purposes. Two inputs that refer
