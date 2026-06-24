@@ -439,3 +439,21 @@ Refines §16.2's counter-scale with concrete density rules (from Andrey + orches
 - **Result:** FAR = structured index (titles + ready/count badges dominate, body micro);
   NEAR = a cool structured-by-sections document (full markdown/mermaid/code) with the same
   badges. Same content, re-weighted by zoom — the document↔index continuum.
+
+### 16.9 Milestone bubbles = "Thread and Coil" (opencode + orchestrator + user brainstorm)
+Milestones/steps are a task's report chain — render them as a semantic-zoom mini-timeline
+OWNED by the task (4px stem, never floating), grouped by kind, coiling for loops:
+- **FAR (<0.45) — constellation:** ~6px kind-colored dots, faint chronological arc; the live/
+  freshest step pulses (8px, opacity 0.6–1.0, ~2s). Clean far view (the round shape Andrey likes).
+- **MID (0.45–1.1) — thread:** 12px circles + kind glyph on a vertical **spine** (chronological
+  via `links`); kind-lane tint bands group same-kind steps; loops render as an S-curve **coil**
+  with an iteration badge; **a 1-line step title sits next to each dot — READABLE at mid** (the
+  breakthrough: text without going full-near). Active step = pulsing ring; spine solid-before /
+  dashed-after.
+- **NEAR (>1.1) — step cards:** mini cards (~160×72) = kind strip + title + 2–3 lines body
+  markdown + iteration badge, stacked along the spine; active card glows; max ~6 then internal
+  scroll; click → detail.
+- **Grouping:** by kind (lanes) default; `loop_id` present → auto-coil + kind/iteration toggle.
+- Same "never hide info, add on approach" grammar as the doc nodes — one consistent canvas
+  language. Rejected alternatives: radial bloom (sequence unreadable), horizontal timeline bar
+  (fights the column packer).
