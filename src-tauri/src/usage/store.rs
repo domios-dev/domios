@@ -332,6 +332,30 @@ mod tests {
     }
 
     #[test]
+    fn add_missing_columns_migrates_pre_spend_db() {
+        // Pre-spend schema: original columns only, no spend_* yet.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE usage_snapshots (
+               id INTEGER PRIMARY KEY AUTOINCREMENT,
+               provider TEXT NOT NULL, account_id TEXT,
+               captured_at INTEGER NOT NULL, parsed_ok INTEGER NOT NULL,
+               session_pct REAL, session_resets_at INTEGER,
+               weekly_pct REAL, weekly_resets_at INTEGER);",
+        )
+        .unwrap();
+        assert!(!table_columns(&conn).unwrap().contains("spend_cents"));
+
+        add_missing_columns(&conn).unwrap();
+        let cols = table_columns(&conn).unwrap();
+        assert!(cols.contains("spend_cents"), "spend_cents added");
+        assert!(cols.contains("spend_resets_at"), "spend_resets_at added");
+
+        // Idempotent: a second pass on an already-migrated DB is a no-op.
+        add_missing_columns(&conn).unwrap();
+    }
+
+    #[test]
     fn insert_select_roundtrip() {
         let store = UsageStore::open_in_memory().unwrap();
         let snap = make_snapshot(1_000_000_000_000);
