@@ -32,6 +32,8 @@ import {
   zoomBy,
 } from "../../helpers/canvas-inspect";
 
+type World = "W0" | "W1" | "W2" | "W3";
+
 // Final rendered screen box of a node (after world transform + crisp zoom/counter-
 // scale, which net to ×1). Selected by data-task-id when given, else the first match.
 async function screenBox(page: Page, testid: string, taskId?: string): Promise<{ w: number; h: number; x: number } | null> {
@@ -56,17 +58,95 @@ async function worldFootprint(page: Page, testid: string, taskId?: string): Prom
 
 async function visible(page: Page, testid: string): Promise<boolean> {
   return page.evaluate((tid) => {
-    const el = document.querySelector(`[data-testid="${tid}"]`);
+    const el = document.querySelector(`[data-testid="${tid}"]`) as HTMLElement | null;
     if (!el) return false;
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) < 0.05) return false;
     const r = el.getBoundingClientRect();
     return r.width > 2 && r.height > 2;
   }, testid);
+}
+
+async function taskDiveSnapshot(page: Page, taskId: string) {
+  return page.evaluate((id) => {
+    const card = document.querySelector(`[data-testid="canvas-task-card"][data-task-id="${id}"]`) as HTMLElement | null;
+    if (!card) return null;
+    const cardRect = card.getBoundingClientRect();
+    const isVisible = (el: Element | null) => {
+      if (!el) return false;
+      const html = el as HTMLElement;
+      const cs = getComputedStyle(html);
+      const r = html.getBoundingClientRect();
+      return r.width > 2 && r.height > 2 && cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) >= 0.05;
+    };
+    const relBox = (testid: string) => {
+      const el = card.querySelector(`[data-testid="${testid}"]`) as HTMLElement | null;
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return {
+        x: (r.left - cardRect.left) / cardRect.width,
+        y: (r.top - cardRect.top) / cardRect.height,
+        w: r.width / cardRect.width,
+        h: r.height / cardRect.height,
+      };
+    };
+    const title = card.querySelector('[data-testid="canvas-task-name"]') as HTMLElement | null;
+    const detailIds = [
+      "canvas-task-status",
+      "canvas-task-name",
+      "canvas-task-counters",
+      "canvas-task-meta-slot",
+      "canvas-task-body",
+      "canvas-task-full-body",
+      "canvas-task-steps",
+      "canvas-task-step-card",
+    ];
+    return {
+      world: card.getAttribute("data-world") as World | null,
+      titleText: (title?.textContent ?? "").trim(),
+      fullTitle: title?.getAttribute("data-task-name-full") ?? "",
+      boxes: {
+        name: relBox("canvas-task-name"),
+        meta: relBox("canvas-task-meta-slot"),
+        summary: relBox("canvas-task-summary-slot"),
+        bodySlot: relBox("canvas-task-body-slot") ?? relBox("canvas-task-body"),
+        strides: relBox("canvas-task-strides-slot"),
+      },
+      visibleDetails: detailIds.filter((testid) => isVisible(card.querySelector(`[data-testid="${testid}"]`))).length,
+      overlaps: (() => {
+        const ids = ["canvas-task-name", "canvas-task-meta-slot", "canvas-task-summary-slot", "canvas-task-body", "canvas-task-strides-slot"];
+        const rects = ids
+          .map((testid) => {
+            const el = card.querySelector(`[data-testid="${testid}"]`) as HTMLElement | null;
+            if (!el || !isVisible(el)) return null;
+            const r = el.getBoundingClientRect();
+            return { testid, left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+          })
+          .filter(Boolean) as Array<{ testid: string; left: number; right: number; top: number; bottom: number }>;
+        const hits: string[] = [];
+        for (let i = 0; i < rects.length; i++) {
+          for (let j = i + 1; j < rects.length; j++) {
+            const a = rects[i];
+            const b = rects[j];
+            const x = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+            const y = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+            if (x * y > 4) hits.push(`${a.testid}/${b.testid}`);
+          }
+        }
+        return hits;
+      })(),
+    };
+  }, taskId);
 }
 
 // ≤5% + 2px: the crisp zoom/counter-scale cancels to exactly 1× world size, only
 // raster sharpness shifts a few %; sub-pixel rect rounding adds the small floor.
 function footprintEqual(a: number, b: number): boolean {
   return Math.abs(a - b) <= Math.max(2, 0.05 * Math.max(a, b));
+}
+
+function relClose(a: number, b: number): boolean {
+  return Math.abs(a - b) <= 0.035;
 }
 
 test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveals, cloud-left, crisp", async ({ ui }) => {
@@ -86,7 +166,11 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
     test.skip(true, "plan has no task cards — worlds-v3 cloud geometry needs at least one task");
     return;
   }
-  const probeTaskId = taskCards[0].id ?? undefined;
+  const probeTaskId = taskCards[0].id;
+  if (!probeTaskId) {
+    test.skip(true, "task card has no data-task-id — worlds-dive needs a stable probe task");
+    return;
+  }
 
   // ── 1. FOOTPRINT FIXED ACROSS SCALES (task + plan), §22.1/§32.4. ──
   const scales = [0.7, 1.3, 2.3];
@@ -122,6 +206,52 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
   // §35.3 (zoom-into-task body reveal): the DESCRIPTION box is a fixed slot that
   // reveals at the W2 content band — reachable by zoom alone, content-independent.
   expect(taskBody, "canvas-task-body revealed by zoom into the W2 content band (§35.3)").toBe(true);
+
+  // ── 2b. WORLDS-DIVE: inner boxes stay put while detail count increases. ──
+  const diveScales = [0.7, 1, 1.6, 2.4, 3.6, 5.5, 7.5, 10];
+  const snapshots: Array<NonNullable<Awaited<ReturnType<typeof taskDiveSnapshot>>> & { scale: number }> = [];
+  for (const s of diveScales) {
+    await setCanvasScale(page, s);
+    const snap = await taskDiveSnapshot(page, probeTaskId);
+    if (snap?.world) snapshots.push({ ...snap, scale: s });
+  }
+  const byWorld = new Map<World, (typeof snapshots)[number]>();
+  for (const snap of snapshots) if (!byWorld.has(snap.world!)) byWorld.set(snap.world!, snap);
+  expect(byWorld.has("W1"), `sampled W1 task state (${JSON.stringify(snapshots.map((s) => [s.scale, s.world]))})`).toBe(true);
+  expect(byWorld.has("W2"), `sampled W2 task state (${JSON.stringify(snapshots.map((s) => [s.scale, s.world]))})`).toBe(true);
+  expect(byWorld.has("W3"), `sampled W3 task state (${JSON.stringify(snapshots.map((s) => [s.scale, s.world]))})`).toBe(true);
+
+  for (const snap of snapshots) {
+    expect(snap.overlaps, `no visible inner-box overlap at ${snap.world} scale ${snap.scale}`).toEqual([]);
+  }
+
+  const baseline = snapshots.find((s) => s.boxes.name && s.boxes.meta && s.boxes.summary && s.boxes.bodySlot && s.boxes.strides);
+  expect(baseline, "has a complete inner-slot baseline sample").toBeTruthy();
+  if (baseline) {
+    for (const snap of snapshots) {
+      for (const key of Object.keys(baseline.boxes) as Array<keyof typeof baseline.boxes>) {
+        const a = baseline.boxes[key];
+        const b = snap.boxes[key];
+        if (!a || !b) continue;
+        expect(relClose(a.x, b.x), `${key}.x stable at ${snap.world} scale ${snap.scale}`).toBe(true);
+        expect(relClose(a.y, b.y), `${key}.y stable at ${snap.world} scale ${snap.scale}`).toBe(true);
+      }
+    }
+  }
+
+  const orderedWorlds: World[] = ["W0", "W1", "W2", "W3"];
+  const detailByWorld = orderedWorlds.map((w) => byWorld.get(w)).filter(Boolean) as Array<(typeof snapshots)[number]>;
+  for (let i = 1; i < detailByWorld.length; i++) {
+    expect(
+      detailByWorld[i].visibleDetails,
+      `progressive reveal ${detailByWorld[i - 1].world}->${detailByWorld[i].world}`,
+    ).toBeGreaterThan(detailByWorld[i - 1].visibleDetails);
+  }
+
+  for (const snap of snapshots.filter((s) => s.world !== "W0")) {
+    const minReadable = Math.min(8, snap.fullTitle.trim().length);
+    expect(snap.titleText.length, `title is legible at ${snap.world}: "${snap.titleText}"`).toBeGreaterThanOrEqual(minReadable);
+  }
 
   // ── 4. CRISP TEXT (§34) — at this deep zoom a W2+ card has the crisp wrapper. ──
   const scaleNow = await canvasScale(page);
