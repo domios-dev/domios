@@ -251,14 +251,54 @@ fn socket_path_matches_port_pref(name: &str, prefer_dev: bool) -> bool {
     is_dev_socket(name) == prefer_dev
 }
 
+/// The named dev instance socket prefix, e.g. `codeterm-dev-exp`, or None.
+/// Sanitized to `[a-z0-9-]+` to mirror the daemon's path derivation.
+fn instance_socket_prefix() -> Option<String> {
+    match std::env::var("CODETERM_INSTANCE") {
+        Ok(s) if !s.trim().is_empty() => {
+            let slug: String = s
+                .trim()
+                .to_lowercase()
+                .chars()
+                .map(|c| {
+                    if c.is_ascii_alphanumeric() || c == '-' {
+                        c
+                    } else {
+                        '-'
+                    }
+                })
+                .collect();
+            Some(format!("codeterm-dev-{}", slug))
+        }
+        _ => None,
+    }
+}
+
 /// Pick the best socket name from a candidate list given the current preference.
 ///
 /// Pure function — split out so it can be unit-tested without touching the
 /// filesystem.
 fn pick_preferred_socket(candidates: &[String], prefer_dev: bool) -> Option<String> {
+    pick_preferred_socket_for(candidates, prefer_dev, instance_socket_prefix().as_deref())
+}
+
+fn pick_preferred_socket_for(
+    candidates: &[String],
+    prefer_dev: bool,
+    instance: Option<&str>,
+) -> Option<String> {
     let is_dev = is_dev_socket;
 
-    // 1. Prefer matching the requested instance.
+    // 0. A named instance must never bind to another instance's socket.
+    if let Some(prefix) = instance {
+        if let Some(hit) = candidates
+            .iter()
+            .find(|n| **n == format!("{prefix}.sock") || **n == *prefix)
+        {
+            return Some(hit.clone());
+        }
+    }
+    // 1. Prefer matching the requested instance kind (dev vs prod).
     if let Some(hit) = candidates.iter().find(|n| is_dev(n) == prefer_dev) {
         return Some(hit.clone());
     }
@@ -370,6 +410,27 @@ mod tests {
         let candidates: Vec<String> = vec![];
         assert_eq!(pick_preferred_socket(&candidates, true), None);
         assert_eq!(pick_preferred_socket(&candidates, false), None);
+    }
+
+    #[test]
+    fn instance_socket_wins_over_plain_dev() {
+        let candidates = vec![
+            "codeterm-dev.sock".to_string(),
+            "codeterm-dev-exp.sock".to_string(),
+        ];
+        assert_eq!(
+            pick_preferred_socket_for(&candidates, true, Some("codeterm-dev-exp")),
+            Some("codeterm-dev-exp.sock".to_string())
+        );
+    }
+
+    #[test]
+    fn instance_falls_back_to_dev_when_own_absent() {
+        let candidates = vec!["codeterm-dev.sock".to_string()];
+        assert_eq!(
+            pick_preferred_socket_for(&candidates, true, Some("codeterm-dev-exp")),
+            Some("codeterm-dev.sock".to_string())
+        );
     }
 
     #[test]

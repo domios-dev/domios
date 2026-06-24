@@ -170,6 +170,8 @@ netstat -ano | grep :7685 | grep LISTENING | awk '{print $5}'   # PROD — NEVER
 
 Prefer `./build.sh kill` (only touches dev). When unsure, ask the user.
 
+**Non-canonical worktree?** Set `CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port>` before `./build.sh dev` — you get your own `~/.codeterm-dev-<name>` data dir + port, and `./build.sh kill` only touches your instance. Without it all worktrees share `.codeterm-dev`/7686 and `kill` would take down another worktree's dev.
+
 ## Cross-platform
 
 Verify on macOS, Windows, Linux. Never add platform-specific code without handling all targets.
