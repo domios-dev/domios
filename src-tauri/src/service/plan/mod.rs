@@ -2,6 +2,7 @@ pub mod batch;
 pub mod body_files;
 pub mod handoff;
 pub mod hints;
+pub mod ingest;
 pub mod mutations;
 pub mod paths;
 pub mod reminders;

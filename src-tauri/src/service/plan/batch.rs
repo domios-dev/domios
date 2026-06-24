@@ -41,6 +41,10 @@ pub enum BatchOp {
         #[serde(alias = "body_md")]
         body: String,
     },
+    IngestSections {
+        #[serde(alias = "markdown")]
+        body: String,
+    },
     SetTaskSections {
         #[serde(default)]
         client_id: Option<String>,
@@ -393,6 +397,15 @@ impl PlanStore {
                             task.updated_at = now_ms;
                             if !result.task_ids.iter().any(|id| id == &task.id) {
                                 result.task_ids.push(task.id.clone());
+                            }
+                        }
+                        BatchOp::IngestSections { body } => {
+                            let ingest =
+                                super::ingest::ingest_sections_into_plan(&mut working, &body);
+                            for section in ingest.sections {
+                                result
+                                    .ids
+                                    .insert(section.handle.clone(), section.section_id);
                             }
                         }
                         BatchOp::SetTaskSections {

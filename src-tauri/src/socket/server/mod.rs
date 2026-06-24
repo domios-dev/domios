@@ -361,7 +361,7 @@ fn dispatch(
                     "agent.report", "agent.reports",
                     "plan.create", "plan.batch", "plan.handoff.create", "plan.handoff.list", "plan.handoff.show", "plan.handoff.reseed", "plan.list", "plan.get", "plan.spec", "plan.files", "plan.tags", "plan.update", "plan.archive",
                     "plan.delete", "plan.transfer", "plan.disown", "plan.claim",
-                    "plan.section.add", "plan.section.update", "plan.section.rm",
+                    "plan.ingest", "plan.section.add", "plan.section.update", "plan.section.rm",
                     "plan.kinds.set",
                     "plan.task.add", "plan.task.update", "plan.task.close", "plan.task.assign",
                     "plan.task.rm",

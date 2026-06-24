@@ -133,6 +133,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/plans/{id}/transfer", post(plan_routes::transfer))
         .route("/api/plans/{id}/disown", post(plan_routes::disown))
         .route("/api/plans/{id}/claim", post(plan_routes::claim))
+        .route("/api/plans/{id}/ingest", post(plan_routes::ingest))
         .route("/api/plans/{id}/sections", post(plan_routes::section_add))
         .route(
             "/api/plans/{id}/sections/{sid}",

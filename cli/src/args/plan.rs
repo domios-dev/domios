@@ -127,6 +127,12 @@ pub enum PlanAction {
         #[arg(long)]
         key: Option<String>,
     },
+    /// Ingest markdown headings as plan sections
+    Ingest {
+        plan_id: String,
+        #[arg(value_name = "PATH_OR_DASH")]
+        markdown: String,
+    },
     /// Orchestrator handoffs attached to the plan
     Handoff {
         #[command(subcommand)]
@@ -208,6 +214,16 @@ pub enum PlanSectionAction {
         primary: Option<String>,
         #[arg(long)]
         handle: Option<String>,
+    },
+    Set {
+        plan_id: String,
+        section_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        name: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        body: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        body_file: Option<String>,
     },
     Rm {
         plan_id: String,

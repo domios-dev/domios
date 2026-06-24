@@ -111,6 +111,7 @@ pub struct TagFacet {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Section {
     pub id: String,
+    #[serde(alias = "name")]
     pub title: String,
     #[serde(default)]
     pub handle: Option<String>,
