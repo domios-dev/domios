@@ -22,7 +22,7 @@ impl PlanWatcher {
         })?;
         debouncer
             .watcher()
-            .watch(&plans_dir, RecursiveMode::NonRecursive)?;
+            .watch(&plans_dir, RecursiveMode::Recursive)?;
         Ok(Self {
             _debouncer: debouncer,
         })
@@ -63,20 +63,53 @@ fn handle_events(
 }
 
 fn plan_id_from_path(path: &Path) -> Option<String> {
-    if path.extension().and_then(|e| e.to_str()) != Some("json") {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("json") => path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                if s == crate::plan::INBOX_PLAN_FILE_STEM {
+                    crate::plan::INBOX_PLAN_ID.to_string()
+                } else {
+                    s.to_string()
+                }
+            }),
+        Some("md") => plan_id_from_body_path(path),
+        _ => None,
+    }
+}
+
+fn plan_id_from_body_path(path: &Path) -> Option<String> {
+    let file_parent = path.parent()?;
+    let kind = file_parent.file_name()?.to_str()?;
+    if kind != "sections" && kind != "tasks" {
         return None;
     }
-    path.file_stem()
+    file_parent
+        .parent()?
+        .file_name()
         .and_then(|s| s.to_str())
         .filter(|s| !s.is_empty())
         .map(str::to_string)
 }
 
 fn project_from_plan_path(path: &Path) -> Option<std::path::PathBuf> {
-    path.parent()?
-        .parent()?
-        .parent()
-        .map(std::path::Path::to_path_buf)
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("json") => path
+            .parent()?
+            .parent()?
+            .parent()
+            .map(std::path::Path::to_path_buf),
+        Some("md") => path
+            .parent()?
+            .parent()?
+            .parent()?
+            .parent()?
+            .parent()
+            .map(std::path::Path::to_path_buf),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -93,6 +126,12 @@ mod tests {
             plan_id_from_path(&std::path::PathBuf::from("/tmp/pl_1.tmp")),
             None
         );
+        assert_eq!(
+            plan_id_from_path(&std::path::PathBuf::from(
+                "/tmp/project/.codeterm/plans/pl_1/sections/sec_1.md"
+            )),
+            Some("pl_1".into())
+        );
     }
 
     #[test]
@@ -100,6 +139,12 @@ mod tests {
         assert_eq!(
             project_from_plan_path(&std::path::PathBuf::from(
                 "/tmp/project/.codeterm/plans/pl_1.json"
+            )),
+            Some(std::path::PathBuf::from("/tmp/project"))
+        );
+        assert_eq!(
+            project_from_plan_path(&std::path::PathBuf::from(
+                "/tmp/project/.codeterm/plans/pl_1/tasks/task_1.md"
             )),
             Some(std::path::PathBuf::from("/tmp/project"))
         );

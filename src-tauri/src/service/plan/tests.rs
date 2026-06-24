@@ -129,6 +129,176 @@ fn add_section_appends_and_bumps_updated_at() {
 }
 
 #[test]
+fn section_and_task_bodies_roundtrip_through_markdown_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "External".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let section_id = store
+        .add_section(&plan.id, "Spec", "section\nbody", None, 2)
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Implement".into(),
+                kind: "implement".into(),
+                body: "task\nbody".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+
+    let section_path = dir.path().join(format!(
+        ".codeterm/plans/{}/sections/{section_id}.md",
+        plan.id
+    ));
+    let task_path = dir
+        .path()
+        .join(format!(".codeterm/plans/{}/tasks/{task_id}.md", plan.id));
+    let json_path = dir
+        .path()
+        .join(".codeterm/plans")
+        .join(format!("{}.json", plan.id));
+    let raw_json = std::fs::read_to_string(&json_path).unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(&section_path).unwrap(),
+        "section\nbody"
+    );
+    assert_eq!(std::fs::read_to_string(&task_path).unwrap(), "task\nbody");
+    assert!(!raw_json.contains("section\\nbody"));
+    assert!(!raw_json.contains("task\\nbody"));
+
+    store.reload_from_disk(&plan.id).unwrap();
+    let loaded = store.get(&plan.id).unwrap();
+    assert_eq!(loaded.sections[0].body, "section\nbody");
+    assert_eq!(loaded.tasks[0].body, "task\nbody");
+}
+
+#[test]
+fn external_section_body_edit_reloads_into_full_plan() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "External edit".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let section_id = store
+        .add_section(&plan.id, "Spec", "before", None, 2)
+        .unwrap();
+    let section_path = dir.path().join(format!(
+        ".codeterm/plans/{}/sections/{section_id}.md",
+        plan.id
+    ));
+
+    std::fs::write(&section_path, "after direct edit").unwrap();
+    store.reload_from_disk(&plan.id).unwrap();
+
+    let list_plan = store
+        .list_full()
+        .into_iter()
+        .find(|p| p.id == plan.id)
+        .unwrap();
+    assert_eq!(list_plan.sections[0].body, "after direct edit");
+    assert_eq!(
+        store.get(&plan.id).unwrap().sections[0].body,
+        "after direct edit"
+    );
+}
+
+#[test]
+fn inline_body_plan_migrates_to_markdown_files_on_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let project = paths::project_root(dir.path());
+    let plans_dir = paths::plans_dir(&project).unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Legacy inline".into(),
+        project.display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    plan.sections.push(crate::plan::Section {
+        id: "sec_legacy".into(),
+        title: "Spec".into(),
+        body: "inline section".into(),
+        subsections: vec![],
+        canvas: Default::default(),
+    });
+    plan.tasks.push(crate::plan::Task {
+        id: "task_legacy".into(),
+        name: "Task".into(),
+        kind: "implement".into(),
+        model: None,
+        model_rationale: None,
+        status: TaskStatus::Pending,
+        status_label: None,
+        section_ids: vec![],
+        body: "inline task".into(),
+        intent: None,
+        parent_task_id: None,
+        assigned_pane_id: None,
+        taken_by_role: None,
+        peer: None,
+        group: None,
+        canvas: Default::default(),
+        milestones: vec![],
+    });
+    let json_path = plans_dir.join(format!("{}.json", plan.id));
+    std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
+
+    store.scan_project(dir.path()).unwrap();
+
+    let section_path = plans_dir.join(format!("{}/sections/sec_legacy.md", plan.id));
+    let task_path = plans_dir.join(format!("{}/tasks/task_legacy.md", plan.id));
+    assert_eq!(
+        std::fs::read_to_string(section_path).unwrap(),
+        "inline section"
+    );
+    assert_eq!(std::fs::read_to_string(task_path).unwrap(), "inline task");
+    let raw_json = std::fs::read_to_string(json_path).unwrap();
+    assert!(!raw_json.contains("inline section"));
+    assert!(!raw_json.contains("inline task"));
+    let loaded = store.get(&plan.id).unwrap();
+    assert_eq!(loaded.sections[0].body, "inline section");
+    assert_eq!(loaded.tasks[0].body, "inline task");
+}
+
+#[test]
+fn atomic_body_write_leaves_only_final_markdown_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Atomic".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let section_id = store
+        .add_section(&plan.id, "Spec", "body", None, 2)
+        .unwrap();
+    store
+        .update_section(&plan.id, &section_id, None, Some("replacement"), 3)
+        .unwrap();
+
+    let section_dir = dir
+        .path()
+        .join(format!(".codeterm/plans/{}/sections", plan.id));
+    assert_eq!(
+        std::fs::read_to_string(section_dir.join(format!("{section_id}.md"))).unwrap(),
+        "replacement"
+    );
+    assert!(!section_dir.join(format!("{section_id}.md.tmp")).exists());
+}
+
+#[test]
 fn add_task_supports_many_to_many_sections() {
     let (store, id, _) = store_with_task(&["status_update"]);
     let tid = store
