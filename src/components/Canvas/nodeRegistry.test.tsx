@@ -51,7 +51,7 @@ const node = (kind: string): LaidOutNode => ({
 });
 
 test("built-in kinds resolve to a registered renderer (not the fallback)", () => {
-  for (const kind of ["plan", "spec-section", "task", "milestone", "cluster"]) {
+  for (const kind of ["spec", "plan", "task"]) {
     assert(getNodeRenderer(kind) !== fallbackRenderer, `${kind} should be registered`);
   }
 });
@@ -84,7 +84,6 @@ test("note renderer mounts NoteCard; unknown kind falls back without crashing", 
     },
     style: { position: "absolute" },
     lod: "near",
-    viewMode: "document",
   });
   const decisionOut = getNodeRenderer("decision")({
     node: node("decision"),
@@ -97,14 +96,12 @@ test("note renderer mounts NoteCard; unknown kind falls back without crashing", 
     },
     style: { position: "absolute" },
     lod: "near",
-    viewMode: "document",
   });
   const fbOut = getNodeRenderer("mystery")({
     node: node("mystery"),
     model: { id: "n-mystery", kind: "mystery", canvas: { x: 0, y: 0, collapsed: false }, content: "**md**", links: [] },
     style: { position: "absolute" },
     lod: "near",
-    viewMode: "document",
   });
 
   const { host, root } = await render(
