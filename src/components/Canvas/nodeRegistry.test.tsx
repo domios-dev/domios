@@ -85,6 +85,7 @@ test("note renderer mounts NoteCard; unknown kind falls back without crashing", 
     style: { position: "absolute" },
     lod: "near",
       world: "W3",
+      crispScale: 1,
   });
   const decisionOut = getNodeRenderer("decision")({
     node: node("decision"),
@@ -98,6 +99,7 @@ test("note renderer mounts NoteCard; unknown kind falls back without crashing", 
     style: { position: "absolute" },
     lod: "near",
       world: "W3",
+      crispScale: 1,
   });
   const fbOut = getNodeRenderer("mystery")({
     node: node("mystery"),
@@ -105,6 +107,7 @@ test("note renderer mounts NoteCard; unknown kind falls back without crashing", 
     style: { position: "absolute" },
     lod: "near",
       world: "W3",
+      crispScale: 1,
   });
 
   const { host, root } = await render(
