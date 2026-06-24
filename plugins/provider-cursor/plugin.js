@@ -293,10 +293,17 @@ var plugin = {
       token
     );
     if (!agg) return null;
+    const current = cursorApi("GetCurrentPeriodUsage", {}, token);
     const spendCents = numFrom(agg.totalCostCents);
     if (spendCents == null) return null;
+    const planUsage = current && typeof current.planUsage === "object" ? current.planUsage : null;
+    const limitCents = planUsage ? numFrom(planUsage.limit) : null;
+    const remainingCents = planUsage ? numFrom(planUsage.remaining) : null;
+    const includedSpendCents = planUsage ? numFrom(planUsage.includedSpend) : null;
     return JSON.stringify({
-      spendCents,
+      spendCents: includedSpendCents != null ? includedSpendCents : spendCents,
+      limitCents,
+      remainingCents,
       resetsAtMs: periodEnd,
       periodStartMs: periodStart,
       fetchedAtMs: nowMs
@@ -316,6 +323,8 @@ var plugin = {
       weekly_pct: null,
       weekly_resets_at_ms: null,
       spend_cents: data.spendCents,
+      spend_limit_cents: typeof data.limitCents === "number" ? data.limitCents : null,
+      spend_remaining_cents: typeof data.remainingCents === "number" ? data.remainingCents : null,
       spend_resets_at_ms: typeof data.resetsAtMs === "number" ? data.resetsAtMs : null,
       raw_text: String(rawText || "")
     };
