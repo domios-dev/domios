@@ -225,7 +225,10 @@ fn print_task_result(json: bool, val: &Value) {
         let name = task.get("name").and_then(|v| v.as_str()).unwrap_or("?");
         let status = task.get("status").and_then(|v| v.as_str()).unwrap_or("?");
         let plan = val.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
-        let plan_title = val.get("plan_title").and_then(|v| v.as_str()).unwrap_or("?");
+        let plan_title = val
+            .get("plan_title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
         println!("{id}\t{status}\t{plan}\t{name}");
         println!("plan: {plan_title} ({plan})");
         print_label_list("sections", val.get("sections"));
@@ -243,7 +246,10 @@ fn print_task_result(json: bool, val: &Value) {
 }
 
 fn print_label_list(label: &str, value: Option<&Value>) {
-    let items = value.and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let items = value
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     if items.is_empty() {
         println!("{label}: none");
         return;

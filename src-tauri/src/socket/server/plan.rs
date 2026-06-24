@@ -990,4 +990,5 @@ pub(super) fn dispatch(
     }
 }
 
-#[cfg(test)] mod tests;
+#[cfg(test)]
+mod tests;

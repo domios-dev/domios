@@ -290,8 +290,7 @@ impl PlanStore {
                             group,
                         } => {
                             let created = !working.tasks.iter().any(|task| {
-                                task.id == handle
-                                    || task.handle.as_deref() == Some(handle.as_str())
+                                task.id == handle || task.handle.as_deref() == Some(handle.as_str())
                             });
                             let missing_model = model.as_deref().is_none_or(str::is_empty);
                             let missing_why = why.as_deref().is_none_or(str::is_empty);

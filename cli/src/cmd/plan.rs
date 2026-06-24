@@ -5,9 +5,7 @@ use crate::args::plan::{
     PlanLoopAction, PlanMilestoneAction, PlanNoteAction, PlanSectionAction, PlanTaskAction,
 };
 use crate::client::{SocketCallError, SocketClient};
-use crate::cmd::hints::{
-    print_hints, push_hints, task_model_hint, task_sections_hint,
-};
+use crate::cmd::hints::{print_hints, push_hints, task_model_hint, task_sections_hint};
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
 
@@ -171,10 +169,7 @@ fn render_plan_sections(plan: &Value) -> String {
     fn walk(sections: &[Value], depth: usize, out: &mut String) {
         for section in sections {
             let id = section.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-            let title = section
-                .get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
+            let title = section.get("title").and_then(|v| v.as_str()).unwrap_or("?");
             out.push_str(&format!("{}{}\t{}\n", "  ".repeat(depth), id, title));
             if let Some(children) = section.get("subsections").and_then(|v| v.as_array()) {
                 walk(children, depth + 1, out);

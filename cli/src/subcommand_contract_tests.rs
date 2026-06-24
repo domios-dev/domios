@@ -277,11 +277,7 @@ fn plan_task_update_parses_sections() {
         Commands::Plan {
             action:
                 PlanAction::Task {
-                    action:
-                        crate::args::plan::PlanTaskAction::Update {
-                            sections,
-                            ..
-                        },
+                    action: crate::args::plan::PlanTaskAction::Update { sections, .. },
                 },
         } => assert_eq!(sections.as_deref(), Some("sec_a,sec_b")),
         _ => panic!("expected plan task update"),
