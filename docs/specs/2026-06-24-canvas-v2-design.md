@@ -716,3 +716,36 @@ parts are exactly the ones we don't need). NOT a Canvas-v2 blocker; do it after.
   `/api/mem/search`. NO UI yet; validate recall with `evals/mem-recall`. Then add the authoring
   "Related" strip. Features: F1 Plan Recall Index (sidecar), F2 "Related past work" strip,
   F3 Stalled-work recall ("ghosts" — abandoned tasks semantically near active work).
+
+## 22. FOUNDATIONAL RULES (override conflicting earlier sections)
+
+<!-- revision: 4 -->
+
+Two non-negotiable base rules from Andrey. Where earlier sections conflict, THESE win.
+
+### 22.1 Zoom = camera ONLY — never resize/re-render nodes by zoom
+Nodes have a FIXED world-size (Figma model). Zoom pans/scales the CAMERA; a node's size and
+content do NOT change with zoom. This KILLS:
+- continuous counter-scale typography (§16.2) — already removed.
+- AUTO-by-distance view-mode switching (§18.2, §20.2 "zoom = selector") — REMOVED. View mode
+  (Document/Card/Tile) is a MANUAL choice (per-node or global toggle), never triggered by zoom.
+- semantic-zoom-as-LOD (§16, §20 drill-by-zoom) — reinterpreted: "drill in" = pan/zoom the
+  CAMERA to a fixed-size node; the node itself never morphs because of zoom.
+So: pick a view mode manually → the node renders at that fixed size → zoom only moves the camera.
+
+### 22.2 Plan + Spec = ONE sectioned node with per-section OUTPUTS (not two nodes)
+There is ONE node holding the plan/spec, NOT a separate plan-node + spec-node:
+- Header: plan title, owner, coverage.
+- Body: a stack of SECTION blocks; each block = section title + (markdown body, per view mode) +
+  a per-section OUTPUT ANCHOR (вых) on its edge.
+- TASKS connect to those section outputs (banded multi-column, §20.3 still applies to tasks).
+- The spec prose IS the section bodies (no separate spec node; §2.3/§16.1 spec-node is folded in).
+This is ONE coherent sectioned document node with connection points, fixed-size, navigated by
+camera. The портянka concern is handled by: it's ONE structured node (not scattered) + a section
+rail/TOC for in-node navigation (§20.4) + manual Tile/Card mode to compact it when desired.
+
+### 22.3 Open question → brainstorm
+Given 22.1 + 22.2, the WHOLE node-layout system needs (re)designing: how the one sectioned
+node + its task outputs + milestone interiors + standalone tasks + multiple plans + the
+orchestrator region all lay out as fixed-size nodes on a camera-zoomed canvas without overlap,
+without портянki, readable. Brainstormed next (§23).
