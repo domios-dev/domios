@@ -14,6 +14,10 @@ pub mod task_queries;
 pub mod watcher;
 
 #[cfg(test)]
+mod body_file_tests;
+#[cfg(test)]
+mod goal_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod timestamp_tests;

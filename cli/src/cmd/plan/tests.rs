@@ -80,3 +80,27 @@ fn renders_file_manifest() {
     assert!(rendered.contains("Spec\t.codeterm/plans/pl_1/sections/sec_1.md"));
     assert!(rendered.contains("Build\t.codeterm/plans/pl_1/tasks/task_1.md"));
 }
+
+#[test]
+fn render_plan_markdown_prepends_goal_block() {
+    let rendered = render_plan_markdown(&json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "goal": {
+            "vector": "Ship the foundation",
+            "vision": "Markdown vision",
+            "constraints": ["backend only"],
+            "postulates": ["reread plan"]
+        },
+        "sections": [],
+        "tasks": []
+    }));
+    let goal_pos = rendered.find("## Goal").unwrap();
+    let sections_pos = rendered.find("## Sections").unwrap_or(rendered.len());
+    assert!(goal_pos < sections_pos);
+    assert!(rendered.contains("**Vector:** Ship the foundation"));
+    assert!(rendered.contains("- backend only"));
+    assert!(rendered.contains("- reread plan"));
+    assert!(rendered.contains("Markdown vision"));
+}

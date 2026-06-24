@@ -8,10 +8,12 @@
 mod agent;
 mod agent_commands;
 mod bridge;
+mod canvas;
 mod cron;
 mod notification;
 mod pane;
 mod plan;
+mod plan_goal;
 mod plan_handoff;
 mod services;
 mod spec;
@@ -359,7 +361,7 @@ fn dispatch(
                     "agent.list", "agent.hierarchy", "agent.spawn", "agent.set_role",
                     "agent.clear_role", "agent.status", "agent.children", "agent.link",
                     "agent.report", "agent.reports",
-                    "plan.create", "plan.batch", "plan.handoff.create", "plan.handoff.list", "plan.handoff.show", "plan.handoff.reseed", "plan.list", "plan.get", "plan.spec", "plan.files", "plan.tags", "plan.update", "plan.archive",
+                    "plan.create", "plan.batch", "plan.handoff.create", "plan.handoff.list", "plan.handoff.show", "plan.handoff.reseed", "plan.list", "plan.get", "plan.goal.set", "plan.goal.show", "plan.spec", "plan.files", "plan.tags", "plan.update", "plan.archive",
                     "plan.delete", "plan.transfer", "plan.disown", "plan.claim",
                     "plan.ingest", "plan.section.add", "plan.section.update", "plan.section.rm",
                     "plan.kinds.set",
@@ -405,7 +407,8 @@ fn dispatch(
         "pane" | "agents" | "browser" => pane::dispatch(method, &params, mux, app, svc),
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
-        "plan" | "task" | "canvas" => plan::dispatch(method, &params, app, svc),
+        "plan" | "task" => plan::dispatch(method, &params, app, svc),
+        "canvas" => canvas::dispatch(method, &params, app),
         "spec" | "effort" => spec::dispatch(method, &params, app, svc),
         "plugin" => agent_commands::dispatch(method, &params, svc),
         "cron" => cron::dispatch(method, &params, app, svc),

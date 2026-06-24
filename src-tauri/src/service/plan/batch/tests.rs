@@ -400,3 +400,40 @@ fn batch_set_task_sections_is_atomic_when_later_op_fails() {
     assert!(matches!(err, PlanError::TaskNotFound));
     assert!(store.get(&plan_id).unwrap().tasks[0].section_ids.is_empty());
 }
+
+#[test]
+fn batch_set_goal_persists_goal_sidecar() {
+    let (root, store, plan_id) = store_with_plan_root();
+    store
+        .apply_batch(
+            &plan_id,
+            BatchRequest {
+                key: None,
+                ops: vec![BatchOp::SetGoal {
+                    client_id: Some("goal".into()),
+                    vector: "Keep the foundation coherent".into(),
+                    vision: "# Vision\n\nShip the model first.".into(),
+                    constraints: vec!["no frontend".into()],
+                    postulates: vec!["plan get before handoff".into()],
+                }],
+            },
+            2,
+        )
+        .unwrap();
+
+    let plan = store.get(&plan_id).unwrap();
+    let goal = plan.goal.unwrap();
+    assert_eq!(goal.vector, "Keep the foundation coherent");
+    assert_eq!(goal.vision, "# Vision\n\nShip the model first.");
+    assert_eq!(goal.constraints, vec!["no frontend"]);
+    assert_eq!(goal.postulates, vec!["plan get before handoff"]);
+    let sidecar = root
+        .join(".codeterm")
+        .join("plans")
+        .join(&plan_id)
+        .join("goal.md");
+    assert_eq!(
+        std::fs::read_to_string(sidecar).unwrap(),
+        "# Vision\n\nShip the model first."
+    );
+}

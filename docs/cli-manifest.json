@@ -4825,6 +4825,86 @@
           "subcommands": []
         },
         {
+          "name": "goal",
+          "about": "Plan north-star goal",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "constraint",
+                  "positional": false,
+                  "value_name": "CONSTRAINT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "postulate",
+                  "positional": false,
+                  "value_name": "POSTULATE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "vector",
+                  "positional": false,
+                  "value_name": "VECTOR",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "vision",
+                  "positional": false,
+                  "value_name": "VISION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "vision_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "groups",
           "about": "Set task groups (phases)",
           "aliases": [],
@@ -4999,6 +5079,30 @@
               "subcommands": []
             }
           ]
+        },
+        {
+          "name": "ingest",
+          "about": "Ingest markdown headings as plan sections",
+          "aliases": [],
+          "args": [
+            {
+              "name": "markdown",
+              "positional": true,
+              "value_name": "PATH_OR_DASH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         },
         {
           "name": "kinds",
@@ -5707,6 +5811,54 @@
               "about": null,
               "aliases": [],
               "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": false,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
                 {
                   "name": "plan_id",
                   "positional": true,
