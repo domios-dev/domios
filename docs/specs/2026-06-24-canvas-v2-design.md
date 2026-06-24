@@ -813,3 +813,15 @@ The fixed-frame internal scroll (Document body, §23.1) must NOT fight canvas pa
   (no trap). Threshold = the same camera scale that enters Document reading (~>1.0).
 - Never annoy: a gentle hand-off, momentum respected; horizontal pan unaffected; a subtle scroll
   affordance only appears when scroll is active (near). This resolves opus's scroll-vs-pan gate.
+
+### 23.7 Content-LOD on zoom INSIDE the fixed frame (size fixed, content adapts)
+Clarifies §22.1: zoom must DO something to CONTENT (not size). Within a node's FIXED frame, the
+content density adapts to camera zoom:
+- **FAR (zoomed out):** compact — section INDEX only (title · ready · [n] · output dot).
+- **NEAR (zoomed in past a threshold):** the section BODIES (the spec prose / markdown / mermaid)
+  fade in INSIDE the same fixed frame, with §23.6 internal scroll for overflow. The node footprint
+  does NOT change — only what's painted inside.
+This reveals the spec on approach and makes zoom responsive, while honoring "bounds fixed" (§22.1).
+The MANUAL Doc/Card/Tile toggle still overrides the frame SIZE/base; content-LOD layers on top
+(an "Auto" content behavior). FE killed auto entirely — bring back AUTO CONTENT (not auto size).
+Playwright must verify content-LOD at far/mid/near camera zoom (index→bodies) with FIXED node size.
