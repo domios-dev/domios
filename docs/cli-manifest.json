@@ -4812,6 +4812,14 @@
               "default": null,
               "help": null,
               "aliases": []
+            },
+            {
+              "name": "sections",
+              "positional": false,
+              "value_name": "SECTIONS",
+              "default": null,
+              "help": null,
+              "aliases": []
             }
           ],
           "subcommands": []
@@ -6207,6 +6215,14 @@
                   "name": "priority",
                   "positional": false,
                   "value_name": "PRIORITY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "sections",
+                  "positional": false,
+                  "value_name": "SECTIONS",
                   "default": null,
                   "help": null,
                   "aliases": []

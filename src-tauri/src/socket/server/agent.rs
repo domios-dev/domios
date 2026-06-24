@@ -46,6 +46,7 @@ pub(super) fn dispatch(
                 "pane_id": result.pane_id,
                 "tab_id": result.tab_id,
                 "agent": result.agent,
+                "model": result.model,
                 "title": result.title,
                 "description": result.description,
                 "role": result.role,

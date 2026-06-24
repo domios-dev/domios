@@ -1,5 +1,3 @@
-//! `plan.*` JSON-RPC handlers.
-
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
@@ -9,7 +7,7 @@ use crate::multiplexer::types::AgentRole;
 use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus, TaskGroup};
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::task_queries::TaskListFilter;
-use crate::service::plan::{NewTask, PlanError};
+use crate::service::plan::{hints, NewTask, PlanError};
 use crate::service::ServiceState;
 
 use super::{get_string_param, JsonRpcError};
@@ -193,8 +191,15 @@ pub(super) fn dispatch(
             {
                 let _ = store.add_section(&plan.id, "Spec", spec, None, &[], None, None, now);
             }
-            emit_plan_changed(app, &plan.id);
-            Ok(json!({ "plan_id": plan.id, "plan": plan }))
+            let plan = store.get(&plan.id).unwrap_or(plan);
+            let plan_id = plan.id.clone();
+            let empty_sections = plan.sections.is_empty();
+            let mut response = json!({ "plan_id": plan_id.clone(), "plan": plan });
+            if empty_sections {
+                response["_hints"] = json!([hints::plan_sections_hint(&plan_id)]);
+            }
+            emit_plan_changed(app, &plan_id);
+            Ok(response)
         }
 
         "plan.list" => {
@@ -339,6 +344,14 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
             let assign_role = assign_pane.as_deref().and_then(|pane| pane_role(svc, pane));
+            let has_model = body
+                .get("model")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.trim().is_empty());
+            let has_why = body
+                .get("why")
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.trim().is_empty());
             let (plan_id, task_id) = store
                 .add_inbox_task(
                     &project,
@@ -379,7 +392,11 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?;
             }
             emit_plan_changed(app, &plan_id);
-            Ok(json!({ "plan_id": plan_id, "task_id": task_id }))
+            Ok(json!({
+                "plan_id": plan_id.clone(),
+                "task_id": task_id.clone(),
+                "_hints": hints::task_create_hints(&plan_id, &task_id, false, has_model, has_why)
+            }))
         }
 
         "canvas.focus" => {
@@ -612,7 +629,7 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .unwrap_or("implement")
                 .to_string();
-            let section_ids = p
+            let section_ids: Vec<String> = p
                 .and_then(|x| x.get("sections"))
                 .and_then(|v| v.as_str())
                 .map(|s| {
@@ -623,6 +640,15 @@ pub(super) fn dispatch(
                         .collect()
                 })
                 .unwrap_or_default();
+            let has_sections = !section_ids.is_empty();
+            let has_model = p
+                .and_then(|x| x.get("model"))
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.trim().is_empty());
+            let has_why = p
+                .and_then(|x| x.get("why"))
+                .and_then(|v| v.as_str())
+                .is_some_and(|s| !s.trim().is_empty());
             let tid = store
                 .add_task(
                     &id,
@@ -675,7 +701,10 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "task_id": tid }))
+            Ok(json!({
+                "task_id": tid.clone(),
+                "_hints": hints::task_create_hints(&id, &tid, has_sections, has_model, has_why)
+            }))
         }
 
         "plan.task.update" => {
@@ -961,22 +990,4 @@ pub(super) fn dispatch(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn optional_string_field_preserves_missing_vs_null() {
-        let params = json!({
-            "model": "opus",
-            "why": null
-        });
-
-        assert_eq!(optional_string_field(Some(&params), "missing"), None);
-        assert_eq!(optional_string_field(Some(&params), "why"), Some(None));
-        assert_eq!(
-            optional_string_field(Some(&params), "model"),
-            Some(Some("opus"))
-        );
-    }
-}
+#[cfg(test)] mod tests;

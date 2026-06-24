@@ -31,6 +31,8 @@ pub struct TaskDetail {
     pub plan_title: String,
     pub plan_owner: OrchestratorRef,
     pub sections: Vec<TaskSection>,
+    pub siblings: Vec<TaskLabel>,
+    pub subtasks: Vec<TaskLabel>,
     pub task: Task,
 }
 
@@ -38,6 +40,13 @@ pub struct TaskDetail {
 pub struct TaskSection {
     pub id: String,
     pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskLabel {
+    pub id: String,
+    pub name: String,
+    pub status: TaskStatus,
 }
 
 fn canonical_project(project_path: &str) -> String {
@@ -67,6 +76,14 @@ fn task_sections(plan: &Plan, task: &Task) -> Vec<TaskSection> {
     let mut out = vec![];
     collect_sections(&plan.sections, &ids, &mut out);
     out
+}
+
+fn task_label(task: &Task) -> TaskLabel {
+    TaskLabel {
+        id: task.id.clone(),
+        name: task.name.clone(),
+        status: task.status.clone(),
+    }
 }
 
 fn include_task(filter: &TaskListFilter, task: &Task) -> bool {
@@ -179,6 +196,20 @@ impl PlanStore {
                 plan_title: plan.title.clone(),
                 plan_owner: plan.owner.clone(),
                 sections: task_sections(&plan, task),
+                siblings: plan
+                    .tasks
+                    .iter()
+                    .filter(|candidate| {
+                        candidate.id != task.id && candidate.parent_task_id == task.parent_task_id
+                    })
+                    .map(task_label)
+                    .collect(),
+                subtasks: plan
+                    .tasks
+                    .iter()
+                    .filter(|candidate| candidate.parent_task_id.as_deref() == Some(&task.id))
+                    .map(task_label)
+                    .collect(),
                 task: task.clone(),
             });
         }

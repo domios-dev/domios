@@ -284,3 +284,94 @@ fn batch_upsert_and_milestone_key_are_idempotent() {
     assert_eq!(plan.tasks.len(), 1);
     assert_eq!(plan.tasks[0].milestones.len(), 1);
 }
+
+#[test]
+fn batch_set_task_sections_links_existing_task() {
+    let (store, plan_id) = store_with_plan();
+    store
+        .apply_batch(
+            &plan_id,
+            BatchRequest {
+                key: None,
+                ops: vec![BatchOp::UpsertTask {
+                    client_id: None,
+                    handle: "existing".into(),
+                    name: None,
+                    kind: None,
+                    sections: vec![],
+                    status: None,
+                    body: None,
+                    model: None,
+                    why: None,
+                    priority: None,
+                    group: None,
+                }],
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .apply_batch(
+            &plan_id,
+            BatchRequest {
+                key: None,
+                ops: vec![BatchOp::SetTaskSections {
+                    client_id: None,
+                    task: "existing".into(),
+                    sections: vec!["sec_a".into()],
+                }],
+            },
+            3,
+        )
+        .unwrap();
+    assert_eq!(store.get(&plan_id).unwrap().tasks[0].section_ids, ["sec_a"]);
+}
+
+#[test]
+fn batch_set_task_sections_is_atomic_when_later_op_fails() {
+    let (store, plan_id) = store_with_plan();
+    store
+        .apply_batch(
+            &plan_id,
+            BatchRequest {
+                key: None,
+                ops: vec![BatchOp::UpsertTask {
+                    client_id: None,
+                    handle: "existing".into(),
+                    name: None,
+                    kind: None,
+                    sections: vec![],
+                    status: None,
+                    body: None,
+                    model: None,
+                    why: None,
+                    priority: None,
+                    group: None,
+                }],
+            },
+            2,
+        )
+        .unwrap();
+    let err = store
+        .apply_batch(
+            &plan_id,
+            BatchRequest {
+                key: None,
+                ops: vec![
+                    BatchOp::SetTaskSections {
+                        client_id: None,
+                        task: "existing".into(),
+                        sections: vec!["sec_a".into()],
+                    },
+                    BatchOp::SetTaskBody {
+                        task: "missing".into(),
+                        body: "fail".into(),
+                    },
+                ],
+            },
+            3,
+        )
+        .unwrap_err();
+    assert!(matches!(err, PlanError::TaskNotFound));
+    assert!(store.get(&plan_id).unwrap().tasks[0].section_ids.is_empty());
+}
