@@ -1,4 +1,4 @@
-import type { Plan, Task } from "../types";
+import type { Plan, Task, TaskStatus } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
 import { taskFootprint } from "./taskFootprint";
 import type { Point } from "./geometry";
@@ -46,12 +46,21 @@ function creationRanks(tasks: Task[]): Map<string, number> {
   return m;
 }
 
-// Active-core rank among in_progress tasks (priority, then most-recently-active).
+// §35: done/cancelled tasks SINK away (right/outer); everything else is "active"
+// and pulls toward the plan side. in_progress > idle, then priority/recency.
+function isSunk(status: TaskStatus): boolean {
+  return status === "done" || status === "cancelled";
+}
+
+// Active-core rank among NOT-done tasks (in_progress innermost, then idle). idle =
+// pending/blocked so they too occupy the plan-side core, not the history spiral.
 function activeRanks(tasks: Task[]): Map<string, number> {
+  const statusRank = (s: TaskStatus) => (s === "in_progress" ? 0 : 1);
   const active = tasks
-    .filter((t) => t.status === "in_progress")
+    .filter((t) => !isSunk(t.status))
     .sort(
       (a, b) =>
+        statusRank(a.status) - statusRank(b.status) ||
         priorityRank(a.priority) - priorityRank(b.priority) ||
         (b.status_changed_at ?? 0) - (a.status_changed_at ?? 0) ||
         (a.created_at ?? 0) - (b.created_at ?? 0) ||
@@ -60,6 +69,16 @@ function activeRanks(tasks: Task[]): Map<string, number> {
   const m = new Map<string, number>();
   active.forEach((t, i) => m.set(t.id, i));
   return m;
+}
+
+// §35 comet fold: keep the phyllotaxis radius/slot ordering, but mirror each
+// cluster's DIRECTION onto its status half — active (not-done) to the LEFT half
+// (negative-x = toward the plan/eye), sunk (done/cancelled) to the RIGHT/outer.
+// A pure horizontal sign flip → deterministic, append-stable, no jitter.
+function foldedTheta(slot: number, sunk: boolean): number {
+  const base = slot * GOLDEN_ANGLE;
+  const x = sunk ? Math.abs(Math.cos(base)) : -Math.abs(Math.cos(base));
+  return Math.atan2(Math.sin(base), x);
 }
 
 // §2.3 two-zone sunflower index: active core (rank < K) at the eye, everything
@@ -75,6 +94,7 @@ export interface CloudItem {
   w: number;
   h: number;
   slot: number;
+  theta?: number; // placement direction; default slot * GOLDEN_ANGLE (centered sunflower)
 }
 
 export interface PackedItem {
@@ -109,7 +129,7 @@ export function packCloud(items: CloudItem[], gap = TILE_GAP): CloudPack {
     const rho = 0.5 * Math.hypot(it.w, it.h) + gap; // ρ = ½√(w²+h²) + g
     const area = Math.PI * rho * rho; // a = π·ρ²
     let r = Math.sqrt(cumArea / Math.PI); // center-out areal-density radius
-    const theta = it.slot * GOLDEN_ANGLE;
+    const theta = it.theta ?? it.slot * GOLDEN_ANGLE;
     let cx = r * Math.cos(theta);
     let cy = r * Math.sin(theta);
 
@@ -233,12 +253,13 @@ export function layoutTaskCloud(
   // so side = R·√2 → enclosing radius R). Cluster circles never overlap → no two
   // satellites from different parents collide.
   const outerItems: CloudItem[] = clusters.map((cl) => {
+    const theta = foldedTheta(cl.slot, isSunk(cl.task.status));
     if (cl.radius === 0) {
       const p = cl.locals[0];
-      return { id: cl.task.id, w: p.w, h: p.h, slot: cl.slot };
+      return { id: cl.task.id, w: p.w, h: p.h, slot: cl.slot, theta };
     }
     const side = cl.radius * Math.SQRT2;
-    return { id: cl.task.id, w: side, h: side, slot: cl.slot };
+    return { id: cl.task.id, w: side, h: side, slot: cl.slot, theta };
   });
   const pack = packCloud(outerItems, TILE_GAP);
   const byId = new Map(clusters.map((c) => [c.task.id, c]));
