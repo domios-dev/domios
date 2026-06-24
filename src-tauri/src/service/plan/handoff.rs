@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::batch::{BatchOp, BatchRequest};
-use super::{PlanError, PlanStore};
+use super::{heartbeat, PlanError, PlanStore};
 use crate::plan::{AgentRef, Plan, TaskStatus};
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -549,6 +549,8 @@ impl PlanStore {
             };
             let mut out = None;
             self.with_plan(&entry.plan_id, now_ms, |plan| {
+                let heartbeat_plan_id = plan.id.clone();
+                let heartbeat = plan.heartbeat.clone();
                 let Some(element) = plan
                     .elements
                     .iter_mut()
@@ -575,7 +577,8 @@ impl PlanStore {
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
                     .unwrap_or(fallback_resume_prompt);
-                let text = self.prepend_heartbeat_for_plan(&entry.plan_id, &text);
+                let text =
+                    heartbeat::prepend_heartbeat_snapshot(&heartbeat_plan_id, &heartbeat, &text);
                 pending.insert("state".into(), Value::from("session_seen"));
                 pending.insert("target_session_id".into(), Value::from(new_session_id));
                 pending.insert("updated_at".into(), Value::from(now_ms));
