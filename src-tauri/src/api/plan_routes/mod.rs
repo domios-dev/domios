@@ -412,7 +412,7 @@ pub async fn task_add(
                 .map(str::trim)
                 .filter(|x| !x.is_empty())
                 .map(|x| x.to_string())
-                .collect()
+                .collect::<Vec<String>>()
         })
         .unwrap_or_default();
     let section_ids = state
