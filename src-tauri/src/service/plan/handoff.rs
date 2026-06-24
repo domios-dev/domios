@@ -553,11 +553,11 @@ impl PlanStore {
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
                     .unwrap_or(fallback_resume_prompt);
-                pending.insert("state".into(), Value::from("resume_sent"));
+                pending.insert("state".into(), Value::from("session_seen"));
                 pending.insert("target_session_id".into(), Value::from(new_session_id));
                 pending.insert("updated_at".into(), Value::from(now_ms));
-                pending.insert("resume_sent_at".into(), Value::from(now_ms));
-                obj.insert("reseed_state".into(), Value::from("resume_sent"));
+                pending.insert("session_seen_at".into(), Value::from(now_ms));
+                obj.insert("reseed_state".into(), Value::from("session_seen"));
                 out = Some(HandoffResumeSend {
                     plan_id: plan.id.clone(),
                     handoff_id: element.id.clone(),
@@ -571,6 +571,74 @@ impl PlanStore {
             }
         }
         Ok(None)
+    }
+
+    pub fn mark_handoff_resume_sent(
+        &self,
+        plan_id: &str,
+        handoff_id: &str,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let Some(element) = plan
+                .elements
+                .iter_mut()
+                .find(|element| element.id == handoff_id && element.kind == "handoff")
+            else {
+                return Ok(());
+            };
+            let Some(obj) = element.content.as_object_mut() else {
+                return Ok(());
+            };
+            let Some(pending) = obj
+                .get_mut("reseed_pending")
+                .and_then(|v| v.as_object_mut())
+            else {
+                return Ok(());
+            };
+            if pending.get("state").and_then(|v| v.as_str()) != Some("session_seen") {
+                return Ok(());
+            }
+            pending.insert("state".into(), Value::from("resume_sent"));
+            pending.insert("resume_sent_at".into(), Value::from(now_ms));
+            pending.insert("updated_at".into(), Value::from(now_ms));
+            obj.insert("reseed_state".into(), Value::from("resume_sent"));
+            Ok(())
+        })
+    }
+
+    pub fn ack_handoff_resume(
+        &self,
+        plan_id: &str,
+        handoff_id: &str,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let Some(element) = plan
+                .elements
+                .iter_mut()
+                .find(|element| element.id == handoff_id && element.kind == "handoff")
+            else {
+                return Ok(());
+            };
+            let Some(obj) = element.content.as_object_mut() else {
+                return Ok(());
+            };
+            let Some(pending) = obj
+                .get_mut("reseed_pending")
+                .and_then(|v| v.as_object_mut())
+            else {
+                return Ok(());
+            };
+            if pending.get("state").and_then(|v| v.as_str()) != Some("resume_sent") {
+                return Ok(());
+            }
+            pending.insert("state".into(), Value::from("acked"));
+            pending.insert("acked_at".into(), Value::from(now_ms));
+            pending.insert("updated_at".into(), Value::from(now_ms));
+            obj.insert("reseed_state".into(), Value::from("acked"));
+            Ok(())
+        })
     }
 }
 
@@ -787,11 +855,22 @@ mod tests {
             .unwrap()
             .is_none());
         let detail = store.show_handoff(&plan_id, None).unwrap();
-        assert_eq!(detail.content["reseed_state"], "resume_sent");
+        assert_eq!(detail.content["reseed_state"], "session_seen");
         assert_eq!(
             detail.content["reseed_pending"]["target_session_id"],
             "new-session"
         );
+        store
+            .mark_handoff_resume_sent(&plan_id, &created.handoff_id, 70)
+            .unwrap();
+        let detail = store.show_handoff(&plan_id, None).unwrap();
+        assert_eq!(detail.content["reseed_state"], "resume_sent");
+        store
+            .ack_handoff_resume(&plan_id, &created.handoff_id, 80)
+            .unwrap();
+        let detail = store.show_handoff(&plan_id, None).unwrap();
+        assert_eq!(detail.content["reseed_state"], "acked");
+        assert_eq!(detail.content["reseed_pending"]["state"], "acked");
     }
 
     #[test]
