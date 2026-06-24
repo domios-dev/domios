@@ -56,6 +56,34 @@ fn reload_from_disk_replaces_memory_and_index() {
 }
 
 #[test]
+fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Original".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("abc"),
+    );
+    store.save(&mut p, 1000).unwrap();
+    let held = store.plans.read().get(&p.id).cloned().unwrap();
+
+    let path = dir
+        .path()
+        .join(".codeterm/plans")
+        .join(format!("{}.json", p.id));
+    let mut edited: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    edited.title = "Edited".into();
+    edited.updated_at = 2000;
+    std::fs::write(&path, serde_json::to_string_pretty(&edited).unwrap()).unwrap();
+
+    store.reload_from_disk(&p.id).unwrap();
+
+    let current = store.plans.read().get(&p.id).cloned().unwrap();
+    assert!(std::sync::Arc::ptr_eq(&held, &current));
+    assert_eq!(held.lock().title, "Edited");
+}
+
+#[test]
 fn scan_project_loads_plan_written_directly_to_disk() {
     let dir = tempfile::tempdir().unwrap();
     let project = paths::project_root(dir.path());
