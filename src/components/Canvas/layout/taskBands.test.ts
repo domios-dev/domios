@@ -58,8 +58,9 @@ ok("task grid width within maxCols*colPitch", taskRight - taskLeft <= S.maxTaskC
 const taskTop = Math.min(...taskNodes.map((n) => n.box.y));
 const taskBottom = Math.max(...taskNodes.map((n) => n.box.y + n.box.height));
 const bandedH = taskBottom - taskTop;
-// The real портянka: 38 cards stacked one-per-row with inter-card gaps.
-const singleColH = 38 * (S.taskMinHeight + S.taskGapY);
+// The real портянka: 38 Document cells (taskDocH) stacked one-per-row with gaps.
+// Banding into <=3 cols must cut that by well over a third.
+const singleColH = 38 * (S.taskDocH + S.taskGapY);
 ok(`banded height (${Math.round(bandedH)}) far below single-column (${singleColH})`, bandedH < singleColH * 0.6);
 
 // No task node overlaps another (top-down non-overlap sweep).

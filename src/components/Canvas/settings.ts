@@ -58,12 +58,21 @@ export interface CanvasLayoutSettings {
   taskColGap: number;
   bandPad: number;
 
-  // Discrete view-mode frames (§18): fixed, designed heights — NOT content-fit.
-  // Card = title + badges + 1–2 line digest; Tile = title + glyph + counts.
-  tileHeight: number;
-  planCardHeight: number;
-  specCardHeight: number;
-  taskCardHeight: number;
+  // FIXED task-cell size per MANUAL mode (§23.2) — content-independent (§22.1).
+  // Tile = handle + status; Card = + digest + step thread; Document = full body +
+  // interior step CARDS (the only +interior growth, bounded by stepsMaxVisible).
+  taskTileW: number;
+  taskTileH: number;
+  taskCardW: number;
+  taskCardH: number;
+  taskDocW: number;
+  taskDocH: number;
+
+  // Thread & Coil step cards (§16.9) — INTERIOR to a Document task cell.
+  stepCardH: number;
+  stepGapY: number;
+  stepsHeaderGap: number;
+  stepsMaxVisible: number;
 
   // Subtask nesting (parent_task_id → children grouped under the parent).
   subtaskIndentX: number;
@@ -134,10 +143,17 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   taskColGap: 28,
   bandPad: 28,
 
-  tileHeight: 56,
-  planCardHeight: 132,
-  specCardHeight: 92,
-  taskCardHeight: 104,
+  taskTileW: 200,
+  taskTileH: 72,
+  taskCardW: 260,
+  taskCardH: 120,
+  taskDocW: 260,
+  taskDocH: 320,
+
+  stepCardH: 58,
+  stepGapY: 8,
+  stepsHeaderGap: 8,
+  stepsMaxVisible: 6,
 
   subtaskIndentX: 22,
   subtaskGapY: 12,
@@ -190,6 +206,22 @@ export function planModeHeight(mode: "document" | "card" | "tile", s: CanvasLayo
   if (mode === "tile") return s.planTileH;
   if (mode === "card") return s.planCardH;
   return s.planDocH;
+}
+
+// Interior height of a Document task cell's step CARDS (§16.9) — bounded: past
+// stepsMaxVisible the step area scrolls inside the cell, so height never runs away.
+export function stepsInteriorHeight(count: number, s: CanvasLayoutSettings): number {
+  if (count <= 0) return 0;
+  const visible = Math.min(count, s.stepsMaxVisible);
+  return s.stepsHeaderGap + visible * s.stepCardH + (visible - 1) * s.stepGapY;
+}
+
+// FIXED task-cell size per MANUAL mode (§23.2). Only Document grows — and only by
+// the bounded step interior; Tile/Card are content-independent fixed frames.
+export function taskCellSize(mode: "document" | "card" | "tile", stepCount: number, s: CanvasLayoutSettings): { w: number; h: number } {
+  if (mode === "tile") return { w: s.taskTileW, h: s.taskTileH };
+  if (mode === "card") return { w: s.taskCardW, h: s.taskCardH };
+  return { w: s.taskDocW, h: s.taskDocH + stepsInteriorHeight(stepCount, s) };
 }
 
 // Stable rail-row output-anchor Y offsets (local, from node top) for N sections.
