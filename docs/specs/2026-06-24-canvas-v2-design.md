@@ -457,3 +457,41 @@ OWNED by the task (4px stem, never floating), grouped by kind, coiling for loops
 - Same "never hide info, add on approach" grammar as the doc nodes — one consistent canvas
   language. Rejected alternatives: radial bloom (sequence unreadable), horizontal timeline bar
   (fights the column packer).
+
+## 17. Externalized bodies — large text lives in editable .md files (not in JSON)
+
+<!-- revision: 2 -->
+
+Section/task bodies can be LARGE. Storing them inline in the plan JSON makes them painful to
+hand-edit (escaped newlines, one giant line) and forces a CLI for every text tweak. Instead,
+**JSON holds structure; bodies live as sibling .md files**, wired under the hood.
+
+### 17.1 Layout
+```
+<project>/.codeterm/plans/<plan_id>.json                 # structure: ids, titles, status,
+                                                          #   refs, tasks meta, milestones, canvas
+<project>/.codeterm/plans/<plan_id>/sections/<section_id>.md   # section body markdown
+<project>/.codeterm/plans/<plan_id>/tasks/<task_id>.md          # task body markdown
+```
+- Convention-based (daemon derives the path from `plan_id` + `section_id`/`task_id`) — no
+  brittle absolute paths stored. The JSON section/task omits the inline `body` (or keeps an
+  empty marker); the daemon HYDRATES it from the .md on read and PERSISTS to the .md on write.
+
+### 17.2 Wiring (single-writer + watcher, reuse what exists)
+- **Write path:** any `plan section update` / `plan task update` (CLI/API) writes the body to
+  its .md file (atomic temp+rename) and touches the JSON; same single-writer discipline.
+- **Edit path (the point):** open the .md in vim/VSCode, save → the existing `.codeterm/plans`
+  file-watcher (Rex's rescan/watch work) sees the change, reloads that body, re-hydrates the
+  plan, and emits `plan-changed` → the canvas updates live. **No CLI needed to edit text.**
+- **Read path:** `plan get` / the API `?full=1` hydrate bodies from files so consumers see the
+  full content unchanged.
+
+### 17.3 Migration
+No backward-compat needed (personal project). On load, if a plan still has inline bodies, the
+daemon migrates them out to .md files once and clears the inline field. New plans write
+externalized from the start.
+
+### 17.4 Scope
+Applies to **section bodies** (the spec/plan prose — the large ones) and **task bodies**.
+Small fields (title, status, model, ids, milestone text, refs) stay inline in JSON — they're
+not the editing pain. Milestone text stays inline (short, machine-appended by reports).
