@@ -1289,3 +1289,25 @@ below in_progress in its band (position assert, not opacity); card area tracks v
 strides render as a connected snake of circles, bloom on zoom; canvas text is selectable + copyable; section
 click highlights/ frames the right tasks; handoff renders on the timeline lane; camera transform byte-identical
 after any live data mutation.
+
+### 32.10 Task CLOUD to the right of the plan (fixes the task портянka) + smaller tasks
+
+<!-- revision: 10 -->
+
+Andrey live review: tasks stack into a kilometer-tall single COLUMN again (a портянka). Because we work
+in WORLDS (zoom-drill into a task for detail), tasks DON'T need to be big up front.
+
+- **Tasks are SMALLER than SPEC/PLAN nodes** — base footprint ≈ ½ the section-node size (at least 2× smaller),
+  bounded growth per §32.4 still applies (a heavy task is bigger, but the BASE is small). Detail comes from
+  zoom-drill (§26/§32.5), not from a large default card. So birds-eye shows many small task tiles, readable
+  as a constellation, not a wall of big boxes.
+- **Layout = a CLOUD to the RIGHT of the PLAN node**, not a tall single column. Tasks pack as a 2D cluster
+  (multi-column flow filling a bounded region right of the plan), edges from plan section OUTPUT dots into the
+  cloud. The cloud's VERTICAL axis encodes priority/status (composes with §32.3): **top of the cloud = highest
+  priority + in_progress/active; bottom = done/cancelled** (done sinks to the bottom of the cloud). So the eye
+  lands on live high-priority work at the top-right, history settles at the bottom.
+- Deterministic + stable: cloud packing keyed by (statusShelf, priority, status_changed_at, createdAt, id);
+  a task changing status animates to its new vertical slot (~300ms), no global reshuffle, no jitter. Bounded
+  region height; overflow flows into additional columns rightward, never an infinite vertical strip.
+- Composes with §20 worlds/banded layout (this IS the banded cloud done right), §32.4 size, §32.3 hierarchy,
+  §31 (camera never moves on live repack).
