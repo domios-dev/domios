@@ -36,3 +36,15 @@ fn create_body_deserializes() {
     assert_eq!(body.title, "T");
     assert_eq!(body.kinds.as_deref(), Some("a,b"));
 }
+
+#[test]
+fn optional_string_field_preserves_missing_vs_null() {
+    let body = serde_json::json!({
+        "model": "opus",
+        "why": null
+    });
+
+    assert_eq!(optional_string_field(&body, "missing"), None);
+    assert_eq!(optional_string_field(&body, "why"), Some(None));
+    assert_eq!(optional_string_field(&body, "model"), Some(Some("opus")));
+}

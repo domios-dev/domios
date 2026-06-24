@@ -51,6 +51,10 @@ fn emit_plan_changed(state: &AppState, plan_id: &str) {
     );
 }
 
+fn optional_string_field<'a>(body: &'a Value, key: &str) -> Option<Option<&'a str>> {
+    body.get(key).map(|v| v.as_str())
+}
+
 fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
     raw.split(',')
         .map(str::trim)
@@ -505,40 +509,14 @@ pub async fn task_add(
     Ok(Json(serde_json::json!({ "task_id": tid })))
 }
 
-#[derive(Deserialize, Default)]
-pub(crate) struct TaskUpdateBody {
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(rename = "type", default)]
-    kind: Option<String>,
-    #[serde(default)]
-    model: Option<String>,
-    #[serde(default)]
-    why: Option<String>,
-    #[serde(default)]
-    status: Option<String>,
-    #[serde(default)]
-    status_label: Option<String>,
-    #[serde(default)]
-    body: Option<String>,
-    #[serde(default)]
-    intent: Option<String>,
-    #[serde(default)]
-    sections: Option<String>,
-    #[serde(default)]
-    parent_task_id: Option<Option<String>>,
-    #[serde(default)]
-    group: Option<String>,
-}
-
 pub async fn task_update(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
-    Json(body): Json<TaskUpdateBody>,
+    Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let section_ids = body.sections.as_ref().map(|s| {
+    let section_ids = body.get("sections").and_then(|v| v.as_str()).map(|s| {
         s.split(',')
             .map(str::trim)
             .filter(|x| !x.is_empty())
@@ -551,17 +529,17 @@ pub async fn task_update(
         .update_task(
             &id,
             &tid,
-            body.name.as_deref(),
-            body.kind.as_deref(),
-            Some(body.model.as_deref()),
-            Some(body.why.as_deref()),
-            body.status.as_deref(),
-            Some(body.status_label.as_deref()),
-            body.body.as_deref(),
-            Some(body.intent.as_deref()),
+            body.get("name").and_then(|v| v.as_str()),
+            body.get("type").and_then(|v| v.as_str()),
+            optional_string_field(&body, "model"),
+            optional_string_field(&body, "why"),
+            body.get("status").and_then(|v| v.as_str()),
+            optional_string_field(&body, "status_label"),
+            body.get("body").and_then(|v| v.as_str()),
+            optional_string_field(&body, "intent"),
             section_ids,
-            body.parent_task_id.as_ref().map(|p| p.as_deref()),
-            body.group.as_ref().map(|s| Some(s.as_str())),
+            body.get("parent_task_id").map(|v| v.as_str()),
+            optional_string_field(&body, "group"),
             epoch_ms(),
         )
         .map_err(plan_err)?;

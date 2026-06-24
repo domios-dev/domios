@@ -558,6 +558,49 @@ fn update_task_sets_and_clears_parent_task_id() {
 }
 
 #[test]
+fn update_task_preserves_model_when_patching_parent() {
+    let (store, id, parent_id) = store_with_task(&["status_update"]);
+    let child_id = store
+        .add_task(
+            &id,
+            NewTask {
+                name: "Child".into(),
+                kind: "implement".into(),
+                model: Some("opus".into()),
+                model_rationale: Some("deep reasoning".into()),
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+
+    store
+        .update_task(
+            &id,
+            &child_id,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(Some(parent_id.as_str())),
+            None,
+            21,
+        )
+        .unwrap();
+
+    let plan = store.get(&id).unwrap();
+    let child = plan.tasks.iter().find(|t| t.id == child_id).unwrap();
+    assert_eq!(child.parent_task_id.as_deref(), Some(parent_id.as_str()));
+    assert_eq!(child.model.as_deref(), Some("opus"));
+    assert_eq!(child.model_rationale.as_deref(), Some("deep reasoning"));
+}
+
+#[test]
 fn close_task_sets_done_and_optional_milestone() {
     let (store, id, tid) = store_with_task(&["status_update"]);
     store
