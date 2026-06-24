@@ -170,6 +170,26 @@ export interface OverflowHit {
   overflowX: number;
 }
 
+export interface ContentBoundsHit {
+  testid: string;
+  id: string | null;
+  childTestid: string;
+  reason: string;
+}
+
+export interface FillHit {
+  testid: string;
+  id: string | null;
+  ratio: number;
+}
+
+export interface EdgeEndpointHit {
+  path: string;
+  endpoint: "start" | "end";
+  x: number;
+  y: number;
+}
+
 // Content must size to its box (refinement §3): no card clips its content.
 // Spec node scrolls by design, so it is excluded.
 export async function findOverflows(page: Page, tolerancePx = 2): Promise<OverflowHit[]> {
@@ -215,11 +235,191 @@ export async function captureRegions(page: Page, label: string): Promise<string[
   return files;
 }
 
+export async function canvasScale(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const view = document.querySelector('[data-testid="canvas-view"]');
+    const world = Array.from(view?.querySelectorAll<HTMLElement>("div") ?? []).find((el) =>
+      (el.getAttribute("style") ?? "").includes("transform: translate"),
+    );
+    const transform = world ? getComputedStyle(world).transform : null;
+    if (!transform || transform === "none") return 1;
+    const matrix = transform.match(/^matrix\(([^)]+)\)$/);
+    if (matrix) {
+      const [a, b] = matrix[1].split(",").map((v) => Number(v.trim()));
+      return Math.sqrt(a * a + b * b) || 1;
+    }
+    const scale = transform.match(/scale\(([^)]+)\)/);
+    return scale ? Number(scale[1]) : 1;
+  });
+}
+
+export async function setCanvasScale(page: Page, targetScale: number): Promise<void> {
+  for (let i = 0; i < 4; i++) {
+    const current = await canvasScale(page);
+    if (Math.abs(current - targetScale) < 0.015) return;
+    await page.evaluate(({ currentScale, nextScale }) => {
+      const view = document.querySelector('[data-testid="canvas-view"]');
+      const target = view?.querySelector("div");
+      if (!target) return;
+      const r = target.getBoundingClientRect();
+      const deltaY = -Math.log(nextScale / currentScale) / 0.0016;
+      target.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaY,
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+          clientX: r.left + r.width / 2,
+          clientY: r.top + r.height / 2,
+        }),
+      );
+    }, { currentScale: current, nextScale: targetScale });
+    await page.waitForTimeout(180);
+  }
+}
+
+export async function findContentBoundsIssues(page: Page, tolerancePx = 2): Promise<ContentBoundsHit[]> {
+  return page.$$eval(
+    '[data-testid="canvas-spec-section"], [data-testid="canvas-task-card"]',
+    (nodes, tolerance) => {
+      const hits: ContentBoundsHit[] = [];
+      const within = (a: DOMRect, b: DOMRect) =>
+        a.left + tolerance >= b.left &&
+        a.top + tolerance >= b.top &&
+        a.right - tolerance <= b.right &&
+        a.bottom - tolerance <= b.bottom;
+      for (const node of nodes) {
+        const host = node as HTMLElement;
+        const hostRect = host.getBoundingClientRect();
+        const id = host.getAttribute("data-section-id") ?? host.getAttribute("data-task-id");
+        const candidates = Array.from(
+          host.querySelectorAll<HTMLElement>(
+            '[data-testid="canvas-spec-section-body"], [data-testid="canvas-task-body"], [data-testid="canvas-task-intent"], [data-testid="canvas-task-why"]',
+          ),
+        );
+        for (const child of candidates) {
+          if ((child.textContent ?? "").trim().length === 0) continue;
+          const rect = child.getBoundingClientRect();
+          if (rect.height <= 0 || rect.width <= 0) {
+            hits.push({
+              testid: host.dataset.testid ?? "",
+              id,
+              childTestid: child.dataset.testid ?? "",
+              reason: "zero-size-text-block",
+            });
+            continue;
+          }
+          if (!within(rect, hostRect)) {
+            hits.push({
+              testid: host.dataset.testid ?? "",
+              id,
+              childTestid: child.dataset.testid ?? "",
+              reason: "content-outside-node",
+            });
+          }
+        }
+      }
+      return hits;
+    },
+    tolerancePx,
+  );
+}
+
+export async function findUnderfilledNodes(page: Page, minRatio = 0.004): Promise<FillHit[]> {
+  return page.$$eval(
+    '[data-testid="canvas-plan-node"], [data-testid="canvas-spec-section"], [data-testid="canvas-task-card"]',
+    (nodes, threshold) => {
+      const hits: FillHit[] = [];
+      for (const node of nodes) {
+        const host = node as HTMLElement;
+        const box = host.getBoundingClientRect();
+        const boxArea = Math.max(1, box.width * box.height);
+        const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT);
+        let textArea = 0;
+        while (walker.nextNode()) {
+          const text = walker.currentNode;
+          if ((text.textContent ?? "").trim().length === 0) continue;
+          const range = document.createRange();
+          range.selectNodeContents(text);
+          for (const rect of Array.from(range.getClientRects())) {
+            textArea += Math.max(0, rect.width) * Math.max(0, rect.height);
+          }
+          range.detach();
+        }
+        const ratio = textArea / boxArea;
+        if (ratio < threshold) {
+          hits.push({
+            testid: host.dataset.testid ?? "",
+            id: host.getAttribute("data-plan-id") ?? host.getAttribute("data-section-id") ?? host.getAttribute("data-task-id"),
+            ratio,
+          });
+        }
+      }
+      return hits;
+    },
+    minRatio,
+  );
+}
+
+export async function findEdgeEndpointIssues(page: Page, tolerancePx = 3): Promise<EdgeEndpointHit[]> {
+  return page.$$eval(
+    '[data-testid="canvas-view"] svg.pointer-events-none path',
+    (paths, tolerance) => {
+      const anchors = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-testid="canvas-plan-row"], [data-testid="canvas-spec-section"], [data-testid="canvas-task-card"], [data-testid="canvas-milestone-bubble"]',
+        ),
+      ).map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          left: r.left - tolerance,
+          top: r.top - tolerance,
+          right: r.right + tolerance,
+          bottom: r.bottom + tolerance,
+        };
+      });
+      const circles = Array.from(document.querySelectorAll<SVGCircleElement>('[data-testid="canvas-view"] svg.pointer-events-none circle')).map((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          left: r.left - tolerance,
+          top: r.top - tolerance,
+          right: r.right + tolerance,
+          bottom: r.bottom + tolerance,
+        };
+      });
+      const boxes = anchors.concat(circles);
+      const inside = (x: number, y: number) => boxes.some((b) => x >= b.left && x <= b.right && y >= b.top && y <= b.bottom);
+      const hits: EdgeEndpointHit[] = [];
+      for (const path of paths as SVGPathElement[]) {
+        const length = path.getTotalLength();
+        if (!Number.isFinite(length) || length <= 0) continue;
+        const start = path.getPointAtLength(0);
+        const end = path.getPointAtLength(length);
+        const ctm = path.getScreenCTM();
+        if (!ctm) continue;
+        const startScreen = new DOMPoint(start.x, start.y).matrixTransform(ctm);
+        const endScreen = new DOMPoint(end.x, end.y).matrixTransform(ctm);
+        if (!inside(startScreen.x, startScreen.y)) {
+          hits.push({ path: path.getAttribute("d") ?? "", endpoint: "start", x: startScreen.x, y: startScreen.y });
+        }
+        if (!inside(endScreen.x, endScreen.y)) {
+          hits.push({ path: path.getAttribute("d") ?? "", endpoint: "end", x: endScreen.x, y: endScreen.y });
+        }
+      }
+      return hits;
+    },
+    tolerancePx,
+  );
+}
+
 // One audit pass: capture + assert invariants. Returns counts for loop logging.
 export interface AuditResult {
   nodes: number;
   overlaps: OverlapHit[];
   overflows: OverflowHit[];
+  contentBounds: ContentBoundsHit[];
+  underfilled: FillHit[];
+  edgeEndpoints: EdgeEndpointHit[];
   board: string;
 }
 
@@ -228,11 +428,17 @@ export async function auditCanvas(page: Page, label: string): Promise<AuditResul
   await captureRegions(page, label);
   const overlaps = await findOverlaps(page);
   const overflows = await findOverflows(page);
+  const contentBounds = await findContentBoundsIssues(page);
+  const underfilled = await findUnderfilledNodes(page);
+  const edgeEndpoints = await findEdgeEndpointIssues(page);
   const planNodes = await collectBoxes(page, "canvas-plan-node");
-  return { nodes: planNodes.length, overlaps, overflows, board };
+  return { nodes: planNodes.length, overlaps, overflows, contentBounds, underfilled, edgeEndpoints, board };
 }
 
 export function assertClean(result: AuditResult): void {
   expect(result.overlaps, `overlapping cards: ${JSON.stringify(result.overlaps.map((h) => [h.a.testid, h.b.testid, Math.round(h.area)]))}`).toHaveLength(0);
   expect(result.overflows, `clipped/overflowing cards: ${JSON.stringify(result.overflows)}`).toHaveLength(0);
+  expect(result.contentBounds, `bad content bounds: ${JSON.stringify(result.contentBounds)}`).toHaveLength(0);
+  expect(result.underfilled, `underfilled nodes: ${JSON.stringify(result.underfilled)}`).toHaveLength(0);
+  expect(result.edgeEndpoints, `edge endpoints outside anchors: ${JSON.stringify(result.edgeEndpoints)}`).toHaveLength(0);
 }
