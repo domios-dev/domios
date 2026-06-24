@@ -133,9 +133,9 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
 #[test]
 fn scan_project_loads_plan_written_directly_to_disk() {
     let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
     let project = paths::project_root(dir.path());
     let plans_dir = paths::plans_dir(&project).unwrap();
-    let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(
         "Persisted".into(),
         project.display().to_string(),
@@ -469,9 +469,9 @@ fn external_section_body_edit_reloads_into_full_plan() {
 #[test]
 fn inline_body_plan_migrates_to_markdown_files_on_load() {
     let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
     let project = paths::project_root(dir.path());
     let plans_dir = paths::plans_dir(&project).unwrap();
-    let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(
         "Legacy inline".into(),
         project.display().to_string(),
