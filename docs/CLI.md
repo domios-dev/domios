@@ -808,6 +808,7 @@ Search across mem_items (FTS5 + hybrid scoring)
 - `--area` — Filter by area tag
 - `--kind` — Filter by kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary
 - `--limit` — Max results (default 5)
+- `--project` — Project path whose in-project plan index should be searched too
 - `<query>` — Query text
 - `--rerank` — Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY)
 - `--scope` — Restrict to global / workspace / workspace:<id>
@@ -1502,6 +1503,13 @@ Record task progress with one atomic plan write
 - `--steps`
 - `--task`
 - `--upsert_task`
+
+#### `codeterm plan related`
+
+Show structural neighbors for a plan/spec/task/section unit
+
+- `--depth`
+- `--id`
 
 #### `codeterm plan section`
 

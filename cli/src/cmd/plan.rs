@@ -335,6 +335,10 @@ fn run_plan(
             return Ok(None);
         }
 
+        PlanAction::Related { id, depth } => {
+            call(client, "plan.related", json!({ "id": id, "depth": depth }))
+        }
+
         PlanAction::Groups { action } => match action {
             PlanGroupsAction::Set { plan_id, groups } => call(
                 client,

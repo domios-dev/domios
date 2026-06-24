@@ -192,6 +192,7 @@ fn mem_search_relays_to_search_endpoint_with_query() {
             kind: Some("fact".into()),
             area: None,
             scope: None,
+            project: None,
             limit: 5,
             rerank: false,
         },
