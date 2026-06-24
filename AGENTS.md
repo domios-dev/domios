@@ -315,6 +315,8 @@ build:    build / CI
 
 No `[Tag]`, `[Idea]`, `[Bug]` brackets — just the scope prefix.
 
+**Linking work to issues:** if a PR/commit fully resolves an issue, put `Closes #N` (or `Fixes #N`) in the PR body — GitHub auto-closes it on merge to `master`, and the release workflow also closes such refs on publish ("Released in vX.Y.Z"). For partial work, reference it as bare `#N` so it stays open.
+
 ## Documentation
 
 Bump the `<!-- revision: N -->` tag at the bottom of any doc you change.
