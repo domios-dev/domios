@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -6,7 +7,7 @@ use serde_json::Value;
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::{
     AgentRef, CanvasElement, ElementCanvas, Milestone, MilestoneKind, Task, TaskPriority,
-    TaskStatus,
+    TaskStatus, TransferRecord,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -68,6 +69,22 @@ pub enum BatchOp {
         x: Option<f64>,
         #[serde(default)]
         y: Option<f64>,
+    },
+    AddHandoff {
+        #[serde(default)]
+        client_id: Option<String>,
+        #[serde(default)]
+        mode: Option<String>,
+        #[serde(default)]
+        content: Value,
+        #[serde(alias = "body_md", default)]
+        body: String,
+        #[serde(default)]
+        task: Option<String>,
+        #[serde(default)]
+        from: Option<AgentRef>,
+        #[serde(default)]
+        to: Option<AgentRef>,
     },
     Link {
         to: String,
@@ -143,6 +160,16 @@ fn milestone_key(op_key: Option<&str>, request_key: Option<&str>) -> Option<Stri
     op_key.or(request_key).map(|key| format!("key:{key}"))
 }
 
+fn next_handoff_seq(plan: &crate::plan::Plan) -> u64 {
+    plan.elements
+        .iter()
+        .filter(|element| element.kind == "handoff")
+        .filter_map(|element| element.content.get("seq").and_then(|v| v.as_u64()))
+        .max()
+        .unwrap_or(0)
+        + 1
+}
+
 impl PlanStore {
     pub fn apply_batch(
         &self,
@@ -153,6 +180,7 @@ impl PlanStore {
         self.with_plan(plan_id, now_ms, |plan| {
             let mut working = plan.clone();
             let mut result = BatchResult::default();
+            let mut pending_markdown_writes: Vec<(PathBuf, String)> = Vec::new();
             for op in request.ops {
                 match op {
                     BatchOp::UpsertTask {
@@ -346,6 +374,91 @@ impl PlanStore {
                         }
                         result.element_ids.push(id);
                     }
+                    BatchOp::AddHandoff {
+                        client_id,
+                        mode,
+                        mut content,
+                        body,
+                        task,
+                        from,
+                        to,
+                    } => {
+                        let id = gen_id("el");
+                        let seq = next_handoff_seq(&working);
+                        let body_path = super::body_files::handoff_path(&working, &id)
+                            .map_err(|e| PlanError::Io(e.to_string()))?;
+                        pending_markdown_writes.push((body_path, body));
+                        let relative_body_path =
+                            format!(".codeterm/plans/{}/handoffs/{}.md", working.id, id);
+                        if !content.is_object() {
+                            content = serde_json::json!({});
+                        }
+                        if let Some(obj) = content.as_object_mut() {
+                            obj.insert("seq".into(), Value::from(seq));
+                            obj.insert(
+                                "mode".into(),
+                                Value::from(mode.unwrap_or_else(|| "record".into())),
+                            );
+                            obj.insert("plan_id".into(), Value::from(working.id.clone()));
+                            obj.insert("plan_title".into(), Value::from(working.title.clone()));
+                            obj.insert("ts".into(), Value::from(now_ms));
+                            obj.insert("body_path".into(), Value::from(relative_body_path));
+                            obj.entry("reseed_state")
+                                .or_insert_with(|| Value::from("created"));
+                        }
+                        let mut links = vec![format!("plan:{}", working.id)];
+                        if seq > 1 {
+                            links.push(format!("handoff:{}", seq - 1));
+                        }
+                        if let Some(task) = task.as_ref() {
+                            links.push(resolve_ref(task, &result.ids));
+                        }
+                        working.elements.push(CanvasElement {
+                            id: id.clone(),
+                            kind: "handoff".into(),
+                            canvas: ElementCanvas {
+                                x: None,
+                                y: None,
+                                collapsed: false,
+                            },
+                            content,
+                            links,
+                        });
+                        if let Some(task) = task {
+                            let task_id = resolve_ref(&task, &result.ids);
+                            ensure_kind(&mut working.milestone_kinds, "handoff");
+                            let task = find_task_mut(&mut working.tasks, &task_id)
+                                .ok_or(PlanError::TaskNotFound)?;
+                            let milestone_id = gen_id("ms");
+                            task.milestones.push(Milestone {
+                                id: milestone_id.clone(),
+                                from: from
+                                    .clone()
+                                    .unwrap_or_else(|| AgentRef::from_pane("unknown")),
+                                kind: "handoff".into(),
+                                text: format!("handoff #{}", seq),
+                                ts: now_ms,
+                                links: vec![id.clone()],
+                                loop_id: None,
+                                iteration: None,
+                                canvas: Default::default(),
+                            });
+                            task.updated_at = now_ms;
+                            result.milestone_ids.push(milestone_id);
+                        }
+                        let from = from.unwrap_or_else(|| working.owner.clone());
+                        let to = to.unwrap_or_else(|| working.owner.clone());
+                        working.owner_history.push(TransferRecord {
+                            from,
+                            to,
+                            ts: now_ms,
+                            reason: format!("handoff #{}", seq),
+                        });
+                        if let Some(client_id) = client_id {
+                            result.ids.insert(client_id, id.clone());
+                        }
+                        result.element_ids.push(id);
+                    }
                     BatchOp::Link { to } => {
                         let to = resolve_ref(&to, &result.ids);
                         if !working.links.iter().any(|link| link == &to) {
@@ -353,6 +466,10 @@ impl PlanStore {
                         }
                     }
                 }
+            }
+            for (path, body) in pending_markdown_writes {
+                super::body_files::write_markdown_atomic(&path, &body)
+                    .map_err(|e| PlanError::Io(e.to_string()))?;
             }
             *plan = working;
             Ok(result)
@@ -387,6 +504,7 @@ impl From<NewTask> for BatchOp {
 mod tests {
     use super::*;
     use crate::plan::{OrchestratorRef, Plan};
+    use std::path::PathBuf;
 
     fn store_with_plan() -> (PlanStore, String) {
         let dir = tempfile::tempdir().unwrap();
@@ -401,6 +519,19 @@ mod tests {
         plan.id = "pl_batch".into();
         store.save(&mut plan, 1).unwrap();
         (store, plan.id)
+    }
+
+    fn store_with_plan_root() -> (PathBuf, PlanStore, String) {
+        let root = tempfile::tempdir().unwrap().keep();
+        let store = PlanStore::new_for_test(&root);
+        let mut plan = Plan::new(
+            "Batch".into(),
+            root.display().to_string(),
+            OrchestratorRef::default(),
+        );
+        plan.id = "pl_batch".into();
+        store.save(&mut plan, 1).unwrap();
+        (root, store, plan.id)
     }
 
     #[test]
@@ -490,6 +621,47 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, PlanError::TaskNotFound));
         assert!(store.get(&plan_id).unwrap().tasks.is_empty());
+    }
+
+    #[test]
+    fn batch_handoff_sidecar_is_not_written_when_later_op_fails() {
+        let (root, store, plan_id) = store_with_plan_root();
+        let err = store
+            .apply_batch(
+                &plan_id,
+                BatchRequest {
+                    key: None,
+                    ops: vec![
+                        BatchOp::AddHandoff {
+                            client_id: Some("h".into()),
+                            mode: None,
+                            content: serde_json::json!({"goal":"rollback"}),
+                            body: "must not remain".into(),
+                            task: None,
+                            from: None,
+                            to: None,
+                        },
+                        BatchOp::SetTaskBody {
+                            task: "missing".into(),
+                            body: "fail".into(),
+                        },
+                    ],
+                },
+                2,
+            )
+            .unwrap_err();
+        assert!(matches!(err, PlanError::TaskNotFound));
+        assert!(store.get(&plan_id).unwrap().elements.is_empty());
+        let handoffs_dir = root
+            .join(".codeterm")
+            .join("plans")
+            .join(&plan_id)
+            .join("handoffs");
+        let leftover = handoffs_dir
+            .read_dir()
+            .map(|mut entries| entries.next().is_some())
+            .unwrap_or(false);
+        assert!(!leftover);
     }
 
     #[test]

@@ -71,6 +71,7 @@
   },
   "commands": {
     "compact": "/compact",
+    "freshContext": "/new",
     "exit": "/exit",
     "stopKey": "\u001b",
     "modelSwitchFormat": "/model {model}",

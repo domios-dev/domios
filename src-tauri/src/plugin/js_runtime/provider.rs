@@ -806,6 +806,10 @@ impl AgentProvider for JsProvider {
         self.manifest.commands.compact.as_deref()
     }
 
+    fn fresh_context_command(&self) -> Option<&str> {
+        self.manifest.commands.fresh_context.as_deref()
+    }
+
     fn exit_command(&self) -> Option<&str> {
         self.manifest.commands.exit.as_deref()
     }

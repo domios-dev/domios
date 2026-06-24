@@ -4689,6 +4689,150 @@
           ]
         },
         {
+          "name": "handoff",
+          "about": "Orchestrator handoffs attached to the plan",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "create",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "foundational_rules",
+                  "positional": false,
+                  "value_name": "FOUNDATIONAL_RULES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "goal",
+                  "positional": false,
+                  "value_name": "GOAL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "mode",
+                  "positional": false,
+                  "value_name": "MODE",
+                  "default": "record",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "next_actions",
+                  "positional": false,
+                  "value_name": "NEXT_ACTIONS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "open_decisions",
+                  "positional": false,
+                  "value_name": "OPEN_DECISIONS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "stdin",
+                  "positional": false,
+                  "value_name": "STDIN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task",
+                  "positional": false,
+                  "value_name": "TASK",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "latest",
+                  "positional": false,
+                  "value_name": "LATEST",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "markdown",
+                  "positional": false,
+                  "value_name": "MARKDOWN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "selector",
+                  "positional": true,
+                  "value_name": "SELECTOR",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "kinds",
           "about": "Set milestone kind columns",
           "aliases": [],

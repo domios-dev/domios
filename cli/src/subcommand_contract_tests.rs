@@ -1,4 +1,5 @@
 use super::*;
+use crate::args::plan::PlanHandoffAction;
 use clap::CommandFactory;
 
 fn env_lock() -> &'static std::sync::Mutex<()> {
@@ -241,6 +242,100 @@ fn plan_record_parses_batch_sugar() {
         }
         _ => panic!("expected plan record"),
     }
+}
+
+#[test]
+fn plan_handoff_subcommands_parse() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "handoff",
+        "create",
+        "pl_1",
+        "--mode",
+        "new",
+        "--task",
+        "backend",
+        "--goal",
+        "Resume backend handoff",
+        "--next",
+        "run handoff show",
+        "--rule",
+        "never reseed parent",
+        "--decision",
+        "choose ack source",
+        "--from-file",
+        "handoff.md",
+    ])
+    .expect("plan handoff create parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Handoff {
+                    action:
+                        PlanHandoffAction::Create {
+                            plan_id,
+                            mode,
+                            task,
+                            goal,
+                            next_actions,
+                            foundational_rules,
+                            open_decisions,
+                            from_file,
+                            stdin,
+                        },
+                },
+        } => {
+            assert_eq!(plan_id, "pl_1");
+            assert_eq!(mode, "new");
+            assert_eq!(task.as_deref(), Some("backend"));
+            assert_eq!(goal.as_deref(), Some("Resume backend handoff"));
+            assert_eq!(next_actions, vec!["run handoff show"]);
+            assert_eq!(foundational_rules, vec!["never reseed parent"]);
+            assert_eq!(open_decisions, vec!["choose ack source"]);
+            assert_eq!(from_file.as_deref(), Some("handoff.md"));
+            assert!(!stdin);
+        }
+        _ => panic!("expected plan handoff create"),
+    }
+
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "handoff",
+        "show",
+        "pl_1",
+        "--latest",
+        "--markdown",
+    ])
+    .expect("plan handoff show parses");
+    assert!(matches!(
+        parsed.command,
+        Commands::Plan {
+            action:
+                PlanAction::Handoff {
+                    action:
+                        PlanHandoffAction::Show {
+                            plan_id,
+                            latest: true,
+                            markdown: true,
+                            ..
+                        },
+                },
+        } if plan_id == "pl_1"
+    ));
+
+    let parsed = Cli::try_parse_from(["codeterm", "plan", "handoff", "list", "pl_1"])
+        .expect("plan handoff list parses");
+    assert!(matches!(
+        parsed.command,
+        Commands::Plan {
+            action:
+                PlanAction::Handoff {
+                    action: PlanHandoffAction::List { plan_id },
+                },
+        } if plan_id == "pl_1"
+    ));
 }
 
 #[test]

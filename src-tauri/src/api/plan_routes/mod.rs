@@ -13,6 +13,7 @@ use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus, TaskGrou
 use crate::service::plan::{NewTask, PlanError};
 
 pub mod batch;
+pub mod handoff;
 
 #[cfg(test)]
 mod tests;
@@ -69,7 +70,6 @@ fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
         .collect()
 }
 
-// Parse `key:Label,key2:Label2` into task groups; missing label defaults to key.
 fn groups_from_csv(raw: &str) -> Vec<TaskGroup> {
     raw.split(',')
         .map(str::trim)

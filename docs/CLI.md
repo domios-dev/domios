@@ -1319,6 +1319,33 @@ Set task groups (phases)
 - `--groups`
 - `<plan_id>`
 
+#### `codeterm plan handoff`
+
+Orchestrator handoffs attached to the plan
+
+#### `codeterm plan handoff create`
+
+- `--foundational_rules`
+- `--from_file`
+- `--goal`
+- `--mode`
+- `--next_actions`
+- `--open_decisions`
+- `<plan_id>`
+- `--stdin`
+- `--task`
+
+#### `codeterm plan handoff list`
+
+- `<plan_id>`
+
+#### `codeterm plan handoff show`
+
+- `--latest`
+- `--markdown`
+- `<plan_id>`
+- `<selector>`
+
 #### `codeterm plan kinds`
 
 Set milestone kind columns

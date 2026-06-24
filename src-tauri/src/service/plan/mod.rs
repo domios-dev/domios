@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod body_files;
+pub mod handoff;
 pub mod mutations;
 pub mod paths;
 pub mod reminders;

@@ -111,6 +111,11 @@ pub enum PlanAction {
         #[arg(long)]
         key: Option<String>,
     },
+    /// Orchestrator handoffs attached to the plan
+    Handoff {
+        #[command(subcommand)]
+        action: PlanHandoffAction,
+    },
     /// Plan sections
     Section {
         #[command(subcommand)]
@@ -415,5 +420,39 @@ pub enum PlanElementAction {
         content_file: Option<String>,
         #[arg(long)]
         link: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PlanHandoffAction {
+    Create {
+        plan_id: String,
+        #[arg(long, default_value = "record")]
+        mode: String,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        goal: Option<String>,
+        #[arg(long = "next", allow_hyphen_values = true)]
+        next_actions: Vec<String>,
+        #[arg(long = "rule", allow_hyphen_values = true)]
+        foundational_rules: Vec<String>,
+        #[arg(long = "decision", allow_hyphen_values = true)]
+        open_decisions: Vec<String>,
+        #[arg(long, value_name = "PATH")]
+        from_file: Option<String>,
+        #[arg(long)]
+        stdin: bool,
+    },
+    Show {
+        plan_id: String,
+        selector: Option<String>,
+        #[arg(long)]
+        latest: bool,
+        #[arg(long)]
+        markdown: bool,
+    },
+    List {
+        plan_id: String,
     },
 }
