@@ -59,4 +59,9 @@ pub enum CanvasAction {
         #[arg(long, conflicts_with_all = ["task", "pane"])]
         plan: Option<String>,
     },
+    /// Dim the canvas to a facet value such as area:layout
+    Filter {
+        #[arg(long)]
+        facet: String,
+    },
 }

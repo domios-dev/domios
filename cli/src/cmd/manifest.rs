@@ -105,8 +105,11 @@ fn render_md(cmd: &ManifestCommand, path: &[String], out: &mut String) {
         } else {
             format!("`--{}`", a.name)
         };
-        let help = a.help.as_deref().unwrap_or("");
-        out.push_str(&format!("- {flag} — {help}\n"));
+        if let Some(help) = a.help.as_deref().filter(|help| !help.is_empty()) {
+            out.push_str(&format!("- {flag} — {help}\n"));
+        } else {
+            out.push_str(&format!("- {flag}\n"));
+        }
     }
     if !cmd.args.is_empty() {
         out.push('\n');

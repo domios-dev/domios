@@ -193,6 +193,7 @@ pub(crate) struct ReportBody {
     message: String,
     plan_id: Option<String>,
     task_id: Option<String>,
+    kind: Option<String>,
     #[serde(flatten)]
     details: crate::agent::reports::ReportDetails,
 }
@@ -212,6 +213,7 @@ pub async fn submit_report(
             body.details,
             body.plan_id.as_deref(),
             body.task_id.as_deref(),
+            body.kind.as_deref(),
         )
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(

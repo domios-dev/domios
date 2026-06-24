@@ -38,6 +38,8 @@ pub enum PlanAction {
     Spec { plan_id: String },
     /// List generated section/task body files
     Files { plan_id: String },
+    /// Show tag facets, counts, topics, and duplicate warnings
+    Tags { plan_id: String },
     /// Show section coverage (% + gaps)
     Coverage { plan_id: String },
     /// Show sections with zero tasks
@@ -141,6 +143,12 @@ pub enum PlanSectionAction {
         body_file: Option<String>,
         #[arg(long)]
         parent: Option<String>,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        #[arg(long)]
+        primary: Option<String>,
+        #[arg(long)]
+        handle: Option<String>,
     },
     Update {
         plan_id: String,
@@ -151,6 +159,12 @@ pub enum PlanSectionAction {
         body: Option<String>,
         #[arg(long, value_name = "PATH")]
         body_file: Option<String>,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        #[arg(long)]
+        primary: Option<String>,
+        #[arg(long)]
+        handle: Option<String>,
     },
     Rm {
         plan_id: String,
@@ -233,6 +247,14 @@ pub enum PlanTaskAction {
         #[arg(long)]
         group: Option<String>,
         #[arg(long)]
+        priority: Option<String>,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        #[arg(long)]
+        primary: Option<String>,
+        #[arg(long)]
+        handle: Option<String>,
+        #[arg(long)]
         loop_from: Option<String>,
     },
     Update {
@@ -264,6 +286,14 @@ pub enum PlanTaskAction {
         parent: Option<String>,
         #[arg(long)]
         group: Option<String>,
+        #[arg(long)]
+        priority: Option<String>,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        #[arg(long)]
+        primary: Option<String>,
+        #[arg(long)]
+        handle: Option<String>,
     },
     Close {
         plan_id: String,
