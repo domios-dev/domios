@@ -692,6 +692,13 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Cheap predicate (no I/O) for "usage comes from a CLI/API fetch, not a
+    /// `/usage` TUI screen". The poller probes these without a visible pane —
+    /// there's no terminal to gate on. Default `false` (TUI-probe providers).
+    fn usage_is_fetch_based(&self) -> bool {
+        false
+    }
+
     /// What kind of session-id control this provider supports.
     /// Default is `None` — provider generates its own ids and CodeTerm
     /// has to detect them post-launch via `detect_session_id`.

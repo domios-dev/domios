@@ -842,6 +842,10 @@ impl AgentProvider for JsProvider {
             .map(|p| p as &dyn crate::agent::usage_parser::UsageParser)
     }
 
+    fn usage_is_fetch_based(&self) -> bool {
+        self.has_js("fetchUsage")
+    }
+
     fn fetch_usage(&self) -> Option<Result<String, String>> {
         if !self.has_js("fetchUsage") {
             return None;
