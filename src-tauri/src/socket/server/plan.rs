@@ -101,6 +101,10 @@ fn pane_and_ancestors(svc: &ServiceState, pane_id: &str) -> std::collections::Ha
     out
 }
 
+fn optional_string_field<'a>(params: Option<&'a Value>, key: &str) -> Option<Option<&'a str>> {
+    params.and_then(|x| x.get(key).map(|v| v.as_str()))
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -580,21 +584,16 @@ pub(super) fn dispatch(
                     p.and_then(|x| x.get("type"))
                         .or_else(|| p.and_then(|x| x.get("kind")))
                         .and_then(|v| v.as_str()),
-                    Some(p.and_then(|x| x.get("model")).and_then(|v| v.as_str())),
-                    Some(p.and_then(|x| x.get("why")).and_then(|v| v.as_str())),
+                    optional_string_field(p, "model"),
+                    optional_string_field(p, "why"),
                     p.and_then(|x| x.get("status")).and_then(|v| v.as_str()),
-                    Some(
-                        p.and_then(|x| x.get("status_label"))
-                            .and_then(|v| v.as_str()),
-                    ),
+                    optional_string_field(p, "status_label"),
                     p.and_then(|x| x.get("body")).and_then(|v| v.as_str()),
-                    Some(p.and_then(|x| x.get("intent")).and_then(|v| v.as_str())),
+                    optional_string_field(p, "intent"),
                     sections,
                     p.and_then(|x| x.get("parent_task_id").or_else(|| x.get("parent")))
                         .map(|v| v.as_str()),
-                    p.and_then(|x| x.get("group"))
-                        .and_then(|v| v.as_str())
-                        .map(Some),
+                    optional_string_field(p, "group"),
                     now,
                 )
                 .map_err(plan_rpc_err)?;
@@ -840,5 +839,25 @@ pub(super) fn dispatch(
             message: "Method not found".to_string(),
             data: None,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn optional_string_field_preserves_missing_vs_null() {
+        let params = json!({
+            "model": "opus",
+            "why": null
+        });
+
+        assert_eq!(optional_string_field(Some(&params), "missing"), None);
+        assert_eq!(optional_string_field(Some(&params), "why"), Some(None));
+        assert_eq!(
+            optional_string_field(Some(&params), "model"),
+            Some(Some("opus"))
+        );
     }
 }
