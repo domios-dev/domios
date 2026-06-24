@@ -3948,6 +3948,102 @@
       "subcommands": []
     },
     {
+      "name": "orchestrator",
+      "about": "Orchestrator handoff helpers",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "handoff",
+          "about": "Create an orchestrator handoff and optionally reseed this pane",
+          "aliases": [],
+          "args": [
+            {
+              "name": "dry_run",
+              "positional": false,
+              "value_name": "DRY_RUN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "force",
+              "positional": false,
+              "value_name": "FORCE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "from_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "goal",
+              "positional": false,
+              "value_name": "GOAL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "mode",
+              "positional": false,
+              "value_name": "MODE",
+              "default": "new",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "next_actions",
+              "positional": false,
+              "value_name": "NEXT_ACTIONS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "reseed",
+              "positional": false,
+              "value_name": "RESEED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "pane",
       "about": "Pane management",
       "aliases": [],

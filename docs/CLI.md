@@ -1093,6 +1093,25 @@ Send a notification
 - `--level` — Notification level: info, warning, error
 - `<title>` — Notification title
 
+#### `codeterm orchestrator`
+
+Orchestrator handoff helpers
+
+#### `codeterm orchestrator handoff`
+
+Create an orchestrator handoff and optionally reseed this pane
+
+- `--dry_run`
+- `--force`
+- `--from_file`
+- `--goal`
+- `--mode`
+- `--next_actions`
+- `--pane`
+- `--plan`
+- `--reseed`
+- `--task`
+
 #### `codeterm pane`
 
 Pane management

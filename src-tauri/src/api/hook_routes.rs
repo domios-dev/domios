@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::api::routes::{resolve_pane, AppState};
 
@@ -10,6 +11,13 @@ use crate::api::routes::{resolve_pane, AppState};
 struct SessionStartClaim {
     prev: Option<String>,
     changed: bool,
+}
+
+fn epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// Ensure agent state is set when a hook fires.
@@ -322,6 +330,26 @@ pub async fn hook_session_start(
         claim.prev.as_deref().unwrap_or("-"),
         sid
     );
+    if let Ok(Some(resume)) =
+        state
+            .svc
+            .plan_store
+            .observe_handoff_session_start(&pane_id, &sid, epoch_ms())
+    {
+        match state.svc.send_text(&resume.pane_id, &resume.text, true) {
+            Ok(()) => crate::api::events::emit_everywhere(
+                &state.svc.app_handle,
+                "plan-changed",
+                serde_json::json!({ "plan_id": resume.plan_id }),
+            ),
+            Err(e) => log::warn!(
+                "[handoff_reseed] resume send failed pane={} handoff={}: {}",
+                resume.pane_id,
+                resume.handoff_id,
+                e
+            ),
+        }
+    }
     state.svc.chat_registry.shutdown_pane(&pane_id);
     state.svc.emit_state_changed();
     Ok(Json(serde_json::json!({"ok": true, "changed": true})))

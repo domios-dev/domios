@@ -8,7 +8,6 @@ use tauri::AppHandle;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus, TaskGroup};
 use crate::service::plan::batch::BatchRequest;
-use crate::service::plan::handoff::HandoffCreateRequest;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{NewTask, PlanError};
 use crate::service::ServiceState;
@@ -120,6 +119,10 @@ pub(super) fn dispatch(
     app: &AppHandle,
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
+    if method.starts_with("plan.handoff.") {
+        return super::plan_handoff::dispatch(method, params, app, svc);
+    }
+
     let p = params.as_ref();
     let store = &svc.plan_store;
     let now = epoch_ms();
@@ -152,51 +155,6 @@ pub(super) fn dispatch(
             };
             let result = store.apply_batch(&id, request, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            serde_json::to_value(result).map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e.to_string(),
-                data: None,
-            })
-        }
-
-        "plan.handoff.create" => {
-            let id = get_string_param(params, "plan_id")?;
-            let body = p.ok_or(JsonRpcError {
-                code: -32602,
-                message: "params required".to_string(),
-                data: None,
-            })?;
-            let request: HandoffCreateRequest =
-                serde_json::from_value(body.clone()).map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: format!("invalid handoff create params: {e}"),
-                    data: None,
-                })?;
-            let result = store
-                .create_handoff(&id, request, now)
-                .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
-            serde_json::to_value(result).map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e.to_string(),
-                data: None,
-            })
-        }
-
-        "plan.handoff.list" => {
-            let id = get_string_param(params, "plan_id")?;
-            let result = store.list_handoffs(&id).map_err(plan_rpc_err)?;
-            serde_json::to_value(result).map_err(|e| JsonRpcError {
-                code: -32603,
-                message: e.to_string(),
-                data: None,
-            })
-        }
-
-        "plan.handoff.show" => {
-            let id = get_string_param(params, "plan_id")?;
-            let selector = p.and_then(|x| x.get("selector")).and_then(|v| v.as_str());
-            let result = store.show_handoff(&id, selector).map_err(plan_rpc_err)?;
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
