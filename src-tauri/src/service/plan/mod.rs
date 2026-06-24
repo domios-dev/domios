@@ -4,6 +4,7 @@ pub mod handoff;
 pub mod mutations;
 pub mod paths;
 pub mod reminders;
+pub mod search_index;
 pub mod spec;
 pub mod spec_files;
 pub mod tag_model;
@@ -256,6 +257,8 @@ impl PlanStore {
             let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
             self.note_plan_write(&plan, &path);
         }
+        self.mirror_plan_index(&plan)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
         let entry = Self::index_entry(&plan, path);
         self.index.write().insert(plan.id.clone(), entry);
         self.plans
@@ -279,6 +282,8 @@ impl PlanStore {
             let path = Self::write_spec_atomic(&spec).map_err(|e| PlanError::Io(e.to_string()))?;
             self.note_spec_write(&spec, &path);
         }
+        self.mirror_spec_index(&spec)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
         let entry = Self::spec_index_entry(&spec, path);
         self.spec_index.write().insert(spec.id.clone(), entry);
         self.specs
@@ -331,6 +336,8 @@ impl PlanStore {
         tag_model::normalize_plan(plan);
         let path = Self::write_atomic(plan)?;
         self.note_plan_write(plan, &path);
+        self.mirror_plan_index(plan)
+            .map_err(std::io::Error::other)?;
         self.index
             .write()
             .insert(plan.id.clone(), Self::index_entry(plan, path));
@@ -348,6 +355,8 @@ impl PlanStore {
         tag_model::normalize_sections_for_spec(&mut spec.sections);
         let path = Self::write_spec_atomic(spec)?;
         self.note_spec_write(spec, &path);
+        self.mirror_spec_index(spec)
+            .map_err(std::io::Error::other)?;
         self.spec_index
             .write()
             .insert(spec.id.clone(), Self::spec_index_entry(spec, path));
@@ -461,6 +470,8 @@ impl PlanStore {
             let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
             self.note_plan_write(&plan, &path);
         }
+        self.mirror_plan_index(&plan)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
         self.index
             .write()
             .insert(plan.id.clone(), Self::index_entry(&plan, path));
@@ -530,6 +541,7 @@ impl PlanStore {
             let _ = std::fs::remove_file(&entry.file_path);
         }
         if let Some(plan) = plan {
+            let _ = search_index::delete_plan_units(&plan);
             let _ = body_files::remove_body_dir(&plan);
         }
         Ok(())

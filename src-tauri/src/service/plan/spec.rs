@@ -59,6 +59,8 @@ impl PlanStore {
         super::tag_model::normalize_sections_for_spec(&mut guard.sections);
         let path = Self::write_spec_atomic(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&guard, &path);
+        self.mirror_spec_index(&guard)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
         let entry = Self::spec_index_entry(&guard, path);
         self.spec_index.write().insert(guard.id.clone(), entry);
         Ok(out)

@@ -231,6 +231,19 @@ pub(super) fn dispatch(
             Ok(json!({ "plans": entries }))
         }
 
+        "plan.related" => {
+            let id = get_string_param(params, "id")?;
+            let depth = p
+                .and_then(|x| x.get("depth"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1);
+            Ok(json!({
+                "id": id,
+                "depth": depth,
+                "groups": store.related_units(&id),
+            }))
+        }
+
         "task.list" => {
             let caller = p
                 .and_then(|x| x.get("caller_pane_id"))

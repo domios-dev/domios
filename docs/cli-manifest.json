@@ -3062,6 +3062,14 @@
               "aliases": []
             },
             {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": "Project path whose in-project plan index should be searched too",
+              "aliases": []
+            },
+            {
               "name": "query",
               "positional": true,
               "value_name": "QUERY",
@@ -5561,6 +5569,30 @@
               "name": "upsert_task",
               "positional": false,
               "value_name": "UPSERT_TASK",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "related",
+          "about": "Show structural neighbors for a plan/spec/task/section unit",
+          "aliases": [],
+          "args": [
+            {
+              "name": "depth",
+              "positional": false,
+              "value_name": "DEPTH",
+              "default": "1",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": false,
+              "value_name": "ID",
               "default": null,
               "help": null,
               "aliases": []
