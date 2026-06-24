@@ -17,7 +17,7 @@ import { sectionRows, type SectionRowGlyph } from "./sectionRows";
 import { layoutWorkspace, visibleFrameIds, visibleNodeIds, viewportWorldRect, boxesOverlap, type LaidOutNode } from "./layout";
 import { archivePlan } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
-import { nextWorld, worldThresholds, type World } from "./worlds";
+import { crispRasterScale, nextWorld, worldThresholds, type World } from "./worlds";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useCanvasPlans } from "./PlansProvider";
 import type { CanvasElement, OrchestratorRef, Plan, Section, Task } from "./types";
@@ -113,6 +113,7 @@ interface CanvasNodeCardProps {
   model: unknown;
   lod: CanvasLod;
   world: World;
+  crispScale: number;
   dimmed?: boolean;
   softDim?: boolean;
   elevated?: boolean;
@@ -127,7 +128,7 @@ interface CanvasNodeCardProps {
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, world, dimmed, softDim, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, world, crispScale, dimmed, softDim, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame }: CanvasNodeCardProps) {
     const base = nodeStyle(node.box);
     const opacity = dimmed ? 0.22 : softDim ? 0.45 : 1;
     const style: typeof base & { opacity?: number; zIndex?: number; transition?: string; filter?: string } =
@@ -142,6 +143,7 @@ const CanvasNodeCard = memo(
       style,
       lod,
       world,
+      crispScale,
       onOpenPane,
       onHoverTask,
       onArchive,
@@ -158,6 +160,7 @@ const CanvasNodeCard = memo(
     if (prev.node.id !== next.node.id) return false;
     if (prev.lod !== next.lod) return false;
     if (prev.world !== next.world) return false;
+    if (prev.crispScale !== next.crispScale) return false;
     if (prev.dimmed !== next.dimmed) return false;
     if (prev.softDim !== next.softDim) return false;
     if (prev.elevated !== next.elevated) return false;
@@ -742,13 +745,16 @@ export function CanvasViewInner({
             {layout.frames.flatMap((frame) =>
               frame.nodes
                 .filter((n) => nodeIds.has(n.id))
-                .map((n) => (
+                .map((n) => {
+                  const nodeWorld = worldByNode.get(n.id) ?? "W1";
+                  return (
                   <CanvasNodeCard
                     key={n.id}
                     node={n}
                     model={resolveModel(n)}
                     lod={lod}
-                    world={worldByNode.get(n.id) ?? "W1"}
+                    world={nodeWorld}
+                    crispScale={crispRasterScale(nodeWorld, transform.scale)}
                     dimmed={focusedNodeId != null && n.planId !== focusedPlanId && n.id !== focusedNodeId}
                     softDim={dominantNodeId != null && n.kind === "task" && n.id !== dominantNodeId && !lookups.taskById.get(n.id)?.parent_task_id}
                     elevated={dominantNodeId != null && n.id === dominantNodeId}
@@ -761,7 +767,8 @@ export function CanvasViewInner({
                     onSectionClick={onSectionClick}
                     onSectionFrame={onSectionFrame}
                   />
-                )),
+                  );
+                }),
             )}
             {hoveredTask && lookups.nodeById.has(hoveredTask) && nodeIds.has(hoveredTask) && (() => {
               const box = lookups.nodeById.get(hoveredTask)!.box;
