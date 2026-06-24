@@ -576,17 +576,15 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 .ok()
                 .and_then(|r| r.json::<serde_json::Value>().ok())
                 .and_then(|v| {
-                    v.as_array()
-                        .map(|arr| {
-                            arr.iter()
-                                .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(&pane_id))
-                                .and_then(|p| {
-                                    p.get("agent_type")
-                                        .and_then(|t| t.as_str())
-                                        .map(String::from)
-                                })
-                        })
-                        .flatten()
+                    v.as_array().and_then(|arr| {
+                        arr.iter()
+                            .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(&pane_id))
+                            .and_then(|p| {
+                                p.get("agent_type")
+                                    .and_then(|t| t.as_str())
+                                    .map(String::from)
+                            })
+                    })
                 });
             if matches!(agent_type.as_deref(), Some("codex")) {
                 eprintln!("Error: Codex /model is an interactive picker, not scriptable.");

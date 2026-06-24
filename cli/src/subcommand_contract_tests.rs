@@ -394,12 +394,7 @@ fn orchestrator_heartbeat_commands_parse() {
     .expect("orchestrator learn parses");
     match parsed.command {
         Commands::Orchestrator {
-            action:
-                crate::args::orchestrator::OrchestratorAction::Learn {
-                    text,
-                    plan,
-                    tag,
-                },
+            action: crate::args::orchestrator::OrchestratorAction::Learn { text, plan, tag },
         } => {
             assert_eq!(text, "resolve heartbeat at send time");
             assert_eq!(plan.as_deref(), Some("pl_1"));
@@ -421,8 +416,7 @@ fn orchestrator_heartbeat_commands_parse() {
         Commands::Orchestrator {
             action:
                 crate::args::orchestrator::OrchestratorAction::Heartbeat {
-                    action:
-                        crate::args::orchestrator::OrchestratorHeartbeatAction::Show { plan },
+                    action: crate::args::orchestrator::OrchestratorHeartbeatAction::Show { plan },
                 },
         } => assert_eq!(plan.as_deref(), Some("pl_1")),
         _ => panic!("expected orchestrator heartbeat show"),

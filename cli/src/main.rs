@@ -300,7 +300,7 @@ fn main() {
                     .unwrap_or_else(|_| serde_json::Value::String(value.clone()));
                 let body = serde_json::json!({ "key": key, "value": json_value });
                 match http
-                    .patch(&format!("{}/api/config", base_url))
+                    .patch(format!("{}/api/config", base_url))
                     .json(&body)
                     .send()
                 {

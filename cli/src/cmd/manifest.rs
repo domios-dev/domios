@@ -84,7 +84,7 @@ pub fn to_markdown() -> String {
     let root = build();
     let mut out = String::new();
     for cmd in &root.subcommands {
-        render_md(cmd, &[root.name.clone()], &mut out);
+        render_md(cmd, std::slice::from_ref(&root.name), &mut out);
     }
     out
 }

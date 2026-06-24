@@ -51,6 +51,10 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Clap command enums keep parsed options inline."
+)]
 pub enum Commands {
     /// Show CodeTerm version and system info
     Identify,

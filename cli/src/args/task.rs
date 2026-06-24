@@ -1,6 +1,10 @@
 use clap::Subcommand;
 
 #[derive(Subcommand)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Clap command enums keep parsed options inline."
+)]
 pub enum TaskAction {
     /// List tasks across active plans
     List {
