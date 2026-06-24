@@ -337,11 +337,23 @@ pub async fn hook_session_start(
             .observe_handoff_session_start(&pane_id, &sid, epoch_ms())
     {
         match state.svc.send_text(&resume.pane_id, &resume.text, true) {
-            Ok(()) => crate::api::events::emit_everywhere(
-                &state.svc.app_handle,
-                "plan-changed",
-                serde_json::json!({ "plan_id": resume.plan_id }),
-            ),
+            Ok(()) => {
+                let _ = state.svc.plan_store.mark_handoff_resume_sent(
+                    &resume.plan_id,
+                    &resume.handoff_id,
+                    epoch_ms(),
+                );
+                let _ = state.svc.plan_store.ack_handoff_resume(
+                    &resume.plan_id,
+                    &resume.handoff_id,
+                    epoch_ms(),
+                );
+                crate::api::events::emit_everywhere(
+                    &state.svc.app_handle,
+                    "plan-changed",
+                    serde_json::json!({ "plan_id": resume.plan_id }),
+                );
+            }
             Err(e) => log::warn!(
                 "[handoff_reseed] resume send failed pane={} handoff={}: {}",
                 resume.pane_id,
