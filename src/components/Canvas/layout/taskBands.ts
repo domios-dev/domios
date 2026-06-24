@@ -1,6 +1,6 @@
 import type { Plan, Task } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
-import { taskCellSize } from "../settings";
+import { taskFootprint } from "./taskFootprint";
 import type { Box, Point } from "./geometry";
 import type { LaidOutEdge, LaidOutNode } from "./types";
 
@@ -40,8 +40,6 @@ export function layoutTaskBands(
   const edges: LaidOutEdge[] = [];
   const extraPoints: Point[] = [];
 
-  const sizeOf = (_t: Task) => taskCellSize(s);
-
   const taskIds = new Set(plan.tasks.map((t) => t.id));
   const childrenByParent = new Map<string, Task[]>();
   for (const t of plan.tasks) {
@@ -55,10 +53,13 @@ export function layoutTaskBands(
   const topLevel = plan.tasks.filter((t) => !t.parent_task_id || !taskIds.has(t.parent_task_id));
 
   const cells: Cell[] = topLevel.map((task, order) => {
-    const { w, h } = sizeOf(task);
-    const childItems: ChildItem[] = (childrenByParent.get(task.id) ?? []).map((c) => {
-      const cs = sizeOf(c);
-      return { task: c, w: cs.w, h: cs.h };
+    const children = childrenByParent.get(task.id) ?? [];
+    const fp = taskFootprint(task, children, s);
+    const w = fp.width;
+    const h = fp.height;
+    const childItems: ChildItem[] = children.map((c) => {
+      const cs = taskFootprint(c, [], s);
+      return { task: c, w: cs.width, h: cs.height };
     });
     let height = h;
     if (childItems.length) {

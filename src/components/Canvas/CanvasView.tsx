@@ -14,9 +14,10 @@ import { getNodeRenderer } from "./nodeRegistry";
 import { bezierPath, resolveEdgeEnds } from "./edges";
 import { milestoneColorMap } from "./milestoneColors";
 import { sectionRows, type SectionRowGlyph } from "./sectionRows";
-import { layoutWorkspace, visibleFrameIds, visibleNodeIds, type LaidOutNode } from "./layout";
+import { layoutWorkspace, visibleFrameIds, visibleNodeIds, viewportWorldRect, boxesOverlap, type LaidOutNode } from "./layout";
 import { archivePlan } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
+import { nextWorld, worldThresholds, type World } from "./worlds";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useCanvasPlans } from "./PlansProvider";
 import type { CanvasElement, OrchestratorRef, Plan, Section, Task } from "./types";
@@ -52,9 +53,6 @@ function edgeJitter(id: string): number {
   return ((h >>> 0) % 1000) / 1000;
 }
 
-// §23.7: camera zoom past this reveals section bodies inside the fixed frame.
-const CONTENT_LOD_SCALE = 1.3;
-
 function lodForScale(scale: number): CanvasLod {
   const s = DEFAULT_CANVAS_SETTINGS;
   if (scale < s.zoomFarThreshold) return "far";
@@ -87,6 +85,7 @@ export interface SpecSectionModel {
 export interface TaskCardModel {
   task: Task;
   childCount: number;
+  childDone: number;
   stepColors: Map<string, string>;
 }
 
@@ -112,7 +111,7 @@ interface CanvasNodeCardProps {
   node: LaidOutNode;
   model: unknown;
   lod: CanvasLod;
-  contentNear: boolean;
+  world: World;
   dimmed?: boolean;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
@@ -121,7 +120,7 @@ interface CanvasNodeCardProps {
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, contentNear, dimmed, onOpenPane, onHoverTask, onArchive, onFitNode }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, world, dimmed, onOpenPane, onHoverTask, onArchive, onFitNode }: CanvasNodeCardProps) {
     const base = nodeStyle(node.box);
     const style = dimmed ? { ...base, opacity: 0.22, transition: "opacity var(--ct-duration-normal) var(--ct-ease-decel)" } : base;
     const rendered = getNodeRenderer(node.kind)({
@@ -129,7 +128,7 @@ const CanvasNodeCard = memo(
       model,
       style,
       lod,
-      contentNear,
+      world,
       onOpenPane,
       onHoverTask,
       onArchive,
@@ -140,7 +139,7 @@ const CanvasNodeCard = memo(
   (prev, next) => {
     if (prev.node.id !== next.node.id) return false;
     if (prev.lod !== next.lod) return false;
-    if (prev.contentNear !== next.contentNear) return false;
+    if (prev.world !== next.world) return false;
     if (prev.dimmed !== next.dimmed) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;
@@ -207,13 +206,17 @@ export function CanvasViewInner({
         });
       }
       const childCounts = new Map<string, number>();
+      const childDone = new Map<string, number>();
       for (const t of plan.tasks) {
-        if (t.parent_task_id) childCounts.set(t.parent_task_id, (childCounts.get(t.parent_task_id) ?? 0) + 1);
+        if (t.parent_task_id) {
+          childCounts.set(t.parent_task_id, (childCounts.get(t.parent_task_id) ?? 0) + 1);
+          if (t.status === "done" || t.status === "cancelled") childDone.set(t.parent_task_id, (childDone.get(t.parent_task_id) ?? 0) + 1);
+        }
       }
       const colors = milestoneColorMap(plan);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
-        taskModelById.set(task.id, { task, childCount: childCounts.get(task.id) ?? 0, stepColors: colors });
+        taskModelById.set(task.id, { task, childCount: childCounts.get(task.id) ?? 0, childDone: childDone.get(task.id) ?? 0, stepColors: colors });
         const seen = new Map<string, string>();
         for (const m of task.milestones) {
           const color = colors.get(m.kind) ?? "var(--ct-border-focus)";
@@ -270,7 +273,22 @@ export function CanvasViewInner({
   const onHoverTask = useCallback((id: string | null) => setHoveredTask(id), []);
 
   const lod = lodForScale(transform.scale);
-  const contentNear = transform.scale >= CONTENT_LOD_SCALE;
+  // §26 worlds: each node's content band is driven by its OWN appW (footprint ×
+  // camera scale), not the global scale — a wide SPEC and a small TASK cross bands
+  // at the right physical size. Hysteresis (prev band, ±10%) kills threshold flicker.
+  const bandRef = useRef<Map<string, World>>(new Map());
+  const worldByNode = useMemo(() => {
+    const prev = bandRef.current;
+    const next = new Map<string, World>();
+    for (const frame of layout.frames) {
+      for (const n of frame.nodes) {
+        const t = worldThresholds(n.kind);
+        next.set(n.id, nextWorld(prev.get(n.id), n.box.width * transform.scale, t));
+      }
+    }
+    bandRef.current = next;
+    return next;
+  }, [layout, transform.scale]);
   const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
   const canvasSize = useMemo(() => ({ width: size.width, height: size.height }), [size.width, size.height]);
   const frameIds = useMemo(
@@ -286,6 +304,26 @@ export function CanvasViewInner({
   // Camera-focus reading gesture (§23.4): the focused node locks Document + dims
   // neighbours; Esc/back clears it. null = no focus.
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+
+  // §31 change signal: a plan whose updated_at advanced changed live. The camera
+  // does NOT move — in-viewport plans pulse gently, off-screen ones surface a
+  // directional edge marker (click = user-initiated fly-there). Auto-clears.
+  const prevUpdatedRef = useRef<Map<string, number>>(new Map());
+  const [changedPlanIds, setChangedPlanIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    const prev = prevUpdatedRef.current;
+    const changed = new Set<string>();
+    for (const p of filteredPlans) {
+      const was = prev.get(p.id);
+      if (was != null && p.updated_at > was) changed.add(p.id);
+      prev.set(p.id, p.updated_at);
+    }
+    for (const id of [...prev.keys()]) if (!filteredPlans.some((p) => p.id === id)) prev.delete(id);
+    if (!changed.size) return;
+    setChangedPlanIds(changed);
+    const h = setTimeout(() => setChangedPlanIds(new Set()), 6000);
+    return () => clearTimeout(h);
+  }, [filteredPlans]);
 
   // Move the camera to frame a set of node ids (no blink) — the shared primitive.
   const fitCameraToNodes = useCallback(
@@ -327,18 +365,21 @@ export function CanvasViewInner({
     [filteredPlans],
   );
 
-  const lastFitKey = useRef<string | null>(null);
-  const fitKey = `${mode}:${focusPaneId ?? ""}:${filteredPlans.map((p) => p.id).join(",")}:${size.width}x${size.height}`;
+  // §31: auto-fit runs ONLY on mount / when the mount CONTEXT changes (mode or the
+  // focused pane) — NEVER on a data change. A new task/plan/stride updates nodes in
+  // place; the camera transform stays byte-identical (no surprise pan/recenter).
+  const fittedRef = useRef<string | null>(null);
+  const fitContextKey = `${mode}:${focusPaneId ?? ""}`;
   useEffect(() => {
     if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
-    if (lastFitKey.current === fitKey) return;
-    lastFitKey.current = fitKey;
+    if (fittedRef.current === fitContextKey) return;
+    fittedRef.current = fitContextKey;
     // Default mount = FOCUS on the active plan (§23.4), NOT fit-all (which lands at
     // 5% on a big board). Plan-on-a-pane still frames+blinks this pane's nodes.
     if (focusPaneId && paneNodeIds.length) focusOnNodes(paneNodeIds);
     else if (activePlanId) fitCameraToNodes([activePlanId]);
     else fitToView(layout.bounds);
-  }, [fitKey, fitToView, fitCameraToNodes, focusOnNodes, focusPaneId, paneNodeIds, activePlanId, layout.bounds, size.width, size.height]);
+  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, focusPaneId, paneNodeIds, activePlanId, layout.bounds, size.width, size.height]);
 
   // canvas-focus event (camera + blink). Backend lane emits target ids; we fit to
   // their bbox and blink them. Stub-safe: no-op until the event carries targets.
@@ -379,6 +420,51 @@ export function CanvasViewInner({
       y: (size.height / 2 - transform.y) / transform.scale,
     }),
     [size.width, size.height, transform.x, transform.y, transform.scale],
+  );
+
+  // §31: split changed plans into on-screen (pulse in place) vs off-screen
+  // (directional edge marker). Camera never moves on a data change — the marker is
+  // the only signal; clicking it is a USER-initiated fly-there.
+  const { pulsePlanIds, changeMarkers } = useMemo(() => {
+    const pulse = new Set<string>();
+    const markers: { planId: string; x: number; y: number }[] = [];
+    if (!changedPlanIds.size) return { pulsePlanIds: pulse, changeMarkers: markers };
+    const viewRect = viewportWorldRect(transform, canvasSize, 0);
+    const ccx = size.width / 2;
+    const ccy = size.height / 2;
+    const margin = 18;
+    const halfW = Math.max(20, size.width / 2 - margin);
+    const halfH = Math.max(20, size.height / 2 - margin);
+    for (const f of layout.frames) {
+      if (!changedPlanIds.has(f.planId)) continue;
+      if (boxesOverlap(f.box, viewRect)) {
+        pulse.add(f.planId);
+        continue;
+      }
+      const cx = f.box.x + f.box.width / 2;
+      const cy = f.box.y + f.box.height / 2;
+      const sx = cx * transform.scale + transform.x;
+      const sy = cy * transform.scale + transform.y;
+      const dx = sx - ccx;
+      const dy = sy - ccy;
+      if (dx === 0 && dy === 0) continue;
+      const tt = Math.min(dx !== 0 ? halfW / Math.abs(dx) : Infinity, dy !== 0 ? halfH / Math.abs(dy) : Infinity);
+      markers.push({ planId: f.planId, x: ccx + dx * tt, y: ccy + dy * tt });
+    }
+    return { pulsePlanIds: pulse, changeMarkers: markers };
+  }, [changedPlanIds, layout, transform, canvasSize, size.width, size.height]);
+
+  const flyToPlan = useCallback(
+    (planId: string) => {
+      fitCameraToNodes([planId]);
+      setChangedPlanIds((prev) => {
+        if (!prev.has(planId)) return prev;
+        const next = new Set(prev);
+        next.delete(planId);
+        return next;
+      });
+    },
+    [fitCameraToNodes],
   );
 
   const fitView = useCallback(() => fitToView(layout.bounds), [fitToView, layout.bounds]);
@@ -565,7 +651,7 @@ export function CanvasViewInner({
                     node={n}
                     model={resolveModel(n)}
                     lod={lod}
-                    contentNear={contentNear}
+                    world={worldByNode.get(n.id) ?? "W1"}
                     dimmed={focusedNodeId != null && n.planId !== focusedPlanId && n.id !== focusedNodeId}
                     onOpenPane={onOpenPane}
                     onHoverTask={onHoverTask}
@@ -595,8 +681,35 @@ export function CanvasViewInner({
                 />
               );
             })}
+            {/* §31 in-place pulse: a live-changed plan that's on-screen pulses gently
+                (no camera move). Ring/glow only, over the plan node box. */}
+            {[...pulsePlanIds].map((id) => {
+              const box = lookups.nodeById.get(id)?.box;
+              if (!box || !nodeIds.has(id)) return null;
+              return (
+                <div
+                  key={`pulse-${id}`}
+                  data-testid="canvas-change-pulse"
+                  className="ct-canvas-pulse pointer-events-none absolute"
+                  style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-lg)" }}
+                />
+              );
+            })}
           </div>
         )}
+        {/* §31 off-screen change marker: a directional dot at the viewport edge
+            toward an off-screen live change. Click = USER-initiated fly-there. */}
+        {changeMarkers.map((m) => (
+          <button
+            key={`marker-${m.planId}`}
+            type="button"
+            data-testid="canvas-change-marker"
+            title="A plan changed off-screen — click to view"
+            onClick={() => flyToPlan(m.planId)}
+            className="ct-canvas-edge-marker"
+            style={{ position: "absolute", left: m.x, top: m.y, transform: "translate(-50%, -50%)", zIndex: 25 }}
+          />
+        ))}
       </div>
       {!loading && !error && filteredPlans.length > 0 && (
         <CanvasToolbar

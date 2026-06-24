@@ -942,9 +942,43 @@ button,
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-border-focus) 65%, transparent), 0 0 14px 2px color-mix(in srgb, var(--ct-border-focus) 30%, transparent);
 }
 
-/* Content-LOD body reveal (§23.7): section bodies fade in on zoom-approach. */
+/* Content-LOD body reveal (§26.2): section/task bodies fade in + 4px rise on zoom
+   approach. NO geometry reflow — opacity + transform only (§25.4 crossfade). */
 .ct-canvas-fade-in { animation: ct-canvas-fade-in 0.22s var(--ct-ease-decel) both; }
-@keyframes ct-canvas-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ct-canvas-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* §31 in-place change pulse: a live-changed plan that's on-screen pulses gently —
+   ring/glow only, NEVER a camera move. */
+.ct-canvas-pulse { animation: ct-canvas-pulse 1.1s var(--ct-ease-decel) 3; }
+@keyframes ct-canvas-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-border-focus) 0%, transparent); }
+  40% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-border-focus) 55%, transparent), 0 0 18px 3px color-mix(in srgb, var(--ct-border-focus) 35%, transparent); }
+}
+
+/* §24.5/§25.6 live status: an in_progress task at W0 pulses its accent ring as a
+   far-board eye-magnet (ATTRACT, never hijack the wheel / pan). */
+.ct-canvas-live { animation: ct-canvas-live 2s ease-in-out infinite; }
+@keyframes ct-canvas-live {
+  0%, 100% { box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-border-focus) 80%, transparent), 0 6px 22px -8px color-mix(in srgb, var(--ct-border-focus) 35%, transparent); }
+  50% { box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--ct-border-focus) 95%, transparent), 0 8px 26px -6px color-mix(in srgb, var(--ct-border-focus) 60%, transparent); }
+}
+
+/* Freshest step dot pulses (constellation / thread) — the live report. */
+.ct-canvas-step-live { animation: ct-canvas-step-live 1.8s ease-in-out infinite; }
+@keyframes ct-canvas-step-live {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.35); filter: brightness(1.25); }
+}
+
+/* §31 off-screen change marker: a clickable directional dot at the viewport edge. */
+.ct-canvas-edge-marker {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--ct-bg);
+  background: var(--ct-border-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-border-focus) 45%, transparent), 0 0 14px 3px color-mix(in srgb, var(--ct-border-focus) 45%, transparent);
+  cursor: pointer; padding: 0;
+  animation: ct-canvas-pulse 1.4s var(--ct-ease-decel) infinite;
+}
 
 /* Composer activity bubble spinner. */
 .ct-spin { animation: ct-spin 0.9s linear infinite; }

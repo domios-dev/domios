@@ -60,7 +60,7 @@ const taskBottom = Math.max(...taskNodes.map((n) => n.box.y + n.box.height));
 const bandedH = taskBottom - taskTop;
 // The real портянka: 38 cells stacked one-per-row with gaps. Banding into
 // <=3 cols + skyline packing must cut that by well over a third.
-const singleColH = 38 * (S.taskH + S.taskGapY);
+const singleColH = 38 * (S.taskBaseH + S.taskGapY);
 ok(`banded height (${Math.round(bandedH)}) far below single-column (${singleColH})`, bandedH < singleColH * 0.6);
 
 // No task node overlaps another (top-down non-overlap sweep).
@@ -97,7 +97,9 @@ function dogfoodPlan(): Plan {
 // §24.1: ONE fixed task size. Skyline packing keeps the dogfood board bounded.
 {
   const lo = layoutWorkspace([dogfoodPlan()]);
-  const bound = 2600;
+  // Data-driven footprints (§26.4) reserve deepest-LOD space, so the bound is higher
+  // than the old fixed-cell number — but still a few-thousand px, never a km strip.
+  const bound = 6000;
   ok(`world height bounded (${Math.round(lo.bounds.height)} < ${bound}) — no km strip`, lo.bounds.height < bound);
   const tn = lo.frames[0].nodes.filter((n) => n.kind === "task");
   ok("no task overlap at dogfood scale", noTaskOverlap(tn));

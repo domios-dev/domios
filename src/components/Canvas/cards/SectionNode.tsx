@@ -3,18 +3,21 @@ import { Archive, Check, CircleDot, FileText, Maximize2, TriangleAlert } from "l
 import { RichMarkdown } from "@codeterm/chat-ui";
 import type { Plan } from "../types";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
+import { atLeast, type World } from "../worlds";
 import { sectionRows, type SectionRow, type SectionRowGlyph } from "../sectionRows";
 import { ownerName } from "../owner";
 import { planCoverageFraction } from "./coverage";
+import { digestMarkdown } from "./digest";
 import type { CanvasCardStyleProps } from "./types";
 
 const S = DEFAULT_CANVAS_SETTINGS;
 
-// §24.3 un-merge: SPEC and PLAN are two connected sectioned nodes (variant). Both
-// have a header + a per-section body (evenly distributed so rows align 1:1 for the
-// spec↔plan edges) + a right-edge anchor dot per section. PLAN rows are the index
-// (title·coverage·[n]·output→tasks); SPEC blocks reveal their prose on zoom (§24.1
-// content-LOD). FIXED frame — zoom is camera-only, content adapts inside it.
+// §24.3 / §26: SPEC and PLAN are two connected sectioned nodes (variant), each a
+// FIXED frame whose CONTENT adapts to the node's appW WORLD band (§26.2):
+//   W0 mass     — header + coverage + "[N sections]" (territory read, no body).
+//   W1 structure— all section rows (title · ready · [n] · output dot).
+//   W2 content  — bodies reveal (the bug fix): SPEC prose markdown, PLAN excerpts.
+//   W3 deep     — full bodies, node-internal scroll. SPEC owns the full prose.
 const frameStyle = (variant: "plan" | "spec"): CSSProperties => ({
   position: "absolute",
   boxSizing: "border-box",
@@ -53,21 +56,25 @@ function CoverageBar({ pct }: { pct: number }) {
 export interface SectionNodeProps extends CanvasCardStyleProps {
   variant: "plan" | "spec";
   plan: Plan;
-  contentNear?: boolean;
+  world: World;
   onArchive?: () => void;
   onFitNode?: () => void;
 }
 
-export function SectionNode({ variant, plan, style, contentNear = false, onArchive, onFitNode }: SectionNodeProps) {
+export function SectionNode({ variant, plan, style, world, onArchive, onFitNode }: SectionNodeProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
   const owner = ownerName(plan.owner);
   const isPlan = variant === "plan";
   const testid = isPlan ? "canvas-plan-node" : "canvas-spec-node";
+  const showRows = atLeast(world, "W1");
+  const showBody = atLeast(world, "W2"); // the reveal band (§26.2)
+  // W2+ bodies can overflow → node-internal scroll inside the fixed frame (§23.6).
+  const scroll = showBody;
 
   return (
-    <div data-testid={testid} data-plan-id={plan.id} className="ct-canvas-node" style={{ ...frameStyle(variant), ...style }}>
+    <div data-testid={testid} data-plan-id={plan.id} data-world={world} className="ct-canvas-node" style={{ ...frameStyle(variant), ...style }}>
       {isPlan && <div style={{ height: 3, flexShrink: 0, background: "linear-gradient(90deg, var(--ct-border-focus), rgba(52,211,153,0.85))" }} />}
 
       <div style={{ height: S.planHeaderHeight - (isPlan ? 3 : 0), boxSizing: "border-box", padding: "8px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
@@ -87,7 +94,7 @@ export function SectionNode({ variant, plan, style, contentNear = false, onArchi
             </button>
           )}
         </div>
-        {isPlan && (
+        {isPlan ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.86em" }}>
             {owner && (
               <span data-testid="canvas-plan-owner" style={{ display: "flex", alignItems: "center", gap: 5, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "1px 8px 1px 6px", borderRadius: 999, background: "var(--ct-bg-selected)", border: "1px solid var(--ct-border-subtle)", opacity: "var(--ct-text-secondary-opacity)" }}>
@@ -98,6 +105,8 @@ export function SectionNode({ variant, plan, style, contentNear = false, onArchi
             <CoverageBar pct={pct} />
             <span data-testid="canvas-plan-coverage-pct" style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{pct}%</span>
           </div>
+        ) : (
+          <span style={{ fontSize: "0.76em", opacity: "var(--ct-text-tertiary-opacity)" }}>{rows.length} section{rows.length === 1 ? "" : "s"}</span>
         )}
       </div>
 
@@ -105,32 +114,36 @@ export function SectionNode({ variant, plan, style, contentNear = false, onArchi
         ref={bodyRef}
         className="ct-canvas-scroll"
         data-testid={isPlan ? "canvas-plan-body" : "canvas-spec-body"}
-        data-content={!isPlan && contentNear ? "body" : "index"}
-        data-canvas-scroll-body={!isPlan && contentNear ? "1" : undefined}
-        style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: !isPlan && contentNear ? "auto" : "hidden" }}
+        data-content={showBody ? "body" : "index"}
+        data-canvas-scroll-body={scroll ? "1" : undefined}
+        style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: scroll ? "auto" : "hidden" }}
       >
         {rows.length === 0 ? (
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9em", opacity: "var(--ct-text-tertiary-opacity)" }}>
             {isPlan ? `${plan.tasks.length} standalone task${plan.tasks.length === 1 ? "" : "s"}` : "no spec sections"}
           </div>
+        ) : showRows ? (
+          rows.map((row) => <SectionRowView key={row.section.id} row={row} variant={variant} world={world} />)
         ) : (
-          rows.map((row) => (
-            <SectionRowView key={row.section.id} row={row} variant={variant} contentNear={contentNear} />
-          ))
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.84em", opacity: "var(--ct-text-tertiary-opacity)" }}>
+            {rows.length} section{rows.length === 1 ? "" : "s"}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// One section: PLAN renders a compact index row (glyph·title·[n]·output dot); SPEC
-// renders a block — title always, prose revealed on zoom (content-LOD). Evenly
-// flex-distributed so PLAN rows and SPEC blocks line up for the 1:1 edges.
-function SectionRowView({ row, variant, contentNear }: { row: SectionRow; variant: "plan" | "spec"; contentNear: boolean }) {
+// One section. PLAN row = index (glyph·title·[n]·output dot) + at W2 a clamped
+// excerpt, W3 fuller. SPEC block = title + 1-line abstract at W1, full prose at W2+.
+function SectionRowView({ row, variant, world }: { row: SectionRow; variant: "plan" | "spec"; world: World }) {
   const g = GLYPH[row.glyph];
   const isPlan = variant === "plan";
   const hasBody = row.section.body.trim().length > 0;
-  const showProse = !isPlan && contentNear && hasBody;
+  const showBody = atLeast(world, "W2") && hasBody;
+  const showAbstract = !isPlan && !showBody && atLeast(world, "W1") && hasBody;
+  const clamp = isPlan || !atLeast(world, "W3"); // SPEC unclamps at W3; PLAN stays excerpt
+  const grow = showBody || showAbstract;
 
   return (
     <div
@@ -138,16 +151,16 @@ function SectionRowView({ row, variant, contentNear }: { row: SectionRow; varian
       data-section-id={row.section.id}
       data-row-glyph={row.glyph}
       style={{
-        flex: showProse ? "0 0 auto" : 1,
+        flex: grow ? "0 0 auto" : 1,
         minHeight: 0,
         position: "relative",
         display: "flex",
         flexDirection: "column",
         gap: 4,
-        padding: showProse ? "8px 12px" : "0 4px 0 8px",
+        padding: grow ? "8px 12px" : "0 4px 0 8px",
         justifyContent: "center",
         borderLeft: `2px solid ${g.rail}`,
-        borderBottom: showProse ? "1px solid var(--ct-border-subtle)" : "none",
+        borderBottom: grow ? "1px solid var(--ct-border-subtle)" : "none",
         overflow: "hidden",
       }}
     >
@@ -158,13 +171,24 @@ function SectionRowView({ row, variant, contentNear }: { row: SectionRow; varian
         </span>
         {isPlan && <span data-testid="canvas-plan-row-count" style={{ flexShrink: 0, fontSize: "0.68em", fontFamily: "var(--ct-font-mono)", fontWeight: 600, opacity: "var(--ct-text-secondary-opacity)", paddingRight: 8 }}>{row.taskCount}</span>}
       </div>
-      {showProse && (
-        <div data-testid="canvas-spec-section-body" style={{ fontSize: "0.82em", lineHeight: 1.5, opacity: 0.9, overflowWrap: "anywhere", paddingLeft: row.depth * 8 }}>
+      {showAbstract && (
+        <div data-testid="canvas-spec-abstract" style={{ fontSize: "0.78em", lineHeight: 1.4, opacity: "var(--ct-text-secondary-opacity)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: row.depth * 8 }}>
+          {digestMarkdown(row.section.body, 80)}
+        </div>
+      )}
+      {showBody && (
+        <div
+          data-testid={isPlan ? "canvas-plan-section-body" : "canvas-spec-section-body"}
+          className="ct-canvas-fade-in"
+          style={clamp
+            ? { fontSize: "0.82em", lineHeight: 1.5, opacity: 0.9, overflowWrap: "anywhere", paddingLeft: row.depth * 8, display: "-webkit-box", WebkitLineClamp: isPlan ? 4 : 8, WebkitBoxOrient: "vertical", overflow: "hidden" }
+            : { fontSize: "0.82em", lineHeight: 1.55, opacity: 0.92, overflowWrap: "anywhere", paddingLeft: row.depth * 8 }}
+        >
           <RichMarkdown text={row.section.body} />
         </div>
       )}
       {/* Per-section anchor dot on the node's right edge: PLAN output → tasks; SPEC → plan row. */}
-      <span data-testid={isPlan ? "canvas-plan-output" : "canvas-spec-output"} aria-hidden style={{ position: "absolute", right: -1, top: showProse ? 14 : "50%", transform: showProse ? "none" : "translateY(-50%)", width: 7, height: 7, borderRadius: "50%", background: g.rail, border: "1px solid var(--ct-bg)" }} />
+      <span data-testid={isPlan ? "canvas-plan-output" : "canvas-spec-output"} aria-hidden style={{ position: "absolute", right: -1, top: grow ? 14 : "50%", transform: grow ? "none" : "translateY(-50%)", width: 7, height: 7, borderRadius: "50%", background: g.rail, border: "1px solid var(--ct-bg)" }} />
     </div>
   );
 }
