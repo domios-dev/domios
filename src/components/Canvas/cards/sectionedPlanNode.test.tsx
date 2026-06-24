@@ -74,9 +74,11 @@ test("Card mode = section titles + digests (no full body); Tile mode = coverage 
   await act(async () => card.root.unmount());
 
   const tile = await render(<SectionedPlanNode plan={FIXTURE_PLAN} style={style("tile")} viewMode="tile" />);
-  assert(q(tile.host, '[data-testid="canvas-plan-section-count"]'), "tile shows a coverage/section summary");
+  // Tile body is a compact SECTION INDEX (not a giant coverage panel).
+  assert(qa(tile.host, '[data-testid="canvas-plan-tile-row"]').length === 2, "tile shows a section-row index");
   assert(!q(tile.host, '[data-testid="canvas-plan-card-row"]'), "no card rows in tile mode");
-  assert(q(tile.host, '[data-testid="canvas-plan-coverage-pct"]'), "tile keeps coverage %");
+  assert(!q(tile.host, '[data-testid="canvas-plan-doc-section"]'), "no full doc bodies in tile mode");
+  assert(q(tile.host, '[data-testid="canvas-plan-coverage-pct"]'), "tile keeps the compact coverage bar (header)");
   await act(async () => tile.root.unmount());
 });
 
