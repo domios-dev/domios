@@ -88,6 +88,14 @@ setup_env
 # (.codeterm-dev / 7686 / 1420). See AGENTS.md "Process safety".
 CT_INSTANCE="${CODETERM_INSTANCE:-}"
 CT_PORT="${CODETERM_API_PORT:-7686}"
+# PROD GUARD: 7685 is the production daemon. build.sh is dev-only; it must NEVER
+# target prod, even if a caller inherited CODETERM_API_PORT=7685 from a prod pane.
+if [ "$CT_PORT" = "7685" ]; then
+  echo "REFUSING: port 7685 is PRODUCTION. build.sh is dev-only and will not kill/start it." >&2
+  echo "  (You inherited CODETERM_API_PORT=7685 from a prod pane. Set CODETERM_API_PORT=7686" >&2
+  echo "   for the canonical dev, or CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> for a worktree.)" >&2
+  exit 2
+fi
 if [ -n "$CT_INSTANCE" ]; then
   CT_SLUG=$(printf '%s' "$CT_INSTANCE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
   CT_SUFFIX="-$CT_SLUG"
