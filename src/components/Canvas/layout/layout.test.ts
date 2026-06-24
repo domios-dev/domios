@@ -176,12 +176,10 @@ console.log("\nsection-row anchors:");
   const edge = frame.edges.find((e) => e.kind === "section-task" && e.to === "t1");
   ok("section-task edge starts at the row anchor", !!edge?.fromPoint && Math.abs(edge.fromPoint.x - a1.x) < 0.5 && Math.abs(edge.fromPoint.y - a1.y) < 0.5);
 
-  // Banded sweep (§20.3): t1's CELL block hugs its primary covered row (s1) — the
-  // row anchor falls inside the cell's vertical span (card + folded step cluster).
-  const t1CellNodes = frame.nodes.filter((n) => n.id === "t1" || n.id === "t1::cluster" || ["m1", "m2", "m3"].includes(n.id));
-  const cellTop = Math.min(...t1CellNodes.map((n) => n.box.y));
-  const cellBottom = Math.max(...t1CellNodes.map((n) => n.box.y + n.box.height));
-  ok("task cell hugs its primary covered-row Y (banded sweep)", cellTop <= a1.y + 1 && cellBottom >= a1.y - 1);
+  // §32.10 cloud: t1 sits in the bounded cloud region right of the plan (status/
+  // priority sorted, not row-hugging); the section→task edge keeps the mapping.
+  const t1Node = frame.nodes.find((n) => n.id === "t1")!;
+  ok("task sits in the bounded cloud region", t1Node.box.y >= planNode.box.y - 1 && t1Node.box.y <= planNode.box.y + DEFAULT_CANVAS_SETTINGS.cloudMaxH);
 }
 
 // ── SEPARATE spec + plan nodes (§24.3): three connected columns ──
@@ -225,12 +223,18 @@ console.log("\ninterior steps:");
   // Document task card as step cards (Thread & Coil interior). No cluster chrome.
   ok("no separate milestone nodes (steps are interior)", !frame.nodes.some((n) => n.kind === "milestone"));
   ok("no cluster nodes / task-cluster edges", !frame.nodes.some((n) => n.kind === "cluster") && !frame.edges.some((e) => e.kind === "task-cluster"));
-  // §26.4 data-driven footprint: height ∝ work VOLUME (fixed across zoom, varies by
-  // data). t1 (3 steps) is taller than t2 (1 step); both within the reserved bounds.
+  // §32.4 data-driven footprint: size ∝ work VOLUME (fixed across zoom, varies by
+  // data), grows in BOTH axes bounded. t1 (3 steps) is taller than t2 (1 step);
+  // width snaps to column slots in [taskW, taskMaxW]; height floored at aspectFloor.
+  const S = DEFAULT_CANVAS_SETTINGS;
   const withSteps = frame.nodes.find((n) => n.id === "t1")!; // t1 has 3 milestones
   const noSteps = frame.nodes.find((n) => n.id === "t2")!; // t2 has 1 milestone
   ok("heavier task reserves a bigger footprint", withSteps.box.height > noSteps.box.height);
-  ok("footprints within reserved bounds", [withSteps, noSteps].every((n) => n.box.height >= DEFAULT_CANVAS_SETTINGS.taskBaseH && n.box.height <= DEFAULT_CANVAS_SETTINGS.taskMaxH && n.box.width === DEFAULT_CANVAS_SETTINGS.taskW));
+  ok("footprints within reserved bounds", [withSteps, noSteps].every((n) =>
+    n.box.height >= S.taskMinH && n.box.height <= S.taskMaxH &&
+    n.box.width >= S.taskW && n.box.width <= S.taskMaxW &&
+    (n.box.width - S.taskW) % S.taskColStep === 0 &&
+    n.box.height >= Math.round(S.aspectFloorRatio * n.box.width)));
 }
 
 // ── subtasks (parent_task_id) ─────────────────────────────────────

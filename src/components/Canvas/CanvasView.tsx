@@ -10,7 +10,7 @@ import { CanvasMinimap } from "./CanvasMinimap";
 import { CanvasUnownedTray } from "./CanvasUnownedTray";
 import type { CanvasLod, MilestoneBubbleModel } from "./cards";
 import { OrchestratorGroup } from "./cards";
-import { getNodeRenderer } from "./nodeRegistry";
+import { getNodeRenderer, type SectionNavArgs } from "./nodeRegistry";
 import { bezierPath, resolveEdgeEnds } from "./edges";
 import { milestoneColorMap } from "./milestoneColors";
 import { sectionRows, type SectionRowGlyph } from "./sectionRows";
@@ -96,6 +96,7 @@ interface CanvasLookups {
   sectionById: Map<string, Section>;
   specSectionById: Map<string, SpecSectionModel>;
   milestoneModelById: Map<string, MilestoneBubbleModel>;
+  milestoneTaskById: Map<string, string>;
   clusterModelById: Map<string, ClusterCaptionModel>;
   elementById: Map<string, CanvasElement>;
 }
@@ -119,10 +120,14 @@ interface CanvasNodeCardProps {
   onHoverTask?: (taskId: string | null) => void;
   onArchive?: () => void;
   onFitNode?: (nodeId: string) => void;
+  onCopyLink?: (id: string) => void;
+  onFocusStride?: (milestoneId: string) => void;
+  onSectionClick?: (a: SectionNavArgs) => void;
+  onSectionFrame?: (a: SectionNavArgs) => void;
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, world, dimmed, softDim, elevated, onOpenPane, onHoverTask, onArchive, onFitNode }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, world, dimmed, softDim, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame }: CanvasNodeCardProps) {
     const base = nodeStyle(node.box);
     const opacity = dimmed ? 0.22 : softDim ? 0.45 : 1;
     const style: typeof base & { opacity?: number; zIndex?: number; transition?: string; filter?: string } =
@@ -141,6 +146,11 @@ const CanvasNodeCard = memo(
       onHoverTask,
       onArchive,
       onFitNode,
+      onCopyLink,
+      onCopyStrideLink: onCopyLink,
+      onFocusStride,
+      onSectionClick,
+      onSectionFrame,
     });
     return rendered ? <Fragment key={node.id}>{rendered}</Fragment> : null;
   },
@@ -188,6 +198,8 @@ export function CanvasViewInner({
     width: size.width,
     height: size.height,
     panButton: "middle",
+    // §32.10: tasks are small → zoom-drill needs more range to reach W3 on a tile.
+    maxScale: 4,
   });
 
   // §24.1: ONE behavior — no manual view modes. Node frames are fixed; content
@@ -204,6 +216,7 @@ export function CanvasViewInner({
     const sectionById = new Map<string, Section>();
     const specSectionById = new Map<string, SpecSectionModel>();
     const milestoneModelById = new Map<string, MilestoneBubbleModel>();
+    const milestoneTaskById = new Map<string, string>();
     const clusterModelById = new Map<string, ClusterCaptionModel>();
     const elementById = new Map<string, CanvasElement>();
     for (const plan of filteredPlans) {
@@ -231,6 +244,7 @@ export function CanvasViewInner({
         for (const m of task.milestones) {
           const color = colors.get(m.kind) ?? "var(--ct-border-focus)";
           milestoneModelById.set(m.id, { milestone: m, color });
+          milestoneTaskById.set(m.id, task.id);
           if (!seen.has(m.kind)) seen.set(m.kind, color);
         }
         if (seen.size) {
@@ -241,7 +255,7 @@ export function CanvasViewInner({
       }
       for (const el of plan.elements) elementById.set(el.id, el);
     }
-    return { nodeById, taskById, taskModelById, sectionById, specSectionById, milestoneModelById, clusterModelById, elementById };
+    return { nodeById, taskById, taskModelById, sectionById, specSectionById, milestoneModelById, milestoneTaskById, clusterModelById, elementById };
   }, [layout, filteredPlans]);
 
   const resolveModel = useCallback(
@@ -378,6 +392,58 @@ export function CanvasViewInner({
       setBlinkIds(new Set(ids));
     },
     [fitCameraToNodes],
+  );
+
+  // Task ids covering a given plan section — the section→tasks mapping for nav.
+  const sectionTaskIds = useCallback(
+    (planId: string, sectionId: string) => {
+      const plan = planById.get(planId);
+      if (!plan) return [];
+      return plan.tasks.filter((t) => t.section_ids.includes(sectionId)).map((t) => t.id);
+    },
+    [planById],
+  );
+
+  // §32.7 section highlight: single-click a section row → highlight its outgoing
+  // task edges + connected task nodes (NO camera move). Auto-clears.
+  const [highlight, setHighlight] = useState<{ sectionId: string; taskIds: Set<string> } | null>(null);
+  const onSectionClick = useCallback(
+    (a: SectionNavArgs) => {
+      const ids = sectionTaskIds(a.planId, a.sectionId);
+      setHighlight({ sectionId: a.sectionId, taskIds: new Set(ids) });
+    },
+    [sectionTaskIds],
+  );
+  useEffect(() => {
+    if (!highlight) return;
+    const h = setTimeout(() => setHighlight(null), 5000);
+    return () => clearTimeout(h);
+  }, [highlight]);
+
+  // Double-click / row-action → FRAME the connected tasks (fly+blink). Empty
+  // section → frame the plan (user can then compose against it).
+  const onSectionFrame = useCallback(
+    (a: SectionNavArgs) => {
+      const ids = sectionTaskIds(a.planId, a.sectionId);
+      if (ids.length) focusOnNodes(ids);
+      else fitCameraToNodes([a.planId]);
+      setHighlight({ sectionId: a.sectionId, taskIds: new Set(ids) });
+    },
+    [sectionTaskIds, focusOnNodes, fitCameraToNodes],
+  );
+
+  // Copy a stable id/link to the clipboard (task, section, stride). User-initiated.
+  const onCopyLink = useCallback((id: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) void navigator.clipboard.writeText(id).catch(() => {});
+  }, []);
+
+  // Focus a stride → frame its owning task (strides live inside the task interior).
+  const onFocusStride = useCallback(
+    (milestoneId: string) => {
+      const taskId = lookups.milestoneTaskById.get(milestoneId);
+      if (taskId) focusOnNodes([taskId]);
+    },
+    [lookups, focusOnNodes],
   );
 
   // Node ids representing this pane's own area: its assigned tasks, else its plans.
@@ -630,8 +696,9 @@ export function CanvasViewInner({
                   // ALL edges draw at rest as subtle accent strokes (nothing
                   // floats); hovering a task lifts its own edges and dims the rest
                   // so the row↔task / row↔spec mapping reads at a glance.
-                  const related = hoveredTask != null && (edge.from === hoveredTask || edge.to === hoveredTask);
-                  const dimmed = hoveredTask != null && !related;
+                  const inHighlight = highlight != null && (edge.id.startsWith(`${highlight.sectionId}~`) || (edge.to != null && highlight.taskIds.has(edge.to)));
+                  const related = (hoveredTask != null && (edge.from === hoveredTask || edge.to === hoveredTask)) || inHighlight;
+                  const dimmed = (hoveredTask != null || highlight != null) && !related;
                   // Per-edge jitter so near-parallel row beziers fan out and each
                   // connection is individually traceable (deterministic).
                   const j = rowEdge ? edgeJitter(edge.id) : 0.5;
@@ -689,6 +756,10 @@ export function CanvasViewInner({
                     onHoverTask={onHoverTask}
                     onArchive={n.kind === "plan" && api ? () => handleArchive(n.id) : undefined}
                     onFitNode={n.kind === "plan" ? fitNode : undefined}
+                    onCopyLink={onCopyLink}
+                    onFocusStride={onFocusStride}
+                    onSectionClick={onSectionClick}
+                    onSectionFrame={onSectionFrame}
                   />
                 )),
             )}
@@ -701,6 +772,20 @@ export function CanvasViewInner({
                 />
               );
             })()}
+            {/* §32.7 section highlight: connected task nodes get a steady ring (no
+                camera move) so a single-clicked section's tasks read at a glance. */}
+            {highlight && [...highlight.taskIds].map((id) => {
+              const box = lookups.nodeById.get(id)?.box;
+              if (!box || !nodeIds.has(id)) return null;
+              return (
+                <div
+                  key={`hl-${id}`}
+                  data-testid="canvas-section-highlight"
+                  className="ct-canvas-hovered pointer-events-none absolute"
+                  style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-md)" }}
+                />
+              );
+            })}
             {[...blinkIds].map((id) => {
               const box = lookups.nodeById.get(id)?.box;
               if (!box || !nodeIds.has(id)) return null;
