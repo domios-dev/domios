@@ -2,7 +2,8 @@
 
 import type { Plan, Section, Task } from "../types";
 import { DEFAULT_CANVAS_SETTINGS as S } from "../settings";
-import { layoutWorkspace, boxesOverlap } from "./index";
+import type { CanvasViewMode } from "../cards/types";
+import { layoutWorkspace, boxesOverlap, type NodeModeResolver } from "./index";
 
 let passed = 0;
 let failed = 0;
@@ -64,13 +65,46 @@ const singleColH = 38 * (S.taskDocH + S.taskGapY);
 ok(`banded height (${Math.round(bandedH)}) far below single-column (${singleColH})`, bandedH < singleColH * 0.6);
 
 // No task node overlaps another (top-down non-overlap sweep).
-function noTaskOverlap(): boolean {
-  for (let i = 0; i < taskNodes.length; i++)
-    for (let j = i + 1; j < taskNodes.length; j++)
-      if (boxesOverlap(taskNodes[i].box, taskNodes[j].box)) return false;
+function noTaskOverlap(nodes = taskNodes): boolean {
+  for (let i = 0; i < nodes.length; i++)
+    for (let j = i + 1; j < nodes.length; j++)
+      if (boxesOverlap(nodes[i].box, nodes[j].box)) return false;
   return true;
 }
 ok("no task-node overlap after banded sweep", noTaskOverlap());
+
+// ── Height-bound regression (the ~20000px km-strip bug) ───────────
+// Real dogfood shape: 25 sections, 23 top-level tasks spread ~1/section, 22
+// subtasks under parents, 1 standalone — most bands hold a single (super)cell, so
+// a sequential stack would be a km strip. Skyline packing must keep it bounded.
+function dogfoodPlan(): Plan {
+  const sections = Array.from({ length: 25 }, (_, i) => section(`s${i}`));
+  const tasks: Task[] = [];
+  for (let i = 0; i < 23; i++) tasks.push(task(`t${i}`, [`s${i}`])); // ~1 per section
+  for (let i = 0; i < 22; i++) {
+    const sub = task(`sub${i}`, []);
+    sub.parent_task_id = `t${i % 23}`;
+    tasks.push(sub);
+  }
+  tasks.push(task("u0", [])); // standalone
+  return {
+    id: "dog", title: "dog", sections, status: "active",
+    owner: { pane_id: "o", session_id: "o", title: "o" }, project_path: "/p",
+    created_at: 0, updated_at: 1, milestone_kinds: [], loops: [], elements: [],
+    tasks, canvas: { viewport: null }, owner_history: [],
+  };
+}
+
+const fixed = (m: CanvasViewMode): NodeModeResolver => () => m;
+for (const [mode, bound] of [["tile", 2600] as const, ["card", 4200] as const]) {
+  const lo = layoutWorkspace([dogfoodPlan()], S, fixed(mode));
+  ok(`${mode} world height bounded (${Math.round(lo.bounds.height)} < ${bound}) — no km strip`, lo.bounds.height < bound);
+  const tn = lo.frames[0].nodes.filter((n) => n.kind === "task");
+  ok(`${mode}: no task overlap at dogfood scale`, noTaskOverlap(tn));
+  // Top-level cells use ≤ maxTaskCols columns (children may indent one more).
+  const topXs = new Set(lo.frames[0].nodes.filter((n) => n.kind === "task" && !n.id.startsWith("sub")).map((n) => Math.round(n.box.x)));
+  ok(`${mode}: top-level tasks within ≤ maxTaskCols columns`, topXs.size <= S.maxTaskCols);
+}
 
 // Determinism: same input → identical task boxes.
 const frame2 = layoutWorkspace([bigPlan()]).frames[0];

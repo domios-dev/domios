@@ -20,15 +20,12 @@ interface ChildItem {
 interface Cell {
   task: Task;
   order: number;
-  band: string;
-  bandRowY: number;
+  bandRowY: number; // primary covered section's rail-output Y (or +Inf = standalone)
   w: number;
   h: number;
   childItems: ChildItem[];
   height: number; // full cell footprint (card + subtask stack)
 }
-
-const STANDALONE_BAND = "__standalone__";
 
 // Banded multi-column task sweep (§20.3/§23.2): tasks band by primary covered
 // section, pack into a bounded grid right of the plan node, top-down non-overlap.
@@ -78,7 +75,6 @@ export function layoutTaskBands(
     return {
       task,
       order,
-      band: primarySid ?? STANDALONE_BAND,
       bandRowY: primarySid != null ? anchors.get(primarySid)!.y : Number.POSITIVE_INFINITY,
       w: cellW,
       h,
@@ -87,50 +83,29 @@ export function layoutTaskBands(
     };
   });
 
-  // Group into bands; stable intra-band order by creation index (§20.3.2).
-  const bandMap = new Map<string, Cell[]>();
-  for (const c of cells) {
-    const arr = bandMap.get(c.band);
-    if (arr) arr.push(c);
-    else bandMap.set(c.band, [c]);
-  }
-  const bands = [...bandMap.values()];
-  for (const arr of bands) arr.sort((a, b) => a.order - b.order);
-  bands.sort((a, b) => a[0].bandRowY - b[0].bandRowY || a[0].order - b[0].order);
-
   const cols = Math.max(1, s.maxTaskCols);
   const colWidth = cells.length ? Math.max(...cells.map((c) => c.w)) : s.taskWidth;
   const colPitch = colWidth + s.taskColGap;
 
-  // Top-down non-overlap sweep (§20.3.5): each band hugs its section-row Y, pushed
-  // down only when the previous band already occupies that space.
-  let cursorY = 0;
-  for (const band of bands) {
-    const subRows = Math.ceil(band.length / cols);
-    const rowH: number[] = [];
-    for (let r = 0; r < subRows; r++) {
-      let h = 0;
-      for (let c = 0; c < cols; c++) {
-        const idx = r * cols + c;
-        if (idx < band.length) h = Math.max(h, band[idx].height);
+  // Anchor-hugging skyline column packing (§20.3 + height-bound fix): place each
+  // cell at its section-row Y in whichever column keeps it HIGHEST (best hug),
+  // pushing down only when every column is occupied there. Bounds the task-field
+  // height to ~ΣcellH / cols instead of a single tall stack — no km-strip board.
+  const sorted = [...cells].sort((a, b) => a.bandRowY - b.bandRowY || a.order - b.order);
+  const colBottom = new Array(cols).fill(0);
+  for (const cell of sorted) {
+    const idealTop = Number.isFinite(cell.bandRowY) ? cell.bandRowY - cell.height / 2 : Math.min(...colBottom);
+    let bestC = 0;
+    let bestTop = Number.POSITIVE_INFINITY;
+    for (let c = 0; c < cols; c++) {
+      const top = Math.max(colBottom[c], idealTop);
+      if (top < bestTop) {
+        bestTop = top;
+        bestC = c;
       }
-      rowH.push(h);
     }
-    const blockH = rowH.reduce((a, b) => a + b, 0) + Math.max(0, subRows - 1) * s.taskGapY;
-    const anchored = Number.isFinite(band[0].bandRowY);
-    const idealTop = (anchored ? band[0].bandRowY : cursorY) - blockH / 2;
-    const top = Math.max(cursorY, idealTop);
-
-    let rowTop = top;
-    for (let r = 0; r < subRows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const idx = r * cols + c;
-        if (idx >= band.length) continue;
-        placeCell(band[idx], taskX + c * colPitch, rowTop);
-      }
-      rowTop += rowH[r] + s.taskGapY;
-    }
-    cursorY = top + blockH + s.bandPad;
+    placeCell(cell, taskX + bestC * colPitch, bestTop);
+    colBottom[bestC] = bestTop + cell.height + s.taskGapY;
   }
 
   return { nodes, edges, extraPoints };

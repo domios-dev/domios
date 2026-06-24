@@ -80,6 +80,23 @@ test("CanvasViewInner renders the merged SectionedPlanNode (rail + body) and tas
   await act(async () => root.unmount());
 });
 
+test("default mount is the Tile overview; double-click camera-focuses a node (breadcrumb appears)", async () => {
+  const { host, root } = await render(<CanvasViewInner mode="workspace" plans={[FIXTURE_PLAN]} viewportPadding={10000} />);
+  await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+  // §22.1/§23.4: default view mode is Tile (the legible overview, not Document).
+  const planNode = host.querySelector('[data-testid="canvas-plan-node"]') as HTMLElement;
+  assert(planNode?.getAttribute("data-view-mode") === "tile", "default mount renders Tile overview");
+  // No breadcrumb until a node is camera-focused.
+  assert(!host.querySelector('[data-testid="canvas-breadcrumb"]'), "no breadcrumb before focus");
+  // Double-click the plan node → camera-focus + breadcrumb.
+  await act(async () => {
+    planNode.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("dblclick", { bubbles: true }));
+  });
+  assert(host.querySelector('[data-testid="canvas-breadcrumb"]'), "breadcrumb shows the focused node");
+  assert(host.querySelector('[data-testid="canvas-breadcrumb"]')?.textContent?.includes("Auth rollout"), "breadcrumb names the focused plan");
+  await act(async () => root.unmount());
+});
+
 function elementAt(id: string, kind: string, x: number, y: number): CanvasElement {
   return { id, kind, canvas: { x, y, collapsed: false }, content: `**${kind}** body`, links: [] };
 }
