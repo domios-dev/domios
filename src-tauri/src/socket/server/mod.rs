@@ -357,7 +357,7 @@ fn dispatch(
                     "agent.list", "agent.hierarchy", "agent.spawn", "agent.set_role",
                     "agent.clear_role", "agent.status", "agent.children", "agent.link",
                     "agent.report", "agent.reports",
-                    "plan.create", "plan.list", "plan.get", "plan.update", "plan.archive",
+                    "plan.create", "plan.list", "plan.get", "plan.spec", "plan.files", "plan.update", "plan.archive",
                     "plan.delete", "plan.transfer", "plan.disown", "plan.claim",
                     "plan.section.add", "plan.section.update", "plan.section.rm",
                     "plan.kinds.set",

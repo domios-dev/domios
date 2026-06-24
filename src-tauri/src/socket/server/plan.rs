@@ -322,6 +322,20 @@ pub(super) fn dispatch(
             Ok(serde_json::to_value(plan).unwrap_or_default())
         }
 
+        "plan.spec" => {
+            let id = get_string_param(params, "plan_id")?;
+            let spec = store
+                .spec_markdown(&id)
+                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            Ok(json!({ "plan_id": id, "spec": spec }))
+        }
+
+        "plan.files" => {
+            let id = get_string_param(params, "plan_id")?;
+            let manifest = store.file_manifest(&id).map_err(plan_rpc_err)?;
+            Ok(serde_json::to_value(manifest).unwrap_or_default())
+        }
+
         "plan.update" => {
             let id = get_string_param(params, "plan_id")?;
             let status = p
