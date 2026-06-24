@@ -683,6 +683,22 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// Non-TUI usage fetch: providers whose usage lives behind a CLI/API rather
+    /// than a `/usage` TUI screen (e.g. cursor) return the raw payload here. The
+    /// poller feeds it to `usage_parser()` exactly like TUI-captured text but
+    /// skips spawning a hidden agent pane. `Some(Err)` is an honest fetch
+    /// failure; `None` (default) means "use the TUI probe path".
+    fn fetch_usage(&self) -> Option<Result<String, String>> {
+        None
+    }
+
+    /// Cheap predicate (no I/O) for "usage comes from a CLI/API fetch, not a
+    /// `/usage` TUI screen". The poller probes these without a visible pane —
+    /// there's no terminal to gate on. Default `false` (TUI-probe providers).
+    fn usage_is_fetch_based(&self) -> bool {
+        false
+    }
+
     /// What kind of session-id control this provider supports.
     /// Default is `None` — provider generates its own ids and CodeTerm
     /// has to detect them post-launch via `detect_session_id`.
