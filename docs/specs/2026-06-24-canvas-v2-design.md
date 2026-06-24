@@ -752,3 +752,54 @@ Given 22.1 + 22.2, the WHOLE node-layout system needs (re)designing: how the one
 node + its task outputs + milestone interiors + standalone tasks + multiple plans + the
 orchestrator region all lay out as fixed-size nodes on a camera-zoomed canvas without overlap,
 without портянki, readable. Brainstormed next (§23).
+
+## 23. The node-layout system (synthesized: opus + cursor converged) — honors §22
+
+<!-- revision: 4 -->
+
+Both brainstorms converged. Full long-form: `2026-06-24-canvas-v3-layout-proposal.md`. Decisions:
+
+### 23.1 ONE SectionedPlanNode (fixed-size per MANUAL mode)
+- **HEADER:** title · owner · coverage · manual mode switch (Doc|Card|Tile) · fit-node button.
+- **RIGHT-EDGE RAIL (always-rendered chrome):** one row per section — ready glyph · title · `[n]` ·
+  **OUTPUT dot (вых)**. The rail is BOTH the in-node TOC (click → scroll body to section) AND the
+  task connection anchors (all sections always connectable, independent of body scroll). Rail row
+  world-Y is STABLE → edge anchors stable.
+- **BODY in a FIXED frame, per manual mode:**
+  - **Document** = full RichMarkdown (mermaid/code) with **INTERNAL SCROLL** inside the fixed frame
+    (Alt B — full fidelity, minimal machinery; the frame bounds it, §22).
+  - **Card** = section titles + 1-line digests.
+  - **Tile** = title + coverage + counts (rail collapses to an outputs stub).
+- Fixed bbox per mode (settings.ts): e.g. Tile 480×280 / Card 480×400 / Document 480×640. The MODE
+  sets the size (manual); zoom NEVER does (§22.1). Spec prose = the section bodies (one node, §22.2).
+- Manual per-section `collapsed` (persisted) skips its body in the scroll but keeps its rail row+anchor.
+
+### 23.2 Tasks (Banded Multi-Column §20.3, anchored to rail outputs)
+Band = primary covered section; tasks pack in a bounded 3–4-col grid right of the node; bezier from
+the section's OUTPUT dot → task left edge. Band assignment is mode-independent; only the edge
+endpoint moves when mode changes. Task cell fixed-size per its own manual mode; steps (§16.9 Thread
+& Coil) are INTERIOR to the fixed task cell, representation by the task's manual mode (not zoom).
+
+### 23.3 Multi-plan + orchestrator (3 nested deterministic packers)
+task-sweep ⊂ plan-region (node + its task field, plans L→R, wrap) ⊂ orchestrator group (top-down,
+stable by owner id). Inbox/standalone = synthetic-band region. No overlap; stable ids keep slots;
+incremental remeasure on insert (downward sweep); mode change = full remeasure, monotonic slots.
+
+### 23.4 Readability WITHOUT zoom-resize (the crux — 5 manual/structural mechanisms, NOT zoom-LOD)
+1. **Discrete manual view modes** — global **Tile = legible concept-map overview** (fixes the 13%
+   gray board; reads tags/coverage, §19.4).
+2. **In-node rail/TOC** navigation at any camera zoom.
+3. **Bounded fixed frame + internal scroll** → fit-all lands ~50–70%, not 13%.
+4. **Camera-focus reading gesture** — double-click / `canvas focus` → zoom-to-fit the fixed
+   Document node (PDF-at-100% readable) + dim (not hide) neighbors + breadcrumb. Esc = back.
+5. **Minimap HUD** (frame + task dots + viewport rect).
+- **Default mount = focused on the active plan (~90%), NOT fit-all.** Presets: Overview (Tile+fit) /
+  Read (Document+focus) are manual buttons, never zoom-triggered.
+- **Extreme plans (>30 sections) → child SectionChunk nodes** (flat connected constellation, each a
+  fixed Document node + own outputs), never an accordion/km-strip.
+
+### 23.5 Implementation locks (FE)
+KILL the Auto-by-zoom view mode + any content-driven node height in layout. Lock the settings
+constants (planTileH/planDocH/railW/maxTaskCols). Emit rail-row OUTPUT anchors BEFORE the task
+sweep. Change default mount fit-all → focused-plan@90%. Playwright mode×camera-zoom visual loop
+asserts FIXED node sizes + no overflow (content scrolls inside frame) + anchors on rail rows.
