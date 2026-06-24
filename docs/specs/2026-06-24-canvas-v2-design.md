@@ -495,3 +495,36 @@ externalized from the start.
 Applies to **section bodies** (the spec/plan prose — the large ones) and **task bodies**.
 Small fields (title, status, model, ids, milestone text, refs) stay inline in JSON — they're
 not the editing pain. Milestone text stays inline (short, machine-appended by reports).
+
+## 18. Node VIEW MODES + manual controls (supersedes continuous counter-scale §16.2)
+
+<!-- revision: 3 -->
+
+Continuous text counter-scale (§16.2) is REJECTED by the user — stretching text with zoom
+feels bad. Replace it with **discrete, designed view modes** per node + **manual controls**.
+
+### 18.1 Discrete view modes (each DESIGNED to look good at its distance)
+Every doc/task node renders in one of a few fixed, hand-designed modes — NOT scaled text:
+- **Document** — full markdown body (mermaid/code), per-section badges. The reading view.
+- **Card** — title + ready/count badges + a 1–2 line digest. Compact, legible, no tiny text.
+- **Tile** — title + status glyph + counts only. The far/overview view; reads cleanly at distance.
+Switching modes swaps the LAYOUT/representation; text inside each mode is at a FIXED, readable
+size (no continuous scaling). This is the "looks better at large distances" the user wants.
+
+### 18.2 Manual controls (the toggles)
+- **Scale controls:** explicit zoom in / out / fit / reset buttons (zoom is not pinch-only).
+- **View-mode switch:** a control (global, and optionally per-node) to pick Document / Card /
+  Tile. The user drives it.
+- **Text on/off:** a toggle to hide bodies (declutter to Card/Tile) — DELIBERATE, user-driven;
+  never an accidental empty box (§16.2's no-empty rule still holds for the chosen mode).
+- **Auto-by-distance (optional, overridable):** view mode MAY auto-pick by zoom band
+  (far→Tile, mid→Card, near→Document) as discrete designed views — but the user can lock a mode.
+
+### 18.3 No-overflow discipline + Playwright verification
+Each mode is bounded and must never overflow/clip. Verify with Playwright across modes ×
+zoom bands (screenshot + bbox asserts: no overflow, no overlap, every mode legible) — the same
+visual review loop the orchestrator runs. Agents may be launched to iterate the modes' look.
+
+> Net change from §16.2/§16.8: keep "never hide info accidentally", wider nodes, badges, and the
+> doc↔index intent — but deliver it via DISCRETE designed view modes + manual controls, NOT
+> continuous text scaling.
