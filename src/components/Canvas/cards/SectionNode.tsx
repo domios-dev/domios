@@ -1,22 +1,24 @@
 import { useRef, type CSSProperties } from "react";
-import { Archive, Check, CircleDot, FileText, Maximize2, TriangleAlert } from "lucide-react";
+import { Archive, Check, CircleDot, Copy, Crosshair, FileText, Maximize2, TriangleAlert } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import type { Plan } from "../types";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import { atLeast, type World } from "../worlds";
 import { sectionRows, type SectionRow, type SectionRowGlyph } from "../sectionRows";
 import { ownerName } from "../owner";
+import type { SectionNavArgs } from "../nodeRegistry";
 import { planCoverageFraction } from "./coverage";
 import { digestMarkdown } from "./digest";
 import type { CanvasCardStyleProps } from "./types";
 
 const S = DEFAULT_CANVAS_SETTINGS;
 
-// §24.3 / §26: SPEC and PLAN are two connected sectioned nodes (variant), each a
+// §24.3 / §32: SPEC and PLAN are two connected sectioned nodes (variant), each a
 // FIXED frame whose CONTENT adapts to the node's appW WORLD band (§26.2):
-//   W0 mass     — header + coverage + "[N sections]" (territory read, no body).
-//   W1 structure— all section rows (title · ready · [n] · output dot).
-//   W2 content  — bodies reveal (the bug fix): SPEC prose markdown, PLAN excerpts.
+//   W0 mass     — header + coverage + top-3 section rows + status counts (§32.2 —
+//                 COMPRESSED content, never a hollow "N sections" placeholder).
+//   W1 structure— all section rows (glyph · title · count · output dot).
+//   W2 content  — bodies reveal: SPEC prose markdown, PLAN excerpts + affordances.
 //   W3 deep     — full bodies, node-internal scroll. SPEC owns the full prose.
 const frameStyle = (variant: "plan" | "spec"): CSSProperties => ({
   position: "absolute",
@@ -45,6 +47,14 @@ function iconBtn(): CSSProperties {
   return { display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-fg)", cursor: "pointer", flexShrink: 0 };
 }
 
+function smallBtn(): CSSProperties {
+  return { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 18, height: 18, borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-fg)", cursor: "pointer", flexShrink: 0 };
+}
+
+function copyText(text: string): void {
+  if (typeof navigator !== "undefined" && navigator.clipboard) void navigator.clipboard.writeText(text).catch(() => {});
+}
+
 function CoverageBar({ pct }: { pct: number }) {
   return (
     <div title={`${pct}% covered`} style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--ct-bg-active)", overflow: "hidden" }}>
@@ -59,9 +69,11 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   world: World;
   onArchive?: () => void;
   onFitNode?: () => void;
+  onSectionClick?: (a: SectionNavArgs) => void;
+  onSectionFrame?: (a: SectionNavArgs) => void;
 }
 
-export function SectionNode({ variant, plan, style, world, onArchive, onFitNode }: SectionNodeProps) {
+export function SectionNode({ variant, plan, style, world, onArchive, onFitNode, onSectionClick, onSectionFrame }: SectionNodeProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
@@ -70,8 +82,10 @@ export function SectionNode({ variant, plan, style, world, onArchive, onFitNode 
   const testid = isPlan ? "canvas-plan-node" : "canvas-spec-node";
   const showRows = atLeast(world, "W1");
   const showBody = atLeast(world, "W2"); // the reveal band (§26.2)
-  // W2+ bodies can overflow → node-internal scroll inside the fixed frame (§23.6).
   const scroll = showBody;
+
+  const counts = { uncovered: 0, progress: 0, done: 0 };
+  for (const r of rows) counts[r.glyph]++;
 
   return (
     <div data-testid={testid} data-plan-id={plan.id} data-world={world} className="ct-canvas-node" style={{ ...frameStyle(variant), ...style }}>
@@ -80,7 +94,7 @@ export function SectionNode({ variant, plan, style, world, onArchive, onFitNode 
       <div style={{ height: S.planHeaderHeight - (isPlan ? 3 : 0), boxSizing: "border-box", padding: "8px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {!isPlan && <FileText size={13} style={{ flexShrink: 0, opacity: 0.7 }} />}
-          <span title={plan.title} className="ct-canvas-title" style={{ fontWeight: 700, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "-0.01em" }}>
+          <span title={plan.title} data-canvas-selectable className="ct-canvas-title ct-canvas-text" style={{ fontWeight: 700, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "-0.01em" }}>
             {isPlan ? plan.title : "Specification"}
           </span>
           {isPlan && onFitNode && (
@@ -97,7 +111,7 @@ export function SectionNode({ variant, plan, style, world, onArchive, onFitNode 
         {isPlan ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.86em" }}>
             {owner && (
-              <span data-testid="canvas-plan-owner" style={{ display: "flex", alignItems: "center", gap: 5, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "1px 8px 1px 6px", borderRadius: 999, background: "var(--ct-bg-selected)", border: "1px solid var(--ct-border-subtle)", opacity: "var(--ct-text-secondary-opacity)" }}>
+              <span data-testid="canvas-plan-owner" style={{ display: "flex", alignItems: "center", gap: 5, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "1px 8px 1px 6px", borderRadius: 999, background: "var(--ct-bg-selected)", border: "1px solid var(--ct-border-subtle)" }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(56,189,248,0.95)", flexShrink: 0 }} />
                 {owner}
               </span>
@@ -123,10 +137,28 @@ export function SectionNode({ variant, plan, style, world, onArchive, onFitNode 
             {isPlan ? `${plan.tasks.length} standalone task${plan.tasks.length === 1 ? "" : "s"}` : "no spec sections"}
           </div>
         ) : showRows ? (
-          rows.map((row) => <SectionRowView key={row.section.id} row={row} variant={variant} world={world} />)
+          rows.map((row) => (
+            <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} />
+          ))
         ) : (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.84em", opacity: "var(--ct-text-tertiary-opacity)" }}>
-            {rows.length} section{rows.length === 1 ? "" : "s"}
+          // §32.2 W0: COMPRESSED — top section rows + status counts, never hollow.
+          <div data-testid="canvas-section-compressed" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3, padding: "6px 8px", justifyContent: "center" }}>
+            {rows.slice(0, 3).map((row) => {
+              const g = GLYPH[row.glyph];
+              return (
+                <div key={row.section.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <g.Icon size={11} color={g.color} style={{ flexShrink: 0 }} strokeWidth={2.2} />
+                  <span style={{ flex: 1, minWidth: 0, fontSize: "0.8em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row.section.title}</span>
+                  {isPlan && <span style={{ fontSize: "0.66em", fontFamily: "var(--ct-font-mono)", opacity: 0.65 }}>{row.taskCount}</span>}
+                </div>
+              );
+            })}
+            {rows.length > 3 && <span style={{ fontSize: "0.68em", opacity: 0.6, paddingLeft: 17 }}>+{rows.length - 3} more</span>}
+            <div data-testid="canvas-section-counts" style={{ display: "flex", gap: 8, marginTop: 4, fontSize: "0.68em", fontWeight: 600 }}>
+              {counts.progress > 0 && <span style={{ color: GLYPH.progress.color }}>● {counts.progress} active</span>}
+              {counts.uncovered > 0 && <span style={{ color: GLYPH.uncovered.color }}>▲ {counts.uncovered} uncovered</span>}
+              {counts.done > 0 && <span style={{ color: GLYPH.done.color }}>✓ {counts.done} done</span>}
+            </div>
           </div>
         )}
       </div>
@@ -134,22 +166,31 @@ export function SectionNode({ variant, plan, style, world, onArchive, onFitNode 
   );
 }
 
-// One section. PLAN row = index (glyph·title·[n]·output dot) + at W2 a clamped
+// One section. PLAN row = index (glyph·title·count·output dot) + at W2 a clamped
 // excerpt, W3 fuller. SPEC block = title + 1-line abstract at W1, full prose at W2+.
-function SectionRowView({ row, variant, world }: { row: SectionRow; variant: "plan" | "spec"; world: World }) {
+// §32.7: single-click highlights connected tasks; double-click / target button
+// frames them; copy-id yanks the section id. All camera motion is user-initiated.
+function SectionRowView({ row, variant, world, planId, onSectionClick, onSectionFrame }: {
+  row: SectionRow; variant: "plan" | "spec"; world: World; planId: string;
+  onSectionClick?: (a: SectionNavArgs) => void; onSectionFrame?: (a: SectionNavArgs) => void;
+}) {
   const g = GLYPH[row.glyph];
   const isPlan = variant === "plan";
   const hasBody = row.section.body.trim().length > 0;
   const showBody = atLeast(world, "W2") && hasBody;
   const showAbstract = !isPlan && !showBody && atLeast(world, "W1") && hasBody;
-  const clamp = isPlan || !atLeast(world, "W3"); // SPEC unclamps at W3; PLAN stays excerpt
+  const clamp = isPlan || !atLeast(world, "W3");
   const grow = showBody || showAbstract;
+  const nav: SectionNavArgs = { planId, sectionId: row.section.id, variant };
+  const showActions = atLeast(world, "W2");
 
   return (
     <div
       data-testid={isPlan ? "canvas-plan-row" : "canvas-spec-block"}
       data-section-id={row.section.id}
       data-row-glyph={row.glyph}
+      onClick={onSectionClick ? (e) => { e.stopPropagation(); onSectionClick(nav); } : undefined}
+      onDoubleClick={onSectionFrame ? (e) => { e.stopPropagation(); onSectionFrame(nav); } : undefined}
       style={{
         flex: grow ? "0 0 auto" : 1,
         minHeight: 0,
@@ -162,27 +203,41 @@ function SectionRowView({ row, variant, world }: { row: SectionRow; variant: "pl
         borderLeft: `2px solid ${g.rail}`,
         borderBottom: grow ? "1px solid var(--ct-border-subtle)" : "none",
         overflow: "hidden",
+        cursor: onSectionClick ? "pointer" : undefined,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: row.depth * 8 }}>
         <g.Icon size={12} color={g.color} style={{ flexShrink: 0 }} strokeWidth={row.glyph === "uncovered" ? 2.4 : 2.2} />
-        <span className="ct-canvas-title" style={{ flex: 1, minWidth: 0, fontSize: "0.84em", fontWeight: row.glyph === "uncovered" ? 600 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <span data-canvas-selectable className="ct-canvas-title ct-canvas-text" style={{ flex: 1, minWidth: 0, fontSize: "0.84em", fontWeight: row.glyph === "uncovered" ? 600 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {row.section.title}
         </span>
-        {isPlan && <span data-testid="canvas-plan-row-count" style={{ flexShrink: 0, fontSize: "0.68em", fontFamily: "var(--ct-font-mono)", fontWeight: 600, opacity: "var(--ct-text-secondary-opacity)", paddingRight: 8 }}>{row.taskCount}</span>}
+        {isPlan && <span data-testid="canvas-plan-row-count" style={{ flexShrink: 0, fontSize: "0.68em", fontFamily: "var(--ct-font-mono)", fontWeight: 600, opacity: 0.7, paddingRight: showActions ? 0 : 8 }}>{row.taskCount}</span>}
+        {showActions && (
+          <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>
+            {onSectionFrame && (
+              <button type="button" data-testid="canvas-section-goto" title={isPlan ? "Frame connected tasks" : "Frame mapped plan/tasks"} onClick={(e) => { e.stopPropagation(); onSectionFrame(nav); }} onMouseDown={(e) => e.stopPropagation()} style={smallBtn()}>
+                <Crosshair size={11} />
+              </button>
+            )}
+            <button type="button" data-testid="canvas-section-copy-id" title="Copy section id" onClick={(e) => { e.stopPropagation(); copyText(row.section.id); }} onMouseDown={(e) => e.stopPropagation()} style={smallBtn()}>
+              <Copy size={11} />
+            </button>
+          </span>
+        )}
       </div>
       {showAbstract && (
-        <div data-testid="canvas-spec-abstract" style={{ fontSize: "0.78em", lineHeight: 1.4, opacity: "var(--ct-text-secondary-opacity)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: row.depth * 8 }}>
+        <div data-testid="canvas-spec-abstract" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.78em", lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: row.depth * 8 }}>
           {digestMarkdown(row.section.body, 80)}
         </div>
       )}
       {showBody && (
         <div
           data-testid={isPlan ? "canvas-plan-section-body" : "canvas-spec-section-body"}
-          className="ct-canvas-fade-in"
+          data-canvas-selectable
+          className="ct-canvas-fade-in ct-canvas-text"
           style={clamp
-            ? { fontSize: "0.82em", lineHeight: 1.5, opacity: 0.9, overflowWrap: "anywhere", paddingLeft: row.depth * 8, display: "-webkit-box", WebkitLineClamp: isPlan ? 4 : 8, WebkitBoxOrient: "vertical", overflow: "hidden" }
-            : { fontSize: "0.82em", lineHeight: 1.55, opacity: 0.92, overflowWrap: "anywhere", paddingLeft: row.depth * 8 }}
+            ? { fontSize: "0.82em", lineHeight: 1.5, overflowWrap: "anywhere", paddingLeft: row.depth * 8, display: "-webkit-box", WebkitLineClamp: isPlan ? 4 : 8, WebkitBoxOrient: "vertical", overflow: "hidden" }
+            : { fontSize: "0.82em", lineHeight: 1.55, overflowWrap: "anywhere", paddingLeft: row.depth * 8 }}
         >
           <RichMarkdown text={row.section.body} />
         </div>

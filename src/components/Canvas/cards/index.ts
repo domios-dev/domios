@@ -4,7 +4,8 @@ export { MilestoneBubble, type MilestoneBubbleProps, type MilestoneBubbleModel }
 export { OrchestratorGroup, type OrchestratorGroupProps } from "./OrchestratorGroup";
 export { NoteCard, type NoteCardProps } from "./NoteCard";
 export { DecisionCard, type DecisionCardProps } from "./DecisionCard";
-export { TaskSteps } from "./TaskSteps";
+export { StrideSnake } from "./StrideSnake";
+export { HandoffCoin, type HandoffContent } from "./HandoffCoin";
 export { planCoverageFraction } from "./coverage";
 export { digestMarkdown } from "./digest";
 export type { CanvasLod, CanvasCardStyleProps } from "./types";
