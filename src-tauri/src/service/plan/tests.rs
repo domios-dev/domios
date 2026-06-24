@@ -84,6 +84,53 @@ fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
 }
 
 #[test]
+fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = std::sync::Arc::new(PlanStore::new_for_test(dir.path()));
+    let mut p = Plan::new(
+        "Original".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("abc"),
+    );
+    store.save(&mut p, 1000).unwrap();
+    let held = store.plans.read().get(&p.id).cloned().unwrap();
+
+    let path = dir
+        .path()
+        .join(".codeterm/plans")
+        .join(format!("{}.json", p.id));
+    let mut stale: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    stale.title = "Stale disk snapshot".into();
+    stale.updated_at = 3000;
+    std::fs::write(&path, serde_json::to_string_pretty(&stale).unwrap()).unwrap();
+
+    let mut guard = held.lock();
+    let reload_store = store.clone();
+    let plan_id = p.id.clone();
+    let reload = std::thread::spawn(move || reload_store.reload_from_disk(&plan_id));
+    std::thread::sleep(std::time::Duration::from_millis(25));
+
+    guard.title = "Newer in-flight mutation".into();
+    guard.updated_at = 3000;
+    let written_path = PlanStore::write_atomic(&guard).unwrap();
+    store.note_plan_write(&guard, &written_path);
+    drop(guard);
+
+    reload.join().unwrap().unwrap();
+
+    let current = store.get(&p.id).unwrap();
+    assert_eq!(current.title, "Newer in-flight mutation");
+    assert_eq!(current.updated_at, 3000);
+    let entry = store
+        .list_index()
+        .into_iter()
+        .find(|entry| entry.plan_id == p.id)
+        .unwrap();
+    assert_eq!(entry.title, "Newer in-flight mutation");
+    assert_eq!(entry.updated_at, 3000);
+}
+
+#[test]
 fn scan_project_loads_plan_written_directly_to_disk() {
     let dir = tempfile::tempdir().unwrap();
     let project = paths::project_root(dir.path());
