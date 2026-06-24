@@ -1,6 +1,6 @@
 # Canvas v2 — Corrections & Generalization
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
 
 **Supersedes** the broken parts of `2026-06-23-canvas-design.md` (kept for history).
 This is a clean re-derivation, not a patch. The v1 implementation diverged from
@@ -356,3 +356,68 @@ grouped milestone bubbles + orchestrator groups; uncovered sections pop; trackpa
 pan + cmd/pinch zoom smooth; canvas isolated per workspace; standalone tasks work;
 `codeterm task`/`canvas focus` CLI works; Plan/Tasks buttons pulse + focus+blink.
 All gates green (tsc, canvas tsx tests, cargo). Dogfood plan renders itself.
+
+## 16. v3 — SectionedDocumentNode + semantic zoom (synthesized from 2-provider brainstorm)
+
+<!-- revision: 2 -->
+
+Two independent agents (codex + cursor) converged on the SAME model. Adopted:
+
+### 16.1 One node type: `SectionedDocumentNode`
+Plan and Spec are the SAME primitive, `variant: "plan" | "spec"`. Same section tree, same
+`@codeterm/chat-ui` `RichMarkdown` renderer (→ markdown + **mermaid** + **code syntax
+highlight** for free), same coverage chrome, same block anchors. Plan variant emphasizes
+coverage rows + task edges; spec variant emphasizes prose. Block-to-block edges via
+`section_id` anchors (spec block ↔ plan row ↔ task).
+
+### 16.2 Never hide info — semantic zoom ADDS, never REMOVES
+- **Delete all `lod !== "far"` subtraction gates** (TaskCard, SpecSectionCard, etc.) — they
+  blank bodies into empty shells. Content is ALWAYS mounted. This is the #1 user pain.
+- **Counter-scale typography:** text uses `font-size: calc(base * clamp(0.55, 1/scale, 1))`
+  so at far zoom it shrinks but stays present (like zooming a PDF), with a **~6px screen
+  floor**; below the floor → microtype, never omission.
+- **Three additive bands** (reuse settings thresholds, invert semantics): overview <0.45
+  (full content micro-scaled + a fading summary overlay; mermaid = static thumbnail; code =
+  syntax-colored micro lines), approach 0.45–1.1 (chips/status default-on; mermaid 50%
+  thumbnail), reading >1.1 (full type, interactive mermaid, code toolbar). LOD adds controls/
+  previews, never drops body. No ellipsis on core body (only redundant chrome).
+
+### 16.3 Bound the портянки — fixed frame, internal pagination
+- Outer frame is FIXED (A4-ish: plan compact ~340, prose ~420–720, `docMaxPageHeight ~480`).
+- Markdown → block AST → measured offscreen → greedy-packed into PAGES (keep-with-next for
+  headings/code/mermaid/tables; never split a diagram; split long code only at line
+  boundaries with repeated header). 1–3 columns; page rows up to ~9 pages then internal
+  pagination. Node layout height = header + bounded page area + footer + pager — NOT unbounded
+  content height. On-canvas pager (◂▸ / dots, `data-page` for tests), not a km-tall scroll.
+- Extreme plans: root node owns child `SectionChunk` nodes (one per top-level section) — still
+  on-canvas, connected, never a hidden accordion.
+- Task cards: same frame, header fixed, body paginated (~5 lines/page), `taskMaxHeight ~320`.
+
+### 16.4 Mermaid + code at scale
+Pre-render mermaid → SVG cached by content hash; scale via `transform`, never `display:none`;
+atomic block for pagination (min thumbnail slot ~180px). Code via chat-ui highlighter;
+virtualize long blocks in a bounded viewport with line range; full source always in DOM.
+
+### 16.5 Auto-bounds: measure → pack → route (every plan-changed, debounced)
+1. Measure pass: each node renders at reading band offscreen → exact `{w,h,anchors}`.
+2. Incremental pack: columns Spec | Plan | Tasks | Steps; bin-pack tasks by nearest covered
+   row Y; margins ~16px; STABLE ids keep slots (no global reshuffle → no jitter when flying);
+   new nodes to nearest free slot.
+3. Edge routing AFTER packing, obstacle-avoiding; nodes never overlap; CanvasView draws from
+   layout boxes only. Debounce ~50ms→RAF, cancel stale jobs, apply atomically (no intermediate
+   overlap visible during fast navigation). Interpolate small deltas, snap large.
+
+### 16.6 Layout-integrity tests (Playwright, multi-zoom)
+Synthetic fixtures (short / huge-section / long-code / mermaid / table / many-tasks /
+realtime-insert). At scales 0.25/0.5/1.0/1.75: no node-node overlap (2px tol), content bbox
+inside its viewport/scroll, **no zero-height text block when source is non-empty**,
+`assertNodeFilled` (reject empty shells: textArea/bbox > threshold), edge endpoints inside
+anchor bboxes, font floor ≥6px for titles/status, no horizontal overflow outside declared
+scroll. Screenshot matrix in CI golden + the human/agent visual review loop.
+
+### 16.7 Subtasks
+`Task.parent_task_id` (backend, nullable). Subtasks render as child clusters under their
+parent task card. Steps (milestones) remain per-task. Supersedes §13.6.
+
+> This revises §13: plan node shows section ROWS (the spine) AND, per-row, paginated body via
+> the unified node — not "titles only". Pinch-zoom sensitivity raised ~2-3x (§3).
