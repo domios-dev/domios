@@ -182,8 +182,10 @@ export function SectionNode({ variant, plan, style, world, crispScale = 1, onArc
   );
 }
 
-// One section. PLAN row = index (glyph·title·count·output dot) + at W2 a clamped
-// excerpt, W3 fuller. SPEC block = title + 1-line abstract at W1, full prose at W2+.
+// One section. PLAN row = index (glyph·title·count·output dot) + a CLAMPED excerpt
+// at W2+ (no W2→W3 toggle). SPEC block = title + 1-line abstract at W1, then the
+// DEEPEST (unclamped) prose layout the moment it reveals at W2 — §22.1 reserve-at-
+// deepest applied to content: W2→W3 changes only rasterization, never geometry.
 // §32.7: single-click highlights connected tasks; double-click / target button
 // frames them; copy-id yanks the section id. All camera motion is user-initiated.
 function SectionRowView({ row, variant, world, planId, onSectionClick, onSectionFrame }: {
@@ -195,7 +197,7 @@ function SectionRowView({ row, variant, world, planId, onSectionClick, onSection
   const hasBody = row.section.body.trim().length > 0;
   const showBody = atLeast(world, "W2") && hasBody;
   const showAbstract = !isPlan && !showBody && atLeast(world, "W1") && hasBody;
-  const clamp = isPlan || !atLeast(world, "W3");
+  const clamp = isPlan; // §22.1: spec body is unclamped from W2 on (deepest layout reserved, no W2→W3 reflow)
   const grow = showBody || showAbstract;
   const nav: SectionNavArgs = { planId, sectionId: row.section.id, variant };
   const showActions = atLeast(world, "W2");
