@@ -16,7 +16,7 @@ import { archivePlan } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useCanvasPlans } from "./PlansProvider";
-import type { CanvasElement, OrchestratorRef, Plan, Task } from "./types";
+import type { CanvasElement, OrchestratorRef, Plan, Section, Task } from "./types";
 import { useCanvasViewport } from "./useCanvasViewport";
 
 export interface CanvasViewInnerProps {
@@ -26,6 +26,8 @@ export interface CanvasViewInnerProps {
   error?: string | null;
   planId?: string;
   orchestratorPaneId?: string;
+  /** The pane that opened Plan mode — its tasks/plans get a fit+blink on open. */
+  focusPaneId?: string | null;
   panes?: Record<string, Pane>;
   focusedPaneId?: string | null;
   projectPath?: string | null;
@@ -71,9 +73,17 @@ export interface ClusterCaptionModel {
 interface CanvasLookups {
   nodeById: Map<string, LaidOutNode>;
   taskById: Map<string, Task>;
+  sectionById: Map<string, Section>;
   milestoneModelById: Map<string, MilestoneBubbleModel>;
   clusterModelById: Map<string, ClusterCaptionModel>;
   elementById: Map<string, CanvasElement>;
+}
+
+function collectSections(sections: Section[], out: Map<string, Section>): void {
+  for (const s of sections) {
+    out.set(s.id, s);
+    if (s.subsections.length) collectSections(s.subsections, out);
+  }
 }
 
 interface CanvasNodeCardProps {
@@ -115,6 +125,7 @@ export function CanvasViewInner({
   error = null,
   planId,
   orchestratorPaneId,
+  focusPaneId = null,
   panes = {},
   focusedPaneId = null,
   projectPath = null,
@@ -138,10 +149,12 @@ export function CanvasViewInner({
     const nodeById = new Map<string, LaidOutNode>();
     for (const frame of layout.frames) for (const n of frame.nodes) nodeById.set(n.id, n);
     const taskById = new Map<string, Task>();
+    const sectionById = new Map<string, Section>();
     const milestoneModelById = new Map<string, MilestoneBubbleModel>();
     const clusterModelById = new Map<string, ClusterCaptionModel>();
     const elementById = new Map<string, CanvasElement>();
     for (const plan of filteredPlans) {
+      collectSections(plan.sections, sectionById);
       const colors = milestoneColorMap(plan);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
@@ -159,7 +172,7 @@ export function CanvasViewInner({
       }
       for (const el of plan.elements) elementById.set(el.id, el);
     }
-    return { nodeById, taskById, milestoneModelById, clusterModelById, elementById };
+    return { nodeById, taskById, sectionById, milestoneModelById, clusterModelById, elementById };
   }, [layout, filteredPlans]);
 
   const resolveModel = useCallback(
@@ -167,8 +180,8 @@ export function CanvasViewInner({
       switch (node.kind) {
         case "plan":
           return planById.get(node.id);
-        case "spec":
-          return planById.get(node.planId);
+        case "spec-section":
+          return lookups.sectionById.get(node.id.split("::spec::")[1] ?? "");
         case "task":
           return lookups.taskById.get(node.id);
         case "milestone":
@@ -222,24 +235,14 @@ export function CanvasViewInner({
     [layout, transform, canvasSize, padding],
   );
 
-  const lastFitKey = useRef<string | null>(null);
-  const fitKey = `${mode}:${filteredPlans.map((p) => p.id).join(",")}:${size.width}x${size.height}`;
-  useEffect(() => {
-    if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
-    if (lastFitKey.current === fitKey) return;
-    lastFitKey.current = fitKey;
-    fitToView(layout.bounds);
-  }, [fitKey, fitToView, layout.bounds, size.width, size.height]);
-
-  // canvas-focus event (camera + blink). Backend lane emits target ids; we fit to
-  // their bbox and blink them. Stub-safe: no-op until the event carries targets.
   const [blinkIds, setBlinkIds] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    let active = true;
-    void listen<{ node_ids?: string[]; plan_ids?: string[] }>("canvas-focus", (ev) => {
-      const ids = [...(ev.payload?.node_ids ?? []), ...(ev.payload?.plan_ids ?? [])];
-      const boxes = ids.map((id) => lookups.nodeById.get(id)?.box).filter(Boolean) as { x: number; y: number; width: number; height: number }[];
+
+  // Camera + blink onto a set of node ids (shared by canvas-focus + Plan-on-pane).
+  const focusOnNodes = useCallback(
+    (ids: string[]) => {
+      const boxes = ids.map((id) => lookups.nodeById.get(id)?.box).filter(Boolean) as {
+        x: number; y: number; width: number; height: number;
+      }[];
       if (boxes.length) {
         const minX = Math.min(...boxes.map((b) => b.x));
         const minY = Math.min(...boxes.map((b) => b.y));
@@ -248,6 +251,37 @@ export function CanvasViewInner({
         fitToView({ x: minX, y: minY, width: maxX - minX, height: maxY - minY });
       }
       setBlinkIds(new Set(ids));
+    },
+    [lookups, fitToView],
+  );
+
+  // Node ids representing this pane's own area: its assigned tasks, else its plans.
+  const paneNodeIds = useMemo(() => {
+    if (!focusPaneId) return [];
+    const taskIds = filteredPlans.flatMap((p) =>
+      p.tasks.filter((t) => t.assigned_pane_id === focusPaneId).map((t) => t.id),
+    );
+    return taskIds.length ? taskIds : filteredPlans.map((p) => p.id);
+  }, [focusPaneId, filteredPlans]);
+
+  const lastFitKey = useRef<string | null>(null);
+  const fitKey = `${mode}:${focusPaneId ?? ""}:${filteredPlans.map((p) => p.id).join(",")}:${size.width}x${size.height}`;
+  useEffect(() => {
+    if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
+    if (lastFitKey.current === fitKey) return;
+    lastFitKey.current = fitKey;
+    // Plan-on-a-pane: frame + blink this pane's own nodes; else fit the whole board.
+    if (focusPaneId && paneNodeIds.length) focusOnNodes(paneNodeIds);
+    else fitToView(layout.bounds);
+  }, [fitKey, fitToView, focusOnNodes, focusPaneId, paneNodeIds, layout.bounds, size.width, size.height]);
+
+  // canvas-focus event (camera + blink). Backend lane emits target ids; we fit to
+  // their bbox and blink them. Stub-safe: no-op until the event carries targets.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let active = true;
+    void listen<{ node_ids?: string[]; plan_ids?: string[] }>("canvas-focus", (ev) => {
+      focusOnNodes([...(ev.payload?.node_ids ?? []), ...(ev.payload?.plan_ids ?? [])]);
     }).then((fn) => {
       if (!active) fn();
       else unlisten = fn;
@@ -256,7 +290,7 @@ export function CanvasViewInner({
       active = false;
       unlisten?.();
     };
-  }, [fitToView, lookups]);
+  }, [focusOnNodes]);
 
   useEffect(() => {
     const el = shellRef.current;
@@ -351,21 +385,19 @@ export function CanvasViewInner({
                   const ends = resolveEdgeEnds(edge, lookups.nodeById);
                   if (!ends) return null;
                   const chain = edge.kind === "milestone-chain";
-                  const sectionTask = edge.kind === "section-task";
-                  // ALL edges draw at rest as subtle neutral strokes (nothing
-                  // floats); hovering a task lifts its own edges to the accent and
-                  // dims the rest so the row→task mapping reads at a glance.
+                  const rowEdge = edge.kind === "section-task" || edge.kind === "spec-row";
+                  // ALL edges draw at rest as subtle accent strokes (nothing
+                  // floats); hovering a task lifts its own edges and dims the rest
+                  // so the row↔task / row↔spec mapping reads at a glance.
                   const related = hoveredTask != null && (edge.from === hoveredTask || edge.to === hoveredTask);
                   const dimmed = hoveredTask != null && !related;
-                  const planSpec = edge.kind === "plan-spec";
-                  // Per-edge jitter so near-parallel section→task beziers fan out
-                  // and each connection is individually traceable (deterministic).
-                  const j = sectionTask ? edgeJitter(edge.id) : 0.5;
+                  // Per-edge jitter so near-parallel row beziers fan out and each
+                  // connection is individually traceable (deterministic).
+                  const j = rowEdge ? edgeJitter(edge.id) : 0.5;
                   const curve = DEFAULT_CANVAS_SETTINGS.edgeCurve * (0.65 + 0.8 * j);
-                  // Legible accent strokes at rest (~0.4); hover lifts brighter.
-                  const baseW = sectionTask ? 1.6 : chain ? 1.2 : planSpec ? 1.6 : 1.4;
-                  const baseO = (sectionTask ? 0.42 : chain ? 0.3 : planSpec ? 0.46 : 0.36) * (sectionTask ? 0.82 + 0.36 * j : 1);
-                  const showDots = sectionTask || edge.kind === "task-cluster" || planSpec;
+                  const baseW = rowEdge ? 1.6 : chain ? 1.2 : 1.4;
+                  const baseO = (rowEdge ? 0.42 : chain ? 0.3 : 0.36) * (rowEdge ? 0.82 + 0.36 * j : 1);
+                  const showDots = rowEdge || edge.kind === "task-cluster";
                   return (
                     <g key={edge.id}>
                       <path
@@ -376,7 +408,7 @@ export function CanvasViewInner({
                         strokeLinecap="round"
                         opacity={related ? 0.95 : dimmed ? 0.12 : baseO}
                       />
-                      {showDots && (
+                      {rowEdge && (
                         <circle
                           cx={ends.a.x}
                           cy={ends.a.y}
@@ -385,8 +417,14 @@ export function CanvasViewInner({
                           opacity={related ? 1 : dimmed ? 0.3 : 0.75}
                         />
                       )}
-                      {planSpec && (
-                        <circle cx={ends.b.x} cy={ends.b.y} r={3} fill="var(--ct-border-focus)" opacity={0.75} />
+                      {showDots && (
+                        <circle
+                          cx={ends.b.x}
+                          cy={ends.b.y}
+                          r={related ? 4.5 : 3}
+                          fill="var(--ct-border-focus)"
+                          opacity={related ? 1 : dimmed ? 0.3 : 0.75}
+                        />
                       )}
                     </g>
                   );
@@ -408,21 +446,24 @@ export function CanvasViewInner({
                   />
                 )),
             )}
+            {hoveredTask && lookups.nodeById.has(hoveredTask) && nodeIds.has(hoveredTask) && (() => {
+              const box = lookups.nodeById.get(hoveredTask)!.box;
+              return (
+                <div
+                  className="ct-canvas-hovered pointer-events-none absolute"
+                  style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-md)" }}
+                />
+              );
+            })()}
             {[...blinkIds].map((id) => {
               const box = lookups.nodeById.get(id)?.box;
               if (!box || !nodeIds.has(id)) return null;
+              // Outer ring/glow ONLY (no overlay over the card) — text stays readable.
               return (
                 <div
                   key={`blink-${id}`}
                   className="ct-canvas-blink pointer-events-none absolute"
-                  style={{
-                    left: box.x - 4,
-                    top: box.y - 4,
-                    width: box.width + 8,
-                    height: box.height + 8,
-                    borderRadius: "var(--ct-radius-lg)",
-                    border: "2px solid var(--ct-border-focus)",
-                  }}
+                  style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-lg)" }}
                 />
               );
             })}
@@ -449,11 +490,12 @@ export interface CanvasViewProps {
   workspaceId?: string;
   planId?: string;
   orchestratorPaneId?: string;
+  focusPaneId?: string | null;
   api: ApiConfig;
   onClose?: () => void;
 }
 
-export function CanvasView({ mode, planId, orchestratorPaneId, api, onClose }: CanvasViewProps) {
+export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api, onClose }: CanvasViewProps) {
   const { state, setFocusedPane } = useMultiplexer();
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
@@ -466,6 +508,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, api, onClose }: C
       error={error}
       planId={planId}
       orchestratorPaneId={orchestratorPaneId}
+      focusPaneId={focusPaneId}
       panes={state.panes}
       focusedPaneId={state.focused_pane_id}
       projectPath={projectPath}

@@ -1,5 +1,5 @@
 export { PlanNode, type PlanNodeProps } from "./PlanNode";
-export { SpecNode, type SpecNodeProps } from "./SpecNode";
+export { SpecSectionCard, type SpecSectionCardProps } from "./SpecSectionCard";
 export { TaskCard, type TaskCardProps } from "./TaskCard";
 export { MilestoneBubble, type MilestoneBubbleProps, type MilestoneBubbleModel } from "./MilestoneBubble";
 export { OrchestratorGroup, type OrchestratorGroupProps } from "./OrchestratorGroup";

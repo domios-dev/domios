@@ -922,14 +922,24 @@ button,
   }
 }
 
-/* Canvas focus blink: ring pulses when canvas-focus targets a node. */
+/* Canvas focus blink: an OUTER ring + glow (box-shadow only, no fill/border over
+   the card) so a highlighted node's text stays fully readable. */
 .ct-canvas-blink {
-  animation: ct-canvas-blink 0.7s ease-in-out 4;
+  animation: ct-canvas-blink 0.75s ease-in-out 4;
 }
 
 @keyframes ct-canvas-blink {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-border-focus) 60%, transparent); opacity: 1; }
-  50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--ct-border-focus) 0%, transparent); opacity: 0.55; }
+  0%, 100% {
+    box-shadow: 0 0 0 2px var(--ct-border-focus), 0 0 18px 3px color-mix(in srgb, var(--ct-border-focus) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-border-focus) 55%, transparent), 0 0 5px 0 color-mix(in srgb, var(--ct-border-focus) 0%, transparent);
+  }
+}
+
+/* Hover ring: a steady, subtle outer glow (never an overlay) for the focused card. */
+.ct-canvas-hovered {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-border-focus) 65%, transparent), 0 0 14px 2px color-mix(in srgb, var(--ct-border-focus) 30%, transparent);
 }
 
 /* Composer activity bubble spinner. */

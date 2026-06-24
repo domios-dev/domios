@@ -104,6 +104,7 @@ export function TabContent({
               <CanvasView
                 mode="focus"
                 orchestratorPaneId={resolveOrchestratorPaneId(pane.id, state.panes)}
+                focusPaneId={pane.id}
                 api={api}
                 onClose={() => setPanePlanMode(pane.id, false)}
               />
