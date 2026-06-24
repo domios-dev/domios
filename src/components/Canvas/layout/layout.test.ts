@@ -168,18 +168,19 @@ console.log("\nsection-row anchors:");
   const a1 = frame.anchors.get("s1")!;
   ok("anchor on plan node right edge", Math.abs(a1.x - planRight) <= DEFAULT_CANVAS_SETTINGS.anchorInset + 1);
   ok("anchor y within plan node bounds", a1.y >= planNode.box.y && a1.y <= planNode.box.y + planNode.box.height);
-  // Rail outputs are evenly distributed (§23.1): s1a sits one rail-span below s1.
+  // Rail outputs are evenly distributed (§23.1) inside the plan's OWN height: s1a
+  // sits one rail-span below s1 (worlds-v3 §1: plan rows use plan height).
   const a1a = frame.anchors.get("s1a")!;
-  const railSpan = (DEFAULT_CANVAS_SETTINGS.sectionNodeH - DEFAULT_CANVAS_SETTINGS.planHeaderHeight) / 3;
+  const railSpan = (DEFAULT_CANVAS_SETTINGS.planHeight - DEFAULT_CANVAS_SETTINGS.planHeaderHeight) / 3;
   ok("rail outputs evenly distributed (one span apart)", Math.abs(a1a.y - a1.y - railSpan) < 0.5);
   // the section→task edge originates exactly at the section row anchor.
   const edge = frame.edges.find((e) => e.kind === "section-task" && e.to === "t1");
   ok("section-task edge starts at the row anchor", !!edge?.fromPoint && Math.abs(edge.fromPoint.x - a1.x) < 0.5 && Math.abs(edge.fromPoint.y - a1.y) < 0.5);
 
-  // §32.10 cloud: t1 sits in the bounded cloud region right of the plan (status/
-  // priority sorted, not row-hugging); the section→task edge keeps the mapping.
+  // worlds-v3 §2 circle-pack disk: t1 sits in the task disk RIGHT of the plan;
+  // the section→task edge keeps the WHAT→HOW→task mapping.
   const t1Node = frame.nodes.find((n) => n.id === "t1")!;
-  ok("task sits in the bounded cloud region", t1Node.box.y >= planNode.box.y - 1 && t1Node.box.y <= planNode.box.y + DEFAULT_CANVAS_SETTINGS.cloudMaxH);
+  ok("task sits in the disk right of the plan", t1Node.box.x >= planNode.box.x + planNode.box.width - 1);
 }
 
 // ── SEPARATE spec + plan nodes (§24.3): three connected columns ──
@@ -192,9 +193,11 @@ console.log("\nspec + plan nodes:");
   ok("exactly one plan node + one spec node", planNodes.length === 1 && specNodes.length === 1);
   // 1:1 spec↔plan edges (§24.3), one per flattened section.
   ok("one spec↔plan edge per section", frame.edges.filter((e) => e.kind === "spec-row").length === 3);
-  // Spec + plan share the fixed sectionNode height/width (§24.1).
-  ok("plan node fixed height", planNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.sectionNodeH);
-  ok("spec node fixed height + width", specNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.sectionNodeH && specNodes[0].box.width === DEFAULT_CANVAS_SETTINGS.specNodeW);
+  // worlds-v3 §1 size hierarchy: plan is the focal mass (biggest in both axes),
+  // spec a smaller doc node; heights now differ.
+  ok("plan node fixed height (planHeight)", planNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.planHeight);
+  ok("spec node fixed height + width", specNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.specNodeH && specNodes[0].box.width === DEFAULT_CANVAS_SETTINGS.specNodeW);
+  ok("plan bigger than spec in both axes", planNodes[0].box.width > specNodes[0].box.width && planNodes[0].box.height > specNodes[0].box.height);
   // Column order: SPEC | PLAN | tasks.
   ok("spec sits left of plan", specNodes[0].box.x + specNodes[0].box.width <= planNodes[0].box.x);
   const planRight = planNodes[0].box.x + planNodes[0].box.width;
