@@ -67,13 +67,15 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   variant: "plan" | "spec";
   plan: Plan;
   world: World;
+  /** §34 crisp text: >1 → re-rasterize at on-screen size (zoom + counter-scale). */
+  crispScale?: number;
   onArchive?: () => void;
   onFitNode?: () => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
 }
 
-export function SectionNode({ variant, plan, style, world, onArchive, onFitNode, onSectionClick, onSectionFrame }: SectionNodeProps) {
+export function SectionNode({ variant, plan, style, world, crispScale = 1, onArchive, onFitNode, onSectionClick, onSectionFrame }: SectionNodeProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
@@ -87,8 +89,8 @@ export function SectionNode({ variant, plan, style, world, onArchive, onFitNode,
   const counts = { uncovered: 0, progress: 0, done: 0 };
   for (const r of rows) counts[r.glyph]++;
 
-  return (
-    <div data-testid={testid} data-plan-id={plan.id} data-world={world} className="ct-canvas-node" style={{ ...frameStyle(variant), ...style }}>
+  const card = (boxStyle: CSSProperties) => (
+    <div data-testid={testid} data-plan-id={plan.id} data-world={world} className="ct-canvas-node" style={{ ...frameStyle(variant), ...boxStyle }}>
       {isPlan && <div style={{ height: 3, flexShrink: 0, background: "linear-gradient(90deg, var(--ct-border-focus), rgba(52,211,153,0.85))" }} />}
 
       <div style={{ height: S.planHeaderHeight - (isPlan ? 3 : 0), boxSizing: "border-box", padding: "8px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
@@ -161,6 +163,18 @@ export function SectionNode({ variant, plan, style, world, onArchive, onFitNode,
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+
+  // §34: birds-eye / 1× → single layer, GPU upscale is imperceptible while small.
+  if (crispScale <= 1) return card(style);
+  // Readable band → zoom the card to display px (crisp reflow) then counter-scale it
+  // back to world size on its own compositing layer. zoom × scale(1/zoom) = 1× world.
+  return (
+    <div style={style}>
+      <div className="ct-canvas-crisp" style={{ width: "100%", height: "100%", zoom: crispScale, transform: `scale(${1 / crispScale})` }}>
+        {card({ width: "100%", height: "100%" })}
       </div>
     </div>
   );

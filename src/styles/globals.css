@@ -1005,6 +1005,18 @@ button,
   font-size: 13px;
 }
 
+/* §34 crisp text re-rasterization. A readable-band node (W2/W3) is `zoom`-ed by the
+   camera scale (real reflow → crisp glyphs) and counter-scaled back via inline
+   transform. will-change/backface promote it to its OWN compositing layer so it
+   rasterizes at the zoomed (display) resolution instead of being baked into the
+   world's 1× layer and upscaled. Only readable nodes get this — birds-eye pays no
+   layer cost. The zoom factor + transform are set inline (the live camera scale). */
+.ct-canvas-crisp {
+  transform-origin: 0 0;
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
 /* Titles a touch larger than body — the stable label layer within each mode. */
 .ct-canvas-title {
   font-size: 14px;
