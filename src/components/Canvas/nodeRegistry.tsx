@@ -7,7 +7,7 @@ import {
   type CanvasLod,
   type MilestoneBubbleModel,
 } from "./cards";
-import { atLeast, type World } from "./worlds";
+import { type World } from "./worlds";
 import type { LaidOutNode } from "./layout";
 import { registerProvenanceRenderers } from "./registerProvenanceRenderers";
 import type { CanvasElement, Plan, Task } from "./types";
@@ -100,29 +100,11 @@ registerNodeRenderer("spec", ({ model, style, world, onSectionClick, onSectionFr
 registerNodeRenderer("task", ({ model, style, world, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride }) => {
   const m = model as { task: Task; childCount?: number; childDone?: number; stepColors?: Map<string, string> } | undefined;
   if (!m) return null;
-  // §25.5: a subtask is the parent's VOLUME CUE at far zoom — its own card only
-  // materializes once it's physically big enough to read (W2+). Footprint stays
-  // reserved either way (reserve-at-deepest), so nothing reflows.
-  if (m.task.parent_task_id && !atLeast(world, "W2")) return null;
+  // §32.3: subtasks are SOLID satellite tiles swarming around their parent (packed
+  // by the same cloud logic, smaller footprint) — never gated, never faded. Opacity
+  // is NEVER a hierarchy/zoom signal; a subtask reads at every zoom, just smaller.
   return <TaskCard task={m.task} childCount={m.childCount} childDone={m.childDone} stepColors={m.stepColors} style={style} world={world} onOpenPane={onOpenPane} onHover={onHoverTask} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} />;
 });
-// Soft container behind a parent task's nested subtask children — only once the
-// children themselves reveal (W2+), so the far view stays a clean deck cue.
-registerNodeRenderer("subtask-group", ({ style, world }) =>
-  atLeast(world, "W2") ? (
-    <div
-      data-testid="canvas-subtask-group"
-      style={{
-        ...style,
-        position: "absolute",
-        borderRadius: "var(--ct-radius-md)",
-        background: "color-mix(in srgb, var(--ct-fg) 3%, transparent)",
-        border: "1px dashed var(--ct-border-subtle)",
-        pointerEvents: "none",
-      }}
-    />
-  ) : null,
-);
 registerNodeRenderer("milestone", ({ model, style, lod }) =>
   model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} /> : null,
 );
