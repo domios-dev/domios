@@ -68,6 +68,14 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
     assert_eq!(before, "continue");
 
     store
+        .with_plan(&plan_id, 10, |plan| {
+            plan.heartbeat.current_focus = Some("Review worker branches".into());
+            plan.heartbeat.active_lanes = vec!["backend tests".into(), "frontend canvas".into()];
+            plan.heartbeat.rules = vec!["Workers report in_review only".into()];
+            Ok(())
+        })
+        .unwrap();
+    store
         .add_heartbeat_learning(
             Some(&plan_id),
             None,
@@ -77,10 +85,39 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
             20,
         )
         .unwrap();
+    store
+        .add_heartbeat_learning(
+            Some(&plan_id),
+            None,
+            None,
+            "workers report in review orchestrator verifies done",
+            None,
+            30,
+        )
+        .unwrap();
     let after = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
     assert!(after.contains("<codeterm-orchestrator-heartbeat"));
+    assert!(after.contains("Current focus: Review worker branches"));
+    assert!(after.contains("Active lanes:\n- backend tests\n- frontend canvas"));
+    assert!(after.contains("Rules:\n- Workers report in_review only"));
     assert!(after.contains("Workers report in_review"));
+    assert_eq!(
+        after
+            .matches("- Workers report in_review, orchestrator verifies done.")
+            .count(),
+        1
+    );
     assert!(after.ends_with("continue"));
+
+    store
+        .with_plan(&plan_id, 40, |plan| {
+            plan.heartbeat.current_focus = Some("Integrate verified branches".into());
+            Ok(())
+        })
+        .unwrap();
+    let resolved_later = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    assert!(resolved_later.contains("Current focus: Integrate verified branches"));
+    assert!(!resolved_later.contains("Current focus: Review worker branches"));
 
     let worker_text = store.prepend_heartbeat_for_orchestrator_pane("worker-a", "continue");
     assert_eq!(worker_text, "continue");

@@ -105,4 +105,54 @@ mod tests {
         assert!(hint.contains("--test-plan <how verified>"));
         assert!(hint.contains("--correctness <one-line vector>"));
     }
+
+    #[test]
+    fn quality_guard_lists_only_missing_fields() {
+        let cases = [
+            (false, true, true, vec!["acceptance criteria"]),
+            (true, false, true, vec!["test plan"]),
+            (true, true, false, vec!["correctness vector"]),
+        ];
+        for (has_criteria, has_test_plan, has_correctness, expected) in cases {
+            let hint = task_quality_guard_hint(
+                "pl_1",
+                "task_1",
+                has_criteria,
+                has_test_plan,
+                has_correctness,
+            )
+            .unwrap();
+            for field in expected {
+                assert!(hint.contains(field), "{hint}");
+            }
+            if has_criteria {
+                assert!(!hint.contains("acceptance criteria"), "{hint}");
+            }
+            if has_test_plan {
+                assert!(!hint.contains("task is missing test plan"), "{hint}");
+            }
+            if has_correctness {
+                assert!(!hint.contains("correctness vector"), "{hint}");
+            }
+        }
+        assert!(task_quality_guard_hint("pl_1", "task_1", true, true, true).is_none());
+    }
+
+    #[test]
+    fn push_hints_omits_empty_and_dedups_existing() {
+        let mut value = json!({ "task_id": "task_1", "_hints": ["hint: keep"] });
+        push_hints(
+            &mut value,
+            vec!["".into(), "hint: keep".into(), "hint: add".into()],
+        );
+        assert_eq!(value["_hints"], json!(["hint: keep", "hint: add"]));
+    }
+
+    #[test]
+    fn push_hints_does_not_create_field_when_satisfied() {
+        let mut value = json!({ "task_id": "task_1" });
+        push_hints(&mut value, vec![" ".into()]);
+        assert!(value.get("_hints").is_none());
+        assert_eq!(value["task_id"], "task_1");
+    }
 }

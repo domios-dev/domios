@@ -91,4 +91,109 @@ mod tests {
         assert!(hints[0].contains("--test-plan <how verified>"));
         assert!(hints[0].contains("--correctness <one-line vector>"));
     }
+
+    #[test]
+    fn task_create_hints_fire_only_for_missing_fields() {
+        struct Case {
+            name: &'static str,
+            has_sections: bool,
+            has_model: bool,
+            has_why: bool,
+            has_criteria: bool,
+            has_test_plan: bool,
+            has_correctness: bool,
+            expected: Vec<&'static str>,
+        }
+
+        let cases = [
+            Case {
+                name: "missing section",
+                has_sections: false,
+                has_model: true,
+                has_why: true,
+                has_criteria: true,
+                has_test_plan: true,
+                has_correctness: true,
+                expected: vec!["plan task link"],
+            },
+            Case {
+                name: "missing model",
+                has_sections: true,
+                has_model: false,
+                has_why: true,
+                has_criteria: true,
+                has_test_plan: true,
+                has_correctness: true,
+                expected: vec!["--model <provider/model> --why <reason>"],
+            },
+            Case {
+                name: "missing why",
+                has_sections: true,
+                has_model: true,
+                has_why: false,
+                has_criteria: true,
+                has_test_plan: true,
+                has_correctness: true,
+                expected: vec!["--model <provider/model> --why <reason>"],
+            },
+            Case {
+                name: "missing criteria",
+                has_sections: true,
+                has_model: true,
+                has_why: true,
+                has_criteria: false,
+                has_test_plan: true,
+                has_correctness: true,
+                expected: vec!["acceptance criteria"],
+            },
+            Case {
+                name: "missing test plan",
+                has_sections: true,
+                has_model: true,
+                has_why: true,
+                has_criteria: true,
+                has_test_plan: false,
+                has_correctness: true,
+                expected: vec!["task is missing test plan"],
+            },
+            Case {
+                name: "missing correctness",
+                has_sections: true,
+                has_model: true,
+                has_why: true,
+                has_criteria: true,
+                has_test_plan: true,
+                has_correctness: false,
+                expected: vec!["correctness vector"],
+            },
+            Case {
+                name: "satisfied",
+                has_sections: true,
+                has_model: true,
+                has_why: true,
+                has_criteria: true,
+                has_test_plan: true,
+                has_correctness: true,
+                expected: vec![],
+            },
+        ];
+
+        for case in cases {
+            let hints = task_create_hints(
+                "pl_1",
+                "task_1",
+                case.has_sections,
+                case.has_model,
+                case.has_why,
+                case.has_criteria,
+                case.has_test_plan,
+                case.has_correctness,
+            );
+            assert_eq!(hints.len(), case.expected.len(), "{}", case.name);
+            let joined = hints.join("\n");
+            for expected in case.expected {
+                assert!(joined.contains(expected), "{}: {joined}", case.name);
+            }
+        }
+    }
 }
