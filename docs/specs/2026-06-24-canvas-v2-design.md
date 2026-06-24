@@ -421,3 +421,21 @@ parent task card. Steps (milestones) remain per-task. Supersedes §13.6.
 
 > This revises §13: plan node shows section ROWS (the spine) AND, per-row, paginated body via
 > the unified node — not "titles only". Pinch-zoom sensitivity raised ~2-3x (§3).
+
+### 16.8 Document↔index continuum + per-section meta (orchestrator + user brainstorm)
+Refines §16.2's counter-scale with concrete density rules (from Andrey + orchestrator):
+- **Wider nodes (~+30%):** plan ~340→440, spec ~420→560 — real markdown line length + room
+  for a per-row meta column. You can "walk through" the doc.
+- **TWO counter-scale curves:** TITLES gentle-clamp to a stable ~14–20px visual at all zoom
+  (the navigation layer — never giant, never vanishing); BODY aggressive curve down to ~6px
+  micro. At distance titles naturally dominate body without literal resizing.
+- **Fill-at-distance, never empty:** when body counter-scales below the readable floor, the
+  row collapses its body height and the freed space shows the META BAND (ready-state + count +
+  1-line digest). No empty boxes (the core complaint) AND no useless text-cramming. If body is
+  still readable, keep showing it — don't replace prematurely. "Не переусердствовать" both ways.
+- **Per-section badges (tasteful, computed):** after each section title —
+  `section.ready` glyph (✓ ready = all covering tasks done & count>0 / ● in progress /
+  ⚠ uncovered), `[n]` task count, a small source/owner chip. ONE status dot, not a cluster.
+- **Result:** FAR = structured index (titles + ready/count badges dominate, body micro);
+  NEAR = a cool structured-by-sections document (full markdown/mermaid/code) with the same
+  badges. Same content, re-weighted by zoom — the document↔index continuum.
