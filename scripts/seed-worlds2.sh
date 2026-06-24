@@ -101,5 +101,10 @@ setstatus "$T11" cancelled
 jpost /api/plans/$PID/handoffs "$(jq -n '{goal:"Ship §32 WORLDS v2: orthogonal channels, cloud, snake, handoff lane", next_actions:["finish section nav","render handoff coins","run the §32.9 matrix"], narrative:"Handoff #1 — first reset after the channel rework landed. Cloud + snake in place; nav + handoff render remain.", mode:"new", foundational_rules:["live changes never move the camera","status by position, not opacity"]}')" >/dev/null
 jpost /api/plans/$PID/handoffs "$(jq -n '{goal:"Polish to Figma-grade and dogfood the ergonomics", next_actions:["verify done sinks","check selectable text","screenshot the board"], narrative:"Handoff #2 — second reset; verification phase.", mode:"new"}')" >/dev/null
 
+# Claim the plan to the active workspace's pane so the per-pane Plan mode surfaces
+# the board (PlanButton only shows for a pane that owns / works the plan).
+PANE=$(curl -s "${A[@]}" "$B/api/workspaces" | jq -r 'if type=="array" then . else .workspaces end | map(select(.is_active==true))[0].pane_ids[0] // empty')
+[ -n "$PANE" ] && jpost /api/plans/$PID/claim "$(jq -n --arg p "$PANE" '{owner:{pane_id:$p,session_id:null,title:"worlds2"}}')" >/dev/null && echo "claimed plan to pane $PANE"
+
 echo "done:"
 curl -s "${A[@]}" "$B/api/plans?project=$PROJ&full=1" | jq -r --arg p "$PID" '.plans[]|select(.id==$p)|"sections=\(.sections|length) tasks=\(.tasks|length) strides=\([.tasks[].milestones[]]|length) handoffs=\([.elements[]|select(.kind=="handoff")]|length)"'
