@@ -1,15 +1,25 @@
 import type { Plan, Task } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
 import { taskFootprint } from "./taskFootprint";
-import type { Box, Point } from "./geometry";
+import type { Point } from "./geometry";
 import type { LaidOutEdge, LaidOutNode } from "./types";
 
 // worlds-v3 §2: golden-angle phyllotaxis pack. The irrational that gives maximal
 // angular spacing (137.5°) so successive tiles never align into spokes.
 export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
-// §2.2 inter-tile gap (g) folded into each tile's enclosing radius.
-export const TILE_GAP = 10;
+// §2.2 inter-tile gap (g) folded into each tile's enclosing radius. Kept tight so
+// the disk reads as a dense, FILLED cloud rather than a sparse ring.
+export const TILE_GAP = 5;
+
+// Subtask satellites: children pack as a SMALLER nested cloud swarming around the
+// parent (parent = slot 0 at the local center, children orbit it). The whole
+// parent+satellites cluster then packs as one circle among sibling clusters, so a
+// task reads as a main tile haloed by its subtasks at every zoom — all solid.
+export const SUBTASK_SCALE = 0.5; // satellite footprint vs. its own card footprint
+export const SUBTASK_MIN_W = 70;
+export const SUBTASK_MIN_H = 46;
+export const SUBTASK_GAP = 4; // intra-cluster gap (tighter than the outer disk)
 
 // §2.3 Alt C: innermost K slots reserved for in_progress tasks (≈1–2 rings). A
 // fixed K is what makes the history-spiral index status-independent — going
@@ -84,6 +94,10 @@ export interface CloudPack {
 // Tiles are placed in slot order; each only ever pushes ITSELF outward against
 // already-placed tiles → deterministic, append-stable, non-overlapping. Returns
 // centers relative to (0,0) and the disk radius R = max(r + ρ).
+//
+// CENTER-FILL: the seed radius uses the area of the tiles placed BEFORE this one,
+// so tile 0 lands at the origin (r=0) and the disk fills from the middle outward.
+// (The old `cumArea + area/2` seeded even tile 0 at ≈0.7ρ → a hollow center ring.)
 export function packCloud(items: CloudItem[], gap = TILE_GAP): CloudPack {
   const ordered = [...items].sort((a, b) => a.slot - b.slot || a.id.localeCompare(b.id));
   const placed: { cx: number; cy: number; rho: number }[] = [];
@@ -94,7 +108,7 @@ export function packCloud(items: CloudItem[], gap = TILE_GAP): CloudPack {
   for (const it of ordered) {
     const rho = 0.5 * Math.hypot(it.w, it.h) + gap; // ρ = ½√(w²+h²) + g
     const area = Math.PI * rho * rho; // a = π·ρ²
-    let r = Math.sqrt((cumArea + area / 2) / Math.PI); // areal-density radius
+    let r = Math.sqrt(cumArea / Math.PI); // center-out areal-density radius
     const theta = it.slot * GOLDEN_ANGLE;
     let cx = r * Math.cos(theta);
     let cy = r * Math.sin(theta);
@@ -129,26 +143,38 @@ export interface TaskCloudLayout {
   radius: number;
 }
 
-interface ChildItem {
+// A local placement = one tile's center OFFSET from its cluster center (0,0 = the
+// parent). The whole cluster translates together when the outer pack places it.
+interface LocalPlace {
+  id: string;
   task: Task;
+  cx: number;
+  cy: number;
   w: number;
   h: number;
 }
 
-interface Cell {
+interface Cluster {
   task: Task;
   slot: number;
-  cellW: number;
-  cellH: number;
-  cardW: number;
-  cardH: number;
-  childItems: ChildItem[];
+  radius: number; // enclosing radius of parent + satellites (0 → childless, tile-only)
+  locals: LocalPlace[];
 }
 
-// worlds-v3 §2: replaces the column-fill task field with a circle-packed disk.
-// Top-level tasks are tiles; subtasks stack under their parent inside the cell
-// footprint so the whole super-cell packs as one circle. Node positions are
-// relative to the disk center (0,0); the caller offsets by diskCenter.
+// Stable child order (created_at, id) → satellite slot, so a new subtask lands on
+// the outermost satellite ring and existing satellites keep their orbit.
+function childOrder(children: Task[]): Task[] {
+  return [...children].sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0) || a.id.localeCompare(b.id));
+}
+
+// worlds-v3 §2: circle-packed task disk with NESTED satellite sub-clouds. Each
+// top-level task is a MAIN tile; its subtasks are SMALLER tiles packed by the same
+// phyllotaxis logic, swarming around the parent (parent = local slot 0 at the
+// center, children orbit). The parent+satellites form one cluster that packs as a
+// single circle among sibling clusters — so from afar you SEE each main task haloed
+// by its solid subtasks, and zooming in reveals detail. No transparency, no stacked
+// super-cell, no hollow gap. Node positions are relative to the disk center (0,0);
+// the caller offsets by diskCenter.
 export function layoutTaskCloud(
   plan: Plan,
   s: CanvasLayoutSettings,
@@ -173,71 +199,62 @@ export function layoutTaskCloud(
   const active = activeRanks(topLevel);
   const creation = creationRanks(topLevel);
 
-  const cells: Cell[] = topLevel.map((task) => {
-    const children = childrenByParent.get(task.id) ?? [];
+  const clusters: Cluster[] = topLevel.map((task) => {
+    const children = childOrder(childrenByParent.get(task.id) ?? []);
     const fp = taskFootprint(task, children, s);
-    const childItems: ChildItem[] = children.map((c) => {
-      const cs = taskFootprint(c, [], s);
-      return { task: c, w: cs.width, h: cs.height };
-    });
-    let cellH = fp.height;
-    let childMaxW = 0;
-    if (childItems.length) {
-      cellH += s.subtaskHeaderGap + s.subtaskGroupPad * 2 - s.subtaskGapY;
-      for (const ci of childItems) {
-        cellH += ci.h + s.subtaskGapY;
-        if (ci.w > childMaxW) childMaxW = ci.w;
-      }
+    const slot = slotIndex(task, active, creation, ACTIVE_CORE_K);
+    if (!children.length) {
+      return { task, slot, radius: 0, locals: [{ id: task.id, task, cx: 0, cy: 0, w: fp.width, h: fp.height }] };
     }
-    const cellW = Math.max(fp.width, childItems.length ? s.subtaskIndentX + childMaxW : 0);
-    return { task, slot: slotIndex(task, active, creation, ACTIVE_CORE_K), cellW, cellH, cardW: fp.width, cardH: fp.height, childItems };
+    // Local sub-cloud: parent (slot 0, full footprint) + satellites (slots 1..n,
+    // halved footprint). packCloud center-fills → parent at origin, children swarm.
+    const childById = new Map(children.map((c) => [c.id, c]));
+    const localItems: CloudItem[] = [{ id: task.id, w: fp.width, h: fp.height, slot: 0 }];
+    children.forEach((c, i) => {
+      const cfp = taskFootprint(c, [], s);
+      const w = Math.max(SUBTASK_MIN_W, Math.round(cfp.width * SUBTASK_SCALE));
+      const h = Math.max(SUBTASK_MIN_H, Math.round(cfp.height * SUBTASK_SCALE));
+      localItems.push({ id: c.id, w, h, slot: i + 1 });
+    });
+    const localPack = packCloud(localItems, SUBTASK_GAP);
+    const locals: LocalPlace[] = localPack.items.map((it) => ({
+      id: it.id,
+      task: it.id === task.id ? task : childById.get(it.id)!,
+      cx: it.cx,
+      cy: it.cy,
+      w: it.w,
+      h: it.h,
+    }));
+    return { task, slot, radius: localPack.radius, locals };
   });
 
-  const pack = packCloud(
-    cells.map((c) => ({ id: c.task.id, w: c.cellW, h: c.cellH, slot: c.slot })),
-    TILE_GAP,
-  );
-  const byId = new Map(cells.map((c) => [c.task.id, c]));
+  // Outer pack: a childless task packs by its own footprint; a cluster packs as a
+  // square whose circumscribed circle == the cluster radius (½√(2·side²) = side/√2,
+  // so side = R·√2 → enclosing radius R). Cluster circles never overlap → no two
+  // satellites from different parents collide.
+  const outerItems: CloudItem[] = clusters.map((cl) => {
+    if (cl.radius === 0) {
+      const p = cl.locals[0];
+      return { id: cl.task.id, w: p.w, h: p.h, slot: cl.slot };
+    }
+    const side = cl.radius * Math.SQRT2;
+    return { id: cl.task.id, w: side, h: side, slot: cl.slot };
+  });
+  const pack = packCloud(outerItems, TILE_GAP);
+  const byId = new Map(clusters.map((c) => [c.task.id, c]));
 
   for (const p of pack.items) {
-    const cell = byId.get(p.id)!;
-    placeCell(cell, p.cx, p.cy);
+    const cl = byId.get(p.id)!;
+    for (const loc of cl.locals) {
+      const cx = p.cx + loc.cx;
+      const cy = p.cy + loc.cy;
+      nodes.push({ id: loc.id, kind: "task", planId: plan.id, box: { x: cx - loc.w / 2, y: cy - loc.h / 2, width: loc.w, height: loc.h }, iteration: null, manual: false });
+    }
+    for (const sid of cl.task.section_ids) {
+      const anchor = anchors.get(sid);
+      if (anchor) edges.push({ id: `${sid}~${cl.task.id}`, kind: "section-task", fromPoint: anchor, to: cl.task.id });
+    }
   }
 
   return { nodes, edges, extraPoints, radius: pack.radius };
-
-  function placeCell(cell: Cell, cx: number, cy: number): void {
-    const { task, cardW, cardH, cellW, cellH, childItems } = cell;
-    const left = cx - cellW / 2;
-    const top = cy - cellH / 2;
-    nodes.push({ id: task.id, kind: "task", planId: plan.id, box: { x: left, y: top, width: cardW, height: cardH }, iteration: null, manual: false });
-
-    for (const sid of task.section_ids) {
-      const anchor = anchors.get(sid);
-      if (anchor) edges.push({ id: `${sid}~${task.id}`, kind: "section-task", fromPoint: anchor, to: task.id });
-    }
-
-    if (!childItems.length) return;
-
-    const groupTop = top + cardH + s.subtaskHeaderGap;
-    let childY = groupTop + s.subtaskGroupPad;
-    const placed: { item: ChildItem; box: Box }[] = [];
-    for (const ci of childItems) {
-      placed.push({ item: ci, box: { x: left + s.subtaskIndentX, y: childY, width: ci.w, height: ci.h } });
-      childY += ci.h + s.subtaskGapY;
-    }
-    const groupBottom = childY - s.subtaskGapY + s.subtaskGroupPad;
-    nodes.push({
-      id: `${task.id}::subgroup`,
-      kind: "subtask-group",
-      planId: plan.id,
-      box: { x: left + s.subtaskIndentX - s.subtaskGroupPad, y: groupTop, width: cellW + s.subtaskGroupPad * 2, height: groupBottom - groupTop },
-      iteration: null,
-      manual: false,
-    });
-    for (const { item, box } of placed) {
-      nodes.push({ id: item.task.id, kind: "task", planId: plan.id, box, iteration: null, manual: false });
-      edges.push({ id: `${task.id}>${item.task.id}`, kind: "subtask", from: task.id, to: item.task.id });
-    }
-  }
 }

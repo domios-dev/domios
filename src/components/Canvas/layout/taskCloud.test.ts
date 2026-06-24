@@ -2,7 +2,7 @@
 
 import type { Plan, Section, Task } from "../types";
 import { DEFAULT_CANVAS_SETTINGS as S } from "../settings";
-import { packCloud, layoutTaskCloud, ACTIVE_CORE_K, GOLDEN_ANGLE } from "./taskCloud";
+import { packCloud, layoutTaskCloud, ACTIVE_CORE_K, GOLDEN_ANGLE, TILE_GAP } from "./taskCloud";
 import { layoutWorkspace, boxesOverlap } from "./index";
 
 let passed = 0;
@@ -62,6 +62,20 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok(`disk radius bounded (${Math.round(pack.radius)} < 1600)`, pack.radius < 1600);
 }
 
+// ── center-fill: the disk is DENSE from the middle, not a hollow ring ─────
+{
+  const items = Array.from({ length: 40 }, (_, i) => ({ id: `t${i}`, w: 130, h: 110, slot: i }));
+  const pack = packCloud(items);
+  // The innermost tile (slot 0) sits AT the origin — old `cumArea+area/2` seeded
+  // it ≈0.7ρ off-center, leaving a hole. Center-out fill puts tile 0 dead-center.
+  const slot0 = pack.items[0];
+  ok("innermost tile is at the disk center (no hole)", Math.hypot(slot0.cx, slot0.cy) < 1e-6);
+  // Nothing orbits an empty middle: the nearest tile to the origin is the center tile.
+  const minD = Math.min(...pack.items.map((it) => Math.hypot(it.cx, it.cy)));
+  const rho = 0.5 * Math.hypot(130, 110) + TILE_GAP;
+  ok(`center filled — nearest tile ≪ ρ (${minD.toFixed(1)} < ${(0.25 * rho).toFixed(1)})`, minD < 0.25 * rho);
+}
+
 // ── packCloud: determinism ──────────────────────────────────────────
 {
   const items = Array.from({ length: 40 }, (_, i) => ({ id: `t${i}`, w: 130, h: 110, slot: i }));
@@ -104,6 +118,57 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   const medianHist = histDists[Math.floor(histDists.length / 2)];
   ok("active task 1 inside the median history radius", distOf("act1") < medianHist);
   ok("active task 2 inside the median history radius", distOf("act2") < medianHist);
+}
+
+// ── subtask satellites: solid smaller tiles swarming around the parent ──
+{
+  const parent = task("P", { body: "x".repeat(400), created_at: 0 });
+  const kids = Array.from({ length: 6 }, (_, i) => task(`c${i}`, { parent_task_id: "P", created_at: i + 1 }));
+  const cloud = layoutTaskCloud(plan([parent, ...kids]), S, new Map());
+  const taskNodes = cloud.nodes.filter((n) => n.kind === "task");
+  // Every subtask is its OWN node (solid, packed) — not hidden inside the parent.
+  ok("parent + 6 subtasks = 7 task nodes", taskNodes.length === 7);
+  ok("all subtasks present as nodes", kids.every((k) => taskNodes.some((n) => n.id === k.id)));
+
+  const pn = cloud.nodes.find((n) => n.id === "P")!;
+  const cn = cloud.nodes.find((n) => n.id === "c0")!;
+  const pArea = pn.box.width * pn.box.height;
+  const cArea = cn.box.width * cn.box.height;
+  ok(`satellite is smaller than its parent (${Math.round(cArea)} < ${Math.round(pArea)})`, cArea < pArea * 0.7);
+
+  // Satellites swarm AROUND the parent: each child center sits close to the parent
+  // center (within the local cluster), never flung across the disk.
+  const pc = { x: pn.box.x + pn.box.width / 2, y: pn.box.y + pn.box.height / 2 };
+  const orbit = (id: string) => {
+    const n = cloud.nodes.find((x) => x.id === id)!;
+    return Math.hypot(n.box.x + n.box.width / 2 - pc.x, n.box.y + n.box.height / 2 - pc.y);
+  };
+  const maxOrbit = Math.max(...kids.map((k) => orbit(k.id)));
+  ok(`subtasks orbit the parent tightly (${Math.round(maxOrbit)} < 360)`, maxOrbit < 360);
+
+  // No two tiles overlap inside the cluster.
+  let overlap = false;
+  for (let i = 0; i < taskNodes.length; i++)
+    for (let j = i + 1; j < taskNodes.length; j++)
+      if (boxesOverlap(taskNodes[i].box, taskNodes[j].box)) overlap = true;
+  ok("no overlap among parent + satellites", !overlap);
+}
+
+// ── sibling clusters never collide (each parent keeps its own swarm) ────
+{
+  const tasks: Task[] = [];
+  for (let p = 0; p < 5; p++) {
+    tasks.push(task(`P${p}`, { created_at: p * 100 }));
+    for (let c = 0; c < 4; c++) tasks.push(task(`P${p}_c${c}`, { parent_task_id: `P${p}`, created_at: p * 100 + c + 1 }));
+  }
+  const cloud = layoutTaskCloud(plan(tasks), S, new Map());
+  const taskNodes = cloud.nodes.filter((n) => n.kind === "task");
+  ok("5 parents × 4 subtasks all placed (25 nodes)", taskNodes.length === 25);
+  let overlap = false;
+  for (let i = 0; i < taskNodes.length; i++)
+    for (let j = i + 1; j < taskNodes.length; j++)
+      if (boxesOverlap(taskNodes[i].box, taskNodes[j].box)) overlap = true;
+  ok("no overlap across sibling clusters' satellites", !overlap);
 }
 
 // ── full layout: disk is right of the plan, no node overlap ──────────

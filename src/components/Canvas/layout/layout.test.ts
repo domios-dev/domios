@@ -250,15 +250,22 @@ console.log("\nsubtasks:");
   const layout = layoutWorkspace([psub]);
   const frame = layout.frames[0];
   const byId = new Map(frame.nodes.map((n) => [n.id, n]));
-  ok("parent + 2 children all laid out as tasks", ["tp", "tc1", "tc2"].every((id) => byId.get(id)?.kind === "task"));
-  ok("subtask-group container present", frame.nodes.some((n) => n.kind === "subtask-group"));
-  ok("two subtask stem edges", frame.edges.filter((e) => e.kind === "subtask").length === 2);
+  ok("parent + 2 children all laid out as solid task nodes", ["tp", "tc1", "tc2"].every((id) => byId.get(id)?.kind === "task"));
+  // worlds-v3 swarm: subtasks are SOLID satellite tiles around the parent — no
+  // stacked super-cell (no subtask-group container, no stem edges).
+  ok("no subtask-group container (swarm, not stack)", !frame.nodes.some((n) => n.kind === "subtask-group"));
+  ok("no subtask stem edges (proximity conveys grouping)", frame.edges.filter((e) => e.kind === "subtask").length === 0);
   const tp = byId.get("tp")!;
   const tc1 = byId.get("tc1")!;
-  ok("child indented right of parent", tc1.box.x > tp.box.x);
-  ok("child below the parent card", tc1.box.y >= tp.box.y + tp.box.height);
-  // no section-task edge points at a child (children connect via the parent stem).
-  ok("children are not top-level satellites", !frame.edges.some((e) => e.kind === "section-task" && (e.to === "tc1" || e.to === "tc2")));
+  const tc2 = byId.get("tc2")!;
+  // Satellites are smaller than the parent tile.
+  ok("satellite smaller than parent", tc1.box.width * tc1.box.height < tp.box.width * tp.box.height);
+  // Satellites orbit the parent center within its local cluster.
+  const pc = { x: tp.box.x + tp.box.width / 2, y: tp.box.y + tp.box.height / 2 };
+  const orbit = (n: typeof tp) => Math.hypot(n.box.x + n.box.width / 2 - pc.x, n.box.y + n.box.height / 2 - pc.y);
+  ok("subtasks swarm around the parent", orbit(tc1) < 320 && orbit(tc2) < 320);
+  // no section-task edge points at a child (only the parent links to its section).
+  ok("children are not section satellites", !frame.edges.some((e) => e.kind === "section-task" && (e.to === "tc1" || e.to === "tc2")));
 }
 
 // ── focus selection ───────────────────────────────────────────────

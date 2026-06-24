@@ -750,7 +750,7 @@ export function CanvasViewInner({
                     lod={lod}
                     world={worldByNode.get(n.id) ?? "W1"}
                     dimmed={focusedNodeId != null && n.planId !== focusedPlanId && n.id !== focusedNodeId}
-                    softDim={dominantNodeId != null && n.kind === "task" && n.id !== dominantNodeId}
+                    softDim={dominantNodeId != null && n.kind === "task" && n.id !== dominantNodeId && !lookups.taskById.get(n.id)?.parent_task_id}
                     elevated={dominantNodeId != null && n.id === dominantNodeId}
                     onOpenPane={onOpenPane}
                     onHoverTask={onHoverTask}
