@@ -3,10 +3,7 @@ import type { CanvasLayoutSettings } from "../settings";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import { layoutPlanIntra } from "./intraPlan";
 import { packRegions } from "./regionPacking";
-import type { NodeModeResolver, WorkspaceLayout } from "./types";
-
-// Every node Document-sized unless a resolver overrides — preserves prior layout.
-const DOCUMENT_MODE: NodeModeResolver = () => "document";
+import type { WorkspaceLayout } from "./types";
 
 export type { Box, Point } from "./geometry";
 export {
@@ -25,7 +22,6 @@ export type {
   OwnerGroup,
   WorkspaceLayout,
   IntraPlanLayout,
-  NodeModeResolver,
 } from "./types";
 export { layoutPlanIntra, ownerKeyOf } from "./intraPlan";
 export { packRegions } from "./regionPacking";
@@ -39,9 +35,8 @@ export type { CanvasSize } from "./viewport";
 export function layoutWorkspace(
   plans: Plan[],
   settings: CanvasLayoutSettings = DEFAULT_CANVAS_SETTINGS,
-  modeFor: NodeModeResolver = DOCUMENT_MODE,
 ): WorkspaceLayout {
   const active = plans.filter((p) => p.status === "active");
-  const intra = active.map((p) => layoutPlanIntra(p, settings, modeFor));
+  const intra = active.map((p) => layoutPlanIntra(p, settings));
   return packRegions(intra, settings);
 }

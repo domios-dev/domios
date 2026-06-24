@@ -1,9 +1,8 @@
 import type { Plan, Task } from "../types";
-import type { CanvasViewMode } from "../cards/types";
 import type { CanvasLayoutSettings } from "../settings";
 import { taskCellSize } from "../settings";
 import type { Box, Point } from "./geometry";
-import type { LaidOutEdge, LaidOutNode, NodeModeResolver } from "./types";
+import type { LaidOutEdge, LaidOutNode } from "./types";
 
 export interface TaskBandLayout {
   nodes: LaidOutNode[];
@@ -34,7 +33,6 @@ interface Cell {
 export function layoutTaskBands(
   plan: Plan,
   s: CanvasLayoutSettings,
-  modeFor: NodeModeResolver,
   anchors: Map<string, Point>,
   taskX: number,
 ): TaskBandLayout {
@@ -42,10 +40,7 @@ export function layoutTaskBands(
   const edges: LaidOutEdge[] = [];
   const extraPoints: Point[] = [];
 
-  const sizeOf = (t: Task) => {
-    const mode: CanvasViewMode = modeFor(t.id, "task", plan.id);
-    return taskCellSize(mode, t.milestones.length, s);
-  };
+  const sizeOf = (_t: Task) => taskCellSize(s);
 
   const taskIds = new Set(plan.tasks.map((t) => t.id));
   const childrenByParent = new Map<string, Task[]>();

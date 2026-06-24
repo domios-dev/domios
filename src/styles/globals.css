@@ -942,6 +942,10 @@ button,
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-border-focus) 65%, transparent), 0 0 14px 2px color-mix(in srgb, var(--ct-border-focus) 30%, transparent);
 }
 
+/* Content-LOD body reveal (§23.7): section bodies fade in on zoom-approach. */
+.ct-canvas-fade-in { animation: ct-canvas-fade-in 0.22s var(--ct-ease-decel) both; }
+@keyframes ct-canvas-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
 /* Composer activity bubble spinner. */
 .ct-spin { animation: ct-spin 0.9s linear infinite; }
 @keyframes ct-spin { to { transform: rotate(360deg); } }

@@ -170,7 +170,7 @@ console.log("\nsection-row anchors:");
   ok("anchor y within plan node bounds", a1.y >= planNode.box.y && a1.y <= planNode.box.y + planNode.box.height);
   // Rail outputs are evenly distributed (§23.1): s1a sits one rail-span below s1.
   const a1a = frame.anchors.get("s1a")!;
-  const railSpan = (DEFAULT_CANVAS_SETTINGS.planDocH - DEFAULT_CANVAS_SETTINGS.planHeaderHeight) / 3;
+  const railSpan = (DEFAULT_CANVAS_SETTINGS.sectionNodeH - DEFAULT_CANVAS_SETTINGS.planHeaderHeight) / 3;
   ok("rail outputs evenly distributed (one span apart)", Math.abs(a1a.y - a1.y - railSpan) < 0.5);
   // the section→task edge originates exactly at the section row anchor.
   const edge = frame.edges.find((e) => e.kind === "section-task" && e.to === "t1");
@@ -184,19 +184,21 @@ console.log("\nsection-row anchors:");
   ok("task cell hugs its primary covered-row Y (banded sweep)", cellTop <= a1.y + 1 && cellBottom >= a1.y - 1);
 }
 
-// ── ONE merged SectionedPlanNode (§22.2): no separate spec nodes ──
-console.log("\nmerged plan node:");
+// ── SEPARATE spec + plan nodes (§24.3): three connected columns ──
+console.log("\nspec + plan nodes:");
 {
   const layout = layoutWorkspace(samplePlans());
   const frame = layout.frames.find((f) => f.planId === "p1")!;
-  ok("no separate spec-section nodes (folded into the plan node)", !frame.nodes.some((n) => n.kind === "spec-section"));
-  ok("no spec-row edges (rail outputs replace them)", !frame.edges.some((e) => e.kind === "spec-row"));
   const planNodes = frame.nodes.filter((n) => n.kind === "plan");
-  ok("exactly one plan node", planNodes.length === 1);
-  // Fixed Document height (§22.1) — content-independent.
-  ok("plan node is the fixed Document height", planNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.planDocH);
-  ok("plan node is the fixed width", planNodes[0].box.width === DEFAULT_CANVAS_SETTINGS.planWidth);
-  // Tasks sit to the RIGHT of the plan node (banded), anchored to rail outputs.
+  const specNodes = frame.nodes.filter((n) => n.kind === "spec");
+  ok("exactly one plan node + one spec node", planNodes.length === 1 && specNodes.length === 1);
+  // 1:1 spec↔plan edges (§24.3), one per flattened section.
+  ok("one spec↔plan edge per section", frame.edges.filter((e) => e.kind === "spec-row").length === 3);
+  // Spec + plan share the fixed sectionNode height/width (§24.1).
+  ok("plan node fixed height", planNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.sectionNodeH);
+  ok("spec node fixed height + width", specNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.sectionNodeH && specNodes[0].box.width === DEFAULT_CANVAS_SETTINGS.specNodeW);
+  // Column order: SPEC | PLAN | tasks.
+  ok("spec sits left of plan", specNodes[0].box.x + specNodes[0].box.width <= planNodes[0].box.x);
   const planRight = planNodes[0].box.x + planNodes[0].box.width;
   const tasks = frame.nodes.filter((n) => n.kind === "task");
   ok("tasks sit right of the plan node", tasks.every((t) => t.box.x >= planRight - 1));
@@ -223,11 +225,10 @@ console.log("\ninterior steps:");
   // Document task card as step cards (Thread & Coil interior). No cluster chrome.
   ok("no separate milestone nodes (steps are interior)", !frame.nodes.some((n) => n.kind === "milestone"));
   ok("no cluster nodes / task-cluster edges", !frame.nodes.some((n) => n.kind === "cluster") && !frame.edges.some((e) => e.kind === "task-cluster"));
-  // The Document task cell that owns steps reserves extra interior height for them.
+  // §24.1 fixed cell: steps scroll inside the cell — footprint stays constant.
   const withSteps = frame.nodes.find((n) => n.id === "t1")!; // t1 has 3 milestones
   const noSteps = frame.nodes.find((n) => n.id === "t2")!; // t2 has 1 milestone
-  ok("step-bearing cell is at least the document base height", withSteps.box.height >= DEFAULT_CANVAS_SETTINGS.taskDocH);
-  ok("more steps → taller interior", withSteps.box.height > noSteps.box.height);
+  ok("task cell is the fixed size regardless of step count", withSteps.box.height === DEFAULT_CANVAS_SETTINGS.taskH && noSteps.box.height === DEFAULT_CANVAS_SETTINGS.taskH);
 }
 
 // ── subtasks (parent_task_id) ─────────────────────────────────────
