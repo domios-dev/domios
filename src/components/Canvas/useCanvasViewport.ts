@@ -48,7 +48,9 @@ const DEF_FIT_PADDING = 28;
 // single tiny plan doesn't blow up to fill the screen.
 const FIT_MAX_ZOOM = 3;
 const LINE_PX = 16;
-const ZOOM_INTENSITY = 0.0016;
+// Pinch / cmd-wheel zoom sensitivity. ~2.5x the old 0.0016 so a pinch feels
+// immediate/Figma-like; the exponential keeps it smooth. Pan path is unchanged.
+const ZOOM_INTENSITY = 0.004;
 
 // deltaMode: 0 pixel, 1 line, 2 page → normalize to pixels.
 function pixelDelta(value: number, mode: number): number {
