@@ -2,7 +2,7 @@ use std::io::Read;
 
 use crate::args::plan::{
     PlanAction, PlanElementAction, PlanGroupsAction, PlanKindsAction, PlanLayoutAction,
-    PlanLoopAction, PlanMilestoneAction, PlanNoteAction, PlanSectionAction, PlanTaskAction,
+    PlanLoopAction, PlanMilestoneAction, PlanNoteAction, PlanTaskAction,
 };
 use crate::client::{SocketCallError, SocketClient};
 use crate::cmd::hints::{print_hints, push_hints, task_model_hint, task_sections_hint};
@@ -470,79 +470,20 @@ fn run_plan(
             key,
         ),
 
+        PlanAction::Ingest { plan_id, markdown } => {
+            let markdown = read_path_or_stdin(&markdown)?;
+            call(
+                client,
+                "plan.ingest",
+                json!({ "plan_id": plan_id, "markdown": markdown }),
+            )
+        }
+
         PlanAction::Handoff { action } => {
             return crate::cmd::plan_handoff::handle(client, json, action);
         }
 
-        PlanAction::Section { action } => match action {
-            PlanSectionAction::Add {
-                plan_id,
-                title,
-                body,
-                body_file,
-                parent,
-                tags,
-                primary,
-                handle,
-            } => {
-                let body_text = resolve_text(body, body_file)?.unwrap_or_default();
-                let mut params = json!({
-                    "plan_id": plan_id,
-                    "title": title,
-                    "body": body_text,
-                });
-                if let Some(p) = parent {
-                    params["parent"] = json!(p);
-                }
-                if !tags.is_empty() {
-                    params["tags"] = json!(tags);
-                }
-                if let Some(primary) = primary {
-                    params["primary"] = json!(primary);
-                }
-                if let Some(handle) = handle {
-                    params["handle"] = json!(handle);
-                }
-                call(client, "plan.section.add", params)
-            }
-            PlanSectionAction::Update {
-                plan_id,
-                section_id,
-                title,
-                body,
-                body_file,
-                tags,
-                primary,
-                handle,
-            } => {
-                let body_text = resolve_text(body, body_file)?;
-                let mut params = json!({ "plan_id": plan_id, "section_id": section_id });
-                if let Some(t) = title {
-                    params["title"] = json!(t);
-                }
-                if let Some(b) = body_text {
-                    params["body"] = json!(b);
-                }
-                if !tags.is_empty() {
-                    params["tags"] = json!(tags);
-                }
-                if let Some(primary) = primary {
-                    params["primary"] = json!(primary);
-                }
-                if let Some(handle) = handle {
-                    params["handle"] = json!(handle);
-                }
-                call(client, "plan.section.update", params)
-            }
-            PlanSectionAction::Rm {
-                plan_id,
-                section_id,
-            } => call(
-                client,
-                "plan.section.rm",
-                json!({ "plan_id": plan_id, "section_id": section_id }),
-            ),
-        },
+        PlanAction::Section { action } => crate::cmd::plan_sections::handle(client, action),
 
         PlanAction::Kinds { action } => match action {
             PlanKindsAction::Set { plan_id, kinds } => call(

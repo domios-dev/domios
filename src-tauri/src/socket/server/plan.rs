@@ -525,9 +525,20 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
 
+        "plan.ingest" => {
+            let id = get_string_param(params, "plan_id")?;
+            let markdown = get_string_param(params, "markdown")?;
+            let result = store
+                .ingest_plan_sections(&id, &markdown, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(serde_json::to_value(result).unwrap_or_else(|_| json!({ "sections": [] })))
+        }
+
         "plan.section.add" => {
             let id = get_string_param(params, "plan_id")?;
-            let title = get_string_param(params, "title")?;
+            let title =
+                get_string_param(params, "title").or_else(|_| get_string_param(params, "name"))?;
             let body = p
                 .and_then(|x| x.get("body"))
                 .and_then(|v| v.as_str())
@@ -556,7 +567,8 @@ pub(super) fn dispatch(
                 .update_section(
                     &id,
                     &sid,
-                    p.and_then(|x| x.get("title")).and_then(|v| v.as_str()),
+                    p.and_then(|x| x.get("title").or_else(|| x.get("name")))
+                        .and_then(|v| v.as_str()),
                     p.and_then(|x| x.get("body")).and_then(|v| v.as_str()),
                     &tags_field(p),
                     p.and_then(|x| x.get("primary")).and_then(|v| v.as_str()),

@@ -247,6 +247,31 @@ fn batch_create_plan_from_spec_is_not_written_when_later_op_fails() {
 }
 
 #[test]
+fn batch_ingests_markdown_sections_and_persists_body() {
+    let (store, plan_id) = store_with_plan();
+    let result = store
+        .apply_batch(
+            &plan_id,
+            BatchRequest {
+                key: None,
+                ops: vec![BatchOp::IngestSections {
+                    body: "## Backend\nPersist section names and bodies.\n\n## UI\nRender them."
+                        .into(),
+                }],
+            },
+            2,
+        )
+        .unwrap();
+
+    let backend_id = result.ids.get("backend").unwrap();
+    let plan = store.get(&plan_id).unwrap();
+    let backend = plan.sections.iter().find(|s| &s.id == backend_id).unwrap();
+    assert_eq!(backend.title, "Backend");
+    assert_eq!(backend.body, "Persist section names and bodies.");
+    assert!(plan.sections.iter().any(|s| s.title == "UI"));
+}
+
+#[test]
 fn batch_upsert_and_milestone_key_are_idempotent() {
     let (store, plan_id) = store_with_plan();
     let request = BatchRequest {
