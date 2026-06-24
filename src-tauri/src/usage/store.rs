@@ -362,7 +362,10 @@ mod tests {
         add_missing_columns(&conn).unwrap();
         let cols = table_columns(&conn).unwrap();
         assert!(cols.contains("spend_cents"), "spend_cents added");
-        assert!(cols.contains("spend_limit_cents"), "spend_limit_cents added");
+        assert!(
+            cols.contains("spend_limit_cents"),
+            "spend_limit_cents added"
+        );
         assert!(
             cols.contains("spend_remaining_cents"),
             "spend_remaining_cents added"
