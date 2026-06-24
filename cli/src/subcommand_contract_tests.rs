@@ -318,6 +318,53 @@ fn plan_task_link_and_relink_parse() {
 }
 
 #[test]
+fn plan_task_add_parses_quality_fields() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "task",
+        "add",
+        "pl_1",
+        "--name",
+        "Quality lane",
+        "--criterion",
+        "criteria persist",
+        "--criterion",
+        "task show surfaces them",
+        "--test-plan",
+        "cargo test service::plan::tests::task_quality_fields_persist_and_reload",
+        "--correctness",
+        "round-trip unchanged",
+    ])
+    .expect("plan task add parses quality fields");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action:
+                        crate::args::plan::PlanTaskAction::Add {
+                            criterion,
+                            test_plan,
+                            correctness,
+                            ..
+                        },
+                },
+        } => {
+            assert_eq!(
+                criterion,
+                vec!["criteria persist", "task show surfaces them"]
+            );
+            assert_eq!(
+                test_plan.as_deref(),
+                Some("cargo test service::plan::tests::task_quality_fields_persist_and_reload")
+            );
+            assert_eq!(correctness.as_deref(), Some("round-trip unchanged"));
+        }
+        _ => panic!("expected plan task add"),
+    }
+}
+
+#[test]
 fn plan_get_parses_sections_lookup() {
     let parsed = Cli::try_parse_from(["codeterm", "plan", "get", "pl_1", "--sections"])
         .expect("plan get --sections parses");

@@ -2,7 +2,9 @@ use std::io::Read;
 
 use crate::args::task::{CanvasAction, TaskAction};
 use crate::client::{SocketCallError, SocketClient};
-use crate::cmd::hints::{print_hints, push_hints, task_model_hint, task_sections_hint};
+use crate::cmd::hints::{
+    print_hints, push_hints, task_model_hint, task_quality_guard_hint, task_sections_hint,
+};
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
 
@@ -135,6 +137,9 @@ fn run_task(
             model,
             why,
             why_file,
+            criterion,
+            test_plan,
+            correctness,
             body,
             body_file,
             intent,
@@ -144,6 +149,9 @@ fn run_task(
             let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
             let why_text = resolve_text(why, why_file)?;
             let has_why = why_text.as_deref().is_some_and(|s| !s.trim().is_empty());
+            let has_criteria = criterion.iter().any(|s| !s.trim().is_empty());
+            let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
+            let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
             let mut params = json!({
                 "name": name,
                 "type": kind.unwrap_or_else(|| "task".to_string()),
@@ -160,6 +168,15 @@ fn run_task(
             }
             if let Some(w) = why_text {
                 params["why"] = json!(w);
+            }
+            if !criterion.is_empty() {
+                params["acceptance_criteria"] = json!(criterion);
+            }
+            if let Some(test_plan) = test_plan {
+                params["test_plan"] = json!(test_plan);
+            }
+            if let Some(correctness) = correctness {
+                params["correctness"] = json!(correctness);
             }
             if let Some(b) = resolve_text(body, body_file)? {
                 params["body"] = json!(b);
@@ -182,6 +199,15 @@ fn run_task(
                 let mut hints = vec![task_sections_hint(&plan_id, &task_id)];
                 if !has_model || !has_why {
                     hints.push(task_model_hint(&plan_id, &task_id));
+                }
+                if let Some(hint) = task_quality_guard_hint(
+                    &plan_id,
+                    &task_id,
+                    has_criteria,
+                    has_test_plan,
+                    has_correctness,
+                ) {
+                    hints.push(hint);
                 }
                 push_hints(&mut val, hints);
             }
@@ -231,6 +257,7 @@ fn print_task_result(json: bool, val: &Value) {
             .unwrap_or("?");
         println!("{id}\t{status}\t{plan}\t{name}");
         println!("plan: {plan_title} ({plan})");
+        print_task_quality(task);
         print_label_list("sections", val.get("sections"));
         print_label_list("siblings", val.get("siblings"));
         print_label_list("subtasks", val.get("subtasks"));
@@ -243,6 +270,29 @@ fn print_task_result(json: bool, val: &Value) {
         print_object(val);
     }
     print_hints(&hints);
+}
+
+fn print_task_quality(task: &Value) {
+    if let Some(items) = task.get("acceptance_criteria").and_then(|v| v.as_array()) {
+        if !items.is_empty() {
+            let rendered = items
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            println!("criteria: {rendered}");
+        }
+    }
+    if let Some(test_plan) = task.get("test_plan").and_then(|v| v.as_str()) {
+        if !test_plan.is_empty() {
+            println!("test_plan: {test_plan}");
+        }
+    }
+    if let Some(correctness) = task.get("correctness").and_then(|v| v.as_str()) {
+        if !correctness.is_empty() {
+            println!("correctness: {correctness}");
+        }
+    }
 }
 
 fn print_label_list(label: &str, value: Option<&Value>) {

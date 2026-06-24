@@ -5,7 +5,9 @@ use crate::args::plan::{
     PlanLayoutAction, PlanLoopAction, PlanMilestoneAction, PlanNoteAction, PlanTaskAction,
 };
 use crate::client::SocketClient;
-use crate::cmd::hints::{print_hints, push_hints, task_model_hint, task_sections_hint};
+use crate::cmd::hints::{
+    print_hints, push_hints, task_model_hint, task_quality_guard_hint, task_sections_hint,
+};
 use crate::cmd::plan_errors::render_plan_call_error;
 #[cfg(test)]
 use crate::cmd::plan_errors::render_plan_error;
@@ -105,11 +107,30 @@ fn render_plan_markdown(plan: &Value) -> String {
                 let tid = t.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                 let st = t.get("status").and_then(|v| v.as_str()).unwrap_or("?");
                 out.push_str(&format!("- **{name}** (`{tid}`) — {st}\n"));
+                render_task_quality(t, &mut out);
             }
             out.push('\n');
         }
     }
     out
+}
+
+fn render_task_quality(task: &Value, out: &mut String) {
+    if let Some(items) = task.get("acceptance_criteria").and_then(|v| v.as_array()) {
+        for item in items.iter().filter_map(|v| v.as_str()) {
+            out.push_str(&format!("  - criterion: {item}\n"));
+        }
+    }
+    if let Some(test_plan) = task.get("test_plan").and_then(|v| v.as_str()) {
+        if !test_plan.is_empty() {
+            out.push_str(&format!("  - test plan: {test_plan}\n"));
+        }
+    }
+    if let Some(correctness) = task.get("correctness").and_then(|v| v.as_str()) {
+        if !correctness.is_empty() {
+            out.push_str(&format!("  - correctness: {correctness}\n"));
+        }
+    }
 }
 
 fn render_goal_block(goal: &Value, out: &mut String) {
@@ -584,6 +605,9 @@ fn run_plan(
                 model,
                 why,
                 why_file,
+                criterion,
+                test_plan,
+                correctness,
                 body,
                 body_file,
                 intent,
@@ -606,6 +630,9 @@ fn run_plan(
                     .unwrap_or(false);
                 let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
                 let has_why = why_text.as_deref().is_some_and(|s| !s.trim().is_empty());
+                let has_criteria = criterion.iter().any(|s| !s.trim().is_empty());
+                let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
+                let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
                 let mut params = json!({ "plan_id": plan_id.clone(), "name": name });
                 if let Some(k) = kind {
                     params["type"] = json!(k);
@@ -618,6 +645,15 @@ fn run_plan(
                 }
                 if let Some(w) = why_text {
                     params["why"] = json!(w);
+                }
+                if !criterion.is_empty() {
+                    params["acceptance_criteria"] = json!(criterion);
+                }
+                if let Some(test_plan) = test_plan {
+                    params["test_plan"] = json!(test_plan);
+                }
+                if let Some(correctness) = correctness {
+                    params["correctness"] = json!(correctness);
                 }
                 if let Some(b) = body_text {
                     params["body"] = json!(b);
@@ -662,6 +698,15 @@ fn run_plan(
                     }
                     if !has_model || !has_why {
                         hints.push(task_model_hint(&plan_id, &task_id));
+                    }
+                    if let Some(hint) = task_quality_guard_hint(
+                        &plan_id,
+                        &task_id,
+                        has_criteria,
+                        has_test_plan,
+                        has_correctness,
+                    ) {
+                        hints.push(hint);
                     }
                     push_hints(&mut val, hints);
                 }

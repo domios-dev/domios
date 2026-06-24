@@ -1602,6 +1602,8 @@ Plan tasks
 - `--assign_pane`
 - `--body`
 - `--body_file`
+- `--correctness`
+- `--criterion`
 - `--group`
 - `--handle`
 - `--intent`
@@ -1616,6 +1618,7 @@ Plan tasks
 - `--priority`
 - `--sections`
 - `--tags`
+- `--test_plan`
 - `--why`
 - `--why_file`
 
@@ -1997,11 +2000,14 @@ Add a standalone task to the workspace Inbox
 - `--assign_pane`
 - `--body`
 - `--body_file`
+- `--correctness`
+- `--criterion`
 - `--intent`
 - `--intent_file`
 - `--kind`
 - `--model`
 - `--name`
+- `--test_plan`
 - `--why`
 - `--why_file`
 

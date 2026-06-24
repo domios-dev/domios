@@ -6020,6 +6020,22 @@
                   "aliases": []
                 },
                 {
+                  "name": "correctness",
+                  "positional": false,
+                  "value_name": "CORRECTNESS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "criterion",
+                  "positional": false,
+                  "value_name": "CRITERION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "group",
                   "positional": false,
                   "value_name": "GROUP",
@@ -6127,6 +6143,14 @@
                   "name": "tags",
                   "positional": false,
                   "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "test_plan",
+                  "positional": false,
+                  "value_name": "TEST_PLAN",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -7755,6 +7779,22 @@
               "aliases": []
             },
             {
+              "name": "correctness",
+              "positional": false,
+              "value_name": "CORRECTNESS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "criterion",
+              "positional": false,
+              "value_name": "CRITERION",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
               "name": "intent",
               "positional": false,
               "value_name": "INTENT",
@@ -7790,6 +7830,14 @@
               "name": "name",
               "positional": false,
               "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "test_plan",
+              "positional": false,
+              "value_name": "TEST_PLAN",
               "default": null,
               "help": null,
               "aliases": []
