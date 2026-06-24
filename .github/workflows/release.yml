@@ -54,14 +54,19 @@ jobs:
           nc -z 127.0.0.1 2222 && echo "✅ windows VM ssh up" || echo "::warning::windows VM not reachable on :2222"
           gh auth status 2>&1 | grep -q "Logged in" && echo "✅ gh auth" || { echo "::error::gh not authed"; exit 1; }
 
-      - name: Build the v${{ steps.ver.outputs.ver }} tag exists on origin
+      - name: Stamp the v${{ steps.ver.outputs.ver }} build tag at the release commit
         run: |
-          # The CodeTerm release tags are vX.Y.Z; the trigger tag is release-X.Y.Z.
-          # Ensure the buildable vX.Y.Z tag (bumped + tagged on master) is present.
-          git fetch origin "refs/tags/${{ steps.ver.outputs.tag }}:refs/tags/${{ steps.ver.outputs.tag }}" || true
-          git rev-parse "${{ steps.ver.outputs.tag }}^{commit}" >/dev/null 2>&1 \
-            && echo "✅ ${{ steps.ver.outputs.tag }} present" \
-            || { echo "::error::tag ${{ steps.ver.outputs.tag }} not found — bump+tag the release commit first"; exit 1; }
+          # Single trigger tag: push release-X.Y.Z. build-all.sh bundles a stable
+          # vX.Y.Z ref from THIS checkout, so the tag only needs to exist locally;
+          # the origin push is best-effort bookkeeping, never a build gate.
+          TAG="${{ steps.ver.outputs.tag }}"
+          git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
+          if ! git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
+            git tag -a "$TAG" "$GITHUB_SHA" -m "$TAG"
+            git push origin "$TAG" 2>/dev/null \
+              || echo "::warning::could not push $TAG to origin — building from the local tag"
+          fi
+          echo "✅ $TAG -> $(git rev-parse --short "$TAG^{commit}")"
 
       - name: Ensure Docker is running (Linux engines)
         run: |
@@ -83,3 +88,19 @@ jobs:
       - name: Publish (private archive + public mirror + signed latest.json)
         run: |
           .codeterm/build-machine/scripts/publish-release.sh "${{ steps.ver.outputs.ver }}"
+
+      - name: Release ready-for-release issues (→ done)
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          # Everything that reached develop carries the ready-for-release label;
+          # a successful publish turns those into done. Close-on-publish (not on
+          # master-merge), so a failed build never closes an unshipped issue.
+          TAG="${{ steps.ver.outputs.tag }}"
+          nums=$(gh issue list -R "$GITHUB_REPOSITORY" --label ready-for-release --state open --limit 200 --json number -q '.[].number')
+          for n in $nums; do
+            gh issue close "$n" -R "$GITHUB_REPOSITORY" -c "Released in $TAG 🚀"
+            gh issue edit "$n" -R "$GITHUB_REPOSITORY" --remove-label ready-for-release 2>/dev/null || true
+            echo "released #$n"
+          done
+          [ -n "$nums" ] || echo "no ready-for-release issues to close"

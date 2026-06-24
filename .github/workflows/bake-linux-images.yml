@@ -1,0 +1,38 @@
+name: Bake Linux build images (self-hosted)
+
+# One-shot: bake the codeterm-build-linux-{arm64,x64} Docker images ON the
+# self-hosted build machine. The release pipeline needs them present; they are
+# not in the Actions cache and must live on the runner. Run via the Actions
+# "Run workflow" button or `gh workflow run`.
+on:
+  workflow_dispatch:
+
+jobs:
+  bake:
+    runs-on: [self-hosted, codeterm-builder]
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure Docker is running
+        run: |
+          if ! docker info >/dev/null 2>&1; then
+            echo "Docker daemon down — starting Docker Desktop..."
+            open -a Docker || true
+            for i in $(seq 1 60); do docker info >/dev/null 2>&1 && break; sleep 5; done
+          fi
+          docker info >/dev/null 2>&1 && echo "✅ docker up" || { echo "::error::Docker not available"; exit 1; }
+
+      - name: Bake codeterm-build-linux-arm64
+        working-directory: .codeterm/build-machine/docker
+        run: docker build -t codeterm-build-linux-arm64 -f Dockerfile.linux-arm64 .
+
+      - name: Bake codeterm-build-linux-x64
+        working-directory: .codeterm/build-machine/docker
+        run: docker build -t codeterm-build-linux-x64 -f Dockerfile.linux-x64 .
+
+      - name: Verify
+        run: |
+          docker image inspect codeterm-build-linux-arm64 >/dev/null && echo "✅ arm64 image present"
+          docker image inspect codeterm-build-linux-x64   >/dev/null && echo "✅ x64 image present"

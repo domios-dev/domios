@@ -113,7 +113,10 @@ impl Default for ApiConfig {
             // host's Tailscale/LAN IP (transport.rs builds http://<ip>:<port>) —
             host: "0.0.0.0".to_string(),
             #[cfg(debug_assertions)]
-            port: 7686,
+            port: std::env::var("CODETERM_API_PORT")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(7686),
             #[cfg(not(debug_assertions))]
             port: 7685,
             token: None,
