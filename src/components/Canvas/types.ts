@@ -51,7 +51,7 @@ export interface Milestone {
   canvas: ElementCanvas;
 }
 
-export type TaskPriority = "low" | "normal" | "high" | "urgent";
+export type TaskPriority = "p0" | "p1" | "p2" | "p3"; // p0 = highest
 
 export interface Task {
   id: string;

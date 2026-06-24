@@ -16,10 +16,10 @@ function shelfRank(status: TaskStatus): number {
 
 function priorityRank(p: Task["priority"]): number {
   switch (p) {
-    case "urgent": return 0;
-    case "high": return 1;
-    case "low": return 3;
-    default: return 2; // normal / undefined
+    case "p0": return 0;
+    case "p1": return 1;
+    case "p3": return 3;
+    default: return 2; // p2 / undefined
   }
 }
 

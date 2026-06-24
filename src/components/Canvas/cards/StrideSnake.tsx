@@ -151,8 +151,8 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
   const mode = !atLeast(world, "W1") ? "constellation" : !atLeast(world, "W2") ? "thread" : "cards";
 
   return (
-    <div data-testid="canvas-task-steps" data-step-mode={mode} style={{ position: "relative", width: "100%" }}>
-      <svg width="100%" height={height} viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="xMinYMin meet" style={{ overflow: "visible", display: "block" }}>
+    <div data-testid="canvas-task-steps" data-step-mode={mode} style={{ position: "relative", width: w, maxWidth: "100%" }}>
+      <svg width={w} height={height} viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="xMinYMin meet" style={{ overflow: "visible", display: "block" }}>
         <path d={path} fill="none" stroke="color-mix(in srgb, var(--ct-fg) 26%, transparent)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
         {beads.map((b, i) => {
           const m = shown[i];
@@ -180,7 +180,7 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
             data-testid="canvas-stride-label"
             style={{
               position: "absolute",
-              left: `${(b.x / w) * 100}%`,
+              left: b.x,
               top: b.y + (above ? -cfg.r - 13 : cfg.r + 3),
               transform: "translateX(-50%)",
               width: lw,
