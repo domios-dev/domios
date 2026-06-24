@@ -249,14 +249,14 @@ enum ProbeOutcome {
 /// Each probe is bounded by `PROBE_TIMEOUT` (5s).
 pub fn detect_tailscale(mesh: &Arc<Mutex<MeshManager>>) {
     if let Some(ip) = find_tailscale_ip() {
-        log::info!("[mesh] Tailscale IP detected via interface scan: {}", ip);
+        log::debug!("[mesh] Tailscale IP detected via interface scan: {}", ip);
         mesh.lock().tailscale_ip = Some(ip);
         return;
     }
     for cmd in TAILSCALE_CANDIDATES {
         match try_tailscale_probe(cmd, ProbeMode::Direct) {
             ProbeOutcome::Found(ip) => {
-                log::info!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
+                log::debug!("[mesh] Tailscale IP detected via {}: {}", cmd, ip);
                 mesh.lock().tailscale_ip = Some(ip);
                 return;
             }
