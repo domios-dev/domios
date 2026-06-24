@@ -176,6 +176,22 @@
               "aliases": []
             },
             {
+              "name": "doc",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Markdown document to append to the report milestone",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": "Milestone kind when writing to --plan/--task",
+              "aliases": []
+            },
+            {
               "name": "message",
               "positional": true,
               "value_name": "MESSAGE",
@@ -245,6 +261,14 @@
               "value_name": "TEST_RESULT",
               "default": null,
               "help": "Result of the test command (e.g. \"42 passed\")",
+              "aliases": []
+            },
+            {
+              "name": "text",
+              "positional": false,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Report message as a flag, useful when paired with --doc",
               "aliases": []
             }
           ],
@@ -665,6 +689,22 @@
       "aliases": [],
       "args": [],
       "subcommands": [
+        {
+          "name": "filter",
+          "about": "Dim the canvas to a facet value such as area:layout",
+          "aliases": [],
+          "args": [
+            {
+              "name": "facet",
+              "positional": false,
+              "value_name": "FACET",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
         {
           "name": "focus",
           "about": "Focus the open canvas on a task, pane, or plan",
@@ -5172,6 +5212,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "parent",
                   "positional": false,
                   "value_name": "PARENT",
@@ -5183,6 +5231,22 @@
                   "name": "plan_id",
                   "positional": true,
                   "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5244,6 +5308,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "plan_id",
                   "positional": true,
                   "value_name": "PLAN_ID",
@@ -5252,9 +5324,25 @@
                   "aliases": []
                 },
                 {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "section_id",
                   "positional": true,
                   "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5275,6 +5363,22 @@
         {
           "name": "spec",
           "about": "Print only the hydrated section prose",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "tags",
+          "about": "Show tag facets, counts, topics, and duplicate warnings",
           "aliases": [],
           "args": [
             {
@@ -5327,6 +5431,14 @@
                   "name": "group",
                   "positional": false,
                   "value_name": "GROUP",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5396,9 +5508,33 @@
                   "aliases": []
                 },
                 {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "priority",
+                  "positional": false,
+                  "value_name": "PRIORITY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "sections",
                   "positional": false,
                   "value_name": "SECTIONS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5564,6 +5700,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "intent",
                   "positional": false,
                   "value_name": "INTENT",
@@ -5620,6 +5764,22 @@
                   "aliases": []
                 },
                 {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "priority",
+                  "positional": false,
+                  "value_name": "PRIORITY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "status",
                   "positional": false,
                   "value_name": "STATUS",
@@ -5631,6 +5791,14 @@
                   "name": "status_label",
                   "positional": false,
                   "value_name": "STATUS_LABEL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
                   "default": null,
                   "help": null,
                   "aliases": []

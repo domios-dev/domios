@@ -295,6 +295,8 @@ fn run_plan(
             return Ok(None);
         }
 
+        PlanAction::Tags { plan_id } => call(client, "plan.tags", json!({ "plan_id": plan_id })),
+
         PlanAction::Coverage { plan_id } => {
             let val = call(client, "plan.coverage", json!({ "plan_id": plan_id }))?;
             if json {
@@ -397,6 +399,9 @@ fn run_plan(
                 body,
                 body_file,
                 parent,
+                tags,
+                primary,
+                handle,
             } => {
                 let body_text = resolve_text(body, body_file)?.unwrap_or_default();
                 let mut params = json!({
@@ -407,6 +412,15 @@ fn run_plan(
                 if let Some(p) = parent {
                     params["parent"] = json!(p);
                 }
+                if !tags.is_empty() {
+                    params["tags"] = json!(tags);
+                }
+                if let Some(primary) = primary {
+                    params["primary"] = json!(primary);
+                }
+                if let Some(handle) = handle {
+                    params["handle"] = json!(handle);
+                }
                 call(client, "plan.section.add", params)
             }
             PlanSectionAction::Update {
@@ -415,6 +429,9 @@ fn run_plan(
                 title,
                 body,
                 body_file,
+                tags,
+                primary,
+                handle,
             } => {
                 let body_text = resolve_text(body, body_file)?;
                 let mut params = json!({ "plan_id": plan_id, "section_id": section_id });
@@ -423,6 +440,15 @@ fn run_plan(
                 }
                 if let Some(b) = body_text {
                     params["body"] = json!(b);
+                }
+                if !tags.is_empty() {
+                    params["tags"] = json!(tags);
+                }
+                if let Some(primary) = primary {
+                    params["primary"] = json!(primary);
+                }
+                if let Some(handle) = handle {
+                    params["handle"] = json!(handle);
                 }
                 call(client, "plan.section.update", params)
             }
@@ -499,6 +525,10 @@ fn run_plan(
                 parent,
                 assign_pane,
                 group,
+                priority,
+                tags,
+                primary,
+                handle,
                 loop_from: _,
             } => {
                 let why_text = resolve_text(why, why_file)?;
@@ -532,6 +562,18 @@ fn run_plan(
                 if let Some(g) = group {
                     params["group"] = json!(g);
                 }
+                if let Some(priority) = priority {
+                    params["priority"] = json!(priority);
+                }
+                if !tags.is_empty() {
+                    params["tags"] = json!(tags);
+                }
+                if let Some(primary) = primary {
+                    params["primary"] = json!(primary);
+                }
+                if let Some(handle) = handle {
+                    params["handle"] = json!(handle);
+                }
                 call(client, "plan.task.add", params)
             }
             PlanTaskAction::Update {
@@ -550,6 +592,10 @@ fn run_plan(
                 intent_file,
                 parent,
                 group,
+                priority,
+                tags,
+                primary,
+                handle,
             } => {
                 let why_text = resolve_text(why, why_file)?;
                 let body_text = resolve_text(body, body_file)?;
@@ -584,6 +630,18 @@ fn run_plan(
                 }
                 if let Some(g) = group {
                     params["group"] = json!(g);
+                }
+                if let Some(priority) = priority {
+                    params["priority"] = json!(priority);
+                }
+                if !tags.is_empty() {
+                    params["tags"] = json!(tags);
+                }
+                if let Some(primary) = primary {
+                    params["primary"] = json!(primary);
+                }
+                if let Some(handle) = handle {
+                    params["handle"] = json!(handle);
                 }
                 call(client, "plan.task.update", params)
             }

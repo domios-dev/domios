@@ -143,10 +143,11 @@ pub async fn create(
         .create_plan(body.title, project, owner, kinds, now)
         .map_err(plan_err)?;
     if let Some(spec) = body.spec.filter(|s| !s.is_empty()) {
-        let _ = state
-            .svc
-            .plan_store
-            .add_section(&plan.id, "Spec", &spec, None, now);
+        let _ =
+            state
+                .svc
+                .plan_store
+                .add_section(&plan.id, "Spec", &spec, None, &[], None, None, now);
     }
     emit_plan_changed(&state, &plan.id);
     Ok(Json(
@@ -350,6 +351,12 @@ pub(crate) struct SectionAddBody {
     body: String,
     #[serde(default)]
     parent: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    primary: Option<String>,
+    #[serde(default)]
+    handle: Option<String>,
 }
 
 pub async fn section_add(
@@ -367,6 +374,9 @@ pub async fn section_add(
             &body.title,
             &body.body,
             body.parent.as_deref(),
+            &body.tags,
+            body.primary.as_deref(),
+            body.handle.as_deref(),
             epoch_ms(),
         )
         .map_err(plan_err)?;
@@ -380,6 +390,12 @@ pub(crate) struct SectionUpdateBody {
     title: Option<String>,
     #[serde(default)]
     body: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    primary: Option<String>,
+    #[serde(default)]
+    handle: Option<String>,
 }
 
 pub async fn section_update(
@@ -397,6 +413,9 @@ pub async fn section_update(
             &sid,
             body.title.as_deref(),
             body.body.as_deref(),
+            &body.tags,
+            body.primary.as_deref(),
+            body.handle.as_deref(),
             epoch_ms(),
         )
         .map_err(plan_err)?;
@@ -461,6 +480,12 @@ pub(crate) struct TaskAddBody {
     assign_pane: Option<String>,
     #[serde(default)]
     group: Option<String>,
+    #[serde(default)]
+    priority: Option<crate::plan::TaskPriority>,
+    #[serde(default)]
+    handle: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 pub async fn task_add(
@@ -501,6 +526,9 @@ pub async fn task_add(
                 parent_task_id: body.parent,
                 assigned_pane_id: body.assign_pane,
                 group: body.group,
+                priority: body.priority,
+                handle: body.handle,
+                tags: body.tags,
             },
             epoch_ms(),
         )
@@ -523,6 +551,10 @@ pub async fn task_update(
             .map(|x| x.to_string())
             .collect()
     });
+    let tags: Vec<String> = body
+        .get("tags")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
     state
         .svc
         .plan_store
@@ -535,11 +567,15 @@ pub async fn task_update(
             optional_string_field(&body, "why"),
             body.get("status").and_then(|v| v.as_str()),
             optional_string_field(&body, "status_label"),
+            body.get("priority").and_then(|v| v.as_str()),
             body.get("body").and_then(|v| v.as_str()),
             optional_string_field(&body, "intent"),
             section_ids,
             body.get("parent_task_id").map(|v| v.as_str()),
             optional_string_field(&body, "group"),
+            &tags,
+            body.get("primary").and_then(|v| v.as_str()),
+            body.get("handle").and_then(|v| v.as_str()),
             epoch_ms(),
         )
         .map_err(plan_err)?;

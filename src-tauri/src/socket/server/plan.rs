@@ -105,6 +105,13 @@ fn optional_string_field<'a>(params: Option<&'a Value>, key: &str) -> Option<Opt
     params.and_then(|x| x.get(key).map(|v| v.as_str()))
 }
 
+fn tags_field(params: Option<&Value>) -> Vec<String> {
+    params
+        .and_then(|x| x.get("tags"))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
+}
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -145,7 +152,7 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())
             {
-                let _ = store.add_section(&plan.id, "Spec", spec, None, now);
+                let _ = store.add_section(&plan.id, "Spec", spec, None, &[], None, None, now);
             }
             emit_plan_changed(app, &plan.id);
             Ok(json!({ "plan_id": plan.id, "plan": plan }))
@@ -318,6 +325,13 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true, "event": "canvas-focus", "payload": payload }))
         }
 
+        "canvas.filter" => {
+            let facet = get_string_param(params, "facet")?;
+            let payload = json!({ "facet": facet, "dim": true });
+            emit_canvas_focus(app, payload.clone());
+            Ok(json!({ "ok": true, "event": "canvas-focus", "payload": payload }))
+        }
+
         "plan.get" => {
             let id = get_string_param(params, "plan_id")?;
             let plan = store
@@ -338,6 +352,17 @@ pub(super) fn dispatch(
             let id = get_string_param(params, "plan_id")?;
             let manifest = store.file_manifest(&id).map_err(plan_rpc_err)?;
             Ok(serde_json::to_value(manifest).unwrap_or_default())
+        }
+
+        "plan.tags" => {
+            let id = get_string_param(params, "plan_id")?;
+            let plan = store
+                .get(&id)
+                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            Ok(
+                serde_json::to_value(crate::service::plan::tag_model::tag_report(&plan))
+                    .unwrap_or_default(),
+            )
         }
 
         "plan.update" => {
@@ -425,7 +450,16 @@ pub(super) fn dispatch(
                 .unwrap_or("");
             let parent = p.and_then(|x| x.get("parent")).and_then(|v| v.as_str());
             let sid = store
-                .add_section(&id, &title, body, parent, now)
+                .add_section(
+                    &id,
+                    &title,
+                    body,
+                    parent,
+                    &tags_field(p),
+                    p.and_then(|x| x.get("primary")).and_then(|v| v.as_str()),
+                    p.and_then(|x| x.get("handle")).and_then(|v| v.as_str()),
+                    now,
+                )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "section_id": sid }))
@@ -440,6 +474,9 @@ pub(super) fn dispatch(
                     &sid,
                     p.and_then(|x| x.get("title")).and_then(|v| v.as_str()),
                     p.and_then(|x| x.get("body")).and_then(|v| v.as_str()),
+                    &tags_field(p),
+                    p.and_then(|x| x.get("primary")).and_then(|v| v.as_str()),
+                    p.and_then(|x| x.get("handle")).and_then(|v| v.as_str()),
                     now,
                 )
                 .map_err(plan_rpc_err)?;
@@ -555,6 +592,17 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("group"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        priority: p
+                            .and_then(|x| x.get("priority"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| serde_json::from_value(serde_json::Value::String(s.into())))
+                            .transpose()
+                            .map_err(|_| plan_rpc_err(PlanError::BadPriority))?,
+                        handle: p
+                            .and_then(|x| x.get("handle"))
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                        tags: tags_field(p),
                     },
                     now,
                 )
@@ -588,12 +636,16 @@ pub(super) fn dispatch(
                     optional_string_field(p, "why"),
                     p.and_then(|x| x.get("status")).and_then(|v| v.as_str()),
                     optional_string_field(p, "status_label"),
+                    p.and_then(|x| x.get("priority")).and_then(|v| v.as_str()),
                     p.and_then(|x| x.get("body")).and_then(|v| v.as_str()),
                     optional_string_field(p, "intent"),
                     sections,
                     p.and_then(|x| x.get("parent_task_id").or_else(|| x.get("parent")))
                         .map(|v| v.as_str()),
                     optional_string_field(p, "group"),
+                    &tags_field(p),
+                    p.and_then(|x| x.get("primary")).and_then(|v| v.as_str()),
+                    p.and_then(|x| x.get("handle")).and_then(|v| v.as_str()),
                     now,
                 )
                 .map_err(plan_rpc_err)?;

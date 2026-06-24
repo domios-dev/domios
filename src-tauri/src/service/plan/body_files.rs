@@ -2,6 +2,7 @@ use crate::plan::{Plan, Section, Task};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
+#[derive(Clone, Copy)]
 enum BodyKind {
     Section,
     Task,
@@ -34,11 +35,22 @@ pub fn plan_body_dir(plan: &Plan) -> std::io::Result<PathBuf> {
 }
 
 pub fn section_path(plan: &Plan, section_id: &str) -> std::io::Result<PathBuf> {
-    body_path(plan, BodyKind::Section, section_id)
+    let handle = flatten_sections(&plan.sections)
+        .into_iter()
+        .find(|section| section.id == section_id)
+        .map(super::tag_model::section_handle)
+        .unwrap_or(section_id);
+    body_path(plan, BodyKind::Section, handle)
 }
 
 pub fn task_path(plan: &Plan, task_id: &str) -> std::io::Result<PathBuf> {
-    body_path(plan, BodyKind::Task, task_id)
+    let handle = plan
+        .tasks
+        .iter()
+        .find(|task| task.id == task_id)
+        .map(super::tag_model::task_handle)
+        .unwrap_or(task_id);
+    body_path(plan, BodyKind::Task, handle)
 }
 
 pub fn index_path(plan: &Plan) -> std::io::Result<PathBuf> {
@@ -64,11 +76,13 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     let paths = body_paths(plan)?;
     for section in flatten_sections(&plan.sections) {
         let path = section_path(plan, &section.id)?;
-        write_markdown_atomic(&path, &section.body)?;
+        write_markdown_atomic(&path, &body_with_frontmatter(&section.tags, &section.body))?;
+        remove_stale_id_path(plan, BodyKind::Section, &section.id, &path)?;
     }
     for task in &plan.tasks {
         let path = task_path(plan, &task.id)?;
-        write_markdown_atomic(&path, &task.body)?;
+        write_markdown_atomic(&path, &body_with_frontmatter(&task.tags, &task.body))?;
+        remove_stale_id_path(plan, BodyKind::Task, &task.id, &path)?;
     }
     write_index(plan)?;
     Ok(paths)
@@ -108,11 +122,15 @@ pub fn spec_markdown(plan: &Plan) -> String {
 
 pub fn hydrate_and_migrate(plan: &mut Plan) -> std::io::Result<bool> {
     let mut migrated = false;
+    super::tag_model::normalize_plan(plan);
     let base_dir = plan_body_dir(plan)?;
     hydrate_sections(&base_dir, &mut plan.sections, &mut migrated)?;
     for task in &mut plan.tasks {
-        let path = base_dir.join("tasks").join(format!("{}.md", task.id));
-        migrated |= hydrate_body(&path, &mut task.body)?;
+        let path = base_dir
+            .join("tasks")
+            .join(format!("{}.md", super::tag_model::task_handle(task)));
+        let fallback = base_dir.join("tasks").join(format!("{}.md", task.id));
+        migrated |= hydrate_body(&path, Some(&fallback), &mut task.body, &mut task.tags)?;
     }
     Ok(migrated)
 }
@@ -172,9 +190,13 @@ fn collect_section_index_entries(
         let path = section_path(plan, &section.id)?;
         entries.push(IndexEntryRaw {
             kind: "section",
-            title: section.title.clone(),
+            title: format!(
+                "{} ({})",
+                super::tag_model::section_handle(section),
+                section.title
+            ),
             path,
-            index_link_path: format!("sections/{}.md", section.id),
+            index_link_path: format!("sections/{}.md", super::tag_model::section_handle(section)),
         });
         collect_section_index_entries(plan, &section.subsections, entries)?;
     }
@@ -184,9 +206,9 @@ fn collect_section_index_entries(
 fn task_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntryRaw> {
     Ok(IndexEntryRaw {
         kind: "task",
-        title: task.name.clone(),
+        title: format!("{} ({})", super::tag_model::task_handle(task), task.name),
         path: task_path(plan, &task.id)?,
-        index_link_path: format!("tasks/{}.md", task.id),
+        index_link_path: format!("tasks/{}.md", super::tag_model::task_handle(task)),
     })
 }
 
@@ -244,21 +266,39 @@ fn hydrate_sections(
     migrated: &mut bool,
 ) -> std::io::Result<()> {
     for section in sections {
-        let path = base_dir.join("sections").join(format!("{}.md", section.id));
-        *migrated |= hydrate_body(&path, &mut section.body)?;
+        let path = base_dir
+            .join("sections")
+            .join(format!("{}.md", super::tag_model::section_handle(section)));
+        let fallback = base_dir.join("sections").join(format!("{}.md", section.id));
+        *migrated |= hydrate_body(&path, Some(&fallback), &mut section.body, &mut section.tags)?;
         hydrate_sections(base_dir, &mut section.subsections, migrated)?;
     }
     Ok(())
 }
 
-fn hydrate_body(path: &Path, body: &mut String) -> std::io::Result<bool> {
+fn hydrate_body(
+    path: &Path,
+    fallback: Option<&Path>,
+    body: &mut String,
+    tags: &mut Vec<String>,
+) -> std::io::Result<bool> {
     let had_inline_body = !body.is_empty();
-    if path.exists() {
-        *body = std::fs::read_to_string(path)?;
+    let read_path = if path.exists() {
+        Some(path)
+    } else {
+        fallback.filter(|fallback| fallback.exists())
+    };
+    if let Some(read_path) = read_path {
+        let text = std::fs::read_to_string(read_path)?;
+        let (frontmatter_tags, stripped) = parse_frontmatter_tags(&text);
+        if !frontmatter_tags.is_empty() {
+            *tags = frontmatter_tags;
+        }
+        *body = stripped;
         return Ok(had_inline_body);
     }
     if had_inline_body {
-        write_markdown_atomic(path, body)?;
+        write_markdown_atomic(path, &body_with_frontmatter(tags, body))?;
         return Ok(true);
     }
     Ok(false)
@@ -279,4 +319,42 @@ pub fn write_markdown_atomic(path: &Path, body: &str) -> std::io::Result<()> {
     std::fs::write(&tmp, body)?;
     std::fs::rename(&tmp, path)?;
     Ok(())
+}
+
+fn remove_stale_id_path(
+    plan: &Plan,
+    kind: BodyKind,
+    id: &str,
+    current: &Path,
+) -> std::io::Result<()> {
+    let stale = body_path(plan, kind, id)?;
+    if stale != current && stale.exists() {
+        std::fs::remove_file(stale)?;
+    }
+    Ok(())
+}
+
+fn body_with_frontmatter(tags: &[String], body: &str) -> String {
+    if tags.is_empty() {
+        return body.to_string();
+    }
+    let yaml = serde_yaml::to_string(&serde_json::json!({ "tags": tags })).unwrap_or_default();
+    format!("---\n{}---\n\n{}", yaml, body.trim_start())
+}
+
+fn parse_frontmatter_tags(text: &str) -> (Vec<String>, String) {
+    let Some(rest) = text.strip_prefix("---\n") else {
+        return (vec![], text.to_string());
+    };
+    let Some(end) = rest.find("\n---") else {
+        return (vec![], text.to_string());
+    };
+    let yaml = &rest[..end];
+    let body = rest[end + "\n---".len()..].trim_start_matches('\n');
+    let tags = serde_yaml::from_str::<serde_yaml::Value>(yaml)
+        .ok()
+        .and_then(|value| value.get("tags").cloned())
+        .and_then(|value| serde_yaml::from_value::<Vec<String>>(value).ok())
+        .unwrap_or_default();
+    (tags, body.to_string())
 }

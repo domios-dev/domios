@@ -263,6 +263,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::Report {
             message,
+            text,
+            kind,
+            doc,
             pane,
             plan,
             task,
@@ -275,10 +278,31 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             skipped,
         } => {
             let pane_id = resolve_pane(client, pane);
+            let mut message = text.or(message).unwrap_or_default();
+            if let Some(path) = doc {
+                let doc_text = match std::fs::read_to_string(&path) {
+                    Ok(text) => text,
+                    Err(e) => {
+                        eprintln!("Error: failed to read --doc {}: {}", path, e);
+                        std::process::exit(1);
+                    }
+                };
+                if !message.is_empty() {
+                    message.push_str("\n\n");
+                }
+                message.push_str(&format!("doc: {path}\n\n{doc_text}"));
+            }
+            if message.is_empty() {
+                eprintln!("Error: report message, --text, or --doc is required");
+                std::process::exit(1);
+            }
             let mut body = serde_json::json!({
                 "pane_id": pane_id,
                 "message": message,
             });
+            if let Some(k) = kind {
+                body["kind"] = serde_json::json!(k);
+            }
             if let Some(p) = plan {
                 body["plan_id"] = serde_json::json!(p);
             }
