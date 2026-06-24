@@ -77,9 +77,15 @@ export interface SpecSectionModel {
   taskCount: number;
 }
 
+export interface TaskCardModel {
+  task: Task;
+  childCount: number;
+}
+
 interface CanvasLookups {
   nodeById: Map<string, LaidOutNode>;
   taskById: Map<string, Task>;
+  taskModelById: Map<string, TaskCardModel>;
   sectionById: Map<string, Section>;
   specSectionById: Map<string, SpecSectionModel>;
   milestoneModelById: Map<string, MilestoneBubbleModel>;
@@ -157,6 +163,7 @@ export function CanvasViewInner({
     const nodeById = new Map<string, LaidOutNode>();
     for (const frame of layout.frames) for (const n of frame.nodes) nodeById.set(n.id, n);
     const taskById = new Map<string, Task>();
+    const taskModelById = new Map<string, TaskCardModel>();
     const sectionById = new Map<string, Section>();
     const specSectionById = new Map<string, SpecSectionModel>();
     const milestoneModelById = new Map<string, MilestoneBubbleModel>();
@@ -171,9 +178,14 @@ export function CanvasViewInner({
           taskCount: row.taskCount,
         });
       }
+      const childCounts = new Map<string, number>();
+      for (const t of plan.tasks) {
+        if (t.parent_task_id) childCounts.set(t.parent_task_id, (childCounts.get(t.parent_task_id) ?? 0) + 1);
+      }
       const colors = milestoneColorMap(plan);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
+        taskModelById.set(task.id, { task, childCount: childCounts.get(task.id) ?? 0 });
         const seen = new Map<string, string>();
         for (const m of task.milestones) {
           const color = colors.get(m.kind) ?? "var(--ct-border-focus)";
@@ -188,7 +200,7 @@ export function CanvasViewInner({
       }
       for (const el of plan.elements) elementById.set(el.id, el);
     }
-    return { nodeById, taskById, sectionById, specSectionById, milestoneModelById, clusterModelById, elementById };
+    return { nodeById, taskById, taskModelById, sectionById, specSectionById, milestoneModelById, clusterModelById, elementById };
   }, [layout, filteredPlans]);
 
   const resolveModel = useCallback(
@@ -199,7 +211,7 @@ export function CanvasViewInner({
         case "spec-section":
           return lookups.specSectionById.get(node.id);
         case "task":
-          return lookups.taskById.get(node.id);
+          return lookups.taskModelById.get(node.id);
         case "milestone":
           return lookups.milestoneModelById.get(node.id);
         case "cluster":

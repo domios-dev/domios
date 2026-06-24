@@ -33,7 +33,7 @@ function milestone(id: string, kind: string, iteration: number | null = null, li
   return { id, from: owner("o"), kind, text: id, ts: 0, links, loop_id: null, iteration, canvas: canvas() };
 }
 
-function task(id: string, sectionIds: string[], milestones: Milestone[] = []): Task {
+function task(id: string, sectionIds: string[], milestones: Milestone[] = [], parentTaskId: string | null = null): Task {
   return {
     id,
     name: id,
@@ -47,6 +47,7 @@ function task(id: string, sectionIds: string[], milestones: Milestone[] = []): T
     intent: null,
     assigned_pane_id: null,
     peer: null,
+    parent_task_id: parentTaskId,
     canvas: canvas(),
     milestones,
   };
@@ -234,6 +235,27 @@ console.log("\nbubble cluster:");
   ok("cluster abuts the task (≤ ~2 gutters)", nearest - t1Right > 0 && nearest - t1Right < 100);
   const span = Math.max(...t1Bubbles.map((b) => b.box.x + b.box.width)) - nearest;
   ok("cluster wraps to ≤2 columns (compact width)", span <= 2 * (DEFAULT_CANVAS_SETTINGS.bubbleRadius * 2) + DEFAULT_CANVAS_SETTINGS.bubbleGapX + 1);
+}
+
+// ── subtasks (parent_task_id) ─────────────────────────────────────
+console.log("\nsubtasks:");
+{
+  const parent = task("tp", ["s"]);
+  const c1 = task("tc1", [], [], "tp");
+  const c2 = task("tc2", [], [], "tp");
+  const psub = plan("psub", "o", 0, [section("s")], [parent, c1, c2]);
+  const layout = layoutWorkspace([psub]);
+  const frame = layout.frames[0];
+  const byId = new Map(frame.nodes.map((n) => [n.id, n]));
+  ok("parent + 2 children all laid out as tasks", ["tp", "tc1", "tc2"].every((id) => byId.get(id)?.kind === "task"));
+  ok("subtask-group container present", frame.nodes.some((n) => n.kind === "subtask-group"));
+  ok("two subtask stem edges", frame.edges.filter((e) => e.kind === "subtask").length === 2);
+  const tp = byId.get("tp")!;
+  const tc1 = byId.get("tc1")!;
+  ok("child indented right of parent", tc1.box.x > tp.box.x);
+  ok("child below the parent card", tc1.box.y >= tp.box.y + tp.box.height);
+  // no section-task edge points at a child (children connect via the parent stem).
+  ok("children are not top-level satellites", !frame.edges.some((e) => e.kind === "section-task" && (e.to === "tc1" || e.to === "tc2")));
 }
 
 // ── focus selection ───────────────────────────────────────────────
