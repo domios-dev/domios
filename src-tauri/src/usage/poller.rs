@@ -541,6 +541,9 @@ mod tests {
             super::provider_pollable(true, true),
             "fetch-based provider needs no terminal → poll even with no pane"
         );
-        assert!(super::provider_pollable(false, true), "pane present → still poll");
+        assert!(
+            super::provider_pollable(false, true),
+            "pane present → still poll"
+        );
     }
 }
