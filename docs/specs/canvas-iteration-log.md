@@ -277,3 +277,15 @@ Integration branch: `feat/canvas`. Loop plan: `2026-06-24-canvas-iteration-loop.
 - **Dispatch:** Mira takes the full batch (one coherent pass — files overlap, avoid seams);
   headline = edges-at-rest + missing edges + task-card content + spec typography; mechanical
   tail (bubble desat, gutter constants, title, badge color) in the same pass.
+
+## v3 — STEP 1 + subtasks landed (f4c561af) ✅
+- Mira: kill subtraction LOD (no empty boxes — all content mounted), two-curve counter-scale
+  typography (body floor 6px, title gentle ~15px index layer), wider nodes (plan 420/spec 440),
+  per-section ready ✓ + count badges; subtask rendering (children nested under parent, dashed
+  group container + parent→child stem, 'N subtasks' pill). tsc clean, 13 test files (layout 41).
+- Verified far+near: NEAR = clean structured document (ready badge + title + count + full
+  readable body); FAR = all 16 dogfood sections present, counter-scaled, zero empty boxes.
+- Subtask hierarchy live in dogfood (Mira 5 children, BE 2 children).
+- STILL OPEN (v3): pagination/§16.3 (board tall, 16 sections stack — bound to A4 pages next);
+  mermaid+code in nodes (§16.4); Thread-and-Coil bubbles (§16.9); externalized .md bodies (§17,
+  codex lane c564479b). dev=f4c561af.
