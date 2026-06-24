@@ -74,7 +74,12 @@ fn render_open_subtasks(data: &Value, plan_id: &str, task_id: Option<&str>) -> O
     let subtasks = data
         .get("subtasks")
         .and_then(|v| v.as_array())
-        .map(|items| items.iter().filter_map(render_open_subtask).collect::<Vec<_>>())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(render_open_subtask)
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
     let listed = if subtasks.is_empty() {
         "- <unknown subtask>".to_string()
