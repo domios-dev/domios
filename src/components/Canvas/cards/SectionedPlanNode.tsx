@@ -53,12 +53,13 @@ function CoverageBar({ pct }: { pct: number }) {
 
 export interface SectionedPlanNodeProps extends CanvasCardStyleProps {
   plan: Plan;
+  contentNear?: boolean;
   onArchive?: () => void;
   onSetMode?: (mode: CanvasViewMode) => void;
   onFitNode?: () => void;
 }
 
-export function SectionedPlanNode({ plan, style, viewMode = "document", onArchive, onSetMode, onFitNode }: SectionedPlanNodeProps) {
+export function SectionedPlanNode({ plan, style, viewMode = "document", contentNear = false, onArchive, onSetMode, onFitNode }: SectionedPlanNodeProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
@@ -70,6 +71,13 @@ export function SectionedPlanNode({ plan, style, viewMode = "document", onArchiv
   const scrollToSection = (id: string) => {
     bodyRef.current?.querySelector(`[data-section-block="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+
+  // Content-LOD (§23.7): the MODE sets the frame SIZE; camera zoom adapts the
+  // CONTENT inside it. Near (zoomed in) reveals the section BODIES in ANY frame;
+  // far falls back to the mode's baseline (tile=index, card=digests, doc=bodies).
+  const showBody = viewMode === "document" || contentNear;
+  const showDigest = viewMode === "card" && !contentNear;
+  const showIndex = viewMode === "tile" && !contentNear;
 
   return (
     <div data-testid="canvas-plan-node" data-plan-id={plan.id} data-view-mode={viewMode} className="ct-canvas-node" style={{ ...frameStyle, ...style }}>
@@ -120,12 +128,23 @@ export function SectionedPlanNode({ plan, style, viewMode = "document", onArchiv
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-        <div ref={bodyRef} className="ct-canvas-scroll" data-testid="canvas-plan-body" data-canvas-scroll-body={viewMode === "document" ? "1" : undefined} style={{ flex: 1, minWidth: 0, overflowY: viewMode === "document" ? "auto" : "hidden", padding: viewMode === "tile" ? 0 : "8px 12px" }}>
-          {viewMode === "tile" ? <TileBody rows={rows} taskCount={taskCount} standalone={standalone} /> : null}
-          {viewMode === "card" ? <CardBody rows={rows} standalone={standalone} taskCount={taskCount} /> : null}
-          {viewMode === "document" ? <DocumentBody rows={rows} standalone={standalone} taskCount={taskCount} /> : null}
+        <div
+          ref={bodyRef}
+          className="ct-canvas-scroll"
+          data-testid="canvas-plan-body"
+          data-content={showBody ? "body" : showDigest ? "digest" : "index"}
+          data-canvas-scroll-body={showBody ? "1" : undefined}
+          style={{ flex: 1, minWidth: 0, overflowY: showBody ? "auto" : "hidden", padding: showIndex ? 0 : "8px 12px" }}
+        >
+          {showIndex ? <TileBody rows={rows} taskCount={taskCount} standalone={standalone} /> : null}
+          {showDigest ? <CardBody rows={rows} standalone={standalone} taskCount={taskCount} /> : null}
+          {showBody ? (
+            <div className="ct-canvas-fade-in" style={{ height: "100%" }}>
+              <DocumentBody rows={rows} standalone={standalone} taskCount={taskCount} />
+            </div>
+          ) : null}
         </div>
-        <Rail rows={rows} compact={viewMode === "tile"} onJump={scrollToSection} />
+        <Rail rows={rows} compact={viewMode === "tile" && !contentNear} onJump={scrollToSection} />
       </div>
     </div>
   );

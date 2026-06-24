@@ -27,6 +27,8 @@ export interface NodeRenderArgs {
   onHoverTask?: (taskId: string | null) => void;
   onSetNodeMode?: (nodeId: string, mode: CanvasViewMode) => void;
   onFitNode?: (nodeId: string) => void;
+  /** §23.7 content-LOD: camera zoomed past the reveal threshold → show bodies. */
+  contentNear?: boolean;
 }
 
 export type NodeRenderer = (args: NodeRenderArgs) => ReactNode;
@@ -70,13 +72,14 @@ export function getNodeRenderer(kind: string): NodeRenderer {
   return renderers[kind] ?? fallbackRenderer;
 }
 
-registerNodeRenderer("plan", ({ node, model, style, lod, viewMode, onArchive, onSetNodeMode, onFitNode }) =>
+registerNodeRenderer("plan", ({ node, model, style, lod, viewMode, contentNear, onArchive, onSetNodeMode, onFitNode }) =>
   model ? (
     <SectionedPlanNode
       plan={model as Plan}
       style={style}
       lod={lod}
       viewMode={viewMode}
+      contentNear={contentNear}
       onArchive={onArchive}
       onSetMode={onSetNodeMode ? (m) => onSetNodeMode(node.id, m) : undefined}
       onFitNode={onFitNode ? () => onFitNode(node.id) : undefined}
