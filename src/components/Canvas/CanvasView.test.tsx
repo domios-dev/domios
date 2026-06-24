@@ -56,7 +56,7 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
   return { host, root };
 }
 
-test("CanvasViewInner renders compact plan node, section rows, and task card", async () => {
+test("CanvasViewInner renders the merged SectionedPlanNode (rail + body) and task card", async () => {
   const { host, root } = await render(
     <CanvasViewInner mode="workspace" plans={[FIXTURE_PLAN]} viewportPadding={10000} initialViewMode="document" />,
   );
@@ -64,16 +64,19 @@ test("CanvasViewInner renders compact plan node, section rows, and task card", a
     await new Promise((r) => setTimeout(r, 10));
   });
   assert(host.querySelector('[data-testid="canvas-view"]'), "canvas shell");
-  assert(host.querySelector('[data-testid="canvas-plan-node"]'), "compact plan node");
-  assert(host.querySelector('[data-testid="canvas-spec-section"]'), "spec section card");
-  assert(host.querySelector('[data-testid="canvas-plan-row"]'), "section rows present");
+  assert(host.querySelector('[data-testid="canvas-plan-node"]'), "one merged plan node");
+  // Merged node (§22.2): no separate spec-section node; the spec prose is the
+  // section bodies inside the plan node's Document body, with a right-edge rail.
+  assert(!host.querySelector('[data-testid="canvas-spec-section"]'), "no separate spec node");
+  assert(host.querySelector('[data-testid="canvas-plan-rail"]'), "right-edge rail present");
+  assert(host.querySelector('[data-testid="canvas-plan-rail-row"]'), "rail rows (TOC + anchors)");
+  assert(host.querySelector('[data-testid="canvas-plan-doc-section"]'), "section body block in the doc body");
   assert(host.querySelector('[data-testid="canvas-task-card"]'), "task card");
   assert(host.querySelector('[data-testid="canvas-task-name"]')?.textContent === "Dante", "task name");
   assert(host.querySelector('[data-testid="canvas-orchestrator-group"]'), "orchestrator group wrapper");
-  // Connective edges must render AT REST (no hover) — nothing floats untied.
+  // Section→task edges draw at rest from the rail output anchors.
   const paths = host.querySelectorAll("svg path");
-  assert(paths.length >= 2, `edges drawn at rest (plan↔spec + section→task), got ${paths.length}`);
-  assert(host.querySelector("svg circle"), "section-row anchor dot drawn at rest");
+  assert(paths.length >= 1, `section→task edge drawn at rest, got ${paths.length}`);
   await act(async () => root.unmount());
 });
 
