@@ -1,6 +1,6 @@
 // Single source of every layout constant. The layout engine and cards read ONLY
 // from this object — no magic numbers inline. Plan-node row geometry is shared
-// between the layout (anchor math) and PlanNode card (rendering) via these keys.
+// between the layout (anchor math) and SectionNode card (rendering) via these keys.
 
 import type { TaskStatus } from "./types";
 
@@ -27,57 +27,34 @@ export const MILESTONE_LANE_COLORS = [
 
 export interface CanvasLayoutSettings {
   // §24.3 un-merge: TWO connected sectioned nodes, SPEC | PLAN, plus the task
-  // field. FIXED frames (§24.1) — zoom is camera-only; content adapts (content-LOD).
+  // field. FIXED frames (§22.1) — zoom is camera-only; content adapts (worlds LOD).
   // Spec + Plan share sectionNodeH so their per-section rows line up for 1:1 edges.
   specNodeW: number;
   planWidth: number;
   sectionNodeH: number;
-  taskW: number;
-  taskH: number;
   planHeaderHeight: number;
-  planRowHeight: number;
-  planFooterHeight: number;
-  planRowIndent: number;
-  railW: number;
-  railRowMinH: number;
-  planTileH: number;
-  planCardH: number;
-  planDocH: number;
 
-  // Spec column: one expanded card per plan section.
-  specWidth: number;
-  specHeight: number;
-  specHeaderHeight: number;
-  specMinHeight: number;
-  specMaxHeight: number;
-  specSectionGapY: number;
+  // §26 WORLDS appW thresholds (W0/W1/W2/W3 boundaries, in screen px). SPEC is
+  // physically wider so it crosses bands at wider appW. Hysteresis damps flicker.
+  worldThresholds: [number, number, number];
+  worldThresholdsSpec: [number, number, number];
+  worldHysteresis: number;
 
-  // Satellite task nodes.
+  // §26.4 data-driven task footprint: size ∝ work volume, fixed across zoom.
+  // Width is a fixed column slot (taskW); height carries the magnitude.
+  taskW: number;
+  taskBaseH: number;
+  taskMaxH: number;
+
+  // Free-form element fallback box.
   taskWidth: number;
   taskMinHeight: number;
-  taskGapY: number;
 
   // Banded multi-column task sweep (§20.3): cap horizontal sprawl, bound the
   // vertical портянka. Tasks band by primary covered section, wrap across cols.
+  taskGapY: number;
   maxTaskCols: number;
   taskColGap: number;
-  bandPad: number;
-
-  // FIXED task-cell size per MANUAL mode (§23.2) — content-independent (§22.1).
-  // Tile = handle + status; Card = + digest + step thread; Document = full body +
-  // interior step CARDS (the only +interior growth, bounded by stepsMaxVisible).
-  taskTileW: number;
-  taskTileH: number;
-  taskCardW: number;
-  taskCardH: number;
-  taskDocW: number;
-  taskDocH: number;
-
-  // Thread & Coil step cards (§16.9) — INTERIOR to a Document task cell.
-  stepCardH: number;
-  stepGapY: number;
-  stepsHeaderGap: number;
-  stepsMaxVisible: number;
 
   // Subtask nesting (parent_task_id → children grouped under the parent).
   subtaskIndentX: number;
@@ -85,15 +62,8 @@ export interface CanvasLayoutSettings {
   subtaskHeaderGap: number;
   subtaskGroupPad: number;
 
-  // Column gaps between spec | plan | tasks | clusters.
+  // Column gaps between spec | plan | tasks.
   columnGapX: number;
-  clusterGapX: number;
-
-  // Milestone bubble clusters.
-  bubbleRadius: number;
-  bubbleGapX: number;
-  bubbleGapY: number;
-  clusterLabelHeight: number;
 
   // Edge anchors.
   anchorInset: number;
@@ -120,49 +90,26 @@ export interface CanvasLayoutSettings {
 }
 
 export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
-  specNodeW: 360,
-  planWidth: 300,
-  sectionNodeH: 460,
-  taskW: 244,
-  taskH: 132,
+  specNodeW: 440,
+  planWidth: 320,
+  sectionNodeH: 560,
   planHeaderHeight: 80,
-  planRowHeight: 34,
-  planFooterHeight: 40,
-  planRowIndent: 16,
-  railW: 100,
-  railRowMinH: 18,
-  planTileH: 280,
-  planCardH: 400,
-  planDocH: 640,
 
-  // Spec column: one expanded section card per plan section, left of the plan.
-  // Wider per §16.8 for real markdown line length.
-  specWidth: 440,
-  specHeight: 348,
-  specHeaderHeight: 30,
-  specMinHeight: 60,
-  specMaxHeight: 280,
-  specSectionGapY: 16,
+  // appW px boundaries (normal node / SPEC node). W2 = body-visible band (§26.2).
+  worldThresholds: [160, 340, 620],
+  worldThresholdsSpec: [220, 440, 760],
+  worldHysteresis: 0.1,
 
-  taskWidth: 252,
-  taskMinHeight: 58,
-  taskGapY: 16,
+  taskW: 280,
+  taskBaseH: 180,
+  taskMaxH: 760,
 
+  taskWidth: 280,
+  taskMinHeight: 180,
+
+  taskGapY: 18,
   maxTaskCols: 3,
   taskColGap: 28,
-  bandPad: 28,
-
-  taskTileW: 200,
-  taskTileH: 72,
-  taskCardW: 260,
-  taskCardH: 120,
-  taskDocW: 260,
-  taskDocH: 320,
-
-  stepCardH: 58,
-  stepGapY: 8,
-  stepsHeaderGap: 8,
-  stepsMaxVisible: 6,
 
   subtaskIndentX: 22,
   subtaskGapY: 12,
@@ -171,13 +118,7 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
 
   // Gutter rhythm: GUTTER intra-frame (spec→plan, plan→tasks), GUTTER*2 between
   // frames/owner groups, ~GUTTER for group padding. One base, no ad-hoc gaps.
-  columnGapX: 32,
-  clusterGapX: 16,
-
-  bubbleRadius: 28,
-  bubbleGapX: 12,
-  bubbleGapY: 12,
-  clusterLabelHeight: 17,
+  columnGapX: 36,
 
   anchorInset: 0,
   edgeCurve: 0.5,
@@ -187,7 +128,7 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   groupGapX: 96,
   groupGapY: 120,
 
-  framePadding: 24,
+  framePadding: 28,
   frameGap: 96,
   rowMaxWidth: 9000,
 
@@ -203,35 +144,15 @@ export const CANVAS_LAYOUT_SETTING_KEYS = Object.keys(
   DEFAULT_CANVAS_SETTINGS,
 ) as (keyof CanvasLayoutSettings)[];
 
-// Plan-node total height for a given visible section-row count. Shared so the
-// layout's anchor math and the PlanNode card agree on row positions.
-export function planNodeHeight(rowCount: number, s: CanvasLayoutSettings): number {
-  return s.planHeaderHeight + rowCount * s.planRowHeight + s.planFooterHeight;
-}
-
-// §24.1: ONE fixed frame — spec and plan nodes share this height so their
-// per-section rows align for the 1:1 edges. Content adapts to zoom, not the size.
+// §22.2/§24.1: spec and plan nodes share one fixed height so their per-section
+// rows align for the 1:1 edges. Content adapts to zoom (worlds), not the size.
 export function sectionNodeHeight(s: CanvasLayoutSettings): number {
   return s.sectionNodeH;
 }
 
-// Interior height of a Document task cell's step CARDS (§16.9) — bounded: past
-// stepsMaxVisible the step area scrolls inside the cell, so height never runs away.
-export function stepsInteriorHeight(count: number, s: CanvasLayoutSettings): number {
-  if (count <= 0) return 0;
-  const visible = Math.min(count, s.stepsMaxVisible);
-  return s.stepsHeaderGap + visible * s.stepCardH + (visible - 1) * s.stepGapY;
-}
-
-// §24.1: ONE fixed task-cell size — content (body, steps) adapts to zoom and
-// scrolls inside this frame; the footprint never changes.
-export function taskCellSize(s: CanvasLayoutSettings): { w: number; h: number } {
-  return { w: s.taskW, h: s.taskH };
-}
-
 // Stable rail-row output-anchor Y offsets (local, from node top) for N sections.
 // Evenly distributed in the rail body area so they ALWAYS fit the fixed frame
-// (no overflow, §22.1) and are stable per (index, mode) → stable task edges.
+// (no overflow, §22.1) and are stable per index → stable task edges.
 export function railAnchorOffsets(count: number, nodeHeight: number, s: CanvasLayoutSettings): number[] {
   if (count <= 0) return [];
   const area = Math.max(0, nodeHeight - s.planHeaderHeight);
