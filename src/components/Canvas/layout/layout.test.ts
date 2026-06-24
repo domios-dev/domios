@@ -168,40 +168,38 @@ console.log("\nsection-row anchors:");
   const a1 = frame.anchors.get("s1")!;
   ok("anchor on plan node right edge", Math.abs(a1.x - planRight) <= DEFAULT_CANVAS_SETTINGS.anchorInset + 1);
   ok("anchor y within plan node bounds", a1.y >= planNode.box.y && a1.y <= planNode.box.y + planNode.box.height);
-  // s1a row sits below s1 row by exactly one row height.
+  // Rail outputs are evenly distributed (§23.1): s1a sits one rail-span below s1.
   const a1a = frame.anchors.get("s1a")!;
-  ok("subsection anchor one row below parent", Math.abs(a1a.y - a1.y - DEFAULT_CANVAS_SETTINGS.planRowHeight) < 0.5);
+  const railSpan = (DEFAULT_CANVAS_SETTINGS.planDocH - DEFAULT_CANVAS_SETTINGS.planHeaderHeight) / 3;
+  ok("rail outputs evenly distributed (one span apart)", Math.abs(a1a.y - a1.y - railSpan) < 0.5);
   // the section→task edge originates exactly at the section row anchor.
   const edge = frame.edges.find((e) => e.kind === "section-task" && e.to === "t1");
   ok("section-task edge starts at the row anchor", !!edge?.fromPoint && Math.abs(edge.fromPoint.x - a1.x) < 0.5 && Math.abs(edge.fromPoint.y - a1.y) < 0.5);
 
-  // t1's vertical center is anchored to its primary covered row (s1) → level edge.
-  const t1 = frame.nodes.find((n) => n.id === "t1")!;
-  const t1Center = t1.box.y + t1.box.height / 2;
-  ok("task center anchored to its primary covered-row Y (level edge)", Math.abs(t1Center - a1.y) < 1.5);
+  // Banded sweep (§20.3): t1's CELL block hugs its primary covered row (s1) — the
+  // row anchor falls inside the cell's vertical span (card + folded step cluster).
+  const t1CellNodes = frame.nodes.filter((n) => n.id === "t1" || n.id === "t1::cluster" || ["m1", "m2", "m3"].includes(n.id));
+  const cellTop = Math.min(...t1CellNodes.map((n) => n.box.y));
+  const cellBottom = Math.max(...t1CellNodes.map((n) => n.box.y + n.box.height));
+  ok("task cell hugs its primary covered-row Y (banded sweep)", cellTop <= a1.y + 1 && cellBottom >= a1.y - 1);
 }
 
-// ── spec-section column + per-row edges ───────────────────────────
-console.log("\nspec column:");
+// ── ONE merged SectionedPlanNode (§22.2): no separate spec nodes ──
+console.log("\nmerged plan node:");
 {
   const layout = layoutWorkspace(samplePlans());
   const frame = layout.frames.find((f) => f.planId === "p1")!;
-  const specCards = frame.nodes.filter((n) => n.kind === "spec-section");
-  // p1 has 3 flattened sections (s1, s1a, s2) → one expanded card each.
-  ok("one spec-section card per section", specCards.length === 3);
-  const planNode = frame.nodes.find((n) => n.kind === "plan")!;
-  ok("spec column sits left of plan node", specCards.every((c) => c.box.x + c.box.width <= planNode.box.x));
-  // one spec-row edge per section, tying spec card[i] → its plan row.
-  ok("a spec-row edge per section", frame.edges.filter((e) => e.kind === "spec-row").length === 3);
-  const e = frame.edges.find((e) => e.kind === "spec-row" && e.from === "p1::spec::s1");
-  ok("spec-row edge lands on the s1 left-row anchor", !!e?.toPoint && Math.abs(e.toPoint.x - planNode.box.x) < 1);
-
-  // Spec column and the plan+tasks block are vertically centered against each other.
-  const blockBoxes = frame.nodes.filter((n) => ["plan", "task", "milestone", "cluster"].includes(n.kind)).map((n) => n.box);
-  const blockCenter = (Math.min(...blockBoxes.map((b) => b.y)) + Math.max(...blockBoxes.map((b) => b.y + b.height))) / 2;
-  const specTop = Math.min(...specCards.map((c) => c.box.y));
-  const specCenter = (specTop + Math.max(...specCards.map((c) => c.box.y + c.box.height))) / 2;
-  ok("spec column ↕centered against the plan+tasks block", Math.abs(specCenter - blockCenter) < 2);
+  ok("no separate spec-section nodes (folded into the plan node)", !frame.nodes.some((n) => n.kind === "spec-section"));
+  ok("no spec-row edges (rail outputs replace them)", !frame.edges.some((e) => e.kind === "spec-row"));
+  const planNodes = frame.nodes.filter((n) => n.kind === "plan");
+  ok("exactly one plan node", planNodes.length === 1);
+  // Fixed Document height (§22.1) — content-independent.
+  ok("plan node is the fixed Document height", planNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.planDocH);
+  ok("plan node is the fixed width", planNodes[0].box.width === DEFAULT_CANVAS_SETTINGS.planWidth);
+  // Tasks sit to the RIGHT of the plan node (banded), anchored to rail outputs.
+  const planRight = planNodes[0].box.x + planNodes[0].box.width;
+  const tasks = frame.nodes.filter((n) => n.kind === "task");
+  ok("tasks sit right of the plan node", tasks.every((t) => t.box.x >= planRight - 1));
 }
 
 // ── standalone / inbox plan (no sections) ─────────────────────────
@@ -226,14 +224,17 @@ console.log("\nbubble cluster:");
   ok("task-cluster edge present", frame.edges.some((e) => e.kind === "task-cluster"));
   ok("milestone-chain edges present", frame.edges.filter((e) => e.kind === "milestone-chain").length === 2);
 
-  // The cluster ABUTS its task (≤ one gutter away), never floats far right, and
-  // wraps to ≤2 columns so it can't stream off-screen.
+  // Banded layout (§20.3.8): the step cluster folds BELOW the card as interior
+  // height (not to the right), and stays within the task column width so cells
+  // pack into a uniform grid; still wraps to ≤2 columns.
   const t1 = frame.nodes.find((n) => n.id === "t1")!;
   const t1Bubbles = [bubbles.find((b) => b.id === "m1")!, bubbles.find((b) => b.id === "m2")!, bubbles.find((b) => b.id === "m3")!];
-  const t1Right = t1.box.x + t1.box.width;
-  const nearest = Math.min(...t1Bubbles.map((b) => b.box.x));
-  ok("cluster abuts the task (≤ ~2 gutters)", nearest - t1Right > 0 && nearest - t1Right < 100);
-  const span = Math.max(...t1Bubbles.map((b) => b.box.x + b.box.width)) - nearest;
+  const nearestTop = Math.min(...t1Bubbles.map((b) => b.box.y));
+  ok("cluster folds BELOW the card (interior height)", nearestTop >= t1.box.y + t1.box.height - 1);
+  const leftMost = Math.min(...t1Bubbles.map((b) => b.box.x));
+  const rightMost = Math.max(...t1Bubbles.map((b) => b.box.x + b.box.width));
+  ok("cluster stays within the task column width (folded, not streaming right)", leftMost >= t1.box.x - 1 && rightMost <= t1.box.x + DEFAULT_CANVAS_SETTINGS.taskWidth + 1);
+  const span = rightMost - leftMost;
   ok("cluster wraps to ≤2 columns (compact width)", span <= 2 * (DEFAULT_CANVAS_SETTINGS.bubbleRadius * 2) + DEFAULT_CANVAS_SETTINGS.bubbleGapX + 1);
 }
 
