@@ -1,4 +1,5 @@
 import type { OrchestratorRef, Plan, Task } from "../types";
+import type { CanvasViewMode } from "../cards/types";
 import type { CanvasLayoutSettings } from "../settings";
 import { planNodeHeight } from "../settings";
 import { flatSections } from "../sectionRows";
@@ -7,10 +8,20 @@ import { unionBox } from "./geometry";
 import { buildLaneIndex, layoutCluster, type ClusterResult } from "./clusters";
 import { estimateTaskHeight } from "./taskSize";
 import { estimateSpecHeight } from "./specSize";
-import type { IntraPlanLayout, LaidOutEdge, LaidOutNode } from "./types";
+import type { IntraPlanLayout, LaidOutEdge, LaidOutNode, NodeModeResolver } from "./types";
 
 export function ownerKeyOf(owner: OrchestratorRef): string {
   return owner.session_id ?? owner.pane_id ?? owner.title ?? "__unowned__";
+}
+
+const DOCUMENT_MODE: NodeModeResolver = () => "document";
+
+// Fixed designed frame height per non-document mode; document falls back to the
+// content-fit estimate so each mode reserves exactly its own bounded space (§18).
+function modeHeight(mode: CanvasViewMode, documentH: number, s: CanvasLayoutSettings, card: number): number {
+  if (mode === "tile") return s.tileHeight;
+  if (mode === "card") return card;
+  return documentH;
 }
 
 function hasSpec(plan: Plan): boolean {
@@ -21,7 +32,11 @@ function hasSpec(plan: Plan): boolean {
 // Compact-plan + spec + satellite-tasks + bubble-clusters (§2). Local coords with
 // frame origin at (0,0); region packing offsets later. Section rows are anchors,
 // not nodes — tasks connect by curved edges to the exact row.
-export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanLayout {
+export function layoutPlanIntra(
+  plan: Plan,
+  s: CanvasLayoutSettings,
+  modeFor: NodeModeResolver = DOCUMENT_MODE,
+): IntraPlanLayout {
   const nodes: LaidOutNode[] = [];
   const edges: LaidOutEdge[] = [];
   const anchors = new Map<string, Point>();
@@ -32,16 +47,21 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
 
   const specX = 0;
   const planX = specPresent ? s.specWidth + s.columnGapX : 0;
-  const planHeight = planNodeHeight(flat.length, s);
+  const planMode = modeFor(plan.id, "plan", plan.id);
+  const planHeight = modeHeight(planMode, planNodeHeight(flat.length, s), s, s.planCardHeight);
 
   const planBox: Box = { x: planX, y: 0, width: s.planWidth, height: planHeight };
   nodes.push({ id: plan.id, kind: "plan", planId: plan.id, box: planBox, iteration: null, manual: false });
 
   // Per-section-row anchors: RIGHT edge → satellite tasks; LEFT edge → the
-  // expanded spec-section card for that same row (spec[i] ↔ plan-row[i]).
+  // expanded spec-section card. Rows only exist in Document mode; in Card/Tile the
+  // plan has no rows, so all section edges anchor to the node's mid-height edges.
   const leftAnchors = new Map<string, Point>();
   flat.forEach((section, i) => {
-    const rowMidY = planBox.y + s.planHeaderHeight + i * s.planRowHeight + s.planRowHeight / 2;
+    const rowMidY =
+      planMode === "document"
+        ? planBox.y + s.planHeaderHeight + i * s.planRowHeight + s.planRowHeight / 2
+        : planBox.y + planBox.height / 2;
     anchors.set(section.id, { x: planBox.x + planBox.width - s.anchorInset, y: rowMidY });
     leftAnchors.set(section.id, { x: planBox.x + s.anchorInset, y: rowMidY });
   });
@@ -50,8 +70,9 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
   // each tied by a curved edge to its plan-node row.
   let specY = 0;
   for (const section of flat) {
-    const h = estimateSpecHeight(section, s);
     const specId = `${plan.id}::spec::${section.id}`;
+    const specMode = modeFor(specId, "spec-section", plan.id);
+    const h = modeHeight(specMode, estimateSpecHeight(section, s), s, s.specCardHeight);
     nodes.push({
       id: specId,
       kind: "spec-section",
@@ -106,14 +127,17 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
   }
   const topLevel = plan.tasks.filter((t) => !t.parent_task_id || !taskIds.has(t.parent_task_id));
 
+  const taskHeight = (t: Task) =>
+    modeHeight(modeFor(t.id, "task", plan.id), estimateTaskHeight(t, s), s, s.taskCardHeight);
+
   const placements = topLevel.map((task, i) => {
     const primarySid = task.section_ids.find((sid) => anchors.has(sid));
     const desired = primarySid != null ? anchors.get(primarySid)!.y : null;
-    const parentHeight = estimateTaskHeight(task, s);
+    const parentHeight = taskHeight(task);
     const children = childrenByParent.get(task.id) ?? [];
     // A parent groups its children; its own milestones fold into the children.
     const parentCluster = children.length ? null : layoutCluster(task, plan.id, lanes, s);
-    const childItems = children.map((c) => ({ task: c, height: estimateTaskHeight(c, s), cluster: layoutCluster(c, plan.id, lanes, s) }));
+    const childItems = children.map((c) => ({ task: c, height: taskHeight(c), cluster: layoutCluster(c, plan.id, lanes, s) }));
     let childrenH = 0;
     if (childItems.length) {
       childrenH = s.subtaskHeaderGap + s.subtaskGroupPad * 2 - s.subtaskGapY;

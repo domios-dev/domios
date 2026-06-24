@@ -6,6 +6,7 @@ import {
   SpecSectionCard,
   TaskCard,
   type CanvasLod,
+  type CanvasViewMode,
   type MilestoneBubbleModel,
 } from "./cards";
 import type { LaidOutNode } from "./layout";
@@ -20,6 +21,7 @@ export interface NodeRenderArgs {
   model: unknown;
   style: CSSProperties;
   lod: CanvasLod;
+  viewMode: CanvasViewMode;
   onArchive?: () => void;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
@@ -66,16 +68,16 @@ export function getNodeRenderer(kind: string): NodeRenderer {
   return renderers[kind] ?? fallbackRenderer;
 }
 
-registerNodeRenderer("plan", ({ model, style, lod, onArchive }) =>
-  model ? <PlanNode plan={model as Plan} style={style} lod={lod} onArchive={onArchive} /> : null,
+registerNodeRenderer("plan", ({ model, style, lod, viewMode, onArchive }) =>
+  model ? <PlanNode plan={model as Plan} style={style} lod={lod} viewMode={viewMode} onArchive={onArchive} /> : null,
 );
-registerNodeRenderer("spec-section", ({ model, style }) => {
+registerNodeRenderer("spec-section", ({ model, style, viewMode }) => {
   const m = model as { section: Section; glyph?: SpecGlyph; taskCount?: number } | undefined;
-  return m ? <SpecSectionCard section={m.section} glyph={m.glyph} taskCount={m.taskCount} style={style} /> : null;
+  return m ? <SpecSectionCard section={m.section} glyph={m.glyph} taskCount={m.taskCount} viewMode={viewMode} style={style} /> : null;
 });
-registerNodeRenderer("task", ({ model, style, onOpenPane, onHoverTask }) => {
+registerNodeRenderer("task", ({ model, style, viewMode, onOpenPane, onHoverTask }) => {
   const m = model as { task: Task; childCount?: number } | undefined;
-  return m ? <TaskCard task={m.task} childCount={m.childCount} style={style} onOpenPane={onOpenPane} onHover={onHoverTask} /> : null;
+  return m ? <TaskCard task={m.task} childCount={m.childCount} style={style} viewMode={viewMode} onOpenPane={onOpenPane} onHover={onHoverTask} /> : null;
 });
 // Soft container behind a parent task's nested subtask children.
 registerNodeRenderer("subtask-group", ({ style }) => (

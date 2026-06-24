@@ -25,8 +25,6 @@ const frameStyle: CSSProperties = {
   flexDirection: "column",
 };
 
-// Coverage is the row FILL TINT (primary signal): covered rows carry a clear
-// accent wash keyed by status; uncovered rows pop amber + dashed. Edges reinforce.
 // LOCKED values (stop oscillating): covered rows = 0.18 fill + 3px accent rail
 // (the primary coverage signal); uncovered = stronger amber + dashed so it wins.
 const GLYPH = {
@@ -34,7 +32,6 @@ const GLYPH = {
   progress: { Icon: CircleDot, color: "rgba(129, 140, 248, 1)", tint: "rgba(99, 102, 241, 0.18)", rail: "rgba(99, 102, 241, 0.95)", dashed: false },
   uncovered: { Icon: TriangleAlert, color: "rgba(251, 191, 36, 1)", tint: "rgba(251, 191, 36, 0.26)", rail: "rgba(251, 191, 36, 1)", dashed: true },
 } as const satisfies Record<SectionRowGlyph, { Icon: typeof Check; color: string; tint: string; rail: string; dashed: boolean }>;
-
 
 function Row({ row }: { row: SectionRow }) {
   const { Icon, color, tint, rail, dashed } = GLYPH[row.glyph];
@@ -92,107 +89,191 @@ function Row({ row }: { row: SectionRow }) {
   );
 }
 
+function CoverageBar({ pct }: { pct: number }) {
+  return (
+    <div
+      title={`${pct}% of sections covered`}
+      style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--ct-bg-active)", overflow: "hidden" }}
+    >
+      <div
+        data-testid="canvas-plan-coverage-bar"
+        style={{
+          width: `${pct}%`,
+          height: "100%",
+          background: pct >= 100 ? "rgba(52, 211, 153, 0.95)" : "var(--ct-border-focus)",
+        }}
+      />
+    </div>
+  );
+}
+
 export interface PlanNodeProps extends CanvasCardStyleProps {
   plan: Plan;
   onArchive?: () => void;
 }
 
-export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps) {
+export function PlanNode({ plan, style, viewMode = "document", onArchive }: PlanNodeProps) {
   const rows = sectionRows(plan);
-  const coverage = planCoverageFraction(plan);
-  const pct = Math.round(coverage * 100);
+  const pct = Math.round(planCoverageFraction(plan) * 100);
   const taskCount = plan.tasks.length;
   const doneCount = plan.tasks.filter((t) => t.status === "done").length;
   const standalone = rows.length === 0;
   const owner = ownerName(plan.owner);
+  const accent = <div style={{ height: 3, flexShrink: 0, background: "linear-gradient(90deg, var(--ct-border-focus), rgba(52,211,153,0.85))" }} />;
+  const coverGlyph = pct >= 100 ? "rgba(52,211,153,0.95)" : pct > 0 ? "rgba(129,140,248,1)" : "rgba(251,191,36,1)";
 
-  return (
-    <div data-testid="canvas-plan-node" data-plan-id={plan.id} className="ct-canvas-node" style={{ ...frameStyle, ...style }}>
-      <div style={{ height: 3, flexShrink: 0, background: "linear-gradient(90deg, var(--ct-border-focus), rgba(52,211,153,0.85))" }} />
-      <div
-        style={{
-          height: S.planHeaderHeight,
-          boxSizing: "border-box",
-          padding: "9px 12px",
-          borderBottom: "1px solid var(--ct-border-subtle)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 5,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+  const frame = (children: React.ReactNode) => (
+    <div data-testid="canvas-plan-node" data-plan-id={plan.id} data-view-mode={viewMode} className="ct-canvas-node" style={{ ...frameStyle, ...style }}>
+      {children}
+    </div>
+  );
+
+  if (viewMode === "tile") {
+    return frame(
+      <>
+        {accent}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 9, padding: "0 14px", minWidth: 0 }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: coverGlyph, flexShrink: 0 }} />
           <span
             title={plan.title}
             className="ct-canvas-title"
-            style={{
-              fontWeight: 700,
-              flex: 1,
-              minWidth: 0,
-              display: "-webkit-box",
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: "vertical",
-              overflow: "hidden",
-              overflowWrap: "anywhere",
-              lineHeight: 1.2,
-              letterSpacing: "-0.01em",
-            }}
+            style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: "1.08em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
           >
             {plan.title}
           </span>
-          {onArchive && (
-            <button
-              type="button"
-              data-testid="canvas-plan-archive"
-              title="Archive plan"
-              onClick={(e) => {
-                e.stopPropagation();
-                onArchive();
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 24,
-                height: 24,
-                borderRadius: "var(--ct-radius-sm)",
-                border: "1px solid var(--ct-border-subtle)",
-                background: "var(--ct-bg)",
-                color: "var(--ct-fg)",
-                cursor: "pointer",
-                flexShrink: 0,
-              }}
-            >
-              <Archive size={13} />
-            </button>
-          )}
+          <span data-testid="canvas-plan-coverage-pct" style={{ fontVariantNumeric: "tabular-nums", fontSize: "0.82em", opacity: "var(--ct-text-secondary-opacity)", flexShrink: 0 }}>
+            {pct}%
+          </span>
+          <span data-testid="canvas-plan-done" style={{ fontVariantNumeric: "tabular-nums", fontFamily: "var(--ct-font-mono)", fontSize: "0.78em", flexShrink: 0 }}>
+            {doneCount}/{taskCount}
+          </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.92em" }}>
-          {owner && (
-            <span
-              data-testid="canvas-plan-owner"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                maxWidth: 160,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                padding: "1px 8px 1px 6px",
-                borderRadius: 999,
-                background: "var(--ct-bg-selected)",
-                border: "1px solid var(--ct-border-subtle)",
-                opacity: "var(--ct-text-secondary-opacity)",
-              }}
-            >
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(56,189,248,0.95)", flexShrink: 0 }} />
-              {owner}
-            </span>
-          )}
-        </div>
-      </div>
+      </>,
+    );
+  }
 
+  const Header = (
+    <div style={{ height: S.planHeaderHeight, boxSizing: "border-box", padding: "9px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", flexDirection: "column", gap: 5, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span
+          title={plan.title}
+          className="ct-canvas-title"
+          style={{
+            fontWeight: 700,
+            flex: 1,
+            minWidth: 0,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+            overflowWrap: "anywhere",
+            lineHeight: 1.2,
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {plan.title}
+        </span>
+        {onArchive && (
+          <button
+            type="button"
+            data-testid="canvas-plan-archive"
+            title="Archive plan"
+            onClick={(e) => {
+              e.stopPropagation();
+              onArchive();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 24,
+              height: 24,
+              borderRadius: "var(--ct-radius-sm)",
+              border: "1px solid var(--ct-border-subtle)",
+              background: "var(--ct-bg)",
+              color: "var(--ct-fg)",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            <Archive size={13} />
+          </button>
+        )}
+      </div>
+      {owner && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.92em" }}>
+          <span
+            data-testid="canvas-plan-owner"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              maxWidth: 160,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              padding: "1px 8px 1px 6px",
+              borderRadius: 999,
+              background: "var(--ct-bg-selected)",
+              border: "1px solid var(--ct-border-subtle)",
+              opacity: "var(--ct-text-secondary-opacity)",
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(56,189,248,0.95)", flexShrink: 0 }} />
+            {owner}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+
+  const Footer = !standalone && (
+    <div
+      style={{
+        height: S.planFooterHeight,
+        boxSizing: "border-box",
+        padding: "0 12px",
+        borderTop: "1px solid var(--ct-border-subtle)",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        fontSize: "0.92em",
+      }}
+    >
+      <span data-testid="canvas-plan-done" style={{ fontVariantNumeric: "tabular-nums", opacity: "var(--ct-text-secondary-opacity)", flexShrink: 0 }}>
+        {doneCount}/{taskCount} tasks
+      </span>
+      <CoverageBar pct={pct} />
+      <span data-testid="canvas-plan-coverage-pct" style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+        {pct}% covered
+      </span>
+    </div>
+  );
+
+  if (viewMode === "card") {
+    return frame(
+      <>
+        {accent}
+        {Header}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, padding: "0 12px", fontSize: "0.92em", minWidth: 0 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6, opacity: "var(--ct-text-secondary-opacity)", flexShrink: 0 }}>
+            {standalone ? `${taskCount} task${taskCount === 1 ? "" : "s"}` : `${rows.length} section${rows.length === 1 ? "" : "s"}`}
+          </span>
+          {!standalone && <CoverageBar pct={pct} />}
+          <span data-testid="canvas-plan-coverage-pct" style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
+            {pct}%
+          </span>
+        </div>
+        {Footer}
+      </>,
+    );
+  }
+
+  return frame(
+    <>
+      {accent}
+      {Header}
       <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
         {standalone ? (
           <div
@@ -211,51 +292,7 @@ export function PlanNode({ plan, style, lod = "near", onArchive }: PlanNodeProps
           rows.map((row) => <Row key={row.section.id} row={row} />)
         )}
       </div>
-
-      {!standalone && (
-        <div
-          style={{
-            height: S.planFooterHeight,
-            boxSizing: "border-box",
-            padding: "0 12px",
-            borderTop: "1px solid var(--ct-border-subtle)",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontSize: "0.92em",
-          }}
-        >
-          <span
-            data-testid="canvas-plan-done"
-            style={{ fontVariantNumeric: "tabular-nums", opacity: "var(--ct-text-secondary-opacity)", flexShrink: 0 }}
-          >
-            {doneCount}/{taskCount} tasks
-          </span>
-          <div
-            title={`${pct}% of sections covered`}
-            style={{
-              flex: 1,
-              height: 6,
-              borderRadius: 3,
-              background: "var(--ct-bg-active)",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              data-testid="canvas-plan-coverage-bar"
-              style={{
-                width: `${pct}%`,
-                height: "100%",
-                background: pct >= 100 ? "rgba(52, 211, 153, 0.95)" : "var(--ct-border-focus)",
-                transition: lod === "far" ? "none" : "width var(--ct-duration-normal) var(--ct-ease-decel)",
-              }}
-            />
-          </div>
-          <span data-testid="canvas-plan-coverage-pct" style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>
-            {pct}% covered
-          </span>
-        </div>
-      )}
-    </div>
+      {Footer}
+    </>,
   );
 }

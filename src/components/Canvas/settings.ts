@@ -46,6 +46,13 @@ export interface CanvasLayoutSettings {
   taskMinHeight: number;
   taskGapY: number;
 
+  // Discrete view-mode frames (§18): fixed, designed heights — NOT content-fit.
+  // Card = title + badges + 1–2 line digest; Tile = title + glyph + counts.
+  tileHeight: number;
+  planCardHeight: number;
+  specCardHeight: number;
+  taskCardHeight: number;
+
   // Subtask nesting (parent_task_id → children grouped under the parent).
   subtaskIndentX: number;
   subtaskGapY: number;
@@ -105,6 +112,11 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   taskWidth: 252,
   taskMinHeight: 58,
   taskGapY: 16,
+
+  tileHeight: 56,
+  planCardHeight: 132,
+  specCardHeight: 92,
+  taskCardHeight: 104,
 
   subtaskIndentX: 22,
   subtaskGapY: 12,

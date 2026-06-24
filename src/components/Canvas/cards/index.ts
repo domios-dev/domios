@@ -6,4 +6,5 @@ export { OrchestratorGroup, type OrchestratorGroupProps } from "./OrchestratorGr
 export { NoteCard, type NoteCardProps } from "./NoteCard";
 export { DecisionCard, type DecisionCardProps } from "./DecisionCard";
 export { planCoverageFraction } from "./coverage";
-export type { CanvasLod, CanvasCardStyleProps } from "./types";
+export { digestMarkdown } from "./digest";
+export type { CanvasLod, CanvasViewMode, CanvasViewModeSetting, CanvasCardStyleProps } from "./types";

@@ -5,14 +5,16 @@ import type { ApiConfig, Pane } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { CanvasComposer } from "./CanvasComposer";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
+import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasUnownedTray } from "./CanvasUnownedTray";
-import type { CanvasLod, MilestoneBubbleModel } from "./cards";
+import type { CanvasLod, CanvasViewMode, CanvasViewModeSetting, MilestoneBubbleModel } from "./cards";
 import { OrchestratorGroup } from "./cards";
+import { resolveGlobalMode } from "./viewMode";
 import { getNodeRenderer } from "./nodeRegistry";
 import { bezierPath, resolveEdgeEnds } from "./edges";
 import { milestoneColorMap } from "./milestoneColors";
 import { sectionRows, type SectionRowGlyph } from "./sectionRows";
-import { layoutWorkspace, visibleFrameIds, visibleNodeIds, type LaidOutNode } from "./layout";
+import { layoutWorkspace, visibleFrameIds, visibleNodeIds, type LaidOutNode, type NodeModeResolver } from "./layout";
 import { archivePlan } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { filterPlansForCanvas } from "./planPaneMatch";
@@ -38,6 +40,8 @@ export interface CanvasViewInnerProps {
   api?: ApiConfig;
   /** Test hook: expand viewport culling margin. */
   viewportPadding?: number;
+  /** Initial view-mode setting (§18); user-overridable via the toolbar. */
+  initialViewMode?: CanvasViewModeSetting;
 }
 
 // Deterministic [0,1) hash of an edge id → stable per-edge curvature jitter.
@@ -104,18 +108,20 @@ interface CanvasNodeCardProps {
   node: LaidOutNode;
   model: unknown;
   lod: CanvasLod;
+  viewMode: CanvasViewMode;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
   onArchive?: () => void;
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, onOpenPane, onHoverTask, onArchive }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, viewMode, onOpenPane, onHoverTask, onArchive }: CanvasNodeCardProps) {
     const rendered = getNodeRenderer(node.kind)({
       node,
       model,
       style: nodeStyle(node.box),
       lod,
+      viewMode,
       onOpenPane,
       onHoverTask,
       onArchive,
@@ -125,6 +131,7 @@ const CanvasNodeCard = memo(
   (prev, next) => {
     if (prev.node.id !== next.node.id) return false;
     if (prev.lod !== next.lod) return false;
+    if (prev.viewMode !== next.viewMode) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;
     const b = next.node.box;
@@ -147,6 +154,7 @@ export function CanvasViewInner({
   onOpenPane,
   api,
   viewportPadding,
+  initialViewMode = "auto",
 }: CanvasViewInnerProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
@@ -157,7 +165,29 @@ export function CanvasViewInner({
   );
 
   const planById = useMemo(() => new Map(filteredPlans.map((p) => [p.id, p])), [filteredPlans]);
-  const layout = useMemo(() => layoutWorkspace(filteredPlans), [filteredPlans]);
+
+  const { transform, handlers, fitToView, zoomBy, setTransform, isDragging, containerRef } = useCanvasViewport({
+    width: size.width,
+    height: size.height,
+    panButton: "middle",
+  });
+
+  // Discrete view modes (§18): a global setting (Auto/Doc/Card/Tile) + a text
+  // toggle, with optional per-node locks. The resolved mode sizes the layout so
+  // every mode reserves exactly its own bounded frame (no empty boxes).
+  const [viewModeSetting, setViewModeSetting] = useState<CanvasViewModeSetting>(initialViewMode);
+  const [showText, setShowText] = useState(true);
+  const [nodeModeOverrides] = useState<Map<string, CanvasViewMode>>(() => new Map());
+  const resolvedMode = resolveGlobalMode(viewModeSetting, transform.scale, showText);
+  const modeFor = useCallback<NodeModeResolver>(
+    (id) => nodeModeOverrides.get(id) ?? resolvedMode,
+    [nodeModeOverrides, resolvedMode],
+  );
+
+  const layout = useMemo(
+    () => layoutWorkspace(filteredPlans, DEFAULT_CANVAS_SETTINGS, modeFor),
+    [filteredPlans, modeFor],
+  );
 
   const lookups = useMemo<CanvasLookups>(() => {
     const nodeById = new Map<string, LaidOutNode>();
@@ -222,12 +252,6 @@ export function CanvasViewInner({
     },
     [planById, lookups],
   );
-
-  const { transform, handlers, fitToView, isDragging, containerRef } = useCanvasViewport({
-    width: size.width,
-    height: size.height,
-    panButton: "middle",
-  });
 
   const handleArchive = useCallback(
     (id: string) => {
@@ -344,6 +368,13 @@ export function CanvasViewInner({
     [size.width, size.height, transform.x, transform.y, transform.scale],
   );
 
+  const fitView = useCallback(() => fitToView(layout.bounds), [fitToView, layout.bounds]);
+  const resetView = useCallback(() => {
+    const cx = layout.bounds.x + layout.bounds.width / 2;
+    const cy = layout.bounds.y + layout.bounds.height / 2;
+    setTransform({ scale: 1, x: size.width / 2 - cx, y: size.height / 2 - cy });
+  }, [layout.bounds, size.width, size.height, setTransform]);
+
   return (
     <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view">
       {onClose && (
@@ -396,9 +427,6 @@ export function CanvasViewInner({
               width: worldW,
               height: worldH,
               position: "relative",
-              // Counter-scale base for canvas node text (PDF-zoom feel). Cards read
-              // this via .ct-canvas-node so text shrinks with zoom but never vanishes.
-              ["--ct-canvas-zoom" as string]: transform.scale,
             }}
           >
             {layout.groups.map((group) => (
@@ -471,6 +499,7 @@ export function CanvasViewInner({
                     node={n}
                     model={resolveModel(n)}
                     lod={lod}
+                    viewMode={modeFor(n.id, n.kind, n.planId)}
                     onOpenPane={onOpenPane}
                     onHoverTask={onHoverTask}
                     onArchive={n.kind === "plan" && api ? () => handleArchive(n.id) : undefined}
@@ -501,6 +530,20 @@ export function CanvasViewInner({
           </div>
         )}
       </div>
+      {!loading && !error && filteredPlans.length > 0 && (
+        <CanvasToolbar
+          scale={transform.scale}
+          viewModeSetting={viewModeSetting}
+          resolvedMode={resolvedMode}
+          showText={showText}
+          onZoomIn={() => zoomBy(0.2)}
+          onZoomOut={() => zoomBy(-0.2)}
+          onFit={fitView}
+          onReset={resetView}
+          onSetMode={setViewModeSetting}
+          onToggleText={() => setShowText((v) => !v)}
+        />
+      )}
       {api && filteredPlans.length > 0 && (
         <CanvasComposer
           api={api}

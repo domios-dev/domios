@@ -4,10 +4,10 @@ import { RichMarkdown } from "@codeterm/chat-ui";
 import type { Section } from "../types";
 import type { SectionRowGlyph } from "../sectionRows";
 import type { CanvasCardStyleProps } from "./types";
+import { digestMarkdown } from "./digest";
 
-// One expanded spec section, left of the plan node and edge-tied to its plan row.
-// Title uses the gentle (screen-constant) curve so it reads at any zoom; body uses
-// the aggressive curve and scrolls past the box. Same ready badge as the plan row.
+// One spec section, three discrete view modes (§18): document = full body,
+// card = title + 1–2 line digest, tile = title + glyph + count.
 const shell: CSSProperties = {
   position: "absolute",
   boxSizing: "border-box",
@@ -34,15 +34,33 @@ export interface SpecSectionCardProps extends CanvasCardStyleProps {
   taskCount?: number;
 }
 
-export function SpecSectionCard({ section, glyph = "uncovered", taskCount = 0, style }: SpecSectionCardProps) {
+export function SpecSectionCard({
+  section,
+  glyph = "uncovered",
+  taskCount = 0,
+  viewMode = "document",
+  style,
+}: SpecSectionCardProps) {
   const hasBody = section.body.trim().length > 0;
   const { Icon, color } = GLYPH[glyph];
+  const tile = viewMode === "tile";
+  const showBody = viewMode === "document" && hasBody;
+  const showDigest = viewMode === "card" && hasBody;
+
   return (
-    <div data-testid="canvas-spec-section" data-section-id={section.id} data-row-glyph={glyph} className="ct-canvas-node" style={{ ...shell, ...style }}>
+    <div
+      data-testid="canvas-spec-section"
+      data-section-id={section.id}
+      data-row-glyph={glyph}
+      data-view-mode={viewMode}
+      className="ct-canvas-node"
+      style={{ ...shell, ...style }}
+    >
       <div
         style={{
-          padding: "6px 12px",
-          borderBottom: hasBody ? "1px solid var(--ct-border-subtle)" : "none",
+          padding: tile ? "0 12px" : "6px 12px",
+          flex: tile ? 1 : "0 0 auto",
+          borderBottom: showBody ? "1px solid var(--ct-border-subtle)" : "none",
           display: "flex",
           alignItems: "center",
           gap: 7,
@@ -50,7 +68,7 @@ export function SpecSectionCard({ section, glyph = "uncovered", taskCount = 0, s
           background: "color-mix(in srgb, var(--ct-fg) 3%, transparent)",
         }}
       >
-        <Icon size={13} color={color} style={{ flexShrink: 0 }} strokeWidth={glyph === "uncovered" ? 2.4 : 2.2} />
+        <Icon size={tile ? 15 : 13} color={color} style={{ flexShrink: 0 }} strokeWidth={glyph === "uncovered" ? 2.4 : 2.2} />
         <span
           data-testid="canvas-spec-section-title"
           className="ct-canvas-title"
@@ -58,6 +76,7 @@ export function SpecSectionCard({ section, glyph = "uncovered", taskCount = 0, s
             fontWeight: 700,
             flex: 1,
             minWidth: 0,
+            fontSize: tile ? "1.05em" : undefined,
             letterSpacing: "-0.005em",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -84,7 +103,25 @@ export function SpecSectionCard({ section, glyph = "uncovered", taskCount = 0, s
           {taskCount}
         </span>
       </div>
-      {hasBody && (
+      {showDigest && (
+        <div
+          data-testid="canvas-spec-section-digest"
+          style={{
+            flex: 1,
+            padding: "7px 12px 9px",
+            fontSize: "0.9em",
+            lineHeight: 1.45,
+            opacity: 0.85,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {digestMarkdown(section.body, 180)}
+        </div>
+      )}
+      {showBody && (
         <div
           data-testid="canvas-spec-section-body"
           className="ct-canvas-scroll"
