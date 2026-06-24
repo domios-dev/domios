@@ -104,3 +104,54 @@ fn render_plan_markdown_prepends_goal_block() {
     assert!(rendered.contains("- reread plan"));
     assert!(rendered.contains("Markdown vision"));
 }
+
+#[test]
+fn render_plan_markdown_renders_task_quality_fields() {
+    let rendered = render_plan_markdown(&json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "tasks": [
+            {
+                "id": "task_1",
+                "name": "Write tests",
+                "status": "in_review",
+                "acceptance_criteria": ["hints covered", "heartbeat covered"],
+                "test_plan": "cargo test focused modules",
+                "correctness": "formatter contracts are stable"
+            }
+        ]
+    }));
+
+    assert!(rendered.contains("- **Write tests** (`task_1`)"));
+    assert!(rendered.contains("  - criterion: hints covered"));
+    assert!(rendered.contains("  - criterion: heartbeat covered"));
+    assert!(rendered.contains("  - test plan: cargo test focused modules"));
+    assert!(rendered.contains("  - correctness: formatter contracts are stable"));
+}
+
+#[test]
+fn render_plan_markdown_omits_empty_goal_and_task_quality_fields() {
+    let rendered = render_plan_markdown(&json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "goal": null,
+        "tasks": [
+            {
+                "id": "task_1",
+                "name": "Write tests",
+                "status": "pending",
+                "acceptance_criteria": [],
+                "test_plan": "",
+                "correctness": ""
+            }
+        ]
+    }));
+
+    assert!(!rendered.contains("## Goal"));
+    assert!(rendered.contains("- **Write tests** (`task_1`)"));
+    assert!(!rendered.contains("criterion:"));
+    assert!(!rendered.contains("test plan:"));
+    assert!(!rendered.contains("correctness:"));
+}
