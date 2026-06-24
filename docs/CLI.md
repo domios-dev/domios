@@ -1114,7 +1114,17 @@ Send a notification
 
 #### `codeterm orchestrator`
 
-Orchestrator handoff helpers
+Orchestrator helpers
+
+#### `codeterm orchestrator heartbeat`
+
+Orchestrator heartbeat helpers
+
+#### `codeterm orchestrator heartbeat show`
+
+Show the current heartbeat and learnings
+
+- `--plan`
 
 #### `codeterm orchestrator handoff`
 
@@ -1130,6 +1140,14 @@ Create an orchestrator handoff and optionally reseed this pane
 - `--plan`
 - `--reseed`
 - `--task`
+
+#### `codeterm orchestrator learn`
+
+Append a persistent learning to this orchestrator's heartbeat
+
+- `--plan`
+- `--tag`
+- `<text>`
 
 #### `codeterm pane`
 

@@ -1,0 +1,75 @@
+use serde_json::Value;
+
+use crate::multiplexer::types::AgentRole;
+use crate::plan::{MilestoneKind, TaskGroup};
+use crate::service::ServiceState;
+
+pub(super) fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|key| MilestoneKind {
+            key: key.into(),
+            label: key.into(),
+            color: None,
+        })
+        .collect()
+}
+
+pub(super) fn groups_from_csv(raw: &str) -> Vec<TaskGroup> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|item| {
+            let (key, label) = item.split_once(':').unwrap_or((item, item));
+            TaskGroup {
+                key: key.trim().into(),
+                label: label.trim().into(),
+                color: None,
+            }
+        })
+        .collect()
+}
+
+pub(super) fn string_array_field(params: Option<&Value>, key: &str) -> Vec<String> {
+    params
+        .and_then(|x| x.get(key))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
+}
+
+pub(super) fn optional_string_field<'a>(
+    params: Option<&'a Value>,
+    key: &str,
+) -> Option<Option<&'a str>> {
+    params.and_then(|x| x.get(key).map(|v| v.as_str()))
+}
+
+pub(super) fn pane_role(svc: &ServiceState, pane_id: &str) -> Option<&'static str> {
+    svc.mux
+        .read()
+        .get_pane(pane_id)
+        .and_then(|pane| pane.role)
+        .map(|role| match role {
+            AgentRole::Orchestrator => "orchestrator",
+            AgentRole::Worker => "worker",
+        })
+}
+
+pub(super) fn pane_and_ancestors(
+    svc: &ServiceState,
+    pane_id: &str,
+) -> std::collections::HashSet<String> {
+    let mux = svc.mux.read();
+    let mut out = std::collections::HashSet::new();
+    let mut current = Some(pane_id.to_string());
+    while let Some(id) = current {
+        if !out.insert(id.clone()) {
+            break;
+        }
+        current = mux
+            .get_pane(&id)
+            .and_then(|pane| pane.parent_pane_id.clone());
+    }
+    out
+}
