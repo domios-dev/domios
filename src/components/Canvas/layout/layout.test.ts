@@ -214,28 +214,20 @@ console.log("\nstandalone plan:");
   ok("no anchors without sections", frame.anchors.size === 0);
 }
 
-// ── milestone bubble cluster ──────────────────────────────────────
-console.log("\nbubble cluster:");
+// ── steps are INTERIOR to the task cell (§23.2 / §16.9) ───────────
+console.log("\ninterior steps:");
 {
   const layout = layoutWorkspace(samplePlans());
   const frame = layout.frames.find((f) => f.planId === "p1")!;
-  const bubbles = frame.nodes.filter((n) => n.kind === "milestone");
-  ok("all 4 milestones placed as bubbles", bubbles.length === 4);
-  ok("task-cluster edge present", frame.edges.some((e) => e.kind === "task-cluster"));
-  ok("milestone-chain edges present", frame.edges.filter((e) => e.kind === "milestone-chain").length === 2);
-
-  // Banded layout (§20.3.8): the step cluster folds BELOW the card as interior
-  // height (not to the right), and stays within the task column width so cells
-  // pack into a uniform grid; still wraps to ≤2 columns.
-  const t1 = frame.nodes.find((n) => n.id === "t1")!;
-  const t1Bubbles = [bubbles.find((b) => b.id === "m1")!, bubbles.find((b) => b.id === "m2")!, bubbles.find((b) => b.id === "m3")!];
-  const nearestTop = Math.min(...t1Bubbles.map((b) => b.box.y));
-  ok("cluster folds BELOW the card (interior height)", nearestTop >= t1.box.y + t1.box.height - 1);
-  const leftMost = Math.min(...t1Bubbles.map((b) => b.box.x));
-  const rightMost = Math.max(...t1Bubbles.map((b) => b.box.x + b.box.width));
-  ok("cluster stays within the task column width (folded, not streaming right)", leftMost >= t1.box.x - 1 && rightMost <= t1.box.x + DEFAULT_CANVAS_SETTINGS.taskWidth + 1);
-  const span = rightMost - leftMost;
-  ok("cluster wraps to ≤2 columns (compact width)", span <= 2 * (DEFAULT_CANVAS_SETTINGS.bubbleRadius * 2) + DEFAULT_CANVAS_SETTINGS.bubbleGapX + 1);
+  // Milestones no longer become separate canvas nodes — they render inside the
+  // Document task card as step cards (Thread & Coil interior). No cluster chrome.
+  ok("no separate milestone nodes (steps are interior)", !frame.nodes.some((n) => n.kind === "milestone"));
+  ok("no cluster nodes / task-cluster edges", !frame.nodes.some((n) => n.kind === "cluster") && !frame.edges.some((e) => e.kind === "task-cluster"));
+  // The Document task cell that owns steps reserves extra interior height for them.
+  const withSteps = frame.nodes.find((n) => n.id === "t1")!; // t1 has 3 milestones
+  const noSteps = frame.nodes.find((n) => n.id === "t2")!; // t2 has 1 milestone
+  ok("step-bearing cell is at least the document base height", withSteps.box.height >= DEFAULT_CANVAS_SETTINGS.taskDocH);
+  ok("more steps → taller interior", withSteps.box.height > noSteps.box.height);
 }
 
 // ── subtasks (parent_task_id) ─────────────────────────────────────
