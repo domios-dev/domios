@@ -227,6 +227,19 @@ fn find_task_mut<'a>(tasks: &'a mut [Task], selector: &str) -> Option<&'a mut Ta
         .find(|task| task.id == selector || task.handle.as_deref() == Some(selector))
 }
 
+fn find_task_index(tasks: &[Task], selector: &str) -> Option<usize> {
+    if selector == "@latest" {
+        return tasks
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, task)| (task.updated_at, task.created_at))
+            .map(|(index, _)| index);
+    }
+    tasks
+        .iter()
+        .position(|task| task.id == selector || task.handle.as_deref() == Some(selector))
+}
+
 fn ensure_kind(plan_kinds: &mut Vec<MilestoneKind>, kind: &str) {
     if !plan_kinds.iter().any(|item| item.key == kind) {
         plan_kinds.push(MilestoneKind {
@@ -310,11 +323,18 @@ impl PlanStore {
                             let missing_model = model.as_deref().is_none_or(str::is_empty);
                             let missing_why = why.as_deref().is_none_or(str::is_empty);
                             let missing_sections = sections.is_empty();
-                            let task_id = if let Some(task) =
-                                working.tasks.iter_mut().find(|task| {
-                                    task.id == handle
-                                        || task.handle.as_deref() == Some(handle.as_str())
-                                }) {
+                            let task_id = if let Some(task_index) =
+                                find_task_index(&working.tasks, &handle)
+                            {
+                                let parsed_status =
+                                    status.as_deref().map(parse_status).transpose()?;
+                                if matches!(parsed_status, Some(TaskStatus::Done)) {
+                                    let task_id = working.tasks[task_index].id.clone();
+                                    super::mutations::reject_done_with_open_subtasks(
+                                        &working, &task_id,
+                                    )?;
+                                }
+                                let task = &mut working.tasks[task_index];
                                 if let Some(name) = name {
                                     task.name = name;
                                 }
@@ -324,10 +344,9 @@ impl PlanStore {
                                 if !sections.is_empty() {
                                     task.section_ids = sections;
                                 }
-                                if let Some(status) = status {
-                                    let parsed = parse_status(&status)?;
-                                    if task.status != parsed {
-                                        task.status = parsed;
+                                if let Some(status) = parsed_status {
+                                    if task.status != status {
+                                        task.status = status;
                                         task.status_changed_at = now_ms;
                                     }
                                 }
@@ -443,8 +462,15 @@ impl PlanStore {
                         } => {
                             let task_id = resolve_ref(&task, &result.ids);
                             let parsed = parse_status(&status)?;
-                            let task = find_task_mut(&mut working.tasks, &task_id)
+                            let task_index = find_task_index(&working.tasks, &task_id)
                                 .ok_or(PlanError::TaskNotFound)?;
+                            if parsed == TaskStatus::Done {
+                                let task_id = working.tasks[task_index].id.clone();
+                                super::mutations::reject_done_with_open_subtasks(
+                                    &working, &task_id,
+                                )?;
+                            }
+                            let task = &mut working.tasks[task_index];
                             if task.status != parsed {
                                 task.status = parsed;
                                 task.status_changed_at = now_ms;
