@@ -1,4 +1,4 @@
-use super::types::{Plan, Section, TaskStatus};
+use super::types::{Plan, Section, Spec, SpecLink, TaskStatus};
 use serde::Serialize;
 use std::collections::HashMap;
 
@@ -72,6 +72,24 @@ pub struct CoverageReport {
     pub gaps: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SpecSectionCoverageReport {
+    pub section_id: String,
+    pub title: String,
+    pub linked_plan_sections: Vec<String>,
+    pub total: usize,
+    pub done: usize,
+    pub in_progress: usize,
+    pub status: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SpecCoverageReport {
+    pub spec_covered_fraction: f64,
+    pub sections: Vec<SpecSectionCoverageReport>,
+    pub unplanned: Vec<String>,
+}
+
 fn rollup(c: &SectionCoverage) -> &'static str {
     if c.total == 0 {
         "none"
@@ -118,6 +136,87 @@ pub fn compute_coverage_report(plan: &Plan) -> CoverageReport {
         plan_covered_fraction: cov.plan_covered_fraction,
         sections,
         gaps,
+    }
+}
+
+pub fn compute_spec_coverage_report(spec: &Spec, plans: &[Plan]) -> SpecCoverageReport {
+    fn walk<'a>(sections: &'a [Section], out: &mut Vec<(&'a str, &'a str)>) {
+        for sec in sections {
+            out.push((&sec.id, &sec.title));
+            walk(&sec.subsections, out);
+        }
+    }
+    let mut ordered = vec![];
+    walk(&spec.sections, &mut ordered);
+
+    let mut links_by_spec: HashMap<String, Vec<(&Plan, &SpecLink)>> = HashMap::new();
+    for plan in plans {
+        for link in plan
+            .spec_links
+            .iter()
+            .filter(|link| link.spec_id == spec.id)
+        {
+            links_by_spec
+                .entry(link.spec_section_id.clone())
+                .or_default()
+                .push((plan, link));
+        }
+    }
+
+    let mut sections = Vec::with_capacity(ordered.len());
+    let mut unplanned = vec![];
+    for (id, title) in ordered {
+        let links = links_by_spec.get(id).cloned().unwrap_or_default();
+        let mut coverage = SectionCoverage::default();
+        let mut linked_plan_sections = vec![];
+        for (plan, link) in links {
+            linked_plan_sections.push(link.plan_section_id.clone());
+            for task in &plan.tasks {
+                if task
+                    .section_ids
+                    .iter()
+                    .any(|sid| sid == &link.plan_section_id)
+                {
+                    coverage.total += 1;
+                    match task.status {
+                        TaskStatus::Done => coverage.done += 1,
+                        TaskStatus::InProgress => coverage.in_progress += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+        linked_plan_sections.sort();
+        linked_plan_sections.dedup();
+        let status = if linked_plan_sections.is_empty() {
+            unplanned.push(title.to_string());
+            "unplanned"
+        } else {
+            rollup(&coverage)
+        };
+        sections.push(SpecSectionCoverageReport {
+            section_id: id.to_string(),
+            title: title.to_string(),
+            linked_plan_sections,
+            total: coverage.total,
+            done: coverage.done,
+            in_progress: coverage.in_progress,
+            status,
+        });
+    }
+    let covered = sections
+        .iter()
+        .filter(|section| section.status == "done")
+        .count();
+    let spec_covered_fraction = if sections.is_empty() {
+        0.0
+    } else {
+        covered as f64 / sections.len() as f64
+    };
+    SpecCoverageReport {
+        spec_covered_fraction,
+        sections,
+        unplanned,
     }
 }
 

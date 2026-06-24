@@ -357,6 +357,24 @@ Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at co
 - `--head` — Print at most N lines
 - `<name>` — Doc name (e.g. CONFIG, API, MESH). Omit to list all available docs
 
+#### `codeterm effort`
+
+Complete work bundles and effort lineage
+
+#### `codeterm effort link`
+
+Link two efforts by lineage
+
+- `--from`
+- `--rel`
+- `--to`
+
+#### `codeterm effort show`
+
+Show the Spec(s)+Plan+tasks bundle for one effort
+
+- `<plan_id>`
+
 #### `codeterm get-output`
 
 Get terminal output from a pane (default: current pane)
@@ -1816,6 +1834,91 @@ Search past sessions by content across all registered providers. Results are tag
 - `--project` — Restrict to sessions tagged with this project path. Handy when you only want hits from the current repo
 - `--provider` — Filter by provider id (e.g. "claude"). Omit or pass "all" to search every registered provider
 - `<query>` — Query string. Terms are whitespace-split; every term must appear (case-insensitive) in at least one matching message
+
+#### `codeterm spec`
+
+Requirements specs — first-class WHAT documents
+
+#### `codeterm spec create`
+
+Create a new spec
+
+- `--project`
+- `--title`
+
+#### `codeterm spec files`
+
+List generated section body files
+
+- `<spec_id>`
+
+#### `codeterm spec link`
+
+Spec-to-plan links
+
+#### `codeterm spec link add`
+
+- `<plan_id>`
+- `--plan_section`
+- `--spec`
+- `--spec_section`
+
+#### `codeterm spec link list`
+
+- `<spec_id>`
+
+#### `codeterm spec link rm`
+
+- `<plan_id>`
+- `--plan_section`
+- `--spec`
+- `--spec_section`
+
+#### `codeterm spec list`
+
+List specs
+
+- `--active`
+- `--all`
+- `--archived`
+- `--project`
+
+#### `codeterm spec section`
+
+Spec sections
+
+#### `codeterm spec section add`
+
+- `--body`
+- `--body_file`
+- `--handle`
+- `--parent`
+- `--primary`
+- `<spec_id>`
+- `--tags`
+- `--title`
+
+#### `codeterm spec section rm`
+
+- `<section_id>`
+- `<spec_id>`
+
+#### `codeterm spec section update`
+
+- `--body`
+- `--body_file`
+- `--handle`
+- `--primary`
+- `<section_id>`
+- `<spec_id>`
+- `--tags`
+- `--title`
+
+#### `codeterm spec show`
+
+Show a hydrated spec
+
+- `<spec_id>`
 
 #### `codeterm system`
 

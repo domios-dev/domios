@@ -10,7 +10,7 @@ fn gen_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
 }
 
-fn push_subsection(
+pub(super) fn push_subsection(
     sections: &mut Vec<Section>,
     parent_id: &str,
     child: Section,
@@ -31,7 +31,7 @@ fn push_subsection(
     Some(child)
 }
 
-fn update_section_fields(
+pub(super) fn update_section_fields(
     sections: &mut [Section],
     id: &str,
     title: Option<&str>,
@@ -55,7 +55,7 @@ fn update_section_fields(
     false
 }
 
-fn update_section_tags(
+pub(super) fn update_section_tags(
     sections: &mut [Section],
     id: &str,
     tags: &[String],
@@ -80,7 +80,7 @@ fn update_section_tags(
     false
 }
 
-fn rm_section_tree(sections: &mut Vec<Section>, id: &str) -> bool {
+pub(super) fn rm_section_tree(sections: &mut Vec<Section>, id: &str) -> bool {
     if let Some(pos) = sections.iter().position(|s| s.id == id) {
         sections.remove(pos);
         return true;
@@ -88,6 +88,14 @@ fn rm_section_tree(sections: &mut Vec<Section>, id: &str) -> bool {
     sections
         .iter_mut()
         .any(|s| rm_section_tree(&mut s.subsections, id))
+}
+
+pub(super) fn has_section(sections: &[Section], id: &str) -> bool {
+    sections.iter().any(|section| {
+        section.id == id
+            || section.handle.as_deref() == Some(id)
+            || has_section(&section.subsections, id)
+    })
 }
 
 fn set_section_canvas(sections: &mut [Section], id: &str, x: Option<f64>, y: Option<f64>) -> bool {

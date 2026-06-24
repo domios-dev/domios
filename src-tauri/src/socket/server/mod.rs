@@ -14,6 +14,7 @@ mod pane;
 mod plan;
 mod plan_handoff;
 mod services;
+mod spec;
 mod workspace;
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -367,6 +368,10 @@ fn dispatch(
                     "plan.milestone.add", "plan.milestone.update", "plan.milestone.rm",
                     "plan.loop.create", "plan.loop.set", "plan.loop.status", "plan.loop.stop",
                     "plan.layout.set", "plan.note.add", "plan.element.add",
+                    "spec.create", "spec.list", "spec.show", "spec.files",
+                    "spec.section.add", "spec.section.update", "spec.section.rm",
+                    "spec.link.add", "spec.link.rm", "spec.link.list",
+                    "effort.show", "effort.link",
                     "task.list", "task.show", "task.take", "task.drop", "task.add",
                     "canvas.focus", "canvas.filter",
                     "cron.list", "cron.get", "cron.create", "cron.update", "cron.delete",
@@ -401,6 +406,7 @@ fn dispatch(
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
         "plan" | "task" | "canvas" => plan::dispatch(method, &params, app, svc),
+        "spec" | "effort" => spec::dispatch(method, &params, app, svc),
         "plugin" => agent_commands::dispatch(method, &params, svc),
         "cron" => cron::dispatch(method, &params, app, svc),
         "services" | "activity" => services::dispatch(method, &params, app, svc),

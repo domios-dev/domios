@@ -4,6 +4,8 @@ pub mod handoff;
 pub mod mutations;
 pub mod paths;
 pub mod reminders;
+pub mod spec;
+pub mod spec_files;
 pub mod tag_model;
 pub mod task_queries;
 pub mod watcher;
@@ -13,7 +15,7 @@ mod tests;
 #[cfg(test)]
 mod timestamp_tests;
 
-use crate::plan::{OrchestratorRef, Plan, PlanStatus, INBOX_PLAN_FILE_STEM, INBOX_PLAN_ID};
+use crate::plan::{OrchestratorRef, Plan, PlanStatus, Spec, INBOX_PLAN_FILE_STEM, INBOX_PLAN_ID};
 use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -103,10 +105,22 @@ pub struct IndexEntry {
     pub assigned_pane_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct SpecIndexEntry {
+    pub spec_id: String,
+    pub file_path: PathBuf,
+    pub title: String,
+    pub status: PlanStatus,
+    pub updated_at: u64,
+    pub project_path: String,
+}
+
 #[derive(Default)]
 pub struct PlanStore {
     plans: RwLock<HashMap<String, Arc<Mutex<Plan>>>>,
+    specs: RwLock<HashMap<String, Arc<Mutex<Spec>>>>,
     index: RwLock<HashMap<String, IndexEntry>>,
+    spec_index: RwLock<HashMap<String, SpecIndexEntry>>,
     last_writes: RwLock<HashMap<PathBuf, SystemTime>>,
     turn_counter: RwLock<Option<Arc<reminders::TurnCounter>>>,
 }
@@ -144,6 +158,24 @@ impl PlanStore {
         Ok(path)
     }
 
+    fn spec_file_path(spec: &Spec) -> std::io::Result<PathBuf> {
+        Ok(paths::specs_dir(Path::new(&spec.project_path))?.join(format!("{}.json", spec.id)))
+    }
+
+    fn write_spec_atomic(spec: &Spec) -> std::io::Result<PathBuf> {
+        let path = Self::spec_file_path(spec)?;
+        let tmp = path.with_extension("json.tmp");
+        let mut normalized = spec.clone();
+        tag_model::normalize_sections_for_spec(&mut normalized.sections);
+        spec_files::persist_bodies(&normalized)?;
+        let json_spec = spec_files::strip_bodies(&normalized);
+        let json = serde_json::to_string_pretty(&json_spec)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(&tmp, json)?;
+        std::fs::rename(&tmp, &path)?;
+        Ok(path)
+    }
+
     fn note_write(&self, path: &Path) {
         if let Ok(meta) = std::fs::metadata(path) {
             if let Ok(modified) = meta.modified() {
@@ -157,6 +189,15 @@ impl PlanStore {
     fn note_plan_write(&self, plan: &Plan, path: &Path) {
         self.note_write(path);
         if let Ok(body_paths) = body_files::body_paths(plan) {
+            for path in body_paths {
+                self.note_write(&path);
+            }
+        }
+    }
+
+    fn note_spec_write(&self, spec: &Spec, path: &Path) {
+        self.note_write(path);
+        if let Ok(body_paths) = spec_files::body_paths(spec) {
             for path in body_paths {
                 self.note_write(&path);
             }
@@ -192,6 +233,17 @@ impl PlanStore {
         }
     }
 
+    fn spec_index_entry(spec: &Spec, file_path: PathBuf) -> SpecIndexEntry {
+        SpecIndexEntry {
+            spec_id: spec.id.clone(),
+            file_path,
+            title: spec.title.clone(),
+            status: spec.status.clone(),
+            updated_at: spec.updated_at,
+            project_path: spec.project_path.clone(),
+        }
+    }
+
     fn load_file_into_index(&self, path: PathBuf, project_root: &Path) -> Result<(), PlanError> {
         let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         let mut plan: Plan =
@@ -212,6 +264,29 @@ impl PlanStore {
         Ok(())
     }
 
+    fn load_spec_file_into_index(
+        &self,
+        path: PathBuf,
+        project_root: &Path,
+    ) -> Result<(), PlanError> {
+        let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
+        let mut spec: Spec =
+            serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
+        spec.project_path = project_root.display().to_string();
+        let migrated =
+            spec_files::hydrate_and_migrate(&mut spec).map_err(|e| PlanError::Io(e.to_string()))?;
+        if migrated {
+            let path = Self::write_spec_atomic(&spec).map_err(|e| PlanError::Io(e.to_string()))?;
+            self.note_spec_write(&spec, &path);
+        }
+        let entry = Self::spec_index_entry(&spec, path);
+        self.spec_index.write().insert(spec.id.clone(), entry);
+        self.specs
+            .write()
+            .insert(spec.id.clone(), Arc::new(Mutex::new(spec)));
+        Ok(())
+    }
+
     pub fn scan_project(&self, project_path: &Path) -> Result<PathBuf, PlanError> {
         let project_root = paths::project_root(project_path);
         let plans_dir =
@@ -227,6 +302,22 @@ impl PlanStore {
             }
             if let Err(e) = self.load_file_into_index(path.clone(), &project_root) {
                 log::warn!("[plan] skip malformed plan {}: {}", path.display(), e);
+            }
+        }
+        let specs_dir =
+            paths::specs_dir(&project_root).map_err(|e| PlanError::Io(e.to_string()))?;
+        if let Ok(entries) = std::fs::read_dir(&specs_dir) {
+            for entry in entries {
+                let Ok(entry) = entry else {
+                    continue;
+                };
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                if let Err(e) = self.load_spec_file_into_index(path.clone(), &project_root) {
+                    log::warn!("[spec] skip malformed spec {}: {}", path.display(), e);
+                }
             }
         }
         Ok(project_root)
@@ -249,8 +340,29 @@ impl PlanStore {
         Ok(())
     }
 
+    pub fn save_spec(&self, spec: &mut Spec, now_ms: u64) -> std::io::Result<()> {
+        if spec.created_at == 0 {
+            spec.created_at = now_ms;
+        }
+        spec.updated_at = now_ms;
+        tag_model::normalize_sections_for_spec(&mut spec.sections);
+        let path = Self::write_spec_atomic(spec)?;
+        self.note_spec_write(spec, &path);
+        self.spec_index
+            .write()
+            .insert(spec.id.clone(), Self::spec_index_entry(spec, path));
+        self.specs
+            .write()
+            .insert(spec.id.clone(), Arc::new(Mutex::new(spec.clone())));
+        Ok(())
+    }
+
     pub fn get(&self, id: &str) -> Option<Plan> {
         self.plans.read().get(id).map(|p| p.lock().clone())
+    }
+
+    pub fn get_spec(&self, id: &str) -> Option<Spec> {
+        self.specs.read().get(id).map(|s| s.lock().clone())
     }
 
     pub fn coverage_report(&self, id: &str) -> Option<crate::plan::coverage::CoverageReport> {
@@ -260,6 +372,51 @@ impl PlanStore {
         })
     }
 
+    pub fn spec_coverage_report(
+        &self,
+        id: &str,
+    ) -> Option<crate::plan::coverage::SpecCoverageReport> {
+        let spec = self.get_spec(id)?;
+        let plans = self.list_full();
+        Some(crate::plan::coverage::compute_spec_coverage_report(
+            &spec, &plans,
+        ))
+    }
+
+    pub fn spec_full(&self, id: &str) -> Option<serde_json::Value> {
+        let spec = self.get_spec(id)?;
+        let coverage = self.spec_coverage_report(id)?;
+        let links = self.list_spec_links(id);
+        Some(serde_json::json!({
+            "spec": spec,
+            "coverage": coverage,
+            "links": links,
+        }))
+    }
+
+    pub fn effort_bundle(&self, plan_id: &str) -> Option<serde_json::Value> {
+        let plan = self.get(plan_id)?;
+        let specs = plan
+            .spec_refs
+            .iter()
+            .filter_map(|id| self.get_spec(id))
+            .collect::<Vec<_>>();
+        let spec_coverage = specs
+            .iter()
+            .map(|spec| {
+                serde_json::json!({
+                    "spec_id": spec.id,
+                    "coverage": self.spec_coverage_report(&spec.id),
+                })
+            })
+            .collect::<Vec<_>>();
+        Some(serde_json::json!({
+            "plan": plan,
+            "specs": specs,
+            "spec_coverage": spec_coverage,
+        }))
+    }
+
     pub fn spec_markdown(&self, id: &str) -> Option<String> {
         self.get(id).map(|plan| body_files::spec_markdown(&plan))
     }
@@ -267,6 +424,16 @@ impl PlanStore {
     pub fn file_manifest(&self, id: &str) -> Result<body_files::PlanFileManifest, PlanError> {
         let plan = self.get(id).ok_or(PlanError::NotFound)?;
         body_files::file_manifest(&plan).map_err(|e| PlanError::Io(e.to_string()))
+    }
+
+    pub fn spec_file_manifest(&self, id: &str) -> Result<spec_files::SpecFileManifest, PlanError> {
+        let spec = self.get_spec(id).ok_or(PlanError::NotFound)?;
+        spec_files::file_manifest(&spec).map_err(|e| PlanError::Io(e.to_string()))
+    }
+
+    pub fn spec_document_markdown(&self, id: &str) -> Option<String> {
+        self.get_spec(id)
+            .map(|spec| spec_files::spec_markdown(&spec))
     }
 
     pub fn reload_from_disk(&self, id: &str) -> Result<(), PlanError> {
@@ -339,6 +506,10 @@ impl PlanStore {
 
     pub fn list_index(&self) -> Vec<IndexEntry> {
         self.index.read().values().cloned().collect()
+    }
+
+    pub fn list_spec_index(&self) -> Vec<SpecIndexEntry> {
+        self.spec_index.read().values().cloned().collect()
     }
 
     pub fn list_full(&self) -> Vec<Plan> {
