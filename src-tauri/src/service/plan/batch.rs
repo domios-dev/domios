@@ -328,10 +328,13 @@ impl PlanStore {
                             {
                                 let parsed_status =
                                     status.as_deref().map(parse_status).transpose()?;
-                                if matches!(parsed_status, Some(TaskStatus::Done)) {
+                                if let Some(next) = &parsed_status {
                                     let task_id = working.tasks[task_index].id.clone();
-                                    super::mutations::reject_done_with_open_subtasks(
-                                        &working, &task_id,
+                                    super::mutations::validate_task_status_transition(
+                                        &working,
+                                        &task_id,
+                                        &working.tasks[task_index].status,
+                                        next,
                                     )?;
                                 }
                                 let task = &mut working.tasks[task_index];
@@ -464,12 +467,13 @@ impl PlanStore {
                             let parsed = parse_status(&status)?;
                             let task_index = find_task_index(&working.tasks, &task_id)
                                 .ok_or(PlanError::TaskNotFound)?;
-                            if parsed == TaskStatus::Done {
-                                let task_id = working.tasks[task_index].id.clone();
-                                super::mutations::reject_done_with_open_subtasks(
-                                    &working, &task_id,
-                                )?;
-                            }
+                            let task_id = working.tasks[task_index].id.clone();
+                            super::mutations::validate_task_status_transition(
+                                &working,
+                                &task_id,
+                                &working.tasks[task_index].status,
+                                &parsed,
+                            )?;
                             let task = &mut working.tasks[task_index];
                             if task.status != parsed {
                                 task.status = parsed;

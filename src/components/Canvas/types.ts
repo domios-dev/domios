@@ -2,7 +2,7 @@
 // match the JSON wire shape (serde snake_case; Task.type via serde rename).
 
 export type PlanStatus = "active" | "archived";
-export type TaskStatus = "pending" | "in_progress" | "blocked" | "done" | "cancelled";
+export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled";
 export type LoopStatus = "running" | "done" | "exhausted" | "stopped";
 
 export interface ElementCanvas {

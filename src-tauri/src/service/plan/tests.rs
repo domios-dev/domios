@@ -56,6 +56,58 @@ fn reload_from_disk_replaces_memory_and_index() {
 }
 
 #[test]
+fn in_review_status_persists_and_reloads() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Review".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("abc"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "worker lane".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .update_task(
+            &p.id,
+            &task_id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_review"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            3,
+        )
+        .unwrap();
+
+    store.plans.write().clear();
+    store.reload_from_disk(&p.id).unwrap();
+
+    let loaded = store.get(&p.id).unwrap();
+    let task = loaded.tasks.iter().find(|task| task.id == task_id).unwrap();
+    assert_eq!(task.status, TaskStatus::InReview);
+}
+
+#[test]
 fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
