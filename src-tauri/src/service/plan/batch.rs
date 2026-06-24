@@ -378,6 +378,9 @@ impl PlanStore {
                                     kind: kind.unwrap_or_else(|| "implement".into()),
                                     model,
                                     model_rationale: why,
+                                    acceptance_criteria: vec![],
+                                    test_plan: None,
+                                    correctness: None,
                                     status: status
                                         .as_deref()
                                         .map(parse_status)
@@ -420,6 +423,9 @@ impl PlanStore {
                                 !created || !missing_sections,
                                 !created || !missing_model,
                                 !created || !missing_why,
+                                true,
+                                true,
+                                true,
                             ));
                         }
                         BatchOp::SetTaskBody { task, body } => {

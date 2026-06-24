@@ -163,6 +163,10 @@ pub struct AddTaskBody {
     project: String,
     model: Option<String>,
     why: Option<String>,
+    #[serde(default)]
+    acceptance_criteria: Vec<String>,
+    test_plan: Option<String>,
+    correctness: Option<String>,
     body: Option<String>,
     intent: Option<String>,
     assign_pane: Option<String>,
@@ -176,6 +180,18 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
         .and_then(|pane| pane_role(&state, pane));
     let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
     let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
+    let has_criteria = body
+        .acceptance_criteria
+        .iter()
+        .any(|s| !s.trim().is_empty());
+    let has_test_plan = body
+        .test_plan
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
+    let has_correctness = body
+        .correctness
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
     let assign_pane = body.assign_pane.clone();
     let (plan_id, task_id) = state
         .svc
@@ -188,6 +204,9 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
                 kind: body.kind.unwrap_or_else(|| "task".into()),
                 model: body.model,
                 model_rationale: body.why,
+                acceptance_criteria: body.acceptance_criteria,
+                test_plan: body.test_plan,
+                correctness: body.correctness,
                 body: body.body.unwrap_or_default(),
                 intent: body.intent,
                 assigned_pane_id: body.assign_pane,
@@ -216,7 +235,10 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
             &task_id,
             false,
             has_model,
-            has_why
+            has_why,
+            has_criteria,
+            has_test_plan,
+            has_correctness
         )
     })))
 }

@@ -60,6 +60,13 @@ fn groups_from_csv(raw: &str) -> Vec<TaskGroup> {
         .collect()
 }
 
+fn string_array_field(params: Option<&Value>, key: &str) -> Vec<String> {
+    params
+        .and_then(|x| x.get(key))
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
+}
+
 fn pane_role(svc: &ServiceState, pane_id: &str) -> Option<&'static str> {
     svc.mux
         .read()
@@ -334,6 +341,18 @@ pub(super) fn dispatch(
                 .get("why")
                 .and_then(|v| v.as_str())
                 .is_some_and(|s| !s.trim().is_empty());
+            let acceptance_criteria = string_array_field(p, "acceptance_criteria");
+            let has_criteria = acceptance_criteria.iter().any(|s| !s.trim().is_empty());
+            let test_plan = body
+                .get("test_plan")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
+            let correctness = body
+                .get("correctness")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
             let (plan_id, task_id) = store
                 .add_inbox_task(
                     &project,
@@ -353,6 +372,9 @@ pub(super) fn dispatch(
                             .get("why")
                             .and_then(|v| v.as_str())
                             .map(str::to_string),
+                        acceptance_criteria,
+                        test_plan,
+                        correctness,
                         body: body
                             .get("body")
                             .and_then(|v| v.as_str())
@@ -377,7 +399,7 @@ pub(super) fn dispatch(
             Ok(json!({
                 "plan_id": plan_id.clone(),
                 "task_id": task_id.clone(),
-                "_hints": hints::task_create_hints(&plan_id, &task_id, false, has_model, has_why)
+                "_hints": hints::task_create_hints(&plan_id, &task_id, false, has_model, has_why, has_criteria, has_test_plan, has_correctness)
             }))
         }
 
@@ -619,6 +641,18 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("why"))
                 .and_then(|v| v.as_str())
                 .is_some_and(|s| !s.trim().is_empty());
+            let acceptance_criteria = string_array_field(p, "acceptance_criteria");
+            let has_criteria = acceptance_criteria.iter().any(|s| !s.trim().is_empty());
+            let test_plan = p
+                .and_then(|x| x.get("test_plan"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
+            let correctness = p
+                .and_then(|x| x.get("correctness"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
             let tid = store
                 .add_task(
                     &id,
@@ -634,6 +668,9 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("why"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        acceptance_criteria,
+                        test_plan,
+                        correctness,
                         body: p
                             .and_then(|x| x.get("body"))
                             .and_then(|v| v.as_str())
@@ -684,7 +721,7 @@ pub(super) fn dispatch(
             Ok(json!({
                 "task_id": tid.clone(),
                 "section_ids": linked,
-                "_hints": hints::task_create_hints(&id, &tid, has_sections || linked_has_sections, has_model, has_why)
+                "_hints": hints::task_create_hints(&id, &tid, has_sections || linked_has_sections, has_model, has_why, has_criteria, has_test_plan, has_correctness)
             }))
         }
 

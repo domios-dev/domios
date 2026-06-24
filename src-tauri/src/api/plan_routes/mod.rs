@@ -380,6 +380,12 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     why: Option<String>,
     #[serde(default)]
+    acceptance_criteria: Vec<String>,
+    #[serde(default)]
+    test_plan: Option<String>,
+    #[serde(default)]
+    correctness: Option<String>,
+    #[serde(default)]
     body: Option<String>,
     #[serde(default)]
     intent: Option<String>,
@@ -420,6 +426,21 @@ pub async fn task_add(
         .plan_store
         .resolve_task_section_ids(&id, &requested_sections)
         .map_err(plan_err)?;
+    let has_sections = !section_ids.is_empty();
+    let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
+    let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
+    let has_criteria = body
+        .acceptance_criteria
+        .iter()
+        .any(|s| !s.trim().is_empty());
+    let has_test_plan = body
+        .test_plan
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
+    let has_correctness = body
+        .correctness
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
     let tid = state
         .svc
         .plan_store
@@ -435,6 +456,9 @@ pub async fn task_add(
                 section_ids,
                 model: body.model,
                 model_rationale: body.why,
+                acceptance_criteria: body.acceptance_criteria,
+                test_plan: body.test_plan,
+                correctness: body.correctness,
                 body: body.body.unwrap_or_default(),
                 intent: body.intent,
                 parent_task_id: body.parent,
@@ -448,7 +472,19 @@ pub async fn task_add(
         )
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "task_id": tid })))
+    Ok(Json(serde_json::json!({
+        "task_id": tid.clone(),
+        "_hints": crate::service::plan::hints::task_create_hints(
+            &id,
+            &tid,
+            has_sections,
+            has_model,
+            has_why,
+            has_criteria,
+            has_test_plan,
+            has_correctness
+        )
+    })))
 }
 
 pub async fn task_update(
