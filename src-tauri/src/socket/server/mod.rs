@@ -15,6 +15,7 @@ mod pane;
 mod plan;
 mod plan_goal;
 mod plan_handoff;
+mod plan_linking;
 mod services;
 mod spec;
 mod workspace;

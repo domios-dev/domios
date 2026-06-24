@@ -404,7 +404,7 @@ pub async fn task_add(
     Json(body): Json<TaskAddBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let section_ids = body
+    let requested_sections = body
         .sections
         .as_deref()
         .map(|s| {
@@ -415,6 +415,11 @@ pub async fn task_add(
                 .collect()
         })
         .unwrap_or_default();
+    let section_ids = state
+        .svc
+        .plan_store
+        .resolve_task_section_ids(&id, &requested_sections)
+        .map_err(plan_err)?;
     let tid = state
         .svc
         .plan_store
@@ -453,13 +458,28 @@ pub async fn task_update(
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let section_ids = body.get("sections").and_then(|v| v.as_str()).map(|s| {
-        s.split(',')
-            .map(str::trim)
-            .filter(|x| !x.is_empty())
-            .map(|x| x.to_string())
-            .collect()
-    });
+    let section_ids = if body.get("sections").is_some() {
+        let requested_sections = body
+            .get("sections")
+            .and_then(|v| v.as_str())
+            .map(|s| {
+                s.split(',')
+                    .map(str::trim)
+                    .filter(|x| !x.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        Some(
+            state
+                .svc
+                .plan_store
+                .resolve_task_section_ids(&id, &requested_sections)
+                .map_err(plan_err)?,
+        )
+    } else {
+        None
+    };
     let tags: Vec<String> = body
         .get("tags")
         .and_then(|v| serde_json::from_value(v.clone()).ok())

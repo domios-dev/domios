@@ -48,6 +48,12 @@ pub enum PlanAction {
     Coverage { plan_id: String },
     /// Show sections with zero tasks
     Gaps { plan_id: String },
+    /// Preview or apply automatic section links for unlinked tasks
+    Relink {
+        plan_id: String,
+        #[arg(long)]
+        apply: bool,
+    },
     /// Plan north-star goal
     Goal {
         #[command(subcommand)]
@@ -398,6 +404,17 @@ pub enum PlanTaskAction {
         pane: String,
         #[arg(long, alias = "peer")]
         mesh: Option<String>,
+    },
+    Link {
+        plan_id: String,
+        task_id: String,
+        #[arg(long)]
+        sections: String,
+    },
+    Relink {
+        plan_id: String,
+        #[arg(long)]
+        apply: bool,
     },
     Rm {
         plan_id: String,
