@@ -6,12 +6,13 @@ import { Window } from "happy-dom";
 import {
   MilestoneBubble,
   PlanNode,
-  SpecNode,
+  SpecSectionCard,
   TaskCard,
 } from "./index";
 import {
   FIXTURE_MILESTONE,
   FIXTURE_PLAN,
+  FIXTURE_SECTION,
   FIXTURE_TASK,
 } from "./fixtures.testdata";
 
@@ -100,13 +101,13 @@ test("PlanNode: uncovered section row pops with uncovered glyph", async () => {
   await act(async () => root.unmount());
 });
 
-test("SpecNode renders headings and markdown body", async () => {
+test("SpecSectionCard renders the section title + expanded body markdown", async () => {
   const { host, root } = await render(
-    <SpecNode plan={FIXTURE_PLAN} style={cardStyle} lod="near" />,
+    <SpecSectionCard section={FIXTURE_SECTION} style={{ ...cardStyle, height: 200 }} lod="near" />,
   );
-  const headings = host.querySelectorAll('[data-testid="canvas-spec-heading"]');
-  assert(headings.length >= 2, `spec renders section + subsection headings, got ${headings.length}`);
-  assert(host.querySelector('[data-testid="canvas-spec-body"]'), "spec body mounted");
+  assert(host.querySelector('[data-testid="canvas-spec-section-title"]')?.textContent === "Authentication", "section title");
+  assert(host.querySelector('[data-testid="canvas-spec-section-body"]'), "expanded body mounted");
+  assert(host.querySelector('[data-testid="canvas-spec-section-body"]')?.textContent?.includes("sign in"), "body markdown text visible");
   await act(async () => root.unmount());
 });
 

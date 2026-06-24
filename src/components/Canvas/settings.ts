@@ -33,9 +33,13 @@ export interface CanvasLayoutSettings {
   planFooterHeight: number;
   planRowIndent: number;
 
-  // Spec document node.
+  // Spec column: one expanded card per plan section.
   specWidth: number;
   specHeight: number;
+  specHeaderHeight: number;
+  specMinHeight: number;
+  specMaxHeight: number;
+  specSectionGapY: number;
 
   // Satellite task nodes.
   taskWidth: number;
@@ -83,9 +87,13 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   planFooterHeight: 40,
   planRowIndent: 16,
 
-  // Spec is a reference doc, NOT the hero: narrower + shorter than the plan mass.
-  specWidth: 270,
+  // Spec column: one expanded section card per plan section, left of the plan.
+  specWidth: 280,
   specHeight: 348,
+  specHeaderHeight: 30,
+  specMinHeight: 60,
+  specMaxHeight: 280,
+  specSectionGapY: 16,
 
   taskWidth: 252,
   taskMinHeight: 58,
