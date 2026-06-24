@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { ExternalLink, Layers, Link2 } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../settings";
-import { atLeast, type World } from "../worlds";
+import { atLeast, DEEP_DIVE_CRISP_SCALE, type World } from "../worlds";
 import type { Task, TaskStatus } from "../types";
 import type { CanvasCardStyleProps } from "./types";
 import { digestMarkdown } from "./digest";
@@ -121,6 +121,10 @@ function iconBtn(): CSSProperties {
   return { display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-fg)", cursor: "pointer", flexShrink: 0 };
 }
 
+function revealStyle(visible: boolean): CSSProperties {
+  return visible ? {} : { visibility: "hidden", opacity: 0, pointerEvents: "none" };
+}
+
 export interface TaskCardProps extends CanvasCardStyleProps {
   task: Task;
   childCount?: number;
@@ -154,8 +158,11 @@ export function TaskCard({
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
   const chrome = statusChrome(task.status, world);
   const shelf = shelfOf(task.status);
-  const showBody = atLeast(world, "W2");
-  const showStructure = atLeast(world, "W1");
+  const showTitle = atLeast(world, "W1");
+  const showStructure = atLeast(world, "W2");
+  const showBodySlot = atLeast(world, "W2");
+  const showFullBody = atLeast(world, "W3");
+  const showDeepDive = showFullBody && crispScale >= DEEP_DIVE_CRISP_SCALE;
   const innerW = (typeof style.width === "number" ? style.width : 260) - 26;
 
   const strideCount = task.milestones.length;
@@ -163,6 +170,8 @@ export function TaskCard({
   const digest = digestMarkdown(task.intent?.trim() ? task.intent! : task.body, 130);
   const freshKind = strideCount ? [...task.milestones].sort((a, b) => b.ts - a.ts)[0].kind : null;
   const freshColor = freshKind ? (stepColors?.get(freshKind) ?? "var(--ct-border-focus)") : null;
+  const titleText = showTitle ? task.name : (task.handle?.trim() || task.name);
+  const tagValues = task.tags?.filter((tag) => tag.trim().length > 0).slice(0, 3) ?? [];
 
   // chrome overrides win over the box geometry (§32.3 surface chrome by shelf).
   const chromeOverrides: CSSProperties = {
@@ -186,7 +195,7 @@ export function TaskCard({
           <ExternalLink size={11} />
         </button>
       )}
-      {showBody && onCopyLink && (
+      {showBodySlot && onCopyLink && (
         <button type="button" data-testid="canvas-task-copy-link" title="Copy task link" onClick={(e) => { e.stopPropagation(); onCopyLink(task.id); }} onMouseDown={(e) => e.stopPropagation()} style={iconBtn()}>
           <Link2 size={11} />
         </button>
@@ -205,36 +214,34 @@ export function TaskCard({
       onMouseLeave={() => onHover?.(null)}
       style={{ ...cardStyle, ...boxStyle, ...chromeOverrides }}
     >
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7, padding: "10px 12px", minWidth: 0, overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "grid", gridTemplateRows: "auto 26px 42px minmax(0, 1fr)", gap: 7, padding: "10px 12px", minWidth: 0, overflow: "hidden" }}>
         {/* Header — present at every band (the navigation layer). Solid status chip. */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: showStructure ? "wrap" : "nowrap", minWidth: 0 }}>
-              <span data-testid="canvas-task-name" data-canvas-selectable className="ct-canvas-text" style={{ flex: "1 1 auto", minWidth: 0, maxWidth: "100%", fontWeight: shelf === "done" ? 600 : 700, fontSize: shelf === "done" ? "0.98em" : "1.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {task.handle?.trim() || task.name}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: 6, minWidth: 0 }}>
+              <span data-testid="canvas-task-name" data-visible={showTitle ? "true" : "false"} data-task-name-full={task.name} data-canvas-selectable className="ct-canvas-text" style={{ minWidth: 0, maxWidth: "100%", fontWeight: shelf === "done" ? 600 : 700, fontSize: shelf === "done" ? "0.98em" : "1.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...revealStyle(showTitle) }}>
+                {titleText}
               </span>
               <StatusChip color={badgeColor} label={displayStatus} solid />
             </div>
-            {showStructure && (task.type || task.model) && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                {task.type && <Chip testid="canvas-task-type">{task.type}</Chip>}
-                {task.model && <Chip testid="canvas-task-model" mono>{task.model}</Chip>}
-              </div>
-            )}
           </div>
           {actions}
         </div>
 
-        {/* Digest — present from W0 so a far card is never hollow (§32.2). 2 lines. */}
-        {!showBody && digest && (
-          <div data-testid="canvas-task-digest" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.84em", lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-            {digest}
-          </div>
-        )}
+        <div data-testid="canvas-task-meta-slot" style={{ display: "flex", flexWrap: "wrap", alignContent: "flex-start", gap: 6, minHeight: 0, overflow: "hidden", ...revealStyle(showStructure) }}>
+          {task.type && <Chip testid="canvas-task-type">{task.type}</Chip>}
+          {task.model && <Chip testid="canvas-task-model" mono>{task.model}</Chip>}
+          {tagValues.map((tag) => <Chip key={tag} testid="canvas-task-tag">{tag}</Chip>)}
+        </div>
 
-        {/* W0 counter rail + progress mini-bar + latest-stride bead (§32.2). */}
-        {!showStructure && (bodyChars > 0 || strideCount > 0 || childCount > 0) && (
-          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div data-testid="canvas-task-summary-slot" style={{ minHeight: 0, overflow: "hidden" }}>
+          {!showBodySlot && digest && (
+            <div data-testid="canvas-task-digest" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.84em", lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", ...revealStyle(showTitle) }}>
+            {digest}
+            </div>
+          )}
+
+          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0) }}>
             {bodyChars > 0 && <Counter testid="canvas-task-body-count">¶ {Math.max(1, Math.round(bodyChars / 80))}</Counter>}
             {strideCount > 0 && (
               <Counter testid="canvas-task-stride-count">
@@ -244,52 +251,31 @@ export function TaskCard({
             {childCount > 0 && <Counter testid="canvas-task-subtask-count"><Layers size={10} />⊞ {childCount}</Counter>}
             {childCount > 0 && <MiniBar frac={childDone / childCount} />}
           </div>
-        )}
-
-        {/* W2+ intent + model rationale — opacity 1.0 (§32.3), revealed by ZOOM. */}
-        {showBody && task.intent && (
-          <div data-testid="canvas-task-intent" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.9em", fontStyle: "italic", color: "var(--ct-fg)" }}>
-            {task.intent}
-          </div>
-        )}
-        {showBody && task.model_rationale && (
-          <div data-testid="canvas-task-why" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.88em", borderLeft: "2px solid var(--ct-border-subtle)", paddingLeft: 8 }}>
-            <span style={{ fontWeight: 600, color: "var(--ct-border-focus)" }}>Why this model? </span>
-            {task.model_rationale}
-          </div>
-        )}
-        {showBody && childCount > 0 && (
-          <div data-testid="canvas-task-subtask-count" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74em", fontWeight: 600 }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><Layers size={11} />⊞ {childCount} subtask{childCount === 1 ? "" : "s"}</span>
-            <MiniBar frac={childDone / childCount} />
-            <span style={{ fontFamily: "var(--ct-font-mono)", opacity: 0.7 }}>{childDone}/{childCount}</span>
-          </div>
-        )}
+        </div>
 
         {/* §35.3 fixed slot: at W2+ the DESCRIPTION box always renders (reveal-by-
             zoom, never click) — body markdown when present, an empty-state otherwise
             so the slot never collapses/shifts. Clamped at W2, full+scroll at W3; the
             stride snake blooms below it. W0/W1 = snake preview pinned to the bottom. */}
-        {showBody ? (
-          <div className="ct-canvas-scroll ct-canvas-fade-in" data-canvas-scroll-body="1" style={{ marginTop: 2, flex: 1, overflowY: "auto", minHeight: 0 }}>
-            <div data-testid="canvas-task-body" data-canvas-selectable className="ct-canvas-text" style={atLeast(world, "W3")
-              ? { fontSize: "0.92em", lineHeight: 1.5, minHeight: "1.2em" }
-              : { fontSize: "0.9em", lineHeight: 1.45, minHeight: "1.2em", display: "-webkit-box", WebkitLineClamp: 6, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-              {bodyChars > 0 ? <RichMarkdown text={task.body} /> : <span style={{ opacity: 0.4, fontStyle: "italic" }}>No description</span>}
-            </div>
-            {strideCount > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <StrideSnake milestones={task.milestones} colors={stepColors} world={world} width={innerW} onCopyLink={onCopyStrideLink} onFocusStride={onFocusStride} />
+        <div className="ct-canvas-scroll ct-canvas-fade-in" data-canvas-scroll-body="1" style={{ marginTop: 2, overflowY: showFullBody ? "auto" : "hidden", minHeight: 0, display: "grid", gridTemplateRows: showDeepDive ? "auto minmax(0, 1fr)" : "minmax(36px, 0.8fr) minmax(28px, 1fr)", gap: 10, ...revealStyle(showBodySlot || strideCount > 0) }}>
+          <div data-testid={showBodySlot ? "canvas-task-body" : "canvas-task-body-slot"} data-visible={showBodySlot ? "true" : "false"} data-canvas-selectable className="ct-canvas-text" style={showFullBody
+            ? { fontSize: "0.92em", lineHeight: 1.5, minHeight: "1.2em", overflowWrap: "anywhere", ...revealStyle(showBodySlot) }
+            : { fontSize: "0.9em", lineHeight: 1.45, minHeight: "1.2em", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", ...revealStyle(showBodySlot) }}>
+              {task.intent && <div data-testid="canvas-task-intent" style={{ marginBottom: 6, fontStyle: "italic" }}>{task.intent}</div>}
+              {showFullBody && task.model_rationale && (
+                <div data-testid="canvas-task-why" style={{ marginBottom: 6, borderLeft: "2px solid var(--ct-border-subtle)", paddingLeft: 8 }}>
+                  <span style={{ fontWeight: 600, color: "var(--ct-border-focus)" }}>Why this model? </span>
+                  {task.model_rationale}
+                </div>
+              )}
+              <div data-testid={showFullBody ? "canvas-task-full-body" : "canvas-task-body-preview"}>
+                {bodyChars > 0 ? <RichMarkdown text={task.body} /> : <span style={{ opacity: 0.4, fontStyle: "italic" }}>No description</span>}
               </div>
-            )}
           </div>
-        ) : (
-          strideCount > 0 && (
-            <div style={{ marginTop: "auto" }}>
-              <StrideSnake milestones={task.milestones} colors={stepColors} world={world} width={innerW} />
-            </div>
-          )
-        )}
+          <div data-testid="canvas-task-strides-slot" data-visible={showFullBody || (!showStructure && strideCount > 0) ? "true" : "false"} style={{ minHeight: 0, overflow: showFullBody ? "visible" : "hidden", ...revealStyle(showFullBody || (!showStructure && strideCount > 0)) }}>
+            {strideCount > 0 && <StrideSnake milestones={task.milestones} colors={stepColors} world={world} width={innerW} onCopyLink={showFullBody ? onCopyStrideLink : undefined} onFocusStride={showFullBody ? onFocusStride : undefined} />}
+          </div>
+        </div>
       </div>
     </div>
   );
