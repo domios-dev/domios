@@ -129,13 +129,13 @@ impl super::PlanStore {
 }
 
 pub fn project_index_path(project_root: &Path) -> PathBuf {
-    project_root.join(".codeterm").join(INDEX_FILE)
+    super::paths::project_root(project_root)
+        .join(".codeterm")
+        .join(INDEX_FILE)
 }
 
 pub fn project_scope(project_root: &Path) -> String {
-    let root = project_root
-        .canonicalize()
-        .unwrap_or_else(|_| project_root.to_path_buf());
+    let root = super::paths::project_root(project_root);
     let mut hasher = Sha256::new();
     hasher.update(root.to_string_lossy().as_bytes());
     let digest = hasher.finalize();
