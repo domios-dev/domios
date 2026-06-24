@@ -18,6 +18,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
     let status = match e {
         PlanError::NotFound | PlanError::TaskNotFound => StatusCode::NOT_FOUND,
         PlanError::BadStatus
+        | PlanError::BadPriority
         | PlanError::UndeclaredKind { .. }
         | PlanError::BudgetExhausted { .. } => StatusCode::BAD_REQUEST,
         PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,

@@ -118,11 +118,15 @@ fn store_with_task(kinds: &[&str]) -> (PlanStore, String, String) {
 #[test]
 fn add_section_appends_and_bumps_updated_at() {
     let (store, id, _) = store_with_task(&["status_update"]);
-    let sid = store.add_section(&id, "Spec", "body", None, 10).unwrap();
+    let sid = store
+        .add_section(&id, "Spec", "body", None, &[], None, None, 10)
+        .unwrap();
     let p = store.get(&id).unwrap();
     assert!(p.sections.iter().any(|s| s.id == sid && s.title == "Spec"));
     assert_eq!(p.updated_at, 10);
-    let sub = store.add_section(&id, "Child", "", Some(&sid), 11).unwrap();
+    let sub = store
+        .add_section(&id, "Child", "", Some(&sid), &[], None, None, 11)
+        .unwrap();
     let p = store.get(&id).unwrap();
     let parent = p.sections.iter().find(|s| s.id == sid).unwrap();
     assert!(parent.subsections.iter().any(|s| s.id == sub));
@@ -138,10 +142,10 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
         OrchestratorRef::from_pane("owner"),
     );
     store.save(&mut plan, 1).unwrap();
-    let section_id = store
-        .add_section(&plan.id, "Spec", "section\nbody", None, 2)
+    let _section_id = store
+        .add_section(&plan.id, "Spec", "section\nbody", None, &[], None, None, 2)
         .unwrap();
-    let task_id = store
+    let _task_id = store
         .add_task(
             &plan.id,
             NewTask {
@@ -154,13 +158,12 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
         )
         .unwrap();
 
-    let section_path = dir.path().join(format!(
-        ".codeterm/plans/{}/sections/{section_id}.md",
-        plan.id
-    ));
+    let section_path = dir
+        .path()
+        .join(format!(".codeterm/plans/{}/sections/spec.md", plan.id));
     let task_path = dir
         .path()
-        .join(format!(".codeterm/plans/{}/tasks/{task_id}.md", plan.id));
+        .join(format!(".codeterm/plans/{}/tasks/implement.md", plan.id));
     let json_path = dir
         .path()
         .join(".codeterm/plans")
@@ -179,8 +182,8 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
         .join(format!(".codeterm/plans/{}/INDEX.md", plan.id));
     let index = std::fs::read_to_string(index_path).unwrap();
     assert!(index.contains("# External"));
-    assert!(index.contains(&format!("- [Spec](sections/{section_id}.md)")));
-    assert!(index.contains(&format!("- [Implement](tasks/{task_id}.md)")));
+    assert!(index.contains("- [spec (Spec)](sections/spec.md)"));
+    assert!(index.contains("- [implement (Implement)](tasks/implement.md)"));
 
     store.reload_from_disk(&plan.id).unwrap();
     let loaded = store.get(&plan.id).unwrap();
@@ -199,7 +202,7 @@ fn generated_index_regenerates_with_current_titles() {
     );
     store.save(&mut plan, 1).unwrap();
     let section_id = store
-        .add_section(&plan.id, "Old Spec", "", None, 2)
+        .add_section(&plan.id, "Old Spec", "", None, &[], None, None, 2)
         .unwrap();
     let task_id = store
         .add_task(
@@ -215,7 +218,16 @@ fn generated_index_regenerates_with_current_titles() {
 
     store.update_plan(&plan.id, Some("After"), None, 4).unwrap();
     store
-        .update_section(&plan.id, &section_id, Some("New Spec"), None, 5)
+        .update_section(
+            &plan.id,
+            &section_id,
+            Some("New Spec"),
+            None,
+            &[],
+            None,
+            None,
+            5,
+        )
         .unwrap();
     store
         .update_task(
@@ -232,6 +244,10 @@ fn generated_index_regenerates_with_current_titles() {
             None,
             None,
             None,
+            None,
+            &[],
+            None,
+            None,
             6,
         )
         .unwrap();
@@ -241,8 +257,8 @@ fn generated_index_regenerates_with_current_titles() {
         .join(format!(".codeterm/plans/{}/INDEX.md", plan.id));
     let index = std::fs::read_to_string(index_path).unwrap();
     assert!(index.contains("# After"));
-    assert!(index.contains(&format!("- [New Spec](sections/{section_id}.md)")));
-    assert!(index.contains(&format!("- [New Task](tasks/{task_id}.md)")));
+    assert!(index.contains("- [new-spec (New Spec)](sections/new-spec.md)"));
+    assert!(index.contains("- [new-task (New Task)](tasks/new-task.md)"));
     assert!(!index.contains("Old Spec"));
     assert!(!index.contains("Old Task"));
 }
@@ -258,10 +274,28 @@ fn plan_spec_markdown_assembles_only_sections() {
     );
     store.save(&mut plan, 1).unwrap();
     let section_id = store
-        .add_section(&plan.id, "Overview", "overview body", None, 2)
+        .add_section(
+            &plan.id,
+            "Overview",
+            "overview body",
+            None,
+            &[],
+            None,
+            None,
+            2,
+        )
         .unwrap();
     store
-        .add_section(&plan.id, "Detail", "detail body", Some(&section_id), 3)
+        .add_section(
+            &plan.id,
+            "Detail",
+            "detail body",
+            Some(&section_id),
+            &[],
+            None,
+            None,
+            3,
+        )
         .unwrap();
     store
         .add_task(
@@ -293,8 +327,10 @@ fn plan_file_manifest_lists_index_and_body_paths() {
         OrchestratorRef::from_pane("owner"),
     );
     store.save(&mut plan, 1).unwrap();
-    let section_id = store.add_section(&plan.id, "Spec", "", None, 2).unwrap();
-    let task_id = store
+    store
+        .add_section(&plan.id, "Spec", "", None, &[], None, None, 2)
+        .unwrap();
+    store
         .add_task(
             &plan.id,
             NewTask {
@@ -313,13 +349,13 @@ fn plan_file_manifest_lists_index_and_body_paths() {
     );
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "section"
-            && entry.title == "Spec"
-            && entry.path == format!(".codeterm/plans/{}/sections/{section_id}.md", plan.id)
+            && entry.title == "spec (Spec)"
+            && entry.path == format!(".codeterm/plans/{}/sections/spec.md", plan.id)
     }));
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "task"
-            && entry.title == "Build"
-            && entry.path == format!(".codeterm/plans/{}/tasks/{task_id}.md", plan.id)
+            && entry.title == "build (Build)"
+            && entry.path == format!(".codeterm/plans/{}/tasks/build.md", plan.id)
     }));
 }
 
@@ -333,13 +369,12 @@ fn external_section_body_edit_reloads_into_full_plan() {
         OrchestratorRef::from_pane("owner"),
     );
     store.save(&mut plan, 1).unwrap();
-    let section_id = store
-        .add_section(&plan.id, "Spec", "before", None, 2)
+    let _section_id = store
+        .add_section(&plan.id, "Spec", "before", None, &[], None, None, 2)
         .unwrap();
-    let section_path = dir.path().join(format!(
-        ".codeterm/plans/{}/sections/{section_id}.md",
-        plan.id
-    ));
+    let section_path = dir
+        .path()
+        .join(format!(".codeterm/plans/{}/sections/spec.md", plan.id));
 
     std::fs::write(&section_path, "after direct edit").unwrap();
     store.reload_from_disk(&plan.id).unwrap();
@@ -370,6 +405,8 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
     plan.sections.push(crate::plan::Section {
         id: "sec_legacy".into(),
         title: "Spec".into(),
+        handle: None,
+        tags: vec![],
         body: "inline section".into(),
         subsections: vec![],
         canvas: Default::default(),
@@ -382,6 +419,12 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         model_rationale: None,
         status: TaskStatus::Pending,
         status_label: None,
+        priority: Default::default(),
+        created_at: 0,
+        updated_at: 0,
+        status_changed_at: 0,
+        handle: None,
+        tags: vec![],
         section_ids: vec![],
         body: "inline task".into(),
         intent: None,
@@ -398,8 +441,8 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
 
     store.scan_project(dir.path()).unwrap();
 
-    let section_path = plans_dir.join(format!("{}/sections/sec_legacy.md", plan.id));
-    let task_path = plans_dir.join(format!("{}/tasks/task_legacy.md", plan.id));
+    let section_path = plans_dir.join(format!("{}/sections/spec.md", plan.id));
+    let task_path = plans_dir.join(format!("{}/tasks/task.md", plan.id));
     assert_eq!(
         std::fs::read_to_string(section_path).unwrap(),
         "inline section"
@@ -424,20 +467,29 @@ fn atomic_body_write_leaves_only_final_markdown_file() {
     );
     store.save(&mut plan, 1).unwrap();
     let section_id = store
-        .add_section(&plan.id, "Spec", "body", None, 2)
+        .add_section(&plan.id, "Spec", "body", None, &[], None, None, 2)
         .unwrap();
     store
-        .update_section(&plan.id, &section_id, None, Some("replacement"), 3)
+        .update_section(
+            &plan.id,
+            &section_id,
+            None,
+            Some("replacement"),
+            &[],
+            None,
+            None,
+            3,
+        )
         .unwrap();
 
     let section_dir = dir
         .path()
         .join(format!(".codeterm/plans/{}/sections", plan.id));
     assert_eq!(
-        std::fs::read_to_string(section_dir.join(format!("{section_id}.md"))).unwrap(),
+        std::fs::read_to_string(section_dir.join("spec.md")).unwrap(),
         "replacement"
     );
-    assert!(!section_dir.join(format!("{section_id}.md.tmp")).exists());
+    assert!(!section_dir.join("spec.md.tmp").exists());
 }
 
 #[test]
@@ -508,7 +560,11 @@ fn update_task_sets_and_clears_parent_task_id() {
             None,
             None,
             None,
+            None,
             Some(Some(parent_id.as_str())),
+            None,
+            &[],
+            None,
             None,
             21,
         )
@@ -539,7 +595,11 @@ fn update_task_sets_and_clears_parent_task_id() {
             None,
             None,
             None,
+            None,
             Some(None),
+            None,
+            &[],
+            None,
             None,
             22,
         )
@@ -587,7 +647,11 @@ fn update_task_preserves_model_when_patching_parent() {
             None,
             None,
             None,
+            None,
             Some(Some(parent_id.as_str())),
+            None,
+            &[],
+            None,
             None,
             21,
         )
@@ -739,7 +803,9 @@ fn link_and_unlink_plan_dedup_and_remove() {
 #[test]
 fn coverage_report_reports_gaps() {
     let (store, id, _) = store_with_task(&["status_update"]);
-    let sid = store.add_section(&id, "Backend", "", None, 80).unwrap();
+    let sid = store
+        .add_section(&id, "Backend", "", None, &[], None, None, 80)
+        .unwrap();
     let report = store.coverage_report(&id).unwrap();
     assert!(report.gaps.contains(&"Backend".to_string()));
     assert!(report.sections.iter().any(|s| s.section_id == sid));
