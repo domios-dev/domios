@@ -35,19 +35,19 @@ pub const GENERAL_PANE_TITLE: &str = "Main";
 /// `~/.codeterm/general/` (or `~/.codeterm-dev/general/` for dev builds).
 pub fn general_dir() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(crate::paths::DIR_NAME).join("general")
+    home.join(crate::paths::dir_name()).join("general")
 }
 
 /// Get the secrets directory.
 pub fn secrets_dir() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(crate::paths::DIR_NAME).join("secrets")
+    home.join(crate::paths::dir_name()).join("secrets")
 }
 
 /// Get the integrations config directory.
 pub fn integrations_dir() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    home.join(crate::paths::DIR_NAME).join("integrations")
+    home.join(crate::paths::dir_name()).join("integrations")
 }
 
 /// Ensure all General Agent directories exist.

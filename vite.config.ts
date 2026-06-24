@@ -26,7 +26,8 @@ export default defineConfig({
   clearScreen: false,
   server: {
     host: "127.0.0.1",
-    port: 1420,
+    // Per-worktree dev isolation: build.sh derives a stable per-instance port.
+    port: Number(process.env.CODETERM_VITE_PORT) || 1420,
     strictPort: true,
   },
   envPrefix: ["VITE_", "TAURI_"],

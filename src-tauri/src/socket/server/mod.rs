@@ -84,12 +84,12 @@ pub fn socket_path() -> String {
     // time. Prod builds include PID to allow multiple instances.
     #[cfg(debug_assertions)]
     {
-        format!("{}.sock", crate::paths::SOCKET_PREFIX)
+        format!("{}.sock", crate::paths::socket_prefix())
     }
     #[cfg(not(debug_assertions))]
     {
         let pid = std::process::id();
-        format!("{}-{}.sock", crate::paths::SOCKET_PREFIX, pid)
+        format!("{}-{}.sock", crate::paths::socket_prefix(), pid)
     }
 }
 
@@ -125,7 +125,7 @@ impl SocketServer {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        let sock_prefix = format!("{}-", crate::paths::SOCKET_PREFIX);
+                        let sock_prefix = format!("{}-", crate::paths::socket_prefix());
                         if name.starts_with(&sock_prefix) && name.ends_with(".sock") {
                             if let Some(pid_str) = name
                                 .strip_prefix(&sock_prefix)
