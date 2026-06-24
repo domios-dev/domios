@@ -1109,3 +1109,68 @@ de-dupe by `(task, kind, key)`. 6 calls → 1; structured provenance preserved.
 `agent report` becomes a preset over the batch op; `plan handoff create` is an `add_handoff`/`add_element`
 op on the same path. One write primitive for all plan provenance — CLI, in-app UI, and drop-in agents.
 Recommendation: ship the batch service first (it's the foundation), then handoff on top of it.
+
+## 29. EFFORT model — Spec ⊥ Plan as separate objects (Andrey decision; opus+codex converged)
+
+<!-- revision: 9 -->
+
+Andrey decided spec and plan are TWO DIFFERENT OBJECTS, not two views of one section set.
+Standalone designs: docs/specs/2026-06-24-spec-plan-split-design.md (opus). Sharpened semantics +
+final vocabulary in §30. NO legacy/migration code — the dogfood is reshaped MANUALLY (reuse opus's
+deterministic recipe as the one-time steps).
+
+### 29.1 Semantics
+- **Spec** = WHAT we want (intent/requirements), prose sections. Links ONLY to Plan sections, never to tasks.
+- **Plan** = HOW we'll do it (approach/breakdown), sections that bear tasks.
+- **Task** = concrete granular work on a Plan section (+granular description); groupable; subtasks.
+- **Stride** (renamed from milestone/step, §30) = a work-point: what was done + status delta, NOT a log;
+  attaches to Spec, Plan AND Tasks; groupable like tasks (group/phase reused).
+- **Effort** = Spec + Plan + Tasks + Strides together = one complete unit of work. Efforts LINK to each
+  other (**Lineage**, `--follows`/`--supersedes`) — one Effort flows out of another (survives archive).
+
+### 29.2 Storage + links (codex+opus converged)
+- Spec = first-class entity reusing the `Section` type, stored `.codeterm/specs/<id>.json` +
+  `specs/<id>/sections/<sid>.md` (§17 externalization, single-writer, watched, INDEX.md). Own dir is what
+  makes predate/persist/share-by->1-plan structurally true.
+- Links: the dependent (Plan) owns the mapping so a Spec stays write-free when linked — `Plan.spec_refs`
+  (coarse object edge) + `Plan.spec_links[{spec_id, spec_section_id, plan_section_id}]` (fine grid),
+  mem-indexed by spec_id for reverse lookup. n:m, explicit (NO id-equality magic). Plan needs 0 specs;
+  Spec can have 0..n plans.
+- Coverage = TWO-HOP: spec_section →(spec_link)→ plan_section →(Task.section_ids)→ tasks, rolled daemon-side.
+  NEW state: an UNLINKED spec section = "a requirement nobody planned" (red/dashed) — the headline the
+  merged model couldn't show. Plan coverage (plan_section→tasks) unchanged.
+
+### 29.3 CLI + canvas
+- New nouns: `codeterm spec create|show|list|section|files|link`, `effort` (bundle ops + `effort … --follows`),
+  `stride` (rename of milestone authoring). Spec/link ops fold onto the §28 batch path (`upsert_spec`,
+  `upsert_spec_section`, `link_spec_section`, `create_plan_from_spec`); batch target generalizes to {plan|spec}.
+  Native + JS parity test per capability.
+- Canvas: SPEC node renders the Spec ENTITY (delete the SectionNode plan/spec variant fork); edges
+  spec-block ↔ plan-row come from `spec_links` (not same-id); coarse plan↔spec edge joins headers; all
+  obey §26 worlds W0–W3. Dangling links (deleted spec/plan/section) → GHOST block (dashed/dimmed, anchor
+  kept, never auto-pruned) — same ghost pattern as §27 handoff + plan-lineage.
+- Plugin-extensible nodes (separate task): the existing open kind→renderer registry (`registerNodeRenderer`,
+  fallback) + `CanvasElement{kind}` are extended so PLUGINS register node kinds/renderers, create external
+  nodes (e.g. a GitHub node), and agents read them via `codeterm canvas nodes list|show`.
+
+### 29.4 Build order
+Entity+storage → batch spec ops → MANUAL dogfood reshape (one Spec per current plan, 25 sections copied,
+plan bodies cleared, 25 spec_links) → canvas un-fork (SPEC node = entity) → parity + Playwright. The
+canvas un-fork lands AFTER §26 worlds stabilizes (it reshapes the SPEC node).
+
+## 30. Vocabulary (Andrey's pick — canonical names)
+
+<!-- revision: 9 -->
+
+| Concept | Name | CLI noun | Notes |
+|---|---|---|---|
+| Complete-work bundle | **Effort** | `effort` | Spec+Plan+Tasks+Strides; links via Lineage |
+| WHAT (intent) | **Spec** | `spec` | prose sections; links to Plan sections only |
+| HOW (approach) | **Plan** | `plan` | kept; sections bear tasks |
+| Granular unit | **Task** | `task` | kept; groupable; subtasks |
+| Work-point | **Stride** | `stride` | renamed from milestone/step; on spec/plan/task; groupable; not a log |
+| Effort↔Effort link | **Lineage** | `lineage` | `--follows` / `--supersedes`; survives archive |
+| Spec↔Plan link | structural | (in batch) | both live in one Effort; `spec_links` grid |
+
+Minimal rename: only NEW words are **Effort** and **Stride**; Spec/Plan/Task kept. "group/phase" is reused
+for both task-groups and stride-groups. `milestone_kinds` → `stride_kinds`.
