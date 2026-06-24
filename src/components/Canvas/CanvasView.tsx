@@ -55,6 +55,9 @@ function edgeJitter(id: string): number {
   return ((h >>> 0) % 1000) / 1000;
 }
 
+// §23.7: camera zoom past this reveals section bodies inside the fixed frame.
+const CONTENT_LOD_SCALE = 1.3;
+
 function lodForScale(scale: number): CanvasLod {
   const s = DEFAULT_CANVAS_SETTINGS;
   if (scale < s.zoomFarThreshold) return "far";
@@ -113,6 +116,7 @@ interface CanvasNodeCardProps {
   model: unknown;
   lod: CanvasLod;
   viewMode: CanvasViewMode;
+  contentNear: boolean;
   dimmed?: boolean;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
@@ -122,7 +126,7 @@ interface CanvasNodeCardProps {
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, viewMode, dimmed, onOpenPane, onHoverTask, onArchive, onSetNodeMode, onFitNode }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, viewMode, contentNear, dimmed, onOpenPane, onHoverTask, onArchive, onSetNodeMode, onFitNode }: CanvasNodeCardProps) {
     const base = nodeStyle(node.box);
     const style = dimmed ? { ...base, opacity: 0.22, transition: "opacity var(--ct-duration-normal) var(--ct-ease-decel)" } : base;
     const rendered = getNodeRenderer(node.kind)({
@@ -131,6 +135,7 @@ const CanvasNodeCard = memo(
       style,
       lod,
       viewMode,
+      contentNear,
       onOpenPane,
       onHoverTask,
       onArchive,
@@ -143,6 +148,7 @@ const CanvasNodeCard = memo(
     if (prev.node.id !== next.node.id) return false;
     if (prev.lod !== next.lod) return false;
     if (prev.viewMode !== next.viewMode) return false;
+    if (prev.contentNear !== next.contentNear) return false;
     if (prev.dimmed !== next.dimmed) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;
@@ -296,6 +302,7 @@ export function CanvasViewInner({
   const onHoverTask = useCallback((id: string | null) => setHoveredTask(id), []);
 
   const lod = lodForScale(transform.scale);
+  const contentNear = transform.scale >= CONTENT_LOD_SCALE;
   const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
   const canvasSize = useMemo(() => ({ width: size.width, height: size.height }), [size.width, size.height]);
   const frameIds = useMemo(
@@ -593,6 +600,7 @@ export function CanvasViewInner({
                     model={resolveModel(n)}
                     lod={lod}
                     viewMode={modeFor(n.id, n.kind, n.planId)}
+                    contentNear={contentNear}
                     dimmed={focusedNodeId != null && n.planId !== focusedPlanId && n.id !== focusedNodeId}
                     onOpenPane={onOpenPane}
                     onHoverTask={onHoverTask}

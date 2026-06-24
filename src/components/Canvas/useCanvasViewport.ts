@@ -51,9 +51,6 @@ const LINE_PX = 16;
 // Pinch / cmd-wheel zoom sensitivity. ~2.5x the old 0.0016 so a pinch feels
 // immediate/Figma-like; the exponential keeps it smooth. Pan path is unchanged.
 const ZOOM_INTENSITY = 0.004;
-// §23.6: only let a node's internal scroll intercept the wheel once the camera is
-// zoomed IN (reading a node). Far out, wheel always pans — scroll never traps.
-const NEAR_SCROLL_SCALE = 1.0;
 
 // deltaMode: 0 pixel, 1 line, 2 page → normalize to pixels.
 function pixelDelta(value: number, mode: number): number {
@@ -151,17 +148,11 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
       }
       const dx = pixelDelta(e.deltaX, e.deltaMode);
       const dy = pixelDelta(e.deltaY, e.deltaMode);
-      // §23.6 distance-gated internal scroll: zoomed IN, a scrollable node body
-      // consumes vertical wheel until its boundary (then hands back to pan). Zoomed
-      // out, always pan — the body never traps the wheel.
-      if (Math.abs(dy) > Math.abs(dx) && transformRef.current.scale >= NEAR_SCROLL_SCALE) {
-        const body = (e.target as HTMLElement | null)?.closest?.("[data-canvas-scroll-body]") as HTMLElement | null;
-        if (body) {
-          const canDown = dy > 0 && body.scrollTop + body.clientHeight < body.scrollHeight - 1;
-          const canUp = dy < 0 && body.scrollTop > 1;
-          if (canDown || canUp) return; // native-scroll the body; no preventDefault, no pan
-        }
-      }
+      // §24.2: a node body owns the wheel while hovered — scroll ONLY that node,
+      // NEVER hand off to canvas pan (no boundary-release). To pan, move OFF the
+      // node. The marker only exists when the body is showing (content-LOD near).
+      const body = (e.target as HTMLElement | null)?.closest?.("[data-canvas-scroll-body]");
+      if (body) return; // native-scroll the node; no preventDefault, no pan
       e.preventDefault();
       const t = transformRef.current;
       schedule({ ...t, x: t.x - dx, y: t.y - dy });

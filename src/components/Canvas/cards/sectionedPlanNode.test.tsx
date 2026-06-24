@@ -82,6 +82,22 @@ test("Card mode = section titles + digests (no full body); Tile mode = coverage 
   await act(async () => tile.root.unmount());
 });
 
+test("§23.7 content-LOD: zooming in (contentNear) reveals section BODIES inside the SAME fixed frame, any mode", async () => {
+  // Tile frame, far: section index, no bodies.
+  const far = await render(<SectionedPlanNode plan={FIXTURE_PLAN} style={style("tile")} viewMode="tile" contentNear={false} />);
+  assert(q(far.host, '[data-testid="canvas-plan-body"]')?.getAttribute("data-content") === "index", "far tile = index");
+  assert(!q(far.host, '[data-testid="canvas-plan-doc-section"]'), "far tile shows no bodies");
+  await act(async () => far.root.unmount());
+
+  // Tile frame, NEAR: bodies fade in inside the SAME (still-Tile-sized) frame.
+  const near = await render(<SectionedPlanNode plan={FIXTURE_PLAN} style={style("tile")} viewMode="tile" contentNear={true} />);
+  assert(q(near.host, '[data-testid="canvas-plan-body"]')?.getAttribute("data-content") === "body", "near tile reveals bodies");
+  assert(q(near.host, '[data-testid="canvas-plan-doc-section"]'), "near tile mounts section bodies");
+  assert(near.host.textContent?.includes("sign in"), "near tile shows the spec prose");
+  assert(q(near.host, "[data-canvas-scroll-body]"), "near body is internally scrollable (§23.6)");
+  await act(async () => near.root.unmount());
+});
+
 test("header mode switch + fit button fire their callbacks (manual control, §23.1)", async () => {
   let picked: CanvasViewMode | null = null;
   let fitted = false;

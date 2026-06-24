@@ -121,39 +121,33 @@ function mockScroll(el: Element, scrollTop: number, clientHeight: number, scroll
   Object.defineProperty(el, "scrollHeight", { value: scrollHeight, configurable: true });
 }
 
-// §23.6 distance-gated internal scroll.
-test("zoomed in: wheel over a scrollable body that CAN scroll is consumed (no pan)", async () => {
+// §24.2: a node body owns the wheel — scroll ONLY that node, NEVER pan.
+test("wheel over a node body scrolls only the node, never pans the canvas", async () => {
   const { host, root } = await render(<ScrollHarness />);
   const body = host.querySelector('[data-testid="body"]')!;
-  mockScroll(body, 0, 100, 300); // can scroll DOWN
-  wheel(body, { deltaY: 80 }); // scale starts at 1 (>= NEAR_SCROLL_SCALE)
-  await flush();
-  assert(last.x === 0 && last.y === 0, `body consumed the wheel, canvas did not pan; got ${last.x},${last.y}`);
-  await act(async () => root.unmount());
-});
-
-test("zoomed in but body AT its boundary hands the wheel back to canvas pan", async () => {
-  const { host, root } = await render(<ScrollHarness />);
-  const body = host.querySelector('[data-testid="body"]')!;
-  mockScroll(body, 200, 100, 300); // scrolled to bottom → cannot scroll DOWN further
+  mockScroll(body, 0, 100, 300);
   wheel(body, { deltaY: 80 });
   await flush();
-  assert(last.y === -80, `at boundary the canvas pans; got y=${last.y}`);
+  assert(last.x === 0 && last.y === 0, `node owns the wheel, canvas did not pan; got ${last.x},${last.y}`);
   await act(async () => root.unmount());
 });
 
-test("zoomed out: wheel over a scrollable body still PANS (scroll never traps far out)", async () => {
+test("wheel over a node body AT its scroll boundary STILL does not pan (no hand-off, §24.2)", async () => {
+  const { host, root } = await render(<ScrollHarness />);
+  const body = host.querySelector('[data-testid="body"]')!;
+  mockScroll(body, 200, 100, 300); // at the bottom boundary
+  wheel(body, { deltaY: 80 });
+  await flush();
+  assert(last.x === 0 && last.y === 0, `boundary still never releases to canvas pan; got ${last.x},${last.y}`);
+  await act(async () => root.unmount());
+});
+
+test("wheel over empty canvas (not a node body) PANS — move OFF the node to pan", async () => {
   const { host, root } = await render(<ScrollHarness />);
   const vp = host.querySelector('[data-testid="vp"]')!;
-  wheel(vp, { deltaY: 300, ctrlKey: true }); // zoom OUT → scale < 1
+  wheel(vp, { deltaY: 80 });
   await flush();
-  assert(last.scale < 1, `precondition: zoomed out, got ${last.scale}`);
-  const body = host.querySelector('[data-testid="body"]')!;
-  mockScroll(body, 0, 100, 300); // could scroll, but we're zoomed out
-  const beforeY = last.y;
-  wheel(body, { deltaY: 80 });
-  await flush();
-  assert(last.y === beforeY - 80, `zoomed out, body wheel pans the canvas; got y=${last.y}`);
+  assert(last.y === -80, `off a node, the canvas pans; got y=${last.y}`);
   await act(async () => root.unmount());
 });
 
