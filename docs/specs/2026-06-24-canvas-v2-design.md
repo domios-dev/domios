@@ -723,9 +723,12 @@ parts are exactly the ones we don't need). NOT a Canvas-v2 blocker; do it after.
 
 Two non-negotiable base rules from Andrey. Where earlier sections conflict, THESE win.
 
-### 22.1 Zoom = camera ONLY — never resize/re-render nodes by zoom
-Nodes have a FIXED world-size (Figma model). Zoom pans/scales the CAMERA; a node's size and
-content do NOT change with zoom. This KILLS:
+### 22.1 Zoom = camera; node BOUNDS fixed, but content MAY adapt inside them
+Clarified by Andrey: a node's OUTER SIZE/BOUNDS stay FIXED at any zoom (zoom never changes a
+node's footprint → layout never reshuffles). The CONTENT INSIDE the fixed frame MAY adapt detail
+to zoom (semantic content LOD is fine and wanted — e.g. more text on approach) — but it must
+ALWAYS FIT the fixed bounds, NEVER overflow. So: the FRAME is fixed; the CONTENT is allowed to
+change. Forbidden = zoom changing the node's bounds/footprint. This KILLS:
 - continuous counter-scale typography (§16.2) — already removed.
 - AUTO-by-distance view-mode switching (§18.2, §20.2 "zoom = selector") — REMOVED. View mode
   (Document/Card/Tile) is a MANUAL choice (per-node or global toggle), never triggered by zoom.
