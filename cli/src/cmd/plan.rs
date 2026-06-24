@@ -5,6 +5,9 @@ use crate::args::plan::{
     PlanLoopAction, PlanMilestoneAction, PlanNoteAction, PlanSectionAction, PlanTaskAction,
 };
 use crate::client::{SocketCallError, SocketClient};
+use crate::cmd::hints::{
+    print_hints, push_hints, task_model_hint, task_sections_hint,
+};
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
 
@@ -164,6 +167,31 @@ fn render_plan_markdown(plan: &Value) -> String {
     out
 }
 
+fn render_plan_sections(plan: &Value) -> String {
+    fn walk(sections: &[Value], depth: usize, out: &mut String) {
+        for section in sections {
+            let id = section.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+            let title = section
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            out.push_str(&format!("{}{}\t{}\n", "  ".repeat(depth), id, title));
+            if let Some(children) = section.get("subsections").and_then(|v| v.as_array()) {
+                walk(children, depth + 1, out);
+            }
+        }
+    }
+
+    let mut out = String::new();
+    if let Some(sections) = plan.get("sections").and_then(|v| v.as_array()) {
+        walk(sections, 0, &mut out);
+    }
+    if out.is_empty() {
+        out.push_str("(no sections)\n");
+    }
+    out
+}
+
 fn render_coverage(val: &Value) -> String {
     let mut out = String::new();
     let frac = val
@@ -276,12 +304,16 @@ fn run_plan(
             call(client, "plan.list", params)
         }
 
-        PlanAction::Get { plan_id } => {
+        PlanAction::Get { plan_id, sections } => {
             let val = call(client, "plan.get", json!({ "plan_id": plan_id }))?;
             if json {
                 return Ok(Some(val));
             }
-            println!("{}", render_plan_markdown(&val));
+            if sections {
+                print!("{}", render_plan_sections(&val));
+            } else {
+                println!("{}", render_plan_markdown(&val));
+            }
             return Ok(None);
         }
 
@@ -589,7 +621,13 @@ fn run_plan(
                 let why_text = resolve_text(why, why_file)?;
                 let body_text = resolve_text(body, body_file)?;
                 let intent_text = resolve_text(intent, intent_file)?;
-                let mut params = json!({ "plan_id": plan_id, "name": name });
+                let has_sections = sections
+                    .as_deref()
+                    .map(|s| s.split(',').any(|item| !item.trim().is_empty()))
+                    .unwrap_or(false);
+                let has_model = model.as_deref().is_some_and(|s| !s.trim().is_empty());
+                let has_why = why_text.as_deref().is_some_and(|s| !s.trim().is_empty());
+                let mut params = json!({ "plan_id": plan_id.clone(), "name": name });
                 if let Some(k) = kind {
                     params["type"] = json!(k);
                 }
@@ -629,7 +667,22 @@ fn run_plan(
                 if let Some(handle) = handle {
                     params["handle"] = json!(handle);
                 }
-                call(client, "plan.task.add", params)
+                let mut val = call(client, "plan.task.add", params)?;
+                if let Some(task_id) = val
+                    .get("task_id")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                {
+                    let mut hints = vec![];
+                    if !has_sections {
+                        hints.push(task_sections_hint(&plan_id, &task_id));
+                    }
+                    if !has_model || !has_why {
+                        hints.push(task_model_hint(&plan_id, &task_id));
+                    }
+                    push_hints(&mut val, hints);
+                }
+                Ok(val)
             }
             PlanTaskAction::Update {
                 plan_id,
@@ -645,6 +698,7 @@ fn run_plan(
                 body_file,
                 intent,
                 intent_file,
+                sections,
                 parent,
                 group,
                 priority,
@@ -679,6 +733,9 @@ fn run_plan(
                 }
                 if let Some(i) = intent_text {
                     params["intent"] = json!(i);
+                }
+                if let Some(s) = sections {
+                    params["sections"] = json!(s);
                 }
                 if let Some(p) = parent {
                     params["parent_task_id"] = json!(p);
@@ -873,7 +930,21 @@ fn run_plan(
 fn print_plan_result(json: bool, val: &Value) {
     if json {
         println!("{}", serde_json::to_string_pretty(val).unwrap());
-    } else if val.get("plan_id").is_some() && val.get("plan").is_none() {
+        return;
+    }
+
+    let hints: Vec<String> = val
+        .get("_hints")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if val.get("plan_id").is_some() && val.get("plan").is_none() {
         if let Some(id) = val.get("plan_id").and_then(|v| v.as_str()) {
             println!("{}", id);
         } else {
@@ -911,90 +982,8 @@ fn print_plan_result(json: bool, val: &Value) {
     } else {
         print_object(val);
     }
+    print_hints(&hints);
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn renders_undeclared_kind_fix() {
-        let msg = render_plan_error(
-            &json!({ "type": "undeclared_kind", "declared": ["status_update", "review"] }),
-            &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
-        )
-        .unwrap();
-        assert!(msg.contains("✗ undeclared milestone kind"));
-        assert!(msg.contains("valid kinds: status_update|review"));
-        assert!(msg.contains("codeterm plan kinds set plan_1 --kinds status_update,review,<new>"));
-        assert!(msg.contains("--add-kind"));
-    }
-
-    #[test]
-    fn renders_bad_status_fix() {
-        let msg = render_plan_error(
-            &json!({ "type": "bad_status" }),
-            &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
-        )
-        .unwrap();
-        assert!(msg.contains("pending|in_progress|blocked|done|cancelled"));
-        assert!(msg.contains("codeterm plan task update plan_1 task_1 --status pending"));
-        assert!(msg.contains("--status-label"));
-    }
-
-    #[test]
-    fn renders_unknown_plan_fix() {
-        let msg = render_plan_error(
-            &json!({ "type": "not_found" }),
-            &json!({ "plan_id": "missing" }),
-        )
-        .unwrap();
-        assert!(msg.contains("✗ no plan 'missing'"));
-        assert!(msg.contains("codeterm plan list --active"));
-    }
-
-    #[test]
-    fn renders_unknown_task_fix() {
-        let msg = render_plan_error(
-            &json!({ "type": "task_not_found" }),
-            &json!({ "plan_id": "plan_1", "task_id": "missing_task" }),
-        )
-        .unwrap();
-        assert!(msg.contains("✗ no task 'missing_task'"));
-        assert!(msg.contains("codeterm plan list --active"));
-    }
-
-    #[test]
-    fn renders_loop_budget_fix() {
-        let msg = render_plan_error(
-            &json!({ "type": "budget_exhausted", "count": 3, "budget": 3 }),
-            &json!({ "loop_id": "loop_1" }),
-        )
-        .unwrap();
-        assert!(msg.contains("✗ loop budget 3/3 reached"));
-        assert!(msg.contains("codeterm plan loop set loop_1 --budget N"));
-    }
-
-    #[test]
-    fn renders_file_manifest() {
-        let rendered = render_file_manifest(&json!({
-            "index_path": ".codeterm/plans/pl_1/INDEX.md",
-            "entries": [
-                {
-                    "kind": "section",
-                    "title": "Spec",
-                    "path": ".codeterm/plans/pl_1/sections/sec_1.md"
-                },
-                {
-                    "kind": "task",
-                    "title": "Build",
-                    "path": ".codeterm/plans/pl_1/tasks/task_1.md"
-                }
-            ]
-        }));
-        assert!(rendered.contains("INDEX.md\t.codeterm/plans/pl_1/INDEX.md"));
-        assert!(rendered.contains("Spec\t.codeterm/plans/pl_1/sections/sec_1.md"));
-        assert!(rendered.contains("Build\t.codeterm/plans/pl_1/tasks/task_1.md"));
-    }
-}
+mod tests;

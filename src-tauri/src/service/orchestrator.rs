@@ -136,6 +136,8 @@ pub struct SpawnResult {
     pub tab_id: String,
     pub pty_id: String,
     pub agent: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -284,6 +286,7 @@ impl ServiceContext {
             .clone()
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
+        let model = params.model.clone();
         // Reject non-spawnable backends / unknown ids cleanly before building the
         // spec, so the socket-RPC path errors identically to the HTTP path
         self.classify_spawn_target(&agent)?;
@@ -297,6 +300,7 @@ impl ServiceContext {
             tab_id: handle.tab_id,
             pty_id: handle.pty_id.unwrap_or_default(),
             agent,
+            model,
             title,
             description: handle.description,
             role,
@@ -320,6 +324,7 @@ impl ServiceContext {
         let is_shell = self.classify_spawn_target(&agent_cmd)?;
         if is_shell {
             let role = params.role.clone();
+            let model = params.model.clone();
             let title = params
                 .title
                 .clone()
@@ -335,6 +340,7 @@ impl ServiceContext {
                 tab_id: handle.tab_id,
                 pty_id: handle.pty_id.unwrap_or_default(),
                 agent: agent_cmd,
+                model,
                 title,
                 description: handle.description,
                 role,
@@ -550,6 +556,7 @@ impl ServiceContext {
             tab_id,
             pty_id: String::new(), // PTY not yet assigned — happens async
             agent: agent_cmd,
+            model: params.model,
             title,
             description: params.description,
             role: params.role,

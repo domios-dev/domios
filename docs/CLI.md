@@ -1347,6 +1347,7 @@ Show sections with zero tasks
 Get a plan (markdown by default)
 
 - `<plan_id>`
+- `--sections`
 
 #### `codeterm plan groups`
 
@@ -1621,6 +1622,7 @@ Plan tasks
 - `<plan_id>`
 - `--primary`
 - `--priority`
+- `--sections`
 - `--status`
 - `--status_label`
 - `--tags`

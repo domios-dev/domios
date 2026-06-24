@@ -446,9 +446,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                     let pid = val.get("pane_id").and_then(|v| v.as_str());
                     let title_str = val.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+                    let agent_str = val.get("agent").and_then(|v| v.as_str()).unwrap_or("?");
+                    let resolved = val
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.trim().is_empty())
+                        .map(|model| format!("{agent_str}/{model}"))
+                        .unwrap_or_else(|| agent_str.to_string());
                     let warning = val.get("warning").and_then(|v| v.as_str());
                     if let Some(pid) = pid {
-                        println!("Spawned: {} (pane {})", title_str, pid);
+                        println!("Spawned {resolved}: {title_str} (pane {pid})");
                     } else if let Some(err) = val.get("error").or_else(|| val.get("message")) {
                         eprintln!("Error: {}", err);
                     } else {

@@ -261,6 +261,49 @@ fn plan_record_parses_batch_sugar() {
 }
 
 #[test]
+fn plan_task_update_parses_sections() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "task",
+        "update",
+        "pl_1",
+        "task_1",
+        "--sections",
+        "sec_a,sec_b",
+    ])
+    .expect("plan task update parses sections");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action:
+                        crate::args::plan::PlanTaskAction::Update {
+                            sections,
+                            ..
+                        },
+                },
+        } => assert_eq!(sections.as_deref(), Some("sec_a,sec_b")),
+        _ => panic!("expected plan task update"),
+    }
+}
+
+#[test]
+fn plan_get_parses_sections_lookup() {
+    let parsed = Cli::try_parse_from(["codeterm", "plan", "get", "pl_1", "--sections"])
+        .expect("plan get --sections parses");
+    match parsed.command {
+        Commands::Plan {
+            action: PlanAction::Get { plan_id, sections },
+        } => {
+            assert_eq!(plan_id, "pl_1");
+            assert!(sections);
+        }
+        _ => panic!("expected plan get"),
+    }
+}
+
+#[test]
 fn plan_handoff_subcommands_parse() {
     let parsed = Cli::try_parse_from([
         "codeterm",

@@ -6,6 +6,7 @@ pub mod docs;
 pub mod dream;
 pub mod effort;
 pub mod graph_mutate;
+pub mod hints;
 pub mod install;
 pub mod local_io;
 pub mod manifest;

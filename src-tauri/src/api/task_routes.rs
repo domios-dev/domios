@@ -172,6 +172,8 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
         .assign_pane
         .as_deref()
         .and_then(|pane| pane_role(&state, pane));
+    let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
+    let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
     let assign_pane = body.assign_pane.clone();
     let (plan_id, task_id) = state
         .svc
@@ -204,7 +206,17 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
         "plan-changed",
         json!({ "plan_id": plan_id }),
     );
-    Ok(Json(json!({ "plan_id": plan_id, "task_id": task_id })))
+    Ok(Json(json!({
+        "plan_id": plan_id.clone(),
+        "task_id": task_id.clone(),
+        "_hints": crate::service::plan::hints::task_create_hints(
+            &plan_id,
+            &task_id,
+            false,
+            has_model,
+            has_why
+        )
+    })))
 }
 
 #[derive(Debug, Deserialize)]

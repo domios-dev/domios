@@ -33,7 +33,11 @@ pub enum PlanAction {
         orchestrator: Option<String>,
     },
     /// Get a plan (markdown by default)
-    Get { plan_id: String },
+    Get {
+        plan_id: String,
+        #[arg(long)]
+        sections: bool,
+    },
     /// Print only the hydrated section prose
     Spec { plan_id: String },
     /// List generated section/task body files
@@ -321,6 +325,8 @@ pub enum PlanTaskAction {
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
+        #[arg(long)]
+        sections: Option<String>,
         #[arg(long)]
         parent: Option<String>,
         #[arg(long)]

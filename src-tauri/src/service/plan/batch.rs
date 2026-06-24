@@ -41,6 +41,19 @@ pub enum BatchOp {
         #[serde(alias = "body_md")]
         body: String,
     },
+    SetTaskSections {
+        #[serde(default)]
+        client_id: Option<String>,
+        task: String,
+        #[serde(default)]
+        sections: Vec<String>,
+    },
+    SetTaskStatus {
+        #[serde(default)]
+        client_id: Option<String>,
+        task: String,
+        status: String,
+    },
     AddMilestone {
         #[serde(default)]
         client_id: Option<String>,
@@ -149,6 +162,8 @@ pub struct BatchResult {
     pub element_ids: Vec<String>,
     pub spec_ids: Vec<String>,
     pub spec_section_ids: Vec<String>,
+    #[serde(rename = "_hints", skip_serializing_if = "Vec::is_empty")]
+    pub hints: Vec<String>,
 }
 
 impl Default for BatchResult {
@@ -161,6 +176,7 @@ impl Default for BatchResult {
             element_ids: Vec::new(),
             spec_ids: Vec::new(),
             spec_section_ids: Vec::new(),
+            hints: Vec::new(),
         }
     }
 }
@@ -186,6 +202,11 @@ fn resolve_ref(value: &str, ids: &HashMap<String, String>) -> String {
 }
 
 fn find_task_mut<'a>(tasks: &'a mut [Task], selector: &str) -> Option<&'a mut Task> {
+    if selector == "@latest" {
+        return tasks
+            .iter_mut()
+            .max_by_key(|task| (task.updated_at, task.created_at));
+    }
     tasks
         .iter_mut()
         .find(|task| task.id == selector || task.handle.as_deref() == Some(selector))
@@ -268,6 +289,13 @@ impl PlanStore {
                             priority,
                             group,
                         } => {
+                            let created = !working.tasks.iter().any(|task| {
+                                task.id == handle
+                                    || task.handle.as_deref() == Some(handle.as_str())
+                            });
+                            let missing_model = model.as_deref().is_none_or(str::is_empty);
+                            let missing_why = why.as_deref().is_none_or(str::is_empty);
+                            let missing_sections = sections.is_empty();
                             let task_id = if let Some(task) =
                                 working.tasks.iter_mut().find(|task| {
                                     task.id == handle
@@ -348,8 +376,15 @@ impl PlanStore {
                                 result.ids.insert(client_id, task_id.clone());
                             }
                             if !result.task_ids.iter().any(|id| id == &task_id) {
-                                result.task_ids.push(task_id);
+                                result.task_ids.push(task_id.clone());
                             }
+                            result.hints.extend(super::hints::task_create_hints(
+                                plan_id,
+                                &task_id,
+                                !created || !missing_sections,
+                                !created || !missing_model,
+                                !created || !missing_why,
+                            ));
                         }
                         BatchOp::SetTaskBody { task, body } => {
                             let task_id = resolve_ref(&task, &result.ids);
@@ -357,6 +392,44 @@ impl PlanStore {
                                 .ok_or(PlanError::TaskNotFound)?;
                             task.body = body;
                             task.updated_at = now_ms;
+                            if !result.task_ids.iter().any(|id| id == &task.id) {
+                                result.task_ids.push(task.id.clone());
+                            }
+                        }
+                        BatchOp::SetTaskSections {
+                            client_id,
+                            task,
+                            sections,
+                        } => {
+                            let task_id = resolve_ref(&task, &result.ids);
+                            let task = find_task_mut(&mut working.tasks, &task_id)
+                                .ok_or(PlanError::TaskNotFound)?;
+                            task.section_ids = sections;
+                            task.updated_at = now_ms;
+                            if let Some(client_id) = client_id {
+                                result.ids.insert(client_id, task.id.clone());
+                            }
+                            if !result.task_ids.iter().any(|id| id == &task.id) {
+                                result.task_ids.push(task.id.clone());
+                            }
+                        }
+                        BatchOp::SetTaskStatus {
+                            client_id,
+                            task,
+                            status,
+                        } => {
+                            let task_id = resolve_ref(&task, &result.ids);
+                            let parsed = parse_status(&status)?;
+                            let task = find_task_mut(&mut working.tasks, &task_id)
+                                .ok_or(PlanError::TaskNotFound)?;
+                            if task.status != parsed {
+                                task.status = parsed;
+                                task.status_changed_at = now_ms;
+                            }
+                            task.updated_at = now_ms;
+                            if let Some(client_id) = client_id {
+                                result.ids.insert(client_id, task.id.clone());
+                            }
                             if !result.task_ids.iter().any(|id| id == &task.id) {
                                 result.task_ids.push(task.id.clone());
                             }

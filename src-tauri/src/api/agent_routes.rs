@@ -93,6 +93,7 @@ pub async fn spawn_agent(
         "tab_id": result.tab_id,
         "pty_id": result.pty_id,
         "agent": result.agent,
+        "model": result.model,
         "title": result.title,
         "description": result.description,
         "role": result.role,

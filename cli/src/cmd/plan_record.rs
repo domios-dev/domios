@@ -58,13 +58,16 @@ pub fn record(
     key: Option<String>,
 ) -> Result<Value, String> {
     let task_selector = upsert_task.clone().or(task.clone());
-    if task_selector.is_none() && (!steps.is_empty() || body_file.is_some() || status.is_some()) {
+    if task_selector.is_none()
+        && (!steps.is_empty() || body_file.is_some() || status.is_some() || sections.is_some())
+    {
         return Err("--task or --upsert-task is required for task writes".into());
     }
 
     let mut ops = Vec::new();
+    let section_ids = split_csv(sections.clone());
     if let Some(selector) = task_selector.clone() {
-        if upsert_task.is_some() || name.is_some() || status.is_some() || sections.is_some() {
+        if upsert_task.is_some() || name.is_some() {
             let mut op = json!({
                 "op": "upsert_task",
                 "client_id": "task",
@@ -73,14 +76,30 @@ pub fn record(
             if let Some(name) = name {
                 op["name"] = json!(name);
             }
-            let section_ids = split_csv(sections);
             if !section_ids.is_empty() {
-                op["sections"] = json!(section_ids);
+                op["sections"] = json!(section_ids.clone());
             }
             if let Some(status) = status {
                 op["status"] = json!(status);
             }
             ops.push(op);
+        } else {
+            if sections.is_some() {
+                ops.push(json!({
+                    "op": "set_task_sections",
+                    "client_id": "task",
+                    "task": selector,
+                    "sections": section_ids.clone(),
+                }));
+            }
+            if let Some(status) = status {
+                ops.push(json!({
+                    "op": "set_task_status",
+                    "client_id": "task",
+                    "task": selector,
+                    "status": status,
+                }));
+            }
         }
     }
 
