@@ -51,6 +51,11 @@ pub enum PlanAction {
         #[arg(long, default_value = "1")]
         depth: usize,
     },
+    /// Rebuild the project-local plan recall index
+    Reindex {
+        #[arg(long)]
+        project: Option<String>,
+    },
     /// Set task groups (phases)
     Groups {
         #[command(subcommand)]
