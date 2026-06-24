@@ -1,6 +1,5 @@
 import type { CSSProperties } from "react";
-import { BookOpen, Eye, EyeOff, FileText, LayoutGrid, Map as MapIcon, Maximize2, Minus, Plus, RotateCcw, Square } from "lucide-react";
-import type { CanvasViewModeSetting } from "./cards";
+import { BookOpen, LayoutGrid, Map as MapIcon, Maximize2, Minus, Plus, RotateCcw } from "lucide-react";
 
 const bar: CSSProperties = {
   position: "absolute",
@@ -40,43 +39,22 @@ const iconBtn = (active = false): CSSProperties => ({
 
 const divider: CSSProperties = { width: 1, height: 20, background: "var(--ct-border-subtle)", margin: "0 2px" };
 
-const MODES: { key: CanvasViewModeSetting; label: string; Icon: typeof Square; title: string }[] = [
-  { key: "document", label: "Doc", Icon: FileText, title: "Document — full markdown body" },
-  { key: "card", label: "Card", Icon: LayoutGrid, title: "Card — title + digest" },
-  { key: "tile", label: "Tile", Icon: Square, title: "Tile — title + status only" },
-];
-
+// §24.1: ONE behavior — no Doc/Card/Tile node-mode switch. The toolbar is camera-
+// only: zoom / fit / reset + Overview/Read camera presets + minimap. Node content
+// adapts to camera zoom (content-LOD), never a manual node mode.
 export interface CanvasToolbarProps {
   scale: number;
-  viewModeSetting: CanvasViewModeSetting;
-  showText: boolean;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onFit: () => void;
   onReset: () => void;
-  onSetMode: (mode: CanvasViewModeSetting) => void;
-  onToggleText: () => void;
   onOverview: () => void;
   onRead: () => void;
   onToggleMinimap: () => void;
   minimapOn: boolean;
 }
 
-export function CanvasToolbar({
-  scale,
-  viewModeSetting,
-  showText,
-  onZoomIn,
-  onZoomOut,
-  onFit,
-  onReset,
-  onSetMode,
-  onToggleText,
-  onOverview,
-  onRead,
-  onToggleMinimap,
-  minimapOn,
-}: CanvasToolbarProps) {
+export function CanvasToolbar({ scale, onZoomIn, onZoomOut, onFit, onReset, onOverview, onRead, onToggleMinimap, minimapOn }: CanvasToolbarProps) {
   return (
     <div data-testid="canvas-toolbar" style={bar} onMouseDown={(e) => e.stopPropagation()}>
       <button type="button" data-testid="canvas-zoom-out" title="Zoom out" style={iconBtn()} onClick={onZoomOut}>
@@ -97,47 +75,14 @@ export function CanvasToolbar({
 
       <span style={divider} />
 
-      {MODES.map(({ key, label, Icon, title }) => {
-        const active = viewModeSetting === key;
-        return (
-          <button
-            key={key}
-            type="button"
-            data-testid={`canvas-mode-${key}`}
-            data-active={active ? "true" : "false"}
-            title={title}
-            style={iconBtn(active)}
-            onClick={() => onSetMode(key)}
-          >
-            <Icon size={13} />
-            {label}
-          </button>
-        );
-      })}
-
-      <span style={divider} />
-
-      <button type="button" data-testid="canvas-preset-overview" title="Overview — Tile + fit all" style={iconBtn()} onClick={onOverview}>
+      <button type="button" data-testid="canvas-preset-overview" title="Overview — fit the whole board" style={iconBtn()} onClick={onOverview}>
         <LayoutGrid size={13} /> Overview
       </button>
-      <button type="button" data-testid="canvas-preset-read" title="Read — Document + focus the active plan" style={iconBtn()} onClick={onRead}>
+      <button type="button" data-testid="canvas-preset-read" title="Read — focus the active plan" style={iconBtn()} onClick={onRead}>
         <BookOpen size={13} /> Read
       </button>
       <button type="button" data-testid="canvas-minimap-toggle" title="Toggle minimap" style={iconBtn(minimapOn)} onClick={onToggleMinimap}>
         <MapIcon size={14} />
-      </button>
-
-      <span style={divider} />
-
-      <button
-        type="button"
-        data-testid="canvas-text-toggle"
-        data-active={showText ? "true" : "false"}
-        title={showText ? "Hide bodies (declutter)" : "Show bodies"}
-        style={iconBtn(!showText)}
-        onClick={onToggleText}
-      >
-        {showText ? <Eye size={14} /> : <EyeOff size={14} />}
       </button>
     </div>
   );

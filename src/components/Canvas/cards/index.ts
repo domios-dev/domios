@@ -1,11 +1,10 @@
-export { PlanNode, type PlanNodeProps } from "./PlanNode";
-export { SectionedPlanNode, type SectionedPlanNodeProps } from "./SectionedPlanNode";
-export { SpecSectionCard, type SpecSectionCardProps } from "./SpecSectionCard";
+export { SectionNode, type SectionNodeProps } from "./SectionNode";
 export { TaskCard, type TaskCardProps } from "./TaskCard";
 export { MilestoneBubble, type MilestoneBubbleProps, type MilestoneBubbleModel } from "./MilestoneBubble";
 export { OrchestratorGroup, type OrchestratorGroupProps } from "./OrchestratorGroup";
 export { NoteCard, type NoteCardProps } from "./NoteCard";
 export { DecisionCard, type DecisionCardProps } from "./DecisionCard";
+export { TaskSteps } from "./TaskSteps";
 export { planCoverageFraction } from "./coverage";
 export { digestMarkdown } from "./digest";
-export type { CanvasLod, CanvasViewMode, CanvasViewModeSetting, CanvasCardStyleProps } from "./types";
+export type { CanvasLod, CanvasCardStyleProps } from "./types";

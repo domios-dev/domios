@@ -8,14 +8,13 @@ import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
 import { CanvasUnownedTray } from "./CanvasUnownedTray";
-import type { CanvasLod, CanvasViewMode, CanvasViewModeSetting, MilestoneBubbleModel } from "./cards";
+import type { CanvasLod, MilestoneBubbleModel } from "./cards";
 import { OrchestratorGroup } from "./cards";
-import { resolveGlobalMode } from "./viewMode";
 import { getNodeRenderer } from "./nodeRegistry";
 import { bezierPath, resolveEdgeEnds } from "./edges";
 import { milestoneColorMap } from "./milestoneColors";
 import { sectionRows, type SectionRowGlyph } from "./sectionRows";
-import { layoutWorkspace, visibleFrameIds, visibleNodeIds, type LaidOutNode, type NodeModeResolver } from "./layout";
+import { layoutWorkspace, visibleFrameIds, visibleNodeIds, type LaidOutNode } from "./layout";
 import { archivePlan } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { filterPlansForCanvas } from "./planPaneMatch";
@@ -41,8 +40,6 @@ export interface CanvasViewInnerProps {
   api?: ApiConfig;
   /** Test hook: expand viewport culling margin. */
   viewportPadding?: number;
-  /** Initial view-mode setting (§18); user-overridable via the toolbar. */
-  initialViewMode?: CanvasViewModeSetting;
 }
 
 // Deterministic [0,1) hash of an edge id → stable per-edge curvature jitter.
@@ -54,6 +51,9 @@ function edgeJitter(id: string): number {
   }
   return ((h >>> 0) % 1000) / 1000;
 }
+
+// §23.7: camera zoom past this reveals section bodies inside the fixed frame.
+const CONTENT_LOD_SCALE = 1.3;
 
 function lodForScale(scale: number): CanvasLod {
   const s = DEFAULT_CANVAS_SETTINGS;
@@ -112,17 +112,16 @@ interface CanvasNodeCardProps {
   node: LaidOutNode;
   model: unknown;
   lod: CanvasLod;
-  viewMode: CanvasViewMode;
+  contentNear: boolean;
   dimmed?: boolean;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
   onArchive?: () => void;
-  onSetNodeMode?: (nodeId: string, mode: CanvasViewMode) => void;
   onFitNode?: (nodeId: string) => void;
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, viewMode, dimmed, onOpenPane, onHoverTask, onArchive, onSetNodeMode, onFitNode }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, contentNear, dimmed, onOpenPane, onHoverTask, onArchive, onFitNode }: CanvasNodeCardProps) {
     const base = nodeStyle(node.box);
     const style = dimmed ? { ...base, opacity: 0.22, transition: "opacity var(--ct-duration-normal) var(--ct-ease-decel)" } : base;
     const rendered = getNodeRenderer(node.kind)({
@@ -130,11 +129,10 @@ const CanvasNodeCard = memo(
       model,
       style,
       lod,
-      viewMode,
+      contentNear,
       onOpenPane,
       onHoverTask,
       onArchive,
-      onSetNodeMode,
       onFitNode,
     });
     return rendered ? <Fragment key={node.id}>{rendered}</Fragment> : null;
@@ -142,7 +140,7 @@ const CanvasNodeCard = memo(
   (prev, next) => {
     if (prev.node.id !== next.node.id) return false;
     if (prev.lod !== next.lod) return false;
-    if (prev.viewMode !== next.viewMode) return false;
+    if (prev.contentNear !== next.contentNear) return false;
     if (prev.dimmed !== next.dimmed) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;
@@ -166,7 +164,6 @@ export function CanvasViewInner({
   onOpenPane,
   api,
   viewportPadding,
-  initialViewMode = "tile",
 }: CanvasViewInnerProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
@@ -184,30 +181,11 @@ export function CanvasViewInner({
     panButton: "middle",
   });
 
-  // Discrete MANUAL view modes (§18/§22.1): a global setting (Doc/Card/Tile) + a
-  // text toggle + optional per-node locks. Zoom never switches modes — node bbox
-  // is fixed per mode; the resolved mode sizes the layout.
-  const [viewModeSetting, setViewModeSetting] = useState<CanvasViewModeSetting>(initialViewMode);
-  const [showText, setShowText] = useState(true);
+  // §24.1: ONE behavior — no manual view modes. Node frames are fixed; content
+  // adapts to camera zoom (content-LOD). The toolbar is camera-only.
   const [minimapOn, setMinimapOn] = useState(true);
-  const [nodeModeOverrides, setNodeModeOverrides] = useState<Map<string, CanvasViewMode>>(() => new Map());
-  const resolvedMode = resolveGlobalMode(viewModeSetting, showText);
-  const modeFor = useCallback<NodeModeResolver>(
-    (id) => nodeModeOverrides.get(id) ?? resolvedMode,
-    [nodeModeOverrides, resolvedMode],
-  );
-  const setNodeMode = useCallback((nodeId: string, mode: CanvasViewMode) => {
-    setNodeModeOverrides((prev) => {
-      const next = new Map(prev);
-      next.set(nodeId, mode);
-      return next;
-    });
-  }, []);
 
-  const layout = useMemo(
-    () => layoutWorkspace(filteredPlans, DEFAULT_CANVAS_SETTINGS, modeFor),
-    [filteredPlans, modeFor],
-  );
+  const layout = useMemo(() => layoutWorkspace(filteredPlans), [filteredPlans]);
 
   const lookups = useMemo<CanvasLookups>(() => {
     const nodeById = new Map<string, LaidOutNode>();
@@ -258,14 +236,10 @@ export function CanvasViewInner({
       switch (node.kind) {
         case "plan":
           return planById.get(node.id);
-        case "spec-section":
-          return lookups.specSectionById.get(node.id);
+        case "spec":
+          return planById.get(node.planId);
         case "task":
           return lookups.taskModelById.get(node.id);
-        case "milestone":
-          return lookups.milestoneModelById.get(node.id);
-        case "cluster":
-          return lookups.clusterModelById.get(node.id);
         default:
           return lookups.elementById.get(node.id);
       }
@@ -296,6 +270,7 @@ export function CanvasViewInner({
   const onHoverTask = useCallback((id: string | null) => setHoveredTask(id), []);
 
   const lod = lodForScale(transform.scale);
+  const contentNear = transform.scale >= CONTENT_LOD_SCALE;
   const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
   const canvasSize = useMemo(() => ({ width: size.width, height: size.height }), [size.width, size.height]);
   const frameIds = useMemo(
@@ -420,14 +395,13 @@ export function CanvasViewInner({
     [lookups, fitToView],
   );
 
-  // §23.4 presets + camera-focus reading gesture.
+  // §23.4 camera presets + focus gesture — camera-only (no node modes, §24.1).
+  // Content reveals itself by zoom: Overview = zoom out (compact), Read = zoom in.
   const overviewPreset = useCallback(() => {
-    setViewModeSetting("tile");
     setFocusedNodeId(null);
     fitToView(layout.bounds);
   }, [fitToView, layout.bounds]);
   const readPreset = useCallback(() => {
-    setViewModeSetting("document");
     if (activePlanId) {
       setFocusedNodeId(activePlanId);
       fitCameraToNodes([activePlanId]);
@@ -435,11 +409,10 @@ export function CanvasViewInner({
   }, [activePlanId, fitCameraToNodes]);
   const focusNodeCamera = useCallback(
     (id: string) => {
-      setNodeMode(id, "document");
       setFocusedNodeId(id);
       fitCameraToNodes([id]);
     },
-    [setNodeMode, fitCameraToNodes],
+    [fitCameraToNodes],
   );
 
   // Esc backs out of a camera-focus (un-dim, release lock).
@@ -592,12 +565,11 @@ export function CanvasViewInner({
                     node={n}
                     model={resolveModel(n)}
                     lod={lod}
-                    viewMode={modeFor(n.id, n.kind, n.planId)}
+                    contentNear={contentNear}
                     dimmed={focusedNodeId != null && n.planId !== focusedPlanId && n.id !== focusedNodeId}
                     onOpenPane={onOpenPane}
                     onHoverTask={onHoverTask}
                     onArchive={n.kind === "plan" && api ? () => handleArchive(n.id) : undefined}
-                    onSetNodeMode={n.kind === "plan" ? setNodeMode : undefined}
                     onFitNode={n.kind === "plan" ? fitNode : undefined}
                   />
                 )),
@@ -629,14 +601,10 @@ export function CanvasViewInner({
       {!loading && !error && filteredPlans.length > 0 && (
         <CanvasToolbar
           scale={transform.scale}
-          viewModeSetting={viewModeSetting}
-          showText={showText}
           onZoomIn={() => zoomBy(0.2)}
           onZoomOut={() => zoomBy(-0.2)}
           onFit={fitView}
           onReset={resetView}
-          onSetMode={setViewModeSetting}
-          onToggleText={() => setShowText((v) => !v)}
           onOverview={overviewPreset}
           onRead={readPreset}
           onToggleMinimap={() => setMinimapOn((v) => !v)}

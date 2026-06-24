@@ -2,8 +2,7 @@
 
 import type { Plan, Section, Task } from "../types";
 import { DEFAULT_CANVAS_SETTINGS as S } from "../settings";
-import type { CanvasViewMode } from "../cards/types";
-import { layoutWorkspace, boxesOverlap, type NodeModeResolver } from "./index";
+import { layoutWorkspace, boxesOverlap } from "./index";
 
 let passed = 0;
 let failed = 0;
@@ -59,9 +58,9 @@ ok("task grid width within maxCols*colPitch", taskRight - taskLeft <= S.maxTaskC
 const taskTop = Math.min(...taskNodes.map((n) => n.box.y));
 const taskBottom = Math.max(...taskNodes.map((n) => n.box.y + n.box.height));
 const bandedH = taskBottom - taskTop;
-// The real портянka: 38 Document cells (taskDocH) stacked one-per-row with gaps.
-// Banding into <=3 cols must cut that by well over a third.
-const singleColH = 38 * (S.taskDocH + S.taskGapY);
+// The real портянka: 38 cells stacked one-per-row with gaps. Banding into
+// <=3 cols + skyline packing must cut that by well over a third.
+const singleColH = 38 * (S.taskH + S.taskGapY);
 ok(`banded height (${Math.round(bandedH)}) far below single-column (${singleColH})`, bandedH < singleColH * 0.6);
 
 // No task node overlaps another (top-down non-overlap sweep).
@@ -95,15 +94,16 @@ function dogfoodPlan(): Plan {
   };
 }
 
-const fixed = (m: CanvasViewMode): NodeModeResolver => () => m;
-for (const [mode, bound] of [["tile", 2600] as const, ["card", 4200] as const]) {
-  const lo = layoutWorkspace([dogfoodPlan()], S, fixed(mode));
-  ok(`${mode} world height bounded (${Math.round(lo.bounds.height)} < ${bound}) — no km strip`, lo.bounds.height < bound);
+// §24.1: ONE fixed task size. Skyline packing keeps the dogfood board bounded.
+{
+  const lo = layoutWorkspace([dogfoodPlan()]);
+  const bound = 2600;
+  ok(`world height bounded (${Math.round(lo.bounds.height)} < ${bound}) — no km strip`, lo.bounds.height < bound);
   const tn = lo.frames[0].nodes.filter((n) => n.kind === "task");
-  ok(`${mode}: no task overlap at dogfood scale`, noTaskOverlap(tn));
+  ok("no task overlap at dogfood scale", noTaskOverlap(tn));
   // Top-level cells use ≤ maxTaskCols columns (children may indent one more).
   const topXs = new Set(lo.frames[0].nodes.filter((n) => n.kind === "task" && !n.id.startsWith("sub")).map((n) => Math.round(n.box.x)));
-  ok(`${mode}: top-level tasks within ≤ maxTaskCols columns`, topXs.size <= S.maxTaskCols);
+  ok("top-level tasks within ≤ maxTaskCols columns", topXs.size <= S.maxTaskCols);
 }
 
 // Determinism: same input → identical task boxes.

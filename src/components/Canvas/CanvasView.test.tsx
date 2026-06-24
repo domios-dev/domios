@@ -56,39 +56,34 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
   return { host, root };
 }
 
-test("CanvasViewInner renders the merged SectionedPlanNode (rail + body) and task card", async () => {
+test("CanvasViewInner renders the SEPARATE spec + plan nodes (§24.3) and a task card", async () => {
   const { host, root } = await render(
-    <CanvasViewInner mode="workspace" plans={[FIXTURE_PLAN]} viewportPadding={10000} initialViewMode="document" />,
+    <CanvasViewInner mode="workspace" plans={[FIXTURE_PLAN]} viewportPadding={10000} />,
   );
   await act(async () => {
     await new Promise((r) => setTimeout(r, 10));
   });
   assert(host.querySelector('[data-testid="canvas-view"]'), "canvas shell");
-  assert(host.querySelector('[data-testid="canvas-plan-node"]'), "one merged plan node");
-  // Merged node (§22.2): no separate spec-section node; the spec prose is the
-  // section bodies inside the plan node's Document body, with a right-edge rail.
-  assert(!host.querySelector('[data-testid="canvas-spec-section"]'), "no separate spec node");
-  assert(host.querySelector('[data-testid="canvas-plan-rail"]'), "right-edge rail present");
-  assert(host.querySelector('[data-testid="canvas-plan-rail-row"]'), "rail rows (TOC + anchors)");
-  assert(host.querySelector('[data-testid="canvas-plan-doc-section"]'), "section body block in the doc body");
+  // §24.3 un-merge: two connected sectioned nodes, SPEC (left) + PLAN (middle).
+  assert(host.querySelector('[data-testid="canvas-plan-node"]'), "plan node present");
+  assert(host.querySelector('[data-testid="canvas-spec-node"]'), "separate spec node present");
+  assert(host.querySelector('[data-testid="canvas-plan-row"]'), "plan section rows");
+  assert(host.querySelector('[data-testid="canvas-spec-block"]'), "spec section blocks");
+  assert(host.querySelector('[data-testid="canvas-plan-output"]'), "plan output dot (task anchor)");
   assert(host.querySelector('[data-testid="canvas-task-card"]'), "task card");
   assert(host.querySelector('[data-testid="canvas-task-name"]')?.textContent === "Dante", "task name");
   assert(host.querySelector('[data-testid="canvas-orchestrator-group"]'), "orchestrator group wrapper");
-  // Section→task edges draw at rest from the rail output anchors.
+  // Edges at rest: spec↔plan 1:1 + plan-output→task.
   const paths = host.querySelectorAll("svg path");
-  assert(paths.length >= 1, `section→task edge drawn at rest, got ${paths.length}`);
+  assert(paths.length >= 2, `spec↔plan + section→task edges drawn at rest, got ${paths.length}`);
   await act(async () => root.unmount());
 });
 
-test("default mount is the Tile overview; double-click camera-focuses a node (breadcrumb appears)", async () => {
+test("double-click camera-focuses a node (breadcrumb appears), Esc clears it", async () => {
   const { host, root } = await render(<CanvasViewInner mode="workspace" plans={[FIXTURE_PLAN]} viewportPadding={10000} />);
   await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
-  // §22.1/§23.4: default view mode is Tile (the legible overview, not Document).
   const planNode = host.querySelector('[data-testid="canvas-plan-node"]') as HTMLElement;
-  assert(planNode?.getAttribute("data-view-mode") === "tile", "default mount renders Tile overview");
-  // No breadcrumb until a node is camera-focused.
   assert(!host.querySelector('[data-testid="canvas-breadcrumb"]'), "no breadcrumb before focus");
-  // Double-click the plan node → camera-focus + breadcrumb.
   await act(async () => {
     planNode.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("dblclick", { bubbles: true }));
   });

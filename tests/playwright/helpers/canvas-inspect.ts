@@ -326,8 +326,10 @@ export async function findContentBoundsIssues(page: Page, tolerancePx = 2): Prom
 }
 
 export async function findUnderfilledNodes(page: Page, minRatio = 0.004): Promise<FillHit[]> {
+  // §22.2/§23.1: the plan node is intentionally compact in Tile/Card (a section
+  // index, not an empty shell) — only task cards must carry visible content.
   return page.$$eval(
-    '[data-testid="canvas-plan-node"], [data-testid="canvas-spec-section"], [data-testid="canvas-task-card"]',
+    '[data-testid="canvas-task-card"]',
     (nodes, threshold) => {
       const hits: FillHit[] = [];
       for (const node of nodes) {
@@ -367,7 +369,9 @@ export async function findEdgeEndpointIssues(page: Page, tolerancePx = 3): Promi
     (paths, tolerance) => {
       const anchors = Array.from(
         document.querySelectorAll<HTMLElement>(
-          '[data-testid="canvas-plan-row"], [data-testid="canvas-spec-section"], [data-testid="canvas-task-card"], [data-testid="canvas-milestone-bubble"]',
+          // §23.1: section→task edges run from a rail OUTPUT dot (inside the plan
+          // node) to a task card; both ends must land inside one of these.
+          '[data-testid="canvas-plan-node"], [data-testid="canvas-task-card"], [data-testid="canvas-milestone-bubble"]',
         ),
       ).map((el) => {
         const r = el.getBoundingClientRect();
