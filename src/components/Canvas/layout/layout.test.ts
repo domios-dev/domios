@@ -180,21 +180,27 @@ console.log("\nsection-row anchors:");
   ok("task center anchored to its primary covered-row Y (level edge)", Math.abs(t1Center - a1.y) < 1.5);
 }
 
-// ── spec node + plan-spec edge ────────────────────────────────────
-console.log("\nspec node:");
+// ── spec-section column + per-row edges ───────────────────────────
+console.log("\nspec column:");
 {
   const layout = layoutWorkspace(samplePlans());
   const frame = layout.frames.find((f) => f.planId === "p1")!;
-  const spec = frame.nodes.find((n) => n.kind === "spec");
-  ok("spec node emitted for a plan with sections", !!spec);
-  ok("plan-spec edge present", frame.edges.some((e) => e.kind === "plan-spec"));
-  ok("spec sits left of plan node", spec!.box.x < frame.nodes.find((n) => n.kind === "plan")!.box.x);
+  const specCards = frame.nodes.filter((n) => n.kind === "spec-section");
+  // p1 has 3 flattened sections (s1, s1a, s2) → one expanded card each.
+  ok("one spec-section card per section", specCards.length === 3);
+  const planNode = frame.nodes.find((n) => n.kind === "plan")!;
+  ok("spec column sits left of plan node", specCards.every((c) => c.box.x + c.box.width <= planNode.box.x));
+  // one spec-row edge per section, tying spec card[i] → its plan row.
+  ok("a spec-row edge per section", frame.edges.filter((e) => e.kind === "spec-row").length === 3);
+  const e = frame.edges.find((e) => e.kind === "spec-row" && e.from === "p1::spec::s1");
+  ok("spec-row edge lands on the s1 left-row anchor", !!e?.toPoint && Math.abs(e.toPoint.x - planNode.box.x) < 1);
 
-  // Spec and the plan+tasks block are vertically centered against each other.
+  // Spec column and the plan+tasks block are vertically centered against each other.
   const blockBoxes = frame.nodes.filter((n) => ["plan", "task", "milestone", "cluster"].includes(n.kind)).map((n) => n.box);
   const blockCenter = (Math.min(...blockBoxes.map((b) => b.y)) + Math.max(...blockBoxes.map((b) => b.y + b.height))) / 2;
-  const specCenter = spec!.box.y + spec!.box.height / 2;
-  ok("spec ↕centered against the plan+tasks block", Math.abs(specCenter - blockCenter) < 2);
+  const specTop = Math.min(...specCards.map((c) => c.box.y));
+  const specCenter = (specTop + Math.max(...specCards.map((c) => c.box.y + c.box.height))) / 2;
+  ok("spec column ↕centered against the plan+tasks block", Math.abs(specCenter - blockCenter) < 2);
 }
 
 // ── standalone / inbox plan (no sections) ─────────────────────────
@@ -203,7 +209,7 @@ console.log("\nstandalone plan:");
   const inbox = plan("inbox", "orchA", 10, [], [task("ti", [])]);
   const layout = layoutWorkspace([inbox]);
   const frame = layout.frames[0];
-  ok("no spec node without sections", !frame.nodes.some((n) => n.kind === "spec"));
+  ok("no spec cards without sections", !frame.nodes.some((n) => n.kind === "spec-section"));
   ok("plan node still present", frame.nodes.some((n) => n.kind === "plan"));
   ok("task node present", frame.nodes.some((n) => n.kind === "task"));
   ok("no anchors without sections", frame.anchors.size === 0);

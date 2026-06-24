@@ -8,9 +8,10 @@ export type CanvasNodeKind = string;
 
 export const KNOWN_NODE_KINDS = [
   "plan",
-  "spec",
+  "spec-section",
   "task",
   "milestone",
+  "cluster",
 ] as const;
 
 export interface LaidOutNode {
@@ -24,6 +25,7 @@ export interface LaidOutNode {
 
 export type CanvasEdgeKind =
   | "section-task"
+  | "spec-row"
   | "task-cluster"
   | "milestone-chain"
   | "plan-spec"

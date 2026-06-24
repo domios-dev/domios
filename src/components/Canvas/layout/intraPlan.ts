@@ -6,6 +6,7 @@ import type { Box, Point } from "./geometry";
 import { unionBox } from "./geometry";
 import { buildLaneIndex, layoutCluster } from "./clusters";
 import { estimateTaskHeight } from "./taskSize";
+import { estimateSpecHeight } from "./specSize";
 import type { IntraPlanLayout, LaidOutEdge, LaidOutNode } from "./types";
 
 export function ownerKeyOf(owner: OrchestratorRef): string {
@@ -33,31 +34,36 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
   const planX = specPresent ? s.specWidth + s.columnGapX : 0;
   const planHeight = planNodeHeight(flat.length, s);
 
-  const specNodeId = `${plan.id}::spec`;
-  if (specPresent) {
-    nodes.push({
-      id: specNodeId,
-      kind: "spec",
-      planId: plan.id,
-      box: { x: specX, y: 0, width: s.specWidth, height: s.specHeight },
-      iteration: null,
-      manual: false,
-    });
-  }
-
   const planBox: Box = { x: planX, y: 0, width: s.planWidth, height: planHeight };
   nodes.push({ id: plan.id, kind: "plan", planId: plan.id, box: planBox, iteration: null, manual: false });
 
-  if (specPresent) {
-    edges.push({ id: `${plan.id}~spec`, kind: "plan-spec", from: plan.id, to: specNodeId });
-  }
-
+  // Per-section-row anchors: RIGHT edge → satellite tasks; LEFT edge → the
+  // expanded spec-section card for that same row (spec[i] ↔ plan-row[i]).
+  const leftAnchors = new Map<string, Point>();
   flat.forEach((section, i) => {
-    anchors.set(section.id, {
-      x: planBox.x + planBox.width - s.anchorInset,
-      y: planBox.y + s.planHeaderHeight + i * s.planRowHeight + s.planRowHeight / 2,
-    });
+    const rowMidY = planBox.y + s.planHeaderHeight + i * s.planRowHeight + s.planRowHeight / 2;
+    anchors.set(section.id, { x: planBox.x + planBox.width - s.anchorInset, y: rowMidY });
+    leftAnchors.set(section.id, { x: planBox.x + s.anchorInset, y: rowMidY });
   });
+
+  // Spec column: one expanded card per section, stacked left of the plan node,
+  // each tied by a curved edge to its plan-node row.
+  let specY = 0;
+  for (const section of flat) {
+    const h = estimateSpecHeight(section, s);
+    const specId = `${plan.id}::spec::${section.id}`;
+    nodes.push({
+      id: specId,
+      kind: "spec-section",
+      planId: plan.id,
+      box: { x: specX, y: specY, width: s.specWidth, height: h },
+      iteration: null,
+      manual: false,
+    });
+    const left = leftAnchors.get(section.id)!;
+    edges.push({ id: `${specId}~row`, kind: "spec-row", from: specId, toPoint: left });
+    specY += h + s.specSectionGapY;
+  }
 
   const lanes = buildLaneIndex(plan);
   const taskX = planX + s.planWidth + s.columnGapX;
@@ -129,23 +135,26 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
     nodes.push({ id: el.id, kind: el.kind, planId: plan.id, box, iteration: null, manual: true });
   }
 
-  // Vertically center the two columns (spec vs plan+tasks block) against each
-  // other so the content band is balanced, not top-weighted in a void.
+  // Vertically center the two columns (spec-section column vs plan+tasks block)
+  // against each other so the content band is balanced, not top-weighted.
   const isBlock = (k: string) => k === "plan" || k === "task" || k === "milestone" || k === "cluster";
-  const specNode = nodes.find((n) => n.kind === "spec");
+  const specBoxes = nodes.filter((n) => n.kind === "spec-section").map((n) => n.box);
   const blockBoxes = nodes.filter((n) => isBlock(n.kind)).map((n) => n.box);
-  if (specNode && blockBoxes.length) {
+  if (specBoxes.length && blockBoxes.length) {
+    const specTop = Math.min(...specBoxes.map((b) => b.y));
+    const specH = Math.max(...specBoxes.map((b) => b.y + b.height)) - specTop;
     const blockTop = Math.min(...blockBoxes.map((b) => b.y));
     const blockH = Math.max(...blockBoxes.map((b) => b.y + b.height)) - blockTop;
-    const specH = specNode.box.height;
     const contentH = Math.max(specH, blockH);
-    const specOff = (contentH - specH) / 2 - specNode.box.y;
+    const specOff = (contentH - specH) / 2 - specTop;
     const blockOff = (contentH - blockH) / 2 - blockTop;
     for (let i = 0; i < nodes.length; i++) {
-      const off = nodes[i].kind === "spec" ? specOff : isBlock(nodes[i].kind) ? blockOff : 0;
+      const off = nodes[i].kind === "spec-section" ? specOff : isBlock(nodes[i].kind) ? blockOff : 0;
       if (off) nodes[i] = { ...nodes[i], box: { ...nodes[i].box, y: nodes[i].box.y + off } };
     }
     for (const [k, p] of anchors) anchors.set(k, { x: p.x, y: p.y + blockOff });
+    // Every edge POINT is a plan-row/cluster anchor (block-side); the spec end of
+    // a spec-row edge is a node and moves with specOff automatically.
     for (const e of edges) {
       if (e.fromPoint) e.fromPoint = { x: e.fromPoint.x, y: e.fromPoint.y + blockOff };
       if (e.toPoint) e.toPoint = { x: e.toPoint.x, y: e.toPoint.y + blockOff };
