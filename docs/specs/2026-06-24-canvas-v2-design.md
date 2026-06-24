@@ -1622,3 +1622,43 @@ The orchestrator itself was NOT surfacing its current task, so Andrey couldn't s
 This makes every agent's current work visible *by construction* + reminded, so the whole swarm is
 legible. (Note: filing this very task repeatedly hit the live lost-update/lock bug — presence depends
 on reliable plan writes landing first → the plan-concurrency deadlock must be fixed first.)
+
+## 37. BOXINESS + worlds-granularity NAVIGATION (Andrey direction)
+<!-- revision: 1 -->
+
+### 37.1 Boxiness — fixed slot-boxes that never shift
+Every card (task, section/spec, plan) is composed of FIXED inner BOXES — a box for the title, a box
+for the description, a box for results/strides, etc. The boxes DO NOT move when content or sizes
+change inside them. Zooming changes the CONTENT *inside* a box (more detail, more text, swapped
+representation) but the box layout — and the card's outer footprint (§22.1) — stays put. "Everything
+together does not slide." The current bug (card resizes/shifts on zoom) is exactly this being
+violated; see §35.3 (3 fixed task slots) + card-footprint task. Fixed boxes are the precondition for
+the immersion model below — you dive INTO a box, not into a reflowing blob.
+
+### 37.2 Worlds granularity — recursive zoom regulates what you see
+Zoom IS the granularity dial. Diving in/in/in reveals progressively more; pulling out shows less but
+broader. The bands, top → deep:
+- **Top view (W0):** on the PLAN you see only what's IN PROGRESS — current tasks, sorted. A glanceable
+  "what's being worked on right now".
+- **Closer:** plan SECTIONS become legible; inside each section you see HOW MANY tasks are thrown on
+  this plan, as task BUBBLES *inside the plan* ("this many tasks on this plan"). Spec prose lives in
+  the SPEC node, not the plan (§29/§36 split).
+- **Into a task:** click/zoom a bubble → fly to that task → its boxes (title/desc/work-points) reveal
+  per §35.3/§37.1. From the task you fly back to the plan.
+- **Cross-links:** on any plan SECTION you see WHICH SPEC SECTION it belongs to, and can fly there;
+  from a spec section you can fly into the plan's section. Section↔task and section↔spec are the
+  navigable edges (all camera moves user-initiated, §31).
+
+### 37.3 This must survive memory loss
+All of the above (boxiness, granularity nav, the §38 acceptance model below) lives in: the orchestrator
+SKILL, the heartbeat/delay message, the plan tasks, and CLI hints — so a fresh orchestrator (or a
+brand-new worker who knows nothing) can recall it from zero. Verify the rendering matches THIS spec
+via Playwright at each pass; judge each task against the plan's GOAL/vector before accepting `done`.
+
+## 38. Acceptance model — orchestrator decides `done` (in_review → done)
+<!-- revision: 1 -->
+A worker reports `in_review`, never `done`. The ORCHESTRATOR verifies (gate tests + judge against the
+GOAL/vector + spec, optionally via a fast branch-local Playwright verifier e.g. a `cursor` worker) and
+DECIDES `done`. Match verifier cost to the claim; don't take the worker's word; don't always need a
+heavy agent. `in_review` → (orchestrator verification) → `done` or bounce (loop/pass). In the live
+orchestrator SKILL (Acceptance section) + worker preamble (workers report in_review).
