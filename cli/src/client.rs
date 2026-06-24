@@ -268,14 +268,17 @@ fn normalize_socket_path(path: &str) -> String {
     }
 }
 
-/// Whether the caller wants the dev instance.
+/// Whether the caller wants a dev instance.
 ///
-/// Mirrors `read_api_config()`: when CODETERM_API_PORT=7686, the user is
-/// targeting the dev daemon. Auto-discovery should then prefer the dev
-/// socket pipe over any prod pipe alphabetically encountered first.
+/// Mirrors `read_api_config()`: an explicit non-prod CODETERM_API_PORT targets
+/// a dev daemon. Auto-discovery should then prefer a dev socket over any
+/// inherited prod socket.
 fn prefers_dev_socket() -> bool {
     std::env::var("CODETERM_API_PORT")
-        .map(|v| v.trim() == "7686")
+        .map(|v| {
+            let port = v.trim();
+            !port.is_empty() && port != "7685"
+        })
         .unwrap_or(false)
 }
 
@@ -520,6 +523,24 @@ mod tests {
             deterministic_socket_name().as_deref(),
             Some("codeterm-dev.sock")
         );
+
+        restore_env("CODETERM_INSTANCE", prev_instance);
+        restore_env("CODETERM_API_PORT", prev_port);
+    }
+
+    #[test]
+    fn deterministic_socket_treats_non_prod_port_as_dev() {
+        let _guard = crate::test_env_lock().lock().unwrap();
+        let prev_instance = std::env::var("CODETERM_INSTANCE").ok();
+        let prev_port = std::env::var("CODETERM_API_PORT").ok();
+        std::env::remove_var("CODETERM_INSTANCE");
+        std::env::set_var("CODETERM_API_PORT", "7694");
+
+        assert_eq!(
+            deterministic_socket_name().as_deref(),
+            Some("codeterm-dev.sock")
+        );
+        assert!(!socket_path_matches_port_pref("codeterm-12345.sock", true));
 
         restore_env("CODETERM_INSTANCE", prev_instance);
         restore_env("CODETERM_API_PORT", prev_port);

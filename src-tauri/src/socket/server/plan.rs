@@ -244,6 +244,21 @@ pub(super) fn dispatch(
             }))
         }
 
+        "plan.reindex" => {
+            let project = get_string_param(params, "project")?;
+            let project_root = svc
+                .ensure_plan_project_loaded(std::path::Path::new(&project))
+                .map_err(plan_rpc_err)?;
+            let result = store
+                .reindex_project_index(&project_root)
+                .map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e,
+                    data: None,
+                })?;
+            Ok(json!(result))
+        }
+
         "task.list" => {
             let caller = p
                 .and_then(|x| x.get("caller_pane_id"))

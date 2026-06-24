@@ -5577,6 +5577,22 @@
           "subcommands": []
         },
         {
+          "name": "reindex",
+          "about": "Rebuild the project-local plan recall index",
+          "aliases": [],
+          "args": [
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "related",
           "about": "Show structural neighbors for a plan/spec/task/section unit",
           "aliases": [],
