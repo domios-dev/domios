@@ -19,10 +19,12 @@ impl SpawnRole {
 
 /// Worker-declared outcome for `agent report --status`. Lowercase value names
 /// match the daemon's `ReportStatus` serde representation, so the parsed value
-/// is sent over the wire as-is. clap rejects anything outside the three.
+/// is sent over the wire as-is. clap rejects anything outside known outcomes.
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
 pub enum ReportStatusArg {
     Done,
+    #[value(name = "in_review")]
+    InReview,
     Blocked,
     Partial,
 }
@@ -31,6 +33,7 @@ impl ReportStatusArg {
     pub fn as_str(&self) -> &'static str {
         match self {
             ReportStatusArg::Done => "done",
+            ReportStatusArg::InReview => "in_review",
             ReportStatusArg::Blocked => "blocked",
             ReportStatusArg::Partial => "partial",
         }
@@ -92,7 +95,7 @@ pub enum AgentAction {
         /// Task id to append this report to
         #[arg(long)]
         task: Option<String>,
-        /// Task outcome: done | blocked | partial
+        /// Task outcome: done | in_review | blocked | partial
         #[arg(long)]
         status: Option<ReportStatusArg>,
         /// Git branch the work landed on
@@ -236,9 +239,10 @@ mod tests {
     }
 
     #[test]
-    fn report_status_accepts_done_blocked_partial() {
+    fn report_status_accepts_known_values() {
         for (input, expected) in [
             ("done", "done"),
+            ("in_review", "in_review"),
             ("blocked", "blocked"),
             ("partial", "partial"),
         ] {

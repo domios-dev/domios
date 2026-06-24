@@ -10,9 +10,10 @@ use super::ledger::{LedgerRow, OrchestrationLedger};
 /// Worker-declared outcome of a task. Optional — a freeform report (and the
 /// synthetic worker-death report) carries no status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum ReportStatus {
     Done,
+    InReview,
     Blocked,
     Partial,
 }
@@ -22,6 +23,7 @@ impl ReportStatus {
     pub fn label(self) -> &'static str {
         match self {
             ReportStatus::Done => "Done",
+            ReportStatus::InReview => "In Review",
             ReportStatus::Blocked => "Blocked",
             ReportStatus::Partial => "Partial",
         }
@@ -460,6 +462,10 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<ReportStatus>("\"blocked\"").unwrap(),
             ReportStatus::Blocked
+        );
+        assert_eq!(
+            serde_json::to_string(&ReportStatus::InReview).unwrap(),
+            "\"in_review\""
         );
     }
 
