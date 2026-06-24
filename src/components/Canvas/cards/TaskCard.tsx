@@ -27,11 +27,12 @@ function statusLabel(status: TaskStatus): string {
 
 export interface TaskCardProps extends CanvasCardStyleProps {
   task: Task;
+  childCount?: number;
   onOpenPane?: (paneId: string) => void;
   onHover?: (taskId: string | null) => void;
 }
 
-export function TaskCard({ task, style, onOpenPane, onHover }: TaskCardProps) {
+export function TaskCard({ task, childCount = 0, style, onOpenPane, onHover }: TaskCardProps) {
   const [whyOpen, setWhyOpen] = useState(false);
   const badgeColor = TASK_STATUS_COLORS[task.status];
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
@@ -64,6 +65,23 @@ export function TaskCard({ task, style, onOpenPane, onHover }: TaskCardProps) {
             <span data-testid="canvas-task-name" style={{ fontWeight: 700, fontSize: "1.05em" }}>
               {task.name}
             </span>
+            {childCount > 0 && (
+              <span
+                data-testid="canvas-task-subtask-count"
+                style={{
+                  fontSize: "0.74em",
+                  fontWeight: 600,
+                  padding: "0 0.5em",
+                  lineHeight: 1.7,
+                  borderRadius: 999,
+                  background: "color-mix(in srgb, var(--ct-border-focus) 14%, transparent)",
+                  border: "1px solid color-mix(in srgb, var(--ct-border-focus) 45%, transparent)",
+                  color: "var(--ct-border-focus)",
+                }}
+              >
+                {childCount} subtask{childCount === 1 ? "" : "s"}
+              </span>
+            )}
             <span
               data-testid="canvas-task-status"
               style={{
