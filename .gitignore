@@ -44,3 +44,5 @@ test-results/
 .playwright-mcp/
 
 node_modules
+
+.codeterm/
