@@ -9,8 +9,8 @@ export type CanvasLod = "far" | "mid" | "near";
 //   tile     — title + status glyph + counts (far/overview, clean at distance)
 export type CanvasViewMode = "document" | "card" | "tile";
 
-// The global picker: the three modes plus "auto" (resolve by zoom band).
-export type CanvasViewModeSetting = CanvasViewMode | "auto";
+// The global picker is the three manual modes (no auto-by-zoom — §22.1).
+export type CanvasViewModeSetting = CanvasViewMode;
 
 export interface CanvasCardStyleProps {
   style: CSSProperties;

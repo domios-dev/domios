@@ -26,12 +26,18 @@ export const MILESTONE_LANE_COLORS = [
 ];
 
 export interface CanvasLayoutSettings {
-  // Compact sectioned plan node.
+  // ONE SectionedPlanNode (§22.2/§23.1): header + right-edge rail + body. FIXED
+  // bbox per MANUAL mode — zoom is camera-only, never resizes a node (§22.1).
   planWidth: number;
   planHeaderHeight: number;
   planRowHeight: number;
   planFooterHeight: number;
   planRowIndent: number;
+  railW: number;
+  railRowMinH: number;
+  planTileH: number;
+  planCardH: number;
+  planDocH: number;
 
   // Spec column: one expanded card per plan section.
   specWidth: number;
@@ -45,6 +51,12 @@ export interface CanvasLayoutSettings {
   taskWidth: number;
   taskMinHeight: number;
   taskGapY: number;
+
+  // Banded multi-column task sweep (§20.3): cap horizontal sprawl, bound the
+  // vertical портянka. Tasks band by primary covered section, wrap across cols.
+  maxTaskCols: number;
+  taskColGap: number;
+  bandPad: number;
 
   // Discrete view-mode frames (§18): fixed, designed heights — NOT content-fit.
   // Card = title + badges + 1–2 line digest; Tile = title + glyph + counts.
@@ -94,11 +106,16 @@ export interface CanvasLayoutSettings {
 }
 
 export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
-  planWidth: 420,
-  planHeaderHeight: 76,
+  planWidth: 480,
+  planHeaderHeight: 80,
   planRowHeight: 34,
   planFooterHeight: 40,
   planRowIndent: 16,
+  railW: 100,
+  railRowMinH: 18,
+  planTileH: 280,
+  planCardH: 400,
+  planDocH: 640,
 
   // Spec column: one expanded section card per plan section, left of the plan.
   // Wider per §16.8 for real markdown line length.
@@ -112,6 +129,10 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   taskWidth: 252,
   taskMinHeight: 58,
   taskGapY: 16,
+
+  maxTaskCols: 3,
+  taskColGap: 28,
+  bandPad: 28,
 
   tileHeight: 56,
   planCardHeight: 132,
@@ -161,4 +182,22 @@ export const CANVAS_LAYOUT_SETTING_KEYS = Object.keys(
 // layout's anchor math and the PlanNode card agree on row positions.
 export function planNodeHeight(rowCount: number, s: CanvasLayoutSettings): number {
   return s.planHeaderHeight + rowCount * s.planRowHeight + s.planFooterHeight;
+}
+
+// FIXED SectionedPlanNode height per manual view mode (§22.1/§23.1). The MODE
+// sets the size; zoom never does. Content scrolls/adapts inside these bounds.
+export function planModeHeight(mode: "document" | "card" | "tile", s: CanvasLayoutSettings): number {
+  if (mode === "tile") return s.planTileH;
+  if (mode === "card") return s.planCardH;
+  return s.planDocH;
+}
+
+// Stable rail-row output-anchor Y offsets (local, from node top) for N sections.
+// Evenly distributed in the rail body area so they ALWAYS fit the fixed frame
+// (no overflow, §22.1) and are stable per (index, mode) → stable task edges.
+export function railAnchorOffsets(count: number, nodeHeight: number, s: CanvasLayoutSettings): number[] {
+  if (count <= 0) return [];
+  const area = Math.max(0, nodeHeight - s.planHeaderHeight);
+  const span = area / count;
+  return Array.from({ length: count }, (_, i) => s.planHeaderHeight + (i + 0.5) * span);
 }

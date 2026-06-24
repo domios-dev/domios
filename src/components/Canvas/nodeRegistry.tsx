@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import {
   MilestoneBubble,
-  PlanNode,
+  SectionedPlanNode,
   SpecSectionCard,
   TaskCard,
   type CanvasLod,
@@ -25,6 +25,8 @@ export interface NodeRenderArgs {
   onArchive?: () => void;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
+  onSetNodeMode?: (nodeId: string, mode: CanvasViewMode) => void;
+  onFitNode?: (nodeId: string) => void;
 }
 
 export type NodeRenderer = (args: NodeRenderArgs) => ReactNode;
@@ -68,8 +70,18 @@ export function getNodeRenderer(kind: string): NodeRenderer {
   return renderers[kind] ?? fallbackRenderer;
 }
 
-registerNodeRenderer("plan", ({ model, style, lod, viewMode, onArchive }) =>
-  model ? <PlanNode plan={model as Plan} style={style} lod={lod} viewMode={viewMode} onArchive={onArchive} /> : null,
+registerNodeRenderer("plan", ({ node, model, style, lod, viewMode, onArchive, onSetNodeMode, onFitNode }) =>
+  model ? (
+    <SectionedPlanNode
+      plan={model as Plan}
+      style={style}
+      lod={lod}
+      viewMode={viewMode}
+      onArchive={onArchive}
+      onSetMode={onSetNodeMode ? (m) => onSetNodeMode(node.id, m) : undefined}
+      onFitNode={onFitNode ? () => onFitNode(node.id) : undefined}
+    />
+  ) : null,
 );
 registerNodeRenderer("spec-section", ({ model, style, viewMode }) => {
   const m = model as { section: Section; glyph?: SpecGlyph; taskCount?: number } | undefined;

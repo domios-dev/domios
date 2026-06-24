@@ -61,13 +61,15 @@ function lodForScale(scale: number): CanvasLod {
   return "near";
 }
 
+// Fixed bounds (§22.1): height is the layout-reserved box height, NOT minHeight —
+// content must fit/scroll inside, never push the node past its slot (overflow bug).
 function nodeStyle(box: { x: number; y: number; width: number; height?: number }) {
   return {
     position: "absolute" as const,
     left: box.x,
     top: box.y,
     width: box.width,
-    minHeight: box.height,
+    height: box.height,
   };
 }
 
@@ -112,10 +114,12 @@ interface CanvasNodeCardProps {
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
   onArchive?: () => void;
+  onSetNodeMode?: (nodeId: string, mode: CanvasViewMode) => void;
+  onFitNode?: (nodeId: string) => void;
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, viewMode, onOpenPane, onHoverTask, onArchive }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, viewMode, onOpenPane, onHoverTask, onArchive, onSetNodeMode, onFitNode }: CanvasNodeCardProps) {
     const rendered = getNodeRenderer(node.kind)({
       node,
       model,
@@ -125,6 +129,8 @@ const CanvasNodeCard = memo(
       onOpenPane,
       onHoverTask,
       onArchive,
+      onSetNodeMode,
+      onFitNode,
     });
     return rendered ? <Fragment key={node.id}>{rendered}</Fragment> : null;
   },
@@ -154,7 +160,7 @@ export function CanvasViewInner({
   onOpenPane,
   api,
   viewportPadding,
-  initialViewMode = "auto",
+  initialViewMode = "document",
 }: CanvasViewInnerProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
@@ -172,17 +178,24 @@ export function CanvasViewInner({
     panButton: "middle",
   });
 
-  // Discrete view modes (§18): a global setting (Auto/Doc/Card/Tile) + a text
-  // toggle, with optional per-node locks. The resolved mode sizes the layout so
-  // every mode reserves exactly its own bounded frame (no empty boxes).
+  // Discrete MANUAL view modes (§18/§22.1): a global setting (Doc/Card/Tile) + a
+  // text toggle + optional per-node locks. Zoom never switches modes — node bbox
+  // is fixed per mode; the resolved mode sizes the layout.
   const [viewModeSetting, setViewModeSetting] = useState<CanvasViewModeSetting>(initialViewMode);
   const [showText, setShowText] = useState(true);
-  const [nodeModeOverrides] = useState<Map<string, CanvasViewMode>>(() => new Map());
-  const resolvedMode = resolveGlobalMode(viewModeSetting, transform.scale, showText);
+  const [nodeModeOverrides, setNodeModeOverrides] = useState<Map<string, CanvasViewMode>>(() => new Map());
+  const resolvedMode = resolveGlobalMode(viewModeSetting, showText);
   const modeFor = useCallback<NodeModeResolver>(
     (id) => nodeModeOverrides.get(id) ?? resolvedMode,
     [nodeModeOverrides, resolvedMode],
   );
+  const setNodeMode = useCallback((nodeId: string, mode: CanvasViewMode) => {
+    setNodeModeOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(nodeId, mode);
+      return next;
+    });
+  }, []);
 
   const layout = useMemo(
     () => layoutWorkspace(filteredPlans, DEFAULT_CANVAS_SETTINGS, modeFor),
@@ -374,6 +387,13 @@ export function CanvasViewInner({
     const cy = layout.bounds.y + layout.bounds.height / 2;
     setTransform({ scale: 1, x: size.width / 2 - cx, y: size.height / 2 - cy });
   }, [layout.bounds, size.width, size.height, setTransform]);
+  const fitNode = useCallback(
+    (nodeId: string) => {
+      const box = lookups.nodeById.get(nodeId)?.box;
+      if (box) fitToView(box);
+    },
+    [lookups, fitToView],
+  );
 
   return (
     <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view">
@@ -503,6 +523,8 @@ export function CanvasViewInner({
                     onOpenPane={onOpenPane}
                     onHoverTask={onHoverTask}
                     onArchive={n.kind === "plan" && api ? () => handleArchive(n.id) : undefined}
+                    onSetNodeMode={n.kind === "plan" ? setNodeMode : undefined}
+                    onFitNode={n.kind === "plan" ? fitNode : undefined}
                   />
                 )),
             )}
@@ -534,7 +556,6 @@ export function CanvasViewInner({
         <CanvasToolbar
           scale={transform.scale}
           viewModeSetting={viewModeSetting}
-          resolvedMode={resolvedMode}
           showText={showText}
           onZoomIn={() => zoomBy(0.2)}
           onZoomOut={() => zoomBy(-0.2)}
