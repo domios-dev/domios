@@ -121,7 +121,7 @@ export function SectionedPlanNode({ plan, style, viewMode = "document", onArchiv
 
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
         <div ref={bodyRef} className="ct-canvas-scroll" data-testid="canvas-plan-body" data-canvas-scroll-body={viewMode === "document" ? "1" : undefined} style={{ flex: 1, minWidth: 0, overflowY: viewMode === "document" ? "auto" : "hidden", padding: viewMode === "tile" ? 0 : "8px 12px" }}>
-          {viewMode === "tile" ? <TileBody rows={rows} pct={pct} done={doneCount} total={taskCount} standalone={standalone} /> : null}
+          {viewMode === "tile" ? <TileBody rows={rows} taskCount={taskCount} standalone={standalone} /> : null}
           {viewMode === "card" ? <CardBody rows={rows} standalone={standalone} taskCount={taskCount} /> : null}
           {viewMode === "document" ? <DocumentBody rows={rows} standalone={standalone} taskCount={taskCount} /> : null}
         </div>
@@ -178,18 +178,28 @@ function Rail({ rows, compact, onJump }: { rows: SectionRow[]; compact: boolean;
   );
 }
 
-function TileBody({ rows, pct, done, total, standalone }: { rows: SectionRow[]; pct: number; done: number; total: number; standalone: boolean }) {
+// Tile body = a compact SECTION INDEX (glyph · title · [n]), rows evenly
+// distributed so they line up with the rail's output dots. Coverage lives in the
+// header bar — no oversized panel. Reads as an index, not one green block.
+function TileBody({ rows, taskCount, standalone }: { rows: SectionRow[]; taskCount: number; standalone: boolean }) {
+  if (standalone) return <Standalone taskCount={taskCount} />;
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", gap: 10, padding: "0 16px" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-        <span style={{ fontSize: "2.2em", fontWeight: 800, fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>{pct}%</span>
-        <span style={{ fontSize: "0.9em", opacity: "var(--ct-text-secondary-opacity)" }}>covered</span>
-      </div>
-      <CoverageBar pct={pct} />
-      <div style={{ display: "flex", gap: 14, fontSize: "0.92em", opacity: "var(--ct-text-secondary-opacity)" }}>
-        <span data-testid="canvas-plan-section-count">{standalone ? "no sections" : `${rows.length} section${rows.length === 1 ? "" : "s"}`}</span>
-        <span>{done}/{total} tasks done</span>
-      </div>
+    <div data-testid="canvas-plan-tile-index" style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      {rows.map((row) => {
+        const g = GLYPH[row.glyph];
+        return (
+          <div
+            key={row.section.id}
+            data-testid="canvas-plan-tile-row"
+            data-section-id={row.section.id}
+            style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", borderLeft: `2px solid ${g.rail}`, overflow: "hidden" }}
+          >
+            <g.Icon size={11} color={g.color} style={{ flexShrink: 0 }} strokeWidth={row.glyph === "uncovered" ? 2.4 : 2.2} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: "0.84em", fontWeight: row.glyph === "uncovered" ? 600 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row.section.title}</span>
+            <span style={{ flexShrink: 0, fontSize: "0.7em", fontFamily: "var(--ct-font-mono)", fontWeight: 600, opacity: "var(--ct-text-secondary-opacity)" }}>{row.taskCount}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
