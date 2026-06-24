@@ -167,6 +167,10 @@ pub fn mesh_relay_fetch_json(
 }
 
 /// Generic relay — send any API call through mesh to a remote peer.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Relay wrapper maps HTTP request fields directly."
+)]
 pub fn mesh_relay_generic(
     http: &reqwest::blocking::Client,
     base: &str,

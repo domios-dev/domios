@@ -429,14 +429,11 @@ pub(crate) fn handle_mem_history(
 ) -> Result<Option<serde_json::Value>, String> {
     let val = mem_get_request(http, &format!("{}/api/mem/items/{}/history", base, id));
     if !json_mode {
-        match &val {
-            Ok(v) => {
-                if let Some(rows) = v.get("history").and_then(|h| h.as_array()) {
-                    crate::cmd::print::print_history_timeline(rows);
-                    return Ok(None);
-                }
+        if let Ok(v) = &val {
+            if let Some(rows) = v.get("history").and_then(|h| h.as_array()) {
+                crate::cmd::print::print_history_timeline(rows);
+                return Ok(None);
             }
-            Err(_) => {}
         }
     }
     Ok(Some(val?))

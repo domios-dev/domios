@@ -207,6 +207,10 @@ pub(crate) fn handle_get_output(
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI wrapper preserves send text argument surface."
+)]
 pub(crate) fn handle_send_text(
     client: &mut SocketClient,
     json: bool,

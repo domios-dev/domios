@@ -108,8 +108,8 @@ pub enum MeshPeerAction {
 /// Reconstructs the command as an API call and sends through relay proxy.
 pub fn run_via_mesh(cli: &super::Cli, target: &str) {
     // Mesh management commands are local-only — cannot be relayed.
-    if let super::Commands::Mesh { action } = &cli.command {
-        match action {
+    if let super::Commands::Mesh {
+        action:
             MeshAction::Connect { .. }
             | MeshAction::Approve { .. }
             | MeshAction::Reject { .. }
@@ -119,12 +119,13 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
             | MeshAction::StopBroadcast
             | MeshAction::Peer { .. }
             | MeshAction::Offline
-            | MeshAction::Online => {
-                eprintln!("Error: mesh management commands are local-only and cannot be relayed via --mesh");
-                std::process::exit(1);
-            }
-            _ => {} // Status, Peers, Output, Panes, Refresh, Announce — relayable
-        }
+            | MeshAction::Online,
+    } = &cli.command
+    {
+        eprintln!(
+            "Error: mesh management commands are local-only and cannot be relayed via --mesh"
+        );
+        std::process::exit(1);
     }
 
     let (base, token) = super::read_api_config();
@@ -203,7 +204,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
                 arr.retain(|p| {
                     p.get("agent_type")
                         .and_then(|v| v.as_str())
-                        .map_or(false, |s| !s.is_empty())
+                        .is_some_and(|s| !s.is_empty())
                 });
             }
             if arr.is_empty() {

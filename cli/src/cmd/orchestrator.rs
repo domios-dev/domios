@@ -11,7 +11,9 @@ pub fn handle(
     action: OrchestratorAction,
 ) -> Result<Option<Value>, String> {
     match action {
-        OrchestratorAction::Learn { text, plan, tag } => learn(client, json_output, text, plan, tag),
+        OrchestratorAction::Learn { text, plan, tag } => {
+            learn(client, json_output, text, plan, tag)
+        }
         OrchestratorAction::Heartbeat { action } => match action {
             OrchestratorHeartbeatAction::Show { plan } => heartbeat_show(client, json_output, plan),
         },
@@ -94,10 +96,7 @@ fn heartbeat_show(
 }
 
 fn print_heartbeat(value: &Value) {
-    let plan_id = value
-        .get("plan_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("?");
+    let plan_id = value.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
     println!("Heartbeat for {plan_id}");
     let Some(heartbeat) = value.get("heartbeat") else {
         println!("(empty)");
@@ -123,7 +122,7 @@ fn print_heartbeat(value: &Value) {
     if value
         .get("reinjection")
         .and_then(|v| v.as_str())
-        .map_or(true, |text| text.trim().is_empty())
+        .is_none_or(|text| text.trim().is_empty())
     {
         println!("(empty)");
     }
