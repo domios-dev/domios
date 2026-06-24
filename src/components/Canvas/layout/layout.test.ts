@@ -175,10 +175,12 @@ console.log("\nsection-row anchors:");
   const edge = frame.edges.find((e) => e.kind === "section-task" && e.to === "t1");
   ok("section-task edge starts at the row anchor", !!edge?.fromPoint && Math.abs(edge.fromPoint.x - a1.x) < 0.5 && Math.abs(edge.fromPoint.y - a1.y) < 0.5);
 
-  // t1's vertical center is anchored to its primary covered row (s1) → level edge.
-  const t1 = frame.nodes.find((n) => n.id === "t1")!;
-  const t1Center = t1.box.y + t1.box.height / 2;
-  ok("task center anchored to its primary covered-row Y (level edge)", Math.abs(t1Center - a1.y) < 1.5);
+  // Banded sweep (§20.3): t1's CELL block hugs its primary covered row (s1) — the
+  // row anchor falls inside the cell's vertical span (card + folded step cluster).
+  const t1CellNodes = frame.nodes.filter((n) => n.id === "t1" || n.id === "t1::cluster" || ["m1", "m2", "m3"].includes(n.id));
+  const cellTop = Math.min(...t1CellNodes.map((n) => n.box.y));
+  const cellBottom = Math.max(...t1CellNodes.map((n) => n.box.y + n.box.height));
+  ok("task cell hugs its primary covered-row Y (banded sweep)", cellTop <= a1.y + 1 && cellBottom >= a1.y - 1);
 }
 
 // ── spec-section column + per-row edges ───────────────────────────
@@ -226,14 +228,17 @@ console.log("\nbubble cluster:");
   ok("task-cluster edge present", frame.edges.some((e) => e.kind === "task-cluster"));
   ok("milestone-chain edges present", frame.edges.filter((e) => e.kind === "milestone-chain").length === 2);
 
-  // The cluster ABUTS its task (≤ one gutter away), never floats far right, and
-  // wraps to ≤2 columns so it can't stream off-screen.
+  // Banded layout (§20.3.8): the step cluster folds BELOW the card as interior
+  // height (not to the right), and stays within the task column width so cells
+  // pack into a uniform grid; still wraps to ≤2 columns.
   const t1 = frame.nodes.find((n) => n.id === "t1")!;
   const t1Bubbles = [bubbles.find((b) => b.id === "m1")!, bubbles.find((b) => b.id === "m2")!, bubbles.find((b) => b.id === "m3")!];
-  const t1Right = t1.box.x + t1.box.width;
-  const nearest = Math.min(...t1Bubbles.map((b) => b.box.x));
-  ok("cluster abuts the task (≤ ~2 gutters)", nearest - t1Right > 0 && nearest - t1Right < 100);
-  const span = Math.max(...t1Bubbles.map((b) => b.box.x + b.box.width)) - nearest;
+  const nearestTop = Math.min(...t1Bubbles.map((b) => b.box.y));
+  ok("cluster folds BELOW the card (interior height)", nearestTop >= t1.box.y + t1.box.height - 1);
+  const leftMost = Math.min(...t1Bubbles.map((b) => b.box.x));
+  const rightMost = Math.max(...t1Bubbles.map((b) => b.box.x + b.box.width));
+  ok("cluster stays within the task column width (folded, not streaming right)", leftMost >= t1.box.x - 1 && rightMost <= t1.box.x + DEFAULT_CANVAS_SETTINGS.taskWidth + 1);
+  const span = rightMost - leftMost;
   ok("cluster wraps to ≤2 columns (compact width)", span <= 2 * (DEFAULT_CANVAS_SETTINGS.bubbleRadius * 2) + DEFAULT_CANVAS_SETTINGS.bubbleGapX + 1);
 }
 

@@ -46,6 +46,12 @@ export interface CanvasLayoutSettings {
   taskMinHeight: number;
   taskGapY: number;
 
+  // Banded multi-column task sweep (§20.3): cap horizontal sprawl, bound the
+  // vertical портянka. Tasks band by primary covered section, wrap across cols.
+  maxTaskCols: number;
+  taskColGap: number;
+  bandPad: number;
+
   // Discrete view-mode frames (§18): fixed, designed heights — NOT content-fit.
   // Card = title + badges + 1–2 line digest; Tile = title + glyph + counts.
   tileHeight: number;
@@ -112,6 +118,10 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   taskWidth: 252,
   taskMinHeight: 58,
   taskGapY: 16,
+
+  maxTaskCols: 3,
+  taskColGap: 28,
+  bandPad: 28,
 
   tileHeight: 56,
   planCardHeight: 132,
