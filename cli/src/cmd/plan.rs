@@ -1,8 +1,8 @@
 use std::io::Read;
 
 use crate::args::plan::{
-    PlanAction, PlanElementAction, PlanGroupsAction, PlanKindsAction, PlanLayoutAction,
-    PlanLoopAction, PlanMilestoneAction, PlanNoteAction, PlanTaskAction,
+    PlanAction, PlanElementAction, PlanGoalAction, PlanGroupsAction, PlanKindsAction,
+    PlanLayoutAction, PlanLoopAction, PlanMilestoneAction, PlanNoteAction, PlanTaskAction,
 };
 use crate::client::{SocketCallError, SocketClient};
 use crate::cmd::hints::{print_hints, push_hints, task_model_hint, task_sections_hint};
@@ -135,6 +135,9 @@ fn render_plan_markdown(plan: &Value) -> String {
     let status = plan.get("status").and_then(|v| v.as_str()).unwrap_or("?");
     out.push_str(&format!("# {title} (`{id}`)\n\n"));
     out.push_str(&format!("**Status:** {status}\n\n"));
+    if let Some(goal) = plan.get("goal").filter(|v| !v.is_null()) {
+        render_goal_block(goal, &mut out);
+    }
     if let Some(sections) = plan.get("sections").and_then(|v| v.as_array()) {
         if !sections.is_empty() {
             out.push_str("## Sections\n\n");
@@ -163,6 +166,37 @@ fn render_plan_markdown(plan: &Value) -> String {
         }
     }
     out
+}
+
+fn render_goal_block(goal: &Value, out: &mut String) {
+    let vector = goal.get("vector").and_then(|v| v.as_str()).unwrap_or("");
+    out.push_str("## Goal\n\n");
+    if !vector.is_empty() {
+        out.push_str(&format!("**Vector:** {vector}\n\n"));
+    }
+    render_string_list(goal, "constraints", "Constraints", out);
+    render_string_list(goal, "postulates", "Postulates", out);
+    if let Some(vision) = goal.get("vision").and_then(|v| v.as_str()) {
+        if !vision.is_empty() {
+            out.push_str("### Vision\n\n");
+            out.push_str(vision);
+            out.push_str("\n\n");
+        }
+    }
+}
+
+fn render_string_list(value: &Value, key: &str, heading: &str, out: &mut String) {
+    let Some(items) = value.get(key).and_then(|v| v.as_array()) else {
+        return;
+    };
+    if items.is_empty() {
+        return;
+    }
+    out.push_str(&format!("### {heading}\n\n"));
+    for item in items.iter().filter_map(|v| v.as_str()) {
+        out.push_str(&format!("- {item}\n"));
+    }
+    out.push('\n');
 }
 
 fn render_plan_sections(plan: &Value) -> String {
@@ -361,6 +395,44 @@ fn run_plan(
             }
             return Ok(None);
         }
+
+        PlanAction::Goal { action } => match action {
+            PlanGoalAction::Set {
+                plan_id,
+                vector,
+                vision,
+                vision_file,
+                constraint,
+                postulate,
+            } => {
+                let vision = resolve_text(vision, vision_file)?.unwrap_or_default();
+                call(
+                    client,
+                    "plan.goal.set",
+                    json!({
+                        "plan_id": plan_id,
+                        "vector": vector,
+                        "vision": vision,
+                        "constraints": constraint,
+                        "postulates": postulate,
+                    }),
+                )
+            }
+            PlanGoalAction::Show { plan_id } => {
+                let val = call(client, "plan.goal.show", json!({ "plan_id": plan_id }))?;
+                if json {
+                    return Ok(Some(val));
+                }
+                if let Some(goal) = val.get("goal").filter(|v| !v.is_null()) {
+                    let mut out = String::new();
+                    render_goal_block(goal, &mut out);
+                    print!("{out}");
+                } else {
+                    println!("(no goal)");
+                }
+                return Ok(None);
+            }
+        },
 
         PlanAction::Related { id, depth } => {
             call(client, "plan.related", json!({ "id": id, "depth": depth }))

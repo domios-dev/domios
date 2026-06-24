@@ -108,6 +108,17 @@ pub struct TagFacet {
     pub values: Vec<TagFacetValue>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Goal {
+    pub vector: String,
+    #[serde(default)]
+    pub vision: String,
+    #[serde(default)]
+    pub constraints: Vec<String>,
+    #[serde(default)]
+    pub postulates: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Section {
     pub id: String,
@@ -296,6 +307,8 @@ pub struct Plan {
     #[serde(default)]
     pub lineage: Vec<EffortLink>,
     #[serde(default)]
+    pub goal: Option<Goal>,
+    #[serde(default)]
     pub canvas: PlanCanvas,
     #[serde(default)]
     pub owner_history: Vec<TransferRecord>,
@@ -324,6 +337,7 @@ impl Plan {
             spec_links: vec![],
             primary_spec_id: None,
             lineage: vec![],
+            goal: None,
             canvas: PlanCanvas::default(),
             owner_history: vec![],
         }
