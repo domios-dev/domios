@@ -11,7 +11,7 @@ export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
   in_progress: "rgba(129, 140, 248, 0.92)",
   blocked: "rgba(239, 130, 130, 0.92)",
   done: "rgba(82, 180, 145, 0.9)",
-  cancelled: "rgba(100, 116, 139, 0.7)",
+  cancelled: "rgba(100, 116, 139, 0.9)",
 };
 
 // Milestone kind lanes: ONE coherent indigo→periwinkle family at a consistent

@@ -114,8 +114,6 @@ interface CanvasNodeCardProps {
   lod: CanvasLod;
   world: World;
   crispScale: number;
-  dimmed?: boolean;
-  softDim?: boolean;
   elevated?: boolean;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
@@ -128,15 +126,14 @@ interface CanvasNodeCardProps {
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, world, crispScale, dimmed, softDim, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, world, crispScale, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame }: CanvasNodeCardProps) {
     const base = nodeStyle(node.box);
-    const opacity = dimmed ? 0.22 : softDim ? 0.45 : 1;
-    const style: typeof base & { opacity?: number; zIndex?: number; transition?: string; filter?: string } =
-      dimmed || softDim
-        ? { ...base, opacity, transition: "opacity var(--ct-duration-normal) var(--ct-ease-decel)" }
-        : elevated
-          ? { ...base, zIndex: 20, filter: "drop-shadow(0 18px 40px rgba(0,0,0,0.55))", transition: "filter var(--ct-duration-normal) var(--ct-ease-decel)" }
-          : base;
+    // §32.3 nodes are SOLID at every zoom — status/hierarchy/focus deprioritize
+    // SPATIALLY (position, depth), never by fade. Elevation is depth, not opacity.
+    const style: typeof base & { zIndex?: number; transition?: string; filter?: string } =
+      elevated
+        ? { ...base, zIndex: 20, filter: "drop-shadow(0 18px 40px rgba(0,0,0,0.55))", transition: "filter var(--ct-duration-normal) var(--ct-ease-decel)" }
+        : base;
     const rendered = getNodeRenderer(node.kind)({
       node,
       model,
@@ -161,8 +158,6 @@ const CanvasNodeCard = memo(
     if (prev.lod !== next.lod) return false;
     if (prev.world !== next.world) return false;
     if (prev.crispScale !== next.crispScale) return false;
-    if (prev.dimmed !== next.dimmed) return false;
-    if (prev.softDim !== next.softDim) return false;
     if (prev.elevated !== next.elevated) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;
@@ -328,13 +323,13 @@ export function CanvasViewInner({
   );
 
   const [blinkIds, setBlinkIds] = useState<Set<string>>(() => new Set());
-  // Camera-focus reading gesture (§23.4): the focused node locks Document + dims
-  // neighbours; Esc/back clears it. null = no focus.
+  // Camera-focus reading gesture (§23.4): frames + locks the Document and shows a
+  // breadcrumb; never fades neighbours (§32.3). Esc/back clears it. null = no focus.
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
 
   // §25.3 DOMINANCE (focus-assist for the task you "fell into"): when one task fills
-  // ≳60% of the viewport it ELEVATES (paint above + shadow, NO footprint change) and
-  // soft-dims sibling tasks. Viewport-relative, transient, no auto-camera-move.
+  // ≳60% of the viewport it ELEVATES (paint above + shadow, NO footprint change).
+  // Siblings stay SOLID (§32.3 — depth, not fade). Viewport-relative, transient.
   const dominantNodeId = useMemo(() => {
     if (focusedNodeId) return null;
     let best: string | null = null;
@@ -620,7 +615,6 @@ export function CanvasViewInner({
     [focusNodeCamera],
   );
 
-  const focusedPlanId = focusedNodeId ? lookups.nodeById.get(focusedNodeId)?.planId ?? null : null;
   const focusedTitle = focusedNodeId
     ? planById.get(focusedNodeId)?.title ?? lookups.taskById.get(focusedNodeId)?.name ?? null
     : null;
@@ -755,8 +749,6 @@ export function CanvasViewInner({
                     lod={lod}
                     world={nodeWorld}
                     crispScale={crispRasterScale(nodeWorld, transform.scale)}
-                    dimmed={focusedNodeId != null && n.planId !== focusedPlanId && n.id !== focusedNodeId}
-                    softDim={dominantNodeId != null && n.kind === "task" && n.id !== dominantNodeId && !lookups.taskById.get(n.id)?.parent_task_id}
                     elevated={dominantNodeId != null && n.id === dominantNodeId}
                     onOpenPane={onOpenPane}
                     onHoverTask={onHoverTask}
