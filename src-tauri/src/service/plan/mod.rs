@@ -7,6 +7,7 @@ pub mod mutations;
 pub mod paths;
 pub mod reminders;
 pub mod search_index;
+pub mod section_links;
 pub mod spec;
 pub mod spec_files;
 pub mod tag_model;
