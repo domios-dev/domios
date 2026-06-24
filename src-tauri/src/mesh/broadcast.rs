@@ -61,7 +61,7 @@ pub async fn broadcast_sync(mesh: &MeshState) {
         })
         .await;
         match result {
-            Ok(()) => log::info!("[mesh/broadcast] Synced to {}", peer_id),
+            Ok(()) => log::debug!("[mesh/broadcast] Synced to {}", peer_id),
             Err(e) => log::warn!("[mesh/broadcast] Sync failed for {}: {}", peer_id, e),
         }
     }
@@ -268,7 +268,7 @@ pub async fn broadcast_announce(mesh: &MeshState, target: Option<&str>) -> Annou
         match result {
             Ok(()) => {
                 report.ok += 1;
-                log::info!(
+                log::debug!(
                     "[mesh/announce] sent to {} ({}) addrs={:?}",
                     peer_name,
                     peer_id,
@@ -306,15 +306,16 @@ pub fn refresh_local_addresses(mesh: &MeshState) -> bool {
     let new_ts = mesh.lock().tailscale_ip.clone();
     let new_lan = mesh.lock().local_ip.clone();
     let changed = prev_ts != new_ts || prev_lan != new_lan || prev_https != https;
-    log::info!(
-        "[mesh/refresh] local addrs: tailscale {:?} -> {:?}, lan {:?} -> {:?}, https {:?} -> {:?}{}",
-        prev_ts,
-        new_ts,
-        prev_lan,
-        new_lan,
-        prev_https,
-        https,
-        if changed { " (CHANGED)" } else { "" }
-    );
+    // Routine refresh fires every cycle — only worth INFO when an address
+    // actually changed; the steady state is debug to keep the log readable.
+    if changed {
+        log::info!(
+            "[mesh/refresh] local addrs CHANGED: tailscale {prev_ts:?} -> {new_ts:?}, lan {prev_lan:?} -> {new_lan:?}, https {prev_https:?} -> {https:?}"
+        );
+    } else {
+        log::debug!(
+            "[mesh/refresh] local addrs: tailscale {new_ts:?}, lan {new_lan:?}, https {https:?}"
+        );
+    }
     changed
 }
