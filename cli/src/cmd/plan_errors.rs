@@ -12,7 +12,7 @@ pub(crate) fn render_plan_call_error(err: SocketCallError, params: &Value) -> St
     }
 }
 
-fn render_plan_error(data: &Value, params: &Value) -> Option<String> {
+pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> {
     let kind = data.get("type")?.as_str()?;
     let plan_id = params
         .get("plan_id")

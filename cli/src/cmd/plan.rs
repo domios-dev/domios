@@ -7,6 +7,8 @@ use crate::args::plan::{
 use crate::client::SocketClient;
 use crate::cmd::hints::{print_hints, push_hints, task_model_hint, task_sections_hint};
 use crate::cmd::plan_errors::render_plan_call_error;
+#[cfg(test)]
+use crate::cmd::plan_errors::render_plan_error;
 use crate::cmd::plan_linking::render_relink_report;
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
@@ -787,7 +789,7 @@ fn run_plan(
                     return Ok(Some(val));
                 }
                 print!("{}", render_relink_report(&val));
-                Ok(None)
+                return Ok(None);
             }
             PlanTaskAction::Rm { plan_id, task_id } => call(
                 client,
