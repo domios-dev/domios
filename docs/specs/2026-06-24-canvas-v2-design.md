@@ -1311,3 +1311,58 @@ in WORLDS (zoom-drill into a task for detail), tasks DON'T need to be big up fro
   region height; overflow flows into additional columns rightward, never an infinite vertical strip.
 - Composes with §20 worlds/banded layout (this IS the banded cloud done right), §32.4 size, §32.3 hierarchy,
   §31 (camera never moves on live repack).
+
+## 33. Mergeable git-native storage (opus+codex converged research)
+
+<!-- revision: 11 -->
+
+Andrey's question: sqlite is binary → can't git-merge; how do mergeable plan/memory systems work; can
+this travel with git? Two research agents converged. This resolves central-project (§ git-common-dir)
++ git-versioning + merge in one architecture. RESEARCH verdict — decide before building.
+
+### 33.1 Verdict — hybrid file-per-entity + append-only event log; sqlite ALWAYS derived
+The ONLY non-mergeable artifact today is the monolithic `.codeterm/plans/<id>.json` (its `tasks[]` with
+embedded stride arrays = one big conflict surface). The bones already exist: §17 externalizes section/task
+BODIES to `.md` (file-per-entity), §21 makes the sqlite index DERIVED. **Finish the decomposition** and the
+data becomes git-mergeable with ZERO custom machinery.
+
+### 33.2 On-disk layout
+- `.codeterm/plans/<id>/meta.yaml` — slim SCALAR metadata only (title, status, owner, section order, refs,
+  facets, links pointers). No arrays of content.
+- `.codeterm/plans/<id>/sections/<handle>/section.md` — YAML frontmatter (id, title, handle, tags, order,
+  canvas) + Markdown body. (extends §17)
+- `.codeterm/plans/<id>/tasks/<handle>/task.md` — frontmatter (id, status, priority, model, section_ids,
+  parent, group, assigned pane) + body.
+- `.codeterm/plans/<id>/tasks/<handle>/strides.jsonl` — **APPEND-ONLY**, one ULID-keyed event per line
+  (stride / status-change / assignment / edit). (codex variant: `events/<ulid>-<actor>.json` one-file-per-event.)
+- `specs/<id>/…` same pattern; `links/` + `canvas/` one-file-per-entity; `INDEX.md` generated.
+- `plan-index.sqlite`, vectors, FTS, layout caches — DERIVED, gitignored, never committed.
+
+### 33.3 Merge mechanism — git's BUILTINS, no custom driver
+- Entity/body files: git DEFAULT 3-way per-file merge. Two branches adding different tasks = two different
+  files = auto-merge, no conflict. Editing the SAME body on two branches = a normal TEXT conflict — which is
+  the correct human-visible conflict (resolve in a PR), NOT a silent overwrite.
+- Append-only logs (`*.jsonl`): git BUILT-IN `merge=union` via `.gitattributes` — concatenates both sides.
+  Immutable ULID events → concurrent strides across worktrees/branches NEVER conflict. Fold to current state =
+  parse → dedup by id → sort by (ts, id). **NO custom merge driver, NO CRDT, NO Dolt.**
+- Scalar field conflicts (status/priority on the same task from two branches): model as explicit events with a
+  Lamport tuple (logical_clock, actor_id, event_id) → deterministic LWW ONLY for genuinely scalar fields;
+  body/text edits stay git conflicts (never silent LWW).
+
+### 33.4 Concurrency, vectors, mem, migration
+- Single-writer per-worktree daemon (existing serialized writer, now cheaper — one entity file + append).
+  GIT is the cross-worktree/branch merge transport; no cross-process lock. On merge/pull/rebase the watcher
+  folds + reindexes; derived indexes are discarded/rebuilt (sub-second at plan scale via content-hash skip).
+- Vectors/sqlite ALWAYS derived (binary, model-version-dependent, cheap to regen from source_path/mtime).
+- Mem: workspace facts = one `.md` per fact under `.codeterm/mem/<area>/` (travels with git); global / identity
+  / peer facts stay in the home sqlite, never git.
+- Migration: idempotent deterministic "explode" on load (no Date::now/random; mirrors §17.3 migrated-flag).
+
+### 33.5 Rejected + build order
+REJECTED: CRDT/Automerge (binary, no git-diff/PR-review, QuickJS parity break, redundant given append-only);
+Dolt (no Go runtime, data lives outside project git so won't travel with branches, no PR diffs); pure
+event-sourcing for everything (wrong for big prose bodies — hence the hybrid). Build order: explode migration →
+per-entity write path → strides.jsonl + merge=union → post-merge reindex → mem workspace-fact files. SPIKE
+FIRST: verify git's built-in `merge=union` behaves on EOF-append hunks before choosing jsonl over
+one-file-per-event. Composes with §32-central-project (git-common-dir) — together: one central, git-mergeable,
+branch-travelling plan/memory store.
