@@ -37,6 +37,8 @@ export interface NodeRenderArgs {
   onSectionFrame?: (a: SectionNavArgs) => void;
   /** §26 worlds: this node's appW-driven content band (W0 mass → W3 deep). */
   world: World;
+  /** §34 crisp text: re-rasterize factor for this node (1 = none, else camera scale). */
+  crispScale: number;
 }
 
 export type NodeRenderer = (args: NodeRenderArgs) => ReactNode;
@@ -80,13 +82,14 @@ export function getNodeRenderer(kind: string): NodeRenderer {
   return renderers[kind] ?? fallbackRenderer;
 }
 
-registerNodeRenderer("plan", ({ node, model, style, world, onArchive, onFitNode, onSectionClick, onSectionFrame }) =>
+registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive, onFitNode, onSectionClick, onSectionFrame }) =>
   model ? (
     <SectionNode
       variant="plan"
       plan={model as Plan}
       style={style}
       world={world}
+      crispScale={crispScale}
       onArchive={onArchive}
       onFitNode={onFitNode ? () => onFitNode(node.id) : undefined}
       onSectionClick={onSectionClick}
@@ -94,8 +97,8 @@ registerNodeRenderer("plan", ({ node, model, style, world, onArchive, onFitNode,
     />
   ) : null,
 );
-registerNodeRenderer("spec", ({ model, style, world, onSectionClick, onSectionFrame }) =>
-  model ? <SectionNode variant="spec" plan={model as Plan} style={style} world={world} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} /> : null,
+registerNodeRenderer("spec", ({ model, style, world, crispScale, onSectionClick, onSectionFrame }) =>
+  model ? <SectionNode variant="spec" plan={model as Plan} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} /> : null,
 );
 registerNodeRenderer("task", ({ model, style, world, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride }) => {
   const m = model as { task: Task; childCount?: number; childDone?: number; stepColors?: Map<string, string> } | undefined;

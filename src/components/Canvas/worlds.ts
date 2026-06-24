@@ -56,3 +56,18 @@ export function atLeast(world: World, min: World): boolean {
 export function appWidth(footprintWorldWidth: number, cameraScale: number): number {
   return footprintWorldWidth * cameraScale;
 }
+
+// §34 CRISP TEXT: the whole world zooms via a single `transform: scale(cam)` div, so
+// a node's 1× raster is GPU-upscaled at deep zoom → blurry glyphs ("shakal" at 400%).
+// Readable-band nodes (W2/W3) re-rasterize at on-screen size: the card is `zoom`-ed
+// by `cam` (real layout reflow → glyphs shaped at display px) then counter-scaled by
+// transform: scale(1/cam) back to world size. Net geometry is unchanged (§22/§31),
+// only the raster is produced at display resolution. Quantized to 0.25 steps so the
+// reflow fires a bounded number of times across a zoom sweep, not every frame; the
+// SAME value drives zoom AND the counter-transform, so they cancel to exactly 1×
+// world size regardless of rounding (rounding only shifts raster sharpness ±a few %).
+export const CRISP_MIN_SCALE = 1.05;
+export function crispRasterScale(world: World, cameraScale: number): number {
+  if (!atLeast(world, "W2") || cameraScale <= CRISP_MIN_SCALE) return 1;
+  return Math.max(1, Math.round(cameraScale * 4) / 4);
+}
