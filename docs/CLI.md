@@ -1116,16 +1116,6 @@ Send a notification
 
 Orchestrator helpers
 
-#### `codeterm orchestrator heartbeat`
-
-Orchestrator heartbeat helpers
-
-#### `codeterm orchestrator heartbeat show`
-
-Show the current heartbeat and learnings
-
-- `--plan`
-
 #### `codeterm orchestrator handoff`
 
 Create an orchestrator handoff and optionally reseed this pane
@@ -1140,6 +1130,16 @@ Create an orchestrator handoff and optionally reseed this pane
 - `--plan`
 - `--reseed`
 - `--task`
+
+#### `codeterm orchestrator heartbeat`
+
+Orchestrator heartbeat helpers
+
+#### `codeterm orchestrator heartbeat show`
+
+Show the current heartbeat and learnings
+
+- `--plan`
 
 #### `codeterm orchestrator learn`
 
@@ -1560,6 +1560,13 @@ Show structural neighbors for a plan/spec/task/section unit
 - `--depth`
 - `--id`
 
+#### `codeterm plan relink`
+
+Preview or apply automatic section links for unlinked tasks
+
+- `--apply`
+- `<plan_id>`
+
 #### `codeterm plan section`
 
 Plan sections
@@ -1654,6 +1661,17 @@ Plan tasks
 - `--result`
 - `--result_file`
 - `<task_id>`
+
+#### `codeterm plan task link`
+
+- `<plan_id>`
+- `--sections`
+- `<task_id>`
+
+#### `codeterm plan task relink`
+
+- `--apply`
+- `<plan_id>`
 
 #### `codeterm plan task rm`
 

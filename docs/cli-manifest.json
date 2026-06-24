@@ -4018,30 +4018,6 @@
       "args": [],
       "subcommands": [
         {
-          "name": "heartbeat",
-          "about": "Orchestrator heartbeat helpers",
-          "aliases": [],
-          "args": [],
-          "subcommands": [
-            {
-              "name": "show",
-              "about": "Show the current heartbeat and learnings",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "plan",
-                  "positional": false,
-                  "value_name": "PLAN",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            }
-          ]
-        },
-        {
           "name": "handoff",
           "about": "Create an orchestrator handoff and optionally reseed this pane",
           "aliases": [],
@@ -4128,6 +4104,30 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "heartbeat",
+          "about": "Orchestrator heartbeat helpers",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "show",
+              "about": "Show the current heartbeat and learnings",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         },
         {
           "name": "learn",
@@ -5785,6 +5785,30 @@
           "subcommands": []
         },
         {
+          "name": "relink",
+          "about": "Preview or apply automatic section links for unlinked tasks",
+          "aliases": [],
+          "args": [
+            {
+              "name": "apply",
+              "positional": false,
+              "value_name": "APPLY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "section",
           "about": "Plan sections",
           "aliases": [],
@@ -6311,6 +6335,62 @@
                   "name": "task_id",
                   "positional": true,
                   "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "link",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "sections",
+                  "positional": false,
+                  "value_name": "SECTIONS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "relink",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "apply",
+                  "positional": false,
+                  "value_name": "APPLY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
                   "default": null,
                   "help": null,
                   "aliases": []
