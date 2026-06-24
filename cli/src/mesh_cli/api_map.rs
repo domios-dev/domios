@@ -40,6 +40,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Plan { .. } => {
             unsupported("plan management is local-only — run it on the target machine")
         }
+        Commands::Orchestrator { .. } => {
+            unsupported("orchestrator handoff is local-only — run it on the target machine")
+        }
         Commands::Task { .. } => {
             unsupported("task management is local-only — run it on the target machine")
         }

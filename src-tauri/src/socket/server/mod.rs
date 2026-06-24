@@ -12,6 +12,7 @@ mod cron;
 mod notification;
 mod pane;
 mod plan;
+mod plan_handoff;
 mod services;
 mod workspace;
 
@@ -357,7 +358,7 @@ fn dispatch(
                     "agent.list", "agent.hierarchy", "agent.spawn", "agent.set_role",
                     "agent.clear_role", "agent.status", "agent.children", "agent.link",
                     "agent.report", "agent.reports",
-                    "plan.create", "plan.batch", "plan.handoff.create", "plan.handoff.list", "plan.handoff.show", "plan.list", "plan.get", "plan.spec", "plan.files", "plan.tags", "plan.update", "plan.archive",
+                    "plan.create", "plan.batch", "plan.handoff.create", "plan.handoff.list", "plan.handoff.show", "plan.handoff.reseed", "plan.list", "plan.get", "plan.spec", "plan.files", "plan.tags", "plan.update", "plan.archive",
                     "plan.delete", "plan.transfer", "plan.disown", "plan.claim",
                     "plan.section.add", "plan.section.update", "plan.section.rm",
                     "plan.kinds.set",

@@ -53,6 +53,53 @@ pub struct HandoffListItem {
     pub reseed_state: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct HandoffReseedRequest {
+    #[serde(default)]
+    pub selector: Option<String>,
+    pub pane_id: String,
+    pub source_session_id: String,
+    #[serde(default = "default_reseed_mode")]
+    pub mode: String,
+    #[serde(default)]
+    pub force: bool,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct HandoffReseedSend {
+    pub order: u8,
+    pub text: String,
+    pub enter: bool,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HandoffReseedResult {
+    pub ok: bool,
+    pub dry_run: bool,
+    pub mode: String,
+    pub plan_id: String,
+    pub handoff_id: String,
+    pub pane_id: String,
+    pub source_session_id: String,
+    pub sends: Vec<HandoffReseedSend>,
+    pub state: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct HandoffResumeSend {
+    pub plan_id: String,
+    pub handoff_id: String,
+    pub pane_id: String,
+    pub text: String,
+}
+
+fn default_reseed_mode() -> String {
+    "new".into()
+}
+
 fn git_value(project_path: &str, args: &[&str]) -> Option<String> {
     let output = Command::new("git")
         .arg("-C")
@@ -194,6 +241,47 @@ fn render_markdown(content: &Value, body: &str) -> String {
     out
 }
 
+fn content_str(content: &Value, key: &str) -> Option<String> {
+    content
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
+fn active_reseed_state(state: &str) -> bool {
+    matches!(state, "new_sent" | "session_seen" | "resume_sent")
+}
+
+fn pending_for_pane(content: &Value, pane_id: &str) -> bool {
+    content
+        .get("reseed_pending")
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.get("pane_id"))
+        .and_then(|v| v.as_str())
+        == Some(pane_id)
+}
+
+fn reseed_state(content: &Value) -> Option<&str> {
+    content.get("reseed_state").and_then(|v| v.as_str())
+}
+
+fn select_handoff_index(plan: &Plan, selector: Option<&str>) -> Option<usize> {
+    if let Some(selector) = selector {
+        plan.elements.iter().position(|element| {
+            element.kind == "handoff"
+                && (element.id == selector
+                    || selector.parse::<u64>().ok() == Some(content_seq(&element.content)))
+        })
+    } else {
+        plan.elements
+            .iter()
+            .enumerate()
+            .filter(|(_, element)| element.kind == "handoff")
+            .max_by_key(|(_, element)| content_seq(&element.content))
+            .map(|(idx, _)| idx)
+    }
+}
+
 impl PlanStore {
     pub fn create_handoff(
         &self,
@@ -317,6 +405,206 @@ impl PlanStore {
             content: element.content.clone(),
             markdown: render_markdown(&element.content, &body),
         })
+    }
+
+    pub fn prepare_handoff_reseed(
+        &self,
+        plan_id: &str,
+        req: &HandoffReseedRequest,
+        provider_command: &str,
+        resume_seed: &str,
+        now_ms: u64,
+    ) -> Result<HandoffReseedResult, PlanError> {
+        if req.source_session_id.trim().is_empty() {
+            return Err(PlanError::Io("source_session_id is required".into()));
+        }
+        if req.mode != "new" && req.mode != "compact" {
+            return Err(PlanError::Io("mode must be new or compact".into()));
+        }
+        self.reject_active_reseed_for_pane(&req.pane_id, req.force)?;
+        let selector = req.selector.clone();
+        self.with_plan(plan_id, now_ms, |plan| {
+            let idx = select_handoff_index(plan, selector.as_deref()).ok_or(PlanError::NotFound)?;
+            let element = &mut plan.elements[idx];
+            let state = if req.mode == "compact" {
+                "resume_sent"
+            } else {
+                "new_sent"
+            };
+            if req.dry_run {
+                return Ok(HandoffReseedResult {
+                    ok: true,
+                    dry_run: true,
+                    mode: req.mode.clone(),
+                    plan_id: plan.id.clone(),
+                    handoff_id: element.id.clone(),
+                    pane_id: req.pane_id.clone(),
+                    source_session_id: req.source_session_id.clone(),
+                    sends: reseed_sends(&req.mode, provider_command, resume_seed),
+                    state: "dry_run".into(),
+                });
+            }
+            let obj = element
+                .content
+                .as_object_mut()
+                .ok_or_else(|| PlanError::Io("handoff content must be an object".into()))?;
+            obj.insert("reseed_state".into(), Value::from(state));
+            obj.insert(
+                "reseed_pending".into(),
+                json!({
+                    "pane_id": req.pane_id,
+                    "handoff_id": element.id,
+                    "source_session_id": req.source_session_id,
+                    "state": state,
+                    "mode": req.mode,
+                    "created_at": now_ms,
+                    "updated_at": now_ms,
+                    "resume_prompt": resume_seed,
+                }),
+            );
+            Ok(HandoffReseedResult {
+                ok: true,
+                dry_run: false,
+                mode: req.mode.clone(),
+                plan_id: plan.id.clone(),
+                handoff_id: element.id.clone(),
+                pane_id: req.pane_id.clone(),
+                source_session_id: req.source_session_id.clone(),
+                sends: reseed_sends(&req.mode, provider_command, resume_seed),
+                state: state.into(),
+            })
+        })
+    }
+
+    fn reject_active_reseed_for_pane(&self, pane_id: &str, force: bool) -> Result<(), PlanError> {
+        if force {
+            return Ok(());
+        }
+        for entry in self.list_index() {
+            if let Some(plan) = self.get(&entry.plan_id) {
+                let active = plan.elements.iter().any(|element| {
+                    element.kind == "handoff"
+                        && pending_for_pane(&element.content, pane_id)
+                        && reseed_state(&element.content).is_some_and(active_reseed_state)
+                });
+                if active {
+                    return Err(PlanError::Io(format!(
+                        "handoff reseed already pending for pane {pane_id}; use --force to override"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn observe_handoff_session_start(
+        &self,
+        pane_id: &str,
+        new_session_id: &str,
+        now_ms: u64,
+    ) -> Result<Option<HandoffResumeSend>, PlanError> {
+        for entry in self.list_index() {
+            let Some(plan_snapshot) = self.get(&entry.plan_id) else {
+                continue;
+            };
+            let candidate = plan_snapshot
+                .elements
+                .iter()
+                .filter(|element| element.kind == "handoff")
+                .find(|element| {
+                    pending_for_pane(&element.content, pane_id)
+                        && reseed_state(&element.content) == Some("new_sent")
+                        && element
+                            .content
+                            .get("reseed_pending")
+                            .and_then(|v| v.get("source_session_id"))
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|source| source != new_session_id)
+                })
+                .map(|element| element.id.clone());
+            let Some(handoff_id) = candidate else {
+                continue;
+            };
+            let mut out = None;
+            self.with_plan(&entry.plan_id, now_ms, |plan| {
+                let Some(element) = plan
+                    .elements
+                    .iter_mut()
+                    .find(|element| element.id == handoff_id && element.kind == "handoff")
+                else {
+                    return Ok(());
+                };
+                let fallback_resume_prompt =
+                    content_str(&element.content, "resume_prompt").unwrap_or_default();
+                let Some(obj) = element.content.as_object_mut() else {
+                    return Ok(());
+                };
+                let Some(pending) = obj
+                    .get_mut("reseed_pending")
+                    .and_then(|v| v.as_object_mut())
+                else {
+                    return Ok(());
+                };
+                if pending.get("state").and_then(|v| v.as_str()) != Some("new_sent") {
+                    return Ok(());
+                }
+                let text = pending
+                    .get("resume_prompt")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .unwrap_or(fallback_resume_prompt);
+                pending.insert("state".into(), Value::from("resume_sent"));
+                pending.insert("target_session_id".into(), Value::from(new_session_id));
+                pending.insert("updated_at".into(), Value::from(now_ms));
+                pending.insert("resume_sent_at".into(), Value::from(now_ms));
+                obj.insert("reseed_state".into(), Value::from("resume_sent"));
+                out = Some(HandoffResumeSend {
+                    plan_id: plan.id.clone(),
+                    handoff_id: element.id.clone(),
+                    pane_id: pane_id.to_string(),
+                    text,
+                });
+                Ok(())
+            })?;
+            if out.is_some() {
+                return Ok(out);
+            }
+        }
+        Ok(None)
+    }
+}
+
+fn reseed_sends(mode: &str, provider_command: &str, resume_seed: &str) -> Vec<HandoffReseedSend> {
+    if mode == "compact" {
+        vec![
+            HandoffReseedSend {
+                order: 1,
+                text: resume_seed.to_string(),
+                enter: true,
+                reason: "resume_seed".into(),
+            },
+            HandoffReseedSend {
+                order: 2,
+                text: provider_command.to_string(),
+                enter: true,
+                reason: "provider_compact".into(),
+            },
+        ]
+    } else {
+        vec![
+            HandoffReseedSend {
+                order: 1,
+                text: provider_command.to_string(),
+                enter: true,
+                reason: "provider_fresh_context".into(),
+            },
+            HandoffReseedSend {
+                order: 2,
+                text: resume_seed.to_string(),
+                enter: true,
+                reason: "session_start_resume_seed".into(),
+            },
+        ]
     }
 }
 
@@ -452,5 +740,129 @@ mod tests {
         assert!(detail.markdown.contains("- Continue from next action"));
         assert!(detail.markdown.contains("Second body"));
         assert_eq!(store.show_handoff(&plan_id, Some("1")).unwrap().seq, 1);
+    }
+
+    #[test]
+    fn reseed_records_pending_row_and_session_start_sends_once() {
+        let (_dir, store, plan_id, task_id) = store_with_task();
+        let created = store
+            .create_handoff(
+                &plan_id,
+                HandoffCreateRequest {
+                    task: Some(task_id),
+                    goal: Some("Reseed".into()),
+                    ..HandoffCreateRequest::default()
+                },
+                30,
+            )
+            .unwrap();
+
+        let result = store
+            .prepare_handoff_reseed(
+                &plan_id,
+                &HandoffReseedRequest {
+                    selector: Some(created.handoff_id.clone()),
+                    pane_id: "pane-a".into(),
+                    source_session_id: "old-session".into(),
+                    mode: "new".into(),
+                    force: false,
+                    dry_run: false,
+                },
+                "/new",
+                "resume seed",
+                40,
+            )
+            .unwrap();
+        assert_eq!(result.state, "new_sent");
+        assert_eq!(result.sends[0].text, "/new");
+
+        let resume = store
+            .observe_handoff_session_start("pane-a", "new-session", 50)
+            .unwrap()
+            .unwrap();
+        assert_eq!(resume.text, "resume seed");
+        assert_eq!(resume.handoff_id, created.handoff_id);
+        assert!(store
+            .observe_handoff_session_start("pane-a", "new-session-2", 60)
+            .unwrap()
+            .is_none());
+        let detail = store.show_handoff(&plan_id, None).unwrap();
+        assert_eq!(detail.content["reseed_state"], "resume_sent");
+        assert_eq!(
+            detail.content["reseed_pending"]["target_session_id"],
+            "new-session"
+        );
+    }
+
+    #[test]
+    fn reseed_rejects_active_pending_row_without_force() {
+        let (_dir, store, plan_id, task_id) = store_with_task();
+        store
+            .create_handoff(
+                &plan_id,
+                HandoffCreateRequest {
+                    task: Some(task_id),
+                    ..HandoffCreateRequest::default()
+                },
+                30,
+            )
+            .unwrap();
+        let request = HandoffReseedRequest {
+            selector: None,
+            pane_id: "pane-a".into(),
+            source_session_id: "old-session".into(),
+            mode: "new".into(),
+            force: false,
+            dry_run: false,
+        };
+        store
+            .prepare_handoff_reseed(&plan_id, &request, "/new", "resume seed", 40)
+            .unwrap();
+        let err = store
+            .prepare_handoff_reseed(&plan_id, &request, "/new", "resume seed", 41)
+            .unwrap_err();
+        assert!(err.to_string().contains("already pending"));
+
+        let forced = HandoffReseedRequest {
+            force: true,
+            ..request
+        };
+        store
+            .prepare_handoff_reseed(&plan_id, &forced, "/new", "resume seed", 42)
+            .unwrap();
+    }
+
+    #[test]
+    fn compact_reseed_sequence_is_seed_then_compact() {
+        let (_dir, store, plan_id, task_id) = store_with_task();
+        store
+            .create_handoff(
+                &plan_id,
+                HandoffCreateRequest {
+                    task: Some(task_id),
+                    ..HandoffCreateRequest::default()
+                },
+                30,
+            )
+            .unwrap();
+        let result = store
+            .prepare_handoff_reseed(
+                &plan_id,
+                &HandoffReseedRequest {
+                    selector: None,
+                    pane_id: "pane-a".into(),
+                    source_session_id: "old-session".into(),
+                    mode: "compact".into(),
+                    force: false,
+                    dry_run: false,
+                },
+                "/compact",
+                "resume seed",
+                40,
+            )
+            .unwrap();
+        assert_eq!(result.state, "resume_sent");
+        assert_eq!(result.sends[0].reason, "resume_seed");
+        assert_eq!(result.sends[1].text, "/compact");
     }
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::args::orchestrator::OrchestratorAction;
 use crate::args::plan::PlanHandoffAction;
 use clap::CommandFactory;
 
@@ -184,6 +185,21 @@ fn data_root_ignores_relative_env_override() {
 }
 
 #[test]
+fn data_root_uses_named_dev_instance() {
+    let _guard = env_lock().lock().unwrap();
+    let prev_data = std::env::var("CODETERM_DATA_DIR").ok();
+    let prev_instance = std::env::var("CODETERM_INSTANCE").ok();
+    let prev_port = std::env::var("CODETERM_API_PORT").ok();
+    std::env::remove_var("CODETERM_DATA_DIR");
+    std::env::set_var("CODETERM_INSTANCE", "handoff");
+    std::env::set_var("CODETERM_API_PORT", "7691");
+    assert!(data_root().ends_with(".codeterm-dev-handoff"));
+    restore_env("CODETERM_DATA_DIR", prev_data);
+    restore_env("CODETERM_INSTANCE", prev_instance);
+    restore_env("CODETERM_API_PORT", prev_port);
+}
+
+#[test]
 fn top_level_docs_parse() {
     let parsed = Cli::try_parse_from(["codeterm", "docs"]).expect("docs parses");
     assert!(matches!(parsed.command, Commands::Docs { .. }));
@@ -336,6 +352,52 @@ fn plan_handoff_subcommands_parse() {
                 },
         } if plan_id == "pl_1"
     ));
+}
+
+#[test]
+fn orchestrator_handoff_reseed_dry_run_parses() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "orchestrator",
+        "handoff",
+        "--plan",
+        "pl_1",
+        "--task",
+        "task_1",
+        "--pane",
+        "pane_1",
+        "--reseed",
+        "--dry-run",
+        "--mode",
+        "new",
+        "--next",
+        "resume from latest handoff",
+    ])
+    .expect("orchestrator handoff parses");
+    match parsed.command {
+        Commands::Orchestrator {
+            action:
+                OrchestratorAction::Handoff {
+                    plan,
+                    task,
+                    pane,
+                    reseed,
+                    dry_run,
+                    mode,
+                    next_actions,
+                    ..
+                },
+        } => {
+            assert_eq!(plan.as_deref(), Some("pl_1"));
+            assert_eq!(task.as_deref(), Some("task_1"));
+            assert_eq!(pane.as_deref(), Some("pane_1"));
+            assert!(reseed);
+            assert!(dry_run);
+            assert_eq!(mode, "new");
+            assert_eq!(next_actions, vec!["resume from latest handoff"]);
+        }
+        _ => panic!("expected orchestrator handoff"),
+    }
 }
 
 #[test]

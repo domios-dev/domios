@@ -18,6 +18,7 @@ use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
     ThemeAction, WorkspaceAction,
 };
+use super::orchestrator::OrchestratorAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
 use super::service::ServiceAction;
@@ -72,6 +73,12 @@ pub enum Commands {
     Workspace {
         #[command(subcommand)]
         action: WorkspaceAction,
+    },
+
+    /// Orchestrator handoff helpers
+    Orchestrator {
+        #[command(subcommand)]
+        action: OrchestratorAction,
     },
 
     /// Pane management

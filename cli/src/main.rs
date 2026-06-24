@@ -20,13 +20,17 @@ pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
 ///   2. CODETERM_API_PORT == 7686 (dev's port — useful when calling CLI from
 ///      outside a dev pane, e.g. tests)
 ///   3. Default: prod
+///
 /// When a dev context is detected and CODETERM_INSTANCE is set, the slug is
 /// appended (`~/.codeterm-dev-<slug>`) so per-worktree instances stay isolated.
 pub fn data_dir_name() -> String {
     let is_dev = std::env::var("CODETERM_SOCKET_PATH")
         .map(|sp| sp.contains("codeterm-dev"))
         .unwrap_or(false)
-        || std::env::var("CODETERM_API_PORT").as_deref() == Ok("7686");
+        || std::env::var("CODETERM_API_PORT").as_deref() == Ok("7686")
+        || std::env::var("CODETERM_INSTANCE")
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
     if is_dev {
         return format!(".codeterm-dev{}", instance_suffix());
     }
@@ -106,28 +110,34 @@ pub fn read_api_config() -> (String, Option<String>) {
         }
     }
 
+    let config_token = || {
+        std::fs::read_to_string(&config_path)
+            .ok()
+            .and_then(|content| content.parse::<toml::Table>().ok())
+            .and_then(|val| {
+                val.get("api")?
+                    .as_table()?
+                    .get("token")?
+                    .as_str()
+                    .map(String::from)
+            })
+    };
+
     // Try Ed25519 signed token first, fall back to simple API token from config
     let signed_token = read_mesh_signed_token();
 
-    // Highest priority: explicit CODETERM_API_TOKEN env override. Useful for hitting dev (port 7686) from outside its PTY without the matching
-    // mesh identity, or for tests with a manually scoped token.
-    let token = std::env::var("CODETERM_API_TOKEN")
+    let env_token = std::env::var("CODETERM_API_TOKEN")
         .ok()
-        .filter(|s| !s.is_empty())
-        .or(signed_token)
-        .or_else(|| {
-            let config_path = config_dir.join("config.toml");
-            std::fs::read_to_string(&config_path)
-                .ok()
-                .and_then(|content| content.parse::<toml::Table>().ok())
-                .and_then(|val| {
-                    val.get("api")?
-                        .as_table()?
-                        .get("token")?
-                        .as_str()
-                        .map(String::from)
-                })
-        });
+        .filter(|s| !s.is_empty());
+
+    let token = if std::env::var("CODETERM_INSTANCE")
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+    {
+        config_token().or(signed_token).or(env_token)
+    } else {
+        env_token.or(signed_token).or_else(config_token)
+    };
 
     (format!("http://{}:{}", host, port), token)
 }
@@ -415,6 +425,14 @@ fn main() {
             match cmd::local_io::handle_workspace_action(&mut client, action, cli.json) {
                 Some(result) => result,
                 None => return,
+            }
+        }
+
+        Commands::Orchestrator { action } => {
+            match cmd::orchestrator::handle(&mut client, cli.json, action) {
+                Ok(Some(value)) => Ok(value),
+                Ok(None) => return,
+                Err(e) => Err(e),
             }
         }
 
