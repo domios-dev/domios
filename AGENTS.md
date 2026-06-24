@@ -49,6 +49,8 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
 
+**Run ONE test at a time.** All `cargo test`/`build.sh test` runs share a single `target/.cargo-lock`; launching a second while one is in flight makes them queue (not parallelize) and looks like a multi-minute "hang" — narrow the filter, run it once in the background, wait for it; never fire concurrent runs.
+
 **Interactive dev restart from inside CodeTerm: prefer a visible pane.** On
 macOS/Tauri, `./build.sh dev --wait` can briefly report healthy and then lose the
 launcher process when the detached PTY goes away. For user-facing dev sessions,
@@ -199,12 +201,11 @@ frontend-dev, code-reviewer, docs-sync, release) live in
 `src-tauri/`; your task: …") — there are no per-role `codeterm mem` entries to
 fetch (do not try `codeterm mem get skill_<role>_role` — those do not exist).
 
-**`.agents/skills/`** is the canonical project-local skill directory. **`.claude/skills/`**
-is a mirror for Claude Code compatibility, synced from `.agents/skills/`.
+**`.agents/skills/`** is the canonical project-local skill directory (mem indexes it directly).
 
 ### Where the codeterm-specific skill folders live
 
-CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs, and mirrors to `.claude/skills/` for Claude Code. Currently:
+CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs. Currently:
 
 - `.agents/skills/codeterm-orchestrator/` — orchestration discipline and gates
 - `.agents/skills/dev-run/` — dev daemon start/restart/diagnostics
@@ -213,12 +214,6 @@ CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-control
 - `.agents/skills/prompt-evaluator/` — prompt regression harness
 
 Prod build lives in `./build.sh build`; Windows local NSIS self-install in `scripts/self-install-local.ps1`.
-
-After editing project skills, sync the Claude mirror:
-
-```bash
-node scripts/sync-agent-skills.mjs
-```
 
 On a fresh clone, register them with mem so the Librarian indexes them:
 
