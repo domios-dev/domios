@@ -120,6 +120,41 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("active task 2 inside the median history radius", distOf("act2") < medianHist);
 }
 
+// ── §35 comet fold: active pulls LEFT (plan side), done sinks RIGHT/outer ──
+{
+  const tasks: Task[] = [];
+  for (let i = 0; i < 14; i++) tasks.push(task(`act${i}`, { status: i < 3 ? "in_progress" : "pending", created_at: i }));
+  for (let i = 0; i < 14; i++) tasks.push(task(`done${i}`, { status: "done", created_at: 100 + i }));
+  const cloud = layoutTaskCloud(plan(tasks), S, new Map());
+  const cx = (id: string) => {
+    const n = cloud.nodes.find((x) => x.id === id)!;
+    return n.box.x + n.box.width / 2; // local x: <0 = toward the plan
+  };
+  const actXs = tasks.filter((t) => t.id.startsWith("act")).map((t) => cx(t.id));
+  const doneXs = tasks.filter((t) => t.id.startsWith("done")).map((t) => cx(t.id));
+  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  ok(`active mean-x left of done mean-x (${Math.round(mean(actXs))} < ${Math.round(mean(doneXs))})`, mean(actXs) < mean(doneXs));
+  // Every active tile sits in the left half; every done tile in the right half.
+  ok("all active clusters on the plan side (x ≤ 0)", actXs.every((x) => x <= 1e-6));
+  ok("all done clusters sink to the right (x ≥ 0)", doneXs.every((x) => x >= -1e-6));
+}
+
+// ── §35 fold is append-stable: a NEW task moves no existing tile ──
+{
+  // Core already full (K in_progress) so the fresh task lands on the outer history
+  // spiral (slot = K + creationRank), not an open core slot → no ripple.
+  const base: Task[] = [];
+  for (let i = 0; i < ACTIVE_CORE_K; i++) base.push(task(`a${i}`, { status: "in_progress", created_at: i }));
+  for (let i = 0; i < 6; i++) base.push(task(`d${i}`, { status: "done", created_at: 100 + i }));
+  const before = layoutTaskCloud(plan(base), S, new Map());
+  const after = layoutTaskCloud(plan([...base, task("fresh", { status: "in_progress", created_at: 999 })]), S, new Map());
+  const stable = before.nodes.every((n) => {
+    const m = after.nodes.find((x) => x.id === n.id)!;
+    return m.box.x === n.box.x && m.box.y === n.box.y;
+  });
+  ok("appending a fresh task (core full) leaves every prior tile byte-identical", stable);
+}
+
 // ── subtask satellites: solid smaller tiles swarming around the parent ──
 {
   const parent = task("P", { body: "x".repeat(400), created_at: 0 });
@@ -174,8 +209,9 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
 // ── full layout: disk is right of the plan, no node overlap ──────────
 {
   const sections = Array.from({ length: 8 }, (_, i) => section(`s${i}`));
+  // Balanced mix: active folds left, done folds right → a full round disk (§35).
   const tasks = Array.from({ length: 38 }, (_, i) =>
-    task(`t${i}`, { section_ids: [`s${i % 8}`], created_at: i, status: i < 4 ? "in_progress" : "pending" }),
+    task(`t${i}`, { section_ids: [`s${i % 8}`], created_at: i, status: i < 4 ? "in_progress" : i % 2 ? "done" : "pending" }),
   );
   const lo = layoutWorkspace([plan(tasks, sections)]);
   const frame = lo.frames[0];
