@@ -39,6 +39,7 @@ pub(crate) fn handle_mem_items(
             kind,
             area,
             scope,
+            project,
             limit,
             rerank,
         } => {
@@ -56,6 +57,14 @@ pub(crate) fn handle_mem_items(
             }
             if let Some(s) = &scope {
                 url.push_str(&format!("&scope={}", s));
+            }
+            let project = project.or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .map(|path| path.display().to_string())
+            });
+            if let Some(p) = &project {
+                url.push_str(&format!("&project={}", urlencoding::encode(p)));
             }
             if rerank {
                 url.push_str("&rerank=true");

@@ -24,6 +24,7 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             kind: _,
             area: _,
             scope: _,
+            project: _,
             limit: _,
             rerank: _,
         }

@@ -217,6 +217,8 @@ impl PlanStore {
         super::tag_model::normalize_plan(&mut guard);
         let path = Self::write_atomic(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&guard, &path);
+        self.mirror_plan_index(&guard)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
         let entry = Self::index_entry(&guard, path);
         self.index.write().insert(guard.id.clone(), entry);
         self.reset_bound_panes(&guard);
