@@ -1,15 +1,18 @@
 import type { CSSProperties } from "react";
-import { ExternalLink, Layers } from "lucide-react";
+import { ExternalLink, Layers, Link2 } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../settings";
 import { atLeast, type World } from "../worlds";
 import type { Task, TaskStatus } from "../types";
 import type { CanvasCardStyleProps } from "./types";
 import { digestMarkdown } from "./digest";
-import { TaskSteps } from "./TaskSteps";
+import { StrideSnake } from "./StrideSnake";
 
-// §26 worlds task cell — fixed footprint, content adapts to the node's appW band
-// (W0 mass → W3 deep). No manual mode, no click-to-reveal: zoom IS the navigation.
+// §32 worlds task cell — fixed footprint (§32.4), content adapts to the node's appW
+// band (W0 mass → W3 deep). No manual mode, no click-to-reveal: zoom IS navigation.
+// §32.3: status/hierarchy is SPATIAL (shelf position, set by the packer), never
+// opacity — primary content text is ALWAYS opacity 1.0; done gets a RECESSED
+// surface, not a faded one. Opacity is reserved for transient focus only (§32.1).
 const cardStyle: CSSProperties = {
   position: "absolute",
   boxSizing: "border-box",
@@ -28,37 +31,25 @@ function statusLabel(status: TaskStatus): string {
   return status.replace(/_/g, " ");
 }
 
-// §24.5/§25.6 status emphasis — multiplies at every band: in_progress pops with an
-// accent ring (pulses at W0), done gently dims (restores at W3), blocked warns.
-function statusChrome(status: TaskStatus, world: World): { ring?: string; pulse: boolean; dim: number; warnBorder: boolean } {
+type Shelf = "active" | "normal" | "done";
+function shelfOf(status: TaskStatus): Shelf {
+  if (status === "in_progress") return "active";
+  if (status === "done" || status === "cancelled") return "done";
+  return "normal";
+}
+
+// Surface chrome by shelf (§32.3): active rises with an accent ring (pulses far);
+// done recesses (inset surface + softer header); blocked warns. NO content dim.
+function statusChrome(status: TaskStatus, world: World): { ring?: string; pulse: boolean; warnBorder: boolean; recessed: boolean } {
   if (status === "in_progress") {
-    return { ring: "0 0 0 1.5px color-mix(in srgb, var(--ct-border-focus) 80%, transparent), 0 6px 22px -8px color-mix(in srgb, var(--ct-border-focus) 55%, transparent)", pulse: !atLeast(world, "W1"), dim: 1, warnBorder: false };
+    return { ring: "0 0 0 1.5px color-mix(in srgb, var(--ct-border-focus) 80%, transparent), 0 6px 22px -8px color-mix(in srgb, var(--ct-border-focus) 55%, transparent)", pulse: !atLeast(world, "W1"), warnBorder: false, recessed: false };
   }
-  if (status === "done" || status === "cancelled") {
-    return { pulse: false, dim: atLeast(world, "W3") ? 0.86 : 0.7, warnBorder: false };
-  }
-  if (status === "blocked") return { pulse: false, dim: 1, warnBorder: true };
-  return { pulse: false, dim: 1, warnBorder: false };
+  if (status === "done" || status === "cancelled") return { pulse: false, warnBorder: false, recessed: true };
+  if (status === "blocked") return { pulse: false, warnBorder: true, recessed: false };
+  return { pulse: false, warnBorder: false, recessed: false };
 }
 
-function StatusDot({ color, size = "0.7em" }: { color: string; size?: string }) {
-  return (
-    <span
-      data-testid="canvas-task-marker"
-      aria-hidden
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        flexShrink: 0,
-        background: color,
-        boxShadow: `0 0 0 0.22em color-mix(in srgb, ${color} 22%, transparent)`,
-      }}
-    />
-  );
-}
-
-function StatusBadge({ color, label }: { color: string; label: string }) {
+function StatusChip({ color, label, solid }: { color: string; label: string; solid?: boolean }) {
   return (
     <span
       data-testid="canvas-task-status"
@@ -67,12 +58,13 @@ function StatusBadge({ color, label }: { color: string; label: string }) {
         padding: "0 0.5em",
         lineHeight: 1.7,
         borderRadius: 999,
-        background: `color-mix(in srgb, ${color} 14%, transparent)`,
+        background: solid ? color : `color-mix(in srgb, ${color} 14%, transparent)`,
         border: `1px solid color-mix(in srgb, ${color} 48%, transparent)`,
-        color,
+        color: solid ? "var(--ct-bg)" : color,
         textTransform: "capitalize",
-        fontWeight: 600,
+        fontWeight: 700,
         whiteSpace: "nowrap",
+        flexShrink: 0,
       }}
     >
       {label}
@@ -80,39 +72,19 @@ function StatusBadge({ color, label }: { color: string; label: string }) {
   );
 }
 
-// §25.5 subtask volume cue — a card-deck silhouette that reads as physical mass at
-// far zoom (0-subtask tasks stay flat so heavy tasks pop). ⊞N + done/total mini-bar.
-function SubtaskVolume({ count, done }: { count: number; done: number }) {
-  if (count <= 0) return null;
-  const layers = Math.min(3, count);
-  const frac = count > 0 ? done / count : 0;
+function Counter({ testid, children }: { testid: string; children: React.ReactNode }) {
   return (
-    <div data-testid="canvas-task-subtask-volume" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span aria-hidden style={{ position: "relative", width: 18 + layers * 3, height: 16, flexShrink: 0 }}>
-        {Array.from({ length: layers }).map((_, i) => (
-          <span
-            key={i}
-            style={{
-              position: "absolute",
-              left: i * 3,
-              top: i * 3,
-              width: 16,
-              height: 12,
-              borderRadius: 3,
-              border: "1px solid color-mix(in srgb, var(--ct-border-focus) 55%, transparent)",
-              background: "color-mix(in srgb, var(--ct-border-focus) 10%, var(--ct-bg))",
-            }}
-          />
-        ))}
-      </span>
-      <span data-testid="canvas-task-subtask-count" style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: "0.74em", fontWeight: 700, color: "var(--ct-border-focus)" }}>
-        <Layers size={11} />⊞{count}
-      </span>
-      <span style={{ flex: 1, minWidth: 24, height: 5, borderRadius: 3, background: "var(--ct-bg-active)", overflow: "hidden" }}>
-        <span style={{ display: "block", width: `${Math.round(frac * 100)}%`, height: "100%", background: "rgba(82,180,145,0.9)" }} />
-      </span>
-      <span style={{ fontSize: "0.66em", fontFamily: "var(--ct-font-mono)", opacity: "var(--ct-text-secondary-opacity)" }}>{done}/{count}</span>
-    </div>
+    <span data-testid={testid} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: "0.7em", fontWeight: 600, color: "var(--ct-fg)", opacity: 0.78 }}>
+      {children}
+    </span>
+  );
+}
+
+function MiniBar({ frac }: { frac: number }) {
+  return (
+    <span data-testid="canvas-task-progress" style={{ flex: 1, minWidth: 28, height: 5, borderRadius: 3, background: "var(--ct-bg-active)", overflow: "hidden" }}>
+      <span style={{ display: "block", width: `${Math.round(frac * 100)}%`, height: "100%", background: "rgba(82,180,145,0.9)" }} />
+    </span>
   );
 }
 
@@ -137,6 +109,10 @@ function Chip({ testid, mono, children }: { testid: string; mono?: boolean; chil
   );
 }
 
+function iconBtn(): CSSProperties {
+  return { display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-fg)", cursor: "pointer", flexShrink: 0 };
+}
+
 export interface TaskCardProps extends CanvasCardStyleProps {
   task: Task;
   childCount?: number;
@@ -145,6 +121,9 @@ export interface TaskCardProps extends CanvasCardStyleProps {
   world: World;
   onOpenPane?: (paneId: string) => void;
   onHover?: (taskId: string | null) => void;
+  onCopyLink?: (taskId: string) => void;
+  onCopyStrideLink?: (milestoneId: string) => void;
+  onFocusStride?: (milestoneId: string) => void;
 }
 
 export function TaskCard({
@@ -156,36 +135,53 @@ export function TaskCard({
   world,
   onOpenPane,
   onHover,
+  onCopyLink,
+  onCopyStrideLink,
+  onFocusStride,
 }: TaskCardProps) {
   const badgeColor = TASK_STATUS_COLORS[task.status];
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
   const chrome = statusChrome(task.status, world);
+  const shelf = shelfOf(task.status);
   const showBody = atLeast(world, "W2");
   const showStructure = atLeast(world, "W1");
+  const innerW = (typeof style.width === "number" ? style.width : 260) - 26;
+
+  const strideCount = task.milestones.length;
+  const bodyChars = task.body.trim().length;
+  const digest = digestMarkdown(task.intent?.trim() ? task.intent! : task.body, 130);
+  const freshKind = strideCount ? [...task.milestones].sort((a, b) => b.ts - a.ts)[0].kind : null;
+  const freshColor = freshKind ? (stepColors?.get(freshKind) ?? "var(--ct-border-focus)") : null;
 
   const mergedStyle: CSSProperties = {
     ...cardStyle,
     ...style,
+    ...(chrome.recessed ? { background: "color-mix(in srgb, var(--ct-fg) 4%, var(--ct-bg))", boxShadow: "inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 6%, transparent)" } : null),
     ...(chrome.ring ? { boxShadow: chrome.ring } : null),
     ...(chrome.warnBorder ? { borderLeft: "3px solid var(--ct-error, #ef8282)" } : null),
   };
 
-  const paneLink = task.assigned_pane_id && showBody && (
-    <button
-      type="button"
-      data-testid="canvas-task-pane-link"
-      data-pane-id={task.assigned_pane_id}
-      title={`Open pane ${task.assigned_pane_id}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpenPane?.(task.assigned_pane_id!);
-      }}
-      onMouseDown={(e) => e.stopPropagation()}
-      style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, fontSize: "0.78em", padding: "0.15em 0.55em", borderRadius: 999, border: "1px solid var(--ct-border-focus)", background: "color-mix(in srgb, var(--ct-border-focus) 12%, transparent)", color: "var(--ct-fg)", cursor: "pointer" }}
-    >
-      <ExternalLink size={11} />
-      pane
-    </button>
+  const actions = showStructure && (
+    <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+      {task.assigned_pane_id && (
+        <button
+          type="button"
+          data-testid="canvas-task-pane-link"
+          data-pane-id={task.assigned_pane_id}
+          title={`Open pane ${task.assigned_pane_id}`}
+          onClick={(e) => { e.stopPropagation(); onOpenPane?.(task.assigned_pane_id!); }}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={iconBtn()}
+        >
+          <ExternalLink size={11} />
+        </button>
+      )}
+      {showBody && onCopyLink && (
+        <button type="button" data-testid="canvas-task-copy-link" title="Copy task link" onClick={(e) => { e.stopPropagation(); onCopyLink(task.id); }} onMouseDown={(e) => e.stopPropagation()} style={iconBtn()}>
+          <Link2 size={11} />
+        </button>
+      )}
+    </div>
   );
 
   return (
@@ -193,23 +189,21 @@ export function TaskCard({
       data-testid="canvas-task-card"
       data-task-id={task.id}
       data-world={world}
+      data-shelf={shelf}
       className={`ct-canvas-node${chrome.pulse ? " ct-canvas-live" : ""}`}
       onMouseEnter={() => onHover?.(task.id)}
       onMouseLeave={() => onHover?.(null)}
       style={mergedStyle}
     >
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7, padding: "10px 12px", minWidth: 0, overflow: "hidden", opacity: chrome.dim }}>
-        {/* Header — present at every band (the navigation layer). */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 7, padding: "10px 12px", minWidth: 0, overflow: "hidden" }}>
+        {/* Header — present at every band (the navigation layer). Solid status chip. */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
-          <span style={{ marginTop: "0.3em" }}>
-            <StatusDot color={badgeColor} />
-          </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: showStructure ? "wrap" : "nowrap", minWidth: 0 }}>
-              <span data-testid="canvas-task-name" style={{ flex: showStructure ? "1 0 auto" : 1, minWidth: 0, fontWeight: 700, fontSize: "1.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {task.name}
+              <span data-testid="canvas-task-name" data-canvas-selectable className="ct-canvas-text" style={{ flex: "1 1 auto", minWidth: 0, maxWidth: "100%", fontWeight: shelf === "done" ? 600 : 700, fontSize: shelf === "done" ? "0.98em" : "1.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {task.handle?.trim() || task.name}
               </span>
-              <StatusBadge color={badgeColor} label={displayStatus} />
+              <StatusChip color={badgeColor} label={displayStatus} solid />
             </div>
             {showStructure && (task.type || task.model) && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
@@ -218,60 +212,73 @@ export function TaskCard({
               </div>
             )}
           </div>
-          {paneLink}
+          {actions}
         </div>
 
-        {/* W1 digest (1-line) so structure band isn't empty above the thread. */}
-        {showStructure && !showBody && (task.intent?.trim() || task.body.trim()) && (
-          <div data-testid="canvas-task-digest" style={{ fontSize: "0.86em", lineHeight: 1.4, opacity: "var(--ct-text-secondary-opacity)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-            {digestMarkdown(task.intent?.trim() ? task.intent : task.body, 120)}
+        {/* Digest — present from W0 so a far card is never hollow (§32.2). 2 lines. */}
+        {!showBody && digest && (
+          <div data-testid="canvas-task-digest" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.84em", lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+            {digest}
           </div>
         )}
 
-        {/* W2+ intent + model rationale revealed by ZOOM (not a click). */}
+        {/* W0 counter rail + progress mini-bar + latest-stride bead (§32.2). */}
+        {!showStructure && (bodyChars > 0 || strideCount > 0 || childCount > 0) && (
+          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {bodyChars > 0 && <Counter testid="canvas-task-body-count">¶ {Math.max(1, Math.round(bodyChars / 80))}</Counter>}
+            {strideCount > 0 && (
+              <Counter testid="canvas-task-stride-count">
+                {freshColor && <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: freshColor }} />}∿ {strideCount}
+              </Counter>
+            )}
+            {childCount > 0 && <Counter testid="canvas-task-subtask-count"><Layers size={10} />⊞ {childCount}</Counter>}
+            {childCount > 0 && <MiniBar frac={childDone / childCount} />}
+          </div>
+        )}
+
+        {/* W2+ intent + model rationale — opacity 1.0 (§32.3), revealed by ZOOM. */}
         {showBody && task.intent && (
-          <div data-testid="canvas-task-intent" style={{ fontSize: "0.9em", fontStyle: "italic", opacity: "var(--ct-text-secondary-opacity)" }}>
+          <div data-testid="canvas-task-intent" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.9em", fontStyle: "italic", color: "var(--ct-fg)", opacity: 0.92 }}>
             {task.intent}
           </div>
         )}
         {showBody && task.model_rationale && (
-          <div data-testid="canvas-task-why" style={{ fontSize: "0.88em", opacity: "var(--ct-text-secondary-opacity)", borderLeft: "2px solid var(--ct-border-subtle)", paddingLeft: 8 }}>
+          <div data-testid="canvas-task-why" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.88em", borderLeft: "2px solid var(--ct-border-subtle)", paddingLeft: 8 }}>
             <span style={{ fontWeight: 600, color: "var(--ct-border-focus)" }}>Why this model? </span>
             {task.model_rationale}
           </div>
         )}
-
-        {/* Subtask volume cue: deck at W0/W1, real child cards appear (separate
-            nodes) at W2+, so here the cue fades to just a compact count. */}
-        {childCount > 0 && (
-          showBody
-            ? <div data-testid="canvas-task-subtask-count" style={{ fontSize: "0.74em", fontWeight: 600, opacity: "var(--ct-text-secondary-opacity)" }}>⊞ {childCount} subtask{childCount === 1 ? "" : "s"}</div>
-            : <SubtaskVolume count={childCount} done={childDone} />
+        {showBody && childCount > 0 && (
+          <div data-testid="canvas-task-subtask-count" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74em", fontWeight: 600 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}><Layers size={11} />⊞ {childCount} subtask{childCount === 1 ? "" : "s"}</span>
+            <MiniBar frac={childDone / childCount} />
+            <span style={{ fontFamily: "var(--ct-font-mono)", opacity: 0.7 }}>{childDone}/{childCount}</span>
+          </div>
         )}
 
-        {/* Body + steps. W0 = constellation only (marginTop:auto pins it). W2+ = body
-            (clamped at W2, full+scroll at W3) then step cards, scrolling node-only. */}
+        {/* Body + stride snake. W0/W1 = snake preview pinned to the bottom; W2+ =
+            body (clamped at W2, full+scroll at W3) then the blooming snake. */}
         {showBody ? (
-          (task.body.trim().length > 0 || task.milestones.length > 0) && (
+          (bodyChars > 0 || strideCount > 0) && (
             <div className="ct-canvas-scroll ct-canvas-fade-in" data-canvas-scroll-body="1" style={{ marginTop: 2, flex: 1, overflowY: "auto", minHeight: 0 }}>
-              {task.body.trim().length > 0 && (
-                <div data-testid="canvas-task-body" style={atLeast(world, "W3")
+              {bodyChars > 0 && (
+                <div data-testid="canvas-task-body" data-canvas-selectable className="ct-canvas-text" style={atLeast(world, "W3")
                   ? { fontSize: "0.92em", lineHeight: 1.5 }
                   : { fontSize: "0.9em", lineHeight: 1.45, display: "-webkit-box", WebkitLineClamp: 6, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                   <RichMarkdown text={task.body} />
                 </div>
               )}
-              {task.milestones.length > 0 && (
-                <div style={{ marginTop: task.body.trim() ? 12 : 0 }}>
-                  <TaskSteps milestones={task.milestones} colors={stepColors} world={world} />
+              {strideCount > 0 && (
+                <div style={{ marginTop: bodyChars > 0 ? 12 : 0 }}>
+                  <StrideSnake milestones={task.milestones} colors={stepColors} world={world} width={innerW} onCopyLink={onCopyStrideLink} onFocusStride={onFocusStride} />
                 </div>
               )}
             </div>
           )
         ) : (
-          task.milestones.length > 0 && (
+          strideCount > 0 && (
             <div style={{ marginTop: "auto" }}>
-              <TaskSteps milestones={task.milestones} colors={stepColors} world={world} />
+              <StrideSnake milestones={task.milestones} colors={stepColors} world={world} width={innerW} />
             </div>
           )
         )}

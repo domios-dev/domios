@@ -1,8 +1,32 @@
-import type { Plan, Task } from "../types";
+import type { Plan, Task, TaskStatus } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
 import { taskFootprint } from "./taskFootprint";
 import type { Box, Point } from "./geometry";
 import type { LaidOutEdge, LaidOutNode } from "./types";
+
+// §32.3 spatial hierarchy: within a band each task lands on one of three shelves —
+// in_progress rises (top), pending/blocked sit mid, done/cancelled sink (bottom).
+// Status is encoded by POSITION, never opacity.
+const STATUS_BUCKET_MS = 60_000;
+function shelfRank(status: TaskStatus): number {
+  if (status === "in_progress") return 0;
+  if (status === "done" || status === "cancelled") return 2;
+  return 1;
+}
+
+// Sort key (shelfRank, status_changed_at bucket, createdAt, id): shelf change only
+// on status_changed_at, then monotonic local order — no reshuffle while typing.
+function shelfSort(a: Task, b: Task): number {
+  const sr = shelfRank(a.status) - shelfRank(b.status);
+  if (sr) return sr;
+  const ab = Math.floor((a.status_changed_at ?? 0) / STATUS_BUCKET_MS);
+  const bb = Math.floor((b.status_changed_at ?? 0) / STATUS_BUCKET_MS);
+  if (ab !== bb) return ab - bb;
+  const ac = a.created_at ?? 0;
+  const bc = b.created_at ?? 0;
+  if (ac !== bc) return ac - bc;
+  return a.id.localeCompare(b.id);
+}
 
 export interface TaskBandLayout {
   nodes: LaidOutNode[];
@@ -87,7 +111,7 @@ export function layoutTaskBands(
   // cell at its section-row Y in whichever column keeps it HIGHEST (best hug),
   // pushing down only when every column is occupied there. Bounds the task-field
   // height to ~ΣcellH / cols instead of a single tall stack — no km-strip board.
-  const sorted = [...cells].sort((a, b) => a.bandRowY - b.bandRowY || a.order - b.order);
+  const sorted = [...cells].sort((a, b) => a.bandRowY - b.bandRowY || shelfSort(a.task, b.task) || a.order - b.order);
   const colBottom = new Array(cols).fill(0);
   for (const cell of sorted) {
     const idealTop = Number.isFinite(cell.bandRowY) ? cell.bandRowY - cell.height / 2 : Math.min(...colBottom);

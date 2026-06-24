@@ -51,6 +51,8 @@ export interface Milestone {
   canvas: ElementCanvas;
 }
 
+export type TaskPriority = "low" | "normal" | "high" | "urgent";
+
 export interface Task {
   id: string;
   name: string;
@@ -59,6 +61,13 @@ export interface Task {
   model_rationale: string | null;
   status: TaskStatus;
   status_label: string | null;
+  priority?: TaskPriority;
+  created_at?: number;
+  updated_at?: number;
+  status_changed_at?: number;
+  handle?: string | null;
+  tags?: string[];
+  group?: string | null;
   section_ids: string[];
   body: string;
   intent: string | null;

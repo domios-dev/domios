@@ -40,11 +40,16 @@ export interface CanvasLayoutSettings {
   worldThresholdsSpec: [number, number, number];
   worldHysteresis: number;
 
-  // §26.4 data-driven task footprint: size ∝ work volume, fixed across zoom.
-  // Width is a fixed column slot (taskW); height carries the magnitude.
-  taskW: number;
-  taskBaseH: number;
+  // §32.4 data-driven task footprint: size ∝ work volume, fixed across zoom, grows
+  // in BOTH axes (bounded). Width snaps to column slots; height carries magnitude
+  // and never falls below aspectFloorRatio·width (no hollow letterboxes).
+  taskW: number; // base 1-col slot width (also the empty-board fallback)
+  taskColStep: number; // px added per snapped column step
+  taskMaxW: number;
+  taskBaseH: number; // height intercept before volume terms
+  taskMinH: number; // hard lower clamp
   taskMaxH: number;
+  aspectFloorRatio: number;
 
   // Free-form element fallback box.
   taskWidth: number;
@@ -61,6 +66,12 @@ export interface CanvasLayoutSettings {
   subtaskGapY: number;
   subtaskHeaderGap: number;
   subtaskGroupPad: number;
+
+  // §32.8 handoff timeline lane (chronological coins above the plan frame).
+  handoffCoinW: number;
+  handoffCoinH: number;
+  handoffLaneGap: number;
+  handoffLaneMargin: number;
 
   // Column gaps between spec | plan | tasks.
   columnGapX: number;
@@ -100,9 +111,13 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   worldThresholdsSpec: [220, 440, 760],
   worldHysteresis: 0.1,
 
-  taskW: 280,
-  taskBaseH: 180,
-  taskMaxH: 760,
+  taskW: 260,
+  taskColStep: 56,
+  taskMaxW: 428,
+  taskBaseH: 156,
+  taskMinH: 176,
+  taskMaxH: 680,
+  aspectFloorRatio: 0.62,
 
   taskWidth: 280,
   taskMinHeight: 180,
@@ -115,6 +130,11 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   subtaskGapY: 12,
   subtaskHeaderGap: 14,
   subtaskGroupPad: 10,
+
+  handoffCoinW: 210,
+  handoffCoinH: 150,
+  handoffLaneGap: 22,
+  handoffLaneMargin: 44,
 
   // Gutter rhythm: GUTTER intra-frame (spec→plan, plan→tasks), GUTTER*2 between
   // frames/owner groups, ~GUTTER for group padding. One base, no ad-hoc gaps.
