@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Eye, EyeOff, FileText, LayoutGrid, Maximize2, Minus, Plus, RotateCcw, Square } from "lucide-react";
+import { BookOpen, Eye, EyeOff, FileText, LayoutGrid, Map as MapIcon, Maximize2, Minus, Plus, RotateCcw, Square } from "lucide-react";
 import type { CanvasViewModeSetting } from "./cards";
 
 const bar: CSSProperties = {
@@ -56,6 +56,10 @@ export interface CanvasToolbarProps {
   onReset: () => void;
   onSetMode: (mode: CanvasViewModeSetting) => void;
   onToggleText: () => void;
+  onOverview: () => void;
+  onRead: () => void;
+  onToggleMinimap: () => void;
+  minimapOn: boolean;
 }
 
 export function CanvasToolbar({
@@ -68,6 +72,10 @@ export function CanvasToolbar({
   onReset,
   onSetMode,
   onToggleText,
+  onOverview,
+  onRead,
+  onToggleMinimap,
+  minimapOn,
 }: CanvasToolbarProps) {
   return (
     <div data-testid="canvas-toolbar" style={bar} onMouseDown={(e) => e.stopPropagation()}>
@@ -106,6 +114,18 @@ export function CanvasToolbar({
           </button>
         );
       })}
+
+      <span style={divider} />
+
+      <button type="button" data-testid="canvas-preset-overview" title="Overview — Tile + fit all" style={iconBtn()} onClick={onOverview}>
+        <LayoutGrid size={13} /> Overview
+      </button>
+      <button type="button" data-testid="canvas-preset-read" title="Read — Document + focus the active plan" style={iconBtn()} onClick={onRead}>
+        <BookOpen size={13} /> Read
+      </button>
+      <button type="button" data-testid="canvas-minimap-toggle" title="Toggle minimap" style={iconBtn(minimapOn)} onClick={onToggleMinimap}>
+        <MapIcon size={14} />
+      </button>
 
       <span style={divider} />
 

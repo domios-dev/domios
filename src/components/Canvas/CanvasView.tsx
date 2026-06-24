@@ -6,6 +6,7 @@ import { useMultiplexer } from "../../store/multiplexer";
 import { CanvasComposer } from "./CanvasComposer";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
+import { CanvasMinimap } from "./CanvasMinimap";
 import { CanvasUnownedTray } from "./CanvasUnownedTray";
 import type { CanvasLod, CanvasViewMode, CanvasViewModeSetting, MilestoneBubbleModel } from "./cards";
 import { OrchestratorGroup } from "./cards";
@@ -112,6 +113,7 @@ interface CanvasNodeCardProps {
   model: unknown;
   lod: CanvasLod;
   viewMode: CanvasViewMode;
+  dimmed?: boolean;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
   onArchive?: () => void;
@@ -120,11 +122,13 @@ interface CanvasNodeCardProps {
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, viewMode, onOpenPane, onHoverTask, onArchive, onSetNodeMode, onFitNode }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, viewMode, dimmed, onOpenPane, onHoverTask, onArchive, onSetNodeMode, onFitNode }: CanvasNodeCardProps) {
+    const base = nodeStyle(node.box);
+    const style = dimmed ? { ...base, opacity: 0.22, transition: "opacity var(--ct-duration-normal) var(--ct-ease-decel)" } : base;
     const rendered = getNodeRenderer(node.kind)({
       node,
       model,
-      style: nodeStyle(node.box),
+      style,
       lod,
       viewMode,
       onOpenPane,
@@ -139,6 +143,7 @@ const CanvasNodeCard = memo(
     if (prev.node.id !== next.node.id) return false;
     if (prev.lod !== next.lod) return false;
     if (prev.viewMode !== next.viewMode) return false;
+    if (prev.dimmed !== next.dimmed) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;
     const b = next.node.box;
@@ -161,7 +166,7 @@ export function CanvasViewInner({
   onOpenPane,
   api,
   viewportPadding,
-  initialViewMode = "document",
+  initialViewMode = "tile",
 }: CanvasViewInnerProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
@@ -184,6 +189,7 @@ export function CanvasViewInner({
   // is fixed per mode; the resolved mode sizes the layout.
   const [viewModeSetting, setViewModeSetting] = useState<CanvasViewModeSetting>(initialViewMode);
   const [showText, setShowText] = useState(true);
+  const [minimapOn, setMinimapOn] = useState(true);
   const [nodeModeOverrides, setNodeModeOverrides] = useState<Map<string, CanvasViewMode>>(() => new Map());
   const resolvedMode = resolveGlobalMode(viewModeSetting, showText);
   const modeFor = useCallback<NodeModeResolver>(
@@ -302,23 +308,33 @@ export function CanvasViewInner({
   );
 
   const [blinkIds, setBlinkIds] = useState<Set<string>>(() => new Set());
+  // Camera-focus reading gesture (§23.4): the focused node locks Document + dims
+  // neighbours; Esc/back clears it. null = no focus.
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
 
-  // Camera + blink onto a set of node ids (shared by canvas-focus + Plan-on-pane).
-  const focusOnNodes = useCallback(
+  // Move the camera to frame a set of node ids (no blink) — the shared primitive.
+  const fitCameraToNodes = useCallback(
     (ids: string[]) => {
       const boxes = ids.map((id) => lookups.nodeById.get(id)?.box).filter(Boolean) as {
         x: number; y: number; width: number; height: number;
       }[];
-      if (boxes.length) {
-        const minX = Math.min(...boxes.map((b) => b.x));
-        const minY = Math.min(...boxes.map((b) => b.y));
-        const maxX = Math.max(...boxes.map((b) => b.x + b.width));
-        const maxY = Math.max(...boxes.map((b) => b.y + b.height));
-        fitToView({ x: minX, y: minY, width: maxX - minX, height: maxY - minY });
-      }
-      setBlinkIds(new Set(ids));
+      if (!boxes.length) return;
+      const minX = Math.min(...boxes.map((b) => b.x));
+      const minY = Math.min(...boxes.map((b) => b.y));
+      const maxX = Math.max(...boxes.map((b) => b.x + b.width));
+      const maxY = Math.max(...boxes.map((b) => b.y + b.height));
+      fitToView({ x: minX, y: minY, width: maxX - minX, height: maxY - minY });
     },
     [lookups, fitToView],
+  );
+
+  // Camera + blink onto a set of node ids (shared by canvas-focus + Plan-on-pane).
+  const focusOnNodes = useCallback(
+    (ids: string[]) => {
+      fitCameraToNodes(ids);
+      setBlinkIds(new Set(ids));
+    },
+    [fitCameraToNodes],
   );
 
   // Node ids representing this pane's own area: its assigned tasks, else its plans.
@@ -330,16 +346,24 @@ export function CanvasViewInner({
     return taskIds.length ? taskIds : filteredPlans.map((p) => p.id);
   }, [focusPaneId, filteredPlans]);
 
+  // The active plan to land on at mount: an owned plan if any, else the first.
+  const activePlanId = useMemo(
+    () => (filteredPlans.find((p) => p.owner.pane_id) ?? filteredPlans[0])?.id ?? null,
+    [filteredPlans],
+  );
+
   const lastFitKey = useRef<string | null>(null);
   const fitKey = `${mode}:${focusPaneId ?? ""}:${filteredPlans.map((p) => p.id).join(",")}:${size.width}x${size.height}`;
   useEffect(() => {
     if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
     if (lastFitKey.current === fitKey) return;
     lastFitKey.current = fitKey;
-    // Plan-on-a-pane: frame + blink this pane's own nodes; else fit the whole board.
+    // Default mount = FOCUS on the active plan (§23.4), NOT fit-all (which lands at
+    // 5% on a big board). Plan-on-a-pane still frames+blinks this pane's nodes.
     if (focusPaneId && paneNodeIds.length) focusOnNodes(paneNodeIds);
+    else if (activePlanId) fitCameraToNodes([activePlanId]);
     else fitToView(layout.bounds);
-  }, [fitKey, fitToView, focusOnNodes, focusPaneId, paneNodeIds, layout.bounds, size.width, size.height]);
+  }, [fitKey, fitToView, fitCameraToNodes, focusOnNodes, focusPaneId, paneNodeIds, activePlanId, layout.bounds, size.width, size.height]);
 
   // canvas-focus event (camera + blink). Backend lane emits target ids; we fit to
   // their bbox and blink them. Stub-safe: no-op until the event carries targets.
@@ -396,6 +420,53 @@ export function CanvasViewInner({
     [lookups, fitToView],
   );
 
+  // §23.4 presets + camera-focus reading gesture.
+  const overviewPreset = useCallback(() => {
+    setViewModeSetting("tile");
+    setFocusedNodeId(null);
+    fitToView(layout.bounds);
+  }, [fitToView, layout.bounds]);
+  const readPreset = useCallback(() => {
+    setViewModeSetting("document");
+    if (activePlanId) {
+      setFocusedNodeId(activePlanId);
+      fitCameraToNodes([activePlanId]);
+    }
+  }, [activePlanId, fitCameraToNodes]);
+  const focusNodeCamera = useCallback(
+    (id: string) => {
+      setNodeMode(id, "document");
+      setFocusedNodeId(id);
+      fitCameraToNodes([id]);
+    },
+    [setNodeMode, fitCameraToNodes],
+  );
+
+  // Esc backs out of a camera-focus (un-dim, release lock).
+  useEffect(() => {
+    if (!focusedNodeId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFocusedNodeId(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focusedNodeId]);
+
+  // Double-click a node → camera-focus it (frame + lock Document + dim the rest).
+  const onWorldDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const el = (e.target as HTMLElement).closest("[data-plan-id],[data-task-id]") as HTMLElement | null;
+      const id = el?.getAttribute("data-plan-id") ?? el?.getAttribute("data-task-id");
+      if (id) focusNodeCamera(id);
+    },
+    [focusNodeCamera],
+  );
+
+  const focusedPlanId = focusedNodeId ? lookups.nodeById.get(focusedNodeId)?.planId ?? null : null;
+  const focusedTitle = focusedNodeId
+    ? planById.get(focusedNodeId)?.title ?? lookups.taskById.get(focusedNodeId)?.name ?? null
+    : null;
+
   return (
     <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view">
       {onClose && (
@@ -442,6 +513,7 @@ export function CanvasViewInner({
         )}
         {!loading && filteredPlans.length > 0 && (
           <div
+            onDoubleClick={onWorldDoubleClick}
             style={{
               transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
               transformOrigin: "0 0",
@@ -521,6 +593,7 @@ export function CanvasViewInner({
                     model={resolveModel(n)}
                     lod={lod}
                     viewMode={modeFor(n.id, n.kind, n.planId)}
+                    dimmed={focusedNodeId != null && n.planId !== focusedPlanId && n.id !== focusedNodeId}
                     onOpenPane={onOpenPane}
                     onHoverTask={onHoverTask}
                     onArchive={n.kind === "plan" && api ? () => handleArchive(n.id) : undefined}
@@ -564,7 +637,28 @@ export function CanvasViewInner({
           onReset={resetView}
           onSetMode={setViewModeSetting}
           onToggleText={() => setShowText((v) => !v)}
+          onOverview={overviewPreset}
+          onRead={readPreset}
+          onToggleMinimap={() => setMinimapOn((v) => !v)}
+          minimapOn={minimapOn}
         />
+      )}
+      {focusedNodeId && (
+        <div
+          data-testid="canvas-breadcrumb"
+          className="absolute top-2 left-2 z-20 flex items-center gap-1.5 rounded px-2.5 py-1 text-xs"
+          style={{ background: "color-mix(in srgb, var(--ct-titlebar-bg) 92%, transparent)", border: "1px solid var(--ct-border-default)", color: "var(--ct-fg)", backdropFilter: "blur(8px)" }}
+        >
+          <span style={{ opacity: "var(--ct-text-secondary-opacity)" }}>Workspace</span>
+          <span style={{ opacity: 0.5 }}>▸</span>
+          <span style={{ fontWeight: 600, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{focusedTitle ?? "node"}</span>
+          <button type="button" data-testid="canvas-breadcrumb-back" title="Back (Esc)" onClick={() => setFocusedNodeId(null)} style={{ marginLeft: 4, padding: "0 6px", borderRadius: 4, border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-fg)", cursor: "pointer" }}>
+            Esc
+          </button>
+        </div>
+      )}
+      {minimapOn && !loading && !error && filteredPlans.length > 0 && (
+        <CanvasMinimap bounds={layout.bounds} nodes={[...lookups.nodeById.values()]} transform={transform} viewport={size} />
       )}
       {api && filteredPlans.length > 0 && (
         <CanvasComposer
