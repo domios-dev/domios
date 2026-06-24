@@ -606,3 +606,83 @@ Legend node near origin so one screenshot tells the whole story (dogfood §11).
 - **Auto-suggest:** a tagger pass (reuse mem extraction-worker pattern) writes `suggested_tags`
   (ghosted, distinct from confirmed); author promotes with one action; auto NEVER colors/groups
   until confirmed → keeps the controlled vocab clean.
+
+## 20. Worlds model + Banded Multi-Column task layout (synthesized: opus + cursor converged)
+
+<!-- revision: 3 -->
+
+The organizing frame that ties §16/§18/§19 together and kills the портянки. Both brainstorms
+converged: "worlds" is VOCABULARY + an LOD contract, not a heavy nested abstraction.
+
+### 20.1 Worlds = vocabulary + LOD contract (two containment levels, not infinite)
+- A **world** = a containing region with a level-of-detail contract. World = the unit;
+  §18 view mode = its discrete LOD state; §19 tags = its per-distance payload/identity.
+- **Bounded to TWO levels:** `plan-region` (soft group, §2.5) ⊃ leaf worlds `{spec, plan, task}`.
+  A task's **subtasks + steps are BOUNDED INTERIOR DETAIL** of the task-world (expand IN PLACE),
+  NOT separately-navigable worlds. This line stops over-abstraction.
+- **Invariant (non-negotiable):** ONE flat, connected, auto-packed map; never hide info; NEVER a
+  modal drill-stack (that's the §16.3 accordion under a new name — it severs the cross-world edges
+  that make the board worth anything).
+
+### 20.2 Zoom = SELECTOR, not stretcher
+Crossing a zoom threshold SWAPS a world to the next hand-designed discrete §18 mode
+(Tile→Card→Document), each FIXED readable text. The "fly-in" feeling = camera zoom-to-fit +
+threshold crossings, never glyph scaling. §18 modes ARE a world's discrete LOD states.
+
+### 20.3 Banded Multi-Column Sweep (the task-портянка fix — opus algorithm)
+Replaces the single tall task column with a bounded-width grid anchored to sections.
+1. **Band** = task's PRIMARY covered section (first/topmost `section_id`). Standalone → synthetic
+   band under taker group. Band never changes unless coverage changes → stable.
+2. **Stable intra-band order** by creation/id (NOT size) — realtime insert appends, no reshuffle.
+3. **Bounded column grid** right of plan: `colX[c]=planRight+margin+c*(taskColWidth+colGap)`,
+   `c∈0..maxTaskCols-1` (≈3–4) → caps horizontal sprawl.
+4. **Lay band left→right, wrap to sub-rows** (7 tasks @3 cols → 3·3·1).
+5. **Top-down non-overlap sweep:** process bands by ascending `rowY`; `idealTop=rowY[b]-blockH/2`;
+   `actualTop=max(idealTop,cursorY)`; `cursorY=actualTop+blockH+bandPad`. Classic non-overlapping
+   interval label-placement: each block hugs its section row, pushed down only when crowded.
+   Deterministic; inserts recompute only the changed band DOWN (no global jitter, §16.5).
+6. **Edges:** card bezier from its covered section-row anchor → its left edge (short — cluster sits
+   in the row's Y-band). Multi-section: solid to primary + thinner to others. Route after packing.
+7. **Subtasks = "super-cell":** parent + subtask stack = one cell (w=parentW+subtaskColW). Packer
+   treats it like any cell → subtasks nest right of parent, in-band, bounded.
+8. **Steps = interior detail** of the task-world (§16.9), part of the cell's measured height — no
+   own grid cells. Tile→folded constellation; Document→step cards grow cell height → sweep absorbs.
+9. Result: 19 tasks over ~8 bands ×≤3 cols ≈ a few hundred px tall, width hard-capped.
+- Escape hatch (if still tall): TRANSPOSE — horizontal section ribbon on top, kanban task columns
+  under each section header. Bigger rewrite; keep as fallback.
+
+### 20.4 Spec & Plan портянка
+- **Spec-world = PAGINATED document-world + section RAIL** (§16.3 + §18-Document): Tile = a "book
+  cover" (title · primary-facet border · `[16 sections]` · 1-line abstract · facet dot; tags
+  SUBSTITUTE). Document = fixed A4 frame + greedy block→page packing (keep-with-next; never split
+  a diagram) + on-canvas pager (◂ ●●○○ ▸) + a persistent left **section RAIL (in-world TOC/mini-
+  map)** → click a title to page to it. The rail is what stops it "falling apart". EXTREME spec →
+  child `SectionChunk` worlds (one per top-level section), each paged + edge-connected to its plan
+  row → the портянка decomposes into a constellation on the map.
+- **Plan-world = INDEX (tall-thin OK, ≈16·36px):** at Tile/Card collapse subsections to "[k subs]"
+  and collapse phase groups (§13.5) to one band row; full row tree only in Document. Deep reading
+  lives in the spec-world's rail, not the plan node.
+
+### 20.5 Drill-down / back-out / "where am I" (non-modal)
+- **In-place semantic zoom (default):** pan/zoom the ONE shared canvas; each world auto-picks mode
+  by zoom band; approaching a task expands its interior in place; neighbors stay visible.
+- **Focus = camera convenience, not a mode:** double-click a world (or `canvas focus`, §6) → smooth
+  zoom-to-fit + LOCK its mode to Document + DIM (never remove) the rest. Cross-world edges still
+  drawn to dimmed neighbors. **Back out** = Esc / "fit all" / zoom-out → un-dim, release lock,
+  restore saved viewport (§3).
+- **Breadcrumb HUD:** `Workspace ▸ Plan:<handle> ▸ <world-handle>` (focused world, or viewport-
+  center dominant world); focused world wears a highlight ring. No modal stack to get lost in.
+
+### 20.6 Per-distance payload matrix (world type × §18 mode × §19 tag role)
+- **PLAN** — Tile: title·primary dot·done/total·thin coverage strip·1–2 topics (tags substitute).
+  Card: +facet chips·top-level rows (subs folded)·1-line digest. Document: full row tree·per-row
+  meta band (§16.8)·tags recede to header.
+- **SPEC** — Tile: book-cover. Card: rail preview (~5 titles)·digest·topics. Document: paged A4 +
+  rail + pager·interactive mermaid/code·tags in header; extreme→chunk-worlds.
+- **TASK** — Tile: handle·primary left border·status·model·folded step-constellation (tags
+  substitute). Card: handle·status+label·model+collapsed rationale·digest·topics·step thread·
+  subtask count. Document: full body·rationale·intent·step cards·subtask cluster (right)·pane link.
+- **STEP-CLUSTER** (interior, LOD=its task's): far constellation / mid thread+coil / near step cards
+  (§16.9).
+- **PLAN-REGION** (§2.5): always a soft labeled band; orchestrator title = the "territory name",
+  dominant at far zoom; never collapses its children (containment ≠ hiding).
