@@ -280,9 +280,57 @@ const plugin: PluginModule = {
     return out;
   },
 
-  // Cursor's interactive TUI has no usage gauge screen, so there's nothing to parse → null.
-  parseUsage(_rawText: string, _nowMs: number): unknown {
-    return null;
+  // Cursor has no /usage TUI screen — usage lives in the dashboard API. Fetch it
+  // directly (keychain token → api2.cursor.sh) and return the raw JSON; the host
+  // routes that to parseUsage, skipping any hidden-pane probe.
+  fetchUsage(nowMs: number): unknown {
+    const token = readCursorToken();
+    if (!token) return null;
+    const when = new Date(nowMs);
+    const invoice = cursorApi(
+      "GetMonthlyInvoice",
+      { month: when.getUTCMonth(), year: when.getUTCFullYear() },
+      token,
+    );
+    if (!invoice) return null;
+    const periodStart = numFrom(invoice.periodStartMs);
+    const periodEnd = numFrom(invoice.periodEndMs);
+    if (periodStart == null || periodEnd == null) return null;
+    const agg = cursorApi(
+      "GetAggregatedUsageEvents",
+      { startDate: String(periodStart), endDate: String(periodEnd) },
+      token,
+    );
+    if (!agg) return null;
+    const spendCents = numFrom(agg.totalCostCents);
+    if (spendCents == null) return null;
+    return JSON.stringify({
+      spendCents: spendCents,
+      resetsAtMs: periodEnd,
+      periodStartMs: periodStart,
+      fetchedAtMs: nowMs,
+    });
+  },
+
+  // Parse the fetchUsage payload into a spend-based UsageSnapshot. Cursor's plan
+  // is billed by spend, not a session/weekly %, so only the spend_* fields fill.
+  parseUsage(rawText: string, nowMs: number): unknown {
+    const data = safeJson(String(rawText || "")) as
+      | { spendCents?: number; resetsAtMs?: number }
+      | null;
+    if (!data || typeof data.spendCents !== "number") return null;
+    return {
+      provider: "cursor",
+      account_id: null,
+      captured_at_ms: nowMs,
+      session_pct: null,
+      session_resets_at_ms: null,
+      weekly_pct: null,
+      weekly_resets_at_ms: null,
+      spend_cents: data.spendCents,
+      spend_resets_at_ms: typeof data.resetsAtMs === "number" ? data.resetsAtMs : null,
+      raw_text: String(rawText || ""),
+    };
   },
 };
 
@@ -721,6 +769,76 @@ function firstField(s: string): string {
   const m = /^(.*?)\s{2,}\S/.exec(s);
   const label = (m ? m[1] : s).trim();
   return label.replace(/\s*\(tab to [^)]*\)\s*$/i, "").trim();
+}
+
+// ── usage (dashboard API) ──
+
+const CURSOR_API_BASE = "https://api2.cursor.sh/aiserver.v1.DashboardService/";
+
+// Cursor stores the agent's bearer token in the OS keychain (no config-file
+// copy, no CLI command to print it). Read it per platform; unknown/Windows →
+// null, so usage simply stays hidden rather than breaking.
+function readCursorToken(): string | null {
+  const platform = host.platform();
+  let opts: { bin: string; args: string[]; timeoutMs: number } | null = null;
+  if (platform === "macos") {
+    opts = {
+      bin: "security",
+      args: ["find-generic-password", "-s", "cursor-access-token", "-a", "cursor-user", "-w"],
+      timeoutMs: 4000,
+    };
+  } else if (platform === "linux") {
+    opts = {
+      bin: "secret-tool",
+      args: ["lookup", "service", "cursor-access-token", "account", "cursor-user"],
+      timeoutMs: 4000,
+    };
+  }
+  if (!opts) return null;
+  const r = safeJson(host.exec(JSON.stringify(opts))) as
+    | { code?: number; stdout?: string }
+    | null;
+  if (r && r.code === 0 && typeof r.stdout === "string") {
+    const tok = r.stdout.trim();
+    if (tok) return tok;
+  }
+  return null;
+}
+
+// One Connect-RPC call to the cursor dashboard backend. Returns the decoded JSON
+// object, or null on any transport/auth/parse failure.
+function cursorApi(
+  method: string,
+  body: unknown,
+  token: string,
+): Record<string, unknown> | null {
+  const raw = host.fetch(
+    JSON.stringify({
+      url: CURSOR_API_BASE + method,
+      method: "POST",
+      timeoutMs: 6000,
+      headers: {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+        "connect-protocol-version": "1",
+      },
+      body: JSON.stringify(body),
+    }),
+  );
+  const resp = safeJson(raw) as { status?: number; body?: string } | null;
+  if (!resp || resp.status !== 200 || typeof resp.body !== "string") return null;
+  const parsed = safeJson(resp.body);
+  return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+}
+
+// Connect-RPC encodes int64 as a JSON string; accept both number and numeric string.
+function numFrom(v: unknown): number | null {
+  if (typeof v === "number" && isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    if (isFinite(n)) return n;
+  }
+  return null;
 }
 
 // ── misc helpers ──

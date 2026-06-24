@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import "./styles.css";
 import { useUsageSnapshot } from "../../hooks/useUsageSnapshot";
 import { classify } from "../../types/usage";
-import { UsageDetail } from "./UsageDetail";
+import { formatSpend } from "./format";
+import { UsageDetail, UsageSpendDetail } from "./UsageDetail";
 import { UsageHistoryModal } from "./UsageHistoryModal";
 
 interface UsageBubbleProps {
@@ -61,10 +62,14 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
   if (!snapshot.parsed_ok && ageMs > ONE_HOUR_MS) return null;
 
   const isStale = ageMs > STALE_MS;
+  // Spend-based providers (cursor) have no session/weekly % and no plan limit
+  // to threshold against — render the cycle spend as a neutral pill.
+  const isSpend = snapshot.spend_cents != null;
   const sessionState = classify(snapshot.session_pct);
   const weeklyState = classify(snapshot.weekly_pct);
-  const worst: "neutral" | "warn" | "danger" =
-    sessionState === "danger" || weeklyState === "danger"
+  const worst: "neutral" | "warn" | "danger" = isSpend
+    ? "neutral"
+    : sessionState === "danger" || weeklyState === "danger"
       ? "danger"
       : sessionState === "warn" || weeklyState === "warn"
         ? "warn"
@@ -90,30 +95,60 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
         ref={btnRef}
         type="button"
         className={bubbleClass}
-        aria-label={`usage session ${formatPct(snapshot.session_pct)} weekly ${formatPct(snapshot.weekly_pct)}`}
+        aria-label={
+          isSpend
+            ? `usage spend ${formatSpend(snapshot.spend_cents ?? 0)} this cycle`
+            : `usage session ${formatPct(snapshot.session_pct)} weekly ${formatPct(snapshot.weekly_pct)}`
+        }
         onClick={(e) => {
           e.stopPropagation();
           setOpen((v) => !v);
         }}
       >
-        <span className={`glyph ${sessionState}`}>
-          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <circle cx="6" cy="6" r="4.6" />
-            <path d="M6 3.4V6l1.7 1.1" />
-          </svg>
-          <span className="pct">{formatPct(snapshot.session_pct)}</span>
-        </span>
-        <span className="sep" />
-        <span className={`glyph ${weeklyState}`}>
-          <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M1 7.2 3 5l2.2 2.2L7.4 4l3.4 3.4" />
-          </svg>
-          <span className="pct">{formatPct(snapshot.weekly_pct)}</span>
-        </span>
+        {isSpend ? (
+          <span className="glyph neutral">
+            <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M6 1.6v8.8M8 3.2H4.9a1.4 1.4 0 0 0 0 2.8h2.2a1.4 1.4 0 0 1 0 2.8H3.8" />
+            </svg>
+            <span className="pct">{formatSpend(snapshot.spend_cents ?? 0)}</span>
+          </span>
+        ) : (
+          <>
+            <span className={`glyph ${sessionState}`}>
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <circle cx="6" cy="6" r="4.6" />
+                <path d="M6 3.4V6l1.7 1.1" />
+              </svg>
+              <span className="pct">{formatPct(snapshot.session_pct)}</span>
+            </span>
+            <span className="sep" />
+            <span className={`glyph ${weeklyState}`}>
+              <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M1 7.2 3 5l2.2 2.2L7.4 4l3.4 3.4" />
+              </svg>
+              <span className="pct">{formatPct(snapshot.weekly_pct)}</span>
+            </span>
+          </>
+        )}
         {isStale && <span className="stale-age">·{formatAgeShort(ageMs)}</span>}
       </button>
 
-      {open && (
+      {open && isSpend && (
+        <UsageSpendDetail
+          snapshot={snapshot}
+          flipUp={flipUp}
+          onRefresh={async () => {
+            await refresh();
+            await refetch();
+          }}
+          onOpenHistory={() => {
+            setHistoryOpen(true);
+            setOpen(false);
+          }}
+        />
+      )}
+
+      {open && !isSpend && (
         <UsageDetail
           snapshot={snapshot}
           flipUp={flipUp}

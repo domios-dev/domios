@@ -67,7 +67,6 @@ var plugin = {
   },
   // Cheap incremental gate: a selector glyph, a keyboard footer, or a
   // trust/approval keyword means a prompt frame might be on screen → let the
-  // host read the full screen and run parsePrompt (the authoritative gate).
   hasEventMarkers(chunk) {
     return chunkHasPromptSignal(String(chunk || ""));
   },
@@ -77,16 +76,11 @@ var plugin = {
   },
   // Read cursor's alt-screen menu (permission / workspace-trust / model picker)
   // into {question, options}. Returns null on non-menu output so normal chat
-  // never surfaces a phantom card. The host navigates via buildPromptResponse.
   parsePrompt(text) {
     return parseCursorPrompt(String(text || ""));
   },
   // Cursor menus are vertical lists navigated with ↑/↓ + Enter. The highlight is
   // NOT the top row — the /model picker lands the → selector on the CURRENT model —
-  // so navigate RELATIVE to the live highlight (delta = target − current), not from
-  // the top. `screen` is the cleaned terminal text the host passes for this reason;
-  // absent it, fall back to top-start. Esc-cancel is the host's separate path.
-  // Base64 byte steps: down=ESC[B, up=ESC[A, enter=\r.
   buildPromptResponse(optionIndex, screen) {
     const DOWN = "G1tC";
     const UP = "G1tB";
@@ -277,9 +271,54 @@ var plugin = {
     }
     return out;
   },
-  // Cursor's interactive TUI has no usage gauge screen, so there's nothing to parse → null.
-  parseUsage(_rawText, _nowMs) {
-    return null;
+  // Cursor has no /usage TUI screen — usage lives in the dashboard API. Fetch it
+  // directly (keychain token → api2.cursor.sh) and return the raw JSON; the host
+  // routes that to parseUsage, skipping any hidden-pane probe.
+  fetchUsage(nowMs) {
+    const token = readCursorToken();
+    if (!token) return null;
+    const when = new Date(nowMs);
+    const invoice = cursorApi(
+      "GetMonthlyInvoice",
+      { month: when.getUTCMonth(), year: when.getUTCFullYear() },
+      token
+    );
+    if (!invoice) return null;
+    const periodStart = numFrom(invoice.periodStartMs);
+    const periodEnd = numFrom(invoice.periodEndMs);
+    if (periodStart == null || periodEnd == null) return null;
+    const agg = cursorApi(
+      "GetAggregatedUsageEvents",
+      { startDate: String(periodStart), endDate: String(periodEnd) },
+      token
+    );
+    if (!agg) return null;
+    const spendCents = numFrom(agg.totalCostCents);
+    if (spendCents == null) return null;
+    return JSON.stringify({
+      spendCents,
+      resetsAtMs: periodEnd,
+      periodStartMs: periodStart,
+      fetchedAtMs: nowMs
+    });
+  },
+  // Parse the fetchUsage payload into a spend-based UsageSnapshot. Cursor's plan
+  // is billed by spend, not a session/weekly %, so only the spend_* fields fill.
+  parseUsage(rawText, nowMs) {
+    const data = safeJson(String(rawText || ""));
+    if (!data || typeof data.spendCents !== "number") return null;
+    return {
+      provider: "cursor",
+      account_id: null,
+      captured_at_ms: nowMs,
+      session_pct: null,
+      session_resets_at_ms: null,
+      weekly_pct: null,
+      weekly_resets_at_ms: null,
+      spend_cents: data.spendCents,
+      spend_resets_at_ms: typeof data.resetsAtMs === "number" ? data.resetsAtMs : null,
+      raw_text: String(rawText || "")
+    };
   }
 };
 var CURSOR_UNAVAILABLE_RE = /\s*\((?:unavailable|locked|disabled|coming soon|not available|requires [^)]+|pro only|upgrade required)\)\s*/i;
@@ -597,6 +636,58 @@ function firstField(s) {
   const m = /^(.*?)\s{2,}\S/.exec(s);
   const label = (m ? m[1] : s).trim();
   return label.replace(/\s*\(tab to [^)]*\)\s*$/i, "").trim();
+}
+var CURSOR_API_BASE = "https://api2.cursor.sh/aiserver.v1.DashboardService/";
+function readCursorToken() {
+  const platform = host.platform();
+  let opts = null;
+  if (platform === "macos") {
+    opts = {
+      bin: "security",
+      args: ["find-generic-password", "-s", "cursor-access-token", "-a", "cursor-user", "-w"],
+      timeoutMs: 4e3
+    };
+  } else if (platform === "linux") {
+    opts = {
+      bin: "secret-tool",
+      args: ["lookup", "service", "cursor-access-token", "account", "cursor-user"],
+      timeoutMs: 4e3
+    };
+  }
+  if (!opts) return null;
+  const r = safeJson(host.exec(JSON.stringify(opts)));
+  if (r && r.code === 0 && typeof r.stdout === "string") {
+    const tok = r.stdout.trim();
+    if (tok) return tok;
+  }
+  return null;
+}
+function cursorApi(method, body, token) {
+  const raw = host.fetch(
+    JSON.stringify({
+      url: CURSOR_API_BASE + method,
+      method: "POST",
+      timeoutMs: 6e3,
+      headers: {
+        Authorization: "Bearer " + token,
+        "Content-Type": "application/json",
+        "connect-protocol-version": "1"
+      },
+      body: JSON.stringify(body)
+    })
+  );
+  const resp = safeJson(raw);
+  if (!resp || resp.status !== 200 || typeof resp.body !== "string") return null;
+  const parsed = safeJson(resp.body);
+  return parsed && typeof parsed === "object" ? parsed : null;
+}
+function numFrom(v) {
+  if (typeof v === "number" && isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v);
+    if (isFinite(n)) return n;
+  }
+  return null;
 }
 function toExcludeList(exclude) {
   if (Array.isArray(exclude)) return exclude;

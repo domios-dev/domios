@@ -842,6 +842,27 @@ impl AgentProvider for JsProvider {
             .map(|p| p as &dyn crate::agent::usage_parser::UsageParser)
     }
 
+    fn usage_is_fetch_based(&self) -> bool {
+        self.has_js("fetchUsage")
+    }
+
+    fn fetch_usage(&self) -> Option<Result<String, String>> {
+        if !self.has_js("fetchUsage") {
+            return None;
+        }
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        Some(
+            match call_json::<Option<String>>(&self.vm, "fetchUsage", &[json!(now_ms)]) {
+                Ok(Some(raw)) => Ok(raw),
+                Ok(None) => Err("fetchUsage returned null".to_string()),
+                Err(e) => Err(format!(
+                    "[plugin {}] fetchUsage failed: {e}",
+                    self.manifest.id
+                )),
+            },
+        )
+    }
+
     fn model_switch_format(&self) -> Option<&str> {
         self.manifest.commands.model_switch_format.as_deref()
     }
