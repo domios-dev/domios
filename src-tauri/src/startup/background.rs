@@ -136,7 +136,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                             } else {
                                 "periodic refresh"
                             };
-                            log::info!("[mesh] Peer {} {} — syncing", peer.instance_name, reason);
+                            log::debug!("[mesh] Peer {} {} — syncing", peer.instance_name, reason);
                             let Some(client) = client else { continue };
                             if let Ok(their_payload) = client.send_sync(&sync_payload).await {
                                 last_sync_secs.insert(peer.instance_id.clone(), now_secs);
@@ -337,14 +337,26 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                     last_heartbeat = std::time::Instant::now();
                     let kind = if changed { "addr-change" } else { "heartbeat" };
                     if report.sent > 0 {
-                        log::info!(
-                            "[mesh/announce.{}] sent={} ok={} stale={} errors={}",
-                            kind,
-                            report.sent,
-                            report.ok,
-                            report.stale_peers.len(),
-                            report.errors.len()
-                        );
+                        // Periodic heartbeat is debug; addr-change or any send error is INFO.
+                        if changed || !report.errors.is_empty() {
+                            log::info!(
+                                "[mesh/announce.{}] sent={} ok={} stale={} errors={}",
+                                kind,
+                                report.sent,
+                                report.ok,
+                                report.stale_peers.len(),
+                                report.errors.len()
+                            );
+                        } else {
+                            log::debug!(
+                                "[mesh/announce.{}] sent={} ok={} stale={} errors={}",
+                                kind,
+                                report.sent,
+                                report.ok,
+                                report.stale_peers.len(),
+                                report.errors.len()
+                            );
+                        }
                     }
                 }
             });

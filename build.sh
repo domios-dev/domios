@@ -46,30 +46,64 @@ setup_env() {
   fi
 }
 
-# --- Kill dev instance only (never prod) ---
+# --- Kill THIS dev instance only (never prod, never another worktree) ---
+# Scoped strictly to $CT_PORT / $CT_VITE_PORT / this instance's screen+pidfile.
+# No global pgrep on target/debug/codeterm — that would take down every worktree.
 kill_dev() {
   kill_web_watch 2>/dev/null || true
-  if [[ "$OSTYPE" == darwin* ]]; then
+  local session_prefix="codeterm-dev${CT_SUFFIX}-"
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     if command -v screen >/dev/null 2>&1; then
-      screen -ls 2>/dev/null | awk '/codeterm-dev-/ {print $1}' | while read -r session; do
+      screen -ls 2>/dev/null | awk -v p="$session_prefix" 'index($1,p){print $1}' | while read -r session; do
         screen -S "$session" -X quit 2>/dev/null || true
       done
     fi
-    pgrep -f "target/debug/codeterm" | xargs kill 2>/dev/null || true
-    pgrep -f "pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json" | xargs kill 2>/dev/null || true
-    lsof -ti:1420 | xargs kill -9 2>/dev/null || true
+    lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
+    lsof -ti:"$CT_VITE_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    if [ -f "$CT_DATA_DIR/daemon.pid" ]; then
+      kill "$(cat "$CT_DATA_DIR/daemon.pid")" 2>/dev/null || true
+      rm -f "$CT_DATA_DIR/daemon.pid"
+    fi
   else
     local dev_pid
-    dev_pid=$(netstat -ano 2>/dev/null | grep ":7686.*LISTEN" | awk '{print $5}' | head -1)
+    dev_pid=$(netstat -ano 2>/dev/null | grep ":$CT_PORT.*LISTEN" | awk '{print $5}' | head -1)
     if [ -n "$dev_pid" ] && [ "$dev_pid" != "0" ]; then
-      echo "Killing dev instance (PID $dev_pid on port 7686)..."
+      echo "Killing dev instance (PID $dev_pid on port $CT_PORT)..."
       taskkill //PID "$dev_pid" //F 2>/dev/null || true
       sleep 1
+    fi
+    local vite_pid
+    vite_pid=$(netstat -ano 2>/dev/null | grep ":$CT_VITE_PORT.*LISTEN" | awk '{print $5}' | head -1)
+    if [ -n "$vite_pid" ] && [ "$vite_pid" != "0" ]; then
+      taskkill //PID "$vite_pid" //F 2>/dev/null || true
     fi
   fi
 }
 
 setup_env
+
+# --- Per-worktree dev instance isolation ---
+# CODETERM_INSTANCE (optional) names a dev instance so multiple worktrees can
+# run ./build.sh dev concurrently without colliding. Unset = canonical defaults
+# (.codeterm-dev / 7686 / 1420). See AGENTS.md "Process safety".
+CT_INSTANCE="${CODETERM_INSTANCE:-}"
+CT_PORT="${CODETERM_API_PORT:-7686}"
+if [ -n "$CT_INSTANCE" ]; then
+  CT_SLUG=$(printf '%s' "$CT_INSTANCE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
+  CT_SUFFIX="-$CT_SLUG"
+  # Stable per-instance vite port: sum of slug bytes mod 200, +1 offset.
+  CT_OFFSET=$(printf '%s' "$CT_SLUG" | od -An -tu1 | awk '{for(i=1;i<=NF;i++)s+=$i} END{print (s%200)+1}')
+  CT_VITE_PORT=$((1420 + CT_OFFSET))
+else
+  CT_SLUG=""
+  CT_SUFFIX=""
+  CT_VITE_PORT=1420
+fi
+CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
+# Export so the spawned daemon + its child PTYs inherit the instance identity.
+export CODETERM_INSTANCE="$CT_INSTANCE"
+export CODETERM_API_PORT="$CT_PORT"
+export CODETERM_VITE_PORT="$CT_VITE_PORT"
 
 # Wire .githooks as the hooks directory
 git config core.hooksPath .githooks 2>/dev/null || true
@@ -94,6 +128,20 @@ prepare_bundle_stubs() {
   node scripts/prepare-embed-stub.js
 }
 
+# Resolve the tauri dev config. For a named instance, generate a derived config
+# whose devUrl points at this instance's vite port (vite reads CODETERM_VITE_PORT,
+# but tauri.dev.conf.json's devUrl can't be templated, so we materialize it).
+dev_conf_path() {
+  local base="src-tauri/tauri.dev.conf.json"
+  if [ -z "$CT_SUFFIX" ]; then
+    echo "$base"
+    return
+  fi
+  local out="src-tauri/tauri.dev.conf${CT_SUFFIX}.json"
+  node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('$base','utf8'));c.build=c.build||{};c.build.devUrl='http://127.0.0.1:'+process.env.CODETERM_VITE_PORT;fs.writeFileSync('$out',JSON.stringify(c,null,2));" >&2
+  echo "$out"
+}
+
 ensure_real_embed_bundle() {
   local host exe_ext embed_bundle embed_size
   host=$(rustc -vV | awk -F': ' '/^host:/{print $2}')
@@ -114,13 +162,16 @@ ensure_real_embed_bundle() {
 
 start_dev_wait_process() {
   local log="$1"
-  local cmd=(pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json)
+  local conf
+  conf="$(dev_conf_path)"
+  local cmd=(pnpm tauri dev --no-watch --config "$conf")
   if [[ "$OSTYPE" == darwin* ]] && command -v screen >/dev/null 2>&1; then
-    local session="codeterm-dev-$$"
-    local root_q log_q
+    local session="codeterm-dev${CT_SUFFIX}-$$"
+    local root_q log_q conf_q
     printf -v root_q "%q" "$(pwd)"
     printf -v log_q "%q" "$log"
-    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json >> $log_q 2>&1"
+    printf -v conf_q "%q" "$conf"
+    screen -dmS "$session" bash -lc "cd $root_q && exec pnpm tauri dev --no-watch --config $conf_q >> $log_q 2>&1"
     echo "screen:$session"
     return
   fi
@@ -144,32 +195,36 @@ dev_wait_process_alive() {
 # /web browser clients are served the static dist/ bundle, NOT vite HMR.
 # Watch-rebuild it so phone/browser mirrors pick up frontend edits on reload.
 # Tauri's beforeDevCommand owns the live devUrl server on 1420.
+web_watch_pidfile() {
+  echo "/tmp/codeterm-web-watch${CT_SUFFIX}.pid"
+}
+
 start_web_watch() {
   kill_web_watch
-  nohup pnpm exec vite build --watch </dev/null >> /tmp/codeterm-web-watch.log 2>&1 &
-  echo $! > /tmp/codeterm-web-watch.pid
-  echo "Web bundle watcher started (dist/ auto-rebuilds, log /tmp/codeterm-web-watch.log)"
+  local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
+  nohup pnpm exec vite build --watch </dev/null >> "$log" 2>&1 &
+  echo $! > "$(web_watch_pidfile)"
+  echo "Web bundle watcher started (dist/ auto-rebuilds, log $log)"
 }
 
 kill_web_watch() {
-  if [ -f /tmp/codeterm-web-watch.pid ]; then
-    kill "$(cat /tmp/codeterm-web-watch.pid)" 2>/dev/null || true
-    rm -f /tmp/codeterm-web-watch.pid
-  fi
-  if [[ "$OSTYPE" == darwin* ]]; then
-    pgrep -f "vite build --watch" | xargs kill 2>/dev/null || true
+  local pidfile
+  pidfile="$(web_watch_pidfile)"
+  if [ -f "$pidfile" ]; then
+    kill "$(cat "$pidfile")" 2>/dev/null || true
+    rm -f "$pidfile"
   fi
 }
 
 dev_health_status() {
-  curl -s --max-time 2 http://127.0.0.1:7686/api/health 2>/dev/null || true
+  curl -s --max-time 2 "http://127.0.0.1:${CT_PORT}/api/health" 2>/dev/null || true
 }
 
 dev_listener_pid() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    lsof -tiTCP:7686 -sTCP:LISTEN 2>/dev/null | head -1 || true
+    lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true
   else
-    netstat -ano 2>/dev/null | grep ":7686.*LISTEN" | awk '{print $5}' | head -1 || true
+    netstat -ano 2>/dev/null | grep ":$CT_PORT.*LISTEN" | awk '{print $5}' | head -1 || true
   fi
 }
 
@@ -248,7 +303,8 @@ case "$CMD" in
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
     install_cli_to "$HOME/.codeterm/bin"
-    install_cli_to "$HOME/.codeterm-dev/bin"
+    # Named instance gets its own data-dir bin; canonical dev keeps ~/.codeterm-dev/bin.
+    install_cli_to "$CT_DATA_DIR/bin"
     ensure_real_embed_bundle
     echo "Starting dev..."
     # Mark the daemon as dev: bundle hashes are bypassed (live edits
@@ -267,7 +323,7 @@ case "$CMD" in
     done
 
     if [ "$WAIT" -eq 1 ]; then
-      LOG=/tmp/codeterm-dev.log
+      LOG="/tmp/codeterm-dev${CT_SUFFIX}.log"
       : > "$LOG"
       DEV_PID=$(start_dev_wait_process "$LOG")
       echo "Dev pid $DEV_PID, log $LOG. Waiting for /api/health to respond..."
@@ -318,17 +374,17 @@ case "$CMD" in
         sleep 2
       done
     else
-      pnpm tauri dev --no-watch --config src-tauri/tauri.dev.conf.json
+      pnpm tauri dev --no-watch --config "$(dev_conf_path)"
     fi
     ;;
   e2e)
-    export CODETERM_API_URL="http://127.0.0.1:7686"
+    export CODETERM_API_URL="http://127.0.0.1:${CT_PORT}"
     cd tests/e2e
     pip install -q -r requirements.txt 2>/dev/null
     python3 -m pytest -m "not llm" -v --tb=short "${@:2}"
     ;;
   e2e:llm)
-    export CODETERM_API_URL="http://127.0.0.1:7686"
+    export CODETERM_API_URL="http://127.0.0.1:${CT_PORT}"
     cd tests/e2e
     pip install -q -r requirements.txt 2>/dev/null
     python3 -m pytest -m llm -v --tb=short "${@:2}"
@@ -353,7 +409,7 @@ case "$CMD" in
 
     DEV_STATUS=$(dev_health_status | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null || true)
     if [ "$DEV_STATUS" = "ok" ]; then
-      ta_run "e2e-pytest" bash -c 'cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:7686 python3 -m pytest -m "not llm" -q'
+      ta_run "e2e-pytest" bash -c "cd tests/e2e && pip install -q -r requirements.txt 2>/dev/null && CODETERM_API_URL=http://127.0.0.1:${CT_PORT} python3 -m pytest -m 'not llm' -q"
       ta_run "playwright-smoke" pnpm -s test:pw:smoke
     else
       echo
