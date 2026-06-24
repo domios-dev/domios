@@ -41,6 +41,7 @@ pub enum PlanError {
     NotFound,
     TaskNotFound,
     OpenSubtasks { subtasks: Vec<OpenSubtask> },
+    TransitionDenied { from: TaskStatus, to: TaskStatus },
     UndeclaredKind { declared: Vec<String> },
     BudgetExhausted { count: u32, budget: u32 },
     BadStatus,
@@ -76,6 +77,12 @@ impl fmt::Display for PlanError {
                     .join(", ");
                 write!(f, "task has open subtasks: {listed}")
             }
+            PlanError::TransitionDenied { from, to } => {
+                write!(
+                    f,
+                    "task status transition {from:?} -> {to:?} is not allowed"
+                )
+            }
             PlanError::UndeclaredKind { declared } => {
                 write!(
                     f,
@@ -102,6 +109,9 @@ impl PlanError {
             PlanError::TaskNotFound => serde_json::json!({ "type": "task_not_found" }),
             PlanError::OpenSubtasks { subtasks } => {
                 serde_json::json!({ "type": "open_subtasks", "subtasks": subtasks })
+            }
+            PlanError::TransitionDenied { from, to } => {
+                serde_json::json!({ "type": "transition_denied", "from": from, "to": to })
             }
             PlanError::UndeclaredKind { declared } => {
                 serde_json::json!({ "type": "undeclared_kind", "declared": declared })

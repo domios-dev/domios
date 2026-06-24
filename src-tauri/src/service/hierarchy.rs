@@ -94,21 +94,27 @@ impl ServiceContext {
                     )
                 })
                 .ok_or_else(|| "task_id required for plan report".to_string())?;
+            let mut ops = Vec::new();
+            if matches!(details.status, Some(ReportStatus::InReview)) {
+                ops.push(crate::service::plan::batch::BatchOp::SetTaskStatus {
+                    client_id: None,
+                    task: task_id.clone(),
+                    status: "in_review".into(),
+                });
+            }
+            ops.push(crate::service::plan::batch::BatchOp::AddMilestone {
+                client_id: Some("report".into()),
+                task: task_id,
+                kind: milestone_kind.unwrap_or("status_update").into(),
+                text: milestone_text(message, details.status),
+                from: Some(from_ref),
+                key: None,
+                links: vec![],
+            });
             self.plan_store
                 .apply_batch(
                     plan_id,
-                    crate::service::plan::batch::BatchRequest {
-                        key: None,
-                        ops: vec![crate::service::plan::batch::BatchOp::AddMilestone {
-                            client_id: Some("report".into()),
-                            task: task_id,
-                            kind: milestone_kind.unwrap_or("status_update").into(),
-                            text: milestone_text(message, details.status),
-                            from: Some(from_ref),
-                            key: None,
-                            links: vec![],
-                        }],
-                    },
+                    crate::service::plan::batch::BatchRequest { key: None, ops },
                     epoch_ms(),
                 )
                 .map_err(|e| e.to_string())?;
@@ -296,6 +302,7 @@ impl ServiceContext {
 fn milestone_text(message: &str, status: Option<ReportStatus>) -> String {
     match status {
         Some(ReportStatus::Done) => format!("DONE: {message}"),
+        Some(ReportStatus::InReview) => format!("IN_REVIEW: {message}"),
         Some(ReportStatus::Partial) => format!("PARTIAL: {message}"),
         Some(ReportStatus::Blocked) => format!("BLOCKED: {message}"),
         None => message.to_string(),
@@ -459,6 +466,10 @@ mod tests {
         assert_eq!(
             milestone_text("needs help", Some(ReportStatus::Blocked)),
             "BLOCKED: needs help"
+        );
+        assert_eq!(
+            milestone_text("ready", Some(ReportStatus::InReview)),
+            "IN_REVIEW: ready"
         );
     }
 

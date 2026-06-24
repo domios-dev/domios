@@ -148,6 +148,27 @@ pub(super) fn reject_done_with_open_subtasks(plan: &Plan, task_id: &str) -> Resu
     }
 }
 
+pub(super) fn validate_task_status_transition(
+    plan: &Plan,
+    task_id: &str,
+    current: &TaskStatus,
+    next: &TaskStatus,
+) -> Result<(), PlanError> {
+    if current == next {
+        return Ok(());
+    }
+    if matches!(next, TaskStatus::Done) {
+        reject_done_with_open_subtasks(plan, task_id)?;
+    }
+    if matches!((current, next), (TaskStatus::InReview, TaskStatus::Done)) {
+        return Err(PlanError::TransitionDenied {
+            from: current.clone(),
+            to: next.clone(),
+        });
+    }
+    Ok(())
+}
+
 impl PlanStore {
     pub fn create_plan(
         &self,
@@ -552,8 +573,8 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             let task_id = p.tasks[task_index].id.clone();
             let parsed_status = status.map(parse_task_status).transpose()?;
-            if matches!(parsed_status, Some(TaskStatus::Done)) {
-                reject_done_with_open_subtasks(p, &task_id)?;
+            if let Some(next) = &parsed_status {
+                validate_task_status_transition(p, &task_id, &p.tasks[task_index].status, next)?;
             }
             let task = &mut p.tasks[task_index];
             if let Some(n) = name {

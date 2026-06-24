@@ -125,3 +125,95 @@ fn update_task_status_done_with_open_subtask_errors() {
 
     assert!(matches!(err, PlanError::OpenSubtasks { .. }));
 }
+
+#[test]
+fn update_task_accepts_in_review_and_rejects_generic_done_after_review() {
+    let (store, plan_id, task_id) = store_with_task();
+    store
+        .update_task(
+            &plan_id,
+            &task_id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_review"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            20,
+        )
+        .unwrap();
+
+    let err = store
+        .update_task(
+            &plan_id,
+            &task_id,
+            None,
+            None,
+            None,
+            None,
+            Some("done"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            30,
+        )
+        .unwrap_err();
+
+    assert!(matches!(err, PlanError::TransitionDenied { .. }));
+}
+
+#[test]
+fn close_task_promotes_in_review_to_done() {
+    let (store, plan_id, task_id) = store_with_task();
+    store
+        .update_task(
+            &plan_id,
+            &task_id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_review"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            20,
+        )
+        .unwrap();
+
+    store
+        .close_task(&plan_id, &task_id, None, AgentRef::from_pane("owner"), 30)
+        .unwrap();
+
+    let task = store
+        .get(&plan_id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.status, TaskStatus::Done);
+}

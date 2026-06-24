@@ -236,7 +236,7 @@
               "positional": false,
               "value_name": "STATUS",
               "default": null,
-              "help": "Task outcome: done | blocked | partial",
+              "help": "Task outcome: done | in_review | blocked | partial",
               "aliases": []
             },
             {
@@ -5658,7 +5658,7 @@
               "positional": false,
               "value_name": "STATUS",
               "default": null,
-              "help": null,
+              "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
               "aliases": []
             },
             {
@@ -6384,7 +6384,7 @@
                   "positional": false,
                   "value_name": "STATUS",
                   "default": null,
-                  "help": null,
+                  "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
                   "aliases": []
                 },
                 {

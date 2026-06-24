@@ -16,6 +16,7 @@ pub enum PlanStatus {
 pub enum TaskStatus {
     Pending,
     InProgress,
+    InReview,
     Blocked,
     Done,
     Cancelled,
@@ -435,6 +436,8 @@ mod tests {
         assert!(t.is_err(), "unknown status must reject");
         let ok: TaskStatus = serde_json::from_str("\"in_progress\"").unwrap();
         assert_eq!(ok, TaskStatus::InProgress);
+        let ok: TaskStatus = serde_json::from_str("\"in_review\"").unwrap();
+        assert_eq!(ok, TaskStatus::InReview);
     }
 
     #[test]
