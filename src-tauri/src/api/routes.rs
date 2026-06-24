@@ -104,6 +104,26 @@ pub fn create_router(state: AppState) -> Router {
             get(plan_routes::list).post(plan_routes::create),
         )
         .route(
+            "/api/specs",
+            get(plan_routes::spec::list).post(plan_routes::spec::create),
+        )
+        .route("/api/specs/{id}", get(plan_routes::spec::get))
+        .route("/api/specs/{id}/files", get(plan_routes::spec::files))
+        .route(
+            "/api/specs/{id}/sections",
+            post(plan_routes::spec::section_add),
+        )
+        .route(
+            "/api/specs/{id}/sections/{sid}",
+            patch(plan_routes::spec::section_update).delete(plan_routes::spec::section_rm),
+        )
+        .route("/api/specs/{id}/links", get(plan_routes::spec::link_list))
+        .route("/api/efforts/{id}", get(plan_routes::spec::effort_show))
+        .route(
+            "/api/efforts/{id}/links",
+            post(plan_routes::spec::effort_link),
+        )
+        .route(
             "/api/plans/{id}",
             get(plan_routes::get)
                 .patch(plan_routes::update)
@@ -132,6 +152,14 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/plans/{id}/links", post(plan_routes::link))
         .route("/api/plans/{id}/links/{to}", delete(plan_routes::unlink))
+        .route(
+            "/api/plans/{id}/spec-links",
+            post(plan_routes::spec::link_add),
+        )
+        .route(
+            "/api/plans/{id}/spec-links/{spec_id}",
+            delete(plan_routes::spec::link_rm),
+        )
         .route("/api/plans/{id}/tasks", post(plan_routes::task_add))
         .route("/api/tasks", get(task_routes::list).post(task_routes::add))
         .route("/api/tasks/{id}", get(task_routes::show))

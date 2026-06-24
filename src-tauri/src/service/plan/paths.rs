@@ -23,3 +23,9 @@ pub fn plans_dir(project: &Path) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
+
+pub fn specs_dir(project: &Path) -> std::io::Result<PathBuf> {
+    let dir = project.join(".codeterm").join("specs");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}

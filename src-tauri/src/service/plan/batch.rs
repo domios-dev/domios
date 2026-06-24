@@ -89,6 +89,47 @@ pub enum BatchOp {
     Link {
         to: String,
     },
+    UpsertSpec {
+        #[serde(default)]
+        client_id: Option<String>,
+        #[serde(default)]
+        spec_id: Option<String>,
+        title: String,
+    },
+    UpsertSpecSection {
+        #[serde(default)]
+        client_id: Option<String>,
+        spec: String,
+        #[serde(default)]
+        section_id: Option<String>,
+        title: String,
+        #[serde(default)]
+        body: Option<String>,
+    },
+    SetSpecSectionBody {
+        spec: String,
+        section: String,
+        #[serde(alias = "body_md")]
+        body: String,
+    },
+    LinkSpecSection {
+        spec: String,
+        spec_section: String,
+        plan_section: String,
+    },
+    UnlinkSpecSection {
+        spec: String,
+        #[serde(default)]
+        spec_section: Option<String>,
+        #[serde(default)]
+        plan_section: Option<String>,
+    },
+    CreatePlanFromSpec {
+        #[serde(default)]
+        client_id: Option<String>,
+        spec: String,
+        title: String,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -106,6 +147,8 @@ pub struct BatchResult {
     pub task_ids: Vec<String>,
     pub milestone_ids: Vec<String>,
     pub element_ids: Vec<String>,
+    pub spec_ids: Vec<String>,
+    pub spec_section_ids: Vec<String>,
 }
 
 impl Default for BatchResult {
@@ -116,6 +159,8 @@ impl Default for BatchResult {
             task_ids: Vec::new(),
             milestone_ids: Vec::new(),
             element_ids: Vec::new(),
+            spec_ids: Vec::new(),
+            spec_section_ids: Vec::new(),
         }
     }
 }
@@ -463,6 +508,160 @@ impl PlanStore {
                         let to = resolve_ref(&to, &result.ids);
                         if !working.links.iter().any(|link| link == &to) {
                             working.links.push(to);
+                        }
+                    }
+                    BatchOp::UpsertSpec {
+                        client_id,
+                        spec_id,
+                        title,
+                    } => {
+                        let spec_id = spec_id.map(|id| resolve_ref(&id, &result.ids));
+                        let id = if let Some(spec_id) = spec_id {
+                            self.update_spec(&spec_id, Some(&title), None, now_ms)?;
+                            spec_id
+                        } else {
+                            let spec =
+                                self.create_spec(title, working.project_path.clone(), now_ms)?;
+                            spec.id
+                        };
+                        if let Some(client_id) = client_id {
+                            result.ids.insert(client_id, id.clone());
+                        }
+                        if !result.spec_ids.iter().any(|existing| existing == &id) {
+                            result.spec_ids.push(id);
+                        }
+                    }
+                    BatchOp::UpsertSpecSection {
+                        client_id,
+                        spec,
+                        section_id,
+                        title,
+                        body,
+                    } => {
+                        let spec_id = resolve_ref(&spec, &result.ids);
+                        let section_id = section_id.map(|id| resolve_ref(&id, &result.ids));
+                        let id = if let Some(section_id) = section_id {
+                            self.update_spec_section(
+                                &spec_id,
+                                &section_id,
+                                Some(&title),
+                                body.as_deref(),
+                                &[],
+                                None,
+                                None,
+                                now_ms,
+                            )?;
+                            section_id
+                        } else {
+                            self.add_spec_section(
+                                &spec_id,
+                                &title,
+                                body.as_deref().unwrap_or_default(),
+                                None,
+                                &[],
+                                None,
+                                None,
+                                now_ms,
+                            )?
+                        };
+                        if let Some(client_id) = client_id {
+                            result.ids.insert(client_id, id.clone());
+                        }
+                        if !result
+                            .spec_section_ids
+                            .iter()
+                            .any(|existing| existing == &id)
+                        {
+                            result.spec_section_ids.push(id);
+                        }
+                    }
+                    BatchOp::SetSpecSectionBody {
+                        spec,
+                        section,
+                        body,
+                    } => {
+                        let spec_id = resolve_ref(&spec, &result.ids);
+                        let section_id = resolve_ref(&section, &result.ids);
+                        self.update_spec_section(
+                            &spec_id,
+                            &section_id,
+                            None,
+                            Some(&body),
+                            &[],
+                            None,
+                            None,
+                            now_ms,
+                        )?;
+                        if !result
+                            .spec_section_ids
+                            .iter()
+                            .any(|existing| existing == &section_id)
+                        {
+                            result.spec_section_ids.push(section_id);
+                        }
+                    }
+                    BatchOp::LinkSpecSection {
+                        spec,
+                        spec_section,
+                        plan_section,
+                    } => {
+                        let spec_id = resolve_ref(&spec, &result.ids);
+                        let spec_section_id = resolve_ref(&spec_section, &result.ids);
+                        let plan_section_id = resolve_ref(&plan_section, &result.ids);
+                        if !working.spec_refs.iter().any(|id| id == &spec_id) {
+                            working.spec_refs.push(spec_id.clone());
+                        }
+                        if working.primary_spec_id.is_none() {
+                            working.primary_spec_id = Some(spec_id.clone());
+                        }
+                        let link = crate::plan::SpecLink {
+                            spec_id,
+                            spec_section_id,
+                            plan_section_id,
+                        };
+                        if !working.spec_links.iter().any(|existing| existing == &link) {
+                            working.spec_links.push(link);
+                        }
+                    }
+                    BatchOp::UnlinkSpecSection {
+                        spec,
+                        spec_section,
+                        plan_section,
+                    } => {
+                        let spec_id = resolve_ref(&spec, &result.ids);
+                        let spec_section = spec_section.map(|id| resolve_ref(&id, &result.ids));
+                        let plan_section = plan_section.map(|id| resolve_ref(&id, &result.ids));
+                        working.spec_links.retain(|link| {
+                            !(link.spec_id == spec_id
+                                && spec_section
+                                    .as_deref()
+                                    .is_none_or(|sid| link.spec_section_id == sid)
+                                && plan_section
+                                    .as_deref()
+                                    .is_none_or(|sid| link.plan_section_id == sid))
+                        });
+                    }
+                    BatchOp::CreatePlanFromSpec {
+                        client_id,
+                        spec,
+                        title,
+                    } => {
+                        let spec_id = resolve_ref(&spec, &result.ids);
+                        let owner = working.owner.clone();
+                        let plan = self.create_plan(
+                            title,
+                            working.project_path.clone(),
+                            owner,
+                            working.milestone_kinds.clone(),
+                            now_ms,
+                        )?;
+                        self.with_plan(&plan.id, now_ms, |plan| {
+                            plan.spec_refs.push(spec_id.clone());
+                            plan.primary_spec_id = Some(spec_id.clone());
+                            Ok(())
+                        })?;
+                        if let Some(client_id) = client_id {
+                            result.ids.insert(client_id, plan.id);
                         }
                     }
                 }

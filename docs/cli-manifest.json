@@ -1391,6 +1391,62 @@
       "subcommands": []
     },
     {
+      "name": "effort",
+      "about": "Complete work bundles and effort lineage",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "link",
+          "about": "Link two efforts by lineage",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from",
+              "positional": false,
+              "value_name": "FROM",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "rel",
+              "positional": false,
+              "value_name": "REL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show the Spec(s)+Plan+tasks bundle for one effort",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "get-output",
       "about": "Get terminal output from a pane (default: current pane)",
       "aliases": [],
@@ -7018,6 +7074,390 @@
               "value_name": "QUERY",
               "default": null,
               "help": "Query string. Terms are whitespace-split; every term must appear (case-insensitive) in at least one matching message",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "spec",
+      "about": "Requirements specs — first-class WHAT documents",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "create",
+          "about": "Create a new spec",
+          "aliases": [],
+          "args": [
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "files",
+          "about": "List generated section body files",
+          "aliases": [],
+          "args": [
+            {
+              "name": "spec_id",
+              "positional": true,
+              "value_name": "SPEC_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "link",
+          "about": "Spec-to-plan links",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_section",
+                  "positional": false,
+                  "value_name": "PLAN_SECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec",
+                  "positional": false,
+                  "value_name": "SPEC",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_section",
+                  "positional": false,
+                  "value_name": "SPEC_SECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "spec_id",
+                  "positional": true,
+                  "value_name": "SPEC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_section",
+                  "positional": false,
+                  "value_name": "PLAN_SECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec",
+                  "positional": false,
+                  "value_name": "SPEC",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_section",
+                  "positional": false,
+                  "value_name": "SPEC_SECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "about": "List specs",
+          "aliases": [],
+          "args": [
+            {
+              "name": "active",
+              "positional": false,
+              "value_name": "ACTIVE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "archived",
+              "positional": false,
+              "value_name": "ARCHIVED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "section",
+          "about": "Spec sections",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_id",
+                  "positional": true,
+                  "value_name": "SPEC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_id",
+                  "positional": true,
+                  "value_name": "SPEC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_id",
+                  "positional": true,
+                  "value_name": "SPEC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "show",
+          "about": "Show a hydrated spec",
+          "aliases": [],
+          "args": [
+            {
+              "name": "spec_id",
+              "positional": true,
+              "value_name": "SPEC_ID",
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],

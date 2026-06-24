@@ -13,6 +13,7 @@ use super::agent::AgentAction;
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
+use super::effort::EffortAction;
 use super::mem::MemAction;
 use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
@@ -23,6 +24,7 @@ use super::plan::PlanAction;
 use super::plugin::PluginAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
+use super::spec::SpecAction;
 use super::system::SystemAction;
 use super::task::{CanvasAction, TaskAction};
 use super::update::UpdateAction;
@@ -269,6 +271,18 @@ pub enum Commands {
     Plan {
         #[command(subcommand)]
         action: PlanAction,
+    },
+
+    /// Requirements specs — first-class WHAT documents
+    Spec {
+        #[command(subcommand)]
+        action: SpecAction,
+    },
+
+    /// Complete work bundles and effort lineage
+    Effort {
+        #[command(subcommand)]
+        action: EffortAction,
     },
 
     /// Standalone and plan-backed tasks

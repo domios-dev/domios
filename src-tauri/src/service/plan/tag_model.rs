@@ -51,6 +51,11 @@ pub fn normalize_plan(plan: &mut Plan) {
     }
 }
 
+pub fn normalize_sections_for_spec(sections: &mut [Section]) {
+    let mut used = HashSet::new();
+    normalize_sections(sections, &mut used);
+}
+
 pub fn find_task<'a>(plan: &'a Plan, selector: &str) -> Option<&'a Task> {
     plan.tasks
         .iter()
