@@ -460,6 +460,7 @@ fn run_plan(
                 body_file,
                 intent,
                 intent_file,
+                parent,
                 assign_pane,
                 group,
                 loop_from: _,
@@ -486,6 +487,9 @@ fn run_plan(
                 if let Some(i) = intent_text {
                     params["intent"] = json!(i);
                 }
+                if let Some(p) = parent {
+                    params["parent"] = json!(p);
+                }
                 if let Some(p) = assign_pane {
                     params["assign_pane"] = json!(p);
                 }
@@ -508,6 +512,7 @@ fn run_plan(
                 body_file,
                 intent,
                 intent_file,
+                parent,
                 group,
             } => {
                 let why_text = resolve_text(why, why_file)?;
@@ -537,6 +542,9 @@ fn run_plan(
                 }
                 if let Some(i) = intent_text {
                     params["intent"] = json!(i);
+                }
+                if let Some(p) = parent {
+                    params["parent_task_id"] = json!(p);
                 }
                 if let Some(g) = group {
                     params["group"] = json!(g);

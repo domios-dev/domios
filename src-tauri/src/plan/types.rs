@@ -121,6 +121,8 @@ pub struct Task {
     #[serde(default)]
     pub body: String,
     pub intent: Option<String>,
+    #[serde(default)]
+    pub parent_task_id: Option<String>,
     pub assigned_pane_id: Option<String>,
     #[serde(default)]
     pub taken_by_role: Option<String>,
@@ -292,6 +294,7 @@ mod tests {
         assert_eq!(p.tasks.len(), 1);
         assert_eq!(p.tasks[0].group, None);
         assert_eq!(p.tasks[0].taken_by_role, None);
+        assert_eq!(p.tasks[0].parent_task_id, None);
     }
 
     #[test]
