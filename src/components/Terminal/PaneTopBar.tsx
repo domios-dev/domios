@@ -54,7 +54,12 @@ export function PaneTopBar({
       }}
     >
       <div className="flex min-w-0 items-center gap-2">
-        {showSwitch && <PaneModeSwitch paneId={paneId} height={PANE_BAR_CONTROL_H} chatFirst={chatFirst} />}
+        <PaneModeSwitch
+          paneId={paneId}
+          height={PANE_BAR_CONTROL_H}
+          chatFirst={chatFirst}
+          chatPty={showSwitch}
+        />
         {showSwitch && (
           <ChatDefaultSuggestion
             paneId={paneId}
