@@ -151,6 +151,25 @@ test("MilestoneBubble shows kind initial + iteration at rest; tooltip is hover-o
   await act(async () => root.unmount());
 });
 
+test("§34 crisp text: readable band wraps card in a counter-scaled re-raster layer", async () => {
+  // crispScale 1 (default / birds-eye) → single layer, no counter-scale.
+  const plain = await render(<SectionNode variant="plan" plan={FIXTURE_PLAN} style={cardStyle} world="W3" />);
+  assert(!plain.host.querySelector(".ct-canvas-crisp"), "no crisp layer at 1×");
+  assert(plain.host.querySelector('[data-testid="canvas-plan-node"]'), "card still renders at 1×");
+  await act(async () => plain.root.unmount());
+
+  // crispScale 4 (deep zoom) → zoom 4 + transform scale(0.25) re-rasterize layer.
+  const deep = await render(<SectionNode variant="plan" plan={FIXTURE_PLAN} style={cardStyle} world="W3" crispScale={4} />);
+  const layer = deep.host.querySelector(".ct-canvas-crisp") as HTMLElement | null;
+  assert(layer, "crisp layer present at 4×");
+  const css = layer!.getAttribute("style") ?? "";
+  assert(css.includes("scale(0.25)"), `counter-scale 1/4 applied, got: ${css}`);
+  assert(css.replace(/\s/g, "").includes("zoom:4"), `zoom 4 applied, got: ${css}`);
+  // Content still reaches the DOM through the wrapper (title visible, crisp).
+  assert(deep.host.textContent?.includes("Auth rollout"), "title still rendered inside crisp layer");
+  await act(async () => deep.root.unmount());
+});
+
 async function main() {
   setupDom();
   let failed = 0;
