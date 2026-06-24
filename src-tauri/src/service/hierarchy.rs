@@ -51,10 +51,15 @@ impl ServiceContext {
         details: ReportDetails,
         plan_id: Option<&str>,
         task_id: Option<&str>,
+        milestone_kind: Option<&str>,
     ) -> Result<ReportResult, String> {
         let (from_title, default_target_opt, model, from_ref, role) = {
             let mux = self.mux.read();
-            let (from_title, target_opt) = resolve_report_target(&mux, pane_id)?;
+            let (from_title, target_opt) = match resolve_report_target(&mux, pane_id) {
+                Ok(resolved) => resolved,
+                Err(_) if plan_id.is_some() => (pane_id.to_string(), None),
+                Err(e) => return Err(e),
+            };
             let pane = mux.get_pane(pane_id);
             let model = pane.and_then(|p| p.agent_session_model.clone());
             let from_ref = pane.map_or_else(
@@ -93,7 +98,7 @@ impl ServiceContext {
                 .add_milestone(
                     plan_id,
                     &task_id,
-                    "status_update",
+                    milestone_kind.unwrap_or("status_update"),
                     &milestone_text(message, details.status),
                     from_ref,
                     false,

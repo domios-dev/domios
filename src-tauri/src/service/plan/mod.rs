@@ -2,11 +2,14 @@ pub mod body_files;
 pub mod mutations;
 pub mod paths;
 pub mod reminders;
+pub mod tag_model;
 pub mod task_queries;
 pub mod watcher;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod timestamp_tests;
 
 use crate::plan::{OrchestratorRef, Plan, PlanStatus, INBOX_PLAN_FILE_STEM, INBOX_PLAN_ID};
 use parking_lot::{Mutex, RwLock};
@@ -24,6 +27,7 @@ pub enum PlanError {
     UndeclaredKind { declared: Vec<String> },
     BudgetExhausted { count: u32, budget: u32 },
     BadStatus,
+    BadPriority,
     Io(String),
 }
 
@@ -43,6 +47,7 @@ impl fmt::Display for PlanError {
                 write!(f, "loop budget {count}/{budget} reached")
             }
             PlanError::BadStatus => write!(f, "invalid status"),
+            PlanError::BadPriority => write!(f, "invalid priority"),
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -62,6 +67,7 @@ impl PlanError {
                 serde_json::json!({ "type": "budget_exhausted", "count": count, "budget": budget })
             }
             PlanError::BadStatus => serde_json::json!({ "type": "bad_status" }),
+            PlanError::BadPriority => serde_json::json!({ "type": "bad_priority" }),
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
     }
@@ -79,6 +85,9 @@ pub struct NewTask {
     pub parent_task_id: Option<String>,
     pub assigned_pane_id: Option<String>,
     pub group: Option<String>,
+    pub priority: Option<crate::plan::TaskPriority>,
+    pub handle: Option<String>,
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -122,8 +131,10 @@ impl PlanStore {
     fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
         let path = Self::file_path(plan)?;
         let tmp = path.with_extension("json.tmp");
-        body_files::persist_bodies(plan)?;
-        let json_plan = body_files::strip_bodies(plan);
+        let mut normalized = plan.clone();
+        tag_model::normalize_plan(&mut normalized);
+        body_files::persist_bodies(&normalized)?;
+        let json_plan = body_files::strip_bodies(&normalized);
         let json = serde_json::to_string_pretty(&json_plan)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         std::fs::write(&tmp, json)?;
@@ -186,6 +197,7 @@ impl PlanStore {
         plan.project_path = project_root.display().to_string();
         let migrated =
             body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
+        tag_model::normalize_plan(&mut plan);
         if migrated {
             let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
             self.note_plan_write(&plan, &path);
@@ -223,6 +235,7 @@ impl PlanStore {
             plan.created_at = now_ms;
         }
         plan.updated_at = now_ms;
+        tag_model::normalize_plan(plan);
         let path = Self::write_atomic(plan)?;
         self.note_plan_write(plan, &path);
         self.index
@@ -274,6 +287,7 @@ impl PlanStore {
         plan.project_path = project_root.display().to_string();
         let migrated =
             body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
+        tag_model::normalize_plan(&mut plan);
         if migrated {
             let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
             self.note_plan_write(&plan, &path);

@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -61,6 +61,8 @@ Send a report to your parent in the hierarchy
 
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
+- `--doc` — Markdown document to append to the report milestone
+- `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
 - `--plan` — Plan id to append this report to
@@ -70,6 +72,7 @@ Send a report to your parent in the hierarchy
 - `--task` — Task id to append this report to
 - `--test_cmd` — Test command that was run
 - `--test_result` — Result of the test command (e.g. "42 passed")
+- `--text` — Report message as a flag, useful when paired with --doc
 
 #### `codeterm agent reports`
 
@@ -164,13 +167,19 @@ Send a message to Telegram or other service
 
 Canvas control commands
 
+#### `codeterm canvas filter`
+
+Dim the canvas to a facet value such as area:layout
+
+- `--facet`
+
 #### `codeterm canvas focus`
 
 Focus the open canvas on a task, pane, or plan
 
-- `--pane` — 
-- `--plan` — 
-- `--task` — 
+- `--pane`
+- `--plan`
+- `--task`
 
 #### `codeterm capabilities`
 
@@ -190,14 +199,14 @@ Read or write CodeTerm configuration
 
 Get a config value (dot-notation, e.g. "integrations.telegram_enabled")
 
-- `<key>` — 
+- `<key>`
 
 #### `codeterm config set`
 
 Set a config value (JSON-compatible: true, false, 42, "string")
 
-- `<key>` — 
-- `<value>` — 
+- `<key>`
+- `<value>`
 
 #### `codeterm cron`
 
@@ -251,14 +260,14 @@ Disable a cron job
 Edit a cron job
 
 - `--agent` — Agent provider override (e.g. "claude", "codex")
-- `--cwd` — 
-- `--description` — 
+- `--cwd`
+- `--description`
 - `<id>` — Cron job ID
 - `--jitter_max_ms` — Max jitter in milliseconds added to each scheduled fire. Set 0 to disable jitter. Omit to leave unchanged
 - `--model` — Model within the agent provider. Pass empty string to clear
-- `--name` — 
-- `--schedule` — 
-- `--task` — 
+- `--name`
+- `--schedule`
+- `--task`
 - `--timeout_secs` — Per-cron run timeout (seconds). 0 clears the override (back to global default)
 - `--tz` — IANA timezone (e.g. "Europe/Riga"). Pass empty string to clear back to UTC
 
@@ -413,7 +422,7 @@ Manually trigger a calibration sweep (Sunday only unless --force)
 
 Delete an item by id
 
-- `<id>` — 
+- `<id>`
 
 #### `codeterm mem dream`
 
@@ -471,14 +480,14 @@ Graph operations
 
 Merge one entity into another (alias → canonical)
 
-- `--alias` — 
-- `--canonical` — 
+- `--alias`
+- `--canonical`
 
 #### `codeterm mem graph augment-entity`
 
 Patch properties on an existing entity (audit-logged)
 
-- `--actor` — 
+- `--actor`
 - `--id` — Entity id (e.g. person_andrey)
 - `--patch` — JSON object of properties to merge in (e.g. '{"city":"Riga"}')
 
@@ -486,7 +495,7 @@ Patch properties on an existing entity (audit-logged)
 
 Collapse parallel membership-synonym edges graph-wide in one pass: per node-pair keep ONE of about/applies_to/belongs_to/part_of/documented_in, invalidate the rest. Distinct predicates (uses, runs_on, …) untouched
 
-- `--actor` — 
+- `--actor`
 - `--dry_run` — Print the redundant edge rowids without invalidating anything
 
 #### `codeterm mem graph create`
@@ -495,14 +504,14 @@ Create a graph entity
 
 - `--id` — Entity id (e.g. person_kai)
 - `--props` — JSON properties
-- `--scope` — 
+- `--scope`
 - `--type` — Entity type (Person, Project, Task, Skill, ...)
 
 #### `codeterm mem graph delete-entity`
 
 Delete an entity by id (audited). Refuses if it has active relations unless --force, in which case those relations are cascade-deleted too
 
-- `--actor` — 
+- `--actor`
 - `--force` — Cascade-delete active relations referencing this entity
 - `--id` — Entity id (e.g. seed_person_anna)
 - `--purge_history` — Also hard-delete invalidated (historical) relations referencing this entity. Default false: history is preserved as ghost rows for `revive-broken` and timeline queries. Set this when you're sure the entity is gone for good
@@ -511,7 +520,7 @@ Delete an entity by id (audited). Refuses if it has active relations unless --fo
 
 Delete relations by explicit rowids (audited to graph_purge_log)
 
-- `--actor` — 
+- `--actor`
 - `--rowids` — Comma-separated rowids (e.g. "42,87,103")
 
 #### `codeterm mem graph find-duplicate-entities`
@@ -519,7 +528,7 @@ Delete relations by explicit rowids (audited to graph_purge_log)
 Find duplicate entities (exact name match, alias chain, or vector similarity)
 
 - `--entity_type` — Restrict `vector` strategy to entities of this type (Person, Tech, Project, ...)
-- `--limit` — 
+- `--limit`
 - `--strategy` — Strategy: exact-name | alias-chain | vector
 - `--threshold` — Cosine similarity threshold for `vector` strategy (0.0-1.0). 0.90+ = strong-merge candidate, 0.85+ = review-worthy
 
@@ -528,7 +537,7 @@ Find duplicate entities (exact name match, alias chain, or vector similarity)
 Find duplicate relations grouped by selected columns. Read-only diagnostic — does not mutate the graph
 
 - `--group_by` — Comma-separated columns from: from_id,relation_type,to_id,scope,valid_from. Default excludes valid_from because the relations UNIQUE(from,rel,to,valid_from) makes grouping by all four a guaranteed no-op — meaningful dedup is on the triple
-- `--limit` — 
+- `--limit`
 
 #### `codeterm mem graph get`
 
@@ -541,29 +550,29 @@ Inspect a graph entity: properties_json + degree summary. Filling the gap that m
 List hub nodes — entities with active degree at or above threshold. Each hub returns its degree, the relation_type distribution, and a sample of neighbors with titles. Used by the Dreamer recluster phase to decide which hubs to decompose into topic_* intermediates
 
 - `--sample` — Per-hub neighbor sample size (default 30)
-- `--threshold` — 
+- `--threshold`
 
 #### `codeterm mem graph introduce-topic`
 
 Atomically introduce a topic intermediate: insert topic entity (if missing), link sources → topic → anchor, invalidate direct sources → anchor edges
 
-- `--anchor` — 
+- `--anchor`
 - `--db_path` — Override the path to knowledge.db
-- `--entity_type` — 
-- `--reason` — 
-- `--rel_anchor` — 
-- `--rel_source` — 
+- `--entity_type`
+- `--reason`
+- `--rel_anchor`
+- `--rel_source`
 - `--sources` — Comma-separated source ids (s1,s2,s3) OR @path/to/file (one per line; '#'-prefixed and blank lines ignored)
-- `--topic_id` — 
+- `--topic_id`
 
 #### `codeterm mem graph invalidate`
 
 Invalidate a relation (set valid_to, preserve history)
 
 - `--ended` — When it ended (ISO 8601, default now)
-- `--from` — 
-- `--rel` — 
-- `--to` — 
+- `--from`
+- `--rel`
+- `--to`
 
 #### `codeterm mem graph islands`
 
@@ -576,7 +585,7 @@ List connected components of size <= max-size — disconnected "islands" the Dre
 
 Merge relations into `keep`, folding properties/confidence
 
-- `--actor` — 
+- `--actor`
 - `--keep` — Rowid of the relation to keep (its properties and rowid survive)
 - `--merge` — Comma-separated rowids to fold into `keep` (these are deleted)
 
@@ -590,23 +599,23 @@ List nodes with degree 0 — true orphans (entities with no relations, mem_items
 
 Shortest path between two entities
 
-- `--from` — 
+- `--from`
 - `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
-- `--max_hops` — 
-- `--to` — 
+- `--max_hops`
+- `--to`
 
 #### `codeterm mem graph prune-dream-hub-edges`
 
 Invalidate dream-diary backlinks into hubs in one pass: every edge from a daily diary to a graph entity via a noise predicate (keeps the dreams anchor)
 
-- `--actor` — 
+- `--actor`
 - `--dry_run` — Print the dream backlink rowids without invalidating anything
 
 #### `codeterm mem graph prune-thin-vectors`
 
 Find and (optionally) delete vectors whose mem_item has no real body (empty / title-only) — the "bodyless embeddings" that pollute search
 
-- `--actor` — 
+- `--actor`
 - `--dry_run` — Print the thin-body vector ids without deleting anything
 
 #### `codeterm mem graph purge-invalidated`
@@ -622,12 +631,12 @@ Hard-delete relations whose valid_to is set. Optional filters by cutoff date and
 
 Create a relation between entities or mem_items
 
-- `--confidence` — 
-- `--from` — 
+- `--confidence`
+- `--from`
 - `--reason` — Free-text reason; written to relations.reason for audit
-- `--rel` — 
-- `--scope` — 
-- `--to` — 
+- `--rel`
+- `--scope`
+- `--to`
 - `--valid_from` — Validity start (ISO 8601, default now)
 - `--valid_to` — Validity end (ISO 8601, optional)
 
@@ -636,7 +645,7 @@ Create a relation between entities or mem_items
 List outgoing relations from an id
 
 - `--as_of` — As-of date (ISO 8601) — filters by valid_from/valid_to
-- `--id` — 
+- `--id`
 - `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
 - `--rel` — Filter by relation type
 
@@ -644,14 +653,14 @@ List outgoing relations from an id
 
 Find and (optionally) delete sha256_*.txt blob files in the mem blobs directory that no mem_item references. CAS-aware sweep (refcount = 0)
 
-- `--actor` — 
+- `--actor`
 - `--dry_run` — Print orphans without deleting anything
 
 #### `codeterm mem graph repair-orphan-vectors`
 
 Find and (optionally) delete orphan rows in mem_vectors — vectors whose mem_id has no matching mem_items / entities row. One-shot legacy cleanup
 
-- `--actor` — 
+- `--actor`
 - `--dry_run` — Print orphans without deleting anything
 
 #### `codeterm mem graph revive-broken`
@@ -659,37 +668,37 @@ Find and (optionally) delete orphan rows in mem_vectors — vectors whose mem_id
 Restore valid_to=NULL for relations whose endpoints both still exist in entities or mem_items. Idempotent
 
 - `--db_path` — Override the path to knowledge.db
-- `--dry_run` — 
-- `--since` — 
+- `--dry_run`
+- `--since`
 
 #### `codeterm mem graph route`
 
 Atomically re-route an active direct edge (from → to) through an intermediate (from → via → to). Invalidates the original direct edge
 
 - `--db_path` — Override the path to knowledge.db
-- `--from` — 
+- `--from`
 - `--reason` — Free-text reason; written to relations.reason
 - `--rel_in` — Relation type for the from→via segment (default = original rel)
 - `--rel_out` — Relation type for the via→to segment (default = original rel)
-- `--to` — 
-- `--via` — 
+- `--to`
+- `--via`
 
 #### `codeterm mem graph timeline`
 
 Full temporal timeline for an entity
 
-- `--entity` — 
+- `--entity`
 - `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
 
 #### `codeterm mem graph traverse`
 
 BFS traversal from an entity (max_hops cap)
 
-- `--as_of` — 
-- `--from` — 
-- `--hops` — 
+- `--as_of`
+- `--from`
+- `--hops`
 - `--include_invalidated` — Include relations whose valid_to is set (default: active-only)
-- `--max_nodes` — 
+- `--max_nodes`
 
 #### `codeterm mem graph tunnels`
 
@@ -721,7 +730,7 @@ List pending learnings (kind=learning items)
 
 Promote a learning to a fact (raises importance)
 
-- `<id>` — 
+- `<id>`
 
 #### `codeterm mem pin`
 
@@ -793,23 +802,23 @@ Pluggable secret store: save / get / search / list / delete. Backend is selected
 
 Delete by name
 
-- `--name` — 
-- `--yes` — 
+- `--name`
+- `--yes`
 
 #### `codeterm mem secret get`
 
 Resolve and print a secret. Default = raw value to stdout (no trailing newline). Use --json for {name, value, notes}
 
-- `--json` — 
-- `--name` — 
+- `--json`
+- `--name`
 
 #### `codeterm mem secret list`
 
 List saved secrets (metadata only — never values)
 
-- `--folder` — 
-- `--limit` — 
-- `--org` — 
+- `--folder`
+- `--limit`
+- `--org`
 
 #### `codeterm mem secret lock`
 
@@ -823,11 +832,11 @@ Sign out — also drops persisted creds (OS keychain entry)
 
 Save a secret. Value comes from --value or stdin (preferred — keeps the value out of shell history)
 
-- `--collection` — 
-- `--folder` — 
-- `--name` — 
-- `--notes` — 
-- `--org` — 
+- `--collection`
+- `--folder`
+- `--name`
+- `--notes`
+- `--org`
 - `--overwrite` — Allow replacing an existing secret with the same name
 - `--value` — Plaintext value. Omit and pipe via stdin instead
 
@@ -835,13 +844,13 @@ Save a secret. Value comes from --value or stdin (preferred — keeps the value 
 
 Save the master password to ~/.codeterm/secrets/bitwarden-master.env (mode 0600). Daemon then auto-unlocks JIT on every operation — no further prompts. Reads value from stdin (preferred — out of shell history) or --password
 
-- `--password` — 
+- `--password`
 
 #### `codeterm mem secret search`
 
 Free-text search over saved secret metadata
 
-- `<query>` — 
+- `<query>`
 
 #### `codeterm mem secret status`
 
@@ -855,8 +864,8 @@ Pull latest from the remote vault. No-op for backends with no remote (Local OS-k
 
 Unlock the active backend with a master password (read from stdin if --password is omitted, never from argv)
 
-- `--email` — 
-- `--password` — 
+- `--email`
+- `--password`
 
 #### `codeterm mem skill`
 
@@ -908,21 +917,21 @@ Print {area -> {kind -> count}} for the store (or a single workspace)
 
 Unpin a previously pinned item
 
-- `<id>` — 
+- `<id>`
 
 #### `codeterm mem update`
 
 Partial update of an existing mem item by id. Only the flags you pass are written; everything else stays as-is
 
-- `--area` — 
+- `--area`
 - `--body` — New body content (re-indexes embedding). Use `-` to read stdin. REPLACES the whole body — to grow a body use `mem append`
 - `--body_file` — Read the new body from a file instead of --body (bypasses shell quoting)
 - `--changed_by` — Actor label for audit trail (defaults to "user"). Used by automated workflows
 - `<id>` — Mem item id
 - `--importance` — New importance 1-5
-- `--summary` — 
+- `--summary`
 - `--tags` — Comma-separated tags (REPLACES existing tags)
-- `--title` — 
+- `--title`
 
 #### `codeterm mem wake-up`
 
@@ -942,13 +951,13 @@ Graph-worker operations (hidden mem panel agents)
 
 Get one worker by id
 
-- `<id>` — 
+- `<id>`
 
 #### `codeterm mem worker kill`
 
 Kill a worker by id
 
-- `<id>` — 
+- `<id>`
 
 #### `codeterm mem worker list`
 
@@ -958,23 +967,23 @@ List all graph workers
 
 Report progress (called by worker itself; uses $CODETERM_WORKER_ID)
 
-- `--status` — 
-- `<text>` — 
+- `--status`
+- `<text>`
 
 #### `codeterm mem worker report`
 
 Submit final report and mark done (uses $CODETERM_WORKER_ID)
 
-- `<summary>` — 
+- `<summary>`
 
 #### `codeterm mem worker spawn`
 
 Spawn a new graph worker
 
-- `--agent` — 
-- `--intent` — 
-- `--parent` — 
-- `--task` — 
+- `--agent`
+- `--intent`
+- `--parent`
+- `--task`
 
 #### `codeterm mesh`
 
@@ -1235,41 +1244,41 @@ Canvas plans — persistent orchestration boards
 
 Archive a plan
 
-- `<plan_id>` — 
+- `<plan_id>`
 
 #### `codeterm plan claim`
 
 Claim an unowned plan
 
-- `<plan_id>` — 
+- `<plan_id>`
 
 #### `codeterm plan coverage`
 
 Show section coverage (% + gaps)
 
-- `<plan_id>` — 
+- `<plan_id>`
 
 #### `codeterm plan create`
 
 Create a new plan
 
-- `--kinds` — 
-- `--project` — 
-- `--spec` — 
-- `--spec_file` — 
-- `--title` — 
+- `--kinds`
+- `--project`
+- `--spec`
+- `--spec_file`
+- `--title`
 
 #### `codeterm plan delete`
 
 Delete a plan
 
-- `<plan_id>` — 
+- `<plan_id>`
 
 #### `codeterm plan disown`
 
 Release plan ownership
 
-- `<plan_id>` — 
+- `<plan_id>`
 
 #### `codeterm plan element`
 
@@ -1277,29 +1286,29 @@ Generic canvas elements
 
 #### `codeterm plan element add`
 
-- `--content` — 
-- `--content_file` — 
-- `--kind` — 
-- `--link` — 
-- `<plan_id>` — 
+- `--content`
+- `--content_file`
+- `--kind`
+- `--link`
+- `<plan_id>`
 
 #### `codeterm plan files`
 
 List generated section/task body files
 
-- `<plan_id>` — 
+- `<plan_id>`
 
 #### `codeterm plan gaps`
 
 Show sections with zero tasks
 
-- `<plan_id>` — 
+- `<plan_id>`
 
 #### `codeterm plan get`
 
 Get a plan (markdown by default)
 
-- `<plan_id>` — 
+- `<plan_id>`
 
 #### `codeterm plan groups`
 
@@ -1307,8 +1316,8 @@ Set task groups (phases)
 
 #### `codeterm plan groups set`
 
-- `--groups` — 
-- `<plan_id>` — 
+- `--groups`
+- `<plan_id>`
 
 #### `codeterm plan kinds`
 
@@ -1316,8 +1325,8 @@ Set milestone kind columns
 
 #### `codeterm plan kinds set`
 
-- `--kinds` — 
-- `<plan_id>` — 
+- `--kinds`
+- `<plan_id>`
 
 #### `codeterm plan layout`
 
@@ -1325,29 +1334,29 @@ Canvas layout overrides
 
 #### `codeterm plan layout set`
 
-- `--element` — 
-- `<plan_id>` — 
-- `--x` — 
-- `--y` — 
+- `--element`
+- `<plan_id>`
+- `--x`
+- `--y`
 
 #### `codeterm plan link`
 
 Link this plan to a related plan
 
-- `<plan_id>` — 
-- `--to` — 
+- `<plan_id>`
+- `--to`
 
 #### `codeterm plan list`
 
 List plans
 
-- `--active` — 
-- `--all` — 
-- `--archived` — 
-- `--orchestrator` — 
-- `--project` — 
-- `--unowned` — 
-- `--workspace` — 
+- `--active`
+- `--all`
+- `--archived`
+- `--orchestrator`
+- `--project`
+- `--unowned`
+- `--workspace`
 
 #### `codeterm plan loop`
 
@@ -1355,24 +1364,24 @@ Self-improving loops
 
 #### `codeterm plan loop create`
 
-- `--budget` — 
-- `<plan_id>` — 
-- `--stop_when` — 
-- `--target` — 
+- `--budget`
+- `<plan_id>`
+- `--stop_when`
+- `--target`
 
 #### `codeterm plan loop set`
 
-- `--budget` — 
-- `<loop_id>` — 
-- `--stop_when` — 
+- `--budget`
+- `<loop_id>`
+- `--stop_when`
 
 #### `codeterm plan loop status`
 
-- `<loop_id>` — 
+- `<loop_id>`
 
 #### `codeterm plan loop stop`
 
-- `<loop_id>` — 
+- `<loop_id>`
 
 #### `codeterm plan milestone`
 
@@ -1380,28 +1389,28 @@ Task milestones
 
 #### `codeterm plan milestone add`
 
-- `--add_kind` — 
-- `--from` — 
-- `--kind` — 
-- `<plan_id>` — 
-- `<task_id>` — 
-- `--text` — 
-- `--text_file` — 
+- `--add_kind`
+- `--from`
+- `--kind`
+- `<plan_id>`
+- `<task_id>`
+- `--text`
+- `--text_file`
 
 #### `codeterm plan milestone rm`
 
-- `<milestone_id>` — 
-- `<plan_id>` — 
-- `<task_id>` — 
+- `<milestone_id>`
+- `<plan_id>`
+- `<task_id>`
 
 #### `codeterm plan milestone update`
 
-- `--kind` — 
-- `<milestone_id>` — 
-- `<plan_id>` — 
-- `<task_id>` — 
-- `--text` — 
-- `--text_file` — 
+- `--kind`
+- `<milestone_id>`
+- `<plan_id>`
+- `<task_id>`
+- `--text`
+- `--text_file`
 
 #### `codeterm plan note`
 
@@ -1409,11 +1418,11 @@ Free-form notes on the canvas
 
 #### `codeterm plan note add`
 
-- `--link_section` — 
-- `--link_task` — 
-- `<plan_id>` — 
-- `--text` — 
-- `--text_file` — 
+- `--link_section`
+- `--link_task`
+- `<plan_id>`
+- `--text`
+- `--text_file`
 
 #### `codeterm plan section`
 
@@ -1421,30 +1430,42 @@ Plan sections
 
 #### `codeterm plan section add`
 
-- `--body` — 
-- `--body_file` — 
-- `--parent` — 
-- `<plan_id>` — 
-- `--title` — 
+- `--body`
+- `--body_file`
+- `--handle`
+- `--parent`
+- `<plan_id>`
+- `--primary`
+- `--tags`
+- `--title`
 
 #### `codeterm plan section rm`
 
-- `<plan_id>` — 
-- `<section_id>` — 
+- `<plan_id>`
+- `<section_id>`
 
 #### `codeterm plan section update`
 
-- `--body` — 
-- `--body_file` — 
-- `<plan_id>` — 
-- `<section_id>` — 
-- `--title` — 
+- `--body`
+- `--body_file`
+- `--handle`
+- `<plan_id>`
+- `--primary`
+- `<section_id>`
+- `--tags`
+- `--title`
 
 #### `codeterm plan spec`
 
 Print only the hydrated section prose
 
-- `<plan_id>` — 
+- `<plan_id>`
+
+#### `codeterm plan tags`
+
+Show tag facets, counts, topics, and duplicate warnings
+
+- `<plan_id>`
 
 #### `codeterm plan task`
 
@@ -1452,84 +1473,92 @@ Plan tasks
 
 #### `codeterm plan task add`
 
-- `--assign_pane` — 
-- `--body` — 
-- `--body_file` — 
-- `--group` — 
-- `--intent` — 
-- `--intent_file` — 
-- `--kind` — 
-- `--loop_from` — 
-- `--model` — 
-- `--name` — 
-- `--parent` — 
-- `<plan_id>` — 
-- `--sections` — 
-- `--why` — 
-- `--why_file` — 
+- `--assign_pane`
+- `--body`
+- `--body_file`
+- `--group`
+- `--handle`
+- `--intent`
+- `--intent_file`
+- `--kind`
+- `--loop_from`
+- `--model`
+- `--name`
+- `--parent`
+- `<plan_id>`
+- `--primary`
+- `--priority`
+- `--sections`
+- `--tags`
+- `--why`
+- `--why_file`
 
 #### `codeterm plan task assign`
 
-- `--mesh` — 
-- `--pane` — 
-- `<plan_id>` — 
-- `<task_id>` — 
+- `--mesh`
+- `--pane`
+- `<plan_id>`
+- `<task_id>`
 
 #### `codeterm plan task close`
 
-- `--mesh` — 
-- `<plan_id>` — 
-- `--result` — 
-- `--result_file` — 
-- `<task_id>` — 
+- `--mesh`
+- `<plan_id>`
+- `--result`
+- `--result_file`
+- `<task_id>`
 
 #### `codeterm plan task rm`
 
-- `<plan_id>` — 
-- `<task_id>` — 
+- `<plan_id>`
+- `<task_id>`
 
 #### `codeterm plan task update`
 
-- `--body` — 
-- `--body_file` — 
-- `--group` — 
-- `--intent` — 
-- `--intent_file` — 
-- `--kind` — 
-- `--model` — 
-- `--name` — 
-- `--parent` — 
-- `<plan_id>` — 
-- `--status` — 
-- `--status_label` — 
-- `<task_id>` — 
-- `--why` — 
-- `--why_file` — 
+- `--body`
+- `--body_file`
+- `--group`
+- `--handle`
+- `--intent`
+- `--intent_file`
+- `--kind`
+- `--model`
+- `--name`
+- `--parent`
+- `<plan_id>`
+- `--primary`
+- `--priority`
+- `--status`
+- `--status_label`
+- `--tags`
+- `<task_id>`
+- `--why`
+- `--why_file`
 
 #### `codeterm plan transfer`
 
 Transfer plan ownership
 
-- `<plan_id>` — 
-- `--reason` — 
-- `--to` — 
+- `<plan_id>`
+- `--reason`
+- `--to`
 
 #### `codeterm plan unlink`
 
 Remove a plan link
 
-- `<plan_id>` — 
-- `--to` — 
+- `<plan_id>`
+- `--to`
 
 #### `codeterm plan update`
 
 Update plan metadata
 
-- `<plan_id>` — 
-- `--spec` — 
-- `--spec_file` — 
-- `--status` — 
-- `--title` — 
+- `<plan_id>`
+- `--spec`
+- `--spec_file`
+- `--status`
+- `--title`
 
 #### `codeterm plugin`
 
@@ -1543,14 +1572,14 @@ Manage plugin channels
 
 Add a local path or git URL channel
 
-- `--name` — 
-- `<url>` — 
+- `--name`
+- `<url>`
 
 #### `codeterm plugin channel diff`
 
 Compare installed plugins against a channel without installing
 
-- `<name>` — 
+- `<name>`
 
 #### `codeterm plugin channel ensure-default`
 
@@ -1564,21 +1593,21 @@ List registered channels
 
 Refresh one channel, or all channels when name is omitted
 
-- `<name>` — 
+- `<name>`
 
 #### `codeterm plugin channel remove`
 
 Remove a channel cache and registry entry
 
 - `--force` — Allow removing the protected system channel registration
-- `<name>` — 
+- `<name>`
 
 #### `codeterm plugin config`
 
 Configure a plugin by editing its self-documenting config.yaml (comments preserved, validated against the settings schema). Non-secret fields are written to the YAML; secret fields are reported for routing to the secret store (never written plaintext). Reload is live
 
 - `--grant` — Grant a permission, persisted to the plugin's grants.yaml so the decision survives (e.g. --grant spawn_agents). Repeatable. Takes effect on the plugin's next reload
-- `<id>` — 
+- `<id>`
 - `--revoke` — Revoke a previously granted permission (repeatable)
 - `--set` — Set a field: --set key=value (repeatable)
 - `--values_json` — Set multiple fields from a JSON object (named --values-json so it does not collide with the global --json output flag)
@@ -1587,7 +1616,7 @@ Configure a plugin by editing its self-documenting config.yaml (comments preserv
 
 Show a plugin's agent-facing config: its self-documenting config.yaml (secret values redacted), settings schema, and installed/configured/ reload state. The agent's discover handle (§1.7)
 
-- `<id>` — 
+- `<id>`
 
 #### `codeterm plugin install`
 
@@ -1607,20 +1636,20 @@ List installed plugins
 Remove an installed plugin
 
 - `--force` — Allow removing a verified/system plugin folder
-- `<id>` — 
+- `<id>`
 - `--remove_data` — Also remove plugin-owned downloaded data
 
 #### `codeterm plugin update`
 
 Update one installed plugin, or all plugins when id is omitted
 
-- `<id>` — 
+- `<id>`
 
 #### `codeterm plugin update-system`
 
 Update bundled system provider plugins from the official plugin channel
 
-- `<id>` — 
+- `<id>`
 
 #### `codeterm send`
 
@@ -1651,7 +1680,7 @@ Register a new daemon-kind service
 - `--health_path` — HTTP health path (default: /healthz)
 - `--host` — Host (for health_mode=tcp)
 - `--kind` — Service kind (default: daemon — for cron use `codeterm cron create`)
-- `<name>` — 
+- `<name>`
 - `--port` — Port (for health_mode=tcp)
 - `--process_label` — Process label (for health_mode=process — launchd label or systemd unit)
 - `--push` — Enable push API (daemon can write to panes via Bearer token)
@@ -1668,14 +1697,14 @@ Delete a service (also deletes its push token + activity)
 
 Edit a service
 
-- `--enabled` — 
-- `--health_degraded_values` — 
-- `--health_json_field` — 
-- `--health_ok_values` — 
-- `--health_path` — 
+- `--enabled`
+- `--health_degraded_values`
+- `--health_json_field`
+- `--health_ok_values`
+- `--health_path`
 - `<id>` — Service ID
-- `--name` — 
-- `--url` — 
+- `--name`
+- `--url`
 
 #### `codeterm service list`
 
@@ -1705,7 +1734,7 @@ Past agent sessions — search conversations across all providers
 
 Print metadata for a past session (provider, cwd, file path, times). Read-only probe — use before `sessions resume` to verify the session is still on disk
 
-- `<session_id>` — 
+- `<session_id>`
 
 #### `codeterm sessions resume`
 
@@ -1753,45 +1782,45 @@ Standalone and plan-backed tasks
 
 Add a standalone task to the workspace Inbox
 
-- `--assign_pane` — 
-- `--body` — 
-- `--body_file` — 
-- `--intent` — 
-- `--intent_file` — 
-- `--kind` — 
-- `--model` — 
-- `--name` — 
-- `--why` — 
-- `--why_file` — 
+- `--assign_pane`
+- `--body`
+- `--body_file`
+- `--intent`
+- `--intent_file`
+- `--kind`
+- `--model`
+- `--name`
+- `--why`
+- `--why_file`
 
 #### `codeterm task drop`
 
 Release the task assignment
 
-- `<task_id>` — 
+- `<task_id>`
 
 #### `codeterm task list`
 
 List tasks across active plans
 
-- `--active` — 
-- `--all` — 
-- `--mine` — 
-- `--plan` — 
-- `--unassigned` — 
-- `--workspace` — 
+- `--active`
+- `--all`
+- `--mine`
+- `--plan`
+- `--unassigned`
+- `--workspace`
 
 #### `codeterm task show`
 
 Show one task with plan and section context
 
-- `<task_id>` — 
+- `<task_id>`
 
 #### `codeterm task take`
 
 Assign the task to the caller's pane
 
-- `<task_id>` — 
+- `<task_id>`
 
 #### `codeterm theme`
 
@@ -1857,22 +1886,22 @@ Agent usage tracking — current %, projection for end-of-today / end-of-cycle b
 
 Latest usage snapshot (session + weekly %, reset times)
 
-- `--account_id` — 
-- `--provider` — 
+- `--account_id`
+- `--provider`
 
 #### `codeterm usage projection`
 
 End-of-today and end-of-cycle projection based on your historical rhythm scaled by today's observed pace. Plan-independent (the rhythm is normalized; today's % anchors the absolute scale)
 
-- `--account_id` — 
-- `--provider` — 
+- `--account_id`
+- `--provider`
 
 #### `codeterm usage refresh`
 
 Trigger a fresh probe (runs the agent hidden, parses /status)
 
-- `--account_id` — 
-- `--provider` — 
+- `--account_id`
+- `--provider`
 
 #### `codeterm web`
 

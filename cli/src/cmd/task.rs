@@ -77,6 +77,7 @@ pub fn handle_canvas(client: &mut SocketClient, json: bool, action: CanvasAction
             }
             call(client, "canvas.focus", params)
         }
+        CanvasAction::Filter { facet } => call(client, "canvas.filter", json!({ "facet": facet })),
     };
     match result {
         Ok(val) => print_task_result(json, &val),

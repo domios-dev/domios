@@ -2,7 +2,8 @@ use super::{NewTask, PlanError, PlanStore};
 use crate::plan::loop_engine::stop_for;
 use crate::plan::{
     AgentRef, CanvasElement, LoopSpec, LoopStage, LoopStatus, Milestone, MilestoneKind,
-    OrchestratorRef, Plan, PlanStatus, Section, Task, TaskGroup, TaskStatus, TransferRecord,
+    OrchestratorRef, Plan, PlanStatus, Section, Task, TaskGroup, TaskPriority, TaskStatus,
+    TransferRecord,
 };
 
 fn gen_id(prefix: &str) -> String {
@@ -37,9 +38,10 @@ fn update_section_fields(
     body: Option<&str>,
 ) -> bool {
     for s in sections.iter_mut() {
-        if s.id == id {
+        if s.id == id || s.handle.as_deref() == Some(id) {
             if let Some(t) = title {
                 s.title = t.into();
+                s.handle = None;
             }
             if let Some(b) = body {
                 s.body = b.into();
@@ -47,6 +49,31 @@ fn update_section_fields(
             return true;
         }
         if update_section_fields(&mut s.subsections, id, title, body) {
+            return true;
+        }
+    }
+    false
+}
+
+fn update_section_tags(
+    sections: &mut [Section],
+    id: &str,
+    tags: &[String],
+    primary: Option<&str>,
+    handle: Option<&str>,
+) -> bool {
+    for s in sections.iter_mut() {
+        if s.id == id || s.handle.as_deref() == Some(id) {
+            super::tag_model::apply_tags(&mut s.tags, tags, primary);
+            if !tags.is_empty() || primary.is_some() {
+                s.handle = None;
+            }
+            if let Some(handle) = handle {
+                s.handle = Some(handle.into());
+            }
+            return true;
+        }
+        if update_section_tags(&mut s.subsections, id, tags, primary, handle) {
             return true;
         }
     }
@@ -79,6 +106,11 @@ fn set_section_canvas(sections: &mut [Section], id: &str, x: Option<f64>, y: Opt
 
 fn parse_task_status(raw: &str) -> Result<TaskStatus, PlanError> {
     serde_json::from_value(serde_json::Value::String(raw.into())).map_err(|_| PlanError::BadStatus)
+}
+
+fn parse_task_priority(raw: &str) -> Result<TaskPriority, PlanError> {
+    serde_json::from_value(serde_json::Value::String(raw.into()))
+        .map_err(|_| PlanError::BadPriority)
 }
 
 impl PlanStore {
@@ -174,6 +206,7 @@ impl PlanStore {
         let mut guard = arc.lock();
         let out = f(&mut guard)?;
         guard.updated_at = now_ms;
+        super::tag_model::normalize_plan(&mut guard);
         let path = Self::write_atomic(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&guard, &path);
         let entry = Self::index_entry(&guard, path);
@@ -192,12 +225,19 @@ impl PlanStore {
         title: &str,
         body: &str,
         parent: Option<&str>,
+        tags: &[String],
+        primary: Option<&str>,
+        handle: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
         let sid = gen_id("sec");
+        let mut section_tags = tags.to_vec();
+        super::tag_model::apply_tags(&mut section_tags, &[], primary);
         let section = Section {
             id: sid.clone(),
             title: title.into(),
+            handle: handle.map(str::to_string),
+            tags: section_tags,
             body: body.into(),
             subsections: vec![],
             canvas: Default::default(),
@@ -225,6 +265,12 @@ impl PlanStore {
             model_rationale: new.model_rationale,
             status: TaskStatus::Pending,
             status_label: None,
+            priority: new.priority.unwrap_or_default(),
+            created_at: now_ms,
+            updated_at: now_ms,
+            status_changed_at: now_ms,
+            handle: new.handle,
+            tags: new.tags,
             section_ids: new.section_ids,
             body: new.body,
             intent: new.intent,
@@ -255,9 +301,13 @@ impl PlanStore {
             let task = p
                 .tasks
                 .iter_mut()
-                .find(|t| t.id == task_id)
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
+            if task.status != TaskStatus::Done {
+                task.status_changed_at = now_ms;
+            }
             task.status = TaskStatus::Done;
+            task.updated_at = now_ms;
             if let Some(text) = result {
                 task.milestones.push(Milestone {
                     id: gen_id("ms"),
@@ -393,10 +443,14 @@ impl PlanStore {
         section_id: &str,
         title: Option<&str>,
         body: Option<&str>,
+        tags: &[String],
+        primary: Option<&str>,
+        handle: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
             if update_section_fields(&mut p.sections, section_id, title, body) {
+                update_section_tags(&mut p.sections, section_id, tags, primary, handle);
                 Ok(())
             } else {
                 Err(PlanError::NotFound)
@@ -429,21 +483,26 @@ impl PlanStore {
         model_rationale: Option<Option<&str>>,
         status: Option<&str>,
         status_label: Option<Option<&str>>,
+        priority: Option<&str>,
         body: Option<&str>,
         intent: Option<Option<&str>>,
         section_ids: Option<Vec<String>>,
         parent_task_id: Option<Option<&str>>,
         group: Option<Option<&str>>,
+        tags: &[String],
+        primary: Option<&str>,
+        handle: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
             let task = p
                 .tasks
                 .iter_mut()
-                .find(|t| t.id == task_id)
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
             if let Some(n) = name {
                 task.name = n.into();
+                task.handle = None;
             }
             if let Some(k) = kind {
                 task.kind = k.into();
@@ -455,7 +514,14 @@ impl PlanStore {
                 task.model_rationale = w.map(|s| s.into());
             }
             if let Some(s) = status {
-                task.status = parse_task_status(s)?;
+                let status = parse_task_status(s)?;
+                if task.status != status {
+                    task.status = status;
+                    task.status_changed_at = now_ms;
+                }
+            }
+            if let Some(priority) = priority {
+                task.priority = parse_task_priority(priority)?;
             }
             if let Some(l) = status_label {
                 task.status_label = l.map(|s| s.into());
@@ -475,6 +541,14 @@ impl PlanStore {
             if let Some(g) = group {
                 task.group = g.map(|s| s.into());
             }
+            super::tag_model::apply_tags(&mut task.tags, tags, primary);
+            if !tags.is_empty() || primary.is_some() {
+                task.handle = None;
+            }
+            if let Some(handle) = handle {
+                task.handle = Some(handle.into());
+            }
+            task.updated_at = now_ms;
             Ok(())
         })
     }
@@ -491,11 +565,12 @@ impl PlanStore {
             let task = p
                 .tasks
                 .iter_mut()
-                .find(|t| t.id == task_id)
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
             task.assigned_pane_id = Some(pane.into());
             task.taken_by_role = None;
             task.peer = peer.map(|s| s.into());
+            task.updated_at = now_ms;
             Ok(())
         })
     }
@@ -505,7 +580,7 @@ impl PlanStore {
             let pos = p
                 .tasks
                 .iter()
-                .position(|t| t.id == task_id)
+                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
             p.tasks.remove(pos);
             Ok(())

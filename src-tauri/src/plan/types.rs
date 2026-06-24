@@ -21,6 +21,16 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskPriority {
+    P0,
+    P1,
+    #[default]
+    P2,
+    P3,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum LoopStatus {
@@ -78,10 +88,34 @@ pub struct TaskGroup {
     pub color: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TagFacetValue {
+    pub v: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TagFacet {
+    pub key: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub color_lane: bool,
+    #[serde(default)]
+    pub values: Vec<TagFacetValue>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Section {
     pub id: String,
     pub title: String,
+    #[serde(default)]
+    pub handle: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(default)]
     pub body: String,
     #[serde(default)]
@@ -116,6 +150,18 @@ pub struct Task {
     pub model_rationale: Option<String>,
     pub status: TaskStatus,
     pub status_label: Option<String>,
+    #[serde(default)]
+    pub priority: TaskPriority,
+    #[serde(default)]
+    pub created_at: u64,
+    #[serde(default)]
+    pub updated_at: u64,
+    #[serde(default)]
+    pub status_changed_at: u64,
+    #[serde(default)]
+    pub handle: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(default)]
     pub section_ids: Vec<String>,
     #[serde(default)]
@@ -203,6 +249,8 @@ pub struct Plan {
     #[serde(default)]
     pub task_groups: Vec<TaskGroup>,
     #[serde(default)]
+    pub tag_facets: Vec<TagFacet>,
+    #[serde(default)]
     pub links: Vec<String>,
     #[serde(default)]
     pub canvas: PlanCanvas,
@@ -227,6 +275,7 @@ impl Plan {
             elements: vec![],
             tasks: vec![],
             task_groups: vec![],
+            tag_facets: vec![],
             links: vec![],
             canvas: PlanCanvas::default(),
             owner_history: vec![],
@@ -290,9 +339,16 @@ mod tests {
         let p: Plan = serde_json::from_str(raw).unwrap();
         assert_eq!(p.id, "pl_old");
         assert!(p.task_groups.is_empty());
+        assert!(p.tag_facets.is_empty());
         assert!(p.links.is_empty());
         assert_eq!(p.tasks.len(), 1);
         assert_eq!(p.tasks[0].group, None);
+        assert_eq!(p.tasks[0].priority, TaskPriority::P2);
+        assert_eq!(p.tasks[0].created_at, 0);
+        assert_eq!(p.tasks[0].updated_at, 0);
+        assert_eq!(p.tasks[0].status_changed_at, 0);
+        assert_eq!(p.tasks[0].handle, None);
+        assert!(p.tasks[0].tags.is_empty());
         assert_eq!(p.tasks[0].taken_by_role, None);
         assert_eq!(p.tasks[0].parent_task_id, None);
     }
@@ -303,5 +359,13 @@ mod tests {
         assert!(t.is_err(), "unknown status must reject");
         let ok: TaskStatus = serde_json::from_str("\"in_progress\"").unwrap();
         assert_eq!(ok, TaskStatus::InProgress);
+    }
+
+    #[test]
+    fn task_priority_is_closed_enum() {
+        let bad: Result<TaskPriority, _> = serde_json::from_str("\"urgent\"");
+        assert!(bad.is_err(), "unknown priority must reject");
+        let ok: TaskPriority = serde_json::from_str("\"p1\"").unwrap();
+        assert_eq!(ok, TaskPriority::P1);
     }
 }

@@ -167,7 +167,11 @@ impl PlanStore {
             if plan.status == PlanStatus::Archived {
                 continue;
             }
-            let Some(task) = plan.tasks.iter().find(|t| t.id == task_id) else {
+            let Some(task) = plan
+                .tasks
+                .iter()
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+            else {
                 continue;
             };
             return Some(TaskDetail {
@@ -194,7 +198,7 @@ impl PlanStore {
             }
             plan.tasks
                 .iter()
-                .any(|task| task.id == task_id)
+                .any(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .then_some(plan.id)
         }) else {
             return Err(PlanError::TaskNotFound);
@@ -203,13 +207,14 @@ impl PlanStore {
             let task = p
                 .tasks
                 .iter_mut()
-                .find(|task| task.id == task_id)
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
             task.assigned_pane_id = pane_id.map(str::to_string);
             task.taken_by_role = taken_by_role.map(str::to_string);
             if pane_id.is_none() {
                 task.peer = None;
             }
+            task.updated_at = now_ms;
             Ok(())
         })?;
         Ok(plan_id)

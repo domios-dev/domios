@@ -73,7 +73,16 @@ pub enum AgentAction {
     /// Send a report to your parent in the hierarchy
     Report {
         /// Report message (also accepts --message alias)
-        message: String,
+        message: Option<String>,
+        /// Report message as a flag, useful when paired with --doc
+        #[arg(long, alias = "message", allow_hyphen_values = true)]
+        text: Option<String>,
+        /// Milestone kind when writing to --plan/--task
+        #[arg(long)]
+        kind: Option<String>,
+        /// Markdown document to append to the report milestone
+        #[arg(long, value_name = "PATH")]
+        doc: Option<String>,
         /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
         #[arg(long)]
         pane: Option<String>,
