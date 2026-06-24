@@ -1381,3 +1381,244 @@ branch-travelling plan/memory store.
   of 10k units = seconds, incremental via content-hash skip. Bottleneck is UI render (already bounded), not
   storage. VALIDATE with a benchmark: seed ~10k tasks/strides across N plans → assert search latency, reindex
   time, canvas fit-all + per-plan load times stay bounded.
+
+## 34. GOAL construct + orchestration postulates + handoff VERIFY-LOOP (Andrey direction; design)
+
+<!-- revision: 1 -->
+
+Andrey's direction: a plan needs a **GOAL** = the north-star VECTOR + general info, ALWAYS visible,
+PERIODICALLY re-injected to the orchestrator, NEVER decomposed into tasks. Today it is MISSING
+(verified: `Plan` has no `goal` field). Orchestration **POSTULATES** (heartbeat, re-read plan usage,
+always review, real visual testing, group-and-drive, periodic audit, single build-gate, provider-
+balance) are standing axioms that hang off the GOAL. And a handoff **VERIFY-LOOP**: compose → read
+back → verify 3× vs the spec (nothing forgotten) → only then compact → fold into the skill.
+Composes with §27 (handoff), §28 (batch), §29/§30 (Effort/Spec vocab), §31 (no camera move),
+§32/§35 (worlds). DESIGN ONLY.
+
+### 34.1 GOAL data model — first-class plan meta, never work
+`Plan.goal: Option<Goal>` (one per plan/effort, the north-star — not a Vec, not a section, not a task):
+```
+Goal {
+  vector: String,            // ONE-LINE north-star headline (the direction the whole effort serves)
+  vision: String,            // markdown prose: the WHAT/WHY general info (externalized body)
+  constraints: Vec<String>,  // key HARD constraints (e.g. "fixed footprint", "no camera move on live change")
+  postulates: Vec<Postulate>,// standing orchestration axioms ACTIVE for this plan (§34.4)
+  updated_at: u64,
+}
+Postulate { id: String, text: String, rationale: Option<String> }   // id mirrors the skill axiom id
+```
+- **How it differs from sections/tasks:** GOAL is the north-star, NOT work. It is **never decomposed**,
+  bears **no tasks/strides**, has **no coverage**, is **never archived independently** (it rides the
+  plan/effort). Sections answer WHAT/HOW and bear tasks; the GOAL answers WHY-the-whole-thing-exists and
+  bears nothing. It is plan META, peer to `title`/`owner`, not a node in the section tree.
+- **Effort-level (§29):** GOAL belongs to the **Effort**, surfaced through its Plan. Lineage (`--follows`/
+  `--supersedes`) carries the vector forward — a successor effort inherits/refines the predecessor's goal.
+
+**Fork — where it lives:**
+- **Alt A — inline `Plan.goal` field + externalized `goal.md` body (PICK).** Scalars (vector, constraints,
+  postulate ids+text) in `meta.yaml`; long `vision` prose in `.codeterm/plans/<id>/goal.md` (frontmatter +
+  body, §17/§33 — hand-editable, watched, git-mergeable). 1:1 with the plan, tiny, ALWAYS loaded with the
+  plan → cheap to inject everywhere. Reuses all plan machinery, zero new entity.
+- Alt B — separate `Goal` entity (own dir, like Spec). Rejected: goal is 1:1 with the effort and trivially
+  small; a full entity buys predate/share which the goal never needs.
+- Alt C — `CanvasElement{kind:"goal"}`. Rejected: elements are canvas decorations; goal must be queryable
+  plan meta that `plan get`/heartbeat read without walking elements.
+
+### 34.2 ALWAYS-VISIBLE on canvas — a pinned screen-space GOAL HUD (not a world node)
+"Always visible at every zoom" is structurally incompatible with a world node (§26): world nodes live in
+world-space and pan/scroll away. So the GOAL is **screen-space HUD chrome**, pinned to the viewport like the
+breadcrumb (§20.5) and minimap (§23.4) — it never scrolls, never auto-packs, never participates in LOD.
+- **Collapsed (default):** a thin pinned bar at the top of the canvas (~40px), accent-tinted by the plan,
+  showing the **vector** (1 line, prominent, ellipsis) + a `◆ postulates` pill + a `⌄` expander. Prominent,
+  not dominating — one bar, not a panel.
+- **Expanded (user click):** drops a panel with full `vision` markdown + `constraints` list + the active
+  `postulates` (id · text · rationale on hover). Click again / Esc collapses. Pure user-initiated (§31).
+- **Multi-plan:** the HUD shows the **focused/dominant plan's** goal (breadcrumb-driven); workspace overview
+  with many plans → the bar shows the workspace name + a `▾ N goals` switcher, no single vector forced.
+- **Readability:** because it is screen-space it is legible at ANY camera zoom by construction (§22/§31 — it
+  is not a node, so "fixed footprint / no camera move" apply trivially). Optional faint world-space "goal
+  monument" above the plan node for spatial grounding at far zoom is a nice-to-have, NOT the load-bearing
+  surface — the HUD is.
+- **Fork:** Alt A world node (scrolls away — rejected), **Alt B screen-space HUD (PICK)**, Alt C hybrid
+  (HUD + monument) — adopt B now, C's monument later if the board feels ungrounded.
+
+### 34.3 PERIODIC REINJECTION — heartbeat is the carrier, plan-get is the pull
+The orchestrator must never lose the north-star. Three channels, the heartbeat being the periodic one:
+1. **Heartbeat (periodic, the key one):** the delayed self-send (§ orchestrator skill Heartbeat Discipline)
+   is **goal-anchored**. New sugar `codeterm plan goal heartbeat <plan>` composes the standard reminder
+   text — `GOAL: <vector>\nPOSTULATES: <id list>\nNow: reports first, then …` — that the skill's heartbeat
+   template injects, re-armed each cycle. So every heartbeat re-surfaces the vector + postulates.
+2. **On every `plan get` (pull / always-present):** `plan get` emits a **GOAL block at the very top** of the
+   assembled markdown (vector + constraints + active postulates, vision link). Missing today — add it.
+3. **On reseed (§27.3 step 4):** the lean fresh-context seed gains "load the goal: `plan goal show`" so a
+   reseeded orchestrator picks up the north-star FIRST, before plan get / next_actions.
+- **Explicit pull:** `codeterm plan goal show <plan>` prints vector · constraints · postulates · vision.
+- **Fork — push vs pull:** Alt A orchestrator re-reads manually (weak — it IS the forgetting problem we are
+  fixing). **Alt B heartbeat-carried + always-on-plan-get (PICK)** — reinjection rides infra that already
+  fires periodically; no new timer, no context-grabbing daemon push. Alt C daemon timer-push into the pane
+  (rejected: interrupts mid-turn, the §31 "never grab" spirit applied to context, not just camera).
+
+### 34.4 ORCHESTRATION POSTULATES — declared in the skill, pinned per-plan in the goal
+The standing axioms (Andrey's list), each an id the heartbeat/HUD cite:
+| id | axiom |
+|---|---|
+| `heartbeat` | set a delayed self-heartbeat so the agent never falls off the run |
+| `re-read-plan-usage` | periodically re-read HOW to use the plan system (don't drift from the tooling) |
+| `always-review` | every worker report is evidence, not proof — review the diff/source yourself |
+| `real-visual-test` | verify via TestFlight / real visual (Playwright screenshot) testing, never unit-only for UI |
+| `group-and-drive` | group related work and drive lanes as bands, not ad-hoc one-offs |
+| `plan-audit` | run a periodic plan audit (coverage, stalled tasks, stranded branches) |
+| `single-build-gate` | one canonical build-gate before claiming readiness, not N divergent local builds |
+| `provider-balance` | balance work across providers/accounts (anti-ban, §project_cron_antidetect) |
+| `handoff-verify-before-compact` | never compact/reseed without the §34.5 verify-loop passing |
+
+**Two-tier (mirrors §19 facets/topics governance):**
+- **Canonical home = the skill.** `.agents/skills/codeterm-orchestrator/SKILL.md` holds the full doctrine
+  (axiom text + rationale + procedure). Single source of truth, version-controlled, loaded every orchestrator
+  session. (Add a "Postulates" section — currently the skill has Heartbeat/Verification/Review as prose but
+  no enumerated, id'd axiom set.)
+- **Per-plan pin = `Goal.postulates`.** A plan REFERENCES the skill axioms by id and may extend/override with
+  plan-specific ones. The goal pins the ACTIVE set; the HUD (§34.2) and heartbeat (§34.3) surface exactly that
+  set. Skill = library; goal = the checked-out, plan-active subset.
+- **Kept top-of-mind by:** (a) goal HUD expander, (b) every heartbeat (by id), (c) `plan get` goal block,
+  (d) skill loaded each session, (e) reseed seed. Five reinforcing surfaces, one source.
+
+### 34.5 HANDOFF VERIFY-LOOP — compose → read-back → 3× verify vs spec → compact → fold
+Layers on §27 handoff. The destructive context reset (§27.3 reseed) is GATED behind a completeness proof.
+**Procedure:**
+1. **COMPOSE** — daemon auto-composes the handoff from the live plan index (§27.1) + orchestrator free-text:
+   `codeterm plan handoff create <plan> --verify` (folds onto the §28 batch `add_handoff` op).
+2. **READ BACK** — `codeterm plan handoff show --latest --markdown`. The orchestrator (or verifier) reads the
+   composed handoff as it will actually be consumed.
+3. **VERIFY 3× vs the SPEC** — three passes against the GOAL+SPEC+live plan, each scoring a fixed checklist;
+   gaps amend the handoff and re-verify; only **3 consecutive clean** passes proceed. What each pass checks
+   ("nothing forgotten"):
+   - **GOAL** present — vector + active postulates carried into the handoff.
+   - **STATE** complete — coverage, what's done, plan snapshot, integrity (git HEAD/dirty + plan `updated_at`).
+   - **IN-FLIGHT** complete — every active agent/pane/branch/session listed; cross-checked vs
+     `task list --active` + `agent reports` (a worker present there but absent from the handoff = FAIL).
+   - **NEXT-ACTIONS** executable — first 3 runnable with zero chat context.
+   - **RULES** present — foundational rules (§22/§31) + the active postulates (§34.4).
+   - **NO SPEC ITEM ORPHANED** — nothing in-flight against the spec/goal that the handoff omits.
+   3× = three independent passes; best as three **distinct lenses** (completeness / accuracy / executability),
+   the adversarial-verify pattern (default to "incomplete" when unsure).
+4. **COMPACT / RESEED** — ONLY when context is large AND the verify gate is green: run §27.3 reseed
+   (mode `new` preferred over lossy `compact`). `--gate` makes reseed refuse until clean.
+5. **FOLD INTO THE SKILL** — durable run-learnings (a corrected procedure, a new postulate) fold into
+   `.agents/skills/codeterm-orchestrator/SKILL.md` — but per §35.7, **only after a live pass proves the change
+   worked** (review-before-trust applied to the skill itself).
+
+**Safety — scratch verifier, not the live orchestrator (the load-bearing decision):**
+- **Fork — who runs the 3× verify?** Alt A live orchestrator self-verifies (cheap but biased, and burns the
+  very context it is trying to preserve). **Alt B scratch verifier sub-agent in a SEPARATE pane (PICK)** —
+  spawned worker reads the handoff `.md` + spec + `plan get`, returns a structured gap report; independent
+  (skill Review Discipline: "evidence, not proof") and leaves the live orchestrator's context untouched.
+  Alt C daemon structural-only check (fast, but can't judge semantic "nothing forgotten").
+- **Recommendation: B for the 3× semantic passes + C as an automatic structural precheck.** The daemon's
+  `--verify` does the cheap structural gate (required fields present; in-flight set == `task list --active`;
+  integrity stamp matches) FIRST; then the scratch verifier does the 3× semantic completeness pass. Compact
+  only after BOTH are green. The live orchestrator composes and decides; it does not grade its own handoff.
+- **CLI:** `codeterm plan handoff verify <plan> [--passes 3] [--against <spec_id>] [--scratch-pane] [--gate]`
+  → composes-or-takes-latest, runs structural precheck, drives the scratch verifier, returns the gap report;
+  `--gate` blocks reseed until 3 clean passes.
+
+### 34.6 What's MISSING to execute the GOAL (concrete gaps)
+- **Data:** `Plan.goal: Option<Goal>` + `Goal`/`Postulate` structs in `plan/types.rs` (absent today — verified).
+- **Storage:** goal scalars in `meta.yaml`; `vision` body externalized to `.codeterm/plans/<id>/goal.md`
+  (frontmatter + body, watched/mergeable, §17/§33). INDEX.md lists it.
+- **CLI:** `plan goal set` (vector/constraints/postulate ids), `plan goal show`, `plan goal edit` (opens the
+  `.md`), `plan goal heartbeat <plan>` (compose reminder text), `plan handoff verify <plan>` (the verify-loop).
+- **`plan get`:** prepend a GOAL block (vector + constraints + active postulates) — missing.
+- **Heartbeat:** the orchestrator-skill heartbeat template is generic — make it goal-anchored (carry vector +
+  postulate ids), re-armed each cycle.
+- **Canvas:** pinned screen-space GOAL HUD banner (new component; NOT a world node; §34.2). §31-compliant.
+- **Batch (§28):** `set_goal` / `set_goal_body` ops so goal writes use the one write primitive (CLI + UI + drop-ins).
+- **Reseed (§27.3 step 4):** add "load the goal (`plan goal show`)" to the lean seed.
+- **Skill:** `codeterm-orchestrator/SKILL.md` needs (a) an enumerated **Postulates** section (§34.4 ids), (b) a
+  **Handoff Verify-Loop** section (§34.5 procedure + scratch-verifier safety), (c) the fold-after-live-pass rule.
+- **Parity:** every new capability (goal RPC, handoff verify) gets a native+JS `parity_test` (§architecture #2).
+
+### 34.7 Recommendation summary
+GOAL = inline `Plan.goal` field + externalized `goal.md` (§34.1 Alt A). Always-visible = pinned screen-space
+HUD banner, not a world node (§34.2 Alt B). Reinjection = goal-anchored heartbeat + GOAL block on every
+`plan get` + reseed seed (§34.3 Alt B). Postulates = enumerated in the skill (canonical) + pinned per-plan in
+`Goal.postulates` (§34.4). Verify-loop = daemon structural precheck + independent SCRATCH-pane 3× semantic
+verify, gating reseed; fold into the skill only after a live pass (§34.5 Alt B+C). All §31-compliant; all new
+capability native+JS parity-tested.
+
+## 35. WORLDS v3 — plan-centric composition (Andrey live review; brainstorm in flight)
+<!-- revision: 1 -->
+> Status: DIRECTION captured; design synthesis pending (brainstorm opus cbeec826 + codex 9309d30a).
+> Loop/pass on §26/§32 worlds. Plan task `worlds-v3` (task_99dfa6cd), loop-from worlds-v2.
+
+1. **Plan-centric composition.** The PLAN's own world is the central, LARGEST object — bigger than all
+   else, occupying the center. LEFT of the plan = the SPEC it was built from. RIGHT = the TASKS. Size
+   hierarchy: plan > spec ≈ tasks; a task can NEVER exceed plan/spec size ("they're just tasks").
+2. **Task cloud = circle pack, NOT a line.** Tasks today form a line (was vertical, now horizontal —
+   both wrong). Want cubic task blocks INSCRIBED in a CIRCLE, non-overlapping, a round cloud right of
+   the plan. Needs a concrete square-into-disk packing algorithm (phyllotaxis / circle-pack relaxation /
+   concentric rings), stable, no jitter on add/remove (§31).
+3. **Task zoom-in, STABLE layout.** Fixed slots that never reflow: top=TITLE, center=DESCRIPTION,
+   bottom=WORK-POINTS row. All three visible even far; only CONTENT detail changes per LOD band (far:
+   title+tags; closer: short desc; closest: full markdown, scroll only at the closest band). Blocks stay
+   put — content swaps inside them.
+4. **Work-points (strides).** Circles confirmed right. Zoom into one → tags → text → full internal
+   structure. FIX: text renders AROUND the point, must be INSCRIBED inside (scale issue). Deepest band =
+   the work-point fills the screen for comfortable reading. No flying — fixed slot at every zoom.
+5. **Sections show FULL content, not truncated.** Progressive reveal like tasks: far=title+tags;
+   closer=body; closest=rendered markdown paragraphs.
+6. **Spec vs plan correctness.** Plan currently REPEATS spec titles and is UNDER-FILLED (sections have no
+   names — confirmed live). Plan must be filled DISTINCT from + more detailed than the spec (plan=HOW/
+   tasks/strides, spec=WHAT). Fill the plan-system from the orchestrator's working markdown.
+7. **Emergence / loops.** The whole planning feature supports PASSES/LOOPS: every object (spec/plan/
+   section/task/stride) is re-enterable and loopable; plan execution itself loops. Data model + canvas
+   must express "pass N / loop" on any object (lineage/iteration count, re-open semantics, visual
+   signal). Ties to `codeterm plan loop`. Same review-before-trust paradigm applies to the orchestrator
+   skill: only fold a change into the skill once a live pass proves it worked.
+
+## 36. Agent PRESENCE — live "who is working on what" (Andrey direction)
+<!-- revision: 1 -->
+> Status: DIRECTION captured. Plan task `agent-presence` (p1) — DB creation currently eaten by the
+> live lost-update bug (§36 is partly motivated BY that bug being visible). Durable record here.
+
+Andrey: I must ALWAYS see, in the canvas UX, what the **orchestrator** is doing AND which **agent**
+is working on which **task right now**. Every agent (orchestrator included) continuously surfaces its
+current task + current work-point, and reminders enforce it so nobody silently drifts.
+
+### 36.1 Model — reuse existing primitives, derive presence
+- **Claim = take.** Working on a task CLAIMS it (`task take` / `plan task assign`) — ownership explicit,
+  transferable ("you take it from whoever held it").
+- **Work-point authorship = the activity record.** Each work-point (stride) stamps WHO + WHAT. The
+  task's current worker = author of the **latest** work-point. "Who is on this task now" is *derived*,
+  not separately tracked. Verify every `plan record` stamps the author (pane/agent id).
+- **Ownership history = the work-point author chain.** The ordered authors over time ARE the task's
+  hand-off / transition history, viewable later. Reuse §27 `owner_history` + strides.
+- **Current-focus.** Each agent publishes a one-line "current focus" (task id + what); the orchestrator
+  too. Either a field or derived from the last work-point.
+
+### 36.2 Reminders — the enforcement (multi-trigger, not one)
+Everyone is nudged to keep "what I'm working on" current via SEVERAL triggers:
+- **Heartbeat / time-based** — the delayed-message cadence (already used by the orchestrator); the
+  re-arm carries "state your current task". (Composes with §34 goal-anchored heartbeat.)
+- **CLI-use-triggered** — when an agent calls the CLI, a guard-rail hint reminds it to record a
+  work-point / refresh focus if stale (extends the cli-hints guard-rail already shipped).
+- **Message-count / cadence-based** — after N turns without a work-point, prompt to report.
+
+### 36.3 Canvas UX
+- Live per-agent activity ON the task: the task an agent owns shows that agent (color/name/avatar) +
+  its latest work-point pulsing. The orchestrator's own current focus is visible too (ties to the §34
+  GOAL HUD — a presence strip beside it).
+- "Who's on what" is glanceable: scan the board → every active agent on its task. §31-compliant
+  (presence updates pulse / off-screen-signal, never move the camera).
+
+### 36.4 Gaps to build
+Author stamping on every `plan record`; a current-focus field or derivation + CLI (`agent focus
+set/show` or fold into `plan record`); reminder hooks (heartbeat line, cli-hint on stale focus,
+cadence trigger); canvas presence render; ownership-history view (`task history` over work-point
+authors). Loops (§35.7) compose: a re-opened task shows the new pass's worker taking it.
+
+### 36.5 Meta — why now
+The orchestrator itself was NOT surfacing its current task, so Andrey couldn't see what it was doing.
+This makes every agent's current work visible *by construction* + reminded, so the whole swarm is
+legible. (Note: filing this very task repeatedly hit the live lost-update/lock bug — presence depends
+on reliable plan writes landing first → the plan-concurrency deadlock must be fixed first.)
