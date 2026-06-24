@@ -26,12 +26,14 @@ export const MILESTONE_LANE_COLORS = [
 ];
 
 export interface CanvasLayoutSettings {
-  // §24.3 un-merge: TWO connected sectioned nodes, SPEC | PLAN, plus the task
-  // field. FIXED frames (§22.1) — zoom is camera-only; content adapts (worlds LOD).
-  // Spec + Plan share sectionNodeH so their per-section rows line up for 1:1 edges.
+  // worlds-v3 §1 plan-centric composition: PLAN is the focal mass (biggest in BOTH
+  // axes), SPEC a smaller doc node to its LEFT, task disk to its RIGHT. Heights now
+  // differ per node — railAnchorOffsets distributes rows inside each node's own
+  // height, so 1:1 spec↔plan edges go diagonal across the differing Ys.
   specNodeW: number;
+  specNodeH: number;
   planWidth: number;
-  sectionNodeH: number;
+  planHeight: number;
   planHeaderHeight: number;
 
   // §26 WORLDS appW thresholds (W0/W1/W2/W3 boundaries, in screen px). SPEC is
@@ -54,14 +56,6 @@ export interface CanvasLayoutSettings {
   // Free-form element fallback box.
   taskWidth: number;
   taskMinHeight: number;
-
-  // §32.10 task CLOUD right of the plan: a 2D cluster sorted by status/priority
-  // (active top, done bottom), bounded in HEIGHT — overflow flows into more
-  // columns rightward, never an infinite vertical strip.
-  taskGapY: number;
-  maxTaskCols: number;
-  taskColGap: number;
-  cloudMaxH: number;
 
   // Subtask nesting (parent_task_id → children grouped under the parent).
   subtaskIndentX: number;
@@ -103,9 +97,13 @@ export interface CanvasLayoutSettings {
 }
 
 export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
+  // worlds-v3 §1 size hierarchy (hard invariant): plan > spec ≈ tasks, biggest in
+  // both axes. A task's enclosing circle can never reach the smallest big node —
+  // asserted by the unit test in settings.test.ts.
   specNodeW: 440,
-  planWidth: 320,
-  sectionNodeH: 560,
+  specNodeH: 720,
+  planWidth: 680,
+  planHeight: 860,
   planHeaderHeight: 80,
 
   // appW px boundaries (normal node / SPEC node). W2 = body-visible band (§26.2).
@@ -119,19 +117,14 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   // from zoom-drill (worlds), not a big default card. Bounded growth still applies.
   taskW: 156,
   taskColStep: 40,
-  taskMaxW: 276,
+  taskMaxW: 240,
   taskBaseH: 84,
   taskMinH: 88,
-  taskMaxH: 380,
+  taskMaxH: 300,
   aspectFloorRatio: 0.6,
 
   taskWidth: 280,
   taskMinHeight: 180,
-
-  taskGapY: 14,
-  maxTaskCols: 3,
-  taskColGap: 20,
-  cloudMaxH: 620,
 
   subtaskIndentX: 22,
   subtaskGapY: 12,
@@ -170,12 +163,6 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
 export const CANVAS_LAYOUT_SETTING_KEYS = Object.keys(
   DEFAULT_CANVAS_SETTINGS,
 ) as (keyof CanvasLayoutSettings)[];
-
-// §22.2/§24.1: spec and plan nodes share one fixed height so their per-section
-// rows align for the 1:1 edges. Content adapts to zoom (worlds), not the size.
-export function sectionNodeHeight(s: CanvasLayoutSettings): number {
-  return s.sectionNodeH;
-}
 
 // Stable rail-row output-anchor Y offsets (local, from node top) for N sections.
 // Evenly distributed in the rail body area so they ALWAYS fit the fixed frame

@@ -1,10 +1,10 @@
 import type { OrchestratorRef, Plan } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
-import { sectionNodeHeight, railAnchorOffsets } from "../settings";
+import { railAnchorOffsets } from "../settings";
 import { flatSections } from "../sectionRows";
 import type { Box, Point } from "./geometry";
 import { unionBox } from "./geometry";
-import { layoutTaskBands } from "./taskBands";
+import { layoutTaskCloud } from "./taskCloud";
 import type { IntraPlanLayout, LaidOutEdge, LaidOutNode } from "./types";
 
 export function ownerKeyOf(owner: OrchestratorRef): string {
@@ -16,9 +16,11 @@ function handoffSeq(content: unknown): number {
   return typeof seq === "number" ? seq : 0;
 }
 
-// §24.3 three connected columns: SPEC | PLAN | tasks. Spec + plan are two fixed
-// sectioned nodes sharing one height so their per-section rows align for the 1:1
-// spec↔plan edges; plan's right-edge OUTPUT anchors feed the banded task field.
+// worlds-v3 §1 plan-centric composition: PLAN is the focal mass at the fixed
+// origin; SPEC sits to its LEFT (negative-x), the circle-packed task disk to its
+// RIGHT — spec + disk vertically centered on the plan mid-line (a balanced
+// triptych). Section rows distribute inside each node's OWN height, so the 1:1
+// spec↔plan edges go diagonal across the differing Ys.
 export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanLayout {
   const nodes: LaidOutNode[] = [];
   const edges: LaidOutEdge[] = [];
@@ -26,40 +28,42 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
   const extraPoints: Point[] = [];
 
   const flat = flatSections(plan);
-  const H = sectionNodeHeight(s);
   const hasSpec = flat.length > 0;
 
-  const specBox: Box = { x: 0, y: 0, width: s.specNodeW, height: H };
-  const planX = hasSpec ? s.specNodeW + s.columnGapX : 0;
-  const planBox: Box = { x: planX, y: 0, width: s.planWidth, height: H };
+  const planBox: Box = { x: 0, y: 0, width: s.planWidth, height: s.planHeight };
+  const axisY = s.planHeight / 2; // the composition's horizontal axis
+  const specBox: Box = { x: -(s.columnGapX + s.specNodeW), y: axisY - s.specNodeH / 2, width: s.specNodeW, height: s.specNodeH };
 
   if (hasSpec) nodes.push({ id: `${plan.id}::spec`, kind: "spec", planId: plan.id, box: specBox, iteration: null, manual: false });
   nodes.push({ id: plan.id, kind: "plan", planId: plan.id, box: planBox, iteration: null, manual: false });
 
-  // Per-section anchors at evenly-distributed offsets (stable, fit the fixed frame).
-  // Spec right-edge dot → plan-row left edge (1:1, same section). Plan right-edge
-  // OUTPUT → tasks. Spec + plan share H so these line up row-for-row.
-  const offsets = railAnchorOffsets(flat.length, H, s);
+  // Per-section anchors at evenly-distributed offsets inside each node's own
+  // height (§1: heights differ, so spec rows use spec offsets, plan rows use plan
+  // offsets; the same-section edge is allowed to be diagonal).
+  const specOffsets = railAnchorOffsets(flat.length, s.specNodeH, s);
+  const planOffsets = railAnchorOffsets(flat.length, s.planHeight, s);
   flat.forEach((section, i) => {
-    const y = offsets[i];
     if (hasSpec) {
       edges.push({
         id: `${section.id}~specrow`,
         kind: "spec-row",
-        fromPoint: { x: specBox.x + specBox.width, y: specBox.y + y },
-        toPoint: { x: planBox.x, y: planBox.y + y },
+        fromPoint: { x: specBox.x + specBox.width, y: specBox.y + specOffsets[i] },
+        toPoint: { x: planBox.x, y: planBox.y + planOffsets[i] },
       });
     }
-    anchors.set(section.id, { x: planBox.x + planBox.width, y: planBox.y + y });
+    anchors.set(section.id, { x: planBox.x + planBox.width, y: planBox.y + planOffsets[i] });
   });
 
-  const taskX = planBox.x + planBox.width + s.columnGapX;
-
-  // Banded multi-column task sweep (§20.3) anchored to the plan rail outputs.
-  const band = layoutTaskBands(plan, s, anchors, taskX);
-  nodes.push(...band.nodes);
-  edges.push(...band.edges);
-  extraPoints.push(...band.extraPoints);
+  // §2 circle-pack task disk to the RIGHT of the plan, centered on the plan
+  // mid-line. The pack returns centers relative to (0,0) + the disk radius R;
+  // diskCenter.x = planW + gap + R places the whole disk clear of the plan.
+  const cloud = layoutTaskCloud(plan, s, anchors);
+  const diskCenter: Point = { x: planBox.width + s.columnGapX + cloud.radius, y: axisY };
+  for (const n of cloud.nodes) {
+    nodes.push({ ...n, box: { ...n.box, x: n.box.x + diskCenter.x, y: n.box.y + diskCenter.y } });
+  }
+  edges.push(...cloud.edges);
+  extraPoints.push(...cloud.extraPoints);
 
   // §32.8 handoff timeline lane: chronological reset coins ABOVE the plan frame
   // (never inside task clutter), linked [n-1]→[n] left→right by seq. Auto-placed
