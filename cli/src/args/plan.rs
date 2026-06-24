@@ -44,6 +44,13 @@ pub enum PlanAction {
     Coverage { plan_id: String },
     /// Show sections with zero tasks
     Gaps { plan_id: String },
+    /// Show structural neighbors for a plan/spec/task/section unit
+    Related {
+        #[arg(long)]
+        id: String,
+        #[arg(long, default_value = "1")]
+        depth: usize,
+    },
     /// Set task groups (phases)
     Groups {
         #[command(subcommand)]
