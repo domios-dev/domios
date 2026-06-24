@@ -65,7 +65,7 @@ test("CanvasViewInner renders compact plan node, section rows, and task card", a
   });
   assert(host.querySelector('[data-testid="canvas-view"]'), "canvas shell");
   assert(host.querySelector('[data-testid="canvas-plan-node"]'), "compact plan node");
-  assert(host.querySelector('[data-testid="canvas-spec-node"]'), "spec node");
+  assert(host.querySelector('[data-testid="canvas-spec-section"]'), "spec section card");
   assert(host.querySelector('[data-testid="canvas-plan-row"]'), "section rows present");
   assert(host.querySelector('[data-testid="canvas-task-card"]'), "task card");
   assert(host.querySelector('[data-testid="canvas-task-name"]')?.textContent === "Dante", "task name");

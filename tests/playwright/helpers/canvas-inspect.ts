@@ -41,9 +41,13 @@ function ensureArtDir(): void {
 export async function openCanvas(page: Page): Promise<void> {
   const view = page.locator('[data-testid="canvas-view"]').first();
   if ((await view.count()) === 0 || !(await view.isVisible().catch(() => false))) {
-    const nav = page.locator('[data-testid="nav-canvas"]');
-    await nav.waitFor({ state: "visible", timeout: 30_000 });
-    await nav.click();
+    // The standalone Canvas nav item was removed; reach a board via the per-pane
+    // Plan/Tasks mode segment (workspace overview shows when no tab is focused).
+    const planSeg = page
+      .locator('[data-testid="pane-mode-switch"] [role="tab"]')
+      .filter({ hasText: /Plan|Tasks/ })
+      .first();
+    if ((await planSeg.count()) > 0) await planSeg.click();
   }
   await view.waitFor({ state: "visible", timeout: 30_000 });
   // Wait for fit-to-view + layout to settle and at least one node to mount.
@@ -89,16 +93,16 @@ export async function zoomBy(page: Page, deltaY: number): Promise<void> {
   await page.waitForTimeout(140);
 }
 
-// No fit-to-view button exists; remounting the canvas re-runs fit-to-view.
+// No fit-to-view button; toggle the pane out of and back into Plan mode to remount
+// the focus canvas, which re-runs fit-to-view.
 export async function fitToView(page: Page): Promise<void> {
-  const nav = page.locator('[data-testid="nav-canvas"]');
-  if ((await nav.count()) > 0) {
-    await nav.click();
-    await page.waitForTimeout(150);
-    await nav.click();
-    await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 15_000 });
-    await page.waitForTimeout(400);
-  }
+  const tabs = page.locator('[data-testid="pane-mode-switch"] [role="tab"]');
+  if ((await tabs.count()) < 2) return;
+  await tabs.filter({ hasText: /Terminal|Chat/ }).first().click().catch(() => {});
+  await page.waitForTimeout(150);
+  await tabs.filter({ hasText: /Plan|Tasks/ }).first().click().catch(() => {});
+  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 15_000 });
+  await page.waitForTimeout(400);
 }
 
 export async function focusFirstNode(page: Page, testid = "canvas-task-card"): Promise<void> {

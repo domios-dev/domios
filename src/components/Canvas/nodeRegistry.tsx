@@ -3,14 +3,14 @@ import { RichMarkdown } from "@codeterm/chat-ui";
 import {
   MilestoneBubble,
   PlanNode,
-  SpecNode,
+  SpecSectionCard,
   TaskCard,
   type CanvasLod,
   type MilestoneBubbleModel,
 } from "./cards";
 import type { LaidOutNode } from "./layout";
 import { registerProvenanceRenderers } from "./registerProvenanceRenderers";
-import type { CanvasElement, Plan, Task } from "./types";
+import type { CanvasElement, Plan, Section, Task } from "./types";
 
 // kind → renderer dispatch. Adding a node kind = one register call; canvas core,
 // layout, pan/zoom and focus detection stay untouched. Open-kind fallback kept.
@@ -68,8 +68,8 @@ export function getNodeRenderer(kind: string): NodeRenderer {
 registerNodeRenderer("plan", ({ model, style, lod, onArchive }) =>
   model ? <PlanNode plan={model as Plan} style={style} lod={lod} onArchive={onArchive} /> : null,
 );
-registerNodeRenderer("spec", ({ model, style, lod }) =>
-  model ? <SpecNode plan={model as Plan} style={style} lod={lod} /> : null,
+registerNodeRenderer("spec-section", ({ model, style, lod }) =>
+  model ? <SpecSectionCard section={model as Section} style={style} lod={lod} /> : null,
 );
 registerNodeRenderer("task", ({ model, style, lod, onOpenPane, onHoverTask }) =>
   model ? <TaskCard task={model as Task} style={style} lod={lod} onOpenPane={onOpenPane} onHover={onHoverTask} /> : null,
