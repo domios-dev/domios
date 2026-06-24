@@ -120,7 +120,7 @@ export function SectionedPlanNode({ plan, style, viewMode = "document", onArchiv
       </div>
 
       <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-        <div ref={bodyRef} className="ct-canvas-scroll" data-testid="canvas-plan-body" onWheel={(e) => e.stopPropagation()} style={{ flex: 1, minWidth: 0, overflowY: viewMode === "document" ? "auto" : "hidden", padding: viewMode === "tile" ? 0 : "8px 12px" }}>
+        <div ref={bodyRef} className="ct-canvas-scroll" data-testid="canvas-plan-body" data-canvas-scroll-body={viewMode === "document" ? "1" : undefined} style={{ flex: 1, minWidth: 0, overflowY: viewMode === "document" ? "auto" : "hidden", padding: viewMode === "tile" ? 0 : "8px 12px" }}>
           {viewMode === "tile" ? <TileBody rows={rows} pct={pct} done={doneCount} total={taskCount} standalone={standalone} /> : null}
           {viewMode === "card" ? <CardBody rows={rows} standalone={standalone} taskCount={taskCount} /> : null}
           {viewMode === "document" ? <DocumentBody rows={rows} standalone={standalone} taskCount={taskCount} /> : null}

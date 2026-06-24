@@ -88,8 +88,8 @@ registerNodeRenderer("spec-section", ({ model, style, viewMode }) => {
   return m ? <SpecSectionCard section={m.section} glyph={m.glyph} taskCount={m.taskCount} viewMode={viewMode} style={style} /> : null;
 });
 registerNodeRenderer("task", ({ model, style, viewMode, onOpenPane, onHoverTask }) => {
-  const m = model as { task: Task; childCount?: number } | undefined;
-  return m ? <TaskCard task={m.task} childCount={m.childCount} style={style} viewMode={viewMode} onOpenPane={onOpenPane} onHover={onHoverTask} /> : null;
+  const m = model as { task: Task; childCount?: number; stepColors?: Map<string, string> } | undefined;
+  return m ? <TaskCard task={m.task} childCount={m.childCount} stepColors={m.stepColors} style={style} viewMode={viewMode} onOpenPane={onOpenPane} onHover={onHoverTask} /> : null;
 });
 // Soft container behind a parent task's nested subtask children.
 registerNodeRenderer("subtask-group", ({ style }) => (
