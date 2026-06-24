@@ -26,7 +26,7 @@ export interface MilestoneBubbleProps extends CanvasCardStyleProps {
 
 // Circular milestone bubble (§2.4): colored by kind lane, hover reveals the
 // kind label + markdown text, iteration badge stacks. Sized to its layout box.
-export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleProps) {
+export function MilestoneBubble({ model, style }: MilestoneBubbleProps) {
   const { milestone, color: rawColor } = model;
   // Desaturate ~18% so bubbles read as supporting detail, not the loudest thing.
   const color = `color-mix(in srgb, ${rawColor} 82%, var(--ct-muted-fg, #94a3b8))`;
@@ -58,7 +58,7 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
         aria-hidden
         style={{
           fontWeight: 800,
-          fontSize: lod === "far" ? "0.8rem" : "0.95rem",
+          fontSize: "0.95rem",
           lineHeight: 1,
           color: "var(--ct-fg)",
           opacity: 0.92,
@@ -67,7 +67,7 @@ export function MilestoneBubble({ model, style, lod = "near" }: MilestoneBubbleP
       >
         {kindLabel.charAt(0).toUpperCase()}
       </span>
-      {milestone.iteration != null && lod !== "far" && (
+      {milestone.iteration != null && (
         <span
           data-testid="canvas-milestone-iteration"
           style={{

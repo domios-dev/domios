@@ -10,6 +10,7 @@ import {
 } from "./cards";
 import type { LaidOutNode } from "./layout";
 import { registerProvenanceRenderers } from "./registerProvenanceRenderers";
+import type { SectionRowGlyph as SpecGlyph } from "./sectionRows";
 import type { CanvasElement, Plan, Section, Task } from "./types";
 
 // kind → renderer dispatch. Adding a node kind = one register call; canvas core,
@@ -68,12 +69,28 @@ export function getNodeRenderer(kind: string): NodeRenderer {
 registerNodeRenderer("plan", ({ model, style, lod, onArchive }) =>
   model ? <PlanNode plan={model as Plan} style={style} lod={lod} onArchive={onArchive} /> : null,
 );
-registerNodeRenderer("spec-section", ({ model, style, lod }) =>
-  model ? <SpecSectionCard section={model as Section} style={style} lod={lod} /> : null,
-);
-registerNodeRenderer("task", ({ model, style, lod, onOpenPane, onHoverTask }) =>
-  model ? <TaskCard task={model as Task} style={style} lod={lod} onOpenPane={onOpenPane} onHover={onHoverTask} /> : null,
-);
+registerNodeRenderer("spec-section", ({ model, style }) => {
+  const m = model as { section: Section; glyph?: SpecGlyph; taskCount?: number } | undefined;
+  return m ? <SpecSectionCard section={m.section} glyph={m.glyph} taskCount={m.taskCount} style={style} /> : null;
+});
+registerNodeRenderer("task", ({ model, style, onOpenPane, onHoverTask }) => {
+  const m = model as { task: Task; childCount?: number } | undefined;
+  return m ? <TaskCard task={m.task} childCount={m.childCount} style={style} onOpenPane={onOpenPane} onHover={onHoverTask} /> : null;
+});
+// Soft container behind a parent task's nested subtask children.
+registerNodeRenderer("subtask-group", ({ style }) => (
+  <div
+    data-testid="canvas-subtask-group"
+    style={{
+      ...style,
+      position: "absolute",
+      borderRadius: "var(--ct-radius-md)",
+      background: "color-mix(in srgb, var(--ct-fg) 3%, transparent)",
+      border: "1px dashed var(--ct-border-subtle)",
+      pointerEvents: "none",
+    }}
+  />
+));
 registerNodeRenderer("milestone", ({ model, style, lod }) =>
   model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} /> : null,
 );

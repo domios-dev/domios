@@ -1,10 +1,10 @@
-import type { OrchestratorRef, Plan } from "../types";
+import type { OrchestratorRef, Plan, Task } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
 import { planNodeHeight } from "../settings";
 import { flatSections } from "../sectionRows";
 import type { Box, Point } from "./geometry";
 import { unionBox } from "./geometry";
-import { buildLaneIndex, layoutCluster } from "./clusters";
+import { buildLaneIndex, layoutCluster, type ClusterResult } from "./clusters";
 import { estimateTaskHeight } from "./taskSize";
 import { estimateSpecHeight } from "./specSize";
 import type { IntraPlanLayout, LaidOutEdge, LaidOutNode } from "./types";
@@ -68,16 +68,59 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
   const lanes = buildLaneIndex(plan);
   const taskX = planX + s.planWidth + s.columnGapX;
 
-  // Bin-pack tasks near the Y of the section row(s) they cover so edges stay
-  // short and the board has no dead vertical space. Stable + deterministic:
-  // sort by desired Y (uncovered tasks keep input order, appended), then place
-  // greedily top-down so nothing overlaps.
-  const placements = plan.tasks.map((task, i) => {
-    // Primary covered row = first section_id with an anchor; its Y anchors the
-    // task's vertical center so the section→task edge runs level.
+  // Place a task's milestone bubble cluster to the right of its card.
+  const pushCluster = (task: Task, box: Box, cluster: ClusterResult) => {
+    if (!cluster.nodes.length) return;
+    const clusterX = box.x + box.width + s.clusterGapX;
+    const clusterY = box.y + Math.max(0, (box.height - cluster.height) / 2);
+    const pad = 8;
+    const labelH = s.clusterLabelHeight;
+    nodes.push({
+      id: `${task.id}::cluster`,
+      kind: "cluster",
+      planId: plan.id,
+      box: { x: clusterX - pad, y: clusterY - pad - labelH, width: cluster.width + pad * 2, height: cluster.height + pad * 2 + labelH },
+      iteration: null,
+      manual: false,
+    });
+    for (const cn of cluster.nodes) {
+      nodes.push({ ...cn, box: { ...cn.box, x: cn.box.x + clusterX, y: cn.box.y + clusterY } });
+    }
+    edges.push(...cluster.edges);
+    const clusterAnchor: Point = { x: clusterX, y: clusterY + cluster.height / 2 };
+    extraPoints.push(clusterAnchor, { x: clusterX + cluster.width, y: clusterAnchor.y });
+    edges.push({ id: `${task.id}~cluster`, kind: "task-cluster", from: task.id, toPoint: clusterAnchor });
+  };
+
+  // Subtasks (parent_task_id): children render nested under their parent, not as
+  // top-level satellites. Only top-level tasks are bin-packed near their rows.
+  const taskIds = new Set(plan.tasks.map((t) => t.id));
+  const childrenByParent = new Map<string, Task[]>();
+  for (const t of plan.tasks) {
+    const pid = t.parent_task_id;
+    if (pid && taskIds.has(pid)) {
+      const arr = childrenByParent.get(pid);
+      if (arr) arr.push(t);
+      else childrenByParent.set(pid, [t]);
+    }
+  }
+  const topLevel = plan.tasks.filter((t) => !t.parent_task_id || !taskIds.has(t.parent_task_id));
+
+  const placements = topLevel.map((task, i) => {
     const primarySid = task.section_ids.find((sid) => anchors.has(sid));
     const desired = primarySid != null ? anchors.get(primarySid)!.y : null;
-    return { task, i, desired, height: estimateTaskHeight(task, s), cluster: layoutCluster(task, plan.id, lanes, s) };
+    const parentHeight = estimateTaskHeight(task, s);
+    const children = childrenByParent.get(task.id) ?? [];
+    // A parent groups its children; its own milestones fold into the children.
+    const parentCluster = children.length ? null : layoutCluster(task, plan.id, lanes, s);
+    const childItems = children.map((c) => ({ task: c, height: estimateTaskHeight(c, s), cluster: layoutCluster(c, plan.id, lanes, s) }));
+    let childrenH = 0;
+    if (childItems.length) {
+      childrenH = s.subtaskHeaderGap + s.subtaskGroupPad * 2 - s.subtaskGapY;
+      for (const ci of childItems) childrenH += Math.max(ci.height, ci.cluster.height) + s.subtaskGapY;
+    }
+    const rowSpan = childItems.length ? parentHeight + childrenH : Math.max(parentHeight, parentCluster?.height ?? 0);
+    return { task, i, desired, parentHeight, parentCluster, childItems, rowSpan };
   });
   placements.sort((a, b) => {
     if (a.desired == null && b.desired == null) return a.i - b.i;
@@ -87,44 +130,48 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
   });
 
   let cursor = 0;
-  for (const { task, desired, height, cluster } of placements) {
-    const rowHeight = Math.max(height, cluster.height);
-    const wanted = desired != null ? desired - height / 2 : cursor;
+  for (const { task, desired, parentHeight, parentCluster, childItems, rowSpan } of placements) {
+    const wanted = desired != null ? desired - parentHeight / 2 : cursor;
     const y = Math.max(cursor, wanted);
 
-    const box: Box = { x: taskX, y, width: s.taskWidth, height };
+    const box: Box = { x: taskX, y, width: s.taskWidth, height: parentHeight };
     nodes.push({ id: task.id, kind: "task", planId: plan.id, box, iteration: null, manual: false });
 
     for (const sid of task.section_ids) {
       const anchor = anchors.get(sid);
       if (anchor) edges.push({ id: `${sid}~${task.id}`, kind: "section-task", fromPoint: anchor, to: task.id });
     }
+    if (parentCluster) pushCluster(task, box, parentCluster);
 
-    if (cluster.nodes.length) {
-      const clusterX = box.x + box.width + s.clusterGapX;
-      const clusterY = box.y + Math.max(0, (height - cluster.height) / 2);
-      const pad = 8;
-      const labelH = s.clusterLabelHeight;
-      // Faint container behind the cluster (rendered first → sits under bubbles);
-      // reserves a top strip for the kind caption.
+    if (childItems.length) {
+      const childX = taskX + s.subtaskIndentX;
+      const childW = s.taskWidth - s.subtaskIndentX;
+      const groupTop = y + parentHeight + s.subtaskHeaderGap;
+      let childY = groupTop + s.subtaskGroupPad;
+      const placed: { item: (typeof childItems)[number]; box: Box }[] = [];
+      for (const ci of childItems) {
+        const cbox: Box = { x: childX, y: childY, width: childW, height: ci.height };
+        placed.push({ item: ci, box: cbox });
+        childY += Math.max(ci.height, ci.cluster.height) + s.subtaskGapY;
+      }
+      const groupBottom = childY - s.subtaskGapY + s.subtaskGroupPad;
+      // Soft container behind the children (pushed first → sits under the cards).
       nodes.push({
-        id: `${task.id}::cluster`,
-        kind: "cluster",
+        id: `${task.id}::subgroup`,
+        kind: "subtask-group",
         planId: plan.id,
-        box: { x: clusterX - pad, y: clusterY - pad - labelH, width: cluster.width + pad * 2, height: cluster.height + pad * 2 + labelH },
+        box: { x: childX - s.subtaskGroupPad, y: groupTop, width: childW + s.subtaskGroupPad * 2, height: groupBottom - groupTop },
         iteration: null,
         manual: false,
       });
-      for (const cn of cluster.nodes) {
-        nodes.push({ ...cn, box: { ...cn.box, x: cn.box.x + clusterX, y: cn.box.y + clusterY } });
+      for (const { item, box: cbox } of placed) {
+        nodes.push({ id: item.task.id, kind: "task", planId: plan.id, box: cbox, iteration: null, manual: false });
+        edges.push({ id: `${task.id}>${item.task.id}`, kind: "subtask", from: task.id, to: item.task.id });
+        pushCluster(item.task, cbox, item.cluster);
       }
-      edges.push(...cluster.edges);
-      const clusterAnchor: Point = { x: clusterX, y: clusterY + cluster.height / 2 };
-      extraPoints.push(clusterAnchor, { x: clusterX + cluster.width, y: clusterAnchor.y });
-      edges.push({ id: `${task.id}~cluster`, kind: "task-cluster", from: task.id, toPoint: clusterAnchor });
     }
 
-    cursor = y + rowHeight + s.taskGapY;
+    cursor = y + rowSpan + s.taskGapY;
   }
 
   // Free-form elements (open registry kinds) render only when explicitly placed;
@@ -137,7 +184,7 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
 
   // Vertically center the two columns (spec-section column vs plan+tasks block)
   // against each other so the content band is balanced, not top-weighted.
-  const isBlock = (k: string) => k === "plan" || k === "task" || k === "milestone" || k === "cluster";
+  const isBlock = (k: string) => k === "plan" || k === "task" || k === "milestone" || k === "cluster" || k === "subtask-group";
   const specBoxes = nodes.filter((n) => n.kind === "spec-section").map((n) => n.box);
   const blockBoxes = nodes.filter((n) => isBlock(n.kind)).map((n) => n.box);
   if (specBoxes.length && blockBoxes.length) {

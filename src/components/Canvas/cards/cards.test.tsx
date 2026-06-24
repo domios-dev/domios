@@ -135,13 +135,15 @@ test("TaskCard pane link chip appears for assigned tasks and fires onOpenPane", 
   await act(async () => root.unmount());
 });
 
-test("TaskCard far LOD hides model and body", async () => {
+test("TaskCard: content is ALWAYS mounted (no subtraction LOD → no empty boxes)", async () => {
   const { host, root } = await render(
     <TaskCard task={FIXTURE_TASK} style={cardStyle} lod="far" />,
   );
-  assert(host.querySelector('[data-testid="canvas-task-name"]'), "name still visible");
-  assert(!host.querySelector('[data-testid="canvas-task-model"]'), "model hidden at far LOD");
-  assert(!host.querySelector('[data-testid="canvas-task-body"]'), "body hidden at far LOD");
+  // Even at the lowest LOD, the model chip and body stay mounted (they shrink via
+  // counter-scale typography rather than disappearing).
+  assert(host.querySelector('[data-testid="canvas-task-name"]'), "name present");
+  assert(host.querySelector('[data-testid="canvas-task-model"]'), "model chip present at far LOD");
+  assert(host.querySelector('[data-testid="canvas-task-body"]'), "body present at far LOD");
   await act(async () => root.unmount());
 });
 

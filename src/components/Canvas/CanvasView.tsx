@@ -11,6 +11,7 @@ import { OrchestratorGroup } from "./cards";
 import { getNodeRenderer } from "./nodeRegistry";
 import { bezierPath, resolveEdgeEnds } from "./edges";
 import { milestoneColorMap } from "./milestoneColors";
+import { sectionRows, type SectionRowGlyph } from "./sectionRows";
 import { layoutWorkspace, visibleFrameIds, visibleNodeIds, type LaidOutNode } from "./layout";
 import { archivePlan } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
@@ -70,10 +71,23 @@ export interface ClusterCaptionModel {
   kinds: { label: string; color: string }[];
 }
 
+export interface SpecSectionModel {
+  section: Section;
+  glyph: SectionRowGlyph;
+  taskCount: number;
+}
+
+export interface TaskCardModel {
+  task: Task;
+  childCount: number;
+}
+
 interface CanvasLookups {
   nodeById: Map<string, LaidOutNode>;
   taskById: Map<string, Task>;
+  taskModelById: Map<string, TaskCardModel>;
   sectionById: Map<string, Section>;
+  specSectionById: Map<string, SpecSectionModel>;
   milestoneModelById: Map<string, MilestoneBubbleModel>;
   clusterModelById: Map<string, ClusterCaptionModel>;
   elementById: Map<string, CanvasElement>;
@@ -149,15 +163,29 @@ export function CanvasViewInner({
     const nodeById = new Map<string, LaidOutNode>();
     for (const frame of layout.frames) for (const n of frame.nodes) nodeById.set(n.id, n);
     const taskById = new Map<string, Task>();
+    const taskModelById = new Map<string, TaskCardModel>();
     const sectionById = new Map<string, Section>();
+    const specSectionById = new Map<string, SpecSectionModel>();
     const milestoneModelById = new Map<string, MilestoneBubbleModel>();
     const clusterModelById = new Map<string, ClusterCaptionModel>();
     const elementById = new Map<string, CanvasElement>();
     for (const plan of filteredPlans) {
       collectSections(plan.sections, sectionById);
+      for (const row of sectionRows(plan)) {
+        specSectionById.set(`${plan.id}::spec::${row.section.id}`, {
+          section: row.section,
+          glyph: row.glyph,
+          taskCount: row.taskCount,
+        });
+      }
+      const childCounts = new Map<string, number>();
+      for (const t of plan.tasks) {
+        if (t.parent_task_id) childCounts.set(t.parent_task_id, (childCounts.get(t.parent_task_id) ?? 0) + 1);
+      }
       const colors = milestoneColorMap(plan);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
+        taskModelById.set(task.id, { task, childCount: childCounts.get(task.id) ?? 0 });
         const seen = new Map<string, string>();
         for (const m of task.milestones) {
           const color = colors.get(m.kind) ?? "var(--ct-border-focus)";
@@ -172,7 +200,7 @@ export function CanvasViewInner({
       }
       for (const el of plan.elements) elementById.set(el.id, el);
     }
-    return { nodeById, taskById, sectionById, milestoneModelById, clusterModelById, elementById };
+    return { nodeById, taskById, taskModelById, sectionById, specSectionById, milestoneModelById, clusterModelById, elementById };
   }, [layout, filteredPlans]);
 
   const resolveModel = useCallback(
@@ -181,9 +209,9 @@ export function CanvasViewInner({
         case "plan":
           return planById.get(node.id);
         case "spec-section":
-          return lookups.sectionById.get(node.id.split("::spec::")[1] ?? "");
+          return lookups.specSectionById.get(node.id);
         case "task":
-          return lookups.taskById.get(node.id);
+          return lookups.taskModelById.get(node.id);
         case "milestone":
           return lookups.milestoneModelById.get(node.id);
         case "cluster":
@@ -368,6 +396,9 @@ export function CanvasViewInner({
               width: worldW,
               height: worldH,
               position: "relative",
+              // Counter-scale base for canvas node text (PDF-zoom feel). Cards read
+              // this via .ct-canvas-node so text shrinks with zoom but never vanishes.
+              ["--ct-canvas-zoom" as string]: transform.scale,
             }}
           >
             {layout.groups.map((group) => (
