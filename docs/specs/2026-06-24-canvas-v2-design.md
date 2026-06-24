@@ -874,3 +874,75 @@ a density glyph / a small filled-vs-total bar — WITHOUT rendering all subtasks
 (§24.4) into the task, the subtasks expand to their cards. So: far = "how big is this task" in a
 glance; near = the actual subtasks. Use the canvas spatially (zoom = level-of-detail), not by
 flattening everything always-visible. Part of the §25 zoom-drill brainstorm.
+
+## 25. Zoom-drill into tasks + subtask volume (synthesized: opus + cursor converged)
+
+<!-- revision: 6 -->
+
+Resolves §24.4 / §24.6. Two brainstorms (opus 5f5ac58f, cursor 9376b50e) converged on the same
+ladder; opus contributed the two load-bearing mechanics below. This is the implementation spec.
+
+### 25.1 LOD driver = APPARENT on-screen size, not raw camera scale
+The band a node is in is driven by its **apparent width in screen px**: `appW = cellWidth_world ×
+cameraScale`, NOT by raw `cameraScale` alone. Each node crosses its OWN bands when it is physically
+big enough to READ — so a wide SPEC node and a small TASK card reveal their interiors at the right
+moment instead of a global scale forcing a task to show body text while still unreadable. (Cursor's
+raw-scale thresholds were the rejected fallback for exactly this reason; opus's appW is the pick.)
+
+### 25.2 RESERVE-AT-DEEPEST packing → overlap structurally impossible (honors §22.1)
+The packer sizes every task cell at its **deepest-LOD bbox** (task body + ~6 step cards + a subtask
+super-cell), generous-but-bounded, with a node-only internal-scroll tail for the rare overflow.
+Content-LOD then only changes WHAT IS PAINTED inside the always-reserved box. Consequences: footprint
+never changes (§22.1 satisfied), zero reflow/jitter while zooming, neighbors never repack on drill →
+overlap is structurally impossible, not policed after the fact.
+
+### 25.3 Two orthogonal mechanisms — BAND (paint) ⊥ DOMINANCE (focus-assist)
+- **BAND** = what is painted; driven ONLY by this node's appW (§25.1). Pure zoom reveal, one
+  behavior (§24.1), no modes, fully reversible with ±10% hysteresis (no flicker at thresholds).
+- **DOMINANCE** = focus-assist for the task you "fell into"; viewport-relative (fires when one task
+  fills ≳60% of viewport). Effect = **elevate** (drop shadow + paint above neighbors, NO footprint
+  change) + **soft-dim neighbors** (~0.4). Lockless, no auto-camera-move (disorienting). Double-click
+  (§20.5) stays the COMMITTED/locked twin; dominance is the transient hover/zoom one.
+
+### 25.4 Content-LOD ladder (appW px @ ~280px-wide task cell)
+- **L0 GLYPH** `appW < 150`: handle + status ring; steps = constellation (6px kind dots, live
+  pulses); subtasks = **VOLUME CUE only** (see §25.5) — no per-subtask render. Far board = readable
+  concept map that still shows scale.
+- **L1 THREAD** `150–320`: + status label + model chip; steps = vertical thread (12px + kind glyph +
+  1-line step TITLES + loop coil/iteration badge); subtasks = one-line roster chips (cap ~5, `+k`).
+  Titles only, no bodies.
+- **L2 CARDS** `320–560`: step mini-cards (~160×72) on the spine; subtasks **fan out** to mini-cards
+  in the super-cell; task body fades in CLAMPED; node-only scroll if overflow (§24.2).
+- **L3 READING** `> 560`: unclamped task body + full step cards (milestone text/iteration) + all
+  subtask bodies + model_rationale + pane link chip. Dominance focus-assist fires here.
+- Crossfade between bands = opacity + a 4px surface-rise only; **NO geometry reflow** ever.
+
+### 25.5 Subtask volume cue — "card-deck thickness" that unfolds
+Never flatten subtasks onto the board. The cue is ONE object that unfolds as you drill:
+- **Far (L0):** stacked-card depth **silhouette** (depth encodes magnitude, capped ~3 ghost layers,
+  3px offset each) + `⊞N` badge + a done/total mini-bar. Reads as physical volume pre-attentively;
+  **0-subtask tasks stay flat** so heavy tasks pop.
+- **Mid (L1):** the stack peels into a one-line roster (≤2–5 handle chips + `+k`).
+- **Near (L2):** fans out to subtask mini-cards inside the reserved super-cell — the SAME object
+  unfolding ("fell INTO the stack", not "a panel opened").
+- **Reading (L3):** full subtask bodies + each subtask's own step thread (fractal).
+
+### 25.6 Status emphasis (§24.5) — orthogonal, multiplies at every band
+in_progress = brighter + accent ring; at L0 the ring **pulses** = eye-magnet = the "auto-suggest"
+(ATTRACT, never hijack the wheel / never auto-pan). done ≈ 0.7 dim (restores toward 1.0 at L3 so
+history reads comfortably). blocked = warning left border, normal opacity. Fractal: live task among
+tasks → live step among steps. One-key "jump to active" fly-to + ping ripple offered; auto-follow
+tail-mode default OFF.
+
+### 25.7 Coming back out / not getting lost
+ONE flat canvas, no drill-stack: zoom out reverses the ladder (hysteresis = no flicker) and the same
+spatial map re-reveals. Breadcrumb appends the task handle when it's dominant. Minimap = viewport
+rect + drilled-cell highlight. Esc / a corner "fit board" chip = one-action escape. Composes with
+SPEC|PLAN|tasks (§24.3): same ladder on all nodes; coverage edges stay drawn to dimmed neighbors
+(§20.1 never-modal).
+
+### 25.8 Playwright verification matrix
+Assert across the band boundaries (drive camera so a task hits each appW): fixed task footprint
+(±2px across all bands), content-LOD actually changes per band, volume cue present at L0 with NO
+subtask text, subtask cards present at L2+, in_progress weight > done weight at EVERY band, no
+overflow (overflow scrolls node-only, never canvas), no overlap, breadcrumb + Esc escape work.
