@@ -89,21 +89,18 @@ jobs:
         run: |
           .codeterm/build-machine/scripts/publish-release.sh "${{ steps.ver.outputs.ver }}"
 
-      - name: Close issues released in this version
+      - name: Release ready-for-release issues (→ done)
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
         run: |
-          # Only closing-keyword refs (Closes/Fixes/Resolves #N) in commits since
-          # the previous release — bare "#N" mentions stay open (partial work).
+          # Everything that reached develop carries the ready-for-release label;
+          # a successful publish turns those into done. Close-on-publish (not on
+          # master-merge), so a failed build never closes an unshipped issue.
           TAG="${{ steps.ver.outputs.tag }}"
-          PREV=$(git tag -l 'v*.*.*' --sort=-v:refname | grep -vx "$TAG" | head -1)
-          RANGE="${PREV:+$PREV..}$TAG"
-          echo "scanning $RANGE for closing keywords"
-          nums=$(git log "$RANGE" --pretty=%B 2>/dev/null \
-            | grep -ioE '(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' \
-            | grep -oE '[0-9]+' | sort -u)
+          nums=$(gh issue list -R "$GITHUB_REPOSITORY" --label ready-for-release --state open --limit 200 --json number -q '.[].number')
           for n in $nums; do
-            gh issue close "$n" -R "$GITHUB_REPOSITORY" -c "Released in $TAG 🚀" \
-              && echo "closed #$n" || echo "::warning::could not close #$n (already closed / not found)"
+            gh issue close "$n" -R "$GITHUB_REPOSITORY" -c "Released in $TAG 🚀"
+            gh issue edit "$n" -R "$GITHUB_REPOSITORY" --remove-label ready-for-release 2>/dev/null || true
+            echo "released #$n"
           done
-          [ -n "$nums" ] || echo "no closing-keyword issues in $RANGE"
+          [ -n "$nums" ] || echo "no ready-for-release issues to close"
