@@ -88,3 +88,22 @@ jobs:
       - name: Publish (private archive + public mirror + signed latest.json)
         run: |
           .codeterm/build-machine/scripts/publish-release.sh "${{ steps.ver.outputs.ver }}"
+
+      - name: Close issues released in this version
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: |
+          # Only closing-keyword refs (Closes/Fixes/Resolves #N) in commits since
+          # the previous release — bare "#N" mentions stay open (partial work).
+          TAG="${{ steps.ver.outputs.tag }}"
+          PREV=$(git tag -l 'v*.*.*' --sort=-v:refname | grep -vx "$TAG" | head -1)
+          RANGE="${PREV:+$PREV..}$TAG"
+          echo "scanning $RANGE for closing keywords"
+          nums=$(git log "$RANGE" --pretty=%B 2>/dev/null \
+            | grep -ioE '(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+' \
+            | grep -oE '[0-9]+' | sort -u)
+          for n in $nums; do
+            gh issue close "$n" -R "$GITHUB_REPOSITORY" -c "Released in $TAG 🚀" \
+              && echo "closed #$n" || echo "::warning::could not close #$n (already closed / not found)"
+          done
+          [ -n "$nums" ] || echo "no closing-keyword issues in $RANGE"
