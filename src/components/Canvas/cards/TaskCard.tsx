@@ -242,7 +242,7 @@ export function TaskCard({
 
         {/* W2+ intent + model rationale — opacity 1.0 (§32.3), revealed by ZOOM. */}
         {showBody && task.intent && (
-          <div data-testid="canvas-task-intent" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.9em", fontStyle: "italic", color: "var(--ct-fg)", opacity: 0.92 }}>
+          <div data-testid="canvas-task-intent" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.9em", fontStyle: "italic", color: "var(--ct-fg)" }}>
             {task.intent}
           </div>
         )}
