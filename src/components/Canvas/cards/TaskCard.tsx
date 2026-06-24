@@ -49,6 +49,9 @@ function statusChrome(status: TaskStatus, world: World): { ring?: string; pulse:
   if (status === "in_progress") {
     return { ring: "0 0 0 1.5px color-mix(in srgb, var(--ct-border-focus) 80%, transparent), 0 6px 22px -8px color-mix(in srgb, var(--ct-border-focus) 55%, transparent)", pulse: !atLeast(world, "W1"), warnBorder: false, recessed: false };
   }
+  if (status === "in_review") {
+    return { ring: "0 0 0 1.5px color-mix(in srgb, rgba(245, 158, 11, 0.92) 78%, transparent)", pulse: false, warnBorder: false, recessed: false };
+  }
   if (status === "done" || status === "cancelled") return { pulse: false, warnBorder: false, recessed: true };
   if (status === "blocked") return { pulse: false, warnBorder: true, recessed: false };
   return { pulse: false, warnBorder: false, recessed: false };

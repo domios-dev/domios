@@ -68,7 +68,7 @@ Send a report to your parent in the hierarchy
 - `--plan` — Plan id to append this report to
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
-- `--status` — Task outcome: done | blocked | partial
+- `--status` — Task outcome: done | in_review | blocked | partial
 - `--task` — Task id to append this report to
 - `--test_cmd` — Test command that was run
 - `--test_result` — Result of the test command (e.g. "42 passed")
@@ -1524,7 +1524,7 @@ Record task progress with one atomic plan write
 - `--name`
 - `<plan_id>`
 - `--sections`
-- `--status`
+- `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 - `--steps`
 - `--task`
 - `--upsert_task`
@@ -1655,7 +1655,7 @@ Plan tasks
 - `--primary`
 - `--priority`
 - `--sections`
-- `--status`
+- `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 - `--status_label`
 - `--tags`
 - `<task_id>`

@@ -235,6 +235,7 @@ impl OrchestrationLedger {
 fn parse_status(s: &str) -> Option<ReportStatus> {
     match s.to_ascii_lowercase().as_str() {
         "done" => Some(ReportStatus::Done),
+        "in_review" => Some(ReportStatus::InReview),
         "blocked" => Some(ReportStatus::Blocked),
         "partial" => Some(ReportStatus::Partial),
         _ => None,

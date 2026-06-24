@@ -127,7 +127,7 @@ pub enum PlanAction {
         name: Option<String>,
         #[arg(long)]
         sections: Option<String>,
-        #[arg(long)]
+        #[arg(long, help = "Task status: pending | in_progress | in_review | blocked | done | cancelled")]
         status: Option<String>,
         #[arg(long, value_name = "PATH")]
         body_file: Option<String>,
@@ -360,7 +360,7 @@ pub enum PlanTaskAction {
         why: Option<String>,
         #[arg(long, value_name = "PATH")]
         why_file: Option<String>,
-        #[arg(long)]
+        #[arg(long, help = "Task status: pending | in_progress | in_review | blocked | done | cancelled")]
         status: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         status_label: Option<String>,
