@@ -4,7 +4,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { PlanNode, SpecSectionCard, TaskCard } from "./index";
-import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "./fixtures.testdata";
+import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "./fixtures.testdata";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -40,6 +40,7 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
 
 const style = { position: "absolute" as const, left: 0, top: 0, width: 300 };
 const q = (h: HTMLElement, sel: string) => h.querySelector(sel);
+const qa = (h: HTMLElement, sel: string) => h.querySelectorAll(sel);
 
 // TASK ------------------------------------------------------------------------
 test("TaskCard document mode mounts the full markdown body", async () => {
@@ -68,6 +69,30 @@ test("TaskCard tile mode shows only name + glyph (no body, no digest) — clean 
   assert(!q(host, '[data-testid="canvas-task-digest"]'), "no digest in tile mode");
   assert(!q(host, '[data-testid="canvas-task-body"]'), "no body in tile mode");
   await act(async () => root.unmount());
+});
+
+// STEPS (Thread & Coil interior) -----------------------------------------------
+const taskWithSteps = { ...FIXTURE_TASK, milestones: [FIXTURE_MILESTONE, { ...FIXTURE_MILESTONE, id: "ms-2", kind: "testing", text: "ran the suite, all green" }] };
+
+test("Document task shows step CARDS with the milestone TEXT (the dots-only bug fix)", async () => {
+  const { host, root } = await render(<TaskCard task={taskWithSteps} style={style} viewMode="document" />);
+  assert(q(host, '[data-step-mode="document"]'), "document step mode");
+  assert(qa(host, '[data-testid="canvas-task-step-card"]').length === 2, "a step card per milestone");
+  assert(host.textContent?.includes("ran the suite"), "milestone text is visible (not just a dot)");
+  await act(async () => root.unmount());
+});
+
+test("Tile/Card tasks show step DOTS (constellation/thread), not text cards", async () => {
+  const tile = await render(<TaskCard task={taskWithSteps} style={style} viewMode="tile" />);
+  assert(q(tile.host, '[data-step-mode="tile"]'), "tile step mode");
+  assert(qa(tile.host, '[data-testid="canvas-task-step-dot"]').length === 2, "tile shows step dots");
+  assert(!q(tile.host, '[data-testid="canvas-task-step-card"]'), "no text cards in tile");
+  await act(async () => tile.root.unmount());
+
+  const card = await render(<TaskCard task={taskWithSteps} style={style} viewMode="card" />);
+  assert(q(card.host, '[data-step-mode="card"]'), "card step mode");
+  assert(!q(card.host, '[data-testid="canvas-task-step-card"]'), "no text cards in card mode");
+  await act(async () => card.root.unmount());
 });
 
 // SPEC ------------------------------------------------------------------------

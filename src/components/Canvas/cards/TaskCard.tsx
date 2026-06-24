@@ -5,6 +5,7 @@ import { TASK_STATUS_COLORS } from "../settings";
 import type { Task, TaskStatus } from "../types";
 import type { CanvasCardStyleProps, CanvasViewMode } from "./types";
 import { digestMarkdown } from "./digest";
+import { TaskSteps } from "./TaskSteps";
 
 // Three discrete view modes (§18) — text fixed-size in each, no continuous scaling.
 const cardStyle: CSSProperties = {
@@ -88,6 +89,7 @@ function SubtaskBadge({ count }: { count: number }) {
 export interface TaskCardProps extends CanvasCardStyleProps {
   task: Task;
   childCount?: number;
+  stepColors?: Map<string, string>;
   onOpenPane?: (paneId: string) => void;
   onHover?: (taskId: string | null) => void;
 }
@@ -95,6 +97,7 @@ export interface TaskCardProps extends CanvasCardStyleProps {
 export function TaskCard({
   task,
   childCount = 0,
+  stepColors,
   style,
   viewMode = "document",
   onOpenPane,
@@ -120,15 +123,15 @@ export function TaskCard({
 
   if (viewMode === "tile") {
     return wrap(
-      <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", minWidth: 0 }}>
-        <StatusDot color={badgeColor} size="0.85em" />
-        <span
-          data-testid="canvas-task-name"
-          style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: "1.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-        >
-          {task.name}
-        </span>
-        {childCount > 0 && <SubtaskBadge count={childCount} />}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, padding: "8px 12px", minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <StatusDot color={badgeColor} size="0.85em" />
+          <span data-testid="canvas-task-name" style={{ flex: 1, minWidth: 0, fontWeight: 700, fontSize: "1.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {task.name}
+          </span>
+          {childCount > 0 && <SubtaskBadge count={childCount} />}
+        </div>
+        <TaskSteps milestones={task.milestones} colors={stepColors} mode="tile" />
       </div>,
       "tile",
     );
@@ -165,6 +168,9 @@ export function TaskCard({
             {digest}
           </div>
         )}
+        <div style={{ marginTop: "auto" }}>
+          <TaskSteps milestones={task.milestones} colors={stepColors} mode="card" />
+        </div>
       </div>,
       "card",
     );
@@ -287,9 +293,18 @@ export function TaskCard({
         </div>
       )}
 
-      {task.body.trim().length > 0 && (
-        <div data-testid="canvas-task-body" className="ct-canvas-scroll" style={{ marginTop: 8, fontSize: "0.92em", lineHeight: 1.5, flex: 1, overflowY: "auto", minHeight: 0 }}>
-          <RichMarkdown text={task.body} />
+      {(task.body.trim().length > 0 || task.milestones.length > 0) && (
+        <div className="ct-canvas-scroll" data-canvas-scroll-body="1" style={{ marginTop: 8, flex: 1, overflowY: "auto", minHeight: 0 }}>
+          {task.body.trim().length > 0 && (
+            <div data-testid="canvas-task-body" style={{ fontSize: "0.92em", lineHeight: 1.5 }}>
+              <RichMarkdown text={task.body} />
+            </div>
+          )}
+          {task.milestones.length > 0 && (
+            <div style={{ marginTop: task.body.trim() ? 12 : 0 }}>
+              <TaskSteps milestones={task.milestones} colors={stepColors} mode="document" />
+            </div>
+          )}
         </div>
       )}
     </div>,

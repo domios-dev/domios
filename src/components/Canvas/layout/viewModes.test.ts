@@ -51,10 +51,15 @@ ok("plan document taller than card taller than tile", S.planDocH > S.planCardH &
 const planWidthsFixed = (["tile", "card", "document"] as CanvasViewMode[]).every((m) => docNodes(m).find((n) => n.kind === "plan")!.box.width === S.planWidth);
 ok("plan width fixed at planWidth across modes", planWidthsFixed);
 
-// Task cells stay fixed per mode (tile/card); document is content-fit (§23.2 cells).
-ok("task tile box == tileHeight", heightOf("tile", "task") === S.tileHeight);
-ok("task card box == taskCardHeight", heightOf("card", "task") === S.taskCardHeight);
-ok("doc task taller than card", heightOf("document", "task") > heightOf("card", "task"));
+// FIXED task cell size per mode (§23.2): tile/card are content-independent; the
+// document cell = base + bounded step interior. Widths also fixed per mode.
+ok("task tile box == taskTileH", heightOf("tile", "task") === S.taskTileH);
+ok("task card box == taskCardH", heightOf("card", "task") === S.taskCardH);
+ok("doc task >= taskDocH base", heightOf("document", "task") >= S.taskDocH);
+const widthOf = (m: CanvasViewMode) => docNodes(m).find((n) => n.kind === "task")!.box.width;
+ok("task tile width == taskTileW", widthOf("tile") === S.taskTileW);
+ok("task card width == taskCardW", widthOf("card") === S.taskCardW);
+ok("task doc width == taskDocW", widthOf("document") === S.taskDocW);
 
 // Merged node: there are NO standalone spec-section nodes in any mode (§22.2).
 for (const m of ["tile", "card", "document"] as CanvasViewMode[]) {

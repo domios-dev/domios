@@ -86,6 +86,7 @@ export interface SpecSectionModel {
 export interface TaskCardModel {
   task: Task;
   childCount: number;
+  stepColors: Map<string, string>;
 }
 
 interface CanvasLookups {
@@ -228,7 +229,7 @@ export function CanvasViewInner({
       const colors = milestoneColorMap(plan);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
-        taskModelById.set(task.id, { task, childCount: childCounts.get(task.id) ?? 0 });
+        taskModelById.set(task.id, { task, childCount: childCounts.get(task.id) ?? 0, stepColors: colors });
         const seen = new Map<string, string>();
         for (const m of task.milestones) {
           const color = colors.get(m.kind) ?? "var(--ct-border-focus)";
