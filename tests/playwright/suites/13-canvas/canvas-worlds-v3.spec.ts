@@ -119,9 +119,9 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
     taskBody = await visible(page, "canvas-task-body");
   }
   await captureBoard(page, "worlds-v3-body");
-  // §35.3 (zoom-into-task body reveal) is a pending pass, not built in the v3
-  // foundation — annotate instead of failing so footprint/cloud-left/crisp verify.
-  test.info().annotations.push({ type: "body-reveal", description: `canvas-task-body reachable=${taskBody} (§35.3 pending)` });
+  // §35.3 (zoom-into-task body reveal): the DESCRIPTION box is a fixed slot that
+  // reveals at the W2 content band — reachable by zoom alone, content-independent.
+  expect(taskBody, "canvas-task-body revealed by zoom into the W2 content band (§35.3)").toBe(true);
 
   // ── 4. CRISP TEXT (§34) — at this deep zoom a W2+ card has the crisp wrapper. ──
   const scaleNow = await canvasScale(page);
