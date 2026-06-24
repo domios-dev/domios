@@ -866,3 +866,11 @@ Task (and step) visual weight by status: **in_progress = HIGHLIGHTED** (accent r
 / brighter) so live work pops; **done = slightly DIMMED** (~0.7 opacity, NOT heavily — still
 legible); pending/blocked = normal (blocked maybe a warning tint). Applies at every zoom; the
 freshest/in-progress is the eye magnet on a live board.
+
+### 24.6 Subtask VOLUME at bird's-eye, detail on drill (don't let subtasks eat space)
+Subtasks must NOT take much space at overview. From bird's-eye (far zoom) a task shows its
+VOLUME/scale compactly — that it's BIG, e.g. an "N subtasks" badge / a stacked-cards depth cue /
+a density glyph / a small filled-vs-total bar — WITHOUT rendering all subtasks. On zoom-drill
+(§24.4) into the task, the subtasks expand to their cards. So: far = "how big is this task" in a
+glance; near = the actual subtasks. Use the canvas spatially (zoom = level-of-detail), not by
+flattening everything always-visible. Part of the §25 zoom-drill brainstorm.
