@@ -101,5 +101,19 @@
       "--model",
       "{model}"
     ]
+  },
+  "permissions": {
+    "network": {
+      "allow": [
+        "api2.cursor.sh"
+      ]
+    },
+    "subprocess": {
+      "allow": [
+        "cursor-agent",
+        "security",
+        "secret-tool"
+      ]
+    }
   }
 }

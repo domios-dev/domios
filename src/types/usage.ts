@@ -8,6 +8,11 @@ export interface UsageSnapshot {
   session_resets_at: number | null;
   weekly_pct: number | null;
   weekly_resets_at: number | null;
+  /** Spend-based providers (e.g. cursor): cents used in the current billing
+      cycle. Null for percentage-based providers. */
+  spend_cents: number | null;
+  /** Billing-cycle reset for spend-based providers. */
+  spend_resets_at: number | null;
 }
 
 export interface UsageSnapshotEvent {

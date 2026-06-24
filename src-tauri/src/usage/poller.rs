@@ -19,6 +19,11 @@ const BACKOFF_STEPS_S: [u64; 5] = [600, 1200, 1800, 2400, 3000];
 /// binary) skip the retry. Each attempt tears down its own pane, so there is no
 /// leak across retries.
 const PROBE_MAX_ATTEMPTS: u32 = 2;
+/// When the latest snapshot's reset timer has already passed, a new cycle began
+/// and the stored pct is stale — probe promptly instead of waiting out the
+/// 10-50 min backoff. This floor keeps a reset that never lands a fresh future
+/// timer from hammering the provider every tick.
+const RESET_PROBE_MIN_INTERVAL: Duration = Duration::from_secs(120);
 
 #[derive(Clone, Default)]
 pub struct PaneActivity {
@@ -145,6 +150,7 @@ async fn tick(inner: &Arc<UsagePollerInner>) -> Result<(), String> {
     }
     let forced: Vec<AccountKey> = std::mem::take(&mut *inner.force_refresh.lock());
     let now = Instant::now();
+    let now_ms = chrono::Utc::now().timestamp_millis();
     let mut candidates: Vec<AccountKey> = Vec::new();
 
     for provider in &providers {
@@ -162,7 +168,8 @@ async fn tick(inner: &Arc<UsagePollerInner>) -> Result<(), String> {
                 candidates.push(key);
                 continue;
             }
-            if !activity_gate(inner, &visible_panes, &key, now) {
+            let due = reset_due(inner, &key, now_ms);
+            if !activity_gate(inner, &key, now, due) {
                 continue;
             }
             candidates.push(key);
@@ -191,24 +198,47 @@ async fn tick(inner: &Arc<UsagePollerInner>) -> Result<(), String> {
 
 fn activity_gate(
     inner: &Arc<UsagePollerInner>,
-    panes: &[String],
     key: &AccountKey,
     now: Instant,
+    reset_due: bool,
 ) -> bool {
     let mut accounts = inner.accounts.lock();
     let state = accounts.entry(key.clone()).or_default();
     if state.in_flight {
         return false;
     }
-    let interval = current_backoff(state.backoff_idx);
+    // A crossed reset boundary collapses the long backoff to a short floor so a
+    // fresh cycle shows up promptly; otherwise honour the adaptive backoff.
+    let interval = if reset_due {
+        RESET_PROBE_MIN_INTERVAL
+    } else {
+        current_backoff(state.backoff_idx)
+    };
     if let Some(last) = state.last_probe_at {
         if now.duration_since(last) < interval {
             return false;
         }
     }
     // Gate is time-only here; the step adjustment (reset vs climb) happens in on_success/on_failure once the probe completes.
-    let _ = panes;
     true
+}
+
+/// True when the latest stored snapshot's session or weekly reset timer has
+/// already elapsed — the displayed cycle is over, so a fresh probe is overdue.
+fn reset_due(inner: &Arc<UsagePollerInner>, key: &AccountKey, now_ms: i64) -> bool {
+    match inner
+        .store
+        .get_latest(&key.provider, key.account_id.as_deref())
+    {
+        Ok(Some(row)) => row_reset_due(&row, now_ms),
+        _ => false,
+    }
+}
+
+/// Pure reset-boundary test: any non-null reset timestamp at or before `now_ms`.
+fn row_reset_due(row: &super::store::UsageSnapshotRow, now_ms: i64) -> bool {
+    let passed = |r: Option<i64>| r.map(|r| r <= now_ms).unwrap_or(false);
+    passed(row.session_resets_at) || passed(row.weekly_resets_at)
 }
 
 /// Returns the wait duration for the given step. Top steps get ±10% jitter so
@@ -430,4 +460,49 @@ fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {
         .app_handle
         .emit("usage-snapshot-updated", payload.clone());
     svc.events.broadcast("usage-snapshot-updated", payload);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::row_reset_due;
+    use crate::usage::store::UsageSnapshotRow;
+
+    fn row(session: Option<i64>, weekly: Option<i64>) -> UsageSnapshotRow {
+        UsageSnapshotRow {
+            id: 1,
+            provider: "claude".into(),
+            account_id: None,
+            captured_at: 0,
+            parsed_ok: true,
+            session_pct: Some(90.0),
+            session_resets_at: session,
+            weekly_pct: Some(50.0),
+            weekly_resets_at: weekly,
+            spend_cents: None,
+            spend_resets_at: None,
+        }
+    }
+
+    #[test]
+    fn reset_not_due_when_timers_in_future() {
+        let now = 1_000_000;
+        assert!(!row_reset_due(&row(Some(now + 1), Some(now + 5)), now));
+    }
+
+    #[test]
+    fn reset_due_when_session_timer_passed() {
+        let now = 1_000_000;
+        assert!(row_reset_due(&row(Some(now - 1), Some(now + 5)), now));
+    }
+
+    #[test]
+    fn reset_due_when_weekly_timer_passed() {
+        let now = 1_000_000;
+        assert!(row_reset_due(&row(Some(now + 5), Some(now)), now));
+    }
+
+    #[test]
+    fn reset_not_due_when_no_timers() {
+        assert!(!row_reset_due(&row(None, None), 1_000_000));
+    }
 }
