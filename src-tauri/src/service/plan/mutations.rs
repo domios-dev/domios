@@ -301,7 +301,7 @@ impl PlanStore {
 
     pub fn add_task(&self, plan_id: &str, new: NewTask, now_ms: u64) -> Result<String, PlanError> {
         let tid = gen_id("task");
-        let task = Task {
+        let mut task = Task {
             id: tid.clone(),
             name: new.name,
             kind: new.kind,
@@ -327,6 +327,9 @@ impl PlanStore {
             milestones: vec![],
         };
         self.with_plan(plan_id, now_ms, |p| {
+            if task.section_ids.is_empty() {
+                task.section_ids = super::section_links::auto_section_ids_for_task(p, &task);
+            }
             p.tasks.push(task);
             Ok(())
         })?;

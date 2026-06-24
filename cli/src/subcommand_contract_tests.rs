@@ -285,6 +285,39 @@ fn plan_task_update_parses_sections() {
 }
 
 #[test]
+fn plan_task_link_and_relink_parse() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "task",
+        "link",
+        "pl_1",
+        "task_1",
+        "--sections",
+        "backend",
+    ])
+    .expect("plan task link parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action: crate::args::plan::PlanTaskAction::Link { sections, .. },
+                },
+        } => assert_eq!(sections, "backend"),
+        _ => panic!("expected plan task link"),
+    }
+
+    let parsed = Cli::try_parse_from(["codeterm", "plan", "relink", "pl_1", "--apply"])
+        .expect("plan relink parses");
+    match parsed.command {
+        Commands::Plan {
+            action: PlanAction::Relink { apply, .. },
+        } => assert!(apply),
+        _ => panic!("expected plan relink"),
+    }
+}
+
+#[test]
 fn plan_get_parses_sections_lookup() {
     let parsed = Cli::try_parse_from(["codeterm", "plan", "get", "pl_1", "--sections"])
         .expect("plan get --sections parses");

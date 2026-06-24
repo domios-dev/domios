@@ -7,6 +7,7 @@ use crate::args::plan::{
 use crate::client::SocketClient;
 use crate::cmd::hints::{print_hints, push_hints, task_model_hint, task_sections_hint};
 use crate::cmd::plan_errors::render_plan_call_error;
+use crate::cmd::plan_linking::render_relink_report;
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
 
@@ -67,6 +68,17 @@ fn render_plan_markdown(plan: &Value) -> String {
     out.push_str(&format!("**Status:** {status}\n\n"));
     if let Some(goal) = plan.get("goal").filter(|v| !v.is_null()) {
         render_goal_block(goal, &mut out);
+    }
+    if let Some(count) = plan
+        .get("_linking")
+        .and_then(|v| v.get("unlinked_count"))
+        .and_then(|v| v.as_u64())
+        .filter(|count| *count > 0)
+    {
+        let id = plan.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+        out.push_str(&format!(
+            "**Unlinked tasks:** {count} (preview: `codeterm plan task relink {id}`; apply: `codeterm plan task relink {id} --apply`)\n\n"
+        ));
     }
     if let Some(sections) = plan.get("sections").and_then(|v| v.as_array()) {
         if !sections.is_empty() {
@@ -175,6 +187,13 @@ fn render_coverage(val: &Value) -> String {
         out.push_str("Gaps: none — every section has at least one task.\n");
     } else {
         out.push_str(&format!("Gaps ({}): {}\n", gaps.len(), gaps.join(", ")));
+    }
+    let unlinked_count = val
+        .get("unlinked_count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    if unlinked_count > 0 {
+        out.push_str(&format!("Unlinked tasks: {unlinked_count}\n"));
     }
     out
 }
@@ -323,6 +342,26 @@ fn run_plan(
             } else {
                 println!("{}", gaps.join("\n"));
             }
+            let unlinked_count = val
+                .get("unlinked_count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            if unlinked_count > 0 {
+                println!("Unlinked tasks: {unlinked_count}");
+            }
+            return Ok(None);
+        }
+
+        PlanAction::Relink { plan_id, apply } => {
+            let val = call(
+                client,
+                "plan.task.relink",
+                json!({ "plan_id": plan_id, "apply": apply }),
+            )?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", render_relink_report(&val));
             return Ok(None);
         }
 
@@ -612,7 +651,11 @@ fn run_plan(
                     .map(str::to_string)
                 {
                     let mut hints = vec![];
-                    if !has_sections {
+                    let linked_has_sections = val
+                        .get("section_ids")
+                        .and_then(|v| v.as_array())
+                        .is_some_and(|items| !items.is_empty());
+                    if !has_sections && !linked_has_sections {
                         hints.push(task_sections_hint(&plan_id, &task_id));
                     }
                     if !has_model || !has_why {
@@ -724,6 +767,27 @@ fn run_plan(
                     params["peer"] = json!(p);
                 }
                 call(client, "plan.task.assign", params)
+            }
+            PlanTaskAction::Link {
+                plan_id,
+                task_id,
+                sections,
+            } => call(
+                client,
+                "plan.task.link",
+                json!({ "plan_id": plan_id, "task_id": task_id, "sections": sections }),
+            ),
+            PlanTaskAction::Relink { plan_id, apply } => {
+                let val = call(
+                    client,
+                    "plan.task.relink",
+                    json!({ "plan_id": plan_id, "apply": apply }),
+                )?;
+                if json {
+                    return Ok(Some(val));
+                }
+                print!("{}", render_relink_report(&val));
+                Ok(None)
             }
             PlanTaskAction::Rm { plan_id, task_id } => call(
                 client,
