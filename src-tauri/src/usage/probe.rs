@@ -58,6 +58,29 @@ impl UsageProbe {
             return Err(ProbeError::BinaryMissing(provider_owned));
         }
 
+        // Non-TUI providers (e.g. cursor) fetch usage via CLI/API — no hidden
+        // agent pane, no `/usage` screen. The fetch shells out + blocks on an
+        // HTTP call, so run it off the async runtime; the poller parses the raw
+        // payload like any captured text.
+        let svc_for_fetch = svc.clone();
+        let provider_for_fetch = provider_owned.clone();
+        let fetched = tokio::task::spawn_blocking(move || {
+            svc_for_fetch
+                .agent_registry
+                .with_provider(&provider_for_fetch, |p| p.fetch_usage())
+                .flatten()
+        })
+        .await
+        .map_err(|e| ProbeError::Internal(format!("fetch join: {}", e)))?;
+        if let Some(result) = fetched {
+            return result
+                .map(|raw_text| UsageProbeOutcome {
+                    raw_text,
+                    elapsed_ms: started.elapsed().as_millis() as u64,
+                })
+                .map_err(ProbeError::NotReady);
+        }
+
         let svc_for_spawn = svc.clone();
         let provider_for_spawn = provider_owned.clone();
         let handle = tokio::task::spawn_blocking(move || {
