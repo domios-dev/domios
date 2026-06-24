@@ -56,17 +56,17 @@ jobs:
 
       - name: Stamp the v${{ steps.ver.outputs.ver }} build tag at the release commit
         run: |
-          # Single trigger tag: push release-X.Y.Z. build-all.sh wants a stable
-          # vX.Y.Z ref, so materialize it here at the triggering commit. Idempotent.
+          # Single trigger tag: push release-X.Y.Z. build-all.sh bundles a stable
+          # vX.Y.Z ref from THIS checkout, so the tag only needs to exist locally;
+          # the origin push is best-effort bookkeeping, never a build gate.
           TAG="${{ steps.ver.outputs.tag }}"
           git fetch origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
-          if git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
-            echo "✅ $TAG already present"
-          else
+          if ! git rev-parse "$TAG^{commit}" >/dev/null 2>&1; then
             git tag -a "$TAG" "$GITHUB_SHA" -m "$TAG"
-            git push origin "$TAG"
-            echo "✅ created $TAG at $GITHUB_SHA"
+            git push origin "$TAG" 2>/dev/null \
+              || echo "::warning::could not push $TAG to origin — building from the local tag"
           fi
+          echo "✅ $TAG -> $(git rev-parse --short "$TAG^{commit}")"
 
       - name: Ensure Docker is running (Linux engines)
         run: |
