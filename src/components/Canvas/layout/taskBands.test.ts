@@ -44,24 +44,20 @@ const frame = layoutWorkspace([bigPlan()]).frames[0];
 const taskNodes = frame.nodes.filter((n) => n.kind === "task");
 ok("all 38 tasks placed", taskNodes.length === 38);
 
-// Bounded width: tasks occupy at most maxTaskCols distinct column X positions.
-const colXs = new Set(taskNodes.map((n) => Math.round(n.box.x)));
-ok(`tasks use ≤ maxTaskCols (${S.maxTaskCols}) columns, got ${colXs.size}`, colXs.size <= S.maxTaskCols);
-
-// Horizontal sprawl hard-capped (planRight + maxCols*pitch).
-const taskRight = Math.max(...taskNodes.map((n) => n.box.x + n.box.width));
-const taskLeft = Math.min(...taskNodes.map((n) => n.box.x));
-ok("task grid width within maxCols*colPitch", taskRight - taskLeft <= S.maxTaskCols * (S.taskWidth + S.taskColGap));
-
-// The портянka is killed: 38 tasks tall would be ~38*taskMinHeight stacked; banding
-// must be a small fraction of that (a few hundred px), since cols absorb the stack.
+// §32.10 CLOUD: bounded HEIGHT, not bounded columns — overflow flows rightward.
 const taskTop = Math.min(...taskNodes.map((n) => n.box.y));
 const taskBottom = Math.max(...taskNodes.map((n) => n.box.y + n.box.height));
-const bandedH = taskBottom - taskTop;
-// The real портянka: 38 cells stacked one-per-row with gaps. Banding into
-// <=3 cols + skyline packing must cut that by well over a third.
+const cloudH = taskBottom - taskTop;
+// One over-tall cell can push slightly past the bound; allow one tile of slack.
+ok(`cloud height (${Math.round(cloudH)}) bounded by cloudMaxH (${S.cloudMaxH})`, cloudH <= S.cloudMaxH + S.taskMaxH);
+
+// The портянka is killed: 38 small tiles in one column would be far taller.
 const singleColH = 38 * (S.taskBaseH + S.taskGapY);
-ok(`banded height (${Math.round(bandedH)}) far below single-column (${singleColH})`, bandedH < singleColH * 0.6);
+ok(`cloud height (${Math.round(cloudH)}) far below single-column (${singleColH})`, cloudH < singleColH * 0.6);
+
+// The cloud spreads into multiple columns (a 2D cluster, not one strip).
+const colXs = new Set(taskNodes.map((n) => Math.round(n.box.x)));
+ok(`cloud uses multiple columns (got ${colXs.size})`, colXs.size >= 2);
 
 // No task node overlaps another (top-down non-overlap sweep).
 function noTaskOverlap(nodes = taskNodes): boolean {
@@ -94,18 +90,32 @@ function dogfoodPlan(): Plan {
   };
 }
 
-// §24.1: ONE fixed task size. Skyline packing keeps the dogfood board bounded.
+// §32.10 cloud keeps the dogfood board bounded in height (overflow goes rightward).
 {
   const lo = layoutWorkspace([dogfoodPlan()]);
-  // Data-driven footprints (§26.4) reserve deepest-LOD space, so the bound is higher
-  // than the old fixed-cell number — but still a few-thousand px, never a km strip.
-  const bound = 6000;
+  const bound = 4000;
   ok(`world height bounded (${Math.round(lo.bounds.height)} < ${bound}) — no km strip`, lo.bounds.height < bound);
   const tn = lo.frames[0].nodes.filter((n) => n.kind === "task");
   ok("no task overlap at dogfood scale", noTaskOverlap(tn));
-  // Top-level cells use ≤ maxTaskCols columns (children may indent one more).
-  const topXs = new Set(lo.frames[0].nodes.filter((n) => n.kind === "task" && !n.id.startsWith("sub")).map((n) => Math.round(n.box.x)));
-  ok("top-level tasks within ≤ maxTaskCols columns", topXs.size <= S.maxTaskCols);
+}
+
+// §32.10/§32.3 done SINKS: a done task sits below an in_progress task in its column.
+{
+  const sections = [section("s0")];
+  const mk = (id: string, status: Task["status"], changed: number) => {
+    const t = task(id, ["s0"]); t.status = status; t.status_changed_at = changed; t.created_at = changed; return t;
+  };
+  const p: Plan = {
+    id: "shelf", title: "shelf", sections, status: "active",
+    owner: { pane_id: "o", session_id: "o", title: "o" }, project_path: "/p",
+    created_at: 0, updated_at: 1, milestone_kinds: [], loops: [], elements: [],
+    tasks: [mk("done1", "done", 1), mk("active1", "in_progress", 2), mk("pending1", "pending", 3)],
+    canvas: { viewport: null }, owner_history: [],
+  };
+  const ns = layoutWorkspace([p]).frames[0].nodes.filter((n) => n.kind === "task");
+  const yOf = (id: string) => ns.find((n) => n.id === id)!.box.y;
+  ok("in_progress rises above pending", yOf("active1") < yOf("pending1"));
+  ok("done sinks below in_progress", yOf("done1") > yOf("active1"));
 }
 
 // Determinism: same input → identical task boxes.

@@ -984,6 +984,19 @@ button,
 .ct-spin { animation: ct-spin 0.9s linear infinite; }
 @keyframes ct-spin { to { transform: rotate(360deg); } }
 
+/* §32.6 selectable canvas text: text islands opt back IN to selection (the board
+   container + body default to user-select:none for pan). Pan uses middle/space
+   drag, so a left-drag over these islands selects + copies normally. */
+.ct-canvas-text {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+.ct-canvas-text * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Fixed readable typography for canvas nodes (§18 — discrete view modes REPLACE
    the old continuous counter-scale). Each mode is hand-designed at a fixed size;
    the world layer still scales with zoom (Figma-like), but text never stretches

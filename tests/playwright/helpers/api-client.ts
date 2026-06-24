@@ -33,8 +33,11 @@ export interface Provider {
   available_models?: { id: string; display_name: string }[];
 }
 
+// Default data dir is ~/.codeterm-dev; an isolated instance overrides via
+// CT_E2E_DATADIR (e.g. ".codeterm-dev-worlds2") to read its own token.
 export function readDevToken(): string {
-  const p = path.join(os.homedir(), ".codeterm-dev", "config.toml");
+  const dir = process.env.CT_E2E_DATADIR ?? ".codeterm-dev";
+  const p = path.join(os.homedir(), dir, "config.toml");
   const m = readFileSync(p, "utf8").match(/^token\s*=\s*"([^"]+)"/m);
   if (!m) throw new Error(`no api token in ${p}`);
   return m[1];

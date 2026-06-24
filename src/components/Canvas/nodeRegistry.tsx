@@ -14,6 +14,12 @@ import type { CanvasElement, Plan, Task } from "./types";
 
 // kind → renderer dispatch. Adding a node kind = one register call; canvas core,
 // layout, pan/zoom and focus detection stay untouched. Open-kind fallback kept.
+export interface SectionNavArgs {
+  planId: string;
+  sectionId: string;
+  variant: "plan" | "spec";
+}
+
 export interface NodeRenderArgs {
   node: LaidOutNode;
   model: unknown;
@@ -23,6 +29,12 @@ export interface NodeRenderArgs {
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
   onFitNode?: (nodeId: string) => void;
+  /** §32.7 navigation/affordances (all user-initiated). */
+  onCopyLink?: (id: string) => void;
+  onCopyStrideLink?: (milestoneId: string) => void;
+  onFocusStride?: (milestoneId: string) => void;
+  onSectionClick?: (a: SectionNavArgs) => void;
+  onSectionFrame?: (a: SectionNavArgs) => void;
   /** §26 worlds: this node's appW-driven content band (W0 mass → W3 deep). */
   world: World;
 }
@@ -68,7 +80,7 @@ export function getNodeRenderer(kind: string): NodeRenderer {
   return renderers[kind] ?? fallbackRenderer;
 }
 
-registerNodeRenderer("plan", ({ node, model, style, world, onArchive, onFitNode }) =>
+registerNodeRenderer("plan", ({ node, model, style, world, onArchive, onFitNode, onSectionClick, onSectionFrame }) =>
   model ? (
     <SectionNode
       variant="plan"
@@ -77,20 +89,22 @@ registerNodeRenderer("plan", ({ node, model, style, world, onArchive, onFitNode 
       world={world}
       onArchive={onArchive}
       onFitNode={onFitNode ? () => onFitNode(node.id) : undefined}
+      onSectionClick={onSectionClick}
+      onSectionFrame={onSectionFrame}
     />
   ) : null,
 );
-registerNodeRenderer("spec", ({ model, style, world }) =>
-  model ? <SectionNode variant="spec" plan={model as Plan} style={style} world={world} /> : null,
+registerNodeRenderer("spec", ({ model, style, world, onSectionClick, onSectionFrame }) =>
+  model ? <SectionNode variant="spec" plan={model as Plan} style={style} world={world} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} /> : null,
 );
-registerNodeRenderer("task", ({ model, style, world, onOpenPane, onHoverTask }) => {
+registerNodeRenderer("task", ({ model, style, world, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride }) => {
   const m = model as { task: Task; childCount?: number; childDone?: number; stepColors?: Map<string, string> } | undefined;
   if (!m) return null;
   // §25.5: a subtask is the parent's VOLUME CUE at far zoom — its own card only
   // materializes once it's physically big enough to read (W2+). Footprint stays
   // reserved either way (reserve-at-deepest), so nothing reflows.
   if (m.task.parent_task_id && !atLeast(world, "W2")) return null;
-  return <TaskCard task={m.task} childCount={m.childCount} childDone={m.childDone} stepColors={m.stepColors} style={style} world={world} onOpenPane={onOpenPane} onHover={onHoverTask} />;
+  return <TaskCard task={m.task} childCount={m.childCount} childDone={m.childDone} stepColors={m.stepColors} style={style} world={world} onOpenPane={onOpenPane} onHover={onHoverTask} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} />;
 });
 // Soft container behind a parent task's nested subtask children — only once the
 // children themselves reveal (W2+), so the far view stays a clean deck cue.

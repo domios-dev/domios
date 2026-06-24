@@ -28,7 +28,8 @@ export type CanvasEdgeKind =
   | "milestone-chain"
   | "subtask"
   | "plan-spec"
-  | "plan-plan";
+  | "plan-plan"
+  | "handoff-chain";
 
 // An edge endpoint is either a live node (follows drag) or a static world/local
 // point (section-row anchors and cluster anchors that are not standalone nodes).

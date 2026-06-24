@@ -11,6 +11,11 @@ export function ownerKeyOf(owner: OrchestratorRef): string {
   return owner.session_id ?? owner.pane_id ?? owner.title ?? "__unowned__";
 }
 
+function handoffSeq(content: unknown): number {
+  const seq = (content as { seq?: unknown } | null)?.seq;
+  return typeof seq === "number" ? seq : 0;
+}
+
 // §24.3 three connected columns: SPEC | PLAN | tasks. Spec + plan are two fixed
 // sectioned nodes sharing one height so their per-section rows align for the 1:1
 // spec↔plan edges; plan's right-edge OUTPUT anchors feed the banded task field.
@@ -56,9 +61,27 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
   edges.push(...band.edges);
   extraPoints.push(...band.extraPoints);
 
+  // §32.8 handoff timeline lane: chronological reset coins ABOVE the plan frame
+  // (never inside task clutter), linked [n-1]→[n] left→right by seq. Auto-placed
+  // (handoffs carry no manual coords); deterministic by seq so the camera is stable.
+  const handoffs = plan.elements
+    .filter((el) => el.kind === "handoff")
+    .map((el) => ({ el, seq: handoffSeq(el.content) }))
+    .sort((a, b) => a.seq - b.seq || a.el.id.localeCompare(b.el.id));
+  if (handoffs.length) {
+    const laneY = -(s.handoffCoinH + s.handoffLaneMargin);
+    const pitch = s.handoffCoinW + s.handoffLaneGap;
+    handoffs.forEach(({ el }, i) => {
+      const box: Box = { x: i * pitch, y: laneY, width: s.handoffCoinW, height: s.handoffCoinH };
+      nodes.push({ id: el.id, kind: "handoff", planId: plan.id, box, iteration: null, manual: false });
+      if (i > 0) edges.push({ id: `${handoffs[i - 1].el.id}>${el.id}`, kind: "handoff-chain", from: handoffs[i - 1].el.id, to: el.id });
+    });
+  }
+
   // Free-form elements (open registry kinds) render only when explicitly placed;
   // unpositioned auto-layout is deferred. Manual coords keep determinism.
   for (const el of plan.elements) {
+    if (el.kind === "handoff") continue;
     if (el.canvas.x == null || el.canvas.y == null) continue;
     const box: Box = { x: el.canvas.x, y: el.canvas.y, width: s.taskWidth, height: s.taskMinHeight };
     nodes.push({ id: el.id, kind: el.kind, planId: plan.id, box, iteration: null, manual: true });

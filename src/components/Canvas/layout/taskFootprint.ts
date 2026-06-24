@@ -11,29 +11,30 @@ export interface TaskFootprint {
   height: number;
 }
 
-// §26.4 data-driven footprint: a task cell's size ∝ its WORK VOLUME (body chars +
-// steps + subtasks + rationale), recomputed ONLY on data mutation, never on zoom.
-// The reserved bbox IS the deepest-LOD reserve (§25.2) so content-LOD only repaints
-// inside it — heavy tasks are physically BIGGER (mass visible at W0) and footprint
-// never changes while zooming; overflow scrolls node-internally at W3.
-// Width stays a fixed column slot (settings.taskW) so columns stay stable.
+// §32.4 two-axis bounded, content-driven size: a task cell grows in BOTH width and
+// height with its WORK VOLUME (body+intent+rationale chars, strides, subtasks,
+// links), recomputed ONLY on data mutation, never on zoom. Width snaps to column
+// slots so columns stay stable; height carries magnitude and is floored at
+// aspectFloorRatio·width so a card is never a hollow letterbox. Heavy work =
+// visibly bigger MASS at W0 before any text is readable.
 export function taskFootprint(task: Task, children: Task[], s: CanvasLayoutSettings): TaskFootprint {
-  const bodyUnits = clamp(Math.ceil(task.body.trim().length / 240), 0, 10);
-  const stepCount = task.milestones.length;
-  const stepUnits = clamp(stepCount, 0, 12);
-  const subtaskUnits = clamp(
-    children.reduce(
-      (acc, c) => acc + 1 + Math.ceil(c.body.trim().length / 320) + Math.ceil(c.milestones.length / 3),
-      0,
-    ),
-    0,
-    18,
-  );
-  const volume = bodyUnits * 1.0 + stepUnits * 1.4 + subtaskUnits * 2.0 + (task.model_rationale ? 1 : 0);
-  const height = clamp(
-    Math.round(s.taskBaseH + 34 * Math.sqrt(volume) * Math.sqrt(1 + stepCount / 4) + 38 * Math.min(children.length, 6)),
-    s.taskBaseH,
-    s.taskMaxH,
-  );
-  return { volume, width: s.taskW, height };
+  const bodyChars = task.body.trim().length;
+  const intentChars = task.intent?.trim().length ?? 0;
+  const rationaleChars = task.model_rationale?.trim().length ?? 0;
+  const strideCount = task.milestones.length;
+  const subtaskCount = children.length;
+  const childBodyChars = children.reduce((acc, c) => acc + c.body.trim().length, 0);
+  const linkCount = task.milestones.reduce((acc, m) => acc + m.links.length, 0);
+
+  const textUnits = Math.sqrt(clamp(bodyChars + intentChars + 0.6 * rationaleChars, 0, 3600) / 180);
+  const strideUnits = 1.35 * Math.sqrt(clamp(strideCount, 0, 24));
+  const subtaskUnits = 1.6 * Math.sqrt(clamp(subtaskCount, 0, 16)) + Math.sqrt(childBodyChars / 600);
+  const volume = 1 + textUnits + strideUnits + subtaskUnits + 0.15 * linkCount;
+
+  const widthSlots = Math.floor(Math.min(3, volume / 3.6));
+  const width = clamp(s.taskW + s.taskColStep * widthSlots, s.taskW, s.taskMaxW);
+  const rawHeight = s.taskBaseH + 24 * volume + 12 * Math.min(strideCount, 8) + 16 * Math.min(subtaskCount, 5);
+  const height = Math.max(clamp(rawHeight, s.taskMinH, s.taskMaxH), Math.round(s.aspectFloorRatio * width));
+
+  return { volume, width, height: Math.round(height) };
 }
