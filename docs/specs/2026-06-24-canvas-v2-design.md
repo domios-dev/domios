@@ -1037,3 +1037,75 @@ hierarchy level. §22.2 merged-node = obsolete (§24.3 separate SPEC stands). §
 5. No overlap on data growth: mutate a task (more body/steps/subtasks); settle; assert no bbox
    intersections among SPEC/PLAN/tasks + edges still attached; only changed/downstream bands move.
 6. Scroll rule: wheel over node body scrolls node only; off-node wheel pans canvas.
+
+## 27. Orchestrator HANDOFF system (opus+codex converged) — full doc: docs/specs/2026-06-24-orchestrator-handoff-design.md
+
+<!-- revision: 8 -->
+
+Andrey's direction: an orchestrator composes a DIRECTED handoff aimed at the active plan/goal (sharper
+than a generic /compact), attached to the plan as provenance, rendered on the canvas, and used to
+continue in a FRESH context. Two brainstorms (opus 290a0087, codex 63761d90) converged. Build it; do
+NOT trigger a real handoff in the building session (separate testing).
+
+### 27.1 Storage — reuse infra, NO new entity
+Handoff = `CanvasElement{kind:"handoff"}` whose `content` holds structured fields (goal bullets,
+plan_snapshot, in_flight agents+panes+branches+sessions, next_actions [first 3 executable w/o chat
+context], foundational_rules, open_decisions, links, resume_prompt, reseed_state, integrity = git
+HEAD/dirty + plan updated_at). The large narrative body externalizes to a sidecar `.codeterm/plans/
+<plan>/handoffs/<id>.md` (§17 pattern). A linked `Milestone{kind:"handoff"}` puts it in the task/plan
+timeline; a `TransferRecord` appends to the existing `Plan.owner_history` audit. Auto-composed by the
+daemon from the live plan index (coverage/tasks/branches from `agent report` provenance) + orchestrator
+free-text via `--from-file`/stdin. Add `handoff` to `milestone_kinds`.
+
+### 27.2 CLI
+`codeterm plan handoff create|show|list <plan_id>` (+ `--latest`, `--markdown`, `--json`, `--from-file|-`,
+`--mode record|new|compact`, `--dry-run`); `codeterm orchestrator handoff [--reseed]` = convenience that
+resolves caller pane / owned active plan / active task / session. Capability-shaped daemon RPC →
+native+JS parity is structural (`parity_test` asserts identical element + identical reseed send-sequence).
+
+### 27.3 Reseed flow — mode "new" (RECOMMENDED over compact)
+1. Daemon composes + attaches the handoff (marker pulses on the board), in ONE plan transaction.
+2. Daemon records a `handoff_reseed` pending row keyed `{pane_id, handoff_id, source_session_id}`.
+3. Daemon sends the provider fresh-context command to the SAME pane — `/new` for Claude-like providers,
+   via the provider CAPABILITY (same path `agent compact` uses), never a hardcoded string in core.
+4. On `SessionStart` with a new session id ≠ source, daemon sends EXACTLY ONE lean seed via
+   `codeterm send --pane <self>`: "run `plan handoff show --latest` FIRST, load the orchestrator role
+   (docs/contributing/agents.md + AGENTS.md), `plan get`, resume from next_actions. Do not re-handoff."
+5. Guaranteed-read = it's the first and only instruction; the fresh agent's handoff-ack report flips
+   `reseed_state`. Monotonic states created→new_sent→session_seen→resume_sent→acked; per-pane lock +
+   cooldown + `handoff_resume_of` loop-guard; never auto-triggered; `--force` overrides. `--mode compact`
+   (seed handoff then /compact) kept as a lossy fallback (spends tokens on stale context).
+
+### 27.4 Canvas render
+Handoff "coins" on an orchestrator-region TIMELINE LANE, chronologically linked `[n-1]→[n]` (work →
+reset → resumed → reset). Content-LOD W0–W3 (§26): coin → goal → next_actions+agents → full .md body.
+Latest-pending pulses; acked dims to ~0.7. Unmissable at overview, reads on zoom, never dominates the
+SPEC/PLAN columns. Provenance chips: old pane/session → new pane/session, mode, timestamp. (Rejected:
+milestone-on-synthetic-task = buries it; full doc column = too dominant.)
+
+## 28. Dogfood-recording ergonomics — batch write path (opus+codex converged)
+
+<!-- revision: 8 -->
+
+Recording provenance today costs 4–7 HTTP round-trips (task create + assign + body PATCH + N milestone
+POSTs + link + focus), each re-loading/writing the plan JSON and forcing manual id juggling. Embed an
+ergonomic path into BOTH the CLI AND the app/daemon so the in-app UI and every agent write the same way.
+
+### 28.1 Batch endpoint + `plan record` sugar
+`POST /api/plans/:id/batch` = ordered, typed ops with client ids + `$ref` resolution, executed in ONE
+daemon transaction with a SINGLE `plan-changed` emit, returning all created/updated ids:
+```
+[ {op:"upsert_task", client_id:"t", handle:"handoff-cli", name:"…", sections:["cli"]},
+  {op:"set_task_body", task:"$t", body_md:"…"},
+  {op:"add_milestone", task:"$t", kind:"decision", text:"…"},
+  {op:"add_element", kind:"handoff", content:{…}, link:"$t"} ]
+```
+CLI sugar: `codeterm plan record <plan> --task <id|handle> [--upsert-task <handle> --name … --sections …]
+--status … --body-file f.md --step decision:"…" --step testing:@file.md --link <path> --json`. Idempotency
+via `--key <stable>` or implicit `{pane_id, command_hash, minute_bucket}`; task upsert by handle; milestone
+de-dupe by `(task, kind, key)`. 6 calls → 1; structured provenance preserved.
+
+### 28.2 Everything folds onto the batch path
+`agent report` becomes a preset over the batch op; `plan handoff create` is an `add_handoff`/`add_element`
+op on the same path. One write primitive for all plan provenance — CLI, in-app UI, and drop-in agents.
+Recommendation: ship the batch service first (it's the foundation), then handoff on top of it.
