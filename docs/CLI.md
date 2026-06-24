@@ -1504,6 +1504,12 @@ Record task progress with one atomic plan write
 - `--task`
 - `--upsert_task`
 
+#### `codeterm plan reindex`
+
+Rebuild the project-local plan recall index
+
+- `--project`
+
 #### `codeterm plan related`
 
 Show structural neighbors for a plan/spec/task/section unit

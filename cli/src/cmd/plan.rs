@@ -339,6 +339,17 @@ fn run_plan(
             call(client, "plan.related", json!({ "id": id, "depth": depth }))
         }
 
+        PlanAction::Reindex { project } => {
+            let project = project
+                .or_else(|| {
+                    std::env::current_dir()
+                        .ok()
+                        .map(|path| path.display().to_string())
+                })
+                .unwrap_or_default();
+            call(client, "plan.reindex", json!({ "project": project }))
+        }
+
         PlanAction::Groups { action } => match action {
             PlanGroupsAction::Set { plan_id, groups } => call(
                 client,
