@@ -421,6 +421,7 @@ impl PlanStore {
         if req.mode != "new" && req.mode != "compact" {
             return Err(PlanError::Io("mode must be new or compact".into()));
         }
+        let _guard = self.reseed_prepare_lock.lock();
         self.reject_active_reseed_for_pane(&req.pane_id, req.force)?;
         let selector = req.selector.clone();
         self.with_plan(plan_id, now_ms, |plan| {

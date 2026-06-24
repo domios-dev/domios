@@ -36,7 +36,7 @@ fn provider_command_for_reseed(
     mode: &str,
 ) -> Result<String, JsonRpcError> {
     let provider_id = {
-        let mux = svc.mux.write();
+        let mux = svc.mux.read();
         mux.get_pane(pane_id)
             .and_then(|pane| pane.agent_type.clone())
             .ok_or_else(|| JsonRpcError {

@@ -124,6 +124,7 @@ pub struct PlanStore {
     spec_index: RwLock<HashMap<String, SpecIndexEntry>>,
     last_writes: RwLock<HashMap<PathBuf, SystemTime>>,
     turn_counter: RwLock<Option<Arc<reminders::TurnCounter>>>,
+    reseed_prepare_lock: Mutex<()>,
 }
 
 impl PlanStore {
@@ -245,6 +246,49 @@ impl PlanStore {
         }
     }
 
+    fn upsert_plan_arc(&self, plan: Plan) {
+        let id = plan.id.clone();
+        let existing = { self.plans.read().get(&id).cloned() };
+        if let Some(arc) = existing {
+            *arc.lock() = plan;
+        } else {
+            self.plans.write().insert(id, Arc::new(Mutex::new(plan)));
+        }
+    }
+
+    fn upsert_spec_arc(&self, spec: Spec) {
+        let id = spec.id.clone();
+        let existing = { self.specs.read().get(&id).cloned() };
+        if let Some(arc) = existing {
+            *arc.lock() = spec;
+        } else {
+            self.specs.write().insert(id, Arc::new(Mutex::new(spec)));
+        }
+    }
+
+    pub(super) fn commit_loaded_plan(&self, plan: Plan) -> Result<(), PlanError> {
+        self.mirror_plan_index(&plan)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
+        let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
+        self.note_plan_write(&plan, &path);
+        let entry = Self::index_entry(&plan, path);
+        self.index.write().insert(plan.id.clone(), entry);
+        self.upsert_plan_arc(plan.clone());
+        self.reset_bound_panes(&plan);
+        Ok(())
+    }
+
+    pub(super) fn commit_loaded_spec(&self, spec: Spec) -> Result<(), PlanError> {
+        self.mirror_spec_index(&spec)
+            .map_err(|e| PlanError::Io(e.to_string()))?;
+        let path = Self::write_spec_atomic(&spec).map_err(|e| PlanError::Io(e.to_string()))?;
+        self.note_spec_write(&spec, &path);
+        let entry = Self::spec_index_entry(&spec, path);
+        self.spec_index.write().insert(spec.id.clone(), entry);
+        self.upsert_spec_arc(spec);
+        Ok(())
+    }
+
     fn load_file_into_index(&self, path: PathBuf, project_root: &Path) -> Result<(), PlanError> {
         let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         let mut plan: Plan =
@@ -259,11 +303,10 @@ impl PlanStore {
         }
         self.mirror_plan_index(&plan)
             .map_err(|e| PlanError::Io(e.to_string()))?;
+        self.note_plan_write(&plan, &path);
         let entry = Self::index_entry(&plan, path);
         self.index.write().insert(plan.id.clone(), entry);
-        self.plans
-            .write()
-            .insert(plan.id.clone(), Arc::new(Mutex::new(plan)));
+        self.upsert_plan_arc(plan);
         Ok(())
     }
 
@@ -284,11 +327,10 @@ impl PlanStore {
         }
         self.mirror_spec_index(&spec)
             .map_err(|e| PlanError::Io(e.to_string()))?;
+        self.note_spec_write(&spec, &path);
         let entry = Self::spec_index_entry(&spec, path);
         self.spec_index.write().insert(spec.id.clone(), entry);
-        self.specs
-            .write()
-            .insert(spec.id.clone(), Arc::new(Mutex::new(spec)));
+        self.upsert_spec_arc(spec);
         Ok(())
     }
 
@@ -341,9 +383,7 @@ impl PlanStore {
         self.index
             .write()
             .insert(plan.id.clone(), Self::index_entry(plan, path));
-        self.plans
-            .write()
-            .insert(plan.id.clone(), Arc::new(Mutex::new(plan.clone())));
+        self.upsert_plan_arc(plan.clone());
         Ok(())
     }
 
@@ -360,9 +400,7 @@ impl PlanStore {
         self.spec_index
             .write()
             .insert(spec.id.clone(), Self::spec_index_entry(spec, path));
-        self.specs
-            .write()
-            .insert(spec.id.clone(), Arc::new(Mutex::new(spec.clone())));
+        self.upsert_spec_arc(spec.clone());
         Ok(())
     }
 
@@ -472,12 +510,11 @@ impl PlanStore {
         }
         self.mirror_plan_index(&plan)
             .map_err(|e| PlanError::Io(e.to_string()))?;
+        self.note_plan_write(&plan, &path);
         self.index
             .write()
             .insert(plan.id.clone(), Self::index_entry(&plan, path));
-        self.plans
-            .write()
-            .insert(plan.id.clone(), Arc::new(Mutex::new(plan)));
+        self.upsert_plan_arc(plan);
         Ok(())
     }
 
