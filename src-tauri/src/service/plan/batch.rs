@@ -757,6 +757,11 @@ impl PlanStore {
                             }
                             let owner = working.owner.clone();
                             let mut plan = Plan::new(title, working.project_path.clone(), owner);
+                            if plan.id == working.id {
+                                return Err(PlanError::Io(
+                                    "derived plan id must differ from source plan id".into(),
+                                ));
+                            }
                             plan.milestone_kinds = working.milestone_kinds.clone();
                             plan.created_at = now_ms;
                             plan.updated_at = now_ms;

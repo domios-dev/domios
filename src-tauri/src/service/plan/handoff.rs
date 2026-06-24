@@ -261,6 +261,18 @@ fn pending_for_pane(content: &Value, pane_id: &str) -> bool {
         == Some(pane_id)
 }
 
+fn element_has_active_reseed_for_pane(element: &crate::plan::CanvasElement, pane_id: &str) -> bool {
+    element.kind == "handoff"
+        && pending_for_pane(&element.content, pane_id)
+        && reseed_state(&element.content).is_some_and(active_reseed_state)
+}
+
+fn plan_has_active_reseed_for_pane(plan: &Plan, pane_id: &str) -> bool {
+    plan.elements
+        .iter()
+        .any(|element| element_has_active_reseed_for_pane(element, pane_id))
+}
+
 fn reseed_state(content: &Value) -> Option<&str> {
     content.get("reseed_state").and_then(|v| v.as_str())
 }
@@ -422,9 +434,15 @@ impl PlanStore {
             return Err(PlanError::Io("mode must be new or compact".into()));
         }
         let _guard = self.reseed_prepare_lock.lock();
-        self.reject_active_reseed_for_pane(&req.pane_id, req.force)?;
+        self.reject_active_reseed_for_pane(&req.pane_id, req.force, Some(plan_id))?;
         let selector = req.selector.clone();
         self.with_plan(plan_id, now_ms, |plan| {
+            if !req.force && plan_has_active_reseed_for_pane(plan, &req.pane_id) {
+                return Err(PlanError::Io(format!(
+                    "handoff reseed already pending for pane {}; use --force to override",
+                    req.pane_id
+                )));
+            }
             let idx = select_handoff_index(plan, selector.as_deref()).ok_or(PlanError::NotFound)?;
             let element = &mut plan.elements[idx];
             let state = if req.mode == "compact" {
@@ -477,18 +495,21 @@ impl PlanStore {
         })
     }
 
-    fn reject_active_reseed_for_pane(&self, pane_id: &str, force: bool) -> Result<(), PlanError> {
+    fn reject_active_reseed_for_pane(
+        &self,
+        pane_id: &str,
+        force: bool,
+        except_plan_id: Option<&str>,
+    ) -> Result<(), PlanError> {
         if force {
             return Ok(());
         }
         for entry in self.list_index() {
+            if except_plan_id == Some(entry.plan_id.as_str()) {
+                continue;
+            }
             if let Some(plan) = self.get(&entry.plan_id) {
-                let active = plan.elements.iter().any(|element| {
-                    element.kind == "handoff"
-                        && pending_for_pane(&element.content, pane_id)
-                        && reseed_state(&element.content).is_some_and(active_reseed_state)
-                });
-                if active {
+                if plan_has_active_reseed_for_pane(&plan, pane_id) {
                     return Err(PlanError::Io(format!(
                         "handoff reseed already pending for pane {pane_id}; use --force to override"
                     )));

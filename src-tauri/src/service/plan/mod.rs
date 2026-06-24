@@ -247,46 +247,108 @@ impl PlanStore {
         }
     }
 
-    fn upsert_plan_arc(&self, plan: Plan) {
+    fn upsert_plan_arc(&self, plan: Plan) -> Plan {
         let id = plan.id.clone();
-        let existing = { self.plans.read().get(&id).cloned() };
+        let existing = self.plans.read().get(&id).cloned();
         if let Some(arc) = existing {
-            *arc.lock() = plan;
+            let Some(mut guard) = arc.try_lock() else {
+                let mut guard = arc.lock();
+                if guard.updated_at >= plan.updated_at {
+                    return guard.clone();
+                }
+                *guard = plan;
+                return guard.clone();
+            };
+            if guard.updated_at > plan.updated_at {
+                return guard.clone();
+            }
+            *guard = plan;
+            guard.clone()
         } else {
-            self.plans.write().insert(id, Arc::new(Mutex::new(plan)));
+            let mut plans = self.plans.write();
+            if let Some(arc) = plans.get(&id).cloned() {
+                drop(plans);
+                let Some(mut guard) = arc.try_lock() else {
+                    let mut guard = arc.lock();
+                    if guard.updated_at >= plan.updated_at {
+                        return guard.clone();
+                    }
+                    *guard = plan;
+                    return guard.clone();
+                };
+                if guard.updated_at > plan.updated_at {
+                    return guard.clone();
+                }
+                *guard = plan;
+                guard.clone()
+            } else {
+                plans.insert(id, Arc::new(Mutex::new(plan.clone())));
+                plan
+            }
         }
     }
 
-    fn upsert_spec_arc(&self, spec: Spec) {
+    fn upsert_spec_arc(&self, spec: Spec) -> Spec {
         let id = spec.id.clone();
-        let existing = { self.specs.read().get(&id).cloned() };
+        let existing = self.specs.read().get(&id).cloned();
         if let Some(arc) = existing {
-            *arc.lock() = spec;
+            let Some(mut guard) = arc.try_lock() else {
+                let mut guard = arc.lock();
+                if guard.updated_at >= spec.updated_at {
+                    return guard.clone();
+                }
+                *guard = spec;
+                return guard.clone();
+            };
+            if guard.updated_at > spec.updated_at {
+                return guard.clone();
+            }
+            *guard = spec;
+            guard.clone()
         } else {
-            self.specs.write().insert(id, Arc::new(Mutex::new(spec)));
+            let mut specs = self.specs.write();
+            if let Some(arc) = specs.get(&id).cloned() {
+                drop(specs);
+                let Some(mut guard) = arc.try_lock() else {
+                    let mut guard = arc.lock();
+                    if guard.updated_at >= spec.updated_at {
+                        return guard.clone();
+                    }
+                    *guard = spec;
+                    return guard.clone();
+                };
+                if guard.updated_at > spec.updated_at {
+                    return guard.clone();
+                }
+                *guard = spec;
+                guard.clone()
+            } else {
+                specs.insert(id, Arc::new(Mutex::new(spec.clone())));
+                spec
+            }
         }
     }
 
     pub(super) fn commit_loaded_plan(&self, plan: Plan) -> Result<(), PlanError> {
-        self.mirror_plan_index(&plan)
+        let committed = self.upsert_plan_arc(plan);
+        self.mirror_plan_index(&committed)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_plan_write(&plan, &path);
-        let entry = Self::index_entry(&plan, path);
-        self.index.write().insert(plan.id.clone(), entry);
-        self.upsert_plan_arc(plan.clone());
-        self.reset_bound_panes(&plan);
+        let path = Self::write_atomic(&committed).map_err(|e| PlanError::Io(e.to_string()))?;
+        self.note_plan_write(&committed, &path);
+        let entry = Self::index_entry(&committed, path);
+        self.index.write().insert(committed.id.clone(), entry);
+        self.reset_bound_panes(&committed);
         Ok(())
     }
 
     pub(super) fn commit_loaded_spec(&self, spec: Spec) -> Result<(), PlanError> {
-        self.mirror_spec_index(&spec)
+        let committed = self.upsert_spec_arc(spec);
+        self.mirror_spec_index(&committed)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        let path = Self::write_spec_atomic(&spec).map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_spec_write(&spec, &path);
-        let entry = Self::spec_index_entry(&spec, path);
-        self.spec_index.write().insert(spec.id.clone(), entry);
-        self.upsert_spec_arc(spec);
+        let path = Self::write_spec_atomic(&committed).map_err(|e| PlanError::Io(e.to_string()))?;
+        self.note_spec_write(&committed, &path);
+        let entry = Self::spec_index_entry(&committed, path);
+        self.spec_index.write().insert(committed.id.clone(), entry);
         Ok(())
     }
 
@@ -302,12 +364,12 @@ impl PlanStore {
             let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
             self.note_plan_write(&plan, &path);
         }
-        self.mirror_plan_index(&plan)
+        let committed = self.upsert_plan_arc(plan);
+        self.mirror_plan_index(&committed)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_plan_write(&plan, &path);
-        let entry = Self::index_entry(&plan, path);
-        self.index.write().insert(plan.id.clone(), entry);
-        self.upsert_plan_arc(plan);
+        self.note_plan_write(&committed, &path);
+        let entry = Self::index_entry(&committed, path);
+        self.index.write().insert(committed.id.clone(), entry);
         Ok(())
     }
 
@@ -326,12 +388,12 @@ impl PlanStore {
             let path = Self::write_spec_atomic(&spec).map_err(|e| PlanError::Io(e.to_string()))?;
             self.note_spec_write(&spec, &path);
         }
-        self.mirror_spec_index(&spec)
+        let committed = self.upsert_spec_arc(spec);
+        self.mirror_spec_index(&committed)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_spec_write(&spec, &path);
-        let entry = Self::spec_index_entry(&spec, path);
-        self.spec_index.write().insert(spec.id.clone(), entry);
-        self.upsert_spec_arc(spec);
+        self.note_spec_write(&committed, &path);
+        let entry = Self::spec_index_entry(&committed, path);
+        self.spec_index.write().insert(committed.id.clone(), entry);
         Ok(())
     }
 
@@ -377,14 +439,28 @@ impl PlanStore {
         }
         plan.updated_at = now_ms;
         tag_model::normalize_plan(plan);
-        let path = Self::write_atomic(plan)?;
-        self.note_plan_write(plan, &path);
-        self.mirror_plan_index(plan)
+        let id = plan.id.clone();
+        let arc = if let Some(arc) = self.plans.read().get(&id).cloned() {
+            arc
+        } else {
+            let mut plans = self.plans.write();
+            plans
+                .entry(id.clone())
+                .or_insert_with(|| Arc::new(Mutex::new(plan.clone())))
+                .clone()
+        };
+        let mut guard = arc.lock();
+        if guard.updated_at <= plan.updated_at {
+            *guard = plan.clone();
+        }
+        *plan = guard.clone();
+        let path = Self::write_atomic(&guard)?;
+        self.note_plan_write(&guard, &path);
+        self.mirror_plan_index(&guard)
             .map_err(std::io::Error::other)?;
         self.index
             .write()
-            .insert(plan.id.clone(), Self::index_entry(plan, path));
-        self.upsert_plan_arc(plan.clone());
+            .insert(guard.id.clone(), Self::index_entry(&guard, path));
         Ok(())
     }
 
@@ -394,14 +470,28 @@ impl PlanStore {
         }
         spec.updated_at = now_ms;
         tag_model::normalize_sections_for_spec(&mut spec.sections);
-        let path = Self::write_spec_atomic(spec)?;
-        self.note_spec_write(spec, &path);
-        self.mirror_spec_index(spec)
+        let id = spec.id.clone();
+        let arc = if let Some(arc) = self.specs.read().get(&id).cloned() {
+            arc
+        } else {
+            let mut specs = self.specs.write();
+            specs
+                .entry(id.clone())
+                .or_insert_with(|| Arc::new(Mutex::new(spec.clone())))
+                .clone()
+        };
+        let mut guard = arc.lock();
+        if guard.updated_at <= spec.updated_at {
+            *guard = spec.clone();
+        }
+        *spec = guard.clone();
+        let path = Self::write_spec_atomic(&guard)?;
+        self.note_spec_write(&guard, &path);
+        self.mirror_spec_index(&guard)
             .map_err(std::io::Error::other)?;
         self.spec_index
             .write()
-            .insert(spec.id.clone(), Self::spec_index_entry(spec, path));
-        self.upsert_spec_arc(spec.clone());
+            .insert(guard.id.clone(), Self::spec_index_entry(&guard, path));
         Ok(())
     }
 
@@ -509,13 +599,13 @@ impl PlanStore {
             let path = Self::write_atomic(&plan).map_err(|e| PlanError::Io(e.to_string()))?;
             self.note_plan_write(&plan, &path);
         }
-        self.mirror_plan_index(&plan)
+        let committed = self.upsert_plan_arc(plan);
+        self.mirror_plan_index(&committed)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_plan_write(&plan, &path);
+        self.note_plan_write(&committed, &path);
         self.index
             .write()
-            .insert(plan.id.clone(), Self::index_entry(&plan, path));
-        self.upsert_plan_arc(plan);
+            .insert(committed.id.clone(), Self::index_entry(&committed, path));
         Ok(())
     }
 
