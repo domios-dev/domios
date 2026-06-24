@@ -1206,3 +1206,86 @@ Dominance focus-assist (§25.3), handoff markers (§27.4), status emphasis (§25
 nodes from auto-pack — all update in place. fit-to-view runs ONLY on explicit mount/fit, never on data change.
 Auto-pack may re-slot nodes, but the camera transform is untouched. Playwright must assert: after a live data
 mutation, the camera transform (pan x/y + zoom) is byte-identical to before.
+
+## 32. WORLDS v2 — fix the live board (opus+codex converged; Andrey live review)
+
+<!-- revision: 10 -->
+
+Andrey reviewed the shipped §26 board and it's wrong: nodes read as empty giants at birds-eye, content goes
+transparent on approach, "done = dimmed" was misread as opacity (he meant LOWER HIERARCHY), "size" was misread
+as "huge" (he meant bounded growth by content), strides render as squares, text isn't selectable, sections
+don't navigate, no go-to affordances, handoff falls back. Two brainstorms (opus 0d781608, codex f4b0f9cc)
+converged. This SUPERSEDES the §24.5/§25.6 opacity reading and the §26.4 size feel.
+
+### 32.1 The spine — orthogonalize four channels (never overload one)
+- **SPATIAL-Y position = HIERARCHY** (status/importance). in_progress rises, done sinks. NOT opacity.
+- **PAINT band (appW W0–W3) = DETAIL** (how much content is painted). §26 keeps.
+- **COLOR = IDENTITY** (kind/facet). 
+- **OPACITY = TRANSIENT FOCUS ONLY** (hover haze, off-screen ghost, focus-assist neighbor dim). NEVER a status
+  or hierarchy signal. Primary content text is ALWAYS opacity 1.0.
+
+### 32.2 Birds-eye W0 is COMPRESSED content, not less content (fixes "empty giants")
+W0 ≠ hollow. PLAN/SPEC W0 = title · owner · coverage bar · section count · top ~3 section rows (glyph+count) ·
+uncovered/in-progress counts · edge-anchor rail. TASK W0 = name/handle · solid status chip · 2-line digest
+(from intent/body) · body/stride/subtask counters · progress mini-bar · latest-stride bead · stride-snake
+preview. Fits the fixed footprint via line budgets + overflow-omission order. Because size tracks content
+(§32.4), a node is never a big hollow box.
+
+### 32.3 Transparency banned as a signal; done SINKS (fixes #2, #3)
+Body/content surfaces stay opacity 1.0 at all bands — remove `chrome.dim` + secondary-opacity on PRIMARY text.
+Status/hierarchy = SPATIAL: each band has three stable shelves — **active/top** (in_progress, slight forward z),
+**normal/mid** (pending, blocked w/ warning rail), **done/bottom** (done/cancelled, recessed surface, smaller
+header emphasis, FULL opacity). Sort key `(shelfRank, status_changed_at bucket, createdAt, id)`; shelf change
+only on `status_changed_at` then monotonic local repack (~300ms slot animation), no jitter while typing.
+
+### 32.4 Two-axis bounded, content-driven size (fixes "huge"/"hollow")
+Footprint fixed across zoom, recomputed only on data mutation. Grows in BOTH width and height, bounded:
+```
+textUnits    = sqrt(clamp(bodyChars + intentChars + 0.6*rationaleChars, 0, 3600)/180)
+strideUnits  = 1.35*sqrt(clamp(strideCount,0,24))
+subtaskUnits = 1.6*sqrt(clamp(subtaskCount,0,16)) + sqrt(childBodyChars/600)
+volume       = 1 + textUnits + strideUnits + subtaskUnits + 0.15*linkCount
+width  = clamp(260 + 56*floor(min(3, volume/3.2)), 260, 428)  // snap to 1 / 1.5 / 2 col slots; only top-decile → 2col
+height = clamp(156 + 38*volume + 16*min(strideCount,8) + 22*min(subtaskCount,5), 176, 680)
+```
+**aspectFloor = 0.62·width** (opus) — height never below it, so cards can't be hollow letterboxes. W3 overflow =
+node-local scroll. Heavy work = visibly bigger MASS at W0; deterministic packing (snapped slots).
+
+### 32.5 Strides = serpentine snake of circles (fixes #5, #6) — replaces square step blocks
+Inside a task, reserve a rail; draw ONE continuous 2px path through kind-colored circular beads (Thread & Coil).
+Wrap as a **boustrophedon snake** (semicircular elbow turns, not separate lines); loops coil. Freshest bead =
+head (pulses); done strides coil to the tail. Per band: W0 = 7px dots (cap ~10 +N) on a compact line; W1 = 12px
+beads + kind ring + 1-line labels alternating above/below; W2 = 18px beads, near bead sprouts a callout on the
+line; W3 = beads bloom into full stride cards, path stays visible as provenance spine. **Each stride is a leaf
+MICRO-WORLD** with its own appW bands (s0 bead → s1 title → s2 body excerpt+links → s3 structured body +
+links + related task/spec chips + author/pane/session/timestamp). Zoom reveals structure; click only for
+explicit actions (copy-link, focus, open source). Bloom space is reserved in the task bbox (no reflow).
+
+### 32.6 Selectable text (fixes #7) — CSS pointer/select split, no overlay
+Root cause: `body{user-select:none}` + container `userSelect:none`. Fix: text islands get
+`.ct-canvas-text { user-select:text; cursor:text; pointer-events:auto }` + `data-canvas-selectable`. Pan
+`onMouseDown` skips starting a drag when `target.closest('[data-canvas-selectable]')` AND a selection is
+forming (drag only past threshold with no selection). Buttons `stopPropagation`. Empty padding/header chrome
+stays pan. Overlay approach rejected (only a fallback if global/xterm listeners steal selection).
+
+### 32.7 Navigation + affordances (fixes #8, #9) — all §31-compliant (user-initiated only)
+Plan/spec section rows are interactive: single-click a PLAN section → highlight its outgoing task edges +
+connected task nodes; double-click / row action → frame those tasks (fly+blink). SPEC section click → highlight
+spec→plan mapping (via spec_links) then tasks. Empty section click → frame + open composer with that section
+context. At W2/W3, rows + task cards show icon buttons: go-to-tasks, go-to-spec, open-pane, copy-id/copy-link,
+focus-stride. ALL camera motion is user-click / toolbar / minimap only; agent/CLI `canvas focus` = off-screen
+signal (§31), never auto-fit.
+
+### 32.8 Handoff render (fixes #10) — register kind=handoff
+Replace the fallback with a real renderer: an **orchestrator-region timeline lane** (above/left of owned plan
+frames, never inside task clutter). Each handoff = a reset coin on a chronological spine `[n-1]→[n]`; W0 coin →
+W1 goal+timestamp → W2 next_actions + in-flight agents + old→new session chips → W3 expanded markdown body + ack
+state. Latest/pending pulses; acked recedes spatially (smaller/behind), NOT content-faded. Creation never moves
+the camera; an off-screen marker points to the lane. (Checkpoint `el_e8ab8c97` exists to render against.)
+
+### 32.9 Verification
+Playwright: W0 nodes show digest+counters+snake (not hollow); content opacity == 1.0 at all bands; done sits
+below in_progress in its band (position assert, not opacity); card area tracks volume with aspectFloor honored;
+strides render as a connected snake of circles, bloom on zoom; canvas text is selectable + copyable; section
+click highlights/ frames the right tasks; handoff renders on the timeline lane; camera transform byte-identical
+after any live data mutation.
