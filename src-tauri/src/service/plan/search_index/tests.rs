@@ -4,11 +4,49 @@ use rusqlite::params;
 
 use super::*;
 use crate::plan::{OrchestratorRef, TaskStatus};
-use crate::service::plan::{NewTask, PlanStore};
+use crate::service::plan::{task_queries::TaskListFilter, NewTask, PlanStore};
 
 fn store_and_root() -> (tempfile::TempDir, PlanStore) {
     let root = tempfile::tempdir().unwrap();
     (root, PlanStore::new_for_test(Path::new("/unused")))
+}
+
+fn run_git(cwd: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .current_dir(cwd)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {:?} failed: {}",
+        args,
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn git_worktree_pair() -> (tempfile::TempDir, std::path::PathBuf, std::path::PathBuf) {
+    let tmp = tempfile::tempdir().unwrap();
+    let main = tmp.path().join("main");
+    let linked = tmp.path().join("linked");
+    std::fs::create_dir(&main).unwrap();
+    run_git(&main, &["init"]);
+    run_git(&main, &["config", "user.email", "test@example.com"]);
+    run_git(&main, &["config", "user.name", "Test User"]);
+    std::fs::write(main.join("README.md"), "root\n").unwrap();
+    run_git(&main, &["add", "README.md"]);
+    run_git(&main, &["commit", "-m", "init"]);
+    run_git(
+        &main,
+        &[
+            "worktree",
+            "add",
+            linked.to_str().unwrap(),
+            "-b",
+            "linked-test",
+        ],
+    );
+    (tmp, main, linked)
 }
 
 #[test]
@@ -68,6 +106,75 @@ fn mirrors_plan_units_into_project_local_mem_db() {
         .body
         .contains("Plan \"Canvas\" · task: Fix soft lock"));
     assert_eq!(hits[0].scope, project_scope(root.path()));
+}
+
+#[test]
+fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
+    let (_tmp, main, linked) = git_worktree_pair();
+    let store = PlanStore::new_for_test(Path::new("/unused"));
+    let main_root = super::super::paths::project_root(&main);
+    let linked_root = super::super::paths::project_root(&linked);
+
+    assert_eq!(main_root, linked_root);
+    assert_eq!(project_scope(&main), project_scope(&linked));
+    assert_eq!(project_index_path(&main), project_index_path(&linked));
+
+    let plan = store
+        .create_plan(
+            "Central canvas".into(),
+            main.display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Shared worktree task".into(),
+                kind: "fix".into(),
+                body: "unique linked worktree recall phrase".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    let loaded = store.get(&plan.id).unwrap();
+    assert_eq!(loaded.project_path, main_root.display().to_string());
+    assert!(main_root
+        .join(".codeterm/plans")
+        .join(format!("{}.json", plan.id))
+        .exists());
+    assert!(!linked.join(".codeterm/plans").exists());
+
+    let tasks = store.list_tasks(TaskListFilter {
+        project_path: Some(linked.display().to_string()),
+        ..Default::default()
+    });
+    assert!(tasks
+        .iter()
+        .any(|task| task.plan_id == plan.id && task.task.id == task_id));
+
+    let hits = store
+        .search_plan_index(
+            &linked,
+            &search::SearchQuery {
+                query: "unique linked worktree recall phrase".into(),
+                kind: Some("task".into()),
+                limit: Some(5),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(hits
+        .iter()
+        .any(|hit| { hit.unit_id == task_id && hit.scope == project_scope(&main) }));
+
+    let reindex = store.reindex_project_index(&linked).unwrap();
+    assert_eq!(reindex.project, main_root.display().to_string());
+    assert_eq!(reindex.scope, project_scope(&main));
 }
 
 #[test]
