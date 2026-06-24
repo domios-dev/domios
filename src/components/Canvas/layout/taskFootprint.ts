@@ -31,9 +31,9 @@ export function taskFootprint(task: Task, children: Task[], s: CanvasLayoutSetti
   const subtaskUnits = 1.6 * Math.sqrt(clamp(subtaskCount, 0, 16)) + Math.sqrt(childBodyChars / 600);
   const volume = 1 + textUnits + strideUnits + subtaskUnits + 0.15 * linkCount;
 
-  const widthSlots = Math.floor(Math.min(3, volume / 3.2));
+  const widthSlots = Math.floor(Math.min(3, volume / 3.6));
   const width = clamp(s.taskW + s.taskColStep * widthSlots, s.taskW, s.taskMaxW);
-  const rawHeight = s.taskBaseH + 38 * volume + 16 * Math.min(strideCount, 8) + 22 * Math.min(subtaskCount, 5);
+  const rawHeight = s.taskBaseH + 24 * volume + 12 * Math.min(strideCount, 8) + 16 * Math.min(subtaskCount, 5);
   const height = Math.max(clamp(rawHeight, s.taskMinH, s.taskMaxH), Math.round(s.aspectFloorRatio * width));
 
   return { volume, width, height: Math.round(height) };

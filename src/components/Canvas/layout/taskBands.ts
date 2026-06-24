@@ -4,9 +4,9 @@ import { taskFootprint } from "./taskFootprint";
 import type { Box, Point } from "./geometry";
 import type { LaidOutEdge, LaidOutNode } from "./types";
 
-// §32.3 spatial hierarchy: within a band each task lands on one of three shelves —
-// in_progress rises (top), pending/blocked sit mid, done/cancelled sink (bottom).
-// Status is encoded by POSITION, never opacity.
+// §32.3/§32.10 spatial hierarchy: the cloud's vertical axis encodes status then
+// priority — in_progress rises (top), pending/blocked sit mid, done/cancelled sink
+// (bottom). Status is encoded by POSITION, never opacity.
 const STATUS_BUCKET_MS = 60_000;
 function shelfRank(status: TaskStatus): number {
   if (status === "in_progress") return 0;
@@ -14,14 +14,26 @@ function shelfRank(status: TaskStatus): number {
   return 1;
 }
 
-// Sort key (shelfRank, status_changed_at bucket, createdAt, id): shelf change only
-// on status_changed_at, then monotonic local order — no reshuffle while typing.
-function shelfSort(a: Task, b: Task): number {
+function priorityRank(p: Task["priority"]): number {
+  switch (p) {
+    case "urgent": return 0;
+    case "high": return 1;
+    case "low": return 3;
+    default: return 2; // normal / undefined
+  }
+}
+
+// Cloud sort key (statusShelf, priority, status_changed_at bucket, createdAt, id):
+// shelf+priority place the slot; a status change moves the task to its new vertical
+// slot (~300ms animated) with no global reshuffle, no jitter while typing.
+function cloudSort(a: Task, b: Task): number {
   const sr = shelfRank(a.status) - shelfRank(b.status);
   if (sr) return sr;
+  const pr = priorityRank(a.priority) - priorityRank(b.priority);
+  if (pr) return pr;
   const ab = Math.floor((a.status_changed_at ?? 0) / STATUS_BUCKET_MS);
   const bb = Math.floor((b.status_changed_at ?? 0) / STATUS_BUCKET_MS);
-  if (ab !== bb) return ab - bb;
+  if (ab !== bb) return bb - ab; // most-recently-active first within a shelf
   const ac = a.created_at ?? 0;
   const bc = b.created_at ?? 0;
   if (ac !== bc) return ac - bc;
@@ -103,29 +115,24 @@ export function layoutTaskBands(
     };
   });
 
-  const cols = Math.max(1, s.maxTaskCols);
   const colWidth = cells.length ? Math.max(...cells.map((c) => c.w)) : s.taskWidth;
   const colPitch = colWidth + s.taskColGap;
 
-  // Anchor-hugging skyline column packing (§20.3 + height-bound fix): place each
-  // cell at its section-row Y in whichever column keeps it HIGHEST (best hug),
-  // pushing down only when every column is occupied there. Bounds the task-field
-  // height to ~ΣcellH / cols instead of a single tall stack — no km-strip board.
-  const sorted = [...cells].sort((a, b) => a.bandRowY - b.bandRowY || shelfSort(a.task, b.task) || a.order - b.order);
-  const colBottom = new Array(cols).fill(0);
+  // §32.10 task CLOUD: a 2D cluster right of the plan, sorted so the VERTICAL axis
+  // encodes status/priority — active/high-priority at the top, done sinking to the
+  // bottom. Column-major fill bounded by cloudMaxH: when a column would overflow
+  // the bounded height, work continues in the next column rightward (never an
+  // infinite vertical портянka). Deterministic — same data → same slots.
+  const sorted = [...cells].sort((a, b) => cloudSort(a.task, b.task) || a.order - b.order);
+  let col = 0;
+  let y = 0;
   for (const cell of sorted) {
-    const idealTop = Number.isFinite(cell.bandRowY) ? cell.bandRowY - cell.height / 2 : Math.min(...colBottom);
-    let bestC = 0;
-    let bestTop = Number.POSITIVE_INFINITY;
-    for (let c = 0; c < cols; c++) {
-      const top = Math.max(colBottom[c], idealTop);
-      if (top < bestTop) {
-        bestTop = top;
-        bestC = c;
-      }
+    if (y > 0 && y + cell.height > s.cloudMaxH) {
+      col++;
+      y = 0;
     }
-    placeCell(cell, taskX + bestC * colPitch, bestTop);
-    colBottom[bestC] = bestTop + cell.height + s.taskGapY;
+    placeCell(cell, taskX + col * colPitch, y);
+    y += cell.height + s.taskGapY;
   }
 
   return { nodes, edges, extraPoints };

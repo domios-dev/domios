@@ -25,6 +25,10 @@ const cardStyle: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
+  // §32.10 slot animation: a task re-slotting (status/priority change) eases to its
+  // new cloud position. Footprint is fixed across zoom, so this only fires on data
+  // repack — never on pan/zoom, and the camera never moves (§31).
+  transition: "left 0.3s var(--ct-ease-decel), top 0.3s var(--ct-ease-decel)",
 };
 
 function statusLabel(status: TaskStatus): string {

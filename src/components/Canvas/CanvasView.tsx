@@ -198,6 +198,8 @@ export function CanvasViewInner({
     width: size.width,
     height: size.height,
     panButton: "middle",
+    // §32.10: tasks are small → zoom-drill needs more range to reach W3 on a tile.
+    maxScale: 4,
   });
 
   // §24.1: ONE behavior — no manual view modes. Node frames are fixed; content
