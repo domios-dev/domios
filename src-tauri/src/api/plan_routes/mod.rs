@@ -12,6 +12,8 @@ use crate::api::routes::{check_auth, AppState};
 use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, PlanStatus, TaskGroup};
 use crate::service::plan::{NewTask, PlanError};
 
+pub mod batch;
+
 #[cfg(test)]
 mod tests;
 
@@ -96,8 +98,6 @@ pub(crate) struct CreatePlanBody {
     spec: Option<String>,
 }
 
-// Query bools must accept "1" as well as "true" — serde's bool only takes
-// "true"/"false", so a raw `Option<bool>` 400s on `?full=1` (the form the UI sends).
 fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
     let s = <Option<String> as serde::Deserialize>::deserialize(d)?;
     Ok(s.map(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on")))

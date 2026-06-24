@@ -95,13 +95,20 @@ impl ServiceContext {
                 })
                 .ok_or_else(|| "task_id required for plan report".to_string())?;
             self.plan_store
-                .add_milestone(
+                .apply_batch(
                     plan_id,
-                    &task_id,
-                    milestone_kind.unwrap_or("status_update"),
-                    &milestone_text(message, details.status),
-                    from_ref,
-                    false,
+                    crate::service::plan::batch::BatchRequest {
+                        key: None,
+                        ops: vec![crate::service::plan::batch::BatchOp::AddMilestone {
+                            client_id: Some("report".into()),
+                            task: task_id,
+                            kind: milestone_kind.unwrap_or("status_update").into(),
+                            text: milestone_text(message, details.status),
+                            from: Some(from_ref),
+                            key: None,
+                            links: vec![],
+                        }],
+                    },
                     epoch_ms(),
                 )
                 .map_err(|e| e.to_string())?;

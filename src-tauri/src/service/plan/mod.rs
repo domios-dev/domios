@@ -1,3 +1,4 @@
+pub mod batch;
 pub mod body_files;
 pub mod mutations;
 pub mod paths;
