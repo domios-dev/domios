@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Map } from "lucide-react";
 import { Segmented, type SegmentedOption } from "../shared/Segmented";
 import { emitPaneUiMode, isChatDefaultEnabled, type PaneUiMode } from "../../lib/chatUiMode";
 import {
@@ -23,15 +24,21 @@ const CHAT: SegmentedOption<SwitchValue> = { value: "chat", label: "Chat" };
  *  (TerminalPane mounts/unmounts the chat surface). Plan is a third, transient
  *  view mode (§7.1): selecting it renders the plan canvas over the pane body via
  *  panePlanMode; its label is role-driven (Plan for an orchestrator that owns a
- *  plan, Tasks for a worker bound to one) and it pulses on plan-changed. */
+ *  plan, Tasks for a worker bound to one) and it pulses on plan-changed.
+ *
+ *  chatPty gates the Terminal|Chat base segments. When false (plain terminal /
+ *  chat-backend / no live agent) only the Plan entry renders, as a standalone
+ *  toggle — so a workspace with a plan can open the board with no agent attached. */
 export function PaneModeSwitch({
   paneId,
   height,
   chatFirst = false,
+  chatPty = true,
 }: {
   paneId: string;
   height?: number;
   chatFirst?: boolean;
+  chatPty?: boolean;
 }) {
   const { state } = useMultiplexer();
   const pane = state.panes[paneId];
@@ -103,9 +110,44 @@ export function PaneModeSwitch({
     };
   }, [planIds]);
 
+  const planLabel = ownsPlan ? "Plan" : "Tasks";
+  const planTitle = ownsPlan ? "Show this orchestrator's plan canvas" : "Show your tasks on the canvas";
+
+  // No Terminal/Chat surface (plain terminal / chat-backend / no live agent):
+  // the Plan entry stands alone so the board stays reachable without an agent.
+  if (!chatPty) {
+    if (planIds.length === 0) return null;
+    const togglePlan = () => {
+      const next = !planActive;
+      if (next) for (const id of planIds) canvasFocusStore.clearPulse(id);
+      setPanePlanMode(paneId, next);
+    };
+    return (
+      <button
+        type="button"
+        data-testid="pane-mode-switch"
+        data-plan-toggle="true"
+        data-role-label={planLabel}
+        aria-pressed={planActive}
+        onClick={togglePlan}
+        title={planTitle}
+        className={`flex shrink-0 items-center gap-1 rounded-full border px-3 text-[11px] font-medium cursor-pointer ${pulsing ? "ct-plan-button-pulse" : ""}`}
+        style={{
+          height,
+          background: planActive ? "var(--ct-accent)" : "var(--ct-bg)",
+          borderColor: pulsing || planActive ? "var(--ct-accent)" : "var(--ct-border)",
+          color: planActive ? "var(--ct-bg)" : "var(--ct-fg)",
+        }}
+      >
+        <Map size={13} />
+        {planLabel}
+      </button>
+    );
+  }
+
   const planOption: SegmentedOption<SwitchValue> = {
     value: "plan",
-    label: ownsPlan ? "Plan" : "Tasks",
+    label: planLabel,
     icon: pulsing ? (
       <span
         aria-hidden
@@ -118,7 +160,7 @@ export function PaneModeSwitch({
         }}
       />
     ) : undefined,
-    title: ownsPlan ? "Show this orchestrator's plan canvas" : "Show your tasks on the canvas",
+    title: planTitle,
   };
 
   const baseOptions = defaultChatFirst ? [CHAT, TERMINAL] : [TERMINAL, CHAT];
