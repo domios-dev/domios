@@ -853,3 +853,16 @@ Spec is its OWN sectioned node again, NOT merged into the plan node:
 - PLAN row OUTPUT dots → tasks (banded, as now). So: SPEC | PLAN | tasks, three connected columns.
 (The §22.2/§23.1 "one merged SectionedPlanNode" is reverted to two connected nodes; the rail/
 content-LOD/banded mechanics carry over to BOTH the spec and plan nodes.)
+
+### 24.4 Zoom-drill INTO tasks (fall in by zoom, not click)
+A user zooming the camera INTO a task progressively reveals its INTERIOR — no click required
+(content-LOD §23.7 applied to task nodes): far = handle + status + step dots; closer = step
+titles + subtask handles; near = full step CARDS (milestone text/iteration) + subtask bodies +
+task body. Fixed task footprint; only the painted content deepens. "Coming back out" = zoom out.
+Brainstormed (§25) for the exact thresholds, what reveals when, the feel, and overlap handling.
+
+### 24.5 Status emphasis (in-progress pops, done gently dims)
+Task (and step) visual weight by status: **in_progress = HIGHLIGHTED** (accent ring / subtle glow
+/ brighter) so live work pops; **done = slightly DIMMED** (~0.7 opacity, NOT heavily — still
+legible); pending/blocked = normal (blocked maybe a warning tint). Applies at every zoom; the
+freshest/in-progress is the eye magnet on a live board.
