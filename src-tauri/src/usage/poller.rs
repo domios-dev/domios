@@ -155,10 +155,18 @@ async fn tick(inner: &Arc<UsagePollerInner>) -> Result<(), String> {
 
     for provider in &providers {
         let visible_panes = visible_panes_for_provider(&inner.svc, provider);
-        if visible_panes.is_empty() {
+        // Fetch-based providers (e.g. cursor) source usage from a CLI/API with no
+        // terminal — probe them whenever tracking is on, no pane required. TUI
+        // providers still need a visible pane to drive the `/usage` screen.
+        let fetch_based = provider_is_fetch_based(&inner.svc, provider);
+        if !provider_pollable(visible_panes.is_empty(), fetch_based) {
             continue;
         }
-        let accounts: Vec<Option<String>> = accounts_for_panes(&inner.svc, &visible_panes);
+        let accounts: Vec<Option<String>> = if visible_panes.is_empty() {
+            vec![None]
+        } else {
+            accounts_for_panes(&inner.svc, &visible_panes)
+        };
         for acct in accounts {
             let key = AccountKey {
                 provider: provider.clone(),
@@ -436,6 +444,18 @@ fn providers_with_parser(svc: &ServiceContext) -> Vec<String> {
         .collect()
 }
 
+/// A provider is pollable when it has a visible pane to drive a `/usage` screen,
+/// or when it sources usage from a CLI/API fetch (no terminal needed).
+fn provider_pollable(visible_empty: bool, fetch_based: bool) -> bool {
+    !visible_empty || fetch_based
+}
+
+fn provider_is_fetch_based(svc: &ServiceContext, provider: &str) -> bool {
+    svc.agent_registry
+        .with_provider(provider, |p| p.usage_is_fetch_based())
+        .unwrap_or(false)
+}
+
 fn visible_panes_for_provider(svc: &ServiceContext, provider: &str) -> Vec<String> {
     let mux = svc.mux.write();
     let snap = mux.snapshot();
@@ -504,5 +524,23 @@ mod tests {
     #[test]
     fn reset_not_due_when_no_timers() {
         assert!(!row_reset_due(&row(None, None), 1_000_000));
+    }
+
+    #[test]
+    fn tui_provider_needs_a_visible_pane() {
+        assert!(super::provider_pollable(false, false), "has pane → poll");
+        assert!(
+            !super::provider_pollable(true, false),
+            "TUI provider with no pane → skip (nothing to drive /usage)"
+        );
+    }
+
+    #[test]
+    fn fetch_provider_polls_without_a_pane() {
+        assert!(
+            super::provider_pollable(true, true),
+            "fetch-based provider needs no terminal → poll even with no pane"
+        );
+        assert!(super::provider_pollable(false, true), "pane present → still poll");
     }
 }
