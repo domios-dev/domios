@@ -228,6 +228,7 @@ impl PlanStore {
             section_ids: new.section_ids,
             body: new.body,
             intent: new.intent,
+            parent_task_id: new.parent_task_id,
             assigned_pane_id: new.assigned_pane_id,
             taken_by_role: None,
             peer: None,
@@ -431,6 +432,7 @@ impl PlanStore {
         body: Option<&str>,
         intent: Option<Option<&str>>,
         section_ids: Option<Vec<String>>,
+        parent_task_id: Option<Option<&str>>,
         group: Option<Option<&str>>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
@@ -466,6 +468,9 @@ impl PlanStore {
             }
             if let Some(ids) = section_ids {
                 task.section_ids = ids;
+            }
+            if let Some(parent) = parent_task_id {
+                task.parent_task_id = parent.map(|s| s.into());
             }
             if let Some(g) = group {
                 task.group = g.map(|s| s.into());

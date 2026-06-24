@@ -452,6 +452,8 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     intent: Option<String>,
     #[serde(default)]
+    parent: Option<String>,
+    #[serde(default)]
     assign_pane: Option<String>,
     #[serde(default)]
     group: Option<String>,
@@ -492,6 +494,7 @@ pub async fn task_add(
                 model_rationale: body.why,
                 body: body.body.unwrap_or_default(),
                 intent: body.intent,
+                parent_task_id: body.parent,
                 assigned_pane_id: body.assign_pane,
                 group: body.group,
             },
@@ -522,6 +525,8 @@ pub(crate) struct TaskUpdateBody {
     intent: Option<String>,
     #[serde(default)]
     sections: Option<String>,
+    #[serde(default)]
+    parent_task_id: Option<Option<String>>,
     #[serde(default)]
     group: Option<String>,
 }
@@ -555,6 +560,7 @@ pub async fn task_update(
             body.body.as_deref(),
             Some(body.intent.as_deref()),
             section_ids,
+            body.parent_task_id.as_ref().map(|p| p.as_deref()),
             body.group.as_ref().map(|s| Some(s.as_str())),
             epoch_ms(),
         )
