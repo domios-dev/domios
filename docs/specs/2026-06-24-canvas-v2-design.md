@@ -1366,3 +1366,18 @@ per-entity write path → strides.jsonl + merge=union → post-merge reindex →
 FIRST: verify git's built-in `merge=union` behaves on EOF-append hunks before choosing jsonl over
 one-file-per-event. Composes with §32-central-project (git-common-dir) — together: one central, git-mergeable,
 branch-travelling plan/memory store.
+
+### 33.6 Compaction + scale (Andrey: don't let logs bloat; must hold ~10k tasks)
+- **Log compaction** (append-only must not grow unbounded): `task.md` frontmatter IS the materialized snapshot,
+  so the `strides.jsonl` can be folded + truncated to a recent window. Mechanism = a deterministic MAINTENANCE
+  op (like `git gc`): fold old events into the snapshot, keep the last N strides (+ a total count), archive the
+  rest. Run it on the CANONICAL branch at a controlled checkpoint, NEVER ad-hoc per-worktree (compaction is a
+  non-append rewrite → would break `merge=union` if two branches compact differently). Deterministic fold =
+  idempotent. Simpler fallback: keep the full log but the daemon only LOADS/renders the last N + count (file
+  compacted offline, live view never reads the whole log).
+- **Scale target ~10k tasks + ~10k embeddings** (stored, not concurrent): holds. Git handles 10k+ small files;
+  the daemon loads PER-PLAN lazily (never all 10k at once); the canvas renders via worlds-LOD + per-plan scope
+  (never 10k cards). sqlite-vec kNN over 10k–100k vectors = sub-ms–ms; FTS+RRF trivial; derived-index rebuild
+  of 10k units = seconds, incremental via content-hash skip. Bottleneck is UI render (already bounded), not
+  storage. VALIDATE with a benchmark: seed ~10k tasks/strides across N plans → assert search latency, reindex
+  time, canvas fit-all + per-plan load times stay bounded.
