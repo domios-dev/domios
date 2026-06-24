@@ -266,25 +266,23 @@ export function TaskCard({
           </div>
         )}
 
-        {/* Body + stride snake. W0/W1 = snake preview pinned to the bottom; W2+ =
-            body (clamped at W2, full+scroll at W3) then the blooming snake. */}
+        {/* §35.3 fixed slot: at W2+ the DESCRIPTION box always renders (reveal-by-
+            zoom, never click) — body markdown when present, an empty-state otherwise
+            so the slot never collapses/shifts. Clamped at W2, full+scroll at W3; the
+            stride snake blooms below it. W0/W1 = snake preview pinned to the bottom. */}
         {showBody ? (
-          (bodyChars > 0 || strideCount > 0) && (
-            <div className="ct-canvas-scroll ct-canvas-fade-in" data-canvas-scroll-body="1" style={{ marginTop: 2, flex: 1, overflowY: "auto", minHeight: 0 }}>
-              {bodyChars > 0 && (
-                <div data-testid="canvas-task-body" data-canvas-selectable className="ct-canvas-text" style={atLeast(world, "W3")
-                  ? { fontSize: "0.92em", lineHeight: 1.5 }
-                  : { fontSize: "0.9em", lineHeight: 1.45, display: "-webkit-box", WebkitLineClamp: 6, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                  <RichMarkdown text={task.body} />
-                </div>
-              )}
-              {strideCount > 0 && (
-                <div style={{ marginTop: bodyChars > 0 ? 12 : 0 }}>
-                  <StrideSnake milestones={task.milestones} colors={stepColors} world={world} width={innerW} onCopyLink={onCopyStrideLink} onFocusStride={onFocusStride} />
-                </div>
-              )}
+          <div className="ct-canvas-scroll ct-canvas-fade-in" data-canvas-scroll-body="1" style={{ marginTop: 2, flex: 1, overflowY: "auto", minHeight: 0 }}>
+            <div data-testid="canvas-task-body" data-canvas-selectable className="ct-canvas-text" style={atLeast(world, "W3")
+              ? { fontSize: "0.92em", lineHeight: 1.5, minHeight: "1.2em" }
+              : { fontSize: "0.9em", lineHeight: 1.45, minHeight: "1.2em", display: "-webkit-box", WebkitLineClamp: 6, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+              {bodyChars > 0 ? <RichMarkdown text={task.body} /> : <span style={{ opacity: 0.4, fontStyle: "italic" }}>No description</span>}
             </div>
-          )
+            {strideCount > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <StrideSnake milestones={task.milestones} colors={stepColors} world={world} width={innerW} onCopyLink={onCopyStrideLink} onFocusStride={onFocusStride} />
+              </div>
+            )}
+          </div>
         ) : (
           strideCount > 0 && (
             <div style={{ marginTop: "auto" }}>
