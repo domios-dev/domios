@@ -65,6 +65,9 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
   // Spend-based providers (cursor) have no session/weekly % and no plan limit
   // to threshold against — render the cycle spend as a neutral pill.
   const isSpend = snapshot.spend_cents != null;
+  const spendLabel = snapshot.spend_remaining_cents != null
+    ? `${formatSpend(snapshot.spend_remaining_cents)} left`
+    : formatSpend(snapshot.spend_cents ?? 0);
   const sessionState = classify(snapshot.session_pct);
   const weeklyState = classify(snapshot.weekly_pct);
   const worst: "neutral" | "warn" | "danger" = isSpend
@@ -97,7 +100,7 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
         className={bubbleClass}
         aria-label={
           isSpend
-            ? `usage spend ${formatSpend(snapshot.spend_cents ?? 0)} this cycle`
+            ? `usage ${spendLabel}`
             : `usage session ${formatPct(snapshot.session_pct)} weekly ${formatPct(snapshot.weekly_pct)}`
         }
         onClick={(e) => {
@@ -110,7 +113,7 @@ export function UsageBubble({ provider, accountId = null, trackingEnabled = fals
             <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M6 1.6v8.8M8 3.2H4.9a1.4 1.4 0 0 0 0 2.8h2.2a1.4 1.4 0 0 1 0 2.8H3.8" />
             </svg>
-            <span className="pct">{formatSpend(snapshot.spend_cents ?? 0)}</span>
+            <span className="pct">{spendLabel}</span>
           </span>
         ) : (
           <>

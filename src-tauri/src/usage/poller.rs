@@ -231,7 +231,7 @@ fn activity_gate(
     true
 }
 
-/// True when the latest stored snapshot's session or weekly reset timer has
+/// True when the latest stored snapshot's reset timer has
 /// already elapsed — the displayed cycle is over, so a fresh probe is overdue.
 fn reset_due(inner: &Arc<UsagePollerInner>, key: &AccountKey, now_ms: i64) -> bool {
     match inner
@@ -246,7 +246,7 @@ fn reset_due(inner: &Arc<UsagePollerInner>, key: &AccountKey, now_ms: i64) -> bo
 /// Pure reset-boundary test: any non-null reset timestamp at or before `now_ms`.
 fn row_reset_due(row: &super::store::UsageSnapshotRow, now_ms: i64) -> bool {
     let passed = |r: Option<i64>| r.map(|r| r <= now_ms).unwrap_or(false);
-    passed(row.session_resets_at) || passed(row.weekly_resets_at)
+    passed(row.session_resets_at) || passed(row.weekly_resets_at) || passed(row.spend_resets_at)
 }
 
 /// Returns the wait duration for the given step. Top steps get ±10% jitter so
@@ -499,7 +499,16 @@ mod tests {
             weekly_pct: Some(50.0),
             weekly_resets_at: weekly,
             spend_cents: None,
+            spend_limit_cents: None,
+            spend_remaining_cents: None,
             spend_resets_at: None,
+        }
+    }
+
+    fn row_with_spend(spend: Option<i64>) -> UsageSnapshotRow {
+        UsageSnapshotRow {
+            spend_resets_at: spend,
+            ..row(None, None)
         }
     }
 
@@ -519,6 +528,12 @@ mod tests {
     fn reset_due_when_weekly_timer_passed() {
         let now = 1_000_000;
         assert!(row_reset_due(&row(Some(now + 5), Some(now)), now));
+    }
+
+    #[test]
+    fn reset_due_when_spend_timer_passed() {
+        let now = 1_000_000;
+        assert!(row_reset_due(&row_with_spend(Some(now)), now));
     }
 
     #[test]

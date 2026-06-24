@@ -23,6 +23,10 @@ pub struct UsageSnapshotRow {
     #[serde(default)]
     pub spend_cents: Option<f64>,
     #[serde(default)]
+    pub spend_limit_cents: Option<f64>,
+    #[serde(default)]
+    pub spend_remaining_cents: Option<f64>,
+    #[serde(default)]
     pub spend_resets_at: Option<i64>,
 }
 
@@ -206,7 +210,7 @@ impl UsageStore {
 const SELECT_HEADER: &str = r#"SELECT id, provider, account_id, captured_at, parsed_ok,
         session_pct, session_resets_at,
         weekly_pct, weekly_resets_at,
-        spend_cents, spend_resets_at
+        spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at
         FROM usage_snapshots"#;
 
 fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
@@ -221,7 +225,9 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
         weekly_pct: r.get::<_, Option<f64>>(7)?.map(|v| v as f32),
         weekly_resets_at: r.get(8)?,
         spend_cents: r.get(9)?,
-        spend_resets_at: r.get(10)?,
+        spend_limit_cents: r.get(10)?,
+        spend_remaining_cents: r.get(11)?,
+        spend_resets_at: r.get(12)?,
     })
 }
 
@@ -246,8 +252,8 @@ fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSnapshot) -> Result
         r#"INSERT INTO usage_snapshots
            (provider, account_id, captured_at, parsed_ok,
             session_pct, session_resets_at, weekly_pct, weekly_resets_at,
-            spend_cents, spend_resets_at)
-           VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8, ?9)"#,
+            spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at)
+           VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
         params![
             &snap.provider,
             &snap.account_id,
@@ -257,6 +263,8 @@ fn insert_header(tx: &rusqlite::Transaction<'_>, snap: &UsageSnapshot) -> Result
             snap.weekly_pct.map(|v| v as f64),
             snap.weekly_resets_at_ms,
             snap.spend_cents,
+            snap.spend_limit_cents,
+            snap.spend_remaining_cents,
             snap.spend_resets_at_ms,
         ],
     )
@@ -282,7 +290,12 @@ const LEGACY_COLUMNS: &[&str] = &[
 
 // Spend columns post-date the original schema; add them to pre-existing DBs
 // (CREATE TABLE IF NOT EXISTS leaves an already-created table untouched).
-const ADDED_COLUMNS: &[(&str, &str)] = &[("spend_cents", "REAL"), ("spend_resets_at", "INTEGER")];
+const ADDED_COLUMNS: &[(&str, &str)] = &[
+    ("spend_cents", "REAL"),
+    ("spend_limit_cents", "REAL"),
+    ("spend_remaining_cents", "REAL"),
+    ("spend_resets_at", "INTEGER"),
+];
 
 fn add_missing_columns(conn: &Connection) -> Result<(), String> {
     let existing = table_columns(conn)?;
@@ -349,6 +362,11 @@ mod tests {
         add_missing_columns(&conn).unwrap();
         let cols = table_columns(&conn).unwrap();
         assert!(cols.contains("spend_cents"), "spend_cents added");
+        assert!(cols.contains("spend_limit_cents"), "spend_limit_cents added");
+        assert!(
+            cols.contains("spend_remaining_cents"),
+            "spend_remaining_cents added"
+        );
         assert!(cols.contains("spend_resets_at"), "spend_resets_at added");
 
         // Idempotent: a second pass on an already-migrated DB is a no-op.
@@ -426,11 +444,15 @@ mod tests {
         let store = UsageStore::open_in_memory().unwrap();
         let mut s = UsageSnapshot::empty("cursor", "raw", 1_000_000_000_000);
         s.spend_cents = Some(1743.5);
+        s.spend_limit_cents = Some(2000.0);
+        s.spend_remaining_cents = Some(256.5);
         s.spend_resets_at_ms = Some(1_785_542_400_000);
         let id = store.insert_snapshot(&s).unwrap();
         assert!(id > 0);
         let got = store.get_latest("cursor", None).unwrap().unwrap();
         assert_eq!(got.spend_cents, Some(1743.5));
+        assert_eq!(got.spend_limit_cents, Some(2000.0));
+        assert_eq!(got.spend_remaining_cents, Some(256.5));
         assert_eq!(got.spend_resets_at, Some(1_785_542_400_000));
         assert_eq!(got.session_pct, None);
     }
