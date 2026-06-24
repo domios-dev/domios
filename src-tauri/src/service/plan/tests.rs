@@ -108,6 +108,59 @@ fn in_review_status_persists_and_reloads() {
 }
 
 #[test]
+fn task_quality_fields_persist_and_reload() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Quality".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("abc"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "criteria lane".into(),
+                kind: "implement".into(),
+                acceptance_criteria: vec![
+                    "Task JSON contains structured acceptance criteria".into(),
+                    "CLI shows each criterion".into(),
+                ],
+                test_plan: Some(
+                    "cargo test service::plan::tests::task_quality_fields_persist_and_reload"
+                        .into(),
+                ),
+                correctness: Some("quality fields round-trip unchanged".into()),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    store.plans.write().clear();
+    store.reload_from_disk(&p.id).unwrap();
+
+    let loaded = store.get(&p.id).unwrap();
+    let task = loaded.tasks.iter().find(|task| task.id == task_id).unwrap();
+    assert_eq!(
+        task.acceptance_criteria,
+        vec![
+            "Task JSON contains structured acceptance criteria",
+            "CLI shows each criterion"
+        ]
+    );
+    assert_eq!(
+        task.test_plan.as_deref(),
+        Some("cargo test service::plan::tests::task_quality_fields_persist_and_reload")
+    );
+    assert_eq!(
+        task.correctness.as_deref(),
+        Some("quality fields round-trip unchanged")
+    );
+}
+
+#[test]
 fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
@@ -485,6 +538,9 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         kind: "implement".into(),
         model: None,
         model_rationale: None,
+        acceptance_criteria: vec![],
+        test_plan: None,
+        correctness: None,
         status: TaskStatus::Pending,
         status_label: None,
         priority: Default::default(),
