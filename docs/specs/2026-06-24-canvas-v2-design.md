@@ -946,3 +946,94 @@ Assert across the band boundaries (drive camera so a task hits each appW): fixed
 (±2px across all bands), content-LOD actually changes per band, volume cue present at L0 with NO
 subtask text, subtask cards present at L2+, in_progress weight > done weight at EVERY band, no
 overflow (overflow scrolls node-only, never canvas), no overlap, breadcrumb + Esc escape work.
+
+## 26. WORLDS zoom model — generalize §25 to every node + fix body-reveal (opus+cursor+codex converged)
+
+<!-- revision: 7 -->
+
+Resolves Andrey's "worlds" direction. Three brainstorms (opus 56c1e70f, cursor 09d9bc85, codex
+c64b684b) converged on ONE unified appW-driven content-LOD contract spanning SPEC, PLAN, TASK,
+subtasks, milestones. This SUPERSEDES the task-only §25 ladder by generalizing it to all node types,
+and FIXES the live body-invisible bug. Zoom is the only navigation; nothing hidden behind clicks.
+
+### 26.1 Root bug (located in code by opus)
+- `CanvasView.tsx:273` — `contentNear = scale >= 1.3` is ONE global raw-camera-scale flag for all
+  nodes (the §25.1 anti-pattern: a wide SPEC and a small TASK cross "near" at the same camera scale,
+  so neither reveals at the right physical size).
+- `SectionNode.tsx:133` — plan bodies hard-gated via `!isPlan`, so the PLAN node NEVER renders body.
+- Net: PLAN is index-only at every zoom; SPEC body threshold not reached even at 173%; task body /
+  model_rationale only behind a click-toggle. Markdown (`RichMarkdown`) IS wired and bodies ARE in
+  data — this is a reveal/threshold bug, not a missing renderer.
+FIX: delete the global flag + the `!isPlan` gate; drive a per-node band off `appW`.
+
+### 26.2 The four worlds (appW-driven, per node, ±10% hysteresis)
+`appW = nodeFootprintWorldWidth × cameraScale`. Footprint is FIXED while zooming; only PAINTED
+content changes inside it. Thresholds are wider for the SPEC node (it's physically wider). Nominal
+appW px (normal node / SPEC):
+- **W0 MASS** `<160 / <220`: board reads as territories. Plan-region label; plan/spec/task masses;
+  coverage strips; status rings; task **volume silhouettes** (§25.5 deck). No body text, but no empty
+  cards. Section anchors still present so edges stay continuous.
+- **W1 STRUCTURE** `160–340 / 220–440`: SPEC = section title rail + first-line abstracts; PLAN = all
+  section rows (title · ready/count · output dot); TASK = handle, status, model, step-thread titles,
+  subtask roster chips. Edges SPEC-section → PLAN-row → tasks fully visible.
+- **W2 CONTENT** `340–620 / 440–760`: **the body-visible band — the bug fix.** SPEC section bodies
+  render `RichMarkdown` in chunked/paged blocks; PLAN rows expand to 2–4-line markdown excerpts
+  (NO MORE index-only); TASK body appears clamped, steps become mini-cards, subtasks become
+  mini-cards (title + body excerpt). model_rationale is zoom-revealed here, not click-only.
+- **W3 DEEP** `>620 / >760`, or dominance (node fills ~60% viewport): full readable content. SPEC full
+  section bodies w/ pager+rail; PLAN full section bodies/digests + coverage rationale (node-internal
+  scroll); TASK unclamped body + rationale + pane link + full milestone/step text + subtask bodies +
+  subtask step threads. Dominance may elevate/dim but NEVER changes footprint (§25.3).
+
+Per-node: SUBTASKS = deck(W0) → roster chips(W1) → mini-cards(W2) → full cards + own step threads(W3),
+bounded interior of the task-world (§20.1, §25.5). MILESTONES/STEPS = constellation(W0) → readable
+thread titles(W1) → step cards short text(W2) → full text + iteration/links(W3). No click anywhere.
+
+### 26.3 Markdown treatment
+`RichMarkdown` with visible block structure: headings, paragraphs, lists, code/quote containers
+separated by spacing/borders — never flattened to a text blob. W2 = density-clamped by a per-block
+line budget; W3 = unclamped with node-local scroll. mermaid/code = compact preview chip at W2 →
+full/interactive block at W3.
+
+### 26.4 Data-driven task footprint (constraint B — size = work volume, fixed across zoom)
+Footprint recomputed ONLY on data mutation, never on zoom (refines §22.1: fixed across ZOOM, varies
+by DATA). The reserved bbox IS the deepest-LOD reserve (§25.2). Synthesized formula (codex base,
+opus fixed-column width):
+```
+bodyUnits    = clamp(ceil(bodyChars/240), 0, 10)
+stepUnits    = clamp(stepCount, 0, 12)
+subtaskUnits = clamp(Σ(1 + ceil(sub.bodyChars/320) + ceil(sub.stepCount/3)), 0, 18)
+volume       = bodyUnits*1.0 + stepUnits*1.4 + subtaskUnits*2.0 + (hasRationale?1:0)
+height       = clamp(180 + 34*sqrt(volume)*sqrt(1+stepCount/4) + 38*min(subtaskCount,6), 180, 760)
+width        = band-column slot (FIXED per band for stable columns); giants (volume in top decile)
+               may span 2 columns. (Height carries the magnitude; width stays column-stable.)
+```
+So heavy tasks are physically BIGGER (mass visible at W0 before text is readable); zoom never resizes
+them; overflow beyond the reserved height is handled by node-internal scroll at W3, never by growing.
+
+### 26.5 Packing stability (no portyanka, no overlap, deterministic)
+- Band = primary section id (§20.3 banded sweep); stable until coverage data changes.
+- Stable order = (planId, sectionBand, createdAt, id) — NOT size, so cards don't reshuffle on edit.
+- On data growth: recompute only the changed card's bbox → local band re-pack + monotonic downstream
+  push (DOWN only), never a global reshuffle; edges reroute after packing. Same data → same layout.
+- PLAN node height is NOT content-driven: fixed body viewport (e.g. ~560×680, bounded by section
+  count). W2 = per-row excerpts; W3 = node-internal vertical scroll + section rail + sticky current
+  header + 3–5-section page chunks. Wheel over body scrolls node only (§24.2). SPEC owns full prose.
+
+### 26.6 Reconcile with §25 / supersession
+KEEP: appW driver (§25.1), reserve-at-deepest (§25.2), BAND⊥DOMINANCE (§25.3), ladder semantics
+(§25.4), card-deck subtask cue (§25.5), status emphasis (§25.6), flat-canvas escape (§25.7). GENERALIZE:
+L0–L3 → W0–W3 applied to EVERY node type (SPEC + PLAN + TASK), so body text is reachable at every
+hierarchy level. §22.2 merged-node = obsolete (§24.3 separate SPEC stands). §22.1 refined as 26.4.
+
+### 26.7 Playwright matrix (extends §25.8)
+1. Body visibility by band: seed long SPEC/PLAN/task/subtask/step text; drive camera so each node's
+   appW enters W2; assert SPEC body, PLAN row excerpt, TASK body, subtask body, step text all visible
+   + non-zero-size; assert `RichMarkdown` emits distinct block/list/code elements.
+2. Threshold reachability: reproduce the 173% case; assert PLAN is NOT index-only once appW crosses W2.
+3. Footprint fixed across zoom: snapshot SPEC/PLAN/task bboxes at W0–W3; assert Δ ≤ 2px world.
+4. Size↔volume: small/medium/large-volume tasks; assert bbox area monotonic with computed volume +
+   W0 deck/scale cue on heavy ones.
+5. No overlap on data growth: mutate a task (more body/steps/subtasks); settle; assert no bbox
+   intersections among SPEC/PLAN/tasks + edges still attached; only changed/downstream bands move.
+6. Scroll rule: wheel over node body scrolls node only; off-node wheel pans canvas.
