@@ -93,17 +93,6 @@ pub enum Commands {
         action: PaneAction,
     },
 
-    /// Get terminal output from a pane (default: current pane)
-    GetOutput {
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
-        pane: Option<String>,
-
-        /// Maximum number of lines to return (approximate)
-        #[arg(long, default_value = "50")]
-        lines: u32,
-    },
-
     /// Send text to a pane (default: current pane).
     ///
     /// Sending to a SHELL pane delivers raw text/keys verbatim — no agent

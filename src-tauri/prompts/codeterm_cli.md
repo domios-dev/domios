@@ -52,7 +52,7 @@ codeterm delayed edit ID --delay 5m --text "..."     # modify queued/failed dela
 codeterm delayed send-now ID                         # deliver queued/failed delayed send immediately
 codeterm delayed delete ID                           # remove queued/failed delayed send
 codeterm pane exec "<cmd>" --pane PANE_ID           # run a shell command headlessly; returns stdout
-codeterm get-output --pane PANE_ID                  # raw terminal scrollback
+codeterm pane get-text --pane PANE_ID               # visible terminal text (what the user sees)
 codeterm pane chat --pane PANE_ID [--since N]       # PARSED chat transcript of an agent pane (text/thinking/tool calls/results) — inspect what a sub-agent actually did, not raw ANSI
 
 codeterm workspace create "Name" [--cwd PATH]       # optional: create an empty workspace for independent work; discover ids via pane list
@@ -123,7 +123,7 @@ codeterm agent restart --pane ID [--force]         # graceful exit; resumes only
 Reports also auto-inject as `-=-codeterm:report ...-=-` messages into the target
 pane. React when they arrive; don't sleep/poll. Chase silent workers via
 `codeterm pane status --pane ID`, `codeterm pane chat --pane ID`, or
-`codeterm get-output --pane ID`.
+`codeterm pane get-text --pane ID`.
 
 Don't over-spawn. Trivial recon (single grep/ls/cat/git/file read) is local work.
 Spawn only for isolation, parallelism, separate workspace, remote execution, or
@@ -178,12 +178,12 @@ against that peer's daemon and its panes", not the local machine.
 codeterm mesh status
 codeterm mesh peers                                # paired + discovered
 codeterm pane list --mesh PEER                    # discover remote workspaces/pane ids
-codeterm get-output --pane ID --mesh PEER          # raw terminal scrollback from that remote pane
+codeterm pane get-text --pane ID --mesh PEER       # visible terminal text from that remote pane
 codeterm pane chat --pane ID --mesh PEER           # parsed chat transcript from that remote agent pane
 ```
 
 Use the same commands shown earlier with `--mesh PEER` appended when the target
-is remote. `get-output` is raw terminal bytes/scrollback; use `pane chat` when
+is remote. Use `pane get-text` for visible terminal text and `pane chat` when
 you want assistant/user/tool messages parsed from an agent session.
 
 Flow: `mesh peers` → find paired peer → `pane list --mesh PEER` → act on a

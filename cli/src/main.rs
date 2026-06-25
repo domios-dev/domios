@@ -454,11 +454,6 @@ fn main() {
             return;
         }
 
-        Commands::GetOutput { pane, lines } => {
-            cmd::local_io::handle_get_output(&mut client, pane, lines, cli.json);
-            return;
-        }
-
         Commands::SendText {
             pane,
             text,

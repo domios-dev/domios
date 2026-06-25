@@ -148,9 +148,6 @@ pub fn handle_mesh(json: bool, action: MeshAction) {
                 }
             }
         }
-        MeshAction::Output { target, pane } => {
-            mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "output", &pane, json);
-        }
         MeshAction::Panes { target } => {
             mesh_cli::mesh_relay_cmd(&http, &base, &token, &target, "panes", "", json);
         }

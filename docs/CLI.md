@@ -392,13 +392,6 @@ Show the Spec(s)+Plan+tasks bundle for one effort
 
 - `<plan_id>`
 
-#### `codeterm get-output`
-
-Get terminal output from a pane (default: current pane)
-
-- `--lines` — Maximum number of lines to return (approximate)
-- `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-
 #### `codeterm identify`
 
 Show CodeTerm version and system info
@@ -1065,13 +1058,6 @@ Go offline: stop pinging peers, stop announcing, stop refreshing local addresses
 
 Come back online — resume mesh activity. Local-only
 
-#### `codeterm mesh output`
-
-Get output from a pane on a remote mesh peer
-
-- `--pane` — Target pane on remote instance (default: general)
-- `<target>` — Target peer name or instance ID
-
 #### `codeterm mesh panes`
 
 List panes on a remote mesh peer
@@ -1244,7 +1230,7 @@ List all panes as a workspace-grouped tree. `--agents` filters to agent panes on
 
 Plain shell pane. For an AI pane use `codeterm agent spawn` instead
 
-- `--chat_backend` — Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`get-output` then route to the plugin, not a shell
+- `--chat_backend` — Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`pane get-text` then route to the plugin, not a shell
 - `--cmd` — Spawn a shell that runs this command on start (e.g. `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created pane
 - `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new pane
@@ -1662,10 +1648,15 @@ Plan tasks
 #### `codeterm plan task add`
 
 - `--assign_pane`
+- `--base`
 - `--body`
 - `--body_file`
+- `--branch`
+- `--cleanup_hints`
+- `--cleanup_status`
 - `--correctness`
 - `--criterion`
+- `--destination`
 - `--group`
 - `--handle`
 - `--intent`
@@ -1683,6 +1674,9 @@ Plan tasks
 - `--test_plan`
 - `--why`
 - `--why_file`
+- `--workspace_id`
+- `--workspace_name`
+- `--worktree`
 
 #### `codeterm plan task assign`
 
@@ -1722,10 +1716,15 @@ Plan tasks
 
 #### `codeterm plan task update`
 
+- `--base`
 - `--body`
 - `--body_file`
+- `--branch`
+- `--cleanup_hints`
+- `--cleanup_status`
 - `--correctness`
 - `--criterion`
+- `--destination`
 - `--group`
 - `--handle`
 - `--intent`
@@ -1733,6 +1732,7 @@ Plan tasks
 - `--kind`
 - `--model`
 - `--name`
+- `--pane`
 - `--parent`
 - `<plan_id>`
 - `--primary`
@@ -1745,6 +1745,9 @@ Plan tasks
 - `--test_plan`
 - `--why`
 - `--why_file`
+- `--workspace_id`
+- `--workspace_name`
+- `--worktree`
 
 #### `codeterm plan transfer`
 

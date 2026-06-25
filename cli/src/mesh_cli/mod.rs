@@ -24,14 +24,6 @@ pub enum MeshAction {
     Status,
     /// List all peers (paired + discovered)
     Peers,
-    /// Get output from a pane on a remote mesh peer
-    Output {
-        /// Target peer name or instance ID
-        target: String,
-        /// Target pane on remote instance (default: general)
-        #[arg(long, default_value = "general")]
-        pane: String,
-    },
     /// List panes on a remote mesh peer
     Panes {
         /// Target peer name or instance ID

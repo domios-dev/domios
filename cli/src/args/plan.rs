@@ -373,6 +373,22 @@ pub enum PlanTaskAction {
         #[arg(long)]
         assign_pane: Option<String>,
         #[arg(long)]
+        workspace_id: Option<String>,
+        #[arg(long)]
+        workspace_name: Option<String>,
+        #[arg(long)]
+        worktree: Option<String>,
+        #[arg(long)]
+        branch: Option<String>,
+        #[arg(long)]
+        base: Option<String>,
+        #[arg(long)]
+        destination: Option<String>,
+        #[arg(long)]
+        cleanup_status: Option<String>,
+        #[arg(long = "cleanup-hint", allow_hyphen_values = true)]
+        cleanup_hints: Vec<String>,
+        #[arg(long)]
         group: Option<String>,
         #[arg(long)]
         priority: Option<String>,
@@ -423,6 +439,24 @@ pub enum PlanTaskAction {
         correctness: Option<String>,
         #[arg(long)]
         parent: Option<String>,
+        #[arg(long)]
+        pane: Option<String>,
+        #[arg(long)]
+        workspace_id: Option<String>,
+        #[arg(long)]
+        workspace_name: Option<String>,
+        #[arg(long)]
+        worktree: Option<String>,
+        #[arg(long)]
+        branch: Option<String>,
+        #[arg(long)]
+        base: Option<String>,
+        #[arg(long)]
+        destination: Option<String>,
+        #[arg(long)]
+        cleanup_status: Option<String>,
+        #[arg(long = "cleanup-hint", allow_hyphen_values = true)]
+        cleanup_hints: Vec<String>,
         #[arg(long)]
         group: Option<String>,
         #[arg(long)]

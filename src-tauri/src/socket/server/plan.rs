@@ -3,10 +3,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::{AgentRef, OrchestratorRef, PlanStatus, TaskStatus};
+use crate::plan::{AgentRef, OrchestratorRef, PlanStatus, TaskLaneMetadata, TaskStatus};
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::task_queries::TaskListFilter;
-use crate::service::plan::{hints, NewTask, PlanError};
+use crate::service::plan::{hints, NewTask, PlanError, TaskLaneUpdate};
 use crate::service::ServiceState;
 
 use super::plan_fields::{
@@ -34,6 +34,55 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+}
+
+fn lane_metadata_field(p: Option<&Value>) -> Result<TaskLaneMetadata, JsonRpcError> {
+    p.and_then(|x| x.get("lane"))
+        .map(|v| {
+            serde_json::from_value(v.clone()).map_err(|e| JsonRpcError {
+                code: -32602,
+                message: format!("invalid lane metadata: {e}"),
+                data: None,
+            })
+        })
+        .transpose()
+        .map(|lane| lane.unwrap_or_default())
+}
+
+fn lane_update_field(p: Option<&Value>) -> Result<Option<TaskLaneUpdate>, JsonRpcError> {
+    let Some(lane) = p.and_then(|x| x.get("lane")) else {
+        return Ok(None);
+    };
+    let mut update = TaskLaneUpdate::default();
+    update.pane_id = lane.get("pane_id").map(|v| v.as_str().map(str::to_string));
+    update.workspace_id = lane
+        .get("workspace_id")
+        .map(|v| v.as_str().map(str::to_string));
+    update.workspace_name = lane
+        .get("workspace_name")
+        .map(|v| v.as_str().map(str::to_string));
+    update.worktree_path = lane
+        .get("worktree_path")
+        .map(|v| v.as_str().map(str::to_string));
+    update.branch = lane.get("branch").map(|v| v.as_str().map(str::to_string));
+    update.base = lane.get("base").map(|v| v.as_str().map(str::to_string));
+    update.destination = lane
+        .get("destination")
+        .map(|v| v.as_str().map(str::to_string));
+    update.cleanup_status = lane
+        .get("cleanup_status")
+        .map(|v| v.as_str().map(str::to_string));
+    if lane.get("cleanup_hints").is_some() {
+        update.cleanup_hints = Some(
+            serde_json::from_value(lane.get("cleanup_hints").cloned().unwrap_or(Value::Null))
+                .map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: format!("invalid cleanup_hints: {e}"),
+                    data: None,
+                })?,
+        );
+    }
+    Ok((!update.is_empty()).then_some(update))
 }
 
 pub(super) fn dispatch(
@@ -670,6 +719,7 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("assign_pane"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        lane: lane_metadata_field(p)?,
                         group: p
                             .and_then(|x| x.get("group"))
                             .and_then(|v| v.as_str())
@@ -737,6 +787,7 @@ pub(super) fn dispatch(
                 .map(|_| string_array_field(p, "acceptance_criteria"));
             let test_plan = optional_string_field(p, "test_plan");
             let correctness = optional_string_field(p, "correctness");
+            let lane = lane_update_field(p)?;
             store
                 .update_task(
                     &id,
@@ -762,6 +813,11 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            if let Some(lane) = lane {
+                store
+                    .update_task_lane(&id, &tid, lane, now)
+                    .map_err(plan_rpc_err)?;
+            }
             if acceptance_criteria.is_some() || test_plan.is_some() || correctness.is_some() {
                 store
                     .update_task_quality(

@@ -67,6 +67,28 @@ impl OrchestratorRef {
 
 pub type AgentRef = OrchestratorRef;
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TaskLaneMetadata {
+    #[serde(default)]
+    pub pane_id: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    #[serde(default)]
+    pub workspace_name: Option<String>,
+    #[serde(default)]
+    pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub destination: Option<String>,
+    #[serde(default)]
+    pub cleanup_status: Option<String>,
+    #[serde(default)]
+    pub cleanup_hints: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TransferRecord {
     pub from: OrchestratorRef,
@@ -208,6 +230,8 @@ pub struct Task {
     #[serde(default)]
     pub parent_task_id: Option<String>,
     pub assigned_pane_id: Option<String>,
+    #[serde(default)]
+    pub lane: TaskLaneMetadata,
     #[serde(default)]
     pub taken_by_role: Option<String>,
     pub peer: Option<String>,

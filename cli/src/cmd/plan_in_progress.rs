@@ -64,6 +64,13 @@ fn task_str<'a>(item: &'a Value, field: &str) -> Option<&'a str> {
     task_value(item).get(field).and_then(|v| v.as_str())
 }
 
+fn lane_str<'a>(item: &'a Value, field: &str) -> Option<&'a str> {
+    task_value(item)
+        .get("lane")
+        .and_then(|v| v.get(field))
+        .and_then(|v| v.as_str())
+}
+
 fn task_sort_key(item: &Value) -> (&str, &str) {
     (
         task_str(item, "name").unwrap_or(""),
@@ -137,14 +144,22 @@ fn render_in_progress_task(
 ) {
     let id = task_str(item, "id").unwrap_or("?");
     let status = task_str(item, "status").unwrap_or("?");
-    let assignee = task_str(item, "assigned_pane_id").unwrap_or("-");
+    let assignee = task_str(item, "assigned_pane_id")
+        .or_else(|| lane_str(item, "pane_id"))
+        .unwrap_or("-");
+    let workspace = lane_str(item, "workspace_id").unwrap_or("-");
+    let branch = lane_str(item, "branch").unwrap_or("-");
+    let cleanup = lane_str(item, "cleanup_status").unwrap_or("-");
     let name = task_str(item, "name").unwrap_or("?");
     out.push_str(&format!(
-        "{}{}\t{}\t{}\t{}\n",
+        "{}{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
         "  ".repeat(depth),
         id,
         status,
         assignee,
+        workspace,
+        branch,
+        cleanup,
         name
     ));
     if let Some(items) = children.get(id) {
@@ -169,7 +184,12 @@ mod tests {
                         "id": "task_parent",
                         "name": "Parent",
                         "status": "in_progress",
-                        "assigned_pane_id": "pane1234"
+                        "assigned_pane_id": "pane1234",
+                        "lane": {
+                            "workspace_id": "ws1",
+                            "branch": "lane/one",
+                            "cleanup_status": "pending"
+                        }
                     }
                 },
                 {
@@ -186,7 +206,8 @@ mod tests {
         }));
 
         assert!(rendered.contains("pl_1\tPlan\n"));
-        assert!(rendered.contains("  task_parent\tin_progress\tpane1234\tParent\n"));
-        assert!(rendered.contains("    task_child\tblocked\t-\tChild\n"));
+        assert!(rendered
+            .contains("  task_parent\tin_progress\tpane1234\tws1\tlane/one\tpending\tParent\n"));
+        assert!(rendered.contains("    task_child\tblocked\t-\t-\t-\t-\tChild\n"));
     }
 }

@@ -402,6 +402,7 @@ impl PlanStore {
                                     intent: None,
                                     parent_task_id: None,
                                     assigned_pane_id: None,
+                                    lane: Default::default(),
                                     taken_by_role: None,
                                     peer: None,
                                     group,
