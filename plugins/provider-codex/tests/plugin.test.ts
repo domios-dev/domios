@@ -128,6 +128,25 @@ assert(Array.isArray(plugin.noisePatterns) && plugin.noisePatterns.length > 0, "
 // No image-send strategy → path fallback used by host
 assert(plugin.imageSend === undefined, "imageSend undefined (host falls back to path strategy)");
 
+console.log("\n--- screenHasTui ---\n");
+{
+  const runtimePlugin = loadHostPlugin();
+  assert(
+    runtimePlugin.screenHasTui([
+      "• Implemented the CLI-side fix and reported via codeterm agent report.",
+      "",
+      "─ Worked for 2m 48s ─────────────────────────────────────────────────────────",
+      "› Explain this codebase",
+      "gpt-5.5 medium · /Users/rollacode/Developer/codeterm-cross-report",
+    ].join("\n")),
+    "post-turn Codex composer with model footer is still a live TUI",
+  );
+  assert(
+    !runtimePlugin.screenHasTui("$ echo gpt-5.5 medium · ~/tmp"),
+    "plain shell text is not Codex TUI",
+  );
+}
+
 console.log("\n--- hasEventMarkers: picker/menu screens gate a screen read (/model) ---\n");
 {
   const evp = loadHostPlugin();
