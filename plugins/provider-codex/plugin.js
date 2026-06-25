@@ -263,6 +263,7 @@ var OUTPUT_FINGERPRINTS = [
   "codex>"
 ];
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
+var MODEL_FOOTER_RE = /\b(?:gpt|o\d|codex)[\w.-]*\s+(?:default|low|medium|high)\s+·\s+[~/]/i;
 var plugin = {
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
@@ -275,10 +276,12 @@ var plugin = {
     return false;
   },
   screenHasTui(screen) {
-    const lower = String(screen || "").toLowerCase();
+    const text = String(screen || "");
+    const lower = text.toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
+    if (MODEL_FOOTER_RE.test(text) && /^[\s\S]*^[›❯]\s/m.test(text)) return true;
     return false;
   },
   isOutputNoise(text) {
@@ -389,9 +392,9 @@ var plugin = {
         if (!isNaN(d)) ts = Math.floor(d / 1e3);
       }
       if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
-        const p = v.payload;
-        const content = typeof p.stdout === "string" ? p.stdout : "";
-        const callId = typeof p.call_id === "string" ? p.call_id : "";
+        const p2 = v.payload;
+        const content = typeof p2.stdout === "string" ? p2.stdout : "";
+        const callId = typeof p2.call_id === "string" ? p2.call_id : "";
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_result", data: { content, tool_use_id: callId } }],
@@ -1008,7 +1011,9 @@ function isValidCodexSessionDelta(v) {
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   const kind = v.payload.type;
-  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output" && kind !== "custom_tool_call") return false;
+  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output" && kind !== "custom_tool_call") {
+    return false;
+  }
   return true;
 }
 function validateEntry(v) {

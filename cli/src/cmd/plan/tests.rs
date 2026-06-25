@@ -35,6 +35,7 @@ fn renders_unknown_plan_fix() {
     .unwrap();
     assert!(msg.contains("✗ no plan 'missing'"));
     assert!(msg.contains("codeterm plan list --active"));
+    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm"));
 }
 
 #[test]
@@ -46,6 +47,19 @@ fn renders_unknown_task_fix() {
     .unwrap();
     assert!(msg.contains("✗ no task 'missing_task'"));
     assert!(msg.contains("codeterm plan list --active"));
+    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm"));
+}
+
+#[test]
+fn plan_tagged_pane_not_found_gets_cross_daemon_hint() {
+    let err = crate::client::SocketCallError::Rpc(crate::client::RpcError {
+        code: -32603,
+        message: "Pane not found".into(),
+        data: None,
+    });
+    let msg = render_plan_call_error(err, &json!({ "plan_id": "pl_dev", "task_id": "task_dev" }));
+    assert!(msg.contains("RPC error -32603: Pane not found"));
+    assert!(msg.contains("env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm"));
 }
 
 #[test]

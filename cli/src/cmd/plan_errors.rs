@@ -3,11 +3,20 @@ use serde_json::Value;
 
 pub(crate) fn render_plan_call_error(err: SocketCallError, params: &Value) -> String {
     match err {
-        SocketCallError::Rpc(rpc) => rpc
-            .data
-            .as_ref()
-            .and_then(|data| render_plan_error(data, params))
-            .unwrap_or_else(|| format!("RPC error {}: {}", rpc.code, rpc.message)),
+        SocketCallError::Rpc(rpc) => {
+            let rendered = rpc
+                .data
+                .as_ref()
+                .and_then(|data| render_plan_error(data, params));
+            match rendered {
+                Some(message) => message,
+                None => append_cross_daemon_hint(
+                    format!("RPC error {}: {}", rpc.code, rpc.message),
+                    params,
+                    &rpc.message,
+                ),
+            }
+        }
         SocketCallError::Transport(message) => message,
     }
 }
@@ -29,13 +38,13 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
             "✗ invalid task status.\nvalid statuses: pending|in_progress|blocked|done|cancelled\nfix: codeterm plan task update {plan_id} {} --status pending\nuse --status-label for free-text nuance.",
             task_id.unwrap_or("<task_id>")
         )),
-        "not_found" => Some(format!(
+        "not_found" => Some(with_cross_daemon_hint(format!(
             "✗ no plan '{plan_id}' was found.\nfix: codeterm plan list --active"
-        )),
-        "task_not_found" => Some(format!(
+        ))),
+        "task_not_found" => Some(with_cross_daemon_hint(format!(
             "✗ no task '{}' was found in plan '{plan_id}'.\nfix: codeterm plan list --active",
             task_id.unwrap_or("<task_id>")
-        )),
+        ))),
         "open_subtasks" => render_open_subtasks(data, plan_id, task_id),
         "budget_exhausted" => {
             let count = data.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -46,6 +55,27 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
         }
         _ => None,
     }
+}
+
+fn append_cross_daemon_hint(message: String, params: &Value, raw_error: &str) -> String {
+    if params.get("plan_id").and_then(|v| v.as_str()).is_none() {
+        return message;
+    }
+    let lower = raw_error.to_ascii_lowercase();
+    if lower.contains("pane not found")
+        || lower.contains("plan not found")
+        || lower.contains("task not found")
+    {
+        return with_cross_daemon_hint(message);
+    }
+    message
+}
+
+fn with_cross_daemon_hint(message: String) -> String {
+    format!(
+        "{message}\n\
+hint: if this plan lives on the dev daemon but this pane is in prod, rerun with the dev daemon selected:\n  env -u CODETERM_API_TOKEN CODETERM_API_PORT=7686 codeterm ..."
+    )
 }
 
 fn render_undeclared_kind(data: &Value, plan_id: &str, task_id: Option<&str>) -> Option<String> {
