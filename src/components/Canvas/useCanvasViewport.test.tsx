@@ -3,7 +3,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { useCanvasViewport } from "./useCanvasViewport";
+import { useCanvasViewport, CANVAS_ZOOM_INTENSITY, formatLayerTransform } from "./useCanvasViewport";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -32,7 +32,7 @@ function setupDom() {
 let last = { x: 0, y: 0, scale: 1 };
 
 function Harness() {
-  const { transform, handlers, containerRef } = useCanvasViewport({ width: 800, height: 600 });
+  const { transform, handlers, containerRef, layerRef } = useCanvasViewport({ width: 800, height: 600 });
   last = transform;
   return (
     <div
@@ -40,7 +40,9 @@ function Harness() {
       data-testid="vp"
       onMouseDown={handlers.onMouseDown}
       style={{ width: 800, height: 600 }}
-    />
+    >
+      <div ref={layerRef} data-testid="layer" style={{ transform: formatLayerTransform(transform) }} />
+    </div>
   );
 }
 
@@ -78,6 +80,11 @@ async function flush() {
   });
 }
 
+function scaleFromTransform(style: string): number {
+  const m = /scale\(([\d.]+)\)/.exec(style);
+  return m ? Number(m[1]) : NaN;
+}
+
 test("plain two-finger wheel PANS both axes, scale unchanged", async () => {
   const { host, root } = await render(<Harness />);
   const vp = host.querySelector('[data-testid="vp"]')!;
@@ -106,10 +113,11 @@ test("cmd/ctrl wheel ZOOMS around pointer, position pans too", async () => {
 });
 
 function ScrollHarness() {
-  const { transform, handlers, containerRef } = useCanvasViewport({ width: 800, height: 600 });
+  const { transform, handlers, containerRef, layerRef } = useCanvasViewport({ width: 800, height: 600 });
   last = transform;
   return (
     <div ref={containerRef} data-testid="vp" onMouseDown={handlers.onMouseDown} style={{ width: 800, height: 600 }}>
+      <div ref={layerRef} data-testid="layer" style={{ transform: formatLayerTransform(transform) }} />
       <div data-testid="body" data-canvas-scroll-body="1" style={{ width: 200, height: 100 }} />
     </div>
   );
@@ -148,6 +156,34 @@ test("wheel over empty canvas (not a node body) PANS — move OFF the node to pa
   wheel(vp, { deltaY: 80 });
   await flush();
   assert(last.y === -80, `off a node, the canvas pans; got y=${last.y}`);
+  await act(async () => root.unmount());
+});
+
+test("rapid pinch (ctrl-wheel) events compound scale before RAF flush", async () => {
+  const { host, root } = await render(<Harness />);
+  const vp = host.querySelector('[data-testid="vp"]')!;
+  const layer = host.querySelector('[data-testid="layer"]') as HTMLElement;
+  wheel(vp, { deltaY: -40, ctrlKey: true });
+  wheel(vp, { deltaY: -40, ctrlKey: true });
+  wheel(vp, { deltaY: -40, ctrlKey: true });
+  const expected = Math.exp(40 * 3 * CANVAS_ZOOM_INTENSITY);
+  assert(Math.abs(scaleFromTransform(layer.style.transform) - expected) < 1e-6, "layer compounded before flush");
+  assert(last.scale === 1, "React state deferred until RAF");
+  await flush();
+  assert(Math.abs(last.scale - expected) < 1e-6, `React state matches compounded scale after flush`);
+  await act(async () => root.unmount());
+});
+
+test("pinch zoom paints layer transform immediately (not only after RAF)", async () => {
+  const { host, root } = await render(<Harness />);
+  const vp = host.querySelector('[data-testid="vp"]')!;
+  const layer = host.querySelector('[data-testid="layer"]') as HTMLElement;
+  wheel(vp, { deltaY: -100, ctrlKey: true });
+  const factor = Math.exp(100 * CANVAS_ZOOM_INTENSITY);
+  assert(Math.abs(scaleFromTransform(layer.style.transform) - factor) < 1e-6, "layer scale painted sync");
+  assert(last.scale === 1, "React state still at initial scale before flush");
+  await flush();
+  assert(Math.abs(last.scale - factor) < 1e-6, "React state catches up after RAF");
   await act(async () => root.unmount());
 });
 

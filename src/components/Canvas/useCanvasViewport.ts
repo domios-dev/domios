@@ -39,6 +39,8 @@ export interface UseCanvasViewportResult {
   zoomBy: (delta: number) => void;
   isDragging: boolean;
   containerRef: React.MutableRefObject<HTMLDivElement | null>;
+  /** Attach to the transformed world layer for immediate pinch/pan paint. */
+  layerRef: React.MutableRefObject<HTMLDivElement | null>;
 }
 
 const DEF_MIN_SCALE = 0.08;
@@ -50,7 +52,18 @@ const FIT_MAX_ZOOM = 3;
 const LINE_PX = 16;
 // Pinch / cmd-wheel zoom sensitivity. ~2.5x the old 0.0016 so a pinch feels
 // immediate/Figma-like; the exponential keeps it smooth. Pan path is unchanged.
-const ZOOM_INTENSITY = 0.004;
+export const CANVAS_ZOOM_INTENSITY = 0.004;
+const ZOOM_INTENSITY = CANVAS_ZOOM_INTENSITY;
+
+export function formatLayerTransform(t: ViewportTransform): string {
+  return `translate(${t.x}px, ${t.y}px) scale(${t.scale})`;
+}
+
+function paintLayer(el: HTMLElement | null, t: ViewportTransform): void {
+  if (!el) return;
+  el.style.transform = formatLayerTransform(t);
+  el.style.transformOrigin = "0 0";
+}
 
 // deltaMode: 0 pixel, 1 line, 2 page → normalize to pixels.
 function pixelDelta(value: number, mode: number): number {
@@ -83,6 +96,7 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
 
   const transformRef = useRef(transform);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const layerRef = useRef<HTMLDivElement | null>(null);
   const spaceRef = useRef(false);
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -90,12 +104,14 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
 
   const setTransform = useCallback((next: ViewportTransform) => {
     transformRef.current = next;
+    paintLayer(layerRef.current, next);
     setTransformState(next);
   }, []);
 
   const schedule = useCallback((next: ViewportTransform) => {
     transformRef.current = next;
     pendingRef.current = next;
+    paintLayer(layerRef.current, next);
     if (frameRef.current != null) return;
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = null;
@@ -225,5 +241,6 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     zoomBy,
     isDragging,
     containerRef,
+    layerRef,
   };
 }

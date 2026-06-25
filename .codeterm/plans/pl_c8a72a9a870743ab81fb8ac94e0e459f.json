@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782425977782,
+  "updated_at": 1782426386948,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -2054,12 +2054,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782400418047,
-      "status_changed_at": 1782391650357,
+      "updated_at": 1782426386948,
+      "status_changed_at": 1782426386948,
       "handle": "pinch-zoom-responsiveness",
       "tags": [],
       "section_ids": [
@@ -2068,17 +2068,19 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_79f968733c364bdaa6516216a0d64d58",
-      "assigned_pane_id": null,
+      "assigned_pane_id": "856901dc",
       "lane": {
-        "pane_id": null,
+        "pane_id": "856901dc",
         "workspace_id": null,
         "workspace_name": null,
-        "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
-        "cleanup_status": null,
-        "cleanup_hints": []
+        "worktree_path": "/Users/rollacode/Developer/codeterm-pinch-zoom-responsiveness",
+        "branch": "lane/pinch-zoom-responsiveness",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After integration: close pane 856901dc, remove worktree /Users/rollacode/Developer/codeterm-pinch-zoom-responsiveness, delete branch lane/pinch-zoom-responsiveness."
+        ]
       },
       "taken_by_role": null,
       "peer": null,
@@ -2102,6 +2104,25 @@
           "links": [
             "key:a505cbbdac52f8b1"
           ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_bfa5da272c874ef6b3204e4cf4edb602",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Integrated pinch/trackpad zoom responsiveness fix. Hot checkout gates: useCanvasViewport.test.tsx 7/7, npx tsc --noEmit, Playwright @content-lod/@canvas-multiview-overflow/@canvas-tag-filter 3/3, CODETERM_API_PORT=7686 ./build.sh check, git diff --check.",
+          "ts": 1782426386948,
+          "links": [],
           "loop_id": null,
           "iteration": null,
           "canvas": {
