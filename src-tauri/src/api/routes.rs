@@ -141,6 +141,10 @@ pub fn create_router(state: AppState) -> Router {
             patch(plan_routes::section_update).delete(plan_routes::section_rm),
         )
         .route("/api/plans/{id}/kinds", post(plan_routes::kinds_set))
+        .route(
+            "/api/plans/{id}/tag-facets",
+            post(plan_routes::tag_facets_set),
+        )
         .route("/api/plans/{id}/coverage", get(plan_routes::coverage))
         .route("/api/plans/{id}/groups", post(plan_routes::groups_set))
         .route("/api/plans/{id}/batch", post(plan_routes::batch::batch))

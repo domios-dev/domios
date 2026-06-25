@@ -1352,6 +1352,15 @@ Generic canvas elements
 - `--link`
 - `<plan_id>`
 
+#### `codeterm plan facets`
+
+Set declared tag facets
+
+#### `codeterm plan facets set`
+
+- `--facets`
+- `<plan_id>`
+
 #### `codeterm plan files`
 
 List generated section/task body files

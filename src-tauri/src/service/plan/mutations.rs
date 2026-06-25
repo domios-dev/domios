@@ -2,8 +2,8 @@ use super::{NewTask, OpenSubtask, PlanError, PlanStore};
 use crate::plan::loop_engine::stop_for;
 use crate::plan::{
     AgentRef, CanvasElement, Goal, LoopSpec, LoopStage, LoopStatus, Milestone, MilestoneKind,
-    OrchestratorRef, Plan, PlanStatus, Section, Task, TaskGroup, TaskLaneMetadata, TaskPriority,
-    TaskStatus, TransferRecord,
+    OrchestratorRef, Plan, PlanStatus, Section, TagFacet, Task, TaskGroup, TaskLaneMetadata,
+    TaskPriority, TaskStatus, TransferRecord,
 };
 
 fn gen_id(prefix: &str) -> String {
@@ -283,6 +283,18 @@ impl PlanStore {
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
             p.task_groups = groups;
+            Ok(())
+        })
+    }
+
+    pub fn set_tag_facets(
+        &self,
+        plan_id: &str,
+        facets: Vec<TagFacet>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            p.tag_facets = facets;
             Ok(())
         })
     }

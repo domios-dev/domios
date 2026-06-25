@@ -4,7 +4,7 @@ use axum::{http::StatusCode, Json};
 use serde_json::Value;
 
 use crate::api::routes::AppState;
-use crate::plan::{MilestoneKind, TaskGroup};
+use crate::plan::{tag_facets_from_value, MilestoneKind, TaskGroup};
 use crate::service::plan::PlanError;
 
 pub mod batch;
@@ -23,7 +23,8 @@ pub use linking::{link, unlink};
 pub use loops::{loop_create, loop_set, loop_status, loop_stop};
 pub use milestones::{milestone_add, milestone_rm, milestone_update};
 pub use plans::{
-    archive, claim, create, delete_plan, disown, get, kinds_set, list, reconcile, transfer, update,
+    archive, claim, create, delete_plan, disown, get, kinds_set, list, reconcile, tag_facets_set,
+    transfer, update,
 };
 pub use sections::{ingest, section_add, section_rm, section_update};
 pub use tasks::{task_add, task_assign, task_close, task_rm, task_update};
@@ -96,4 +97,8 @@ fn groups_from_csv(raw: &str) -> Vec<TaskGroup> {
             }
         })
         .collect()
+}
+
+fn tag_facets_from_body(value: &Value) -> Result<Vec<crate::plan::TagFacet>, String> {
+    tag_facets_from_value(value)
 }

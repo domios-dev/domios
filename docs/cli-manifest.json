@@ -4843,6 +4843,38 @@
           ]
         },
         {
+          "name": "facets",
+          "about": "Set declared tag facets",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "facets",
+                  "positional": false,
+                  "value_name": "FACETS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "files",
           "about": "List generated section/task body files",
           "aliases": [],

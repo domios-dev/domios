@@ -916,6 +916,34 @@ fn set_task_groups_persists_and_reloads() {
 }
 
 #[test]
+fn set_tag_facets_persists_and_reloads() {
+    use crate::plan::{TagFacet, TagFacetValue};
+    let (store, id, _) = store_with_task(&["status_update"]);
+    store
+        .set_tag_facets(
+            &id,
+            vec![TagFacet {
+                key: "area".into(),
+                label: Some("Area".into()),
+                color_lane: true,
+                values: vec![TagFacetValue {
+                    v: "api".into(),
+                    label: Some("API".into()),
+                    color: Some("#38bdf8".into()),
+                }],
+            }],
+            70,
+        )
+        .unwrap();
+    store.reload_from_disk(&id).unwrap();
+    let p = store.get(&id).unwrap();
+    assert_eq!(p.tag_facets.len(), 1);
+    assert_eq!(p.tag_facets[0].key, "area");
+    assert!(p.tag_facets[0].color_lane);
+    assert_eq!(p.tag_facets[0].values[0].color.as_deref(), Some("#38bdf8"));
+}
+
+#[test]
 fn link_and_unlink_plan_dedup_and_remove() {
     let (store, id, _) = store_with_task(&["status_update"]);
     store.link_plan(&id, "pl_other", 71).unwrap();

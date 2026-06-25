@@ -94,6 +94,11 @@ pub enum PlanAction {
         #[command(subcommand)]
         action: PlanGroupsAction,
     },
+    /// Set declared tag facets
+    Facets {
+        #[command(subcommand)]
+        action: PlanFacetsAction,
+    },
     /// Link this plan to a related plan
     Link {
         plan_id: String,
@@ -301,6 +306,15 @@ pub enum PlanGroupsAction {
         plan_id: String,
         #[arg(long)]
         groups: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PlanFacetsAction {
+    Set {
+        plan_id: String,
+        #[arg(long)]
+        facets: String,
     },
 }
 

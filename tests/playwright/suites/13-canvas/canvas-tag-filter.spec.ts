@@ -2,47 +2,85 @@
  * 13-canvas - tag legend facet filter: click legend value -> matching tasks
  * highlight, non-matching dim. Tile tag payload covered by TaskCard unit tests.
  *
- * Skips when the dev workspace has no color-lane tag facets on active plans.
- *
  *   npx playwright test --config=tests/playwright/playwright.config.ts \
  *     --project=golden --grep @canvas-tag-filter
  */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import type { ApiClient } from "../../helpers/api-client";
 import { expect, test } from "../../helpers/fixtures";
 import { isEmpty, openCanvas } from "../../helpers/canvas-inspect";
+
+interface CreatePlanResponse {
+  plan_id: string;
+}
+
+async function seedTagFilterPlan(api: ApiClient, projectPath: string): Promise<void> {
+  const created = await api.post<CreatePlanResponse>("/plans", {
+    title: "Canvas Tag Filter Synthetic Plan",
+    project_path: projectPath,
+    owner: { pane_id: "tag-filter-orchestrator", session_id: null, title: "Tag Filter Orchestrator" },
+  });
+  await api.post(`/plans/${created.plan_id}/tag-facets`, {
+    facets: [
+      {
+        key: "area",
+        label: "Area",
+        color_lane: true,
+        values: [
+          { v: "api", label: "API", color: "#38bdf8" },
+          { v: "ui", label: "UI", color: "#34d399" },
+        ],
+      },
+    ],
+  });
+  await api.post(`/plans/${created.plan_id}/tasks`, {
+    name: "Implement API facet lane",
+    type: "implement",
+    body: "Synthetic task that should highlight when the API facet is selected.",
+    tags: ["area:api"],
+  });
+  await api.post(`/plans/${created.plan_id}/tasks`, {
+    name: "Implement UI facet lane",
+    type: "implement",
+    body: "Synthetic task that should dim when the API facet is selected.",
+    tags: ["area:ui"],
+  });
+}
 
 test("@golden @canvas-tag-filter legend click highlights matching tasks and dims others", async ({ api, ui }) => {
   const { page } = ui;
 
-  const workspaces = await api.workspaces();
-  const repoWorkspace = workspaces.find((w) => w.cwd === "/Users/rollacode/Developer/codeterm");
-  if (repoWorkspace) await api.focusWorkspace(repoWorkspace.id);
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-canvas-tags-"));
+  await api.createWorkspace("canvas tag filter", projectPath);
+  const workspace = (await api.workspaces()).find((w) => w.cwd === projectPath);
+  if (!workspace) throw new Error("created workspace was not listed");
+  await api.focusWorkspace(workspace.id);
+  await seedTagFilterPlan(api, projectPath);
   await page.reload({ waitUntil: "domcontentloaded" });
 
   await openCanvas(page);
   if (await isEmpty(page)) {
-    test.skip(true, "no active plans in the dev workspace");
-    return;
+    throw new Error("synthetic tag-filter plan did not render on the canvas");
   }
 
   const legend = page.locator('[data-testid="canvas-tag-legend"]');
   if ((await legend.count()) === 0) {
-    test.skip(true, "no color-lane tag facets on active plans");
-    return;
+    throw new Error("synthetic color-lane facet did not render a tag legend");
   }
 
   const value = legend.locator('[data-testid="canvas-tag-legend-value"]').first();
   await expect(value).toBeVisible();
   const tag = await value.getAttribute("data-tag");
   if (!tag) {
-    test.skip(true, "legend value missing data-tag");
-    return;
+    throw new Error("legend value missing data-tag");
   }
 
   const cards = page.locator('[data-testid="canvas-task-card"]');
   const cardCount = await cards.count();
   if (cardCount === 0) {
-    test.skip(true, "no task cards on board");
-    return;
+    throw new Error("synthetic tag-filter tasks did not render on the board");
   }
 
   await value.click();
@@ -56,6 +94,7 @@ test("@golden @canvas-tag-filter legend click highlights matching tasks and dims
   const dimCount = await dimmed.count();
   expect(highlightCount + dimCount, "filtered tasks partition the board").toBe(cardCount);
   expect(highlightCount, "at least one task matches the facet filter").toBeGreaterThan(0);
+  expect(dimCount, "at least one task does not match the facet filter").toBeGreaterThan(0);
 
   const tileTags = page.locator('[data-testid="canvas-task-tile-tags"]');
   if ((await tileTags.count()) > 0) {

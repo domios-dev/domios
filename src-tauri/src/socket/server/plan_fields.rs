@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use crate::multiplexer::types::AgentRole;
-use crate::plan::{MilestoneKind, TaskGroup};
+use crate::plan::{tag_facets_from_value, MilestoneKind, TagFacet, TaskGroup};
 use crate::service::ServiceState;
 
 pub(super) fn kinds_from_csv(raw: &str) -> Vec<MilestoneKind> {
@@ -29,6 +29,13 @@ pub(super) fn groups_from_csv(raw: &str) -> Vec<TaskGroup> {
             }
         })
         .collect()
+}
+
+pub(super) fn tag_facets_field(params: Option<&Value>, key: &str) -> Result<Vec<TagFacet>, String> {
+    let value = params
+        .and_then(|x| x.get(key))
+        .ok_or_else(|| format!("missing required field '{key}'"))?;
+    tag_facets_from_value(value)
 }
 
 pub(super) fn string_array_field(params: Option<&Value>, key: &str) -> Vec<String> {

@@ -131,6 +131,87 @@ pub struct TagFacet {
     pub values: Vec<TagFacetValue>,
 }
 
+pub fn tag_facets_from_value(value: &serde_json::Value) -> Result<Vec<TagFacet>, String> {
+    match value {
+        serde_json::Value::String(raw) => tag_facets_from_string(raw),
+        serde_json::Value::Array(_) => {
+            serde_json::from_value(value.clone()).map_err(|e| format!("invalid tag_facets: {}", e))
+        }
+        serde_json::Value::Object(_) => serde_json::from_value::<TagFacet>(value.clone())
+            .map(|facet| vec![facet])
+            .map_err(|e| format!("invalid tag_facets: {}", e)),
+        _ => Err("tag_facets must be an array, object, or JSON string".into()),
+    }
+}
+
+pub fn tag_facets_from_string(raw: &str) -> Result<Vec<TagFacet>, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    if trimmed.starts_with('[') || trimmed.starts_with('{') {
+        let value: serde_json::Value =
+            serde_json::from_str(trimmed).map_err(|e| format!("invalid tag_facets JSON: {}", e))?;
+        return tag_facets_from_value(&value);
+    }
+    compact_tag_facets(trimmed)
+}
+
+fn compact_tag_facets(raw: &str) -> Result<Vec<TagFacet>, String> {
+    raw.split(';')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(compact_tag_facet)
+        .collect()
+}
+
+fn compact_tag_facet(raw: &str) -> Result<TagFacet, String> {
+    let mut parts = raw.splitn(3, ':');
+    let key = parts.next().unwrap_or_default().trim();
+    let label = parts.next().unwrap_or(key).trim();
+    let values_raw = parts
+        .next()
+        .ok_or_else(|| format!("facet '{raw}' must use key:label:value[=label][#color]|..."))?;
+    if key.is_empty() {
+        return Err("facet key cannot be empty".into());
+    }
+    let values = values_raw
+        .split('|')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(compact_tag_facet_value)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(TagFacet {
+        key: key.into(),
+        label: Some(label.into()),
+        color_lane: true,
+        values,
+    })
+}
+
+fn compact_tag_facet_value(raw: &str) -> Result<TagFacetValue, String> {
+    let (main, color) = raw.split_once('#').unwrap_or((raw, ""));
+    let (value, label) = main.split_once('=').unwrap_or((main, main));
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("facet value cannot be empty".into());
+    }
+    let label = label.trim();
+    Ok(TagFacetValue {
+        v: value.into(),
+        label: if label.is_empty() {
+            None
+        } else {
+            Some(label.into())
+        },
+        color: if color.trim().is_empty() {
+            None
+        } else {
+            Some(color.trim().into())
+        },
+    })
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Goal {
     pub vector: String,

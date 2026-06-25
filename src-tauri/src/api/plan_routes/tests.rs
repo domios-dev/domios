@@ -32,6 +32,37 @@ fn kinds_from_csv_splits() {
 }
 
 #[test]
+fn tag_facets_from_body_accepts_json_array() {
+    let facets = tag_facets_from_body(&serde_json::json!([
+        {
+            "key": "area",
+            "label": "Area",
+            "color_lane": true,
+            "values": [
+                { "v": "api", "label": "API", "color": "#38bdf8" },
+                { "v": "ui", "label": "UI" }
+            ]
+        }
+    ]))
+    .unwrap();
+    assert_eq!(facets.len(), 1);
+    assert_eq!(facets[0].key, "area");
+    assert!(facets[0].color_lane);
+    assert_eq!(facets[0].values[0].v, "api");
+    assert_eq!(facets[0].values[0].color.as_deref(), Some("#38bdf8"));
+}
+
+#[test]
+fn tag_facets_from_body_accepts_compact_string() {
+    let facets =
+        tag_facets_from_body(&serde_json::json!("area:Area:api=API#38bdf8|ui=UI#34d399")).unwrap();
+    assert_eq!(facets.len(), 1);
+    assert_eq!(facets[0].label.as_deref(), Some("Area"));
+    assert_eq!(facets[0].values.len(), 2);
+    assert_eq!(facets[0].values[1].label.as_deref(), Some("UI"));
+}
+
+#[test]
 fn create_body_deserializes() {
     let body: CreatePlanBody = serde_json::from_str(r#"{"title":"T","kinds":"a,b"}"#).unwrap();
     assert_eq!(body.title, "T");
