@@ -232,6 +232,7 @@ impl ServiceContext {
         let text = format!(
             "[task in_review] '{task_name}' ({task_id}) → in_review by {who}{intent_part}\nReview it, then judge done or bounce back."
         );
+        let text = self.plan_store.prepend_heartbeat_for_plan(plan_id, &text);
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
         let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
     }
@@ -254,7 +255,7 @@ impl ServiceContext {
         };
         let text = crate::service::plan::reminders::nudge_text(kind);
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
-        if crate::service::messenger::Messenger::deliver(self, pane_id, envelope, text).is_ok() {
+        if crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok() {
             self.plan_turn_counter.mark_nudged(pane_id, turns);
         }
     }

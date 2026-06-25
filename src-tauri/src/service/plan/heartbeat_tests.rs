@@ -65,7 +65,10 @@ fn heartbeat_learning_persists_reloads_and_dedups() {
 fn heartbeat_resolves_for_owner_pane_at_send_time() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let before = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
-    assert_eq!(before, "continue");
+    assert!(before.contains("STATE-RECONCILIATION"));
+    assert!(before.contains("First run `codeterm agent reports`"));
+    assert!(before.contains("Re-arm exactly one heartbeat"));
+    assert!(before.ends_with("continue"));
 
     store
         .with_plan(&plan_id, 10, |plan| {
@@ -96,6 +99,7 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
         )
         .unwrap();
     let after = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    assert!(after.contains("<codeterm-state-reconciliation"));
     assert!(after.contains("<codeterm-orchestrator-heartbeat"));
     assert!(after.contains("Current focus: Review worker branches"));
     assert!(after.contains("Active lanes:\n- backend tests\n- frontend canvas"));
@@ -121,4 +125,18 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
 
     let worker_text = store.prepend_heartbeat_for_orchestrator_pane("worker-a", "continue");
     assert_eq!(worker_text, "continue");
+}
+
+#[test]
+fn notifier_delivery_uses_same_state_reconciliation_prelude() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    let text = store.prepend_heartbeat_for_plan(
+        &plan_id,
+        "[task in_review] 'Backend' (task-a) -> in_review by worker-a\nReview it.",
+    );
+
+    assert!(text.contains("<codeterm-state-reconciliation"));
+    assert!(text.contains("STATE-RECONCILIATION"));
+    assert!(text.contains("Reconcile live panes against the plan"));
+    assert!(text.contains("[task in_review]"));
 }
