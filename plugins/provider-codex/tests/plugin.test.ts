@@ -117,6 +117,27 @@ assert(!plugin.detect({ bytes: "claude code", title: "claude" }), "claude title 
 console.log("\n--- statusOf ---\n");
 eq(plugin.statusOf({ kind: "anything" }), null, "statusOf always returns null (PTY-driven status)");
 
+console.log("\n--- parseUsage (/status screen) ---\n");
+{
+  const evp = loadHostPlugin();
+  const nowMs = new Date(2026, 5, 14, 12, 0, 0, 0).getTime();
+  const statusScreen = [
+    "OpenAI Codex",
+    "",
+    "5h limit",
+    "████████░░░░░░░░░░░░  58% left (resets 19:59)",
+    "",
+    "Weekly limit",
+    "██████░░░░░░░░░░░░░░  72% left (resets 19:59 on 14 Jun)",
+  ].join("\n");
+  const snap = evp.parseUsage(statusScreen, nowMs) as Record<string, unknown>;
+  eq(snap.session_pct, 42, "session gauge stores % used from % left");
+  eq(snap.weekly_pct, 28, "weekly gauge stores % used from % left");
+  assert(snap.session_resets_at_ms != null, "session reset timestamp parsed");
+  assert(snap.weekly_resets_at_ms != null, "weekly reset timestamp parsed");
+  eq(evp.parseUsage("OpenAI Codex\nloading…", nowMs), null, "parseUsage null without gauges");
+}
+
 console.log("\n--- actions ---\n");
 eq(plugin.actions, [], "no actions defined yet");
 

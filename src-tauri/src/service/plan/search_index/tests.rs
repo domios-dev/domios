@@ -109,6 +109,11 @@ fn mirrors_plan_units_into_project_local_mem_db() {
         .body
         .contains("Plan \"Canvas\" · task: Fix soft lock"));
     assert_eq!(hits[0].scope, project_scope(root.path()));
+    assert_eq!(hits[0].updated_at, 3);
+    assert!(hits[0].age_ms > 0);
+    let encoded = serde_json::to_value(&hits[0]).unwrap();
+    assert_eq!(encoded["updated_at"], serde_json::json!(3));
+    assert!(encoded["age_ms"].as_u64().is_some());
 }
 
 #[test]

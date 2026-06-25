@@ -669,64 +669,41 @@ fn run_plan(
                 intent,
                 intent_file,
                 sections,
+                criterion,
+                test_plan,
+                correctness,
                 parent,
                 group,
                 priority,
                 tags,
                 primary,
                 handle,
-            } => {
-                let why_text = resolve_text(why, why_file)?;
-                let body_text = resolve_text(body, body_file)?;
-                let intent_text = resolve_text(intent, intent_file)?;
-                let mut params = json!({ "plan_id": plan_id, "task_id": task_id });
-                if let Some(n) = name {
-                    params["name"] = json!(n);
-                }
-                if let Some(k) = kind {
-                    params["type"] = json!(k);
-                }
-                if let Some(m) = model {
-                    params["model"] = json!(m);
-                }
-                if let Some(w) = why_text {
-                    params["why"] = json!(w);
-                }
-                if let Some(s) = status {
-                    params["status"] = json!(s);
-                }
-                if let Some(l) = status_label {
-                    params["status_label"] = json!(l);
-                }
-                if let Some(b) = body_text {
-                    params["body"] = json!(b);
-                }
-                if let Some(i) = intent_text {
-                    params["intent"] = json!(i);
-                }
-                if let Some(s) = sections {
-                    params["sections"] = json!(s);
-                }
-                if let Some(p) = parent {
-                    params["parent_task_id"] = json!(p);
-                }
-                if let Some(g) = group {
-                    params["group"] = json!(g);
-                }
-                if let Some(priority) = priority {
-                    params["priority"] = json!(priority);
-                }
-                if !tags.is_empty() {
-                    params["tags"] = json!(tags);
-                }
-                if let Some(primary) = primary {
-                    params["primary"] = json!(primary);
-                }
-                if let Some(handle) = handle {
-                    params["handle"] = json!(handle);
-                }
-                call(client, "plan.task.update", params)
-            }
+            } => crate::cmd::plan_task_update::run(
+                client,
+                plan_id,
+                task_id,
+                name,
+                kind,
+                model,
+                why,
+                why_file,
+                status,
+                status_label,
+                body,
+                body_file,
+                intent,
+                intent_file,
+                sections,
+                criterion,
+                test_plan,
+                correctness,
+                parent,
+                group,
+                priority,
+                tags,
+                primary,
+                handle,
+            ),
             PlanTaskAction::Close {
                 plan_id,
                 task_id,

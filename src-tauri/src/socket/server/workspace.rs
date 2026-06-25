@@ -197,21 +197,12 @@ pub(super) fn dispatch(
             let tab_id = get_string_param(params, "tab_id")?;
             let from_id = get_string_param(params, "from_workspace_id")?;
             let to_id = get_string_param(params, "to_workspace_id")?;
-            {
-                let mut mux = mux.write();
-                mux.move_tab(&tab_id, &from_id, &to_id)
-                    .map_err(|e| JsonRpcError {
-                        code: -32602,
-                        message: e,
-                        data: None,
-                    })?;
-            }
-            {
-                let h = app.clone();
-                std::thread::spawn(move || {
-                    let _ = h.emit("mux-state-changed", ());
-                });
-            }
+            svc.move_tab(&tab_id, &from_id, &to_id)
+                .map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: e,
+                    data: None,
+                })?;
             Ok(serde_json::json!({"ok": true}))
         }
 

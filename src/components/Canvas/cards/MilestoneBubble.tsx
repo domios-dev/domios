@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import type { Milestone } from "../types";
+import { MilestoneText } from "./MilestoneText";
 import type { CanvasCardStyleProps } from "./types";
 
 export interface MilestoneBubbleModel {
@@ -131,22 +132,19 @@ export function MilestoneBubble({ model, style }: MilestoneBubbleProps) {
           {milestone.text.trim().length > 0 && (
             <div
               data-testid="canvas-milestone-detail"
+              onWheel={(e) => e.stopPropagation()}
               style={{
                 color: "var(--ct-fg)",
                 opacity: 0.92,
                 lineHeight: 1.45,
-                // Clamp to 5 lines at a line boundary (never mid-glyph); wrap
-                // normally (spaces preserved) and break only overlong tokens.
-                display: "-webkit-box",
-                WebkitLineClamp: 5,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
+                maxHeight: 220,
+                overflowY: "auto",
                 whiteSpace: "normal",
                 overflowWrap: "anywhere",
                 wordBreak: "break-word",
               }}
             >
-              {milestone.text}
+              <MilestoneText text={milestone.text} testId="canvas-milestone-detail-text" />
             </div>
           )}
         </div>

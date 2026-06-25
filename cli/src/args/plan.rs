@@ -415,6 +415,12 @@ pub enum PlanTaskAction {
         intent_file: Option<String>,
         #[arg(long)]
         sections: Option<String>,
+        #[arg(long = "criterion", allow_hyphen_values = true)]
+        criterion: Vec<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        test_plan: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        correctness: Option<String>,
         #[arg(long)]
         parent: Option<String>,
         #[arg(long)]

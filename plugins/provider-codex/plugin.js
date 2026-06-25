@@ -954,7 +954,8 @@ function readSessionMeta(path) {
 }
 function codexParseGauge(text, marker, isWeekly, nowMs) {
   const re = new RegExp(
-    marker + "[\\s\\S]{0,200}?(\\d+(?:\\.\\d+)?)\\s*%\\s*left[\\s\\S]*?\\(resets?\\s+([^)]+?)\\)"
+    marker + "[\\s\\S]{0,320}?(\\d+(?:\\.\\d+)?)\\s*%\\s*left[\\s\\S]*?\\(resets?\\s+([^)]+?)\\)",
+    "i"
   );
   const caps = re.exec(text);
   if (!caps) return { pct: null, resetsMs: null };

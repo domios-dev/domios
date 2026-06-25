@@ -594,9 +594,9 @@ console.log("\n--- usage (dashboard API fetch + parse) ---\n");
   const aggFixture = readFixture("usage-aggregated.json");
   const currentFixture = readFixture("usage-current-period.json");
   const PERIOD_END = 1782864000000;
-  const SPEND_CENTS = 1250.5;
-  const LIMIT_CENTS = 2000;
-  const REMAINING_CENTS = 749.5;
+  const SPEND_CENTS = 125050;
+  const LIMIT_CENTS = 200000;
+  const REMAINING_CENTS = 74950;
   const nowMs = 1781000000000;
 
   const usageHost = (over: Record<string, unknown> = {}) =>

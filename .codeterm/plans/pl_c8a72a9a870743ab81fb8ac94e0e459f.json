@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782413177644,
+  "updated_at": 1782419624558,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -149,6 +149,26 @@
     {
       "key": "Dispatched Cursor worker be4814ad in /Users/rollacode/Developer/codeterm-task-freshness on branch lane/task-freshness. Scope",
       "label": "Dispatched Cursor worker be4814ad in /Users/rollacode/Developer/codeterm-task-freshness on branch lane/task-freshness. Scope",
+      "color": null
+    },
+    {
+      "key": "Andrey UX constraint",
+      "label": "Andrey UX constraint",
+      "color": null
+    },
+    {
+      "key": "UX clarification",
+      "label": "UX clarification",
+      "color": null
+    },
+    {
+      "key": "Correctness vector",
+      "label": "Correctness vector",
+      "color": null
+    },
+    {
+      "key": "Implemented locally in hot checkout",
+      "label": "Implemented locally in hot checkout",
       "color": null
     }
   ],
@@ -3100,12 +3120,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
-      "status_label": null,
+      "status": "in_review",
+      "status_label": "integrated; child task remains",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782375546246,
-      "status_changed_at": 0,
+      "updated_at": 1782419465893,
+      "status_changed_at": 1782419465893,
       "handle": "render-attached-discussion-docs-chat-canvas-expandable",
       "tags": [],
       "section_ids": [
@@ -3123,7 +3143,107 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_49374dcdccee480b92d521b1fbb83822",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "Andrey UX constraint",
+          "text": " discussion/plan docs should not become a separate Tasks-inside-workspace mode. Primary surface remains the full Plan/canvas; clicking a task reference in the Plan/document/discussion surface should fly/focus the canvas to that task node while preserving full canvas context.",
+          "ts": 1782413518362,
+          "links": [
+            "key:7feb0b70059d7a57"
+          ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_52449c05b989471a9627faabb0452d0e",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "UX clarification",
+          "text": " keep one Plan button/entry point. No separate Task/Tasks button. When opened from a task context, the same Plan action should initialize/fly the canvas camera to the relevant task node; otherwise it opens the full plan normally.",
+          "ts": 1782413532057,
+          "links": [
+            "key:cbb311bd5bf549a5"
+          ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_420d97eac7c34d3290c9d167c5ce4c99",
+          "from": {
+            "pane_id": "7b7af5b2",
+            "session_id": "bef8e351-39b1-4ccd-9f37-d9b19b29b9b5",
+            "title": "discussion-docs"
+          },
+          "kind": "status_update",
+          "text": "STATUS: done\nCHANGES: packages/chat-ui/src/discussionDoc.ts (parse agent --doc embed), AttachedDiscussionDoc.tsx (expandable card), MarkdownBody renderUserContent + index exports; src/components/Canvas/cards/MilestoneText.tsx, StrideSnake.tsx, MilestoneBubble.tsx, digest.ts (summary-only digest for snake labels); tests: discussionDoc.test.ts, cards.test.tsx StrideSnake bloom case\nBUILD/TYPECHECK/TESTS: npx tsx packages/chat-ui/src/discussionDoc.test.ts — 4/4 pass; React component tests not run (worktree has no node_modules/react)\nFOLLOWUP: UX constraints noted (no separate Tasks view/button; single Plan entry with optional initial camera on bound task; task-ref click should fly/focus on full canvas) — out of scope for this task. Remaining: externalize milestone .md bodies to disk (sibling task task_f1db5434), wire task-ref links in discussion markdown to canvas focus/fly.",
+          "ts": 1782413960338,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_8a3f5a26ab6e4c278fadb0e4596f53b4",
+          "from": {
+            "pane_id": "7b7af5b2",
+            "session_id": "bef8e351-39b1-4ccd-9f37-d9b19b29b9b5",
+            "title": "discussion-docs"
+          },
+          "kind": "status_update",
+          "text": "STATUS: done\nCHANGES: packages/chat-ui/src/discussionDoc.ts, AttachedDiscussionDoc.tsx, MarkdownBody.tsx (renderUserContent), index.ts; src/components/Canvas/cards/MilestoneText.tsx, StrideSnake.tsx, MilestoneBubble.tsx, digest.ts, cards.test.tsx (StrideSnake bloom case), discussionDoc.test.ts\nBUILD/TYPECHECK/TESTS: npx tsx packages/chat-ui/src/discussionDoc.test.ts 4/4 pass; ts-unit-tests.sh failed in worktree (no node_modules/react) — Orchestrator warm verify needed for React tests\nFOLLOWUP: UX constraints noted (single Plan entry, no Tasks button; task-context opens Plan with camera on bound task; task-ref click fly/focus on full canvas) — out of scope. Sibling task task_f1db5434 externalizes milestone .md bodies to disk.",
+          "ts": 1782414311986,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_63317e003da84472b4bb01900df77cf2",
+          "from": {
+            "pane_id": "7b7af5b2",
+            "session_id": "bef8e351-39b1-4ccd-9f37-d9b19b29b9b5",
+            "title": "discussion-docs"
+          },
+          "kind": "status_update",
+          "text": "STATUS: partial\nCHANGES: none\nBUILD/TYPECHECK/TESTS: not run\nFOLLOWUP: alive; current state: done — discussion-doc rendering landed; awaiting Orchestrator warm-verify for React tests",
+          "ts": 1782414694060,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_f71723ca992a40bd863aa685e9ffd665",
@@ -12360,12 +12480,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
-      "status_label": null,
+      "status": "done",
+      "status_label": "pane-gone",
       "priority": "p2",
       "created_at": 1782387241047,
-      "updated_at": 1782387241047,
-      "status_changed_at": 1782387241047,
+      "updated_at": 1782419433491,
+      "status_changed_at": 1782419433287,
       "handle": "plan-recall-plansearchhit-needs-updated-at-age-field-for-time-based-up-weighting-f2-f3-recall",
       "tags": [
         "friction"
@@ -13185,6 +13305,395 @@
           }
         }
       ]
+    },
+    {
+      "id": "task_916dc030144a4220873db64b5863a23d",
+      "name": "Plan button task-context camera focus",
+      "type": "implement",
+      "model": "cursor:composer-2.5",
+      "model_rationale": "Small frontend UX lane: same Plan entry point should open full canvas but focus the camera on the relevant task when invoked from task context.",
+      "acceptance_criteria": [
+        "Single Plan entry point supports task-context initial focus without adding a separate Tasks button."
+      ],
+      "test_plan": "Open Plan from a task context; verify the full canvas is shown and camera focuses the originating task; open Plan normally and verify default full-plan view.",
+      "correctness": "Plan entry opened from a task preserves the full plan canvas and initializes/focuses camera on that task node.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782413573853,
+      "updated_at": 1782419558855,
+      "status_changed_at": 1782413573853,
+      "handle": "plan-button-task-focus",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_53240db6d2644dccad6fcf48228296ab",
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": "Canvas-UX",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [
+        {
+          "id": "ms_4f5fa2c62f7f4cbdbe8d66665b7d933d",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "Correctness vector",
+          "text": " Plan entry point semantics are preserved: one Plan action, optional task-context camera target, full canvas remains visible. Note: CLI task update lacks --correctness, so this is recorded as a work-point for now.",
+          "ts": 1782413597308,
+          "links": [
+            "key:1e77d2832e2a2024"
+          ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "task_7a7857e9639840f7aa87062bf2ee2f56",
+      "name": "CLI task update parity for quality fields",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Fast dogfood gap: task add supports quality fields, but task update cannot conveniently fill missing correctness/test criteria after hints.",
+      "acceptance_criteria": [
+        "task update accepts --correctness",
+        "task update accepts missing persisted quality fields from task add where backend supports updates",
+        "help/manifest reflects the new flags"
+      ],
+      "test_plan": "cargo fmt --manifest-path cli/Cargo.toml; cargo test --manifest-path cli/Cargo.toml plan_task_update_parses; ./build.sh cli; live codeterm plan task update ... --correctness smoke on dev plan.",
+      "correctness": "CLI update can repair task quality metadata after creation without manual JSON edits.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782413669232,
+      "updated_at": 1782419574645,
+      "status_changed_at": 1782419574645,
+      "handle": "cli-task-update-quality-fields",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": "fcb00202",
+      "taken_by_role": null,
+      "peer": null,
+      "group": "CLI-Ergonomics",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [
+        {
+          "id": "ms_aac96a94ed2a4540a11671452e33837a",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "Implemented locally in hot checkout",
+          "text": " task update now accepts --criterion, --test-plan, and --correctness; CLI forwards quality fields; backend plan.task.update persists acceptance_criteria/test_plan/correctness through update_task_quality. Verified cargo fmt, CLI parser tests, existing backend quality persistence test, ./build.sh cli, cli-manifest --write, ./build.sh check, git diff --check. Live smoke deferred until safe dev restart because current worker panes are active.",
+          "ts": 1782414188238,
+          "links": [
+            "key:196a347d0c037c18"
+          ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "task_934852491b8742bd9666b11d28b9a105",
+      "name": "Workspace moved tabs visible in sidebar",
+      "type": "bugfix",
+      "model": "cursor:composer-2.5",
+      "model_rationale": "Dogfood bug: tabs moved into the codeterm workspace are present in API workspace pane_ids/tab_count but do not render inside expanded workspace sidebar; manually-created tabs render.",
+      "acceptance_criteria": [
+        "Moved tabs render in the destination workspace sidebar without app restart",
+        "Manual tabs and moved tabs use the same visible tab list path",
+        "Source workspace no longer shows moved tabs"
+      ],
+      "test_plan": "Focused frontend/unit test if the workspace reducer/store is testable; otherwise provide a precise repro and orchestrator will run Playwright/manual UI smoke.",
+      "correctness": "Workspace sidebar derives visible tabs from current workspace membership after move-tab events, matching API state.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782414014302,
+      "updated_at": 1782418200818,
+      "status_changed_at": 1782418200683,
+      "handle": "workspace-moved-tabs-visible",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": "UI-State",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [
+        {
+          "id": "ms_82bd7e7793f94668b30923e3383eac73",
+          "from": {
+            "pane_id": "789c868a",
+            "session_id": "60ac969d-5d27-44a9-8f0f-726661d4c1c4",
+            "title": "workspace-moved-tabs"
+          },
+          "kind": "status_update",
+          "text": "STATUS: partial\nCHANGES: src/components/Sidebar/workspaceTabs.ts (new), workspaceTabs.test.ts (new), Sidebar.tsx; src-tauri/src/service/spawn.rs (resolve_spawn_workspace_id + priority fix), orchestrator.rs, spawn_chatbackend.rs, spawn_tests.rs; src-tauri/src/socket/server/workspace.rs (move_tab via svc)\nBUILD/TYPECHECK/TESTS: cargo test interrupted (lock/hang); workspaceTabs.test.ts fixed react import, re-run pending; lints clean on Sidebar files\nFOLLOWUP: alive; current state: working — root cause identified: sidebar hid tabs whose parent_pane_id points to a pane in another workspace (moved/spawn-misplaced worker tabs); spawn paths preferred parent workspace over explicit --workspace (fixed in 4 Rust sites). Need Orchestrator gates: cargo test resolve_spawn_workspace_prefers_explicit, npx tsx workspaceTabs.test.ts, manual verify move-tab + spawn --workspace --parent in UI.",
+          "ts": 1782414707905,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_4ec2aa8248d44106844414457042633f",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted workspace-moved-tabs: integrated sidebar cross-workspace child visibility, explicit --workspace precedence over parent for spawn, and workspace.move_tab state emission through service. Verified hot checkout: npx tsx src/components/Sidebar/workspaceTabs.test.ts passed; cargo test --manifest-path src-tauri/Cargo.toml resolve_spawn_workspace_prefers_explicit_workspace_over_parent passed; npm run build passed. Manual UI verify remains after safe dev restart.",
+          "ts": 1782418200683,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "task_b20455fdfd40410080e10511a3e0b7a9",
+      "name": "Tab title stability: remove automatic rename on unselect",
+      "type": "bugfix",
+      "model": "cursor:composer-2.5",
+      "model_rationale": "Dogfood bug: when a tab is unselected/focus changes, its title auto-renames to another value. Titles should only come from initial spawn, explicit user rename, or explicit agent self-rename.",
+      "acceptance_criteria": [
+        "Unselecting/focusing another tab does not change the previous tab title",
+        "Initial spawn title remains stable",
+        "Explicit user rename and explicit pane rename still work"
+      ],
+      "test_plan": "Focused reducer/service test around title source precedence if available; otherwise provide repro steps and orchestrator will run manual/UI smoke.",
+      "correctness": "Tab titles are stable unless changed by explicit creation or rename actions.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782414014442,
+      "updated_at": 1782415400400,
+      "status_changed_at": 1782415400258,
+      "handle": "tab-title-stability-no-auto-rename",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": "UI-State",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [
+        {
+          "id": "ms_d6d217fd276a4d6d98bc8664f35fb162",
+          "from": {
+            "pane_id": "d119b458",
+            "session_id": "ebbb9a49-b199-4da3-8ece-1b55e1c523dc",
+            "title": "tab-title-stability"
+          },
+          "kind": "status_update",
+          "text": "STATUS: partial\nCHANGES: src/hooks/terminal/useAgentDetection.ts, src/hooks/terminal/useShellIntegration.ts, src/store/multiplexer/reducer.ts, src/store/multiplexer/reducer.test.ts (branch also has prior TabItem/reducer/tree fixes)\nBUILD/TYPECHECK/TESTS: reducer tests not run (tsx missing locally); ./build.sh check started but interrupted before finish\nFOLLOWUP: alive; current state: working — passive OSC/CWD title rename removed, SET_STATE merge guards frontend Auto; need to finish build.sh check + run reducer tests via npx tsx",
+          "ts": 1782414734124,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_2c9ddedac8d94322a5beec29e81fe4d9",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted tab-title-stability: integrated useAgentDetection/useShellIntegration passive rename removal and reducer title-level guards. Verified in hot checkout: npx tsx src/store/multiplexer/reducer.test.ts (11/11 passed), npm run build passed, git diff --check passed for touched files. No dev restart performed.",
+          "ts": 1782415400258,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "task_6314a3b4e6ee4a6e99ed30ab8afc7d46",
+      "name": "Usage checker reliability: Cursor remaining + Codex status timeout",
+      "type": "bugfix",
+      "model": "cursor:composer-2.5",
+      "model_rationale": "Dogfood bug: Cursor usage/remaining-left detection looks unreliable, and Codex /status probe/checker takes too long and often times out; timers or parsing may be wrong.",
+      "acceptance_criteria": [
+        "Cursor remaining/left detection is either fixed or emits an honest unknown state instead of misleading values",
+        "Codex /status probe timeout behavior is bounded and does not hang/timeout unnecessarily on normal output",
+        "Usage UI/checker reports clear stale/unknown/error states"
+      ],
+      "test_plan": "Focused unit/parser tests for usage parsing and timeout behavior where possible; orchestrator will run warm gates and live smoke without restarting dev until safe.",
+      "correctness": "Usage checker never blocks UI/workflow on slow probes and never presents guessed remaining usage as reliable data.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782414504024,
+      "updated_at": 1782418848578,
+      "status_changed_at": 1782418848373,
+      "handle": "usage-checker-reliability",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": "Usage-Infra",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [
+        {
+          "id": "ms_e656142eb2cc456da7e699fd31be66d2",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted usage-checker: integrated Cursor dollars-to-cents usage fix, Codex /status gauge regex widening, and usage probe readiness/warmup/budget adjustments. Verified hot checkout: npx tsx plugins/provider-cursor/tests/plugin.test.ts (141 passed), npx tsx plugins/provider-codex/tests/plugin.test.ts (61 passed), cargo test --manifest-path src-tauri/Cargo.toml usage::probe (3 passed), env CODETERM_API_PORT=7686 ./build.sh check passed. Dev restart still deferred until active workers are drained.",
+          "ts": 1782418848373,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "task_6cd5f8933d1c470785673012c8de906c",
+      "name": "Task lane metadata and cleanup hints",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Dogfood friction: after reports the orchestrator must manually remember pane/worktree/branch/workspace and cleanup commands; this should be attached to task/report state.",
+      "acceptance_criteria": [
+        "A task/report view shows pane/worktree/branch/workspace metadata and cleanup reminders without grepping chat history."
+      ],
+      "test_plan": "Create a synthetic worker task with lane metadata; verify plan in-progress/task view or report output renders the metadata and cleanup hints; close the task and confirm no stale worktree branch is left.",
+      "correctness": "The orchestrator can recover lane ownership and required cleanup steps from the plan/CLI alone after compaction.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1782419613751,
+      "updated_at": 1782419613751,
+      "status_changed_at": 1782419613751,
+      "handle": "task-lane-metadata-cleanup-hints",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": "Orchestration-Ergonomics",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_de672778581841509a32d36f48a09f43",
+      "name": "Usage limit reset detector and auto-delay scheduling",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Dogfood friction: workers can silently limit out; orchestrator should know reset time and schedule a delayed follow-up instead of guessing.",
+      "acceptance_criteria": [
+        "Codex and Claude limit states expose an explicit reset timestamp/relative wait when the provider screen contains reset info.",
+        "The orchestrator can schedule a delayed check from detected reset time without manually reading screenshots."
+      ],
+      "test_plan": "Add provider fixture tests for Codex reset message and Claude blocked picker/limit message; run plugin/provider tests and any usage probe tests; smoke with a pane fixture if available.",
+      "correctness": "A limited worker is represented as waiting-until-reset, not as unknown/stale/dead, and the delay fires near the provider reset time.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1782419624558,
+      "updated_at": 1782419624558,
+      "status_changed_at": 1782419624558,
+      "handle": "usage-limit-reset-delay-detector",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": "Agent-Usage",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
     }
   ],
   "task_groups": [],

@@ -4,6 +4,7 @@
 import { reducer } from "./reducer";
 import type { ExtendedState } from "./tree";
 import type { MultiplexerState, Workspace, Pane } from "../../lib/types";
+import { TitleLevel } from "../../lib/types";
 
 let failures = 0;
 function test(name: string, fn: () => void) {
@@ -146,6 +147,97 @@ test("snapshot with null focus preserves prior focus", () => {
     state: snapWithFocus(2, ["p1"], null),
   });
   assert(after.focused_pane_id === "p1", "null focus does not clobber valid focus");
+});
+
+function paneWithTitle(id: string, title: string, titleLevel?: TitleLevel): Pane {
+  return {
+    id,
+    pty_id: null,
+    title,
+    title_level: titleLevel,
+  } as unknown as Pane;
+}
+
+test("SET_STATE drops frontend Auto title in favor of backend Default", () => {
+  const hydrated = reducer(base(), {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "Tab 3", TitleLevel.Default) },
+      active_workspace_id: null,
+      focused_pane_id: "p1",
+      generation: 1,
+    },
+  });
+  const withAuto = reducer(hydrated, {
+    type: "SET_PANE_TITLE",
+    paneId: "p1",
+    title: "codeterm",
+    level: TitleLevel.Auto,
+  });
+  assert(withAuto.panes.p1.title === "codeterm", "local Auto title applied");
+  const after = reducer(withAuto, {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "Tab 3", TitleLevel.Default) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 2,
+    },
+  });
+  assert(after.panes.p1.title === "Tab 3", "backend title wins over frontend Auto on snapshot");
+});
+
+test("SET_STATE keeps frontend User title until backend catches up", () => {
+  const hydrated = reducer(base(), {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "Tab 3", TitleLevel.Default) },
+      active_workspace_id: null,
+      focused_pane_id: "p1",
+      generation: 1,
+    },
+  });
+  const userPinned = reducer(hydrated, {
+    type: "SET_PANE_TITLE",
+    paneId: "p1",
+    title: "My Worker",
+    level: TitleLevel.User,
+  });
+  const after = reducer(userPinned, {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "Tab 3", TitleLevel.Default) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 2,
+    },
+  });
+  assert(after.panes.p1.title === "My Worker", "User rename survives snapshot until backend sync");
+});
+
+test("SET_PANE_TITLE rejects lower priority overwrite", () => {
+  const hydrated = reducer(base(), {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "Pinned", TitleLevel.User) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 1,
+    },
+  });
+  const after = reducer(hydrated, {
+    type: "SET_PANE_TITLE",
+    paneId: "p1",
+    title: "osc-title",
+    level: TitleLevel.Auto,
+  });
+  assert(after === hydrated, "Auto cannot overwrite User title");
+  assert(after.panes.p1.title === "Pinned", "User title unchanged");
 });
 
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);

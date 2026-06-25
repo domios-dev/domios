@@ -200,6 +200,8 @@ mod tests {
             title: "Plan task".into(),
             body: "plan button soft-lock".into(),
             scope: "plan_scope".into(),
+            updated_at: 1234,
+            age_ms: 5678,
             plan_id: Some("pl_1".into()),
             spec_id: None,
             unit_id: "task_1".into(),

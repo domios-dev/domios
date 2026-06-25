@@ -6,6 +6,31 @@ use std::sync::Arc;
 use std::time::Duration;
 
 #[test]
+fn resolve_spawn_workspace_prefers_explicit_workspace_over_parent() {
+    let parent_ws = "ws-parent".to_string();
+    let explicit_ws = "ws-explicit".to_string();
+    let resolved = resolve_spawn_workspace_id(
+        Some(explicit_ws.clone()),
+        Some("parent-pane"),
+        |_| Some(parent_ws.clone()),
+        Some("ws-active".into()),
+        Some("ws-fallback".into()),
+    )
+    .unwrap();
+    assert_eq!(resolved, explicit_ws);
+
+    let from_parent = resolve_spawn_workspace_id(
+        None,
+        Some("parent-pane"),
+        |_| Some(parent_ws.clone()),
+        Some("ws-active".into()),
+        Some("ws-fallback".into()),
+    )
+    .unwrap();
+    assert_eq!(from_parent, parent_ws);
+}
+
+#[test]
 fn invalid_role_lead_is_rejected() {
     let err = ServiceContext::parse_role("Lead").unwrap_err();
     assert!(

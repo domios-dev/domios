@@ -732,6 +732,11 @@ pub(super) fn dispatch(
                 Some(result) => Some(result?),
                 None => None,
             };
+            let acceptance_criteria = p
+                .and_then(|x| x.get("acceptance_criteria"))
+                .map(|_| string_array_field(p, "acceptance_criteria"));
+            let test_plan = optional_string_field(p, "test_plan");
+            let correctness = optional_string_field(p, "correctness");
             store
                 .update_task(
                     &id,
@@ -757,6 +762,18 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            if acceptance_criteria.is_some() || test_plan.is_some() || correctness.is_some() {
+                store
+                    .update_task_quality(
+                        &id,
+                        &tid,
+                        acceptance_criteria,
+                        test_plan,
+                        correctness,
+                        now,
+                    )
+                    .map_err(plan_rpc_err)?;
+            }
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }

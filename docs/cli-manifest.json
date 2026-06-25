@@ -6606,6 +6606,22 @@
                   "aliases": []
                 },
                 {
+                  "name": "correctness",
+                  "positional": false,
+                  "value_name": "CORRECTNESS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "criterion",
+                  "positional": false,
+                  "value_name": "CRITERION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "group",
                   "positional": false,
                   "value_name": "GROUP",
@@ -6729,6 +6745,14 @@
                   "name": "task_id",
                   "positional": true,
                   "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "test_plan",
+                  "positional": false,
+                  "value_name": "TEST_PLAN",
                   "default": null,
                   "help": null,
                   "aliases": []

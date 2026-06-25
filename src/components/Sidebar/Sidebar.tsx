@@ -11,7 +11,7 @@ import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
+import type { Tab, PaneStatus, AppConfig } from "../../lib/types";
 import { Check, ChevronDown, Plus } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
@@ -34,19 +34,13 @@ import {
   getMeshPresenceSummary,
   type MeshPresence,
 } from "./meshPresenceHeader";
+import {
+  childTabsForParent,
+  collectPaneIds,
+  topLevelTabsInWorkspace,
+} from "./workspaceTabs";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
-
-function collectPaneIds(
-  tab: Tab,
-  panes?: Record<string, Pane>,
-): string[] {
-  if (panes) {
-    const p = panes[tab.pane_id];
-    return p && !p.hidden ? [tab.pane_id] : [];
-  }
-  return [tab.pane_id];
-}
 
 /** Returns the "worst" status among a set of pane statuses. */
 function aggregateStatus(
@@ -605,14 +599,6 @@ export function Sidebar({
                         {/* Content always rendered — CSS grid-template-rows handles show/hide with animation */}
                         <>
                           {(() => {
-                            // Set of pane IDs that are children (have a parent) — skip at top level
-                            const childPaneIds = new Set<string>();
-                            for (const tab of sortedTabs) {
-                              const pids = collectPaneIds(tab, state.panes);
-                              const pane = pids[0] ? state.panes[pids[0]] : null;
-                              if (pane?.parent_pane_id) childPaneIds.add(pids[0]);
-                            }
-
                             // Render a tab + its children recursively. `group`/`groupKey`/
                             // `items` scope this tab's drag to its own sibling set.
                             const renderTab = (
@@ -626,13 +612,8 @@ export function Sidebar({
                             ): React.ReactNode => {
                               const tabPids = collectPaneIds(tab, state.panes);
                               const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
-                              // Child tabs (pane.parent_pane_id === this pane), in sort order.
                               const childTabs = firstPane
-                                ? sortedTabs.filter((t) => {
-                                    const tPids = collectPaneIds(t, state.panes);
-                                    const tPane = tPids[0] ? state.panes[tPids[0]] : null;
-                                    return tPane?.parent_pane_id === firstPane.id;
-                                  })
+                                ? childTabsForParent(sortedTabs, state.panes, firstPane.id)
                                 : [];
                               const childIds = childTabs.map((t) => `${TAB_PREFIX}${t.id}`);
 
@@ -686,12 +667,7 @@ export function Sidebar({
                             };
 
                             // Only render top-level tabs (children render under their parent).
-                            const topLevel = sortedTabs.filter((tab) => {
-                              const pids = collectPaneIds(tab, state.panes);
-                              if (pids.length === 0) return false;
-                              if (childPaneIds.has(pids[0])) return false;
-                              return true;
-                            });
+                            const topLevel = topLevelTabsInWorkspace(sortedTabs, state.panes);
                             const topLevelIds = topLevel.map((t) => `${TAB_PREFIX}${t.id}`);
                             // Pin the General (protected) tab to the top of this group.
                             const pinnedTabIds = topLevel
