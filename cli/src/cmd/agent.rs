@@ -1,4 +1,5 @@
 use crate::client::SocketClient;
+use crate::cmd::hints::maybe_orchestration_reminder;
 use crate::cmd::print::{handle_result, print_object};
 use crate::{build_http, read_api_config, resolve_pane, AgentAction};
 use std::io::Read;
@@ -463,6 +464,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                     if let Some(warning) = warning {
                         eprintln!("Warning: {}", warning);
+                    }
+                    if let Some(hint) = maybe_orchestration_reminder() {
+                        println!("{hint}");
                     }
                 }
                 Err(e) => {

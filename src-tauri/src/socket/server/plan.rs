@@ -337,10 +337,23 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?;
             }
             emit_plan_changed(app, &plan_id);
+            let mut response_hints = hints::task_create_hints(
+                &plan_id,
+                &task_id,
+                false,
+                has_model,
+                has_why,
+                has_criteria,
+                has_test_plan,
+                has_correctness,
+            );
+            if let Some(hint) = hints::maybe_orchestration_reminder() {
+                response_hints.push(hint);
+            }
             Ok(json!({
                 "plan_id": plan_id.clone(),
                 "task_id": task_id.clone(),
-                "_hints": hints::task_create_hints(&plan_id, &task_id, false, has_model, has_why, has_criteria, has_test_plan, has_correctness)
+                "_hints": response_hints
             }))
         }
 
@@ -659,10 +672,23 @@ pub(super) fn dispatch(
                 })
                 .unwrap_or_default();
             let linked_has_sections = !linked.is_empty();
+            let mut response_hints = hints::task_create_hints(
+                &id,
+                &tid,
+                has_sections || linked_has_sections,
+                has_model,
+                has_why,
+                has_criteria,
+                has_test_plan,
+                has_correctness,
+            );
+            if let Some(hint) = hints::maybe_orchestration_reminder() {
+                response_hints.push(hint);
+            }
             Ok(json!({
                 "task_id": tid.clone(),
                 "section_ids": linked,
-                "_hints": hints::task_create_hints(&id, &tid, has_sections || linked_has_sections, has_model, has_why, has_criteria, has_test_plan, has_correctness)
+                "_hints": response_hints
             }))
         }
 

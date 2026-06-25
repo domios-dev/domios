@@ -54,6 +54,9 @@ pub(super) fn dispatch(
             if let Some(ref warning) = result.warning {
                 resp["warning"] = serde_json::json!(warning);
             }
+            if let Some(hint) = crate::service::plan::hints::maybe_orchestration_reminder() {
+                resp["_hints"] = serde_json::json!([hint]);
+            }
             Ok(resp)
         }
 

@@ -3,7 +3,8 @@ use std::io::Read;
 use crate::args::task::{CanvasAction, TaskAction};
 use crate::client::{SocketCallError, SocketClient};
 use crate::cmd::hints::{
-    print_hints, push_hints, task_model_hint, task_quality_guard_hint, task_sections_hint,
+    maybe_orchestration_reminder, print_hints, push_hints, task_model_hint,
+    task_quality_guard_hint, task_sections_hint,
 };
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
@@ -207,6 +208,9 @@ fn run_task(
                     has_test_plan,
                     has_correctness,
                 ) {
+                    hints.push(hint);
+                }
+                if let Some(hint) = maybe_orchestration_reminder() {
                     hints.push(hint);
                 }
                 push_hints(&mut val, hints);

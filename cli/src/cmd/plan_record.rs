@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 
 use crate::client::SocketClient;
+use crate::cmd::hints::{maybe_orchestration_reminder, push_hints};
 use crate::cmd::plan::call_plan_rpc;
 
 fn split_csv(raw: Option<String>) -> Vec<String> {
@@ -155,7 +156,7 @@ pub fn record(
 
     let ops_value = Value::Array(ops);
     let stable_key = key.unwrap_or_else(|| implicit_key(&plan_id, &ops_value));
-    call_plan_rpc(
+    let mut result = call_plan_rpc(
         client,
         "plan.batch",
         json!({
@@ -163,5 +164,9 @@ pub fn record(
             "key": stable_key,
             "ops": ops_value,
         }),
-    )
+    )?;
+    if let Some(hint) = maybe_orchestration_reminder() {
+        push_hints(&mut result, vec![hint]);
+    }
+    Ok(result)
 }
