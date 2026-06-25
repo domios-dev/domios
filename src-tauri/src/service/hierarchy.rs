@@ -57,9 +57,10 @@ impl ServiceContext {
             (from_title, target_opt, model)
         };
 
-        let storage_key = target_opt
-            .clone()
-            .unwrap_or_else(|| SYSTEM_INBOX_PANE_ID.to_string());
+        let target_id = target_opt.ok_or_else(|| {
+            "No report target for this pane. You are not attached to an orchestrator, report target, or spawning pane. Ask for the target pane id, then use `codeterm send --pane <id> \"...\"`.".to_string()
+        })?;
+        let storage_key = target_id.clone();
         let report = self.report_store.lock().add_detailed(
             &storage_key,
             pane_id,
@@ -86,67 +87,20 @@ impl ServiceContext {
             }),
         );
 
-        // Inject into the target PTY only when the target is a real pane (parent / report_target / spawner). The system inbox has no PTY, and bouncing
-        // back to the reporter's own pane is the bug we just fixed — guard against that explicitly.
-        if let Some(ref target_id) = target_opt {
-            if target_id != pane_id {
-                let target_is_chat = self.pane_chat_backing(target_id).is_some();
-                let live = self.target_has_live_agent(target_id);
-                log::info!(
-                    "[report] target={} live_agent={} — {}",
-                    target_id,
-                    live,
-                    if target_is_chat {
-                        "delivering to chatBackend transcript"
-                    } else if live {
-                        "injecting into PTY"
-                    } else {
-                        "stored only (no agent TUI on screen)"
-                    },
-                );
-                if target_is_chat || live {
-                    let envelope =
-                        crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
-                            .model(model.clone());
-                    if let Err(e) = crate::service::messenger::Messenger::deliver(
-                        self,
-                        target_id,
-                        envelope,
-                        &report.inject_body(),
-                    ) {
-                        log::warn!("[report] delivery failed for {}: {}", target_id, e);
-                    }
-                }
-            }
-        }
+        let envelope = crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
+            .model(model.clone());
+        let delivery = crate::service::messenger::Messenger::deliver(
+            self,
+            &target_id,
+            envelope,
+            &report.inject_body(),
+        )?;
+        log::info!("[report] target={} delivered via {:?}", target_id, delivery);
 
         Ok(ReportResult {
             report_id: report.id,
             orchestrator_pane_id: storage_key,
         })
-    }
-
-    /// True when the target pane currently shows a live agent TUI. A report is
-    /// bracketed-paste injected into the target's PTY; if the agent has died and
-    /// left a bare shell (stale `agent_type` metadata), pasting the marker makes
-    /// the shell execute it as a command. The report is still stored + broadcast
-    /// for the chat UI, so gating the PTY inject loses nothing.
-    fn target_has_live_agent(&self, target_id: &str) -> bool {
-        let pty_id = {
-            let mux = self.mux.read();
-            match mux.get_pane(target_id) {
-                Some(p) if p.agent_type.is_some() => p.pty_id.clone(),
-                _ => return false,
-            }
-        };
-        let Some(pty_id) = pty_id else { return false };
-        let screen = self
-            .screen_state
-            .lock()
-            .get_screen_text(&pty_id)
-            .unwrap_or_default();
-        crate::pty::screen_state::screen_has_agent_tui(&screen)
-            || self.agent_registry.any_provider_screen_has_tui(&screen)
     }
 
     pub fn get_reports(&self, pane_id: &str) -> Vec<serde_json::Value> {
