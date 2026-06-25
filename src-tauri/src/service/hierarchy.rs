@@ -157,16 +157,11 @@ impl ServiceContext {
     }
 }
 
-/// Storage key used when a report cannot be routed to any specific pane
-/// (no parent, no report_target, no spawner). Reachable via
-/// `agent reports --pane __system__` and via the agent-report event stream.
-pub const SYSTEM_INBOX_PANE_ID: &str = "__system__";
-
 /// Resolve where a report from `pane_id` should be delivered.
 ///
 /// Returns `(from_title, Some(target_pane_id))` when a real target exists,
-/// or `(from_title, None)` when the report should land in the global system
-/// inbox. The resolution order is:
+/// or `(from_title, None)` when the report has no implicit recipient and must
+/// fail with an explicit `codeterm send --pane <id>` hint. The resolution order is:
 ///
 /// 1. `parent_pane_id` — direct parent in the role hierarchy (cascades up)
 /// 2. `report_target_pane_id` — cron / mem worker non-hierarchy target
