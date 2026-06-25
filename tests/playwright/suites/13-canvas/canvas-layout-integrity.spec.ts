@@ -21,7 +21,17 @@ import {
 const SCALES = [0.25, 0.5, 1.0, 1.75] as const;
 
 interface PlanResponse {
+  primary_spec_id?: string | null;
+  sections?: { id: string }[];
   tasks?: { id: string }[];
+}
+
+interface CreatePlanResponse {
+  plan_id: string;
+  plan?: {
+    primary_spec_id?: string | null;
+    sections?: { id: string }[];
+  };
 }
 
 function longSectionBody(): string {
@@ -56,21 +66,29 @@ function longTaskBody(): string {
 }
 
 async function seedSyntheticPlan(api: ApiClient, projectPath: string): Promise<void> {
-  const created = await api.post<{ plan_id: string }>("/plans", {
+  const spec = await api.post<{ spec_id: string }>("/specs", {
+    title: "Canvas Layout Integrity Synthetic Spec",
+    project_path: projectPath,
+  });
+  await api.post<{ section_id: string }>(`/specs/${spec.spec_id}/sections`, {
+    title: "Huge markdown, mermaid, code, and table section",
+    body: longSectionBody(),
+  });
+  const created = await api.post<CreatePlanResponse>("/plans", {
     title: "Canvas Layout Integrity Synthetic Plan",
     project_path: projectPath,
     owner: { pane_id: "layout-orchestrator", session_id: null, title: "Layout Orchestrator" },
     kinds: "progress:#38bdf8,review:#34d399",
+    from_spec: spec.spec_id,
   });
   const planId = created.plan_id;
-  const section = await api.post<{ section_id: string }>(`/plans/${planId}/sections`, {
-    title: "Huge markdown, mermaid, code, and table section",
-    body: longSectionBody(),
-  });
+  const planSectionId = created.plan?.sections?.[0]?.id;
+  if (!planSectionId) throw new Error("from_spec did not create a mirrored plan section for task coverage");
+  expect(created.plan?.primary_spec_id, "from_spec binds the plan to the real spec").toBe(spec.spec_id);
   const task = await api.post<{ task_id: string }>(`/plans/${planId}/tasks`, {
     name: "Implement pagination regression guard",
     type: "implement",
-    sections: section.section_id,
+    sections: planSectionId,
     model: "codex:opus",
     why: "Large markdown and code content needs a model that can reason about layout failures.",
     body: longTaskBody(),
@@ -80,9 +98,13 @@ async function seedSyntheticPlan(api: ApiClient, projectPath: string): Promise<v
   await expect
     .poll(async () => {
       const plan = await api.get<PlanResponse>(`/plans/${planId}`);
-      return plan.tasks?.some((t) => t.id === task.task_id) ?? false;
+      return {
+        hasSpec: plan.primary_spec_id === spec.spec_id,
+        hasSection: plan.sections?.some((s) => s.id === planSectionId) ?? false,
+        hasTask: plan.tasks?.some((t) => t.id === task.task_id) ?? false,
+      };
     })
-    .toBe(true);
+    .toEqual({ hasSpec: true, hasSection: true, hasTask: true });
   await api.post(`/plans/${planId}/tasks/${task.task_id}/milestones`, {
     kind: "progress",
     add_kind: true,
@@ -91,7 +113,7 @@ async function seedSyntheticPlan(api: ApiClient, projectPath: string): Promise<v
   });
 }
 
-test("@golden @canvas-layout-integrity synthetic long-content plan has stable geometry at multi-zoom scales", async ({ api, ui }) => {
+test("@golden @canvas-layout-integrity @content-lod synthetic long-content plan has stable geometry at multi-zoom scales", async ({ api, ui }) => {
   test.setTimeout(120_000);
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-canvas-layout-"));
   await api.createWorkspace("canvas layout integrity", projectPath);

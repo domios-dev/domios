@@ -38,6 +38,12 @@ pub enum PlanAction {
         #[arg(long)]
         orchestrator: Option<String>,
     },
+    /// List active orchestration tasks
+    InProgress {
+        plan_id: Option<String>,
+        #[arg(long, conflicts_with = "plan_id")]
+        all: bool,
+    },
     /// Get a plan (markdown by default)
     Get {
         plan_id: String,

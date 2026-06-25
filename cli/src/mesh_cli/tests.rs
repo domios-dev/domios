@@ -1,7 +1,7 @@
 use super::api_map::cli_command_to_api;
 use super::parse_ip_port;
 use super::{MeshAction, MeshPeerAction};
-use crate::{Commands, UpdateAction};
+use crate::{AgentAction, Commands, UpdateAction};
 
 fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Commands {
     Commands::Update {
@@ -475,6 +475,24 @@ fn send_text_is_fire_and_forget_on_mesh() {
         body.get("verify").is_none(),
         "send must never carry verify — the flag has been removed (#101)"
     );
+}
+
+#[test]
+fn agent_message_uses_send_transport_on_mesh() {
+    let cmd = Commands::Agent {
+        action: AgentAction::Message {
+            text: Some("steer now".into()),
+            pane: "abc123".into(),
+            from_file: None,
+            stdin: false,
+        },
+    };
+    let (m, p, b) = cli_command_to_api(&cmd);
+    assert_eq!(m, "POST");
+    assert_eq!(p, "/api/panes/abc123/send");
+    let body: serde_json::Value = serde_json::from_str(&b.expect("body")).unwrap();
+    assert_eq!(body["text"], "steer now");
+    assert_eq!(body["enter"], true);
 }
 
 #[test]

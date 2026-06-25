@@ -1,8 +1,8 @@
 ---
 name: codeterm-orchestrator
 description: >-
-  Multi-agent orchestration discipline for CodeTerm. Use when Codex is acting
-  as an Orchestrator in CodeTerm: decomposing work across Worker panes, planning
+  Multi-agent orchestration discipline for CodeTerm. Use when Codex or Cursor is
+  acting as an Orchestrator in CodeTerm: decomposing work across Worker panes, planning
   multi-lane fixes, integrating worktrees/branches, handling worker reports,
   setting delayed self-heartbeats, enforcing review/build/UI/Playwright gates,
   preventing stranded branches, or coordinating real-system verification before
@@ -27,6 +27,8 @@ final claim of readiness. Worker reports are inputs to review, not conclusions.
 - Prefer one integration branch for combined verification after parallel lanes
   finish. Keep source lane worktrees until their diffs are integrated or
   explicitly discarded.
+- Default workers to **Codex** or **Cursor**. Do not spawn Claude unless the
+  user explicitly enabled it for this run.
 
 ## Dispatch Checklist
 
@@ -42,6 +44,22 @@ Before spawning Workers:
 4. Keep task prompts self-contained and in English for agent-to-agent traffic.
 5. Avoid backticks inside shell-quoted `--task` strings; zsh can treat them as
    command substitution.
+
+## Plan Usage
+
+The plan is the live ledger — keep it current on the daemon that owns the run.
+
+- Re-orient after compaction or a long pause: `codeterm plan get PLAN_ID`.
+- Before dispatch: `plan task add` with `--model` and `--why` (routing rationale
+  on the task); `plan task assign ... --pane` binds the worker (`CODETERM_TASK_ID`
+  exports to the pane).
+- Workers report `blocked` / `partial` / completion; you judge `done` only after
+  verify + integrate. Close with `plan task close` or `plan task update --status done`
+  plus a milestone working-point.
+- `codeterm plan reconcile PLAN_ID` probes panes on **this daemon only**. Run it
+  where your workers actually live. Inspect drift first; never `reconcile --fix`
+  from prod against dev-spawned lanes (or vice versa) — false pane-gone drift.
+- Mechanics: `codeterm docs ORCHESTRATION`. Discipline lives here.
 
 ## Worker Reports
 
@@ -66,7 +84,8 @@ failure; it accumulates dead worktrees and GBs of cruft. Run the whole set per r
 3. **Integrate** — if green, merge the lane branch into the mainline (serialized, one at a time).
 4. **Update the plan** — mark the task done/re-opened; record a work-point (who/what) so presence
    stays accurate.
-5. **CLEAN UP** — remove the worktree, delete the merged branch, kill that instance's dev daemon.
+5. **CLEAN UP** — remove the worktree, delete the merged branch, kill that lane's dev daemon
+   (`CODETERM_INSTANCE` + `CODETERM_API_PORT` in that worktree, then `./build.sh kill`).
    Do this NOW, not "later". `git worktree remove --force <path>` + `git branch -d <branch>`.
 6. **Dispatch next** — pull the next task from the active group; spawn/assign.
 7. **Re-arm** the heartbeat and refresh your own current-focus line.
@@ -85,7 +104,7 @@ codeterm send --delay 25m "Heartbeat: check active workers only if no reports ar
 
 Rules:
 
-- Reports first.
+- Reports first — `codeterm agent reports` before any pane inspection.
 - No polling loop.
 - If reports arrived, process them and do not inspect worker panes.
 - If a worker is silent and overdue, check `pane status`/`pane chat` once, then
@@ -200,7 +219,7 @@ git log --oneline <mainline>..<branch>
 - Do not delete a worktree until its diff is integrated, reviewed, or confirmed
   obsolete.
 - When a Worker report is accepted, cleanup immediately after integration and
-  verification:
+  verification (worktree, branch, lane dev instance — all three or record why not):
 
 ```bash
 git worktree remove <path>
@@ -209,6 +228,8 @@ git branch -D <branch>       # if squashed/applied/discarded with a recorded rea
 git worktree prune
 git worktree list --porcelain
 find /Users/rollacode/Developer -maxdepth 1 -type d -name 'codeterm*'
+# in the lane worktree, with its instance env:
+./build.sh kill
 ```
 
 - Use `git worktree remove --force <path>` only after the diff is integrated,
@@ -217,6 +238,19 @@ find /Users/rollacode/Developer -maxdepth 1 -type d -name 'codeterm*'
 - If cleanup cannot happen, record the reason in the plan task, heartbeat, and
   final handoff. Include the exact remaining path/branch and the next cleanup
   command.
+
+## Dev And Prod Daemons
+
+- **prod** = port **7685** (`~/.codeterm/`). **dev** = port **7686**
+  (`~/.codeterm-dev/`). **Never kill prod.**
+- CLI inherits `CODETERM_API_PORT` from the parent pane. A bare `codeterm ...` in
+  a prod orchestrator pane hits prod unless you override — bench/eval scripts must
+  source `evals/_lib/lib.sh` and use `dc`, not raw `codeterm`.
+- Per-lane isolation: `CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> ./build.sh dev`
+  gives `~/.codeterm-dev-<name>` + a dedicated port; `./build.sh kill` in that
+  worktree only stops that instance.
+- Spawn workers on **your** daemon so hierarchy links and `agent report` reach you.
+  Plan reads/writes and reconcile must target the same daemon as the workers.
 
 ## CodeTerm-Specific Sharp Edges
 
@@ -230,12 +264,52 @@ find /Users/rollacode/Developer -maxdepth 1 -type d -name 'codeterm*'
   can inject context into shell panes.
 - QuickJS plugin host calls are synchronous; Promise-wrapping a sync consumer
   can break polling/pump contracts.
-- Spawn workers on the Orchestrator's OWN daemon so the hierarchy links and
-  `agent report` reaches you; a worker spawned on a different daemon is orphaned.
-  Plan/data ops inside the worker's task target whatever daemon owns the data.
+- A worker spawned on a different daemon is orphaned — reports never arrive.
 - A teammate-inbox message (SendMessage-style) does NOT reach a CodeTerm agent
   pane — it is silently dropped. Brief or steer a running pane via `--task-file`
   at spawn, or `codeterm delayed create --pane <id> --delay 1s --from-file`.
+
+## Handoff Verify-Loop
+
+Before any context reset or `orchestrator handoff --reseed`, run the handoff
+gate. No reseed or compact until three consecutive clean verify passes.
+
+1. Compose the handoff:
+
+```bash
+codeterm plan handoff create "$CODETERM_PLAN_ID" \
+  --goal "<goal vector>" \
+  --next "<first resume action>" --next "<second>" \
+  --rule "<non-negotiable for this plan>" \
+  --from-file handoff-body.md
+```
+
+2. Read back the exact durable artifact a fresh session will consume:
+
+```bash
+codeterm plan handoff show "$CODETERM_PLAN_ID" --latest --markdown
+```
+
+3. Verify the read-back markdown three times against real state. Default to
+   fail when unsure; amend and restart the read-back cycle on any gap.
+
+| Pass | Lens | Check |
+|------|------|-------|
+| 1 | Completeness | Goal present; in-flight task/worker state matches `plan in-progress` + `agent reports`; gates and branch map present |
+| 2 | Accuracy | State matches `plan get`; `next_actions` reflect real plan status; rules/decisions match the spec |
+| 3 | Executability | First three `next_actions` are runnable with zero chat context: paths, branches, commands explicit |
+
+4. Reseed only after the third clean pass:
+
+```bash
+codeterm orchestrator handoff --plan "$CODETERM_PLAN_ID" --reseed --mode new \
+  --goal "..." --next "..." --from-file handoff-body.md
+```
+
+`--mode compact` is a fallback when you need to preserve in-context working
+memory. Pair any handoff/reseed with a delayed self-message carrying focus and
+`codeterm mem get skill_codeterm_orchestrator`. Resume from `next_actions`, not
+a provider generic recap.
 
 ## Final Handoff
 

@@ -13,6 +13,7 @@ import {
   FIXTURE_MILESTONE,
   FIXTURE_NOT_MINE_DRIFT,
   FIXTURE_PLAN,
+  FIXTURE_TAG_FACETS,
   FIXTURE_TASK,
 } from "./fixtures.testdata";
 
@@ -107,6 +108,28 @@ test("SPEC SectionNode: titles far (index), full body prose on zoom (content-LOD
   await act(async () => near.root.unmount());
 });
 
+test("TaskCard freshness: compact relative stamp from status/updated time", async () => {
+  const now = Date.now();
+  const fresh = { ...FIXTURE_TASK, status_changed_at: now - 5 * 60_000 };
+  const { host, root } = await render(<TaskCard task={fresh} style={cardStyle} world="W3" />);
+  const el = host.querySelector('[data-testid="canvas-task-freshness"]');
+  assert(el, "freshness counter rendered");
+  assert(el.textContent?.includes("5m"), `expected 5m freshness, got ${el.textContent}`);
+  assert((el.querySelector("span") as HTMLElement | null)?.title?.length, "absolute time title present");
+  await act(async () => root.unmount());
+
+  const far = await render(<TaskCard task={fresh} style={cardStyle} world="W0" />);
+  const farEl = far.host.querySelector('[data-testid="canvas-task-freshness"]');
+  assert(farEl?.textContent?.includes("5m"), `expected W0 freshness, got ${farEl?.textContent}`);
+  await act(async () => far.root.unmount());
+});
+
+test("TaskCard freshness: absent when no timestamp fields", async () => {
+  const { host, root } = await render(<TaskCard task={FIXTURE_TASK} style={cardStyle} world="W3" />);
+  assert(!host.querySelector('[data-testid="canvas-task-freshness"]'), "no freshness without stamps");
+  await act(async () => root.unmount());
+});
+
 test("TaskCard (near/full): name, model chip, status, and markdown body", async () => {
   const { host, root } = await render(<TaskCard task={FIXTURE_TASK} style={cardStyle} world="W3" />);
   assert(host.querySelector('[data-testid="canvas-task-name"]')?.textContent === "Dante", "task name");
@@ -151,15 +174,26 @@ test("TaskCard drift badge renders actionable, muted not_mine, and absent states
 });
 
 test("TaskCard content-LOD: compact far (name+status, no body) → full near (body)", async () => {
-  const far = await render(<TaskCard task={FIXTURE_TASK} style={cardStyle} world="W0" />);
+  const far = await render(<TaskCard task={FIXTURE_TASK} tagFacets={[...FIXTURE_TAG_FACETS]} style={cardStyle} world="W0" />);
   assert(far.host.querySelector('[data-testid="canvas-task-name"]'), "name present far");
   assert(far.host.querySelector('[data-testid="canvas-task-status"]'), "status present far");
   assert(!far.host.querySelector('[data-testid="canvas-task-body"]'), "no full body far (compact)");
+  assert(far.host.querySelector('[data-testid="canvas-task-tile-tags"]'), "tile tag payload far");
+  assert(!far.host.querySelector('[data-testid="canvas-task-digest"]'), "digest hidden when tags substitute body");
+  assert(far.host.querySelector('[data-testid="canvas-task-primary-facet"]')?.textContent?.includes("Navigation"), "primary facet chip far");
   await act(async () => far.root.unmount());
 
-  const near = await render(<TaskCard task={FIXTURE_TASK} style={cardStyle} world="W3" />);
+  const near = await render(<TaskCard task={FIXTURE_TASK} tagFacets={[...FIXTURE_TAG_FACETS]} style={cardStyle} world="W3" />);
   assert(near.host.querySelector('[data-testid="canvas-task-body"]'), "body present near (full)");
+  assert(near.host.querySelectorAll('[data-testid="canvas-task-tag-facet"]').length >= 1, "facet chips in meta band near");
   await act(async () => near.root.unmount());
+});
+
+test("TaskCard primary facet tints left border accent", async () => {
+  const { host, root } = await render(<TaskCard task={FIXTURE_TASK} tagFacets={[...FIXTURE_TAG_FACETS]} style={cardStyle} world="W1" />);
+  const card = host.querySelector('[data-testid="canvas-task-card"]') as HTMLElement | null;
+  assert(card?.style.borderLeftColor === "rgba(99, 102, 241, 0.95)", `primary facet border accent, got: ${card?.getAttribute("style")}`);
+  await act(async () => root.unmount());
 });
 
 test("MilestoneBubble shows kind initial + iteration at rest; tooltip is hover-only (no near-LOD wall)", async () => {

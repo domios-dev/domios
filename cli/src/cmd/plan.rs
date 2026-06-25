@@ -122,21 +122,6 @@ fn render_coverage(val: &Value) -> String {
     out
 }
 
-fn render_file_manifest(val: &Value) -> String {
-    let mut out = String::new();
-    if let Some(index_path) = val.get("index_path").and_then(|v| v.as_str()) {
-        out.push_str(&format!("INDEX.md\t{index_path}\n"));
-    }
-    if let Some(entries) = val.get("entries").and_then(|v| v.as_array()) {
-        for entry in entries {
-            let title = entry.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-            let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("?");
-            out.push_str(&format!("{title}\t{path}\n"));
-        }
-    }
-    out
-}
-
 pub fn handle_plan(client: &mut SocketClient, json: bool, action: PlanAction) {
     match run_plan(client, json, action) {
         Ok(None) => {}
@@ -220,6 +205,10 @@ fn run_plan(
             call(client, "plan.list", params)
         }
 
+        PlanAction::InProgress { plan_id, all } => {
+            return crate::cmd::plan_in_progress::run(client, json, plan_id, all);
+        }
+
         PlanAction::Get { plan_id, sections } => {
             let val = call(client, "plan.get", json!({ "plan_id": plan_id }))?;
             if json {
@@ -250,7 +239,7 @@ fn run_plan(
             if json {
                 return Ok(Some(val));
             }
-            print!("{}", render_file_manifest(&val));
+            print!("{}", crate::cmd::plan_files::render_file_manifest(&val));
             return Ok(None);
         }
 

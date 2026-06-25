@@ -114,6 +114,7 @@ reply elsewhere, put the exact `codeterm agent report`, `codeterm send`, or
 ```bash
 codeterm agent report "summary"                    # report to your parent/target when YOU are the spawned agent
 codeterm agent reports [--clear]                   # read reports addressed to this pane; clear after processing if desired
+codeterm agent message --pane ID "text"            # immediately message a running agent pane via the normal send transport
 codeterm pane status [--pane ID]                   # one pane's agent state (type, session, prompt)
 codeterm agent compact [--pane ID]                 # /compact
 codeterm agent restart --pane ID [--force]         # graceful exit; resumes only when session is valid; --force kills hung PTY

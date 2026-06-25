@@ -17,16 +17,16 @@
 import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ApiClient } from "./api-client";
+import { ApiClient, devDataDirName } from "./api-client";
 import { killDevConsole } from "./dev-console";
 
 export function devDataDir(): string {
-  return path.join(os.homedir(), ".codeterm-dev");
+  return path.join(os.homedir(), devDataDirName());
 }
 
 function assertDevPath(p: string): void {
   const normalized = p.replace(/\\/g, "/");
-  if (!normalized.includes("/.codeterm-dev/") && !normalized.endsWith("/.codeterm-dev")) {
+  if (!/\/\.codeterm-dev(?:-[^/]+)?(?:\/|$)/.test(normalized)) {
     throw new Error(`prod-contamination guard: refusing to touch non-dev path: ${p}`);
   }
 }

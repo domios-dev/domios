@@ -41,10 +41,24 @@ export interface MilestoneKind {
   color: string | null;
 }
 
+export interface TagFacetValue {
+  v: string;
+  label?: string | null;
+  color?: string | null;
+}
+
+export interface TagFacet {
+  key: string;
+  label?: string | null;
+  color_lane?: boolean;
+  values: readonly TagFacetValue[];
+}
+
 export interface Section {
   id: string;
   title: string;
   body: string;
+  tags?: string[];
   subsections: Section[];
   canvas: ElementCanvas;
 }
@@ -147,6 +161,7 @@ export interface Plan {
   created_at: number;
   updated_at: number;
   milestone_kinds: MilestoneKind[];
+  tag_facets?: TagFacet[];
   loops: LoopSpec[];
   elements: CanvasElement[];
   tasks: Task[];

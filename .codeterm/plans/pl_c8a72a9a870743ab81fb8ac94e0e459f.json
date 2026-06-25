@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782403169751,
+  "updated_at": 1782413177644,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -134,6 +134,21 @@
     {
       "key": "implemented Plan.goal north-star model",
       "label": "implemented Plan.goal north-star model",
+      "color": null
+    },
+    {
+      "key": "Dispatched Cursor worker e322d20a in /Users/rollacode/Developer/codeterm-spawn-parent-race on branch lane/spawn-parent-race. Scope",
+      "label": "Dispatched Cursor worker e322d20a in /Users/rollacode/Developer/codeterm-spawn-parent-race on branch lane/spawn-parent-race. Scope",
+      "color": null
+    },
+    {
+      "key": "Dogfood friction",
+      "label": "Dogfood friction",
+      "color": null
+    },
+    {
+      "key": "Dispatched Cursor worker be4814ad in /Users/rollacode/Developer/codeterm-task-freshness on branch lane/task-freshness. Scope",
+      "label": "Dispatched Cursor worker be4814ad in /Users/rollacode/Developer/codeterm-task-freshness on branch lane/task-freshness. Scope",
       "color": null
     }
   ],
@@ -2789,12 +2804,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
-      "status_label": null,
+      "status": "in_review",
+      "status_label": "partial accepted; verified build; child remains",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782375536230,
-      "status_changed_at": 0,
+      "updated_at": 1782413177644,
+      "status_changed_at": 1782413068695,
       "handle": "tag-frontend-tile-payload-facet-color-hud-legend",
       "tags": [],
       "section_ids": [
@@ -2803,7 +2818,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "fcb00202",
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -3255,12 +3270,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782375551135,
-      "status_changed_at": 0,
+      "updated_at": 1782410521193,
+      "status_changed_at": 1782410521193,
       "handle": "render-task-freshness-relative-time-on-the-card",
       "tags": [],
       "section_ids": [
@@ -3269,7 +3284,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_79f968733c364bdaa6516216a0d64d58",
-      "assigned_pane_id": null,
+      "assigned_pane_id": "be4814ad",
       "taken_by_role": null,
       "peer": null,
       "group": "Canvas-UX",
@@ -3278,7 +3293,48 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_3404973fbced40d78630f08a20b3686a",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "Dispatched Cursor worker be4814ad in /Users/rollacode/Developer/codeterm-task-freshness on branch lane/task-freshness. Scope",
+          "text": " compact relative freshness on Canvas task cards; worker writes diff only, orchestrator gates.",
+          "ts": 1782410132669,
+          "links": [
+            "key:e010517391882d5e"
+          ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_3b0d4ec22aee4e2191f288d404680fa7",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Integrated the task freshness lane into the hot checkout.\n\nVerified by Orchestrator:\n- npx tsx src/components/Canvas/cards/taskFreshness.test.ts: passed\n- npx tsx src/components/Canvas/cards/cards.test.tsx: 12 passed, including W0 and W3 freshness rendering\n- git diff --check: passed\n\nNotes:\n- Freshness uses status_changed_at first, then updated_at, then created_at.\n- The integration test was adjusted to use Date.now() so it remains stable after 2026.\n- Playwright was not run for this narrow card-level display change; keep canvas-worlds pass for the later combined UI gate.\n",
+          "ts": 1782410521193,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_6f13bc2c109a414495e48dd60e63e81d",
@@ -3973,7 +4029,7 @@
       "status_label": "worker f0b6b4b0 branch lane/cross-daemon-agent-report worktree /Users/rollacode/Developer/codeterm-cross-report",
       "priority": "p2",
       "created_at": 1782288143878,
-      "updated_at": 1782403169751,
+      "updated_at": 1782409552852,
       "status_changed_at": 1782403169751,
       "handle": "cross-daemon-agent-report-prod-pane-dev-plan-pane-not-found",
       "tags": [],
@@ -3983,7 +4039,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "f0b6b4b0",
+      "assigned_pane_id": null,
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -9365,12 +9421,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782317522475,
-      "updated_at": 1782375618591,
-      "status_changed_at": 1782317522475,
+      "updated_at": 1782412398575,
+      "status_changed_at": 1782412398575,
       "handle": "handoff-verify-loop",
       "tags": [],
       "section_ids": [
@@ -9379,7 +9435,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "f60515ed",
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -9388,7 +9444,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_35f1a129953940cbb7a8738f5389e3f3",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Integrated the handoff verify-loop documentation/procedure.\n\nVerified by Orchestrator:\n- Reviewed worker diff and avoided applying the stale .agents skill patch wholesale because it was based before the newer Codex/Cursor + dev/prod rules.\n- Integrated a Handoff Verify-Loop section into the canonical `.agents/skills/codeterm-orchestrator/SKILL.md` while preserving current dogfood rules.\n- Updated `.claude/skills/codeterm-orchestrator/SKILL.md` with a condensed mirror.\n- Updated `docs/ORCHESTRATION.md` Compaction discipline and bumped revision 3 -> 4.\n- git diff --check for the touched docs/skills: passed.\n- Re-indexed canonical skill with `codeterm mem skill add /Users/rollacode/Developer/codeterm/.agents/skills/codeterm-orchestrator`.\n\nNotes:\n- This is a manual procedure; `plan handoff verify` is explicitly documented as not implemented.\n",
+          "ts": 1782412398575,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_b216b215c45b4575bbc228c44399a608",
@@ -9399,12 +9475,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782317522475,
-      "updated_at": 1782375619172,
-      "status_changed_at": 1782317522475,
+      "updated_at": 1782411407523,
+      "status_changed_at": 1782411407523,
       "handle": "orchestration-skill-postulates",
       "tags": [],
       "section_ids": [
@@ -9413,7 +9489,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "1eb5d996",
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -9422,7 +9498,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_f0634361366045519027f6ce892560e6",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Integrated the orchestrator skill update.\n\nVerified by Orchestrator:\n- Reviewed the diff for the requested dogfood rules: Plan Usage, reports-first, dev/prod daemon split, reconcile safety, Codex/Cursor-only default, hot-checkout gates, and cleanup discipline.\n- git apply --3way: clean\n- git diff --check -- .agents/skills/codeterm-orchestrator/SKILL.md: passed\n- rg sanity check confirmed the new sections are present.\n\nNotes:\n- No code build/test was needed; this is a docs/skill-only change.\n- Skill re-index can be refreshed with `codeterm mem skill add /Users/rollacode/Developer/codeterm/.agents/skills/codeterm-orchestrator` if the mem index needs an explicit bump.\n",
+          "ts": 1782411407523,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_5f44bce3726e4cb8a8067a8edebc5d64",
@@ -9437,7 +9533,7 @@
       "status_label": "superseded by World/Figma canvas research",
       "priority": "p0",
       "created_at": 1782318952744,
-      "updated_at": 1782399810065,
+      "updated_at": 1782409552852,
       "status_changed_at": 1782399810065,
       "handle": "worlds-v3",
       "tags": [
@@ -9451,7 +9547,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "9b7f4275",
+      "assigned_pane_id": null,
       "taken_by_role": null,
       "peer": null,
       "group": "canvas-ux",
@@ -9718,12 +9814,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
-      "status_label": null,
+      "status": "done",
+      "status_label": "needs-reassign",
       "priority": "p2",
       "created_at": 1782319826961,
-      "updated_at": 1782375620398,
-      "status_changed_at": 1782319826961,
+      "updated_at": 1782409656467,
+      "status_changed_at": 1782409656467,
       "handle": "agent-message",
       "tags": [
         "cli",
@@ -9744,7 +9840,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_093e207a8ef8487894d064d06c87a5f6",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Recovered abandoned worker lane from /Users/rollacode/Developer/codeterm-agent-message (pane 66291019 was closed). Integrated the diff into the feat/canvas checkout.\n\nChanges:\n- Added `codeterm agent message --pane <id> [text|--from-file|--stdin]` as an immediate running-agent message command.\n- Routed it through the existing send transport (`/api/panes/<id>/send`) for local and mesh CLI paths.\n- Updated CLI manifest/docs/skills prompt.\n\nOrchestrator gates run in /Users/rollacode/Developer/codeterm:\n- `cargo test --manifest-path cli/Cargo.toml agent_message -- --nocapture` -> 3 passed.\n- `cargo test --manifest-path cli/Cargo.toml message_parses_text_and_target_pane -- --nocapture` -> 1 passed.\n- `cargo test --manifest-path cli/Cargo.toml message_requires_target_pane -- --nocapture` -> 2 passed.\n- `git diff --check` -> passed.\n\nFunctional smoke was not run against this pane to avoid injecting a recursive user turn into the orchestrator; parser + API mapping prove the command uses the same send transport.\n",
+          "ts": 1782409656467,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_cd5b22d380754c18af22b08ab6576243",
@@ -11109,7 +11225,7 @@
       "status_label": "superseded by World/Figma canvas research",
       "priority": "p0",
       "created_at": 1782333622495,
-      "updated_at": 1782399810217,
+      "updated_at": 1782409552852,
       "status_changed_at": 1782399810217,
       "handle": "worlds-dive",
       "tags": [],
@@ -11119,7 +11235,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_5f44bce3726e4cb8a8067a8edebc5d64",
-      "assigned_pane_id": "9b7f4275",
+      "assigned_pane_id": null,
       "taken_by_role": null,
       "peer": null,
       "group": "canvas-ux",
@@ -11721,12 +11837,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782377280239,
-      "updated_at": 1782377280239,
-      "status_changed_at": 1782377280239,
+      "updated_at": 1782411233618,
+      "status_changed_at": 1782411233618,
       "handle": "bug-agent-ledger-empty-after-agent-spawn-parent-though-child-panes-alive-linked",
       "tags": [
         "friction"
@@ -11737,7 +11853,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "6cad7593",
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -11746,7 +11862,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_20af2b3cda9e44648edf2000411e6605",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Integrated the agent ledger live-child overlay into the hot checkout.\n\nVerified by Orchestrator:\n- cargo test --manifest-path src-tauri/Cargo.toml service::hierarchy::tests::ledger_ --lib -- --nocapture: 2 passed\n- CODETERM_API_PORT=7686 ./build.sh check: passed\n- git diff --check: passed\n- live dev smoke after restart: spawned dev child d3e088e9 under parent fcb00202; `agent ledger --pane fcb00202` included d3e088e9 before any report.\n\nNotes:\n- Durable report rows are still preserved.\n- Live children are overlaid so an orchestrator can see active workers before first report.\n",
+          "ts": 1782411233618,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_90f01ec50a634ab88998487d2a11f1b2",
@@ -11761,7 +11897,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782377280508,
-      "updated_at": 1782401421523,
+      "updated_at": 1782409552852,
       "status_changed_at": 1782401421523,
       "handle": "cli-add-plan-goal-get-and-plan-task-list-read-ergonomics",
       "tags": [
@@ -11773,7 +11909,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "31e4bb1c",
+      "assigned_pane_id": null,
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -11871,12 +12007,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782377340377,
-      "updated_at": 1782377340377,
-      "status_changed_at": 1782377340377,
+      "updated_at": 1782412148536,
+      "status_changed_at": 1782412148536,
       "handle": "bug-concurrent-plan-task-add-returns-rpc-32603-database-is-locked-but-the-write-still-commits-misleading-error",
       "tags": [
         "friction"
@@ -11887,7 +12023,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "e9ec3764",
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -11896,7 +12032,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_b2a5cdd5d6104354879dad796fe31ec3",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Integrated the plan search-index DB-lock retry lane into the hot checkout.\n\nVerified by Orchestrator:\n- cargo fmt --manifest-path src-tauri/Cargo.toml: passed\n- cargo test --manifest-path src-tauri/Cargo.toml service::plan::search_index::tests::add_task_survives_transient_plan_index_write_lock -- --nocapture: passed\n- CODETERM_API_PORT=7686 ./build.sh check: passed\n- git diff --check: passed\n- restarted dev on 7686 and ran live concurrent smoke: created temporary plan pl_450e1d4e1f1a47729faccd6d31da4abb, fired 8 parallel `plan task add`; all 8 exited 0 and task list returned count=8.\n\nNotes:\n- Fix retries transient busy/locked errors around plan index replacement writes and keeps the plan task write visible/searchable.\n- Smoke left temporary dev-only plans titled db-lock-smoke-* in the dev plan store.\n",
+          "ts": 1782412148536,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_47ebbe90563e46de9231b88f4642d723",
@@ -11969,12 +12125,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782377893547,
-      "updated_at": 1782377893547,
-      "status_changed_at": 1782377893547,
+      "updated_at": 1782410735914,
+      "status_changed_at": 1782410735914,
       "handle": "bug-agent-spawn-parent-race-early-children-lose-parent-link",
       "tags": [],
       "section_ids": [
@@ -11983,7 +12139,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "e322d20a",
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -11992,7 +12148,69 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_94d53af6d1594f41b7bdac095f1083bf",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "Dispatched Cursor worker e322d20a in /Users/rollacode/Developer/codeterm-spawn-parent-race on branch lane/spawn-parent-race. Scope",
+          "text": " fix agent spawn --parent race; worker writes diff only, orchestrator gates.",
+          "ts": 1782410051139,
+          "links": [
+            "key:e6b64cc77a65820d"
+          ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_e44148cf031c462e952bde50fc38ca22",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "Dogfood friction",
+          "text": " dev plan reconcile reported worker pane e322d20a as closed because pane lives on prod daemon 7685 while plan state lives on dev 7686. Verified via prod pane status/chat/output: pane e322d20a is live and Working. Do not apply this reconcile fix; reconcile needs cross-daemon/prod-pane awareness or a not-mine/live-source field.",
+          "ts": 1782410081792,
+          "links": [
+            "key:0b58eef03e28c5a9"
+          ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_11ebf84cecb6436cb71e4d7c254ed08b",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Integrated the spawn parent race lane into the hot checkout.\n\nVerified by Orchestrator:\n- cargo test --manifest-path src-tauri/Cargo.toml early_workers_under_uncommitted_orchestrator_all_link --lib -- --nocapture: passed\n- cargo test --manifest-path src-tauri/Cargo.toml multiplexer::state::role::tests --lib -- --nocapture: 7 passed\n- CODETERM_API_PORT=7686 ./build.sh check: passed\n- git diff --check: passed\n- live dev smoke after restart: `codeterm agent spawn codex --role Worker --parent fcb00202 ...` returned pane 8e748585, and dev `pane list` showed it nested under parent fcb00202.\n\nNotes:\n- The fix auto-promotes a free top-level parent to Orchestrator when attaching a Worker, preserving the parent link for rapid early spawns.\n- Spawn callers now fail/close the newly-created tab if role application or post-condition verification fails instead of silently leaving an unlinked worker.\n",
+          "ts": 1782410735914,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_dbb511f69bef4110825e56db2c527dd2",
@@ -12009,7 +12227,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782381332710,
-      "updated_at": 1782400638570,
+      "updated_at": 1782409552852,
       "status_changed_at": 1782400638570,
       "handle": "bug-post-api-canvas-focus-emits-task-id-but-canvasview-canvas-focus-listener-reads-node-ids-plan-ids-focus-by-id-never-recenters-on-a-task",
       "tags": [
@@ -12021,7 +12239,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "c88fab13",
+      "assigned_pane_id": null,
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -12532,12 +12750,12 @@
       ],
       "test_plan": "Re-run @canvas golden against a fresh isolated worktree dev -> all specs either pass or skip (no hard-fail); layout-integrity classified",
       "correctness": "Canvas verification is deterministic on any fresh instance; combined gate goes green/clean-skip",
-      "status": "pending",
-      "status_label": null,
+      "status": "done",
+      "status_label": "partial: datadir helper integrated; layout spec-node failure still open",
       "priority": "p2",
       "created_at": 1782393893625,
-      "updated_at": 1782393893625,
-      "status_changed_at": 1782393893625,
+      "updated_at": 1782412987621,
+      "status_changed_at": 1782412987621,
       "handle": "test-infra-worlds-canvas-specs-hard-fail-no-self-seed-skip-guard-after-opencanvas-harness-token-datadir-for-worktree-gates-classify-canvas-layout-integrity-content-lod",
       "tags": [
         "state-integrity"
@@ -12548,7 +12766,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "0918c681",
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -12557,7 +12775,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_d36a8cea43854ccc94e3be9ba824cc4b",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted worlds-test-infra: applied canonical Spec -> from_spec Plan seeding for @content-lod; verified git diff --check and CT_E2E_PORT=7686 npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep @content-lod (1 passed).",
+          "ts": 1782412987621,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_0d26beab238a4d1f8056e057645574e9",
@@ -12609,12 +12847,12 @@
       ],
       "test_plan": "Seed a parent+subtask both in_progress; run the command; assert nesting + both shown",
       "correctness": "Orchestrator sees the full live situation without hand-assembling it from plan get",
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782395805093,
-      "updated_at": 1782395805093,
-      "status_changed_at": 1782395805093,
+      "updated_at": 1782411949582,
+      "status_changed_at": 1782411949582,
       "handle": "state-integrity-39-6-easy-situational-cli-codeterm-plan-in-progress-status-view-showing-full-picture-incl-subtask-nesting-parent-task-id-assignee-and-traversing-subtasks",
       "tags": [
         "state-integrity"
@@ -12625,7 +12863,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "d0907ebd",
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -12634,7 +12872,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_f18bf2d68c4541deb54b446743fd2596",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Integrated the `codeterm plan in-progress` CLI lane into the hot checkout.\n\nVerified by Orchestrator:\n- cargo fmt --manifest-path cli/Cargo.toml: passed\n- cargo test --manifest-path cli/Cargo.toml plan_in_progress -- --nocapture: 2 passed\n- cargo test --manifest-path cli/Cargo.toml renders_file_manifest -- --nocapture: passed\n- CODETERM_API_PORT=7686 ./build.sh cli: passed\n- live dev smoke: `codeterm plan in-progress pl_c8a72a9a870743ab81fb8ac94e0e459f` listed active/blocked tasks with assignees; `--json plan in-progress --all` returned statuses + 5 active tasks\n- cargo run --manifest-path cli/Cargo.toml -- cli-manifest --write regenerated docs/CLI.md and docs/cli-manifest.json\n- cargo test --manifest-path cli/Cargo.toml -- --nocapture: 221 passed\n- git diff --check: passed\n\nNotes:\n- The renderer shows in_progress/in_review/blocked tasks grouped by plan and indents active subtasks when their active parent is present.\n- `cli/src/cmd/plan.rs` is now 993 lines, under the 1000-line limit but still close.\n",
+          "ts": 1782411949582,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_9dc8f93d6f374118bb870e917fd1b7a4",
@@ -12691,7 +12949,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782397137455,
-      "updated_at": 1782397983061,
+      "updated_at": 1782409552852,
       "status_changed_at": 1782397983061,
       "handle": "cli-handoff-selector-mismatch-seq-in-resume-docs-but-current-cli-expects-positional-selector",
       "tags": [
@@ -12704,7 +12962,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "7e3c06c4",
+      "assigned_pane_id": null,
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -12789,7 +13047,7 @@
       "status_label": "superseded by World/Figma canvas research",
       "priority": "p1",
       "created_at": 1782398206097,
-      "updated_at": 1782399810207,
+      "updated_at": 1782409552852,
       "status_changed_at": 1782399810207,
       "handle": "worlds-v3-fix-w2-inner-slot-stability-at-scale-3-after-deep-zoom-body-reveal-passes",
       "tags": [
@@ -12802,7 +13060,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_5f44bce3726e4cb8a8067a8edebc5d64",
-      "assigned_pane_id": "5b2107bf",
+      "assigned_pane_id": null,
       "taken_by_role": null,
       "peer": null,
       "group": null,

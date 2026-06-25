@@ -363,6 +363,24 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 });
             handle_result(json, result);
         }
+        AgentAction::Message {
+            text,
+            pane,
+            from_file,
+            stdin,
+        } => {
+            crate::cmd::send_text::handle_send_text(
+                client,
+                json,
+                Some(pane),
+                text,
+                from_file,
+                stdin,
+                None,
+                None,
+                None,
+            );
+        }
         AgentAction::Reports { pane, clear, limit } => {
             let pane_id = resolve_pane(client, pane);
             match client.call(

@@ -472,6 +472,11 @@ impl ServiceContext {
                 params.parent_pane_id.as_deref(),
                 params.can_spawn,
             )?;
+            if role_str == "Worker" {
+                if let Some(ref parent) = params.parent_pane_id {
+                    self.expect_spawn_parent_link(&pane_id, parent)?;
+                }
+            }
         }
 
         // 3b. Set auto_approve if spawned with skip_permissions

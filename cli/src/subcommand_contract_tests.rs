@@ -347,6 +347,37 @@ fn plan_task_list_parses_plan_and_status() {
 }
 
 #[test]
+fn plan_in_progress_parses_plan_all_and_json() {
+    let parsed = Cli::try_parse_from(["codeterm", "plan", "in-progress", "pl_1"])
+        .expect("plan in-progress parses");
+    match parsed.command {
+        Commands::Plan {
+            action: PlanAction::InProgress { plan_id, all },
+        } => {
+            assert_eq!(plan_id.as_deref(), Some("pl_1"));
+            assert!(!all);
+        }
+        _ => panic!("expected plan in-progress"),
+    }
+
+    let parsed = Cli::try_parse_from(["codeterm", "--json", "plan", "in-progress", "--all"])
+        .expect("plan in-progress --all parses");
+    assert!(parsed.json);
+    match parsed.command {
+        Commands::Plan {
+            action: PlanAction::InProgress { plan_id, all },
+        } => {
+            assert_eq!(plan_id.as_deref(), None);
+            assert!(all);
+        }
+        _ => panic!("expected plan in-progress --all"),
+    }
+
+    let err = Cli::try_parse_from(["codeterm", "plan", "in-progress", "pl_1", "--all"]);
+    assert!(err.is_err(), "plan id and --all are mutually exclusive");
+}
+
+#[test]
 fn plan_task_add_parses_quality_fields() {
     let parsed = Cli::try_parse_from([
         "codeterm",
@@ -769,6 +800,36 @@ fn send_actions_conflicts_with_delay() {
         "--pane",
         "abc123",
     ]);
+    assert!(parsed.is_err());
+}
+
+#[test]
+fn agent_message_parses_immediate_targeted_message() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "agent",
+        "message",
+        "check status",
+        "--pane",
+        "abc123",
+    ])
+    .expect("agent message parses");
+    assert!(matches!(
+        parsed.command,
+        Commands::Agent {
+            action: AgentAction::Message {
+                text: Some(ref text),
+                ref pane,
+                from_file: None,
+                stdin: false,
+            },
+        } if text == "check status" && pane == "abc123"
+    ));
+}
+
+#[test]
+fn agent_message_requires_target_pane() {
+    let parsed = Cli::try_parse_from(["codeterm", "agent", "message", "check status"]);
     assert!(parsed.is_err());
 }
 
