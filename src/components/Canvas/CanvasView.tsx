@@ -16,7 +16,16 @@ import { getNodeRenderer, type SectionNavArgs } from "./nodeRegistry";
 import { bezierPath, resolveEdgeEnds } from "./edges";
 import { milestoneColorMap } from "./milestoneColors";
 import { sectionRows, type SectionRowGlyph } from "./sectionRows";
-import { layoutWorkspace, visibleFrameIds, visibleNodeIds, viewportWorldRect, boxesOverlap, type LaidOutNode } from "./layout";
+import {
+  layoutWorkspace,
+  layoutInputRevision,
+  plansForLayout,
+  visibleFrameIds,
+  visibleNodeIds,
+  viewportWorldRect,
+  boxesOverlap,
+  type LaidOutNode,
+} from "./layout";
 import { archivePlan, fetchSpecSections } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { crispRasterScale, nextWorld, worldThresholds, type World } from "./worlds";
@@ -199,9 +208,13 @@ export function CanvasViewInner({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
 
+  const plansRevision = layoutInputRevision(plans);
+  const planFilterRevision = plans
+    .map((p) => [p.id, p.status, p.owner.pane_id ?? "", p.owner.session_id ?? ""].join(":"))
+    .join("\0");
   const filteredPlans = useMemo(
     () => filterPlansForCanvas(plans, mode, { planId, orchestratorPaneId, panes }),
-    [plans, mode, planId, orchestratorPaneId, panes],
+    [plans, plansRevision, planFilterRevision, mode, planId, orchestratorPaneId, panes],
   );
 
   const planById = useMemo(() => new Map(filteredPlans.map((p) => [p.id, p])), [filteredPlans]);
@@ -242,7 +255,12 @@ export function CanvasViewInner({
   // adapts to camera zoom (content-LOD). The toolbar is camera-only.
   const [minimapOn, setMinimapOn] = useState(true);
 
-  const layout = useMemo(() => layoutWorkspace(filteredPlans), [filteredPlans]);
+  const layoutSourcePlans = plansForLayout(filteredPlans, specSectionsByPlan);
+  const layoutRevision = layoutInputRevision(layoutSourcePlans, specSectionsByPlan);
+  const layout = useMemo(
+    () => layoutWorkspace(layoutSourcePlans),
+    [layoutRevision],
+  );
 
   const lookups = useMemo<CanvasLookups>(() => {
     const nodeById = new Map<string, LaidOutNode>();
@@ -773,6 +791,8 @@ export function CanvasViewInner({
         {!loading && filteredPlans.length > 0 && (
           <div
             ref={layerRef}
+            data-testid="canvas-world-layer"
+            data-layout-revision={layoutRevision}
             onDoubleClick={onWorldDoubleClick}
             style={{
               transform: formatLayerTransform(transform),

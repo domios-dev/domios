@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782428298884,
+  "updated_at": 1782429443411,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -2142,12 +2142,12 @@
       "acceptance_criteria": [],
       "test_plan": "Add/adjust focused layout/bounds tests; orchestrator reruns focused TS tests, npx tsc --noEmit, and relevant Playwright canvas gate if behavior-visible.",
       "correctness": null,
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782428298884,
-      "status_changed_at": 1782428260869,
+      "updated_at": 1782429443411,
+      "status_changed_at": 1782429443411,
       "handle": "auto-bounds-recompute-on-change",
       "tags": [],
       "section_ids": [
@@ -2178,7 +2178,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_6963340ebd58467d85600804a8fe61dc",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Integrated auto-bounds-recompute: added structural layout input revisioning, spec-section overlay for layout inputs, and CanvasView memo keys so bounds recompute on in-place plan mutations and async spec-section loads without render loops. Also fixed stale layout.test fixture to set primary_spec_id for spec-node expectations. Verified layoutInputRevision.test 4/4, CanvasView.test.tsx 7/7, layout.test.ts 42/42, npx tsc --noEmit, and CODETERM_API_PORT=7686 ./build.sh check.",
+          "ts": 1782429443411,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_b4e3d5b8394143a8a5abc1d99861ac09",
