@@ -698,6 +698,8 @@ var plugin = {
         action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
       };
     }
+    if (looksBusy(screen)) return { state: "working", confidence: 0 };
+    if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
     const upd = scoreUpdatePrompt(screen);
     if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
       return {
@@ -706,13 +708,34 @@ var plugin = {
         action: { keys: upd.skipKeys }
       };
     }
-    if (upd.confidence > 0) {
-      return { state: "unknown", confidence: upd.confidence };
+    const rl = scoreRateLimit(screen, host.unixNowMs());
+    if (rl.confidence >= CLASSIFY_THRESHOLD) {
+      const action = {};
+      const data = {};
+      if (rl.resetAtMs !== null) {
+        data.resetAt = new Date(rl.resetAtMs).toISOString();
+        action.delayedResume = {
+          at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
+          text: "continue your work",
+          thenKeys: ["enter"]
+        };
+      } else {
+        action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
+      }
+      return {
+        state: "rate_limited",
+        confidence: rl.confidence,
+        data: rl.resetAtMs !== null ? data : void 0,
+        action
+      };
     }
+    const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;
+    if (partial > 0) return { state: "unknown", confidence: partial };
     return { state: "working", confidence: 0 };
   }
 };
 var CLASSIFY_THRESHOLD = 0.8;
+var RESUME_BUFFER_MS = 60 * 1e3;
 function skipNavigationKeys(options) {
   if (options.length === 0) return null;
   let highlightIdx = -1;
@@ -761,6 +784,63 @@ function scoreUpdatePrompt(screen) {
   if (confidence > 1) confidence = 1;
   const skipKeys = sigUpdateSkipMenu ? skipNavigationKeys(options) : null;
   return { confidence, skipKeys };
+}
+function looksBusy(screen) {
+  const s = String(screen || "");
+  return /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
+}
+function looksLikeModelPicker(screen) {
+  const s = String(screen || "");
+  if (!/\bselect\s+(?:model|reasoning)\b/i.test(s)) return false;
+  return /\bpress\s+enter\s+to\s+confirm\b/i.test(s) && /\besc\s+to\s+go\s+back\b/i.test(s);
+}
+function scoreRateLimit(screen, nowMs) {
+  const s = String(screen || "");
+  const sigHitLimit = /\bhit your usage limit\b/i.test(s) || /\breached your usage limit\b/i.test(s);
+  const sigTryAgain = /\btry again at\b/i.test(s);
+  const sigSettingsLink = /chatgpt\.com\/codex\/settings/i.test(s);
+  const sigResetClock = /\btry again at\b[^\n]{0,48}?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(s);
+  let confidence = 0;
+  if (sigHitLimit) confidence += 0.5;
+  if (sigTryAgain) confidence += 0.3;
+  if (sigSettingsLink) confidence += 0.1;
+  if (sigResetClock) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+  const resetAtMs = parseTryAgainClock(s, nowMs);
+  return { confidence, resetAtMs };
+}
+function parseTryAgainClock(screen, nowMs) {
+  const m = /\btry again at\b[^\n]{0,48}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
+  if (!m) return null;
+  return codexParseTodayClock(m[1], nowMs);
+}
+function codexParseHMmAmPm(s) {
+  s = String(s || "").trim().toLowerCase();
+  let pm;
+  if (s.slice(-2) === "pm") pm = true;
+  else if (s.slice(-2) === "am") pm = false;
+  else return null;
+  const stripped = s.slice(0, -2).trim();
+  let hh, mm;
+  const idx = stripped.indexOf(":");
+  if (idx !== -1) {
+    hh = parseInt(stripped.slice(0, idx).trim(), 10);
+    mm = parseInt(stripped.slice(idx + 1).trim(), 10);
+  } else {
+    hh = parseInt(stripped, 10);
+    mm = 0;
+  }
+  if (isNaN(hh) || isNaN(mm) || hh === 0 || hh > 12 || mm > 59) return null;
+  return { hh, mm, pm };
+}
+function codexParseTodayClock(s, nowMs) {
+  const t = codexParseHMmAmPm(s);
+  if (!t) return null;
+  const hour24 = t.hh % 12 + (t.pm ? 12 : 0);
+  const now = new Date(nowMs);
+  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, t.mm, 0, 0);
+  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1e3);
+  return cand.getTime();
 }
 function scoreAuthPrompt(screen) {
   const s = String(screen || "");
