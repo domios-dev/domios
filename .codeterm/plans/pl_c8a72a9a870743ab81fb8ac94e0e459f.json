@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782425241766,
+  "updated_at": 1782425977782,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -2709,12 +2709,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782400418074,
-      "status_changed_at": 0,
+      "updated_at": 1782425977782,
+      "status_changed_at": 1782425977782,
       "handle": "playwright-multi-view-overflow-tests",
       "tags": [],
       "section_ids": [
@@ -2723,17 +2723,19 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_79f968733c364bdaa6516216a0d64d58",
-      "assigned_pane_id": null,
+      "assigned_pane_id": "0297fcb9",
       "lane": {
-        "pane_id": null,
+        "pane_id": "0297fcb9",
         "workspace_id": null,
         "workspace_name": null,
-        "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
-        "cleanup_status": null,
-        "cleanup_hints": []
+        "worktree_path": "/Users/rollacode/Developer/codeterm-multiview-overflow-tests",
+        "branch": "lane/multiview-overflow-tests",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After integration: close pane 0297fcb9, remove worktree /Users/rollacode/Developer/codeterm-multiview-overflow-tests, delete branch lane/multiview-overflow-tests."
+        ]
       },
       "taken_by_role": null,
       "peer": null,
@@ -2743,7 +2745,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_8cbc32898b394094830e69f282820d38",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Integrated multiview overflow Playwright gate and visible-geometry helper fixes. Hot checkout gates: cards.test.tsx 14/14, npx tsc --noEmit, @canvas-multiview-overflow 1/1, @content-lod 1/1, @canvas-tag-filter 1/1, git diff --check.",
+          "ts": 1782425977782,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_221aeff8ed364bcd9ff60209bfc90963",

@@ -371,7 +371,7 @@ export function TaskCard({
             stride snake blooms below it. W0/W1 = snake preview pinned to the bottom. */}
         <div className="ct-canvas-scroll ct-canvas-fade-in" data-canvas-scroll-body="1" style={{ marginTop: 2, overflowY: showFullBody ? "auto" : "hidden", minHeight: 0, display: "grid", gridTemplateRows: bodyRows, gap: bodyGap, ...revealStyle(showBodySlot || strideCount > 0) }}>
           <div data-testid={showBodySlot ? "canvas-task-body" : "canvas-task-body-slot"} data-visible={showBodySlot ? "true" : "false"} data-canvas-selectable className="ct-canvas-text" style={showFullBody
-            ? { fontSize: "0.92em", lineHeight: 1.5, minHeight: "1.2em", overflowWrap: "anywhere", ...revealStyle(showBodySlot) }
+            ? { fontSize: "0.92em", lineHeight: 1.5, minHeight: 0, overflowY: "auto", overflowWrap: "anywhere", ...revealStyle(showBodySlot) }
             : { fontSize: "0.9em", lineHeight: 1.45, minHeight: showBodySlot ? 36 : "1.2em", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", ...revealStyle(showBodySlot) }}>
               {task.intent && <div data-testid="canvas-task-intent" style={{ marginBottom: 6, fontStyle: "italic" }}>{task.intent}</div>}
               {showFullBody && task.model_rationale && (
