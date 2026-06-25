@@ -41,20 +41,73 @@ function ensureArtDir(): void {
   fs.mkdirSync(CANVAS_ART_DIR, { recursive: true });
 }
 
-export async function openCanvas(page: Page): Promise<void> {
-  const view = page.locator('[data-testid="canvas-view"]').first();
-  if ((await view.count()) === 0 || !(await view.isVisible().catch(() => false))) {
-    // The standalone Canvas nav item was removed; reach a board via the per-pane
-    // Plan/Tasks mode segment (workspace overview shows when no tab is focused).
-    const planTabs = page.locator('[data-testid="pane-mode-switch"] [role="tab"]').filter({ hasText: /Plan|Tasks/ });
+export async function openPanePlanCanvas(page: Page, paneId?: string): Promise<void> {
+  const scope = paneId ? page.locator(`[data-pane-id="${paneId}"]`) : page;
+  const toggle = scope.locator('[data-testid="pane-mode-switch"][data-plan-toggle="true"]');
+  if ((await toggle.count()) > 0) {
+    if ((await toggle.getAttribute("aria-pressed")) !== "true") {
+      await toggle.click();
+    }
+  } else {
+    const planTabs = scope.locator('[data-testid="pane-mode-switch"] [role="tab"]').filter({ hasText: /Plan|Tasks/ });
     const count = await planTabs.count();
     for (let i = 0; i < count; i++) {
       await planTabs.nth(i).click({ force: true }).catch(() => {});
-      if (await view.isVisible({ timeout: 1_000 }).catch(() => false)) break;
+      if (await page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]').isVisible({ timeout: 1_000 }).catch(() => false)) {
+        break;
+      }
     }
   }
-  await view.waitFor({ state: "visible", timeout: 30_000 });
-  // Wait for fit-to-view + layout to settle and at least one node to mount.
+  await page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]').waitFor({ state: "visible", timeout: 30_000 });
+  await page
+    .locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-plan-node"], [data-testid="pane-plan-overlay"] [data-testid="canvas-empty"]')
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 });
+  await page.waitForTimeout(450);
+}
+
+export async function closePanePlanCanvas(page: Page, paneId?: string): Promise<void> {
+  const scope = paneId ? page.locator(`[data-pane-id="${paneId}"]`) : page;
+  const toggle = scope.locator('[data-testid="pane-mode-switch"][data-plan-toggle="true"]');
+  if ((await toggle.count()) > 0) {
+    if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
+    return;
+  }
+  const terminalTab = scope.locator('[data-testid="pane-mode-switch"] [role="tab"]').filter({ hasText: /Terminal|Chat/ }).first();
+  if ((await terminalTab.count()) > 0) await terminalTab.click({ force: true }).catch(() => {});
+  await page.waitForTimeout(150);
+}
+
+// Inline workspace canvas (mode=workspace) mounts when the active workspace has no tab.
+export async function openInlineWorkspaceCanvas(page: Page): Promise<void> {
+  await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
+  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
+  await page
+    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 });
+  await page.waitForTimeout(450);
+}
+
+export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {
+  const btn = page.locator('[data-testid="canvas-toolbar-button"]');
+  await btn.waitFor({ state: "visible", timeout: 10_000 });
+  if ((await btn.getAttribute("aria-pressed")) !== "true") await btn.click();
+  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
+  await page.waitForTimeout(450);
+}
+
+export async function openCanvas(page: Page): Promise<void> {
+  const overlayView = page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]');
+  const inlineView = page.locator('[data-testid="canvas-view"]').first();
+  if (await overlayView.isVisible().catch(() => false)) {
+    await overlayView.waitFor({ state: "visible", timeout: 30_000 });
+  } else if (await inlineView.isVisible().catch(() => false)) {
+    await inlineView.waitFor({ state: "visible", timeout: 30_000 });
+  } else {
+    await openPanePlanCanvas(page);
+    return;
+  }
   await page
     .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
     .first()
@@ -392,6 +445,24 @@ export async function findContentBoundsIssues(page: Page, tolerancePx = 2): Prom
         a.top + tolerance >= b.top &&
         a.right - tolerance <= b.right &&
         a.bottom - tolerance <= b.bottom;
+      const visibleRect = (el: HTMLElement, host: HTMLElement) => {
+        const r = el.getBoundingClientRect();
+        const out = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+        for (let p = el.parentElement; p && p !== host; p = p.parentElement) {
+          const cs = getComputedStyle(p);
+          const clipsX = /(auto|scroll|hidden|clip)/.test(cs.overflowX) && p.scrollWidth > p.clientWidth;
+          const clipsY = /(auto|scroll|hidden|clip)/.test(cs.overflowY) && p.scrollHeight > p.clientHeight;
+          if (!clipsX && !clipsY) continue;
+          const pr = p.getBoundingClientRect();
+          out.left = Math.max(out.left, pr.left);
+          out.top = Math.max(out.top, pr.top);
+          out.right = Math.min(out.right, pr.right);
+          out.bottom = Math.min(out.bottom, pr.bottom);
+          out.width = Math.max(0, out.right - out.left);
+          out.height = Math.max(0, out.bottom - out.top);
+        }
+        return out;
+      };
       for (const node of nodes) {
         const host = node as HTMLElement;
         const hostRect = host.getBoundingClientRect();
@@ -403,7 +474,7 @@ export async function findContentBoundsIssues(page: Page, tolerancePx = 2): Prom
         );
         for (const child of candidates) {
           if ((child.textContent ?? "").trim().length === 0) continue;
-          const rect = child.getBoundingClientRect();
+          const rect = visibleRect(child, host);
           if (rect.height <= 0 || rect.width <= 0) {
             hits.push({
               testid: host.dataset.testid ?? "",
@@ -549,4 +620,172 @@ export function assertClean(result: AuditResult): void {
   expect(result.contentBounds, `bad content bounds: ${JSON.stringify(result.contentBounds)}`).toHaveLength(0);
   expect(result.underfilled, `underfilled nodes: ${JSON.stringify(result.underfilled)}`).toHaveLength(0);
   expect(result.edgeEndpoints, `edge endpoints outside anchors: ${JSON.stringify(result.edgeEndpoints)}`).toHaveLength(0);
+}
+
+export async function findVisibleOverflows(page: Page, rootSelector?: string, tolerancePx = 2): Promise<OverflowHit[]> {
+  return page.evaluate(
+    ({ rootSelector, tolerancePx }) => {
+      const visible = (el: Element) => {
+        const html = el as HTMLElement;
+        const rect = html.getBoundingClientRect();
+        if (rect.width < 2 || rect.height < 2) return false;
+        const cs = getComputedStyle(html);
+        return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) >= 0.05;
+      };
+      const roots = rootSelector
+        ? Array.from(document.querySelectorAll(rootSelector))
+        : Array.from(document.querySelectorAll('[data-testid="canvas-view"]'));
+      const out: OverflowHit[] = [];
+      for (const root of roots) {
+        if (!visible(root)) continue;
+        for (const testid of ["canvas-plan-node", "canvas-task-card"]) {
+          for (const el of root.querySelectorAll(`[data-testid="${testid}"]`)) {
+            if (!visible(el)) continue;
+            const host = el as HTMLElement;
+            const overflowY = host.scrollHeight - host.clientHeight;
+            const overflowX = host.scrollWidth - host.clientWidth;
+            if (overflowY > tolerancePx || overflowX > tolerancePx) {
+              out.push({
+                testid,
+                id: host.getAttribute("data-plan-id") ?? host.getAttribute("data-task-id"),
+                overflowY,
+                overflowX,
+              });
+            }
+          }
+        }
+      }
+      return out;
+    },
+    { rootSelector, tolerancePx },
+  );
+}
+
+export async function findVisibleContentBoundsIssues(
+  page: Page,
+  rootSelector?: string,
+  tolerancePx = 2,
+): Promise<ContentBoundsHit[]> {
+  return page.evaluate(
+    ({ rootSelector, tolerancePx }) => {
+      const visible = (el: Element) => {
+        const html = el as HTMLElement;
+        const rect = html.getBoundingClientRect();
+        if (rect.width < 2 || rect.height < 2) return false;
+        const cs = getComputedStyle(html);
+        return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) >= 0.05;
+      };
+      const within = (a: DOMRect, b: DOMRect) =>
+        a.left + tolerancePx >= b.left &&
+        a.top + tolerancePx >= b.top &&
+        a.right - tolerancePx <= b.right &&
+        a.bottom - tolerancePx <= b.bottom;
+      const visibleRect = (el: HTMLElement, host: HTMLElement) => {
+        const r = el.getBoundingClientRect();
+        const out = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+        for (let p = el.parentElement; p && p !== host; p = p.parentElement) {
+          const cs = getComputedStyle(p);
+          const clipsX = /(auto|scroll|hidden|clip)/.test(cs.overflowX) && p.scrollWidth > p.clientWidth;
+          const clipsY = /(auto|scroll|hidden|clip)/.test(cs.overflowY) && p.scrollHeight > p.clientHeight;
+          if (!clipsX && !clipsY) continue;
+          const pr = p.getBoundingClientRect();
+          out.left = Math.max(out.left, pr.left);
+          out.top = Math.max(out.top, pr.top);
+          out.right = Math.min(out.right, pr.right);
+          out.bottom = Math.min(out.bottom, pr.bottom);
+          out.width = Math.max(0, out.right - out.left);
+          out.height = Math.max(0, out.bottom - out.top);
+        }
+        return out;
+      };
+      const roots = rootSelector
+        ? Array.from(document.querySelectorAll(rootSelector))
+        : Array.from(document.querySelectorAll('[data-testid="canvas-view"]'));
+      const hits: ContentBoundsHit[] = [];
+      for (const root of roots) {
+        if (!visible(root)) continue;
+        for (const node of root.querySelectorAll('[data-testid="canvas-spec-section"], [data-testid="canvas-task-card"]')) {
+          if (!visible(node)) continue;
+          const host = node as HTMLElement;
+          const hostRect = host.getBoundingClientRect();
+          const id = host.getAttribute("data-section-id") ?? host.getAttribute("data-task-id");
+          for (const child of host.querySelectorAll<HTMLElement>(
+            '[data-testid="canvas-spec-section-body"], [data-testid="canvas-task-body"], [data-testid="canvas-task-intent"], [data-testid="canvas-task-why"]',
+          )) {
+            if (!visible(child)) continue;
+            if ((child.textContent ?? "").trim().length === 0) continue;
+            const rect = visibleRect(child, host);
+            if (rect.height <= 0 || rect.width <= 0) {
+              hits.push({ testid: host.dataset.testid ?? "", id, childTestid: child.dataset.testid ?? "", reason: "zero-size-text-block" });
+              continue;
+            }
+            if (!within(rect, hostRect)) {
+              hits.push({ testid: host.dataset.testid ?? "", id, childTestid: child.dataset.testid ?? "", reason: "content-outside-node" });
+            }
+          }
+        }
+      }
+      return hits;
+    },
+    { rootSelector, tolerancePx },
+  );
+}
+
+export async function findVisibleOverlaps(page: Page, rootSelector?: string, tolerancePx = 2): Promise<OverlapHit[]> {
+  const groups = await Promise.all(
+    ["canvas-plan-node", "canvas-spec-node", "canvas-task-card"].map(async (testid) =>
+      page.evaluate(
+        ({ testid, rootSelector }) => {
+          const visible = (el: Element) => {
+            const html = el as HTMLElement;
+            const rect = html.getBoundingClientRect();
+            if (rect.width < 2 || rect.height < 2) return false;
+            const cs = getComputedStyle(html);
+            return cs.display !== "none" && cs.visibility !== "hidden" && Number(cs.opacity) >= 0.05;
+          };
+          const roots = rootSelector
+            ? Array.from(document.querySelectorAll(rootSelector))
+            : Array.from(document.querySelectorAll('[data-testid="canvas-view"]'));
+          const out: NodeBox[] = [];
+          for (const root of roots) {
+            if (!visible(root)) continue;
+            for (const el of root.querySelectorAll(`[data-testid="${testid}"]`)) {
+              if (!visible(el)) continue;
+              const r = el.getBoundingClientRect();
+              out.push({
+                testid,
+                id:
+                  el.getAttribute("data-plan-id") ??
+                  el.getAttribute("data-task-id") ??
+                  el.getAttribute("data-milestone-id") ??
+                  el.getAttribute("data-owner-key"),
+                box: { x: r.x, y: r.y, width: r.width, height: r.height },
+              });
+            }
+          }
+          return out;
+        },
+        { testid, rootSelector },
+      ),
+    ),
+  );
+  const all = groups.flat();
+  const hits: OverlapHit[] = [];
+  const minArea = tolerancePx * tolerancePx;
+  for (let i = 0; i < all.length; i++) {
+    for (let j = i + 1; j < all.length; j++) {
+      const area = overlapArea(all[i].box, all[j].box);
+      if (area > minArea) hits.push({ a: all[i], b: all[j], area });
+    }
+  }
+  return hits;
+}
+
+export async function assertVisibleCanvasGeometryClean(page: Page, label: string, rootSelector?: string): Promise<void> {
+  const overlaps = await findVisibleOverlaps(page, rootSelector);
+  const overflows = await findVisibleOverflows(page, rootSelector);
+  const contentBounds = await findVisibleContentBoundsIssues(page, rootSelector);
+  expect(overlaps, `${label}: overlapping cards ${JSON.stringify(overlaps.map((h) => [h.a.testid, h.b.testid]))}`).toHaveLength(0);
+  expect(overflows, `${label}: clipped cards ${JSON.stringify(overflows)}`).toHaveLength(0);
+  expect(contentBounds, `${label}: bad content bounds ${JSON.stringify(contentBounds)}`).toHaveLength(0);
 }
