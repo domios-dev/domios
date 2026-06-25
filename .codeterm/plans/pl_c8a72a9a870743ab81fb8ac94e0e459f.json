@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782427686722,
+  "updated_at": 1782428181512,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -14462,12 +14462,12 @@
       ],
       "test_plan": "Add/adjust focused tests around delayed/reminder/notifier prompt construction; orchestrator reruns focused tests and build.sh check in hot checkout.",
       "correctness": "State-integrity is enforced by the tool for every orchestrator, not dependent on the agent remembering",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782395664028,
-      "updated_at": 1782427686722,
-      "status_changed_at": 1782427649167,
+      "updated_at": 1782428181512,
+      "status_changed_at": 1782428181512,
       "handle": "state-integrity-39-5-the-built-in-reminder-heartbeat-notifier-injectors-must-surface-the-state-reconciliation-prompt-at-the-right-moments-tool-enforced-every-orchestrator",
       "tags": [
         "state-integrity"
@@ -14500,7 +14500,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_fd771a43172c402988c7f230897748a2",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Integrated state-reconcile-injectors: shared STATE-RECONCILIATION prompt is prepended for active-plan orchestrator heartbeat/delayed-send composition, in_review owner notifications, and orchestrator plan reminders while worker reminders and normal sends stay untouched. Verified cargo fmt --check, git diff --check, heartbeat_tests 3/3, reminders tests 5/5, and CODETERM_API_PORT=7686 ./build.sh check.",
+          "ts": 1782428181512,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_2e2a60dd07a1457cacd0fd4c0748ad05",

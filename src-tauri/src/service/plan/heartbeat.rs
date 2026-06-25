@@ -3,6 +3,15 @@ use serde::{Deserialize, Serialize};
 use super::{PlanError, PlanStore};
 use crate::plan::{HeartbeatLearning, OrchestratorHeartbeat, Plan, PlanStatus};
 
+pub const STATE_RECONCILIATION_PROMPT: &str = concat!(
+    "STATE-RECONCILIATION:\n",
+    "- First run `codeterm agent reports` and process queued reports before inspecting panes.\n",
+    "- Reconcile live panes against the plan: active tasks, pane status, branches, and worktrees.\n",
+    "- Close verified tasks, bounce incomplete ones with the next concrete instruction, and record the plan milestone.\n",
+    "- Clean finished lane worktrees/branches/dev daemons or record why cleanup is deferred.\n",
+    "- Re-arm exactly one heartbeat carrying current focus and active lanes."
+);
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HeartbeatLearnResult {
     pub plan_id: String,
@@ -97,12 +106,18 @@ fn render_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat) -> String 
 
 fn prepend_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat, text: &str) -> String {
     let block = render_heartbeat(plan_id, heartbeat);
-    if block.is_empty() {
-        text.to_string()
-    } else if text.trim().is_empty() {
-        block
+    let reconciliation = format!(
+        "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{STATE_RECONCILIATION_PROMPT}\n</codeterm-state-reconciliation>"
+    );
+    let prelude = if block.is_empty() {
+        reconciliation
     } else {
-        format!("{block}\n\n{text}")
+        format!("{reconciliation}\n\n{block}")
+    };
+    if text.trim().is_empty() {
+        prelude
+    } else {
+        format!("{prelude}\n\n{text}")
     }
 }
 
