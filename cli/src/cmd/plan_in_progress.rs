@@ -1,7 +1,8 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use crate::client::SocketClient;
 use crate::cmd::plan::call_plan_rpc;
+use crate::cmd::task_list_render::{build_task_tree, task_str, task_value};
 use serde_json::{json, Value};
 
 const IN_PROGRESS_STATUSES: [&str; 3] = ["in_progress", "in_review", "blocked"];
@@ -56,14 +57,6 @@ fn is_in_progress_status(status: &str) -> bool {
     IN_PROGRESS_STATUSES.contains(&status)
 }
 
-fn task_value(item: &Value) -> &Value {
-    item.get("task").unwrap_or(item)
-}
-
-fn task_str<'a>(item: &'a Value, field: &str) -> Option<&'a str> {
-    task_value(item).get(field).and_then(|v| v.as_str())
-}
-
 fn lane_str<'a>(item: &'a Value, field: &str) -> Option<&'a str> {
     task_value(item)
         .get("lane")
@@ -111,28 +104,9 @@ fn render_in_progress_tasks(val: &Value) -> String {
 }
 
 fn render_in_progress_plan_tasks(out: &mut String, tasks: &[&Value]) {
-    let task_ids: HashSet<&str> = tasks
-        .iter()
-        .filter_map(|item| task_str(item, "id"))
-        .collect();
-    let mut children: HashMap<&str, Vec<&Value>> = HashMap::new();
-    let mut roots = vec![];
-
-    for item in tasks {
-        let parent = task_str(item, "parent_task_id");
-        if let Some(parent_id) = parent.filter(|parent_id| task_ids.contains(parent_id)) {
-            children.entry(parent_id).or_default().push(*item);
-        } else {
-            roots.push(*item);
-        }
-    }
-
-    roots.sort_by_key(|item| task_sort_key(item));
-    for items in children.values_mut() {
-        items.sort_by_key(|item| task_sort_key(item));
-    }
-    for item in roots {
-        render_in_progress_task(out, item, 1, &children);
+    let tree = build_task_tree(tasks);
+    for item in tree.roots {
+        render_in_progress_task(out, item, 1, &tree.children);
     }
 }
 

@@ -246,14 +246,11 @@ fn print_task_result(json: bool, val: &Value) {
             println!("(no tasks)");
             return;
         }
-        for item in tasks {
-            let task = item.get("task").unwrap_or(item);
-            let id = task.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-            let name = task.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-            let status = task.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-            let plan = item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
-            println!("{id}\t{status}\t{plan}\t{name}");
-        }
+        print!(
+            "{}",
+            crate::cmd::task_list_render::render_simple_task_list(tasks)
+        );
+        return;
     } else if let Some(task) = val.get("task") {
         let id = task.get("id").and_then(|v| v.as_str()).unwrap_or("?");
         let name = task.get("name").and_then(|v| v.as_str()).unwrap_or("?");
@@ -267,6 +264,7 @@ fn print_task_result(json: bool, val: &Value) {
         println!("plan: {plan_title} ({plan})");
         print_task_quality(task);
         print_label_list("sections", val.get("sections"));
+        print_single_label("parent", val.get("parent"));
         print_label_list("siblings", val.get("siblings"));
         print_label_list("subtasks", val.get("subtasks"));
         println!("record: codeterm plan record {plan} --task {id} --step status_update:<text>");
@@ -329,4 +327,21 @@ fn print_label_list(label: &str, value: Option<&Value>) {
         .collect::<Vec<_>>()
         .join("; ");
     println!("{label}: {rendered}");
+}
+
+fn print_single_label(label: &str, value: Option<&Value>) {
+    let Some(item) = value.filter(|v| !v.is_null()) else {
+        println!("{label}: none");
+        return;
+    };
+    let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+    let name = item
+        .get("name")
+        .or_else(|| item.get("title"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
+    match item.get("status").and_then(|v| v.as_str()) {
+        Some(status) => println!("{label}: {name} ({id}, {status})"),
+        None => println!("{label}: {name} ({id})"),
+    }
 }

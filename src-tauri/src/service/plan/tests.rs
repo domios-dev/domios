@@ -639,6 +639,27 @@ fn add_task_supports_many_to_many_sections() {
 }
 
 #[test]
+fn show_task_includes_parent_label_for_subtasks() {
+    let (store, id, parent_id) = store_with_task(&["status_update"]);
+    let child_id = store
+        .add_task(
+            &id,
+            NewTask {
+                name: "Child".into(),
+                kind: "implement".into(),
+                parent_task_id: Some(parent_id.clone()),
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+    let detail = store.show_task(&child_id).expect("child task");
+    let parent = detail.parent.expect("parent label");
+    assert_eq!(parent.id, parent_id);
+    assert_eq!(parent.name, "n");
+}
+
+#[test]
 fn add_task_persists_parent_task_id() {
     let (store, id, parent_id) = store_with_task(&["status_update"]);
     let child_id = store

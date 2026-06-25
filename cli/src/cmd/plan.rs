@@ -1047,14 +1047,10 @@ fn print_plan_result(json: bool, val: &Value) {
         if tasks.is_empty() {
             println!("(no tasks)");
         } else {
-            for item in tasks {
-                let task = item.get("task").unwrap_or(item);
-                let id = task.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                let name = task.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-                let status = task.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-                let plan = item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
-                println!("{id}\t{status}\t{plan}\t{name}");
-            }
+            print!(
+                "{}",
+                crate::cmd::task_list_render::render_simple_task_list(tasks)
+            );
         }
     } else if val.get("ok").is_some() {
         println!("OK");

@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782426755152,
+  "updated_at": 1782427465176,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -2187,12 +2187,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782395823335,
-      "status_changed_at": 0,
+      "updated_at": 1782427465176,
+      "status_changed_at": 1782427465176,
       "handle": "subtasks-methodology-parent-task-id-render",
       "tags": [],
       "section_ids": [
@@ -2201,17 +2201,19 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_2b3494025ad6452d86c5722057cb2c84",
-      "assigned_pane_id": null,
+      "assigned_pane_id": "190d9d40",
       "lane": {
-        "pane_id": null,
+        "pane_id": "190d9d40",
         "workspace_id": null,
         "workspace_name": null,
-        "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
-        "cleanup_status": null,
-        "cleanup_hints": []
+        "worktree_path": "/Users/rollacode/Developer/codeterm-subtasks-methodology",
+        "branch": "lane/subtasks-methodology",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After integration: close pane 190d9d40, remove worktree /Users/rollacode/Developer/codeterm-subtasks-methodology, delete branch lane/subtasks-methodology."
+        ]
       },
       "taken_by_role": null,
       "peer": null,
@@ -2254,6 +2256,25 @@
           "links": [
             "key:a16d30415a619d19"
           ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_3775a0aca1884e6f876774373a17bd21",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Integrated subtasks-methodology: TaskCard parent/subtask badges, CLI hierarchical task lists/in-progress/markdown export, and task show parent labels. Verified cards.test.tsx 18/18, npx tsc --noEmit, cli task_list_render, cli render_plan_markdown, cli in_progress subtask test, tauri show_task_includes_parent_label_for_subtasks, and CODETERM_API_PORT=7686 ./build.sh check.",
+          "ts": 1782427465176,
+          "links": [],
           "loop_id": null,
           "iteration": null,
           "canvas": {

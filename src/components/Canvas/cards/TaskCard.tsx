@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { CheckCircle2, Clock3, ExternalLink, Layers, Link2, TriangleAlert, Unplug } from "lucide-react";
+import { CheckCircle2, Clock3, CornerDownRight, ExternalLink, Layers, Link2, TriangleAlert, Unplug } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../settings";
 import { substrateV2Enabled } from "../substrateFlag";
@@ -198,6 +198,7 @@ export interface TaskCardProps extends CanvasCardStyleProps {
   tagFacets?: TagFacet[];
   childCount?: number;
   childDone?: number;
+  parentTaskName?: string | null;
   stepColors?: Map<string, string>;
   drift?: DriftItem;
   world: World;
@@ -217,6 +218,7 @@ export function TaskCard({
   tagFacets,
   childCount = 0,
   childDone = 0,
+  parentTaskName = null,
   stepColors,
   drift,
   style,
@@ -345,7 +347,13 @@ export function TaskCard({
             </div>
           ) : null}
 
-          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0 || freshnessLabel.length > 0) }}>
+          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0 || freshnessLabel.length > 0 || !!parentTaskName) }}>
+            {parentTaskName && (
+              <Counter testid="canvas-task-parent">
+                <CornerDownRight size={10} aria-hidden />
+                {parentTaskName}
+              </Counter>
+            )}
             {freshnessLabel && (
               <Counter testid="canvas-task-freshness">
                 <Clock3 size={10} aria-hidden />
@@ -363,7 +371,12 @@ export function TaskCard({
                 {freshColor && <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: freshColor }} />}∿ {strideCount}
               </Counter>
             )}
-            {childCount > 0 && <Counter testid="canvas-task-subtask-count"><Layers size={10} />⊞ {childCount}</Counter>}
+            {childCount > 0 && (
+              <Counter testid="canvas-task-subtask-count">
+                <Layers size={10} />
+                ⊞ {childDone}/{childCount}
+              </Counter>
+            )}
             {childCount > 0 && <MiniBar frac={childDone / childCount} />}
           </div>
         </div>

@@ -123,6 +123,31 @@ fn render_plan_markdown_renders_task_quality_fields() {
 }
 
 #[test]
+fn render_plan_markdown_indents_subtasks_under_parent() {
+    let rendered = render_plan_markdown(&json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "tasks": [
+            {
+                "id": "task_parent",
+                "name": "Parent",
+                "status": "in_progress"
+            },
+            {
+                "id": "task_child",
+                "name": "Child",
+                "status": "pending",
+                "parent_task_id": "task_parent"
+            }
+        ]
+    }));
+
+    assert!(rendered.contains("- **Parent** (`task_parent`) — in_progress\n"));
+    assert!(rendered.contains("  - **Child** (`task_child`) — pending\n"));
+}
+
+#[test]
 fn render_plan_markdown_omits_empty_goal_and_task_quality_fields() {
     let rendered = render_plan_markdown(&json!({
         "id": "pl_1",
