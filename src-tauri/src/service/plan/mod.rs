@@ -32,7 +32,8 @@ use crate::plan::reconcile::{
     DriftItem, DriftKind, NEEDS_REASSIGN_LABEL, PANE_GONE_LABEL, STALE_REVIEW_LABEL,
 };
 use crate::plan::{
-    OrchestratorRef, Plan, PlanStatus, Spec, TaskStatus, INBOX_PLAN_FILE_STEM, INBOX_PLAN_ID,
+    OrchestratorRef, Plan, PlanStatus, Spec, TaskLaneMetadata, TaskStatus, INBOX_PLAN_FILE_STEM,
+    INBOX_PLAN_ID,
 };
 use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
@@ -146,10 +147,38 @@ pub struct NewTask {
     pub intent: Option<String>,
     pub parent_task_id: Option<String>,
     pub assigned_pane_id: Option<String>,
+    pub lane: TaskLaneMetadata,
     pub group: Option<String>,
     pub priority: Option<crate::plan::TaskPriority>,
     pub handle: Option<String>,
     pub tags: Vec<String>,
+}
+
+#[derive(Default)]
+pub struct TaskLaneUpdate {
+    pub pane_id: Option<Option<String>>,
+    pub workspace_id: Option<Option<String>>,
+    pub workspace_name: Option<Option<String>>,
+    pub worktree_path: Option<Option<String>>,
+    pub branch: Option<Option<String>>,
+    pub base: Option<Option<String>>,
+    pub destination: Option<Option<String>>,
+    pub cleanup_status: Option<Option<String>>,
+    pub cleanup_hints: Option<Vec<String>>,
+}
+
+impl TaskLaneUpdate {
+    pub fn is_empty(&self) -> bool {
+        self.pane_id.is_none()
+            && self.workspace_id.is_none()
+            && self.workspace_name.is_none()
+            && self.worktree_path.is_none()
+            && self.branch.is_none()
+            && self.base.is_none()
+            && self.destination.is_none()
+            && self.cleanup_status.is_none()
+            && self.cleanup_hints.is_none()
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

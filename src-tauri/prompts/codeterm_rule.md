@@ -40,7 +40,7 @@ codeterm mesh peers                                        # find peers (paired 
 codeterm pane list --mesh "home-laptop"                    # list panes on remote
 codeterm send "git pull && ./build.sh dev" --pane ID --mesh PEER  # send command
 codeterm agent spawn claude --task "..." --mesh PEER       # spawn agent remotely
-codeterm get-output --pane ID --mesh PEER                  # read remote output
+codeterm pane get-text --pane ID --mesh PEER               # read remote visible terminal text
 ```
 
 Flow: `mesh peers` → find peer name → `pane list --mesh NAME` → find pane ID → `send`.

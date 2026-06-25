@@ -23,6 +23,15 @@ pub(crate) fn run(
     test_plan: Option<String>,
     correctness: Option<String>,
     parent: Option<String>,
+    pane: Option<String>,
+    workspace_id: Option<String>,
+    workspace_name: Option<String>,
+    worktree: Option<String>,
+    branch: Option<String>,
+    base: Option<String>,
+    destination: Option<String>,
+    cleanup_status: Option<String>,
+    cleanup_hints: Vec<String>,
     group: Option<String>,
     priority: Option<String>,
     tags: Vec<String>,
@@ -71,6 +80,19 @@ pub(crate) fn run(
     }
     if let Some(p) = parent {
         params["parent_task_id"] = json!(p);
+    }
+    if let Some(lane) = crate::cmd::plan::lane_params(
+        pane,
+        workspace_id,
+        workspace_name,
+        worktree,
+        branch,
+        base,
+        destination,
+        cleanup_status,
+        cleanup_hints,
+    ) {
+        params["lane"] = lane;
     }
     if let Some(g) = group {
         params["group"] = json!(g);

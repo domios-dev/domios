@@ -554,6 +554,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         intent: None,
         parent_task_id: None,
         assigned_pane_id: None,
+        lane: Default::default(),
         taken_by_role: None,
         peer: None,
         group: None,

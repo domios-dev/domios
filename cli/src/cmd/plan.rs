@@ -65,6 +65,53 @@ fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value,
     call_plan_rpc(client, method, params)
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn lane_params(
+    pane_id: Option<String>,
+    workspace_id: Option<String>,
+    workspace_name: Option<String>,
+    worktree_path: Option<String>,
+    branch: Option<String>,
+    base: Option<String>,
+    destination: Option<String>,
+    cleanup_status: Option<String>,
+    cleanup_hints: Vec<String>,
+) -> Option<Value> {
+    let mut lane = json!({});
+    if let Some(value) = pane_id {
+        lane["pane_id"] = json!(value);
+    }
+    if let Some(value) = workspace_id {
+        lane["workspace_id"] = json!(value);
+    }
+    if let Some(value) = workspace_name {
+        lane["workspace_name"] = json!(value);
+    }
+    if let Some(value) = worktree_path {
+        lane["worktree_path"] = json!(value);
+    }
+    if let Some(value) = branch {
+        lane["branch"] = json!(value);
+    }
+    if let Some(value) = base {
+        lane["base"] = json!(value);
+    }
+    if let Some(value) = destination {
+        lane["destination"] = json!(value);
+    }
+    if let Some(value) = cleanup_status {
+        lane["cleanup_status"] = json!(value);
+    }
+    if !cleanup_hints.is_empty() {
+        lane["cleanup_hints"] = json!(cleanup_hints);
+    }
+    if lane.as_object().is_some_and(|items| !items.is_empty()) {
+        Some(lane)
+    } else {
+        None
+    }
+}
+
 fn render_plan_sections(plan: &Value) -> String {
     fn walk(sections: &[Value], depth: usize, out: &mut String) {
         for section in sections {
@@ -553,6 +600,14 @@ fn run_plan(
                 intent_file,
                 parent,
                 assign_pane,
+                workspace_id,
+                workspace_name,
+                worktree,
+                branch,
+                base,
+                destination,
+                cleanup_status,
+                cleanup_hints,
                 group,
                 priority,
                 tags,
@@ -605,6 +660,22 @@ fn run_plan(
                 }
                 if let Some(p) = assign_pane {
                     params["assign_pane"] = json!(p);
+                }
+                if let Some(lane) = lane_params(
+                    params
+                        .get("assign_pane")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    workspace_id,
+                    workspace_name,
+                    worktree,
+                    branch,
+                    base,
+                    destination,
+                    cleanup_status,
+                    cleanup_hints,
+                ) {
+                    params["lane"] = lane;
                 }
                 if let Some(g) = group {
                     params["group"] = json!(g);
@@ -673,6 +744,15 @@ fn run_plan(
                 test_plan,
                 correctness,
                 parent,
+                pane,
+                workspace_id,
+                workspace_name,
+                worktree,
+                branch,
+                base,
+                destination,
+                cleanup_status,
+                cleanup_hints,
                 group,
                 priority,
                 tags,
@@ -698,6 +778,15 @@ fn run_plan(
                 test_plan,
                 correctness,
                 parent,
+                pane,
+                workspace_id,
+                workspace_name,
+                worktree,
+                branch,
+                base,
+                destination,
+                cleanup_status,
+                cleanup_hints,
                 group,
                 priority,
                 tags,

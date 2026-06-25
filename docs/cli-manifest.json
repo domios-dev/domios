@@ -1505,30 +1505,6 @@
       ]
     },
     {
-      "name": "get-output",
-      "about": "Get terminal output from a pane (default: current pane)",
-      "aliases": [],
-      "args": [
-        {
-          "name": "lines",
-          "positional": false,
-          "value_name": "LINES",
-          "default": "50",
-          "help": "Maximum number of lines to return (approximate)",
-          "aliases": []
-        },
-        {
-          "name": "pane",
-          "positional": false,
-          "value_name": "PANE",
-          "default": null,
-          "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
-          "aliases": []
-        }
-      ],
-      "subcommands": []
-    },
-    {
       "name": "identify",
       "about": "Show CodeTerm version and system info",
       "aliases": [],
@@ -3896,30 +3872,6 @@
           "subcommands": []
         },
         {
-          "name": "output",
-          "about": "Get output from a pane on a remote mesh peer",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": "general",
-              "help": "Target pane on remote instance (default: general)",
-              "aliases": []
-            },
-            {
-              "name": "target",
-              "positional": true,
-              "value_name": "TARGET",
-              "default": null,
-              "help": "Target peer name or instance ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "panes",
           "about": "List panes on a remote mesh peer",
           "aliases": [],
@@ -4453,7 +4405,7 @@
               "positional": false,
               "value_name": "PLUGIN_ID",
               "default": null,
-              "help": "Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`get-output` then route to the plugin, not a shell",
+              "help": "Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`pane get-text` then route to the plugin, not a shell",
               "aliases": []
             },
             {
@@ -6222,6 +6174,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "base",
+                  "positional": false,
+                  "value_name": "BASE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "body",
                   "positional": false,
                   "value_name": "BODY",
@@ -6238,6 +6198,30 @@
                   "aliases": []
                 },
                 {
+                  "name": "branch",
+                  "positional": false,
+                  "value_name": "BRANCH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "cleanup_hints",
+                  "positional": false,
+                  "value_name": "CLEANUP_HINTS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "cleanup_status",
+                  "positional": false,
+                  "value_name": "CLEANUP_STATUS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "correctness",
                   "positional": false,
                   "value_name": "CORRECTNESS",
@@ -6249,6 +6233,14 @@
                   "name": "criterion",
                   "positional": false,
                   "value_name": "CRITERION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "destination",
+                  "positional": false,
+                  "value_name": "DESTINATION",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -6385,6 +6377,30 @@
                   "name": "why_file",
                   "positional": false,
                   "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace_id",
+                  "positional": false,
+                  "value_name": "WORKSPACE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace_name",
+                  "positional": false,
+                  "value_name": "WORKSPACE_NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "worktree",
+                  "positional": false,
+                  "value_name": "WORKTREE",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -6590,6 +6606,14 @@
               "aliases": [],
               "args": [
                 {
+                  "name": "base",
+                  "positional": false,
+                  "value_name": "BASE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "body",
                   "positional": false,
                   "value_name": "BODY",
@@ -6606,6 +6630,30 @@
                   "aliases": []
                 },
                 {
+                  "name": "branch",
+                  "positional": false,
+                  "value_name": "BRANCH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "cleanup_hints",
+                  "positional": false,
+                  "value_name": "CLEANUP_HINTS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "cleanup_status",
+                  "positional": false,
+                  "value_name": "CLEANUP_STATUS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "correctness",
                   "positional": false,
                   "value_name": "CORRECTNESS",
@@ -6617,6 +6665,14 @@
                   "name": "criterion",
                   "positional": false,
                   "value_name": "CRITERION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "destination",
+                  "positional": false,
+                  "value_name": "DESTINATION",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -6673,6 +6729,14 @@
                   "name": "name",
                   "positional": false,
                   "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "pane",
+                  "positional": false,
+                  "value_name": "PANE",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -6769,6 +6833,30 @@
                   "name": "why_file",
                   "positional": false,
                   "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace_id",
+                  "positional": false,
+                  "value_name": "WORKSPACE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace_name",
+                  "positional": false,
+                  "value_name": "WORKSPACE_NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "worktree",
+                  "positional": false,
+                  "value_name": "WORKTREE",
                   "default": null,
                   "help": null,
                   "aliases": []

@@ -592,7 +592,7 @@ pub async fn chat_send_text(
 
 /// P1: open a non-PTY chatBackend pane driven by `plugin_id` (a plugin declaring
 /// the `chatBackend` capability). The frontend Extensions "Open chat" action
-/// calls this; `send`/`get-output` on the returned pane route to the plugin via
+/// calls this; `send`/`get-text` on the returned pane route to the plugin via
 /// the PaneTransport seam. Returns the new pane id.
 #[tauri::command]
 pub async fn open_chat_backend_pane(

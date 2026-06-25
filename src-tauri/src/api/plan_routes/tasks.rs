@@ -7,12 +7,44 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{AgentRef, OrchestratorRef};
-use crate::service::plan::NewTask;
+use crate::plan::{AgentRef, OrchestratorRef, TaskLaneMetadata};
+use crate::service::plan::{NewTask, TaskLaneUpdate};
 
 use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
 };
+
+fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
+    let Some(lane) = body.get("lane") else {
+        return Ok(None);
+    };
+    let mut update = TaskLaneUpdate::default();
+    update.pane_id = lane.get("pane_id").map(|v| v.as_str().map(str::to_string));
+    update.workspace_id = lane
+        .get("workspace_id")
+        .map(|v| v.as_str().map(str::to_string));
+    update.workspace_name = lane
+        .get("workspace_name")
+        .map(|v| v.as_str().map(str::to_string));
+    update.worktree_path = lane
+        .get("worktree_path")
+        .map(|v| v.as_str().map(str::to_string));
+    update.branch = lane.get("branch").map(|v| v.as_str().map(str::to_string));
+    update.base = lane.get("base").map(|v| v.as_str().map(str::to_string));
+    update.destination = lane
+        .get("destination")
+        .map(|v| v.as_str().map(str::to_string));
+    update.cleanup_status = lane
+        .get("cleanup_status")
+        .map(|v| v.as_str().map(str::to_string));
+    if let Some(hints) = lane.get("cleanup_hints") {
+        update.cleanup_hints = Some(
+            serde_json::from_value(hints.clone())
+                .map_err(|e| format!("invalid cleanup_hints: {e}"))?,
+        );
+    }
+    Ok((!update.is_empty()).then_some(update))
+}
 
 #[derive(Deserialize, Default)]
 pub(crate) struct TaskAddBody {
@@ -39,6 +71,8 @@ pub(crate) struct TaskAddBody {
     parent: Option<String>,
     #[serde(default)]
     assign_pane: Option<String>,
+    #[serde(default)]
+    lane: TaskLaneMetadata,
     #[serde(default)]
     group: Option<String>,
     #[serde(default)]
@@ -109,6 +143,7 @@ pub async fn task_add(
                 intent: body.intent,
                 parent_task_id: body.parent,
                 assigned_pane_id: body.assign_pane,
+                lane: body.lane,
                 group: body.group,
                 priority: body.priority,
                 handle: body.handle,
@@ -166,6 +201,8 @@ pub async fn task_update(
         .get("tags")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
+    let lane = lane_update_field(&body)
+        .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
     state
         .svc
         .plan_store
@@ -190,6 +227,13 @@ pub async fn task_update(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+    if let Some(lane) = lane {
+        state
+            .svc
+            .plan_store
+            .update_task_lane(&id, &tid, lane, epoch_ms())
+            .map_err(plan_err)?;
+    }
     // §EFFORT: a task moving to in_review IS the trigger — notify the plan owner
     // (orchestrator) directly, so a separate `agent report` isn't needed.
     if body.get("status").and_then(|v| v.as_str()) == Some("in_review") {

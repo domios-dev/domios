@@ -2,12 +2,66 @@ use super::{NewTask, OpenSubtask, PlanError, PlanStore};
 use crate::plan::loop_engine::stop_for;
 use crate::plan::{
     AgentRef, CanvasElement, Goal, LoopSpec, LoopStage, LoopStatus, Milestone, MilestoneKind,
-    OrchestratorRef, Plan, PlanStatus, Section, Task, TaskGroup, TaskPriority, TaskStatus,
-    TransferRecord,
+    OrchestratorRef, Plan, PlanStatus, Section, Task, TaskGroup, TaskLaneMetadata, TaskPriority,
+    TaskStatus, TransferRecord,
 };
 
 fn gen_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+}
+
+fn normalize_lane_metadata(mut lane: TaskLaneMetadata) -> TaskLaneMetadata {
+    lane.pane_id = non_empty(lane.pane_id);
+    lane.workspace_id = non_empty(lane.workspace_id);
+    lane.workspace_name = non_empty(lane.workspace_name);
+    lane.worktree_path = non_empty(lane.worktree_path);
+    lane.branch = non_empty(lane.branch);
+    lane.base = non_empty(lane.base);
+    lane.destination = non_empty(lane.destination);
+    lane.cleanup_status = non_empty(lane.cleanup_status);
+    lane.cleanup_hints.retain(|hint| !hint.trim().is_empty());
+    lane
+}
+
+fn non_empty(value: Option<String>) -> Option<String> {
+    value.and_then(|s| {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn apply_lane_update(lane: &mut TaskLaneMetadata, update: super::TaskLaneUpdate) {
+    if let Some(value) = update.pane_id {
+        lane.pane_id = value;
+    }
+    if let Some(value) = update.workspace_id {
+        lane.workspace_id = value;
+    }
+    if let Some(value) = update.workspace_name {
+        lane.workspace_name = value;
+    }
+    if let Some(value) = update.worktree_path {
+        lane.worktree_path = value;
+    }
+    if let Some(value) = update.branch {
+        lane.branch = value;
+    }
+    if let Some(value) = update.base {
+        lane.base = value;
+    }
+    if let Some(value) = update.destination {
+        lane.destination = value;
+    }
+    if let Some(value) = update.cleanup_status {
+        lane.cleanup_status = value;
+    }
+    if let Some(value) = update.cleanup_hints {
+        lane.cleanup_hints = value;
+    }
 }
 
 pub(super) fn push_subsection(
@@ -322,6 +376,14 @@ impl PlanStore {
 
     pub fn add_task(&self, plan_id: &str, new: NewTask, now_ms: u64) -> Result<String, PlanError> {
         let tid = gen_id("task");
+        let assigned_pane_id = new
+            .assigned_pane_id
+            .clone()
+            .or_else(|| new.lane.pane_id.clone());
+        let mut lane = normalize_lane_metadata(new.lane);
+        if lane.pane_id.is_none() {
+            lane.pane_id = assigned_pane_id.clone();
+        }
         let mut task = Task {
             id: tid.clone(),
             name: new.name,
@@ -343,7 +405,8 @@ impl PlanStore {
             body: new.body,
             intent: new.intent,
             parent_task_id: new.parent_task_id,
-            assigned_pane_id: new.assigned_pane_id,
+            assigned_pane_id,
+            lane,
             taken_by_role: None,
             peer: None,
             group: new.group,
@@ -632,6 +695,29 @@ impl PlanStore {
         })
     }
 
+    pub fn update_task_lane(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        lane: super::TaskLaneUpdate,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            let task = p
+                .tasks
+                .iter_mut()
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            apply_lane_update(&mut task.lane, lane);
+            task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
+            if task.assigned_pane_id.is_none() {
+                task.assigned_pane_id = task.lane.pane_id.clone();
+            }
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
     pub fn update_task_quality(
         &self,
         plan_id: &str,
@@ -676,6 +762,7 @@ impl PlanStore {
                 .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
                 .ok_or(PlanError::TaskNotFound)?;
             task.assigned_pane_id = Some(pane.into());
+            task.lane.pane_id = Some(pane.into());
             task.taken_by_role = None;
             task.peer = peer.map(|s| s.into());
             task.updated_at = now_ms;
