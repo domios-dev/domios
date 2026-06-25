@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782424921514,
+  "updated_at": 1782425241766,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -3646,12 +3646,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782400418128,
-      "status_changed_at": 0,
+      "updated_at": 1782425241766,
+      "status_changed_at": 1782425241766,
       "handle": "banded-layout-determinism-no-overlap-tests",
       "tags": [],
       "section_ids": [
@@ -3660,17 +3660,19 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_6c318b94c61f40cb8050b66789117750",
-      "assigned_pane_id": null,
+      "assigned_pane_id": "4198bd3a",
       "lane": {
-        "pane_id": null,
+        "pane_id": "4198bd3a",
         "workspace_id": null,
         "workspace_name": null,
-        "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
-        "cleanup_status": null,
-        "cleanup_hints": []
+        "worktree_path": "/Users/rollacode/Developer/codeterm-banded-layout-tests",
+        "branch": "lane/banded-layout-tests",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After integration: close pane 4198bd3a, remove worktree /Users/rollacode/Developer/codeterm-banded-layout-tests, delete branch lane/banded-layout-tests."
+        ]
       },
       "taken_by_role": null,
       "peer": null,
@@ -3680,7 +3682,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_8b593c5c7bb54c3e8850af8b02b7b6de",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Integrated banded layout determinism/no-overlap tests. Hot checkout gates: npx tsx src/components/Canvas/layout/bandedLayout.test.ts 17/17, npx tsc --noEmit, git diff --check.",
+          "ts": 1782425241766,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_d10e30332a7b4579967ab1a7aba112bd",
