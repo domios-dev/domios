@@ -92,6 +92,7 @@ export interface TaskCardModel {
   tagFacets?: TagFacet[];
   childCount: number;
   childDone: number;
+  parentTaskName: string | null;
   stepColors: Map<string, string>;
   drift?: DriftItem;
 }
@@ -265,6 +266,7 @@ export function CanvasViewInner({
       }
       const childCounts = new Map<string, number>();
       const childDone = new Map<string, number>();
+      const taskNameById = new Map(plan.tasks.map((t) => [t.id, t.name]));
       for (const t of plan.tasks) {
         if (t.parent_task_id) {
           childCounts.set(t.parent_task_id, (childCounts.get(t.parent_task_id) ?? 0) + 1);
@@ -280,7 +282,16 @@ export function CanvasViewInner({
       }
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
-        taskModelById.set(task.id, { task, tagFacets: plan.tag_facets, childCount: childCounts.get(task.id) ?? 0, childDone: childDone.get(task.id) ?? 0, stepColors: colors, drift: driftByTask.get(task.id) });
+        const parentTaskName = task.parent_task_id ? taskNameById.get(task.parent_task_id) ?? null : null;
+        taskModelById.set(task.id, {
+          task,
+          tagFacets: plan.tag_facets,
+          childCount: childCounts.get(task.id) ?? 0,
+          childDone: childDone.get(task.id) ?? 0,
+          parentTaskName,
+          stepColors: colors,
+          drift: driftByTask.get(task.id),
+        });
         const seen = new Map<string, string>();
         for (const m of task.milestones) {
           const color = colors.get(m.kind) ?? "var(--ct-border-focus)";

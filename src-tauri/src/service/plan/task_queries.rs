@@ -32,6 +32,7 @@ pub struct TaskDetail {
     pub plan_title: String,
     pub plan_owner: OrchestratorRef,
     pub sections: Vec<TaskSection>,
+    pub parent: Option<TaskLabel>,
     pub siblings: Vec<TaskLabel>,
     pub subtasks: Vec<TaskLabel>,
     pub task: Task,
@@ -199,11 +200,18 @@ impl PlanStore {
             else {
                 continue;
             };
+            let parent = task.parent_task_id.as_ref().and_then(|parent_id| {
+                plan.tasks
+                    .iter()
+                    .find(|candidate| candidate.id == *parent_id)
+                    .map(task_label)
+            });
             return Some(TaskDetail {
                 plan_id: plan.id.clone(),
                 plan_title: plan.title.clone(),
                 plan_owner: plan.owner.clone(),
                 sections: task_sections(&plan, task),
+                parent,
                 siblings: plan
                     .tasks
                     .iter()

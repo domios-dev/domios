@@ -36,6 +36,7 @@ pub mod sessions;
 pub mod spec;
 pub mod system;
 pub mod task;
+pub mod task_list_render;
 pub mod update;
 pub mod usage;
 pub mod web;

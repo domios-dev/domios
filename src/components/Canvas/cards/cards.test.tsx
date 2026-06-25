@@ -126,6 +126,20 @@ test("SPEC SectionNode: titles far (index), full body prose on zoom (content-LOD
   await act(async () => near.root.unmount());
 });
 
+test("TaskCard subtasks: parent shows done/total count; child shows parent name", async () => {
+  const parent = { ...FIXTURE_TASK, id: "task_parent", name: "Epic parent" };
+  const child = { ...FIXTURE_TASK, id: "task_child", name: "Subtask", parent_task_id: "task_parent" };
+  const parentCard = await render(<TaskCard task={parent} childCount={3} childDone={1} style={cardStyle} world="W3" />);
+  const count = parentCard.host.querySelector('[data-testid="canvas-task-subtask-count"]');
+  assert(count?.textContent?.includes("1/3"), `expected 1/3 subtask progress, got ${count?.textContent}`);
+  await act(async () => parentCard.root.unmount());
+
+  const childCard = await render(<TaskCard task={child} parentTaskName="Epic parent" style={cardStyle} world="W3" />);
+  const parentBadge = childCard.host.querySelector('[data-testid="canvas-task-parent"]');
+  assert(parentBadge?.textContent?.includes("Epic parent"), `parent badge missing, got ${parentBadge?.textContent}`);
+  await act(async () => childCard.root.unmount());
+});
+
 test("TaskCard freshness: compact relative stamp from status/updated time", async () => {
   const now = Date.now();
   const fresh = { ...FIXTURE_TASK, status_changed_at: now - 5 * 60_000 };
