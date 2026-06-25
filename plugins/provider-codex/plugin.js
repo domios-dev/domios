@@ -263,7 +263,6 @@ var OUTPUT_FINGERPRINTS = [
   "codex>"
 ];
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
-var MODEL_FOOTER_RE = /\b(?:gpt|o\d|codex)[\w.-]*\s+(?:default|low|medium|high)\s+·\s+\S+/i;
 var plugin = {
   detectFromTitle(title) {
     return TITLE_RE.test(String(title || ""));
@@ -276,12 +275,10 @@ var plugin = {
     return false;
   },
   screenHasTui(screen) {
-    const text = String(screen || "");
-    const lower = text.toLowerCase();
+    const lower = String(screen || "").toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    if (MODEL_FOOTER_RE.test(text) && /^[\s\S]*^[›❯]\s/m.test(text)) return true;
     return false;
   },
   isOutputNoise(text) {
