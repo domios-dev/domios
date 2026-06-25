@@ -3,6 +3,8 @@ import { useSyncExternalStore } from "react";
 export interface CanvasFocusTarget {
   planId?: string;
   orchestratorPaneId?: string;
+  /** Pane that opened focus — camera lands on its assigned task(s) when present. */
+  focusPaneId?: string;
 }
 
 let open = false;

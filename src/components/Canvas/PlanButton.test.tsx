@@ -102,6 +102,7 @@ test("PlanButton opens canvas focus store on click", async () => {
   await act(async () => btn.click());
   assert(canvasFocusStore.isOpen(), "focus overlay open");
   assert(canvasFocusStore.getTarget()?.planId === FIXTURE_PLAN.id, "focuses fixture plan");
+  assert(canvasFocusStore.getTarget()?.focusPaneId === "orch-1", "carries opening pane for camera routing");
   canvasFocusStore.close();
   await act(async () => root.unmount());
 });

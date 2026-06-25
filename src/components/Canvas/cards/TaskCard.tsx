@@ -208,6 +208,8 @@ export interface TaskCardProps extends CanvasCardStyleProps {
   onCopyLink?: (taskId: string) => void;
   onCopyStrideLink?: (milestoneId: string) => void;
   onFocusStride?: (milestoneId: string) => void;
+  tagFilterDimmed?: boolean;
+  tagFilterHighlighted?: boolean;
 }
 
 export function TaskCard({
@@ -225,6 +227,8 @@ export function TaskCard({
   onCopyLink,
   onCopyStrideLink,
   onFocusStride,
+  tagFilterDimmed = false,
+  tagFilterHighlighted = false,
 }: TaskCardProps) {
   const badgeColor = TASK_STATUS_COLORS[task.status];
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
@@ -293,10 +297,11 @@ export function TaskCard({
       data-task-id={task.id}
       data-world={world}
       data-shelf={shelf}
-      className={`ct-canvas-node${chrome.pulse ? " ct-canvas-live" : ""}`}
+      data-tag-filter={tagFilterDimmed ? "dimmed" : tagFilterHighlighted ? "highlight" : undefined}
+      className={`ct-canvas-node${chrome.pulse ? " ct-canvas-live" : ""}${tagFilterDimmed ? " ct-canvas-tag-dimmed" : ""}`}
       onMouseEnter={() => onHover?.(task.id)}
       onMouseLeave={() => onHover?.(null)}
-      style={{ ...cardStyle, ...boxStyle, ...chromeOverrides }}
+      style={{ ...cardStyle, ...boxStyle, ...chromeOverrides, ...(tagFilterDimmed ? { opacity: 0.22, pointerEvents: "none" as const } : {}) }}
     >
       <div style={{ flex: 1, display: "grid", gridTemplateRows: contentRows, gap: contentGap, padding: contentPadding, minWidth: 0, overflow: "hidden" }}>
         {/* Header — present at every band (the navigation layer). Solid status chip. */}

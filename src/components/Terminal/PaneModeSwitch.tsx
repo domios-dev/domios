@@ -12,7 +12,7 @@ import { useMultiplexer } from "../../store/multiplexer";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { canvasFocusStore, usePlanPulseVersion } from "../Canvas/canvasFocusStore";
 import { setPanePlanMode, usePanePlanMode } from "../Canvas/panePlanMode";
-import { findPlanIndexForPane, resolveOrchestratorPaneId } from "../Canvas/planPaneMatch";
+import { findPlanIndexForPane } from "../Canvas/planPaneMatch";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 
 type SwitchValue = PaneUiMode | "plan";
@@ -23,8 +23,8 @@ const CHAT: SegmentedOption<SwitchValue> = { value: "chat", label: "Chat" };
 /** Terminal | Chat | Plan switch for a pane. Terminal/Chat fully swap the body
  *  (TerminalPane mounts/unmounts the chat surface). Plan is a third, transient
  *  view mode (§7.1): selecting it renders the plan canvas over the pane body via
- *  panePlanMode; its label is role-driven (Plan for an orchestrator that owns a
- *  plan, Tasks for a worker bound to one) and it pulses on plan-changed.
+ *  panePlanMode; it pulses on plan-changed. Task-bound panes still open the full
+ *  plan board — the camera flies to their assigned task on entry.
  *
  *  chatPty gates the Terminal|Chat base segments. When false (plain terminal /
  *  chat-backend / no live agent) only the Plan entry renders, as a standalone
@@ -80,13 +80,6 @@ export function PaneModeSwitch({
     [index, paneId, state.panes],
   );
   const planIds = useMemo(() => relevant.map((p) => p.plan_id), [relevant]);
-  const orchestratorPaneId = useMemo(
-    () => resolveOrchestratorPaneId(paneId, state.panes),
-    [paneId, state.panes],
-  );
-  const ownsPlan = relevant.some(
-    (p) => p.owner.pane_id === paneId || p.owner.pane_id === orchestratorPaneId,
-  );
   const planActive = usePanePlanMode(paneId);
   usePlanPulseVersion(planIds);
   const pulsing = !planActive && canvasFocusStore.anyPulsing(planIds);
@@ -110,8 +103,8 @@ export function PaneModeSwitch({
     };
   }, [planIds]);
 
-  const planLabel = ownsPlan ? "Plan" : "Tasks";
-  const planTitle = ownsPlan ? "Show this orchestrator's plan canvas" : "Show your tasks on the canvas";
+  const planLabel = "Plan";
+  const planTitle = "Show the plan canvas";
 
   // No Terminal/Chat surface (plain terminal / chat-backend / no live agent):
   // the Plan entry stands alone so the board stays reachable without an agent.
@@ -127,7 +120,6 @@ export function PaneModeSwitch({
         type="button"
         data-testid="pane-mode-switch"
         data-plan-toggle="true"
-        data-role-label={planLabel}
         aria-pressed={planActive}
         onClick={togglePlan}
         title={planTitle}

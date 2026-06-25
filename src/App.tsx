@@ -642,6 +642,7 @@ function AppInner() {
                 mode="focus"
                 planId={canvasFocusTarget.planId}
                 orchestratorPaneId={canvasFocusTarget.orchestratorPaneId}
+                focusPaneId={canvasFocusTarget.focusPaneId}
                 api={stableApiConfig}
                 onClose={() => canvasFocusStore.close()}
               />
