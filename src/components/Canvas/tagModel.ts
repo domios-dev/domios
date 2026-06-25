@@ -1,0 +1,97 @@
+import { MILESTONE_LANE_COLORS } from "./settings";
+import type { TagFacet } from "./types";
+
+export interface FacetChip {
+  tag: string;
+  key: string;
+  value: string;
+  label: string;
+  color: string | null;
+  primary: boolean;
+}
+
+export interface ResolvedTags {
+  primary: FacetChip | null;
+  facets: FacetChip[];
+  topics: string[];
+}
+
+export function isFacetedTag(tag: string): boolean {
+  const i = tag.indexOf(":");
+  return i > 0 && i < tag.length - 1;
+}
+
+export function facetColorMap(facets: TagFacet[] | undefined): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!facets?.length) return map;
+  let lane = 0;
+  for (const facet of facets) {
+    for (const value of facet.values) {
+      const tag = `${facet.key}:${value.v}`;
+      if (map.has(tag)) continue;
+      const declared = value.color?.trim() || null;
+      const color = declared ?? (facet.color_lane ? MILESTONE_LANE_COLORS[lane % MILESTONE_LANE_COLORS.length] : null);
+      if (color) map.set(tag, color);
+      if (facet.color_lane && !declared) lane++;
+    }
+  }
+  return map;
+}
+
+function facetLabel(facet: TagFacet | undefined, value: string): string {
+  const hit = facet?.values.find((v) => v.v === value);
+  return hit?.label?.trim() || value.replace(/-/g, " ");
+}
+
+export function resolveTags(tags: string[] | undefined, facets: TagFacet[] | undefined): ResolvedTags {
+  const clean = tags?.map((t) => t.trim()).filter(Boolean) ?? [];
+  const facetByKey = new Map((facets ?? []).map((f) => [f.key, f]));
+  const colors = facetColorMap(facets);
+  const facetsOut: FacetChip[] = [];
+  const topics: string[] = [];
+  let primary: FacetChip | null = null;
+
+  for (const tag of clean) {
+    if (!isFacetedTag(tag)) {
+      topics.push(tag);
+      continue;
+    }
+    const [key, value] = tag.split(":", 2);
+    const facet = facetByKey.get(key);
+    const chip: FacetChip = {
+      tag,
+      key,
+      value,
+      label: facetLabel(facet, value),
+      color: colors.get(tag) ?? null,
+      primary: false,
+    };
+    if (!primary) {
+      chip.primary = true;
+      primary = chip;
+    }
+    facetsOut.push(chip);
+  }
+
+  return { primary, facets: facetsOut, topics };
+}
+
+export function legendEntries(facets: TagFacet[] | undefined): { key: string; label: string; values: { tag: string; label: string; color: string }[] }[] {
+  if (!facets?.length) return [];
+  const colors = facetColorMap(facets);
+  return facets
+    .filter((f) => f.color_lane && f.values.length > 0)
+    .map((facet) => ({
+      key: facet.key,
+      label: facet.label?.trim() || facet.key,
+      values: facet.values
+        .map((v) => {
+          const tag = `${facet.key}:${v.v}`;
+          const color = colors.get(tag);
+          if (!color) return null;
+          return { tag, label: v.label?.trim() || v.v.replace(/-/g, " "), color };
+        })
+        .filter((v): v is { tag: string; label: string; color: string } => v != null),
+    }))
+    .filter((f) => f.values.length > 0);
+}

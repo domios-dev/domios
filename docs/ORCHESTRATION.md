@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -70,13 +70,16 @@ A handoff is a durable, goal-anchored resume point attached to the plan — far 
 - `codeterm plan handoff show <plan_id> --latest [--markdown]` or `codeterm plan handoff show <plan_id> --seq <n> [--markdown]` / `plan handoff list <plan_id>` — read them back.
 - `codeterm orchestrator handoff --mode new|compact [--reseed] [--from-file|--stdin] [--plan <id>]` — compose + (optionally) reseed this pane in one shot.
 
-### Compaction discipline
+### Compaction discipline — verify-loop before reseed
 
-When YOU sense you are ready to compact, do **not** rely on the provider's generic `/compact` summary. Author your **own** handoff and continue from it:
+When YOU sense you are ready to compact, do **not** rely on the provider's generic `/compact` summary. Author your **own** handoff and continue from it. Gate reseed behind the verify-loop in `.agents/skills/codeterm-orchestrator/SKILL.md`:
 
-1. `codeterm orchestrator handoff --mode new` (preferred) — composes a goal-anchored handoff attached to the plan and self-reseeds the pane into a fresh zero-context session that resumes **exactly** from the handoff. (`--mode compact` sends the handoff then `/compact` as a fallback when you want to preserve in-context working memory.)
-2. **Pair it with a quiet/delayed self-message** (`codeterm delayed create --pane <you> --delay 30m --from-file heartbeat.md`) carrying current state + focus + a self-recovery pointer (`codeterm mem get skill_codeterm_orchestrator`), so a compaction between fire-and-handle can't wipe the discipline.
-3. Resume from the handoff's `next_actions` — never a generic recap.
+1. **Compose** — `codeterm plan handoff create <plan_id> --goal "..." --next "..." [--rule "..."] --from-file body.md`.
+2. **Read back** — `codeterm plan handoff show <plan_id> --latest --markdown`.
+3. **Verify x3** — three independent passes: completeness, accuracy, executability. Check the handoff markdown against `plan get`, `spec show <SPEC_ID>`, `plan in-progress <plan_id>`, and `codeterm agent reports`. Any gap means amend, read back, and restart the 3-pass cycle. `plan handoff verify` is not implemented yet; this is manual.
+4. **Compact / reseed** — `codeterm orchestrator handoff --plan <plan_id> --reseed --mode new` (preferred; fresh zero-context session) or `--mode compact` (handoff seed then provider `/compact`). Preview sends with `--dry_run` first.
+5. **Pair with a delayed self-message** (`codeterm delayed create --pane <you> --delay 30m --from-file heartbeat.md`) carrying current state + focus + `codeterm mem get skill_codeterm_orchestrator`.
+6. Resume from the handoff's `next_actions` — never a generic recap.
 
 ## Command Reference
 

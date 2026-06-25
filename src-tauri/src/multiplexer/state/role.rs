@@ -48,26 +48,18 @@ impl MultiplexerState {
                         parent.depth,
                     )
                 };
-                // Attaching a worker must link DETERMINISTICALLY.
                 let final_parent_depth = if parent_role == Some(AgentRole::Orchestrator) {
-                    // Established orchestrator — respect an EXPLICITLY disabled spawn gate.
                     if !parent_can_spawn {
                         return Err("Parent does not allow spawning".to_string());
                     }
                     parent_depth
                 } else {
-                    // Not an Orchestrator yet. A pane already nested under someone (itself a
-                    // Worker) cannot take children (flat hierarchy).
                     if parent_has_parent {
                         return Err(
                             "Worker's parent is itself a Worker — workers cannot spawn workers"
                                 .to_string(),
                         );
                     }
-                    // A FREE top-level pane is auto-promoted to Orchestrator — giving it a child
-                    // makes it one. This removes the race where a freshly-spawned parent's
-                    // role/can_spawn wasn't committed yet, which silently dropped the parent
-                    // link for its early children.
                     let parent = self
                         .panes
                         .get_mut(parent_id)
@@ -222,6 +214,30 @@ mod tests {
             "parent link must persist"
         );
         assert_eq!(w.role, Some(AgentRole::Worker));
+    }
+
+    #[test]
+    fn early_workers_under_uncommitted_orchestrator_all_link() {
+        let (mut mux, _root) = MultiplexerState::new();
+        let parent = mux.create_pane();
+        let w1 = mux.create_pane();
+        let w2 = mux.create_pane();
+        mux.set_pane_role(&w1, AgentRole::Worker, Some(&parent))
+            .expect("first early child");
+        mux.set_pane_role(&w2, AgentRole::Worker, Some(&parent))
+            .expect("second early child");
+        assert_eq!(
+            mux.get_pane(&w1).unwrap().parent_pane_id.as_deref(),
+            Some(parent.as_str())
+        );
+        assert_eq!(
+            mux.get_pane(&w2).unwrap().parent_pane_id.as_deref(),
+            Some(parent.as_str())
+        );
+        assert_eq!(
+            mux.get_pane(&parent).unwrap().role,
+            Some(AgentRole::Orchestrator)
+        );
     }
 
     #[test]

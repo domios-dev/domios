@@ -8,6 +8,7 @@ import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocu
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
+import { CanvasTagLegend } from "./CanvasTagLegend";
 import { CanvasUnownedTray } from "./CanvasUnownedTray";
 import type { CanvasLod, MilestoneBubbleModel } from "./cards";
 import { OrchestratorGroup } from "./cards";
@@ -21,7 +22,7 @@ import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { crispRasterScale, nextWorld, worldThresholds, type World } from "./worlds";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useCanvasPlans } from "./PlansProvider";
-import type { CanvasElement, DriftItem, OrchestratorRef, Plan, Section, Task } from "./types";
+import type { CanvasElement, DriftItem, OrchestratorRef, Plan, Section, TagFacet, Task } from "./types";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport } from "./useCanvasViewport";
 
@@ -86,6 +87,7 @@ export interface SpecSectionModel {
 
 export interface TaskCardModel {
   task: Task;
+  tagFacets?: TagFacet[];
   childCount: number;
   childDone: number;
   stepColors: Map<string, string>;
@@ -270,7 +272,7 @@ export function CanvasViewInner({
       }
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
-        taskModelById.set(task.id, { task, childCount: childCounts.get(task.id) ?? 0, childDone: childDone.get(task.id) ?? 0, stepColors: colors, drift: driftByTask.get(task.id) });
+        taskModelById.set(task.id, { task, tagFacets: plan.tag_facets, childCount: childCounts.get(task.id) ?? 0, childDone: childDone.get(task.id) ?? 0, stepColors: colors, drift: driftByTask.get(task.id) });
         const seen = new Map<string, string>();
         for (const m of task.milestones) {
           const color = colors.get(m.kind) ?? "var(--ct-border-focus)";
@@ -569,6 +571,16 @@ export function CanvasViewInner({
     setSize({ width: el.clientWidth, height: el.clientHeight });
     return () => ro.disconnect();
   }, []);
+
+  const legendFacets = useMemo(() => {
+    const byKey = new Map<string, TagFacet>();
+    for (const plan of filteredPlans) {
+      for (const facet of plan.tag_facets ?? []) {
+        if (!byKey.has(facet.key)) byKey.set(facet.key, facet);
+      }
+    }
+    return [...byKey.values()];
+  }, [filteredPlans]);
 
   const worldW = Math.max(layout.bounds.width + layout.bounds.x + 400, size.width);
   const worldH = Math.max(layout.bounds.height + layout.bounds.y + 400, size.height);
@@ -918,6 +930,9 @@ export function CanvasViewInner({
             Esc
           </button>
         </div>
+      )}
+      {legendFacets.length > 0 && !loading && !error && filteredPlans.length > 0 && (
+        <CanvasTagLegend facets={legendFacets} />
       )}
       {minimapOn && !loading && !error && filteredPlans.length > 0 && (
         <CanvasMinimap bounds={layout.bounds} nodes={[...lookups.nodeById.values()]} transform={transform} viewport={size} />

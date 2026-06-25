@@ -18,6 +18,15 @@ export const FIXTURE_SECTION: Section = {
   canvas: emptyCanvas,
 };
 
+export const FIXTURE_TAG_FACETS = [
+  {
+    key: "area",
+    label: "Area",
+    color_lane: true,
+    values: [{ v: "nav", label: "Navigation", color: "rgba(99, 102, 241, 0.95)" }],
+  },
+] as const;
+
 export const FIXTURE_TASK: Task = {
   id: "task-dante",
   name: "Dante",
@@ -32,6 +41,7 @@ export const FIXTURE_TASK: Task = {
   parent_task_id: null,
   assigned_pane_id: null,
   peer: null,
+  tags: ["area:nav", "pan-zoom"],
   canvas: emptyCanvas,
   milestones: [],
 };
@@ -75,6 +85,7 @@ export const FIXTURE_PLAN: Plan = {
   created_at: 1_700_000_000_000,
   updated_at: 1_700_000_100_000,
   milestone_kinds: [{ key: "status_update", label: "Status", color: null }],
+  tag_facets: [...FIXTURE_TAG_FACETS],
   loops: [],
   elements: [],
   tasks: [FIXTURE_TASK],

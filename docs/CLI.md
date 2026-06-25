@@ -40,6 +40,15 @@ Link a pane as worker under a parent
 - `--pane` — Pane ID to link (default: current focused pane)
 - `--parent` — Parent pane ID (orchestrator)
 
+#### `codeterm agent message`
+
+Send an immediate message to a running agent pane
+
+- `--from_file` — Read message text from a file instead of the positional arg
+- `--pane` — Target agent pane ID
+- `--stdin` — Read message text from stdin
+- `<text>` — Message text (positional, or omit and use --from-file/--stdin)
+
 #### `codeterm agent model`
 
 Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead
@@ -1433,6 +1442,13 @@ Orchestrator handoffs attached to the plan
 - `<plan_id>`
 - `<selector>`
 - `--seq`
+
+#### `codeterm plan in-progress`
+
+List active orchestration tasks
+
+- `--all`
+- `<plan_id>`
 
 #### `codeterm plan ingest`
 

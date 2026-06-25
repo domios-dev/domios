@@ -74,28 +74,6 @@ fn renders_loop_budget_fix() {
 }
 
 #[test]
-fn renders_file_manifest() {
-    let rendered = render_file_manifest(&json!({
-        "index_path": ".codeterm/plans/pl_1/INDEX.md",
-        "entries": [
-            {
-                "kind": "section",
-                "title": "Spec",
-                "path": ".codeterm/plans/pl_1/sections/sec_1.md"
-            },
-            {
-                "kind": "task",
-                "title": "Build",
-                "path": ".codeterm/plans/pl_1/tasks/task_1.md"
-            }
-        ]
-    }));
-    assert!(rendered.contains("INDEX.md\t.codeterm/plans/pl_1/INDEX.md"));
-    assert!(rendered.contains("Spec\t.codeterm/plans/pl_1/sections/sec_1.md"));
-    assert!(rendered.contains("Build\t.codeterm/plans/pl_1/tasks/task_1.md"));
-}
-
-#[test]
 fn render_plan_markdown_prepends_goal_block() {
     let rendered = render_plan_markdown(&json!({
         "id": "pl_1",

@@ -459,6 +459,19 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
                 ("GET".into(), "/api/agents/providers".into(), None)
             }
+            crate::AgentAction::Message {
+                text,
+                pane,
+                from_file,
+                stdin,
+            } => send_text_to_api(
+                text,
+                &Some(pane.clone()),
+                from_file,
+                *stdin,
+                &None,
+                &mut std::io::stdin(),
+            ),
             _ => ("GET".into(), "/api/panes".into(), None),
         },
         Commands::Notifications { unread, .. } => {

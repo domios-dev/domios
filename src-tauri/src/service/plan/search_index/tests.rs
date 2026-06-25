@@ -1,4 +1,6 @@
 use std::path::Path;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use rusqlite::params;
 
@@ -107,6 +109,59 @@ fn mirrors_plan_units_into_project_local_mem_db() {
         .body
         .contains("Plan \"Canvas\" · task: Fix soft lock"));
     assert_eq!(hits[0].scope, project_scope(root.path()));
+}
+
+#[test]
+fn add_task_survives_transient_plan_index_write_lock() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Concurrent writes".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let project = super::super::paths::project_root(root.path());
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let locker = std::thread::spawn({
+        let project = project.clone();
+        move || {
+            let conn = open_index(&project).unwrap();
+            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+            ready_tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(225));
+        }
+    });
+    ready_rx.recv().unwrap();
+
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Add under contention".into(),
+                kind: "fix".into(),
+                body: "task added while plan index is locked".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    locker.join().unwrap();
+
+    let hits = store
+        .search_plan_index(
+            root.path(),
+            &search::SearchQuery {
+                query: "task added while plan index is locked".into(),
+                kind: Some("task".into()),
+                limit: Some(5),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(hits.iter().any(|hit| hit.unit_id == task_id));
 }
 
 #[test]

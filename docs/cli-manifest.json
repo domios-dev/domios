@@ -108,6 +108,48 @@
           "subcommands": []
         },
         {
+          "name": "message",
+          "about": "Send an immediate message to a running agent pane",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read message text from a file instead of the positional arg",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Target agent pane ID",
+              "aliases": []
+            },
+            {
+              "name": "stdin",
+              "positional": false,
+              "value_name": "STDIN",
+              "default": null,
+              "help": "Read message text from stdin",
+              "aliases": [
+                "from-stdin"
+              ]
+            },
+            {
+              "name": "text",
+              "positional": true,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Message text (positional, or omit and use --from-file/--stdin)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "model",
           "about": "Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead",
           "aliases": [],
@@ -5183,6 +5225,30 @@
               "subcommands": []
             }
           ]
+        },
+        {
+          "name": "in-progress",
+          "about": "List active orchestration tasks",
+          "aliases": [],
+          "args": [
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         },
         {
           "name": "ingest",

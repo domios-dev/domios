@@ -4,6 +4,7 @@ use serde::Serialize;
 use tauri::Emitter;
 
 use super::{ReportResult, ServiceContext};
+use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportDetails, ReportStatus};
 use crate::multiplexer::types::AgentRole;
 use crate::plan::AgentRef;
@@ -41,9 +42,30 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// Post-condition for spawn: `--parent` on a Worker must land on the pane.
+    pub(crate) fn expect_spawn_parent_link(
+        &self,
+        pane_id: &str,
+        expected_parent: &str,
+    ) -> Result<(), String> {
+        let mux = self.mux.read();
+        let pane = mux
+            .get_pane(pane_id)
+            .ok_or_else(|| format!("Pane {} not found after spawn role apply", pane_id))?;
+        match pane.parent_pane_id.as_deref() {
+            Some(p) if p == expected_parent => Ok(()),
+            Some(p) => Err(format!(
+                "spawn parent link mismatch on {pane_id}: expected {expected_parent}, got {p}"
+            )),
+            None => Err(format!(
+                "spawn dropped parent_pane_id on {pane_id}: expected parent {expected_parent}"
+            )),
+        }
+    }
+
     /// Send report to the resolved target. Routing priority:
     /// `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`
-    /// → global system inbox. NEVER routes back to the reporter's own pane.
+    /// → explicit error. NEVER routes back to the reporter's own pane.
     pub fn submit_report(
         &self,
         pane_id: &str,
@@ -126,9 +148,10 @@ impl ServiceContext {
             );
         }
 
-        let storage_key = target_opt
-            .clone()
-            .unwrap_or_else(|| SYSTEM_INBOX_PANE_ID.to_string());
+        let target_id = target_opt.ok_or_else(|| {
+            "No report target for this pane. You are not attached to an orchestrator, report target, or spawning pane. Ask for the target pane id, then use `codeterm send --pane <id> \"...\"`.".to_string()
+        })?;
+        let storage_key = target_id.clone();
         let report = self.report_store.lock().add_detailed(
             &storage_key,
             pane_id,
@@ -155,39 +178,15 @@ impl ServiceContext {
             }),
         );
 
-        // Inject into the target PTY only when the target is a real pane (parent / report_target / spawner). The system inbox has no PTY, and bouncing
-        // back to the reporter's own pane is the bug we just fixed — guard against that explicitly.
-        if let Some(ref target_id) = target_opt {
-            if target_id != pane_id {
-                let target_is_chat = self.pane_chat_backing(target_id).is_some();
-                let live = self.target_has_live_agent(target_id);
-                log::info!(
-                    "[report] target={} live_agent={} — {}",
-                    target_id,
-                    live,
-                    if target_is_chat {
-                        "delivering to chatBackend transcript"
-                    } else if live {
-                        "injecting into PTY"
-                    } else {
-                        "stored only (no agent TUI on screen)"
-                    },
-                );
-                if target_is_chat || live {
-                    let envelope =
-                        crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
-                            .model(model.clone());
-                    if let Err(e) = crate::service::messenger::Messenger::deliver(
-                        self,
-                        target_id,
-                        envelope,
-                        &report.inject_body(),
-                    ) {
-                        log::warn!("[report] delivery failed for {}: {}", target_id, e);
-                    }
-                }
-            }
-        }
+        let envelope = crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
+            .model(model.clone());
+        let delivery = crate::service::messenger::Messenger::deliver(
+            self,
+            &target_id,
+            envelope,
+            &report.inject_body(),
+        )?;
+        log::info!("[report] target={} delivered via {:?}", target_id, delivery);
 
         if plan_id.is_none() {
             self.maybe_send_plan_reminder(pane_id, role);
@@ -259,30 +258,6 @@ impl ServiceContext {
             self.plan_turn_counter.mark_nudged(pane_id, turns);
         }
     }
-
-    /// True when the target pane currently shows a live agent TUI. A report is
-    /// bracketed-paste injected into the target's PTY; if the agent has died and
-    /// left a bare shell (stale `agent_type` metadata), pasting the marker makes
-    /// the shell execute it as a command. The report is still stored + broadcast
-    /// for the chat UI, so gating the PTY inject loses nothing.
-    fn target_has_live_agent(&self, target_id: &str) -> bool {
-        let pty_id = {
-            let mux = self.mux.read();
-            match mux.get_pane(target_id) {
-                Some(p) if p.agent_type.is_some() => p.pty_id.clone(),
-                _ => return false,
-            }
-        };
-        let Some(pty_id) = pty_id else { return false };
-        let screen = self
-            .screen_state
-            .lock()
-            .get_screen_text(&pty_id)
-            .unwrap_or_default();
-        crate::pty::screen_state::screen_has_agent_tui(&screen)
-            || self.agent_registry.any_provider_screen_has_tui(&screen)
-    }
-
     pub fn get_reports(&self, pane_id: &str) -> Vec<serde_json::Value> {
         let reports = self.report_store.lock().get(pane_id, false);
         serde_json::to_value(&reports)
@@ -303,8 +278,10 @@ impl ServiceContext {
 
     /// Durable per-orchestrator ledger rows (survive restart) from the sqlite ledger,
     /// unlike [`get_reports`](Self::get_reports) which reads the in-memory stream.
-    pub fn get_ledger(&self, orchestrator_pane_id: &str) -> Vec<crate::agent::ledger::LedgerRow> {
-        self.report_store.lock().ledger_rows(orchestrator_pane_id)
+    pub fn get_ledger(&self, orchestrator_pane_id: &str) -> Vec<LedgerRow> {
+        let rows = self.report_store.lock().ledger_rows(orchestrator_pane_id);
+        let mux = self.mux.read();
+        ledger_with_live_children(&mux, orchestrator_pane_id, rows, epoch_seconds())
     }
 
     pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneStatusInfo, String> {
@@ -354,16 +331,59 @@ fn epoch_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Storage key used when a report cannot be routed to any specific pane
-/// (no parent, no report_target, no spawner). Reachable via
-/// `agent reports --pane __system__` and via the agent-report event stream.
-pub const SYSTEM_INBOX_PANE_ID: &str = "__system__";
+fn epoch_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn ledger_with_live_children(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    orchestrator_pane_id: &str,
+    mut rows: Vec<LedgerRow>,
+    now: u64,
+) -> Vec<LedgerRow> {
+    for child_id in mux.get_children_ids(orchestrator_pane_id) {
+        let Some(child) = mux.get_pane(&child_id) else {
+            continue;
+        };
+        let title = mux.display_label_for_pane(&child_id);
+        match rows.iter_mut().find(|r| r.worker_pane_id == child_id) {
+            Some(row) => {
+                row.title = title;
+                row.model = child
+                    .agent_session_model
+                    .clone()
+                    .or_else(|| row.model.clone());
+                row.updated_at = row.updated_at.max(now);
+            }
+            None => rows.push(LedgerRow {
+                orchestrator_pane_id: orchestrator_pane_id.to_string(),
+                worker_pane_id: child_id,
+                title,
+                branch: None,
+                model: child.agent_session_model.clone(),
+                status: None,
+                message: String::new(),
+                sha: None,
+                changed_files: None,
+                test_cmd: None,
+                test_result: None,
+                skipped: None,
+                updated_at: now,
+            }),
+        }
+    }
+    rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    rows
+}
 
 /// Resolve where a report from `pane_id` should be delivered.
 ///
 /// Returns `(from_title, Some(target_pane_id))` when a real target exists,
-/// or `(from_title, None)` when the report should land in the global system
-/// inbox. The resolution order is:
+/// or `(from_title, None)` when the report has no implicit recipient and must
+/// fail with an explicit `codeterm send --pane <id>` hint. The resolution order is:
 ///
 /// 1. `parent_pane_id` — direct parent in the role hierarchy (cascades up)
 /// 2. `report_target_pane_id` — cron / mem worker non-hierarchy target
@@ -427,7 +447,10 @@ pub struct PaneStatusInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{milestone_text, resolve_report_target, worker_death_report};
+    use super::{
+        ledger_with_live_children, milestone_text, resolve_report_target, worker_death_report,
+    };
+    use crate::agent::ledger::LedgerRow;
     use crate::agent::reports::{ReportStatus, ReportStore};
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
@@ -484,6 +507,54 @@ mod tests {
             "submit_report write key and agent.reports query key must agree"
         );
         assert_eq!(store.get(query_key, false).len(), 1);
+    }
+
+    #[test]
+    fn ledger_includes_live_child_before_first_report() {
+        let (mut mux, orch, worker) = build_orchestrator_with_worker("ledger-smoke");
+        mux.get_pane_mut(&worker).unwrap().agent_session_model = Some("gpt-5.5".into());
+
+        let rows = ledger_with_live_children(&mux, &orch, vec![], 123);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].orchestrator_pane_id, orch);
+        assert_eq!(rows[0].worker_pane_id, worker);
+        assert_eq!(rows[0].title, "ledger-smoke");
+        assert_eq!(rows[0].model.as_deref(), Some("gpt-5.5"));
+        assert_eq!(rows[0].status, None);
+        assert_eq!(rows[0].message, "");
+        assert_eq!(rows[0].updated_at, 123);
+    }
+
+    #[test]
+    fn ledger_refreshes_existing_live_child_without_losing_report_details() {
+        let (mut mux, orch, worker) = build_orchestrator_with_worker("fresh-title");
+        mux.get_pane_mut(&worker).unwrap().agent_session_model = Some("sonnet".into());
+        let rows = vec![LedgerRow {
+            orchestrator_pane_id: orch.clone(),
+            worker_pane_id: worker.clone(),
+            title: "stale-title".into(),
+            branch: Some("lane/agent-ledger".into()),
+            model: Some("old-model".into()),
+            status: Some(ReportStatus::Partial),
+            message: "still working".into(),
+            sha: Some("abc123".into()),
+            changed_files: Some(vec!["src-tauri/src/service/hierarchy.rs".into()]),
+            test_cmd: Some("cargo test hierarchy".into()),
+            test_result: Some("ok".into()),
+            skipped: None,
+            updated_at: 10,
+        }];
+
+        let rows = ledger_with_live_children(&mux, &orch, rows, 99);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "fresh-title");
+        assert_eq!(rows[0].model.as_deref(), Some("sonnet"));
+        assert_eq!(rows[0].branch.as_deref(), Some("lane/agent-ledger"));
+        assert_eq!(rows[0].status, Some(ReportStatus::Partial));
+        assert_eq!(rows[0].message, "still working");
+        assert_eq!(rows[0].updated_at, 99);
     }
 
     #[test]

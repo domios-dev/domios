@@ -16,7 +16,6 @@ const OUTPUT_FINGERPRINTS = [
   "codex>",
 ];
 const TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
-const MODEL_FOOTER_RE = /\b(?:gpt|o\d|codex)[\w.-]*\s+(?:default|low|medium|high)\s+·\s+[~/]/i;
 
 const plugin: PluginModule = {
   detectFromTitle(title: string): boolean {
@@ -32,12 +31,10 @@ const plugin: PluginModule = {
   },
 
   screenHasTui(screen: string): boolean {
-    const text = String(screen || "");
-    const lower = text.toLowerCase();
+    const lower = String(screen || "").toLowerCase();
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
     }
-    if (MODEL_FOOTER_RE.test(text) && /^[\s\S]*^[›❯]\s/m.test(text)) return true;
     return false;
   },
 

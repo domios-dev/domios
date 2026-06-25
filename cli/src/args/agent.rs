@@ -117,6 +117,21 @@ pub enum AgentAction {
         #[arg(long)]
         skipped: Option<String>,
     },
+    /// Send an immediate message to a running agent pane
+    Message {
+        /// Message text (positional, or omit and use --from-file/--stdin)
+        #[arg(allow_hyphen_values = true)]
+        text: Option<String>,
+        /// Target agent pane ID
+        #[arg(long, alias = "id")]
+        pane: String,
+        /// Read message text from a file instead of the positional arg
+        #[arg(long, value_name = "PATH")]
+        from_file: Option<String>,
+        /// Read message text from stdin
+        #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
+        stdin: bool,
+    },
     /// Read reports (for orchestrator panes)
     Reports {
         /// Pane ID (default: current focused pane)
@@ -235,6 +250,43 @@ mod tests {
         match cli.command {
             crate::Commands::Agent { action } => Ok(action),
             _ => panic!("expected agent subcommand"),
+        }
+    }
+
+    fn parse_message(args: &[&str]) -> Result<AgentAction, clap::Error> {
+        let mut full = vec!["codeterm", "agent", "message"];
+        full.extend_from_slice(args);
+        let cli = Cli::try_parse_from(full)?;
+        match cli.command {
+            crate::Commands::Agent { action } => Ok(action),
+            _ => panic!("expected agent subcommand"),
+        }
+    }
+
+    #[test]
+    fn message_requires_target_pane() {
+        match parse_message(&["hello"]) {
+            Err(e) => assert_eq!(e.kind(), clap::error::ErrorKind::MissingRequiredArgument),
+            Ok(_) => panic!("message without --pane must be rejected"),
+        }
+    }
+
+    #[test]
+    fn message_parses_text_and_target_pane() {
+        let action = parse_message(&["hello", "--pane", "abc123"]).expect("message parses");
+        match action {
+            AgentAction::Message {
+                text,
+                pane,
+                from_file,
+                stdin,
+            } => {
+                assert_eq!(text.as_deref(), Some("hello"));
+                assert_eq!(pane, "abc123");
+                assert!(from_file.is_none());
+                assert!(!stdin);
+            }
+            _ => panic!("expected message action"),
         }
     }
 

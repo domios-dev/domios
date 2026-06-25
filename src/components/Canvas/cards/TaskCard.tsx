@@ -4,10 +4,13 @@ import { RichMarkdown } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../settings";
 import { substrateV2Enabled } from "../substrateFlag";
 import { atLeast, DEEP_DIVE_CRISP_SCALE, type World } from "../worlds";
-import type { DriftItem, DriftKind, Task, TaskStatus } from "../types";
+import type { DriftItem, DriftKind, TagFacet, Task, TaskStatus } from "../types";
+import { resolveTags } from "../tagModel";
 import type { CanvasCardStyleProps } from "./types";
 import { digestMarkdown } from "./digest";
+import { formatTaskFreshness, taskFreshnessAt } from "./taskFreshness";
 import { StrideSnake } from "./StrideSnake";
+import { formatTime } from "../../../lib/formatters";
 
 // §32 worlds task cell — fixed footprint (§32.4), content adapts to the node's appW
 // band (W0 mass → W3 deep). No manual mode, no click-to-reveal: zoom IS navigation.
@@ -97,7 +100,7 @@ function MiniBar({ frac }: { frac: number }) {
   );
 }
 
-function Chip({ testid, mono, children }: { testid: string; mono?: boolean; children: React.ReactNode }) {
+function Chip({ testid, mono, accent, children }: { testid: string; mono?: boolean; accent?: string; children: React.ReactNode }) {
   return (
     <span
       data-testid={testid}
@@ -106,14 +109,38 @@ function Chip({ testid, mono, children }: { testid: string; mono?: boolean; chil
         fontFamily: mono ? "var(--ct-font-mono)" : undefined,
         padding: "0.08em 0.45em",
         borderRadius: "var(--ct-radius-sm)",
-        border: "1px solid var(--ct-border-subtle)",
-        background: mono ? "var(--ct-bg-selected)" : "var(--ct-bg-active)",
-        color: "var(--ct-fg)",
+        border: accent ? `1px solid color-mix(in srgb, ${accent} 48%, transparent)` : "1px solid var(--ct-border-subtle)",
+        background: accent ? `color-mix(in srgb, ${accent} 14%, transparent)` : mono ? "var(--ct-bg-selected)" : "var(--ct-bg-active)",
+        color: accent ?? "var(--ct-fg)",
         textTransform: mono ? "none" : "capitalize",
         whiteSpace: "nowrap",
       }}
     >
       {children}
+    </span>
+  );
+}
+
+function PrimaryFacetChip({ label, color }: { label: string; color: string }) {
+  return (
+    <span
+      data-testid="canvas-task-primary-facet"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        fontSize: "0.8em",
+        fontWeight: 700,
+        padding: "0.1em 0.5em",
+        borderRadius: 999,
+        border: `1px solid color-mix(in srgb, ${color} 55%, transparent)`,
+        background: `color-mix(in srgb, ${color} 16%, transparent)`,
+        color: "var(--ct-fg)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
+      {label}
     </span>
   );
 }
@@ -168,6 +195,7 @@ function DriftBadge({ drift }: { drift?: DriftItem }) {
 
 export interface TaskCardProps extends CanvasCardStyleProps {
   task: Task;
+  tagFacets?: TagFacet[];
   childCount?: number;
   childDone?: number;
   stepColors?: Map<string, string>;
@@ -184,6 +212,7 @@ export interface TaskCardProps extends CanvasCardStyleProps {
 
 export function TaskCard({
   task,
+  tagFacets,
   childCount = 0,
   childDone = 0,
   stepColors,
@@ -214,7 +243,11 @@ export function TaskCard({
   const freshKind = strideCount ? [...task.milestones].sort((a, b) => b.ts - a.ts)[0].kind : null;
   const freshColor = freshKind ? (stepColors?.get(freshKind) ?? "var(--ct-border-focus)") : null;
   const titleText = showTitle ? task.name : (task.handle?.trim() || task.name);
-  const tagValues = task.tags?.filter((tag) => tag.trim().length > 0).slice(0, 3) ?? [];
+  const resolved = resolveTags(task.tags, tagFacets);
+  const tileTags = !showBodySlot && (resolved.primary || resolved.topics.length > 0);
+  const topicTile = resolved.topics.slice(0, 2);
+  const freshnessAt = taskFreshnessAt(task);
+  const freshnessLabel = freshnessAt != null ? formatTaskFreshness(freshnessAt) : "";
   const contentRows = showBodySlot ? "auto 20px 0 minmax(36px, 1fr)" : "auto 26px 42px minmax(0, 1fr)";
   const contentGap = showBodySlot ? 4 : 7;
   const contentPadding = showBodySlot ? "8px 10px" : "10px 12px";
@@ -228,6 +261,7 @@ export function TaskCard({
     ...(chrome.recessed ? { background: "color-mix(in srgb, var(--ct-fg) 4%, var(--ct-bg))", boxShadow: "inset 0 1px 0 color-mix(in srgb, var(--ct-fg) 6%, transparent)" } : null),
     ...(chrome.ring ? { boxShadow: chrome.ring } : null),
     ...(chrome.warnBorder ? { borderLeft: "3px solid var(--ct-error, #ef8282)" } : null),
+    ...(!chrome.warnBorder && resolved.primary?.color ? { borderLeftWidth: 3, borderLeftStyle: "solid", borderLeftColor: resolved.primary.color } : null),
   };
 
   const actions = showStructure && (
@@ -284,17 +318,37 @@ export function TaskCard({
         <div data-testid="canvas-task-meta-slot" style={{ display: "flex", flexWrap: "wrap", alignContent: "flex-start", gap: 6, minHeight: 0, overflow: "hidden", ...revealStyle(showStructure) }}>
           {task.type && <Chip testid="canvas-task-type">{task.type}</Chip>}
           {task.model && <Chip testid="canvas-task-model" mono>{task.model}</Chip>}
-          {tagValues.map((tag) => <Chip key={tag} testid="canvas-task-tag">{tag}</Chip>)}
+          {resolved.facets.map((facet) => (
+            <Chip key={facet.tag} testid="canvas-task-tag-facet" accent={facet.color ?? undefined}>{facet.label}</Chip>
+          ))}
+          {resolved.topics.map((topic) => <Chip key={topic} testid="canvas-task-tag">{topic}</Chip>)}
         </div>
 
         <div data-testid="canvas-task-summary-slot" style={{ minHeight: 0, overflow: "hidden" }}>
-          {!showBodySlot && digest && (
+          {tileTags ? (
+            <div data-testid="canvas-task-tile-tags" style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", ...revealStyle(true) }}>
+              {resolved.primary?.color && <PrimaryFacetChip label={resolved.primary.label} color={resolved.primary.color} />}
+              {resolved.primary && !resolved.primary.color && <Chip testid="canvas-task-tag-facet">{resolved.primary.label}</Chip>}
+              {topicTile.map((topic) => <Chip key={topic} testid="canvas-task-tag">{topic}</Chip>)}
+            </div>
+          ) : !showBodySlot && digest ? (
             <div data-testid="canvas-task-digest" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.84em", lineHeight: 1.4, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", ...revealStyle(showTitle) }}>
             {digest}
             </div>
-          )}
+          ) : null}
 
-          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0) }}>
+          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0 || freshnessLabel.length > 0) }}>
+            {freshnessLabel && (
+              <Counter testid="canvas-task-freshness">
+                <Clock3 size={10} aria-hidden />
+                <span
+                  title={freshnessAt != null ? formatTime(freshnessAt) : undefined}
+                  style={{ fontFamily: "var(--ct-font-mono)", minWidth: "2.2em", textAlign: "right" }}
+                >
+                  {freshnessLabel}
+                </span>
+              </Counter>
+            )}
             {bodyChars > 0 && <Counter testid="canvas-task-body-count">¶ {Math.max(1, Math.round(bodyChars / 80))}</Counter>}
             {strideCount > 0 && (
               <Counter testid="canvas-task-stride-count">
