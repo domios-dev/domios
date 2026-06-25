@@ -20,6 +20,11 @@ pub enum TaskAction {
         workspace: bool,
         #[arg(long)]
         plan: Option<String>,
+        #[arg(
+            long,
+            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
+        )]
+        status: Option<String>,
     },
     /// Show one task with plan and section context
     Show { task_id: String },

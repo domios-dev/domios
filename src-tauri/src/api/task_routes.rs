@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use crate::api::routes::AppState;
 use crate::multiplexer::types::AgentRole;
-use crate::plan::OrchestratorRef;
+use crate::plan::{OrchestratorRef, TaskStatus};
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{NewTask, PlanError};
 
@@ -78,6 +78,7 @@ pub struct ListTasksQuery {
     mine: Option<bool>,
     unassigned: Option<bool>,
     plan: Option<String>,
+    status: Option<String>,
 }
 
 pub async fn list(
@@ -87,9 +88,16 @@ pub async fn list(
 ) -> TaskRouteResult {
     let caller = header_pane(&headers);
     let mine = q.mine == Some(true);
+    let status = q
+        .status
+        .map(|status| {
+            serde_json::from_value::<TaskStatus>(Value::String(status))
+                .map_err(|_| plan_err(PlanError::BadStatus))
+        })
+        .transpose()?;
     let tasks = state.svc.plan_store.list_tasks(TaskListFilter {
         project_path: q.project,
-        active_only: q.all != Some(true) || q.active == Some(true),
+        active_only: status.is_none() && (q.all != Some(true) || q.active == Some(true)),
         mine_panes: if mine {
             caller
                 .as_deref()
@@ -100,6 +108,7 @@ pub async fn list(
         },
         unassigned: q.unassigned == Some(true),
         plan_id: q.plan,
+        status,
     });
     Ok(Json(json!({ "tasks": tasks })))
 }

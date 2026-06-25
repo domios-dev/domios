@@ -4911,6 +4911,22 @@
           "args": [],
           "subcommands": [
             {
+              "name": "get",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "set",
               "about": null,
               "aliases": [],
@@ -6425,6 +6441,30 @@
                   "value_name": "TASK_ID",
                   "default": null,
                   "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": null,
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "status",
+                  "positional": false,
+                  "value_name": "STATUS",
+                  "default": null,
+                  "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
                   "aliases": []
                 }
               ],
@@ -8104,6 +8144,14 @@
               "value_name": "PLAN",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "status",
+              "positional": false,
+              "value_name": "STATUS",
+              "default": null,
+              "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
               "aliases": []
             },
             {

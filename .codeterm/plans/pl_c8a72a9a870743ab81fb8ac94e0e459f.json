@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782399830770,
+  "updated_at": 1782401481189,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -1932,10 +1932,10 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
-      "status_label": null,
+      "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782391650357,
+      "updated_at": 1782400418047,
       "status_changed_at": 1782391650357,
       "handle": "pinch-zoom-responsiveness",
       "tags": [],
@@ -2499,10 +2499,10 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
-      "status_label": null,
+      "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782375530371,
+      "updated_at": 1782400418074,
       "status_changed_at": 0,
       "handle": "playwright-multi-view-overflow-tests",
       "tags": [],
@@ -3154,10 +3154,10 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
-      "status_label": null,
+      "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782375547258,
+      "updated_at": 1782400418128,
       "status_changed_at": 0,
       "handle": "banded-layout-determinism-no-overlap-tests",
       "tags": [],
@@ -4092,10 +4092,10 @@
       "test_plan": null,
       "correctness": null,
       "status": "pending",
-      "status_label": null,
+      "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 1782290890640,
-      "updated_at": 1782375569007,
+      "updated_at": 1782400417708,
       "status_changed_at": 1782290890640,
       "handle": "zoom-drill-into-tasks-content-lod-no-click-24-4",
       "tags": [],
@@ -11713,17 +11713,17 @@
       "id": "task_90f01ec50a634ab88998487d2a11f1b2",
       "name": "CLI: add 'plan goal get' and 'plan task list' (read ergonomics)",
       "type": "feat",
-      "model": null,
-      "model_rationale": null,
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Small terminal-heavy CLI ergonomics fix; isolated worktree lane/cli-read-ergonomics.",
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782377280508,
-      "updated_at": 1782377280508,
-      "status_changed_at": 1782377280508,
+      "updated_at": 1782401421523,
+      "status_changed_at": 1782401421523,
       "handle": "cli-add-plan-goal-get-and-plan-task-list-read-ergonomics",
       "tags": [
         "friction"
@@ -11734,7 +11734,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "31e4bb1c",
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -11743,7 +11743,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_4d86b7aac9ea488398a62d89c8d816b4",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted orphaned worker diff from /Users/rollacode/Developer/codeterm-cli-read after pane 31e4bb1c disappeared. Integrated plan goal get, plan task list, task list --status, and backend task status filtering into hot checkout. Orchestrator verified: cargo test --manifest-path cli/Cargo.toml plan_goal_subcommands_parse; cargo test --manifest-path cli/Cargo.toml plan_task_list_parses_plan_and_status; cargo test --manifest-path src-tauri/Cargo.toml task_queries_filter_by_status --lib; cargo test --manifest-path cli/Cargo.toml cli_manifest_is_fresh; cargo test --manifest-path cli/Cargo.toml docs_cli_md_is_fresh.",
+          "ts": 1782401421523,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_bb09a057331548b4a25c7b43f5996cdd",
@@ -11939,19 +11959,19 @@
       "id": "task_dbb511f69bef4110825e56db2c527dd2",
       "name": "BUG: POST /api/canvas/focus emits {task_id} but CanvasView 'canvas-focus' listener reads {node_ids,plan_ids} — focus-by-id never recenters on a task",
       "type": "fix",
-      "model": null,
-      "model_rationale": null,
+      "model": "cursor:composer-2.5",
+      "model_rationale": "Small frontend/API focus-contract fix; isolated worktree lane/canvas-focus-contract.",
       "acceptance_criteria": [
         "POST /api/canvas/focus {task_id} recenters the camera on that task's node deterministically"
       ],
       "test_plan": "Playwright: focus a known task_id, assert its card lands centered in viewport",
       "correctness": "Focus contract payload shape agrees end-to-end (BE emit == FE listener read)",
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782381332710,
-      "updated_at": 1782381332710,
-      "status_changed_at": 1782381332710,
+      "updated_at": 1782400638570,
+      "status_changed_at": 1782400638570,
       "handle": "bug-post-api-canvas-focus-emits-task-id-but-canvasview-canvas-focus-listener-reads-node-ids-plan-ids-focus-by-id-never-recenters-on-a-task",
       "tags": [
         "friction"
@@ -11962,7 +11982,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "c88fab13",
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -11971,7 +11991,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_b44dcfdfecfd407a912dd9c934053773",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted after Cursor report + orchestrator verification. Integrated src/components/Canvas/canvasFocusPayload.ts, canvasFocusPayload.test.ts, and CanvasView listener extraction. Re-ran npx tsx src/components/Canvas/canvasFocusPayload.test.ts in worker worktree: 6/6 passed. Playwright deferred until dev restart because running dev build was stale.",
+          "ts": 1782400638570,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_1f36a3e7f9194bd1b11f2414ab501b5f",
@@ -12099,12 +12139,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
-      "status_label": null,
+      "status": "cancelled",
+      "status_label": "duplicate of task_995f068",
       "priority": "p2",
       "created_at": 1782387283607,
-      "updated_at": 1782387283607,
-      "status_changed_at": 1782387283607,
+      "updated_at": 1782400258810,
+      "status_changed_at": 1782400258810,
       "handle": "plan-recall-plansearchhit-needs-updated-at-age-for-time-up-weighting-f2-f3",
       "tags": [
         "friction"
@@ -12219,12 +12259,12 @@
       ],
       "test_plan": "prompt-evaluator review of skill text covers the protocol; dogfood: an orchestrator run ends with ZERO stale states (no in_progress without a live worker)",
       "correctness": "Task state never drifts silently from reality",
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782391778882,
-      "updated_at": 1782391778882,
-      "status_changed_at": 1782391778882,
+      "updated_at": 1782401481189,
+      "status_changed_at": 1782401481189,
       "handle": "state-integrity-39-1-orchestrator-skill-continuous-state-reconciliation-after-every-closed-received-task-every-heartbeat-worker-state-hygiene-mandate",
       "tags": [
         "state-integrity"
@@ -12244,7 +12284,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_da9aa8b6cf4243fe9612da4f203e8c88",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted. Updated the orchestrator skill with continuous post-report/worktree hygiene: canonical repos are /Users/rollacode/Developer/codeterm and codeterm-plugins; sibling codeterm-* directories are transient lane worktrees; task close now includes removing the worker pane/worktree/branch, pruning worktrees, and recording any cleanup exception in the plan/heartbeat/handoff. Mirrored the cleanup rule into the user-global orchestrator skill as well. Dogfood cleanup executed: orphaned /Users/rollacode/Developer/codeterm-cli-read worktree removed, lane/cli-read-ergonomics branch deleted, git worktree list now contains only the main codeterm checkout; filesystem check shows only codeterm and codeterm-plugins.",
+          "ts": 1782401481189,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_47d64dfd3cf148d094c6256b678b01cf",
@@ -12258,12 +12318,12 @@
       ],
       "test_plan": "Seed a plan with a stale in_progress (no live pane) + an orphaned assignment; run reconcile; assert both flagged, active tasks untouched",
       "correctness": "Deterministic drift detection; the orchestrator gets a recover surface instead of manual auditing",
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782391780120,
-      "updated_at": 1782391780120,
-      "status_changed_at": 1782391780120,
+      "updated_at": 1782400258657,
+      "status_changed_at": 1782400258657,
       "handle": "state-drift-recovery-39-2-codeterm-plan-reconcile-doctor-detect-surface-task-state-mismatches",
       "tags": [
         "state-integrity"
@@ -12283,7 +12343,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_e28799df413d4117b23cc6315a87e3da",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Implemented in snapshot a5803c81. Evidence: src-tauri/src/plan/reconcile.rs + src-tauri/src/service/plan_reconcile.rs + CLI/API route/docs. Verified cargo test --manifest-path src-tauri/Cargo.toml plan::reconcile --lib: 6 passed.",
+          "ts": 1782400258657,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_3d683eb6a5754eacaeefd324f2be1dd5",
@@ -12297,12 +12377,12 @@
       ],
       "test_plan": "Assign a task to a pane, close the pane, assert the task surfaces as worker-gone in reconcile and on the board",
       "correctness": "No task stuck in_progress after its worker is gone; lifecycle drives state",
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782391791881,
-      "updated_at": 1782391791881,
-      "status_changed_at": 1782391791881,
+      "updated_at": 1782400258657,
+      "status_changed_at": 1782400258657,
       "handle": "state-drift-recovery-39-3-task-pane-lifecycle-binding-on-assigned-worker-pane-close-death-auto-flag-its-task-for-reconciliation",
       "tags": [
         "state-integrity"
@@ -12322,7 +12402,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_287eb0da73804459b700e92bf5bf462e",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Implemented in snapshot a5803c81. Evidence: ServiceContext::close_pane and PTY lifecycle call flag_bound_tasks_for_gone_pane; plan store flag_pane_gone clears assignment and surfaces drift. Covered by reconcile detector tests; lifecycle path reviewed in src-tauri/src/service/pane.rs and src-tauri/src/service/pty_lifecycle.rs.",
+          "ts": 1782400258657,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_3449490736ea4b7d9d85f491db2a76d3",
@@ -12335,12 +12435,12 @@
       ],
       "test_plan": "Playwright: a seeded stale in_progress task shows the drift badge on the board",
       "correctness": "State drift is VISIBLE (not just CLI), closing the recovery loop in the dogfood UI",
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782391793117,
-      "updated_at": 1782391793117,
-      "status_changed_at": 1782391793117,
+      "updated_at": 1782400258805,
+      "status_changed_at": 1782400258805,
       "handle": "state-drift-recovery-39-4-canvas-hud-drift-badges-stale-in-progress-unaccepted-in-review-worker-gone-visible-on-the-board",
       "tags": [
         "state-integrity"
@@ -12360,7 +12460,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_194552e780f54031a8dac76c423f0e04",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Implemented in snapshot a5803c81. Evidence: usePlanDrift fetches /api/plans/:id/reconcile and TaskCard renders DriftBadge. Verified npx tsx src/components/Canvas/cards/cards.test.tsx: 10 passed, including drift badge actionable/muted/absent states.",
+          "ts": 1782400258805,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_84abc9bd117a4da381ddec71c3b40852",

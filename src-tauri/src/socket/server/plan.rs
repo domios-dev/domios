@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::{AgentRef, OrchestratorRef, PlanStatus};
+use crate::plan::{AgentRef, OrchestratorRef, PlanStatus, TaskStatus};
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
@@ -206,13 +206,21 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("caller_pane_id"))
                 .and_then(|v| v.as_str());
             let mine = p.and_then(|x| x.get("mine")).and_then(|v| v.as_bool()) == Some(true);
+            let status = p
+                .and_then(|x| x.get("status"))
+                .and_then(|v| v.as_str())
+                .map(|status| {
+                    serde_json::from_value::<TaskStatus>(Value::String(status.into()))
+                        .map_err(|_| plan_rpc_err(PlanError::BadStatus))
+                })
+                .transpose()?;
             let tasks = store.list_tasks(TaskListFilter {
                 project_path: p
                     .and_then(|x| x.get("project"))
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
-                active_only: p.and_then(|x| x.get("active")).and_then(|v| v.as_bool())
-                    != Some(false),
+                active_only: status.is_none()
+                    && p.and_then(|x| x.get("active")).and_then(|v| v.as_bool()) != Some(false),
                 mine_panes: if mine {
                     caller
                         .map(|id| pane_and_ancestors(svc, id))
@@ -228,6 +236,7 @@ pub(super) fn dispatch(
                     .and_then(|x| x.get("plan_id"))
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
+                status,
             });
             Ok(json!({ "tasks": tasks }))
         }

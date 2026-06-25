@@ -176,6 +176,16 @@ open for another iteration.
 - Keep Orchestrator planning/integration work separate from Worker worktrees.
 - Do not let Workers and the Orchestrator share a checkout when branch switches
   are expected.
+- Treat Worker worktrees as temporary lane state. In Andrey's local layout,
+  `/Users/rollacode/Developer/codeterm` and
+  `/Users/rollacode/Developer/codeterm-plugins` are the canonical repos;
+  sibling `codeterm-*` directories are lane worktrees unless explicitly
+  preserved.
+- Cleanup is part of closing a task. A task is not fully closed while its
+  Worker pane, lane worktree, or local lane branch is still dangling without a
+  recorded reason.
+- Keep the ledger exact for every lane: pane id, worktree path, branch, task id,
+  status, integration commit, and cleanup status.
 - Before declaring the run complete, inspect unmerged branches:
 
 ```bash
@@ -189,6 +199,24 @@ git log --oneline <mainline>..<branch>
   branches.
 - Do not delete a worktree until its diff is integrated, reviewed, or confirmed
   obsolete.
+- When a Worker report is accepted, cleanup immediately after integration and
+  verification:
+
+```bash
+git worktree remove <path>
+git branch -d <branch>       # if actually merged
+git branch -D <branch>       # if squashed/applied/discarded with a recorded reason
+git worktree prune
+git worktree list --porcelain
+find /Users/rollacode/Developer -maxdepth 1 -type d -name 'codeterm*'
+```
+
+- Use `git worktree remove --force <path>` only after the diff is integrated,
+  explicitly discarded, or copied into the integration checkout. Never use force
+  to bypass an unknown dirty tree.
+- If cleanup cannot happen, record the reason in the plan task, heartbeat, and
+  final handoff. Include the exact remaining path/branch and the next cleanup
+  command.
 
 ## CodeTerm-Specific Sharp Edges
 

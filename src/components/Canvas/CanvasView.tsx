@@ -4,6 +4,7 @@ import { listen } from "../../lib/bridge";
 import type { ApiConfig, Pane } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { CanvasComposer } from "./CanvasComposer";
+import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
@@ -539,18 +540,12 @@ export function CanvasViewInner({
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let active = true;
-    void listen<{ task_id?: string; plan_id?: string; pane_id?: string; node_ids?: string[]; plan_ids?: string[]; scale?: number }>(
+    void listen<CanvasFocusPayload>(
       "canvas-focus",
       (ev) => {
-        const p = ev.payload ?? {};
-        const ids: string[] = [...(p.node_ids ?? []), ...(p.plan_ids ?? [])];
-        if (p.task_id) ids.push(p.task_id);
-        if (p.plan_id) ids.push(p.plan_id);
-        if (p.pane_id) {
-          for (const plan of filteredPlans)
-            for (const t of plan.tasks) if (t.assigned_pane_id === p.pane_id) ids.push(t.id);
-        }
-        if (ids.length) focusOnNodes(ids, p.scale ?? undefined);
+        const p = ev.payload;
+        const ids = resolveCanvasFocusNodeIds(p, filteredPlans);
+        if (ids.length) focusOnNodes(ids, p?.scale ?? undefined);
       },
     ).then((fn) => {
       if (!active) fn();

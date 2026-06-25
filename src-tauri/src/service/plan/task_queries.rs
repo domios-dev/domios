@@ -14,6 +14,7 @@ pub struct TaskListFilter {
     pub mine_panes: HashSet<String>,
     pub unassigned: bool,
     pub plan_id: Option<String>,
+    pub status: Option<TaskStatus>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,6 +92,13 @@ fn include_task(filter: &TaskListFilter, task: &Task) -> bool {
         return false;
     }
     if filter.unassigned && task.assigned_pane_id.is_some() {
+        return false;
+    }
+    if filter
+        .status
+        .as_ref()
+        .is_some_and(|status| &task.status != status)
+    {
         return false;
     }
     if !filter.mine_panes.is_empty() {
