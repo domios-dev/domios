@@ -46,11 +46,12 @@ export async function openCanvas(page: Page): Promise<void> {
   if ((await view.count()) === 0 || !(await view.isVisible().catch(() => false))) {
     // The standalone Canvas nav item was removed; reach a board via the per-pane
     // Plan/Tasks mode segment (workspace overview shows when no tab is focused).
-    const planSeg = page
-      .locator('[data-testid="pane-mode-switch"] [role="tab"]')
-      .filter({ hasText: /Plan|Tasks/ })
-      .first();
-    if ((await planSeg.count()) > 0) await planSeg.click();
+    const planTabs = page.locator('[data-testid="pane-mode-switch"] [role="tab"]').filter({ hasText: /Plan|Tasks/ });
+    const count = await planTabs.count();
+    for (let i = 0; i < count; i++) {
+      await planTabs.nth(i).click({ force: true }).catch(() => {});
+      if (await view.isVisible({ timeout: 1_000 }).catch(() => false)) break;
+    }
   }
   await view.waitFor({ state: "visible", timeout: 30_000 });
   // Wait for fit-to-view + layout to settle and at least one node to mount.
@@ -201,9 +202,9 @@ export async function panToMountTaskCards(page: Page, midScale = 1.6): Promise<N
 export async function fitToView(page: Page): Promise<void> {
   const tabs = page.locator('[data-testid="pane-mode-switch"] [role="tab"]');
   if ((await tabs.count()) < 2) return;
-  await tabs.filter({ hasText: /Terminal|Chat/ }).first().click().catch(() => {});
+  await tabs.filter({ hasText: /Terminal|Chat/ }).first().click({ force: true }).catch(() => {});
   await page.waitForTimeout(150);
-  await tabs.filter({ hasText: /Plan|Tasks/ }).first().click().catch(() => {});
+  await tabs.filter({ hasText: /Plan|Tasks/ }).first().click({ force: true }).catch(() => {});
   await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 15_000 });
   await page.waitForTimeout(400);
 }

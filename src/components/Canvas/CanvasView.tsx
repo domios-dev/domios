@@ -20,8 +20,10 @@ import { layoutWorkspace, visibleFrameIds, visibleNodeIds, viewportWorldRect, bo
 import { archivePlan, fetchSpecSections } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { crispRasterScale, nextWorld, worldThresholds, type World } from "./worlds";
+import { assignedTaskIdsForPane } from "./planOpenFocus";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useCanvasPlans } from "./PlansProvider";
+import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { CanvasElement, DriftItem, OrchestratorRef, Plan, Section, TagFacet, Task } from "./types";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport } from "./useCanvasViewport";
@@ -33,7 +35,7 @@ export interface CanvasViewInnerProps {
   error?: string | null;
   planId?: string;
   orchestratorPaneId?: string;
-  /** The pane that opened Plan mode — its tasks/plans get a fit+blink on open. */
+  /** The pane that opened Plan mode — its assigned tasks get the initial camera. */
   focusPaneId?: string | null;
   panes?: Record<string, Pane>;
   focusedPaneId?: string | null;
@@ -128,10 +130,12 @@ interface CanvasNodeCardProps {
   onFocusStride?: (milestoneId: string) => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
+  tagFilterDimmed?: boolean;
+  tagFilterHighlighted?: boolean;
 }
 
 const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, world, crispScale, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, world, crispScale, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame, tagFilterDimmed, tagFilterHighlighted }: CanvasNodeCardProps) {
     const base = nodeStyle(node.box);
     // §32.3 nodes are SOLID at every zoom — status/hierarchy/focus deprioritize
     // SPATIALLY (position, depth), never by fade. Elevation is depth, not opacity.
@@ -155,6 +159,8 @@ const CanvasNodeCard = memo(
       onFocusStride,
       onSectionClick,
       onSectionFrame,
+      tagFilterDimmed,
+      tagFilterHighlighted,
     });
     return rendered ? <Fragment key={node.id}>{rendered}</Fragment> : null;
   },
@@ -164,6 +170,8 @@ const CanvasNodeCard = memo(
     if (prev.world !== next.world) return false;
     if (prev.crispScale !== next.crispScale) return false;
     if (prev.elevated !== next.elevated) return false;
+    if (prev.tagFilterDimmed !== next.tagFilterDimmed) return false;
+    if (prev.tagFilterHighlighted !== next.tagFilterHighlighted) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;
     const b = next.node.box;
@@ -332,6 +340,20 @@ export function CanvasViewInner({
 
   const [hoveredTask, setHoveredTask] = useState<string | null>(null);
   const onHoverTask = useCallback((id: string | null) => setHoveredTask(id), []);
+
+  const [tagFilter, setTagFilter] = useState<TagFilterSelection>(() => new Map());
+  const onToggleTagFilter = useCallback((tag: string) => {
+    setTagFilter((prev) => toggleTagFilter(prev, tag));
+  }, []);
+  const tagFilterActive = isTagFilterActive(tagFilter);
+  const tagFilterMatchIds = useMemo(() => {
+    if (!tagFilterActive) return null;
+    const ids = new Set<string>();
+    for (const [taskId, model] of lookups.taskModelById) {
+      if (taskMatchesTagFilter(model.task.tags, tagFilter)) ids.add(taskId);
+    }
+    return ids;
+  }, [tagFilter, tagFilterActive, lookups.taskModelById]);
 
   const lod = lodForScale(transform.scale);
   // §26 worlds: each node's content band is driven by its OWN appW (footprint ×
@@ -505,19 +527,15 @@ export function CanvasViewInner({
     [lookups, focusOnNodes],
   );
 
-  // Node ids representing this pane's own area: its assigned tasks, else its plans.
-  const paneNodeIds = useMemo(() => {
-    if (!focusPaneId) return [];
-    const taskIds = filteredPlans.flatMap((p) =>
-      p.tasks.filter((t) => t.assigned_pane_id === focusPaneId).map((t) => t.id),
-    );
-    return taskIds.length ? taskIds : filteredPlans.map((p) => p.id);
-  }, [focusPaneId, filteredPlans]);
-
   // The active plan to land on at mount: an owned plan if any, else the first.
   const activePlanId = useMemo(
     () => (filteredPlans.find((p) => p.owner.pane_id) ?? filteredPlans[0])?.id ?? null,
     [filteredPlans],
+  );
+
+  const paneTaskIds = useMemo(
+    () => (focusPaneId ? assignedTaskIdsForPane(filteredPlans, focusPaneId) : []),
+    [focusPaneId, filteredPlans],
   );
 
   // §31: auto-fit runs ONLY on mount / when the mount CONTEXT changes (mode or the
@@ -529,12 +547,12 @@ export function CanvasViewInner({
     if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
     if (fittedRef.current === fitContextKey) return;
     fittedRef.current = fitContextKey;
-    // Default mount = FOCUS on the active plan (§23.4), NOT fit-all (which lands at
-    // 5% on a big board). Plan-on-a-pane still frames+blinks this pane's nodes.
-    if (focusPaneId && paneNodeIds.length) focusOnNodes(paneNodeIds);
+    // Task context -> fly to assigned task(s) on the full board. Normal Plan open
+    // frames the active plan (§23.4), not fit-all (which lands at 5% on a big board).
+    if (paneTaskIds.length) focusOnNodes(paneTaskIds);
     else if (activePlanId) fitCameraToNodes([activePlanId]);
     else fitToView(layout.bounds);
-  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, focusPaneId, paneNodeIds, activePlanId, layout.bounds, size.width, size.height]);
+  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, paneTaskIds, activePlanId, layout.bounds, size.width, size.height]);
 
   // canvas-focus event (camera + blink). Backends emit {task_id, plan_id, pane_id}
   // (a task/plan node id == its id; a pane resolves to its assigned tasks). Optional
@@ -771,8 +789,9 @@ export function CanvasViewInner({
                   // floats); hovering a task lifts its own edges and dims the rest
                   // so the row↔task / row↔spec mapping reads at a glance.
                   const inHighlight = highlight != null && (edge.id.startsWith(`${highlight.sectionId}~`) || (edge.to != null && highlight.taskIds.has(edge.to)));
-                  const related = (hoveredTask != null && (edge.from === hoveredTask || edge.to === hoveredTask)) || inHighlight;
-                  const dimmed = (hoveredTask != null || highlight != null) && !related;
+                  const tagRelated = tagFilterActive && edge.to != null && tagFilterMatchIds!.has(edge.to);
+                  const related = (hoveredTask != null && (edge.from === hoveredTask || edge.to === hoveredTask)) || inHighlight || tagRelated;
+                  const dimmed = (hoveredTask != null || highlight != null || tagFilterActive) && !related;
                   // Per-edge jitter so near-parallel row beziers fan out and each
                   // connection is individually traceable (deterministic).
                   const j = rowEdge ? edgeJitter(edge.id) : 0.5;
@@ -818,6 +837,8 @@ export function CanvasViewInner({
                 .filter((n) => nodeIds.has(n.id))
                 .map((n) => {
                   const nodeWorld = worldByNode.get(n.id) ?? "W1";
+                  const tagFilterDimmed = tagFilterActive && n.kind === "task" && !tagFilterMatchIds!.has(n.id);
+                  const tagFilterHighlighted = tagFilterActive && n.kind === "task" && tagFilterMatchIds!.has(n.id);
                   return (
                   <CanvasNodeCard
                     key={n.id}
@@ -835,6 +856,8 @@ export function CanvasViewInner({
                     onFocusStride={onFocusStride}
                     onSectionClick={onSectionClick}
                     onSectionFrame={onSectionFrame}
+                    tagFilterDimmed={tagFilterDimmed}
+                    tagFilterHighlighted={tagFilterHighlighted}
                   />
                   );
                 }),
@@ -857,6 +880,18 @@ export function CanvasViewInner({
                 <div
                   key={`hl-${id}`}
                   data-testid="canvas-section-highlight"
+                  className="ct-canvas-hovered pointer-events-none absolute"
+                  style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-md)" }}
+                />
+              );
+            })}
+            {tagFilterMatchIds && [...tagFilterMatchIds].map((id) => {
+              const box = lookups.nodeById.get(id)?.box;
+              if (!box || !nodeIds.has(id)) return null;
+              return (
+                <div
+                  key={`tag-hl-${id}`}
+                  data-testid="canvas-tag-filter-highlight"
                   className="ct-canvas-hovered pointer-events-none absolute"
                   style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-md)" }}
                 />
@@ -932,7 +967,7 @@ export function CanvasViewInner({
         </div>
       )}
       {legendFacets.length > 0 && !loading && !error && filteredPlans.length > 0 && (
-        <CanvasTagLegend facets={legendFacets} />
+        <CanvasTagLegend facets={legendFacets} filter={tagFilter} onToggleTag={onToggleTagFilter} />
       )}
       {minimapOn && !loading && !error && filteredPlans.length > 0 && (
         <CanvasMinimap bounds={layout.bounds} nodes={[...lookups.nodeById.values()]} transform={transform} viewport={size} />

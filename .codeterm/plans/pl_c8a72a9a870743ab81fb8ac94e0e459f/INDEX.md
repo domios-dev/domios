@@ -151,6 +151,7 @@
 - [usage-checker-reliability (Usage checker reliability: Cursor remaining + Codex status timeout)](tasks/usage-checker-reliability.md)
 - [task-lane-metadata-cleanup-hints (Task lane metadata and cleanup hints)](tasks/task-lane-metadata-cleanup-hints.md)
 - [usage-limit-reset-delay-detector (Usage limit reset detector and auto-delay scheduling)](tasks/usage-limit-reset-delay-detector.md)
+- [plan-tag-facets-update-surface-and-non-skipping-canvas-filter-e2e (Plan tag facets: update surface and non-skipping canvas filter e2e)](tasks/plan-tag-facets-update-surface-and-non-skipping-canvas-filter-e2e.md)
 
 ## Handoffs
 

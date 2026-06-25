@@ -1,4 +1,4 @@
-import { facetColorMap, legendEntries, resolveTags } from "./tagModel";
+import { facetColorMap, isTagFilterActive, isTagFilterSelected, legendEntries, resolveTags, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { TagFacet } from "./types";
 
 type TestFn = () => void | Promise<void>;
@@ -39,6 +39,29 @@ test("legendEntries includes only color_lane facets with resolved colors", () =>
   assert(legend.length === 1, "one facet group");
   assert(legend[0].key === "area", "area facet");
   assert(legend[0].values.length === 2, "both values have colors");
+});
+
+test("toggleTagFilter selects and clears facet tags per facet bucket", () => {
+  let sel: TagFilterSelection = new Map();
+  sel = toggleTagFilter(sel, "area:nav");
+  assert(isTagFilterSelected(sel, "area:nav"), "nav selected");
+  assert(isTagFilterActive(sel), "filter active");
+  sel = toggleTagFilter(sel, "area:nav");
+  assert(!isTagFilterActive(sel), "cleared when last tag removed");
+});
+
+test("taskMatchesTagFilter ORs within facet and ANDs across facets", () => {
+  const sel: TagFilterSelection = new Map([["area", new Set(["area:nav", "area:layout"])]]);
+  assert(taskMatchesTagFilter(["area:nav"], sel), "nav matches OR bucket");
+  assert(taskMatchesTagFilter(["area:layout"], sel), "layout matches OR bucket");
+  assert(!taskMatchesTagFilter(["area:storage"], sel), "storage misses OR bucket");
+
+  const multi: TagFilterSelection = new Map([
+    ["area", new Set(["area:nav"])],
+    ["phase", new Set(["phase:v3"])],
+  ]);
+  assert(taskMatchesTagFilter(["area:nav", "phase:v3"], multi), "both facets satisfied");
+  assert(!taskMatchesTagFilter(["area:nav"], multi), "missing phase fails AND");
 });
 
 async function main() {

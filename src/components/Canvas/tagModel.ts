@@ -76,6 +76,45 @@ export function resolveTags(tags: string[] | undefined, facets: TagFacet[] | und
   return { primary, facets: facetsOut, topics };
 }
 
+/** Facet key → selected facet tags (e.g. area → {area:nav, area:layout}). */
+export type TagFilterSelection = Map<string, Set<string>>;
+
+export function isTagFilterActive(selection: TagFilterSelection): boolean {
+  for (const bucket of selection.values()) {
+    if (bucket.size > 0) return true;
+  }
+  return false;
+}
+
+export function isTagFilterSelected(selection: TagFilterSelection, tag: string): boolean {
+  if (!isFacetedTag(tag)) return false;
+  const key = tag.slice(0, tag.indexOf(":"));
+  return selection.get(key)?.has(tag) ?? false;
+}
+
+export function toggleTagFilter(selection: TagFilterSelection, tag: string): TagFilterSelection {
+  if (!isFacetedTag(tag)) return selection;
+  const key = tag.slice(0, tag.indexOf(":"));
+  const next = new Map(selection);
+  const bucket = new Set(next.get(key) ?? []);
+  if (bucket.has(tag)) bucket.delete(tag);
+  else bucket.add(tag);
+  if (bucket.size === 0) next.delete(key);
+  else next.set(key, bucket);
+  return next;
+}
+
+/** OR within a facet, AND across facets with active selections. */
+export function taskMatchesTagFilter(tags: string[] | undefined, selection: TagFilterSelection): boolean {
+  if (!isTagFilterActive(selection)) return true;
+  const faceted = (tags?.map((t) => t.trim()).filter(Boolean) ?? []).filter(isFacetedTag);
+  for (const selected of selection.values()) {
+    if (selected.size === 0) continue;
+    if (!faceted.some((t) => selected.has(t))) return false;
+  }
+  return true;
+}
+
 export function legendEntries(facets: TagFacet[] | undefined): { key: string; label: string; values: { tag: string; label: string; color: string }[] }[] {
   if (!facets?.length) return [];
   const colors = facetColorMap(facets);
