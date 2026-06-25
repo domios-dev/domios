@@ -27,6 +27,23 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function isVisible(el: Element | null): boolean {
+  if (!el) return false;
+  let node: Element | null = el;
+  while (node) {
+    const html = node as HTMLElement;
+    const cs = html.style;
+    if (cs.display === "none" || cs.visibility === "hidden") return false;
+    if (cs.opacity && Number(cs.opacity) < 0.05) return false;
+    node = node.parentElement;
+  }
+  return true;
+}
+
+function taskWithStrides() {
+  return { ...FIXTURE_TASK, milestones: [FIXTURE_MILESTONE] };
+}
+
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const window = new Window({ url: "http://localhost/canvas-cards" });
@@ -188,6 +205,59 @@ test("TaskCard content-LOD: compact far (name+status, no body) → full near (bo
   assert(near.host.querySelector('[data-testid="canvas-task-body"]'), "body present near (full)");
   assert(near.host.querySelectorAll('[data-testid="canvas-task-tag-facet"]').length >= 1, "facet chips in meta band near");
   await act(async () => near.root.unmount());
+});
+
+test("TaskCard §24.4 zoom-drill: W0/W1 stay compact — body slot hidden, no click state", async () => {
+  const task = { ...FIXTURE_TASK, intent: "Ship the login flow safely." };
+  for (const world of ["W0", "W1"] as const) {
+    const { host, root } = await render(<TaskCard task={task} style={cardStyle} world={world} />);
+    assert(host.querySelector('[data-testid="canvas-task-status"]'), `${world} keeps status visible`);
+    assert(!host.querySelector('[data-testid="canvas-task-body"]'), `${world} has no W2+ body testid`);
+    const bodySlot = host.querySelector('[data-testid="canvas-task-body-slot"]');
+    assert(bodySlot?.getAttribute("data-visible") === "false", `${world} body slot reserved but not revealed`);
+    assert(!isVisible(host.querySelector('[data-testid="canvas-task-intent"]')), `${world} intent not painted yet`);
+    assert(!host.querySelector('[data-testid="canvas-task-full-body"]'), `${world} no unclamped body band`);
+    await act(async () => root.unmount());
+  }
+});
+
+test("TaskCard §24.4 zoom-drill: W2 reveals clamped body + intent; W3 adds full body and rationale", async () => {
+  const task = {
+    ...FIXTURE_TASK,
+    intent: "Ship the login flow safely.",
+    body: "Implement the **login** endpoint with OAuth redirect.",
+  };
+  const w2 = await render(<TaskCard task={task} style={cardStyle} world="W2" />);
+  const w2Body = w2.host.querySelector('[data-testid="canvas-task-body"]');
+  assert(w2Body?.getAttribute("data-visible") === "true", "W2 body slot revealed");
+  assert(isVisible(w2Body), "W2 body visible without interaction");
+  assert(isVisible(w2.host.querySelector('[data-testid="canvas-task-intent"]')), "W2 intent visible");
+  assert(w2.host.querySelector('[data-testid="canvas-task-body-preview"]'), "W2 uses clamped preview, not full-body testid");
+  assert(!w2.host.querySelector('[data-testid="canvas-task-why"]'), "model rationale waits for W3");
+  await act(async () => w2.root.unmount());
+
+  const w3 = await render(<TaskCard task={task} style={cardStyle} world="W3" />);
+  assert(isVisible(w3.host.querySelector('[data-testid="canvas-task-full-body"]')), "W3 full body visible");
+  assert(w3.host.textContent?.includes("Ship the login flow safely."), "W3 intent text painted");
+  assert(w3.host.textContent?.includes("Complex auth logic needs a strong model."), "W3 model rationale painted");
+  await act(async () => w3.root.unmount());
+});
+
+test("TaskCard §24.4 zoom-drill: stride snake deepens by world band (no click)", async () => {
+  const task = taskWithStrides();
+  const modes: Record<string, string> = {};
+  for (const world of ["W0", "W1", "W2", "W3"] as const) {
+    const { host, root } = await render(<TaskCard task={task} style={cardStyle} world={world} />);
+    const steps = host.querySelector('[data-testid="canvas-task-steps"]');
+    assert(steps, `${world} renders stride lane`);
+    modes[world] = steps!.getAttribute("data-step-mode") ?? "";
+    assert(isVisible(steps), `${world} stride lane visible without click`);
+    await act(async () => root.unmount());
+  }
+  assert(modes.W0 === "constellation", `W0 constellation, got ${modes.W0}`);
+  assert(modes.W1 === "thread", `W1 thread, got ${modes.W1}`);
+  assert(modes.W2 === "cards", `W2 cards, got ${modes.W2}`);
+  assert(modes.W3 === "bloom", `W3 bloom, got ${modes.W3}`);
 });
 
 test("TaskCard primary facet tints left border accent", async () => {
