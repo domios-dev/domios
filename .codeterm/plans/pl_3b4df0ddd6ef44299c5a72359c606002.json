@@ -1,0 +1,36 @@
+{
+  "id": "pl_3b4df0ddd6ef44299c5a72359c606002",
+  "title": "Plan without spec hint",
+  "sections": [],
+  "status": "active",
+  "owner": {
+    "pane_id": "6d436312",
+    "session_id": null,
+    "title": null
+  },
+  "project_path": "/Users/rollacode/Developer/codeterm",
+  "created_at": 1782375920236,
+  "updated_at": 1782375920236,
+  "milestone_kinds": [],
+  "loops": [],
+  "elements": [],
+  "tasks": [],
+  "task_groups": [],
+  "tag_facets": [],
+  "links": [],
+  "spec_refs": [],
+  "spec_links": [],
+  "primary_spec_id": null,
+  "lineage": [],
+  "goal": null,
+  "heartbeat": {
+    "current_focus": null,
+    "active_lanes": [],
+    "rules": [],
+    "learnings": []
+  },
+  "canvas": {
+    "viewport": null
+  },
+  "owner_history": []
+}

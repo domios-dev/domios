@@ -13,6 +13,20 @@ fn derive_agent_type_from_title(title: Option<&str>) -> Option<String> {
     None
 }
 
+fn should_seed_from_legacy_tab_title(
+    pane_title: &str,
+    legacy_tab_title: &str,
+    has_agent_type: bool,
+) -> bool {
+    if legacy_tab_title.is_empty() {
+        return false;
+    }
+    let pane_title = pane_title.trim();
+    pane_title.is_empty()
+        || pane_title == "Terminal"
+        || (has_agent_type && derive_agent_type_from_title(Some(pane_title)).is_some())
+}
+
 impl MultiplexerState {
     /// Return all data for frontend hydration. Each call stamps a strictly
     /// increasing `generation`; the stamp happens while the caller holds the
@@ -120,7 +134,7 @@ impl MultiplexerState {
                         })
                         .map(|tab| TabSnapshot {
                             id: tab.id.clone(),
-                            title: tab.title.clone(),
+                            title: self.display_label_for_pane(&tab.pane_id),
                             description: self
                                 .panes
                                 .get(&tab.pane_id)
@@ -166,6 +180,7 @@ impl MultiplexerState {
 
         fn install_leaf(
             leaf: &SplitNodeSnapshot,
+            legacy_tab_title: &str,
             panes: &mut HashMap<String, Pane>,
         ) -> Option<String> {
             let SplitNodeSnapshot::Leaf {
@@ -210,11 +225,21 @@ impl MultiplexerState {
                 "Worker" => Some(crate::multiplexer::types::AgentRole::Worker),
                 _ => None,
             });
-            let restored_title = title.as_deref().unwrap_or("Terminal").to_string();
+            let raw_title = title.as_deref().unwrap_or("Terminal");
+            let legacy_title = legacy_tab_title.trim();
+            let has_agent_type =
+                agent_type.is_some() || derive_agent_type_from_title(Some(raw_title)).is_some();
+            let restored_title =
+                if should_seed_from_legacy_tab_title(raw_title, legacy_title, has_agent_type) {
+                    legacy_title.to_string()
+                } else {
+                    raw_title.to_string()
+                };
             let restored_level = match title_level.as_deref() {
                 Some("User") => TitleLevel::User,
                 Some("Agent") => TitleLevel::Agent,
                 Some("Auto") => TitleLevel::Auto,
+                Some("Default") => TitleLevel::Default,
                 _ => {
                     if role.is_some() {
                         TitleLevel::User
@@ -293,7 +318,7 @@ impl MultiplexerState {
                 active_tab_id: ws.active_tab_id.clone(),
                 tabs: ws.tabs.iter().filter_map(|tab| {
                     let leaf = first_leaf(&tab.split_tree)?;
-                    let pane_id = install_leaf(leaf, &mut panes)?;
+                    let pane_id = install_leaf(leaf, &tab.title, &mut panes)?;
                     if matches!(&tab.split_tree, SplitNodeSnapshot::Split { .. }) {
                         log::warn!(
                             "[restore] tab {} had a multi-pane split — kept the first leaf, dropped the rest",
@@ -302,7 +327,6 @@ impl MultiplexerState {
                     }
                     Some(Tab {
                         id: tab.id.clone(),
-                        title: tab.title.clone(),
                         description: panes
                             .get(&pane_id)
                             .and_then(|pane| pane.description.clone()),
@@ -537,6 +561,38 @@ mod tests {
             "report_target must survive restore, not reset to None"
         );
         assert_eq!(pane.parent_pane_id.as_deref(), Some("orch-1"));
+    }
+
+    #[test]
+    fn legacy_tab_title_seeds_default_provider_pane_title() {
+        let leaf = SplitNodeSnapshot::Leaf {
+            pane_id: "legacy-worker".into(),
+            cwd: None,
+            title: Some("claude".into()),
+            description: None,
+            title_level: Some("Default".into()),
+            agent_type: Some("claude".into()),
+            agent_type_locked: true,
+            claude_session_id: None,
+            role: Some("Worker".into()),
+            parent_pane_id: None,
+            spawned_by_pane_id: None,
+            report_target_pane_id: None,
+            can_spawn: false,
+            depth: 2,
+            chat_view: Some(false),
+            auto_approve: false,
+            agent_session_model: None,
+            chatbackend_plugin_id: None,
+            chatbackend_session_id: None,
+        };
+        let mut snap = snapshot_with(leaf);
+        snap.workspaces[0].tabs[0].title = "Euler".into();
+
+        let state = MultiplexerState::from_session_snapshot(&snap);
+        let pane = state.panes.get("legacy-worker").expect("pane restored");
+        assert_eq!(pane.title, "Euler");
+        assert_eq!(pane.title_level, TitleLevel::Default);
     }
 
     #[test]

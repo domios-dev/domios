@@ -21,7 +21,7 @@ pub(crate) struct CreatePlanBody {
     #[serde(default)]
     pub(crate) kinds: Option<String>,
     #[serde(default)]
-    pub(crate) spec: Option<String>,
+    pub(crate) from_spec: Option<String>,
 }
 
 fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
@@ -63,22 +63,26 @@ pub async fn create(
         .map(kinds_from_csv)
         .unwrap_or_default();
     let now = epoch_ms();
-    let plan = state
-        .svc
-        .plan_store
-        .create_plan(body.title, project, owner, kinds, now)
-        .map_err(plan_err)?;
-    if let Some(spec) = body.spec.filter(|s| !s.is_empty()) {
-        let _ =
-            state
-                .svc
-                .plan_store
-                .add_section(&plan.id, "Spec", &spec, None, &[], None, None, now);
-    }
+    let from_spec = body.from_spec.filter(|s| !s.trim().is_empty());
+    let plan = if let Some(spec_id) = from_spec.as_deref() {
+        state
+            .svc
+            .plan_store
+            .create_plan_from_spec(spec_id, body.title, owner, kinds, now)
+            .map_err(plan_err)?
+    } else {
+        state
+            .svc
+            .plan_store
+            .create_plan(body.title, project, owner, kinds, now)
+            .map_err(plan_err)?
+    };
     emit_plan_changed(&state, &plan.id);
-    Ok(Json(
-        serde_json::json!({ "plan_id": plan.id, "plan": plan }),
-    ))
+    Ok(Json(serde_json::json!({
+        "plan_id": plan.id,
+        "plan": plan,
+        "from_spec": from_spec.unwrap_or_default()
+    })))
 }
 
 pub async fn list(
@@ -148,6 +152,33 @@ pub async fn get(
         .get(&id)
         .ok_or_else(|| plan_err(PlanError::NotFound))?;
     Ok(Json(serde_json::to_value(plan).unwrap_or_default()))
+}
+
+#[derive(Deserialize, Default)]
+pub(crate) struct ReconcileQuery {
+    #[serde(default, deserialize_with = "de_truthy")]
+    fix: Option<bool>,
+    #[serde(default)]
+    caller_pane_id: Option<String>,
+}
+
+pub async fn reconcile(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<ReconcileQuery>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let report = state
+        .svc
+        .reconcile_plan(
+            &id,
+            q.fix == Some(true),
+            q.caller_pane_id.as_deref(),
+            epoch_ms(),
+        )
+        .map_err(plan_err)?;
+    Ok(Json(serde_json::to_value(report).unwrap_or_default()))
 }
 
 #[derive(Deserialize, Default)]

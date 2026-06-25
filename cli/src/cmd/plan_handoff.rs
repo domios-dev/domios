@@ -49,12 +49,13 @@ pub fn handle(
         PlanHandoffAction::Show {
             plan_id,
             selector,
+            seq,
             latest,
             markdown,
         } => {
             let mut params = json!({ "plan_id": plan_id });
             if !latest {
-                if let Some(selector) = selector {
+                if let Some(selector) = seq.or(selector) {
                     params["selector"] = json!(selector);
                 }
             }

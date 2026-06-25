@@ -28,7 +28,10 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
   const extraPoints: Point[] = [];
 
   const flat = flatSections(plan);
-  const hasSpec = flat.length > 0;
+  // Spec ⊥ Plan: render a spec node ONLY when the plan is bound to a REAL Spec
+  // entity. Without one, mirroring plan.sections into a "Specification" box is the
+  // spec=plan conflation (visual duplication) — don't.
+  const hasSpec = !!plan.primary_spec_id;
 
   const planBox: Box = { x: 0, y: 0, width: s.planWidth, height: s.planHeight };
   const axisY = s.planHeight / 2; // the composition's horizontal axis

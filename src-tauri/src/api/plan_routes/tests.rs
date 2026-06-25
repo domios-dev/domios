@@ -1,5 +1,5 @@
-use super::*;
 use super::plans::{CreatePlanBody, ListPlansQuery};
+use super::*;
 
 #[test]
 fn groups_from_csv_parses_key_label() {

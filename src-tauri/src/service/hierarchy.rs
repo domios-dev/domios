@@ -199,6 +199,44 @@ impl ServiceContext {
         })
     }
 
+    /// §EFFORT: moving a task to `in_review` IS the trigger — the plan system itself
+    /// notifies the plan owner (orchestrator) so a worker need not send a separate
+    /// `agent report`. The status change carries the intent; this delivers it. Best-effort.
+    pub fn notify_owner_task_in_review(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        by_pane: Option<&str>,
+        intent: Option<&str>,
+    ) {
+        let Some(plan) = self.plan_store.get(plan_id) else {
+            return;
+        };
+        let Some(owner) = plan.owner.pane_id.as_deref() else {
+            return;
+        };
+        if Some(owner) == by_pane {
+            return; // no self-notify
+        }
+        let task_name = plan
+            .tasks
+            .iter()
+            .find(|t| t.id == task_id)
+            .map(|t| t.name.clone())
+            .unwrap_or_else(|| task_id.to_string());
+        let who = by_pane.unwrap_or("a worker");
+        let intent_part = intent
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| format!(" — {s}"))
+            .unwrap_or_default();
+        let text = format!(
+            "[task in_review] '{task_name}' ({task_id}) → in_review by {who}{intent_part}\nReview it, then judge done or bounce back."
+        );
+        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
+        let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
+    }
+
     fn maybe_send_plan_reminder(&self, pane_id: &str, role: Option<AgentRole>) {
         if self.plan_store.task_binding_for_pane(pane_id).is_none() {
             return;
@@ -340,7 +378,7 @@ pub fn resolve_report_target(
     pane_id: &str,
 ) -> Result<(String, Option<String>), String> {
     let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
-    let title = pane.title.clone();
+    let title = mux.display_label_for_pane(pane_id);
     let target = [
         pane.parent_pane_id.as_deref(),
         pane.report_target_pane_id.as_deref(),
@@ -454,6 +492,32 @@ mod tests {
         let (_from_title, storage_key) =
             resolve_report_target(&mux, &worker).expect("resolve target");
         assert_eq!(storage_key.as_deref(), Some(orch.as_str()));
+    }
+
+    #[test]
+    fn report_title_uses_user_pinned_pane_identity_not_provider_default() {
+        let (mut mux, orch) = MultiplexerState::new();
+        let ws = mux
+            .find_workspace_for_pane(&orch)
+            .expect("orchestrator lives in a workspace");
+        let (_tab_id, worker) = mux.create_tab(&ws).expect("create worker tab");
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
+            .expect("attach worker");
+        mux.rename_pane(&worker, "Euler")
+            .expect("set pane identity");
+        mux.rename_pane_at_level(
+            &worker,
+            "claude",
+            crate::multiplexer::types::TitleLevel::Agent,
+        )
+        .expect("agent title ignored below user pin");
+
+        let (from_title, target) = resolve_report_target(&mux, &worker).expect("resolve");
+        assert_eq!(target.as_deref(), Some(orch.as_str()));
+        assert_eq!(
+            from_title, "Euler",
+            "report must carry the tab identity, not the provider default"
+        );
     }
 
     #[test]

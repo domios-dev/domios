@@ -1,0 +1,1 @@
+Implement §16.9 near-LOD: when zoomed into a task, its step cluster shows step CARDS with the milestone TEXT (kind + title + body), inside the task's fixed bounds. Currently bubbles are just dots with no text.

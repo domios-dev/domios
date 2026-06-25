@@ -10,9 +10,11 @@ pub enum PlanAction {
     Create {
         #[arg(long, allow_hyphen_values = true)]
         title: String,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(long)]
+        from_spec: Option<String>,
+        #[arg(long, allow_hyphen_values = true, hide = true)]
         spec: Option<String>,
-        #[arg(long, value_name = "PATH")]
+        #[arg(long, value_name = "PATH", hide = true)]
         spec_file: Option<String>,
         #[arg(long)]
         kinds: Option<String>,
@@ -52,6 +54,12 @@ pub enum PlanAction {
     Coverage { plan_id: String },
     /// Show sections with zero tasks
     Gaps { plan_id: String },
+    /// Detect plan/task drift and optionally apply conservative fixes
+    Reconcile {
+        plan_id: String,
+        #[arg(long)]
+        fix: bool,
+    },
     /// Preview or apply automatic section links for unlinked tasks
     Relink {
         plan_id: String,
@@ -539,6 +547,8 @@ pub enum PlanHandoffAction {
     Show {
         plan_id: String,
         selector: Option<String>,
+        #[arg(long)]
+        seq: Option<String>,
         #[arg(long)]
         latest: bool,
         #[arg(long)]

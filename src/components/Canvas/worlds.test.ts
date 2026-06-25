@@ -19,7 +19,8 @@ test("crispRasterScale: birds-eye bands never re-rasterize", () => {
 test("crispRasterScale: readable bands re-rasterize only above the min scale", () => {
   assert(crispRasterScale("W2", 1) === 1, "no re-raster at 1× (GPU upscale imperceptible)");
   assert(crispRasterScale("W2", CRISP_MIN_SCALE) === 1, "no re-raster at the threshold itself");
-  assert(crispRasterScale("W2", 2) === 2, "W2 re-rasters at 2×");
+  assert(crispRasterScale("W2", 2) === 2, "W2 pinned at 2×");
+  assert(crispRasterScale("W2", 3.5) === 2, "W2 stays pinned while diving");
   assert(crispRasterScale("W3", 4) === 4, "W3 re-rasters at 4×");
 });
 

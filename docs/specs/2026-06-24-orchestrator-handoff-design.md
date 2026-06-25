@@ -1,6 +1,6 @@
 # Orchestrator Handoff — directed context reset attached to a plan
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
 
 **Design proposal only.** A DIRECTED HANDOFF capability: an orchestrator composes a
 focused, goal-directed handoff aimed at its active plan, attaches it to the plan as
@@ -89,7 +89,7 @@ codeterm plan handoff create <plan_id> [--mode new|compact]
         [--from-file <f> | --stdin]          # narrative body
         [--auto]                             # auto-fill state/in_flight/branches (default on)
         [--json]                             # returns {handoff_id, seq, body_path, resume_prompt}
-codeterm plan handoff show  <plan_id> [<seq|id>|--latest] [--json]
+codeterm plan handoff show  <plan_id> [<selector>|--seq <n>|--latest] [--json]
 codeterm plan handoff list  <plan_id> [--json]
 codeterm orchestrator handoff [--plan <id>] [--mode new|compact] [--reseed] [--from-file|--stdin]
         # one-shot for the CALLING pane: compose + attach + render + (optionally) reseed self

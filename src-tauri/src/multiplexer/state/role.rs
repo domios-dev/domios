@@ -36,17 +36,50 @@ impl MultiplexerState {
             }
             AgentRole::Worker => {
                 let parent_id = parent_pane_id.ok_or("Worker requires a parent_pane_id")?;
-                let parent = self
-                    .panes
-                    .get(parent_id)
-                    .ok_or(format!("Parent pane {} not found", parent_id))?;
-                if parent.role != Some(AgentRole::Orchestrator) {
-                    return Err("Worker's parent must be an Orchestrator".to_string());
-                }
-                if !parent.can_spawn {
-                    return Err("Parent does not allow spawning".to_string());
-                }
-                let parent_depth = parent.depth;
+                let (parent_role, parent_has_parent, parent_can_spawn, parent_depth) = {
+                    let parent = self
+                        .panes
+                        .get(parent_id)
+                        .ok_or(format!("Parent pane {} not found", parent_id))?;
+                    (
+                        parent.role,
+                        parent.parent_pane_id.is_some(),
+                        parent.can_spawn,
+                        parent.depth,
+                    )
+                };
+                // Attaching a worker must link DETERMINISTICALLY.
+                let final_parent_depth = if parent_role == Some(AgentRole::Orchestrator) {
+                    // Established orchestrator — respect an EXPLICITLY disabled spawn gate.
+                    if !parent_can_spawn {
+                        return Err("Parent does not allow spawning".to_string());
+                    }
+                    parent_depth
+                } else {
+                    // Not an Orchestrator yet. A pane already nested under someone (itself a
+                    // Worker) cannot take children (flat hierarchy).
+                    if parent_has_parent {
+                        return Err(
+                            "Worker's parent is itself a Worker — workers cannot spawn workers"
+                                .to_string(),
+                        );
+                    }
+                    // A FREE top-level pane is auto-promoted to Orchestrator — giving it a child
+                    // makes it one. This removes the race where a freshly-spawned parent's
+                    // role/can_spawn wasn't committed yet, which silently dropped the parent
+                    // link for its early children.
+                    let parent = self
+                        .panes
+                        .get_mut(parent_id)
+                        .ok_or_else(|| format!("Parent pane {} not found", parent_id))?;
+                    parent.role = Some(AgentRole::Orchestrator);
+                    parent.parent_pane_id = None;
+                    parent.can_spawn = true;
+                    if parent.depth == 0 {
+                        parent.depth = 1;
+                    }
+                    parent.depth
+                };
                 let pane = self
                     .panes
                     .get_mut(pane_id)
@@ -54,7 +87,7 @@ impl MultiplexerState {
                 pane.role = Some(AgentRole::Worker);
                 pane.parent_pane_id = Some(parent_id.to_string());
                 pane.can_spawn = false;
-                pane.depth = parent_depth + 1;
+                pane.depth = final_parent_depth + 1;
             }
         }
 
@@ -163,6 +196,32 @@ mod tests {
             .set_pane_role(&child, AgentRole::Orchestrator, Some(&parent))
             .unwrap_err();
         assert!(err.contains("Orchestrator"));
+    }
+
+    #[test]
+    fn worker_under_free_pane_auto_promotes_and_links() {
+        // Regression: spawning a worker under a FREE (not-yet-Orchestrator) pane must
+        // promote it and PERSIST the parent link. Previously the link was silently
+        // dropped (the early-child race), leaving the worker parentless.
+        let (mut mux, _root) = MultiplexerState::new();
+        let parent = mux.create_pane(); // free: role=None, can_spawn=false by default
+        let worker = mux.create_pane();
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&parent))
+            .expect("worker attaches to a free parent (auto-promote)");
+        let p = mux.get_pane(&parent).unwrap();
+        assert_eq!(
+            p.role,
+            Some(AgentRole::Orchestrator),
+            "free parent auto-promoted to Orchestrator"
+        );
+        assert!(p.can_spawn);
+        let w = mux.get_pane(&worker).unwrap();
+        assert_eq!(
+            w.parent_pane_id.as_deref(),
+            Some(parent.as_str()),
+            "parent link must persist"
+        );
+        assert_eq!(w.role, Some(AgentRole::Worker));
     }
 
     #[test]

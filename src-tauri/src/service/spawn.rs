@@ -336,10 +336,13 @@ impl ServiceContext {
         let (tab_id, pane_id) = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
-            // Apply explicit --title to tab.title up-front (mirrors REST path).
             if let Some(ref t) = spec.title {
                 if !t.trim().is_empty() {
-                    let _ = mux.rename_tab(&ws_id, &result.0, t);
+                    let _ = mux.rename_pane_at_level(
+                        &result.1,
+                        t,
+                        crate::multiplexer::types::TitleLevel::User,
+                    );
                 }
             }
             if let Some(ref dir) = resolved_cwd {
@@ -524,7 +527,6 @@ impl ServiceContext {
                 if let Err(e) = mux.rename_pane(&result.1, title) {
                     log::warn!("[spawn.shell] rename_pane failed: {}", e);
                 }
-                let _ = mux.rename_tab(&ws_id, &result.0, title);
             }
             result
         };

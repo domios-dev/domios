@@ -15,12 +15,13 @@ import { bezierPath, resolveEdgeEnds } from "./edges";
 import { milestoneColorMap } from "./milestoneColors";
 import { sectionRows, type SectionRowGlyph } from "./sectionRows";
 import { layoutWorkspace, visibleFrameIds, visibleNodeIds, viewportWorldRect, boxesOverlap, type LaidOutNode } from "./layout";
-import { archivePlan } from "./plansApi";
+import { archivePlan, fetchSpecSections } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { crispRasterScale, nextWorld, worldThresholds, type World } from "./worlds";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useCanvasPlans } from "./PlansProvider";
-import type { CanvasElement, OrchestratorRef, Plan, Section, Task } from "./types";
+import type { CanvasElement, DriftItem, OrchestratorRef, Plan, Section, Task } from "./types";
+import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport } from "./useCanvasViewport";
 
 export interface CanvasViewInnerProps {
@@ -87,6 +88,7 @@ export interface TaskCardModel {
   childCount: number;
   childDone: number;
   stepColors: Map<string, string>;
+  drift?: DriftItem;
 }
 
 interface CanvasLookups {
@@ -191,6 +193,30 @@ export function CanvasViewInner({
   );
 
   const planById = useMemo(() => new Map(filteredPlans.map((p) => [p.id, p])), [filteredPlans]);
+  const filteredPlanIds = useMemo(() => filteredPlans.map((p) => p.id), [filteredPlans]);
+  const driftByPlan = usePlanDrift(api, filteredPlanIds);
+
+  // Fetch the REAL linked Spec entity per plan (Spec=WHAT ⊥ Plan=HOW). The spec
+  // node renders THESE sections, not the plan's — they are distinct entities.
+  const [specSectionsByPlan, setSpecSectionsByPlan] = useState<Map<string, Section[]>>(new Map());
+  useEffect(() => {
+    if (!api) return;
+    let active = true;
+    const targets = filteredPlans.filter((p) => p.primary_spec_id);
+    if (!targets.length) return;
+    void Promise.all(
+      targets.map((p) =>
+        fetchSpecSections(api, p.primary_spec_id as string)
+          .then((sections) => [p.id, sections] as const)
+          .catch(() => [p.id, [] as Section[]] as const),
+      ),
+    ).then((pairs) => {
+      if (active) setSpecSectionsByPlan(new Map(pairs));
+    });
+    return () => {
+      active = false;
+    };
+  }, [api, filteredPlans]);
 
   const { transform, handlers, fitToView, zoomBy, setTransform, isDragging, containerRef } = useCanvasViewport({
     width: size.width,
@@ -235,9 +261,15 @@ export function CanvasViewInner({
         }
       }
       const colors = milestoneColorMap(plan);
+      const driftForPlan = driftByPlan.get(plan.id) ?? [];
+      const driftByTask = new Map<string, DriftItem>();
+      for (const item of driftForPlan) {
+        const existing = driftByTask.get(item.task_id);
+        if (!existing || (existing.not_mine && !item.not_mine)) driftByTask.set(item.task_id, item);
+      }
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
-        taskModelById.set(task.id, { task, childCount: childCounts.get(task.id) ?? 0, childDone: childDone.get(task.id) ?? 0, stepColors: colors });
+        taskModelById.set(task.id, { task, childCount: childCounts.get(task.id) ?? 0, childDone: childDone.get(task.id) ?? 0, stepColors: colors, drift: driftByTask.get(task.id) });
         const seen = new Map<string, string>();
         for (const m of task.milestones) {
           const color = colors.get(m.kind) ?? "var(--ct-border-focus)";
@@ -254,22 +286,26 @@ export function CanvasViewInner({
       for (const el of plan.elements) elementById.set(el.id, el);
     }
     return { nodeById, taskById, taskModelById, sectionById, specSectionById, milestoneModelById, milestoneTaskById, clusterModelById, elementById };
-  }, [layout, filteredPlans]);
+  }, [layout, filteredPlans, driftByPlan]);
 
   const resolveModel = useCallback(
     (node: LaidOutNode): unknown => {
       switch (node.kind) {
         case "plan":
-          return planById.get(node.id);
-        case "spec":
-          return planById.get(node.planId);
+          return planById.has(node.id) ? { ...planById.get(node.id)!, driftCount: driftByPlan.get(node.id)?.length ?? 0 } : undefined;
+        case "spec": {
+          const plan = planById.get(node.planId);
+          const specSections = specSectionsByPlan.get(node.planId);
+          // Render the REAL spec's sections (no tasks → coverage is a plan concept).
+          return plan && specSections ? { ...plan, sections: specSections, tasks: [] } : plan;
+        }
         case "task":
           return lookups.taskModelById.get(node.id);
         default:
           return lookups.elementById.get(node.id);
       }
     },
-    [planById, lookups],
+    [planById, lookups, specSectionsByPlan],
   );
 
   const handleArchive = useCallback(
@@ -383,13 +419,35 @@ export function CanvasViewInner({
     [lookups, fitToView],
   );
 
+  // Center the camera on a node set at an EXPLICIT scale (vs fit-to-bbox). The
+  // product "go to node id at zoom Z" primitive: deterministic landing point.
+  const centerCameraOnNodes = useCallback(
+    (ids: string[], scale: number) => {
+      const boxes = ids.map((id) => lookups.nodeById.get(id)?.box).filter(Boolean) as {
+        x: number; y: number; width: number; height: number;
+      }[];
+      if (!boxes.length) return;
+      const minX = Math.min(...boxes.map((b) => b.x));
+      const minY = Math.min(...boxes.map((b) => b.y));
+      const maxX = Math.max(...boxes.map((b) => b.x + b.width));
+      const maxY = Math.max(...boxes.map((b) => b.y + b.height));
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const s = Math.max(0.05, Math.min(10, scale));
+      setTransform({ x: size.width / 2 - cx * s, y: size.height / 2 - cy * s, scale: s });
+    },
+    [lookups, setTransform, size.width, size.height],
+  );
+
   // Camera + blink onto a set of node ids (shared by canvas-focus + Plan-on-pane).
+  // scale given → land centered at that exact zoom; omitted → fit the bbox.
   const focusOnNodes = useCallback(
-    (ids: string[]) => {
-      fitCameraToNodes(ids);
+    (ids: string[], scale?: number) => {
+      if (scale != null) centerCameraOnNodes(ids, scale);
+      else fitCameraToNodes(ids);
       setBlinkIds(new Set(ids));
     },
-    [fitCameraToNodes],
+    [fitCameraToNodes, centerCameraOnNodes],
   );
 
   // Task ids covering a given plan section — the section→tasks mapping for nav.
@@ -475,14 +533,26 @@ export function CanvasViewInner({
     else fitToView(layout.bounds);
   }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, focusPaneId, paneNodeIds, activePlanId, layout.bounds, size.width, size.height]);
 
-  // canvas-focus event (camera + blink). Backend lane emits target ids; we fit to
-  // their bbox and blink them. Stub-safe: no-op until the event carries targets.
+  // canvas-focus event (camera + blink). Backends emit {task_id, plan_id, pane_id}
+  // (a task/plan node id == its id; a pane resolves to its assigned tasks). Optional
+  // `scale` lands centered at an exact zoom for deterministic "go to id @ zoom" nav.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     let active = true;
-    void listen<{ node_ids?: string[]; plan_ids?: string[] }>("canvas-focus", (ev) => {
-      focusOnNodes([...(ev.payload?.node_ids ?? []), ...(ev.payload?.plan_ids ?? [])]);
-    }).then((fn) => {
+    void listen<{ task_id?: string; plan_id?: string; pane_id?: string; node_ids?: string[]; plan_ids?: string[]; scale?: number }>(
+      "canvas-focus",
+      (ev) => {
+        const p = ev.payload ?? {};
+        const ids: string[] = [...(p.node_ids ?? []), ...(p.plan_ids ?? [])];
+        if (p.task_id) ids.push(p.task_id);
+        if (p.plan_id) ids.push(p.plan_id);
+        if (p.pane_id) {
+          for (const plan of filteredPlans)
+            for (const t of plan.tasks) if (t.assigned_pane_id === p.pane_id) ids.push(t.id);
+        }
+        if (ids.length) focusOnNodes(ids, p.scale ?? undefined);
+      },
+    ).then((fn) => {
       if (!active) fn();
       else unlisten = fn;
     });
@@ -490,7 +560,7 @@ export function CanvasViewInner({
       active = false;
       unlisten?.();
     };
-  }, [focusOnNodes]);
+  }, [focusOnNodes, filteredPlans]);
 
   useEffect(() => {
     const el = shellRef.current;

@@ -111,20 +111,27 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .map(kinds_from_csv)
                 .unwrap_or_default();
-            let plan = store
-                .create_plan(title, project, owner_from_params(body), kinds, now)
-                .map_err(plan_rpc_err)?;
-            if let Some(spec) = body
-                .get("spec")
+            let from_spec = body
+                .get("from_spec")
                 .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-            {
-                let _ = store.add_section(&plan.id, "Spec", spec, None, &[], None, None, now);
-            }
-            let plan = store.get(&plan.id).unwrap_or(plan);
+                .filter(|s| !s.trim().is_empty())
+                .map(str::to_string);
+            let plan = if let Some(spec_id) = from_spec.clone() {
+                store
+                    .create_plan_from_spec(&spec_id, title, owner_from_params(body), kinds, now)
+                    .map_err(plan_rpc_err)?
+            } else {
+                store
+                    .create_plan(title, project, owner_from_params(body), kinds, now)
+                    .map_err(plan_rpc_err)?
+            };
             let plan_id = plan.id.clone();
             let empty_sections = plan.sections.is_empty();
-            let mut response = json!({ "plan_id": plan_id.clone(), "plan": plan });
+            let mut response = json!({
+                "plan_id": plan_id.clone(),
+                "plan": plan,
+                "from_spec": from_spec.unwrap_or_default()
+            });
             if empty_sections {
                 response["_hints"] = json!([hints::plan_sections_hint(&plan_id)]);
             }
@@ -544,6 +551,18 @@ pub(super) fn dispatch(
             let report = store
                 .coverage_report(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            Ok(serde_json::to_value(report).unwrap_or_default())
+        }
+
+        "plan.reconcile" => {
+            let id = get_string_param(params, "plan_id")?;
+            let fix = p.and_then(|x| x.get("fix")).and_then(|v| v.as_bool()) == Some(true);
+            let caller = p
+                .and_then(|x| x.get("caller_pane_id"))
+                .and_then(|v| v.as_str());
+            let report = svc
+                .reconcile_plan(&id, fix, caller, now)
+                .map_err(plan_rpc_err)?;
             Ok(serde_json::to_value(report).unwrap_or_default())
         }
 

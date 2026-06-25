@@ -335,7 +335,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     case "SET_PANE_TITLE": {
       const pane = state.panes[action.paneId];
       if (!pane) return state;
-      const levels = [TitleLevel.Default, TitleLevel.Auto, TitleLevel.User];
+      const levels = [TitleLevel.Default, TitleLevel.Auto, TitleLevel.Agent, TitleLevel.User];
       const newLevel = action.level || TitleLevel.Auto;
       const curLevel = pane.title_level || TitleLevel.Default;
       if (levels.indexOf(newLevel) < levels.indexOf(curLevel)) return state;
@@ -353,17 +353,20 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
     }
 
     case "SET_TAB_TITLE": {
+      const workspace = state.workspaces.find((ws) => ws.id === action.workspaceId);
+      const tab = workspace?.tabs.find((candidate) => candidate.id === action.tabId);
+      const pane = tab ? state.panes[tab.pane_id] : undefined;
+      if (!pane) return state;
       return {
         ...state,
-        workspaces: state.workspaces.map((ws) => {
-          if (ws.id !== action.workspaceId) return ws;
-          return {
-            ...ws,
-            tabs: ws.tabs.map((tab) =>
-              tab.id === action.tabId ? { ...tab, title: action.title } : tab
-            ),
-          };
-        }),
+        panes: {
+          ...state.panes,
+          [pane.id]: {
+            ...pane,
+            title: action.title,
+            title_level: TitleLevel.User,
+          },
+        },
       };
     }
 

@@ -4710,6 +4710,14 @@
           "aliases": [],
           "args": [
             {
+              "name": "from_spec",
+              "positional": false,
+              "value_name": "FROM_SPEC",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
               "name": "kinds",
               "positional": false,
               "value_name": "KINDS",
@@ -5143,6 +5151,14 @@
                   "name": "selector",
                   "positional": true,
                   "value_name": "SELECTOR",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "seq",
+                  "positional": false,
+                  "value_name": "SEQ",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5671,6 +5687,30 @@
               "subcommands": []
             }
           ]
+        },
+        {
+          "name": "reconcile",
+          "about": "Detect plan/task drift and optionally apply conservative fixes",
+          "aliases": [],
+          "args": [
+            {
+              "name": "fix",
+              "positional": false,
+              "value_name": "FIX",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         },
         {
           "name": "record",

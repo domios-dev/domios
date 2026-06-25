@@ -67,6 +67,7 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   variant: "plan" | "spec";
   plan: Plan;
   world: World;
+  driftCount?: number;
   /** §34 crisp text: >1 → re-rasterize at on-screen size (zoom + counter-scale). */
   crispScale?: number;
   onArchive?: () => void;
@@ -75,7 +76,7 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   onSectionFrame?: (a: SectionNavArgs) => void;
 }
 
-export function SectionNode({ variant, plan, style, world, crispScale = 1, onArchive, onFitNode, onSectionClick, onSectionFrame }: SectionNodeProps) {
+export function SectionNode({ variant, plan, style, world, driftCount = 0, crispScale = 1, onArchive, onFitNode, onSectionClick, onSectionFrame }: SectionNodeProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
@@ -99,6 +100,31 @@ export function SectionNode({ variant, plan, style, world, crispScale = 1, onArc
           <span title={plan.title} data-canvas-selectable className="ct-canvas-title ct-canvas-text" style={{ fontWeight: 700, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "-0.01em" }}>
             {isPlan ? plan.title : "Specification"}
           </span>
+          {isPlan && (
+            <span
+              data-testid={driftCount > 0 ? "canvas-plan-drift-count" : "canvas-plan-drift-slot"}
+              title={driftCount > 0 ? `${driftCount} drift item${driftCount === 1 ? "" : "s"}` : undefined}
+              style={{
+                minWidth: 48,
+                height: 20,
+                padding: "0 7px",
+                borderRadius: 999,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.72em",
+                fontWeight: 800,
+                color: "rgba(245,158,11,0.98)",
+                background: "color-mix(in srgb, rgba(245,158,11,0.98) 13%, transparent)",
+                border: "1px solid color-mix(in srgb, rgba(245,158,11,0.98) 50%, transparent)",
+                opacity: driftCount > 0 ? 1 : 0,
+                visibility: driftCount > 0 ? "visible" : "hidden",
+                flexShrink: 0,
+              }}
+            >
+              {driftCount} drift
+            </span>
+          )}
           {isPlan && onFitNode && (
             <button type="button" data-testid="canvas-plan-fit" title="Focus this plan" onClick={(e) => { e.stopPropagation(); onFitNode(); }} onMouseDown={(e) => e.stopPropagation()} style={iconBtn()}>
               <Maximize2 size={12} />
@@ -125,6 +151,20 @@ export function SectionNode({ variant, plan, style, world, crispScale = 1, onArc
           <span style={{ fontSize: "0.76em", opacity: "var(--ct-text-tertiary-opacity)" }}>{rows.length} section{rows.length === 1 ? "" : "s"}</span>
         )}
       </div>
+
+      {isPlan && plan.goal?.vector && (
+        <div
+          data-testid="canvas-plan-goal"
+          data-canvas-selectable
+          className="ct-canvas-text"
+          style={{ flexShrink: 0, padding: "6px 12px", borderBottom: "1px solid var(--ct-border-subtle)", background: "color-mix(in srgb, var(--ct-border-focus) 9%, transparent)", fontSize: "0.82em", lineHeight: 1.3, display: "flex", gap: 6, alignItems: "flex-start" }}
+        >
+          <span style={{ flexShrink: 0 }} title="Goal (north-star)">🎯</span>
+          <span title={plan.goal.vector} style={{ display: "-webkit-box", WebkitLineClamp: atLeast(world, "W1") ? 3 : 1, WebkitBoxOrient: "vertical", overflow: "hidden", fontWeight: 600, letterSpacing: "-0.01em" }}>
+            {plan.goal.vector}
+          </span>
+        </div>
+      )}
 
       <div
         ref={bodyRef}

@@ -1,0 +1,1 @@
+Fix cursor usage parsing + test coverage (boundary refresh, multi-provider, cursor fixture).

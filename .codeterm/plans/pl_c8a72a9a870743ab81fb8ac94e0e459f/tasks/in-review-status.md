@@ -1,0 +1,1 @@
+§38 acceptance: workers report in_review, orchestrator decides done. Status enum lacks in_review (pending/in_progress/done/cancelled/blocked) — CLI rejects --status in_review. Add in_review to enum (src-tauri plan model + CLI + canvas render); only orchestrator transitions in_review→done; canvas shows in_review distinctly. Tests for status + transition.

@@ -28,6 +28,9 @@ mod tests;
 #[cfg(test)]
 mod timestamp_tests;
 
+use crate::plan::reconcile::{
+    DriftItem, DriftKind, NEEDS_REASSIGN_LABEL, PANE_GONE_LABEL, STALE_REVIEW_LABEL,
+};
 use crate::plan::{
     OrchestratorRef, Plan, PlanStatus, Spec, TaskStatus, INBOX_PLAN_FILE_STEM, INBOX_PLAN_ID,
 };
@@ -170,6 +173,14 @@ pub struct SpecIndexEntry {
     pub project_path: String,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ReconcileFixResult {
+    pub plan_id: String,
+    pub task_id: String,
+    pub kind: DriftKind,
+    pub action: String,
+}
+
 #[derive(Default)]
 pub struct PlanStore {
     plans: RwLock<HashMap<String, Arc<Mutex<Plan>>>>,
@@ -186,9 +197,9 @@ impl PlanStore {
         Self::default()
     }
 
-    pub fn new_for_test(root: &Path) -> Self {
+    pub fn new_for_test(_root: &Path) -> Self {
         #[cfg(test)]
-        paths::mark_test_project_root(root);
+        paths::mark_test_project_root(_root);
         Self::default()
     }
 
@@ -698,6 +709,98 @@ impl PlanStore {
             }
         }
         None
+    }
+
+    pub fn task_bindings_for_pane(&self, pane_id: &str) -> Vec<(String, String)> {
+        self.list_full()
+            .into_iter()
+            .filter(|plan| plan.status == PlanStatus::Active)
+            .flat_map(|plan| {
+                let plan_id = plan.id.clone();
+                plan.tasks
+                    .into_iter()
+                    .filter(move |task| task.assigned_pane_id.as_deref() == Some(pane_id))
+                    .map(move |task| (plan_id.clone(), task.id))
+            })
+            .collect()
+    }
+
+    pub fn apply_reconcile_fixes(
+        &self,
+        plan_id: &str,
+        items: &[DriftItem],
+        now_ms: u64,
+    ) -> Result<Vec<ReconcileFixResult>, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let mut changed = Vec::new();
+            for item in items.iter().filter(|item| !item.not_mine) {
+                let Some(task) = plan.tasks.iter_mut().find(|task| task.id == item.task_id) else {
+                    continue;
+                };
+                match item.kind {
+                    DriftKind::InProgressPaneGone => {
+                        task.assigned_pane_id = None;
+                        task.status_label = Some(NEEDS_REASSIGN_LABEL.into());
+                        task.updated_at = now_ms;
+                        changed.push(ReconcileFixResult {
+                            plan_id: plan_id.into(),
+                            task_id: task.id.clone(),
+                            kind: item.kind.clone(),
+                            action: "cleared_assignment_set_needs_reassign".into(),
+                        });
+                    }
+                    DriftKind::StaleInReview => {
+                        task.status_label = Some(STALE_REVIEW_LABEL.into());
+                        task.updated_at = now_ms;
+                        changed.push(ReconcileFixResult {
+                            plan_id: plan_id.into(),
+                            task_id: task.id.clone(),
+                            kind: item.kind.clone(),
+                            action: "set_stale_review_label".into(),
+                        });
+                    }
+                    DriftKind::BoundToClosedPane => {
+                        task.assigned_pane_id = None;
+                        task.updated_at = now_ms;
+                        changed.push(ReconcileFixResult {
+                            plan_id: plan_id.into(),
+                            task_id: task.id.clone(),
+                            kind: item.kind.clone(),
+                            action: "cleared_dead_assignment".into(),
+                        });
+                    }
+                    DriftKind::AcceptedButNotDone => {
+                        task.status = TaskStatus::Done;
+                        task.status_changed_at = now_ms;
+                        task.updated_at = now_ms;
+                        changed.push(ReconcileFixResult {
+                            plan_id: plan_id.into(),
+                            task_id: task.id.clone(),
+                            kind: item.kind.clone(),
+                            action: "set_done".into(),
+                        });
+                    }
+                }
+            }
+            Ok(changed)
+        })
+    }
+
+    pub fn flag_pane_gone(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan(plan_id, now_ms, |plan| {
+            let Some(task) = plan.tasks.iter_mut().find(|task| task.id == task_id) else {
+                return Ok(false);
+            };
+            task.assigned_pane_id = None;
+            task.status_label = Some(PANE_GONE_LABEL.into());
+            task.updated_at = now_ms;
+            Ok(true)
+        })
     }
 
     pub fn list_index(&self) -> Vec<IndexEntry> {

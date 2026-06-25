@@ -1,0 +1,1 @@
+Tasks may exist without a plan. A plan-less task lands in a reserved per-project Inbox plan (id 'inbox'), reusing ALL plan machinery — no new storage path. A task can be taken by a worker OR an orchestrator (assigned_pane_id + derived taken_by_role); a link chip on the card opens that pane. This generalizes Task to be a first-class, addressable unit.

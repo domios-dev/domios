@@ -9,6 +9,57 @@ fn gen_id(prefix: &str) -> String {
 }
 
 impl PlanStore {
+    pub fn create_plan_from_spec(
+        &self,
+        spec_id: &str,
+        title: String,
+        owner: crate::plan::OrchestratorRef,
+        kinds: Vec<crate::plan::MilestoneKind>,
+        now_ms: u64,
+    ) -> Result<crate::plan::Plan, PlanError> {
+        let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
+        let mut plan = self.create_plan(title, spec.project_path.clone(), owner, kinds, now_ms)?;
+        plan.primary_spec_id = Some(spec_id.to_string());
+        if !plan.spec_refs.iter().any(|id| id == spec_id) {
+            plan.spec_refs.push(spec_id.to_string());
+        }
+
+        fn mirror_sections(
+            source: &[Section],
+            links: &mut Vec<SpecLink>,
+            spec_id: &str,
+        ) -> Vec<Section> {
+            source
+                .iter()
+                .map(|spec_section| {
+                    let mirrored_id = gen_id("sec");
+                    let mirrored_subsections =
+                        mirror_sections(&spec_section.subsections, links, spec_id);
+                    links.push(SpecLink {
+                        spec_id: spec_id.to_string(),
+                        spec_section_id: spec_section.id.clone(),
+                        plan_section_id: mirrored_id.clone(),
+                    });
+                    Section {
+                        id: mirrored_id,
+                        title: spec_section.title.clone(),
+                        handle: None,
+                        tags: vec![],
+                        body: String::new(),
+                        subsections: mirrored_subsections,
+                        canvas: Default::default(),
+                    }
+                })
+                .collect()
+        }
+
+        let mut links = Vec::new();
+        plan.sections = mirror_sections(&spec.sections, &mut links, spec_id);
+        plan.spec_links = links;
+        self.commit_loaded_plan(plan.clone())?;
+        Ok(plan)
+    }
+
     pub fn create_spec(
         &self,
         title: String,

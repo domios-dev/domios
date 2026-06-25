@@ -59,11 +59,7 @@ impl MultiplexerState {
         {
             record.workspace_id = ws.id.clone();
             record.workspace_name = ws.name.clone();
-            // Prefer the tab's title/description; pane.title can lag an OSC title update.
             if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == pane_id) {
-                if !tab.title.is_empty() {
-                    record.title = tab.title.clone();
-                }
                 if tab.description.is_some() {
                     record.description = tab.description.clone();
                 }
@@ -234,7 +230,6 @@ impl MultiplexerState {
                     .as_deref()
                     .is_some_and(|at| chat_capable.contains(at));
         }
-        let _ = self.rename_tab(workspace_id, &tab_id, &record.title);
         if let Some(ws) = self.workspaces.iter_mut().find(|w| w.id == workspace_id) {
             if let Some(tab) = ws.tabs.iter_mut().find(|t| t.id == tab_id) {
                 tab.description = record.description.clone();

@@ -9,7 +9,9 @@ import {
   TaskCard,
 } from "./index";
 import {
+  FIXTURE_DRIFT,
   FIXTURE_MILESTONE,
+  FIXTURE_NOT_MINE_DRIFT,
   FIXTURE_PLAN,
   FIXTURE_TASK,
 } from "./fixtures.testdata";
@@ -125,6 +127,27 @@ test("TaskCard pane link chip appears for assigned tasks and fires onOpenPane", 
   await act(async () => chip.click());
   assert(opened === "pane-42", `onOpenPane fired with pane id, got ${opened}`);
   await act(async () => root.unmount());
+});
+
+test("TaskCard drift badge renders actionable, muted not_mine, and absent states", async () => {
+  const plain = await render(<TaskCard task={FIXTURE_TASK} style={cardStyle} world="W3" />);
+  assert(!plain.host.querySelector('[data-testid="canvas-task-drift-badge"]'), "no badge without drift");
+  await act(async () => plain.root.unmount());
+
+  const active = await render(<TaskCard task={FIXTURE_TASK} drift={FIXTURE_DRIFT} style={cardStyle} world="W3" />);
+  const activeBadge = active.host.querySelector('[data-testid="canvas-task-drift-badge"]') as HTMLElement | null;
+  assert(activeBadge, "drift badge rendered");
+  assert(activeBadge.getAttribute("data-drift-kind") === "in_progress_pane_gone", "actionable kind attached");
+  assert(activeBadge.getAttribute("data-not-mine") === "false", "actionable drift is not muted");
+  assert(activeBadge.getAttribute("title")?.includes(FIXTURE_DRIFT.suggested_fix), "tooltip includes suggested fix");
+  await act(async () => active.root.unmount());
+
+  const muted = await render(<TaskCard task={FIXTURE_TASK} drift={FIXTURE_NOT_MINE_DRIFT} style={cardStyle} world="W3" />);
+  const mutedBadge = muted.host.querySelector('[data-testid="canvas-task-drift-badge"]') as HTMLElement | null;
+  assert(mutedBadge, "not_mine drift badge rendered");
+  assert(mutedBadge.getAttribute("data-not-mine") === "true", "not_mine drift marked muted");
+  assert((mutedBadge.getAttribute("style") ?? "").includes("opacity: 0.55"), "not_mine drift uses muted opacity");
+  await act(async () => muted.root.unmount());
 });
 
 test("TaskCard content-LOD: compact far (name+status, no body) → full near (body)", async () => {

@@ -6,8 +6,8 @@ use crate::args::plan::{
 };
 use crate::client::SocketClient;
 use crate::cmd::hints::{
-    maybe_orchestration_reminder, print_hints, push_hints, task_model_hint,
-    task_quality_guard_hint, task_sections_hint,
+    maybe_orchestration_reminder, plan_create_spec_first_hint, print_hints, push_hints,
+    task_model_hint, task_quality_guard_hint, task_sections_hint,
 };
 use crate::cmd::plan_errors::render_plan_call_error;
 #[cfg(test)]
@@ -156,12 +156,18 @@ fn run_plan(
     let result = match action {
         PlanAction::Create {
             title,
+            from_spec,
             spec,
             spec_file,
             kinds,
             project,
         } => {
-            let spec_text = resolve_text(spec, spec_file)?;
+            let has_legacy_spec_shortcut = spec.is_some() || spec_file.is_some();
+            if has_legacy_spec_shortcut {
+                return Err(
+                    "plan create no longer accepts --spec/--spec-file text input; create a real spec with `codeterm spec create` and use `codeterm plan create --from-spec <id> --title <title>`".to_string(),
+                );
+            }
             let mut params = json!({
                 "title": title,
                 "owner": owner_from_env(),
@@ -172,10 +178,18 @@ fn run_plan(
             if let Some(p) = project {
                 params["project_path"] = json!(p);
             }
-            if let Some(s) = spec_text {
-                params["spec"] = json!(s);
+            if let Some(spec_id) = from_spec {
+                params["from_spec"] = json!(spec_id);
             }
-            call_plan_rpc(client, "plan.create", params)
+            let mut val = call_plan_rpc(client, "plan.create", params)?;
+            if val
+                .get("from_spec")
+                .and_then(|v| v.as_str())
+                .is_none_or(str::is_empty)
+            {
+                push_hints(&mut val, vec![plan_create_spec_first_hint()]);
+            }
+            Ok(val)
         }
 
         PlanAction::List {
@@ -273,6 +287,23 @@ fn run_plan(
             if unlinked_count > 0 {
                 println!("Unlinked tasks: {unlinked_count}");
             }
+            return Ok(None);
+        }
+
+        PlanAction::Reconcile { plan_id, fix } => {
+            let val = call(
+                client,
+                "plan.reconcile",
+                json!({
+                    "plan_id": plan_id,
+                    "fix": fix,
+                    "caller_pane_id": std::env::var("CODETERM_PANE_ID").ok(),
+                }),
+            )?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", crate::cmd::plan_reconcile::render_reconcile(&val));
             return Ok(None);
         }
 
