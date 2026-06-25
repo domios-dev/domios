@@ -103,7 +103,6 @@ impl ServiceContext {
                 if let Err(e) = mux.rename_pane(&result.1, title) {
                     log::warn!("[spawn.chatbackend] rename_pane failed: {}", e);
                 }
-                let _ = mux.rename_tab(&ws_id, &result.0, title);
             }
             if let Some(ref description) = spec.description {
                 let _ = mux.set_pane_description(&result.1, Some(description.clone()));

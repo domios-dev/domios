@@ -1,0 +1,1 @@
+Recompute bounds on every data change so nodes never overlap; stable under fast fly/zoom.

@@ -1,9 +1,10 @@
 import type { CSSProperties } from "react";
-import { ExternalLink, Layers, Link2 } from "lucide-react";
+import { CheckCircle2, Clock3, ExternalLink, Layers, Link2, TriangleAlert, Unplug } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../settings";
+import { substrateV2Enabled } from "../substrateFlag";
 import { atLeast, DEEP_DIVE_CRISP_SCALE, type World } from "../worlds";
-import type { Task, TaskStatus } from "../types";
+import type { DriftItem, DriftKind, Task, TaskStatus } from "../types";
 import type { CanvasCardStyleProps } from "./types";
 import { digestMarkdown } from "./digest";
 import { StrideSnake } from "./StrideSnake";
@@ -125,11 +126,52 @@ function revealStyle(visible: boolean): CSSProperties {
   return visible ? {} : { visibility: "hidden", opacity: 0, pointerEvents: "none" };
 }
 
+const DRIFT_CHROME: Record<DriftKind, { Icon: typeof TriangleAlert; color: string; label: string }> = {
+  in_progress_pane_gone: { Icon: Unplug, color: "rgba(248,113,113,0.98)", label: "Worker pane gone" },
+  stale_in_review: { Icon: Clock3, color: "rgba(245,158,11,0.98)", label: "Stale review" },
+  bound_to_closed_pane: { Icon: TriangleAlert, color: "rgba(251,191,36,0.98)", label: "Closed pane binding" },
+  accepted_but_not_done: { Icon: CheckCircle2, color: "rgba(96,165,250,0.98)", label: "Accepted but not done" },
+};
+
+function DriftBadge({ drift }: { drift?: DriftItem }) {
+  const chrome = drift ? DRIFT_CHROME[drift.kind] : null;
+  const Icon = chrome?.Icon ?? TriangleAlert;
+  const color = drift?.not_mine ? "var(--ct-fg)" : chrome?.color ?? "var(--ct-border-focus)";
+  const title = drift ? `${chrome?.label ?? drift.kind.replace(/_/g, " ")}: ${drift.detail}${drift.suggested_fix ? `\nSuggested: ${drift.suggested_fix}` : ""}` : "";
+  return (
+    <span
+      data-testid={drift ? "canvas-task-drift-badge" : "canvas-task-drift-slot"}
+      data-drift-kind={drift?.kind}
+      data-not-mine={drift ? String(drift.not_mine) : undefined}
+      title={title}
+      aria-label={title || undefined}
+      style={{
+        width: 20,
+        height: 20,
+        borderRadius: "var(--ct-radius-sm)",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        color,
+        background: drift?.not_mine ? "color-mix(in srgb, var(--ct-fg) 7%, transparent)" : `color-mix(in srgb, ${color} 15%, transparent)`,
+        border: `1px solid ${drift?.not_mine ? "var(--ct-border-subtle)" : `color-mix(in srgb, ${color} 55%, transparent)`}`,
+        opacity: drift ? (drift.not_mine ? 0.55 : 1) : 0,
+        visibility: drift ? "visible" : "hidden",
+        pointerEvents: drift ? "auto" : "none",
+      }}
+    >
+      <Icon size={12} strokeWidth={2.4} />
+    </span>
+  );
+}
+
 export interface TaskCardProps extends CanvasCardStyleProps {
   task: Task;
   childCount?: number;
   childDone?: number;
   stepColors?: Map<string, string>;
+  drift?: DriftItem;
   world: World;
   /** §34 crisp text: >1 → re-rasterize at on-screen size (zoom + counter-scale). */
   crispScale?: number;
@@ -145,6 +187,7 @@ export function TaskCard({
   childCount = 0,
   childDone = 0,
   stepColors,
+  drift,
   style,
   world,
   crispScale = 1,
@@ -229,7 +272,10 @@ export function TaskCard({
               <span data-testid="canvas-task-name" data-visible={showTitle ? "true" : "false"} data-task-name-full={task.name} data-canvas-selectable className="ct-canvas-text" style={{ minWidth: 0, maxWidth: "100%", fontWeight: shelf === "done" ? 600 : 700, fontSize: shelf === "done" ? "0.98em" : "1.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...revealStyle(showTitle) }}>
                 {titleText}
               </span>
-              <StatusChip color={badgeColor} label={displayStatus} solid />
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                <StatusChip color={badgeColor} label={displayStatus} solid />
+                <DriftBadge drift={drift} />
+              </div>
             </div>
           </div>
           {actions}
@@ -287,6 +333,7 @@ export function TaskCard({
     </div>
   );
 
+  if (substrateV2Enabled()) return card(style);
   // §34: birds-eye / 1× → single layer, GPU upscale is imperceptible while small.
   if (crispScale <= 1) return card(style);
   // Readable band → zoom to display px (crisp reflow incl. body + stride snake) then

@@ -4,6 +4,16 @@
 export type PlanStatus = "active" | "archived";
 export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled";
 export type LoopStatus = "running" | "done" | "exhausted" | "stopped";
+export type DriftKind = "in_progress_pane_gone" | "stale_in_review" | "bound_to_closed_pane" | "accepted_but_not_done";
+
+export interface DriftItem {
+  task_id: string;
+  plan_id: string;
+  kind: DriftKind;
+  detail: string;
+  suggested_fix: string;
+  not_mine: boolean;
+}
 
 export interface ElementCanvas {
   x: number | null;
@@ -114,6 +124,19 @@ export interface PlanCanvas {
   viewport: Viewport | null;
 }
 
+export interface Goal {
+  vector: string;
+  vision?: string;
+  constraints?: string[];
+  postulates?: string[];
+}
+
+export interface SpecLink {
+  spec_id: string;
+  spec_section_id: string;
+  plan_section_id: string;
+}
+
 export interface Plan {
   id: string;
   title: string;
@@ -129,4 +152,7 @@ export interface Plan {
   tasks: Task[];
   canvas: PlanCanvas;
   owner_history: TransferRecord[];
+  goal?: Goal | null;
+  primary_spec_id?: string | null;
+  spec_links?: SpecLink[];
 }

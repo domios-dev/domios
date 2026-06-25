@@ -1,0 +1,1 @@
+On every data change, bounds recompute automatically so nodes pack cleanly and never overlap. The user flies and zooms fast — layout must stay stable and legible under rapid navigation. Subtasks (parent_task_id) render as child clusters under their parent task. Tested with Playwright bounding-box assertions: no overflow, no overlap, readable at each zoom band.

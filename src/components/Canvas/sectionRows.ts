@@ -12,7 +12,7 @@ export interface SectionRow {
 function flatten(sections: Section[], depth: number, out: Section[]): void {
   for (const s of sections) {
     out.push(s);
-    if (s.subsections.length) flatten(s.subsections, depth + 1, out);
+    if (s.subsections?.length) flatten(s.subsections, depth + 1, out);
   }
 }
 

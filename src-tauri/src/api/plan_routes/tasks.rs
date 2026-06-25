@@ -190,6 +190,20 @@ pub async fn task_update(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+    // §EFFORT: a task moving to in_review IS the trigger — notify the plan owner
+    // (orchestrator) directly, so a separate `agent report` isn't needed.
+    if body.get("status").and_then(|v| v.as_str()) == Some("in_review") {
+        let by_pane = headers
+            .get("X-CodeTerm-Pane-Id")
+            .and_then(|v| v.to_str().ok());
+        let intent = body
+            .get("intent")
+            .and_then(|v| v.as_str())
+            .or_else(|| body.get("status_label").and_then(|v| v.as_str()));
+        state
+            .svc
+            .notify_owner_task_in_review(&id, &tid, by_pane, intent);
+    }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }

@@ -1,6 +1,6 @@
 import { authHeaders, baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
-import type { OrchestratorRef, Plan, PlanStatus } from "./types";
+import type { DriftItem, OrchestratorRef, Plan, PlanStatus, Section } from "./types";
 
 // Lightweight list row (GET /api/plans) — enough for PlanButton visibility/pulse
 // without fetching full plan bodies.
@@ -22,6 +22,12 @@ interface PlansFullResponse {
   plans: Plan[];
 }
 
+interface ReconcileReport {
+  drift: DriftItem[];
+  fixed: [];
+  accepted_signal: string;
+}
+
 export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSignal): Promise<Plan> {
   const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}`, {
     headers: authHeaders(api),
@@ -29,6 +35,30 @@ export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSi
   });
   if (!res.ok) throw new Error(`plan get failed: ${res.status} ${await res.text()}`);
   return res.json();
+}
+
+// The REAL Spec entity's hydrated section tree (GET /api/specs/{id} → {spec:{...}}).
+// The canvas spec node renders THESE, not the plan's sections (they are distinct
+// entities — Spec=WHAT ⊥ Plan=HOW).
+export async function fetchSpecSections(api: ApiConfig, specId: string, signal?: AbortSignal): Promise<Section[]> {
+  const res = await fetch(`${baseUrl(api)}/api/specs/${encodeURIComponent(specId)}`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (!res.ok) throw new Error(`spec get failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as { spec?: { sections?: Section[] } };
+  return body.spec?.sections ?? [];
+}
+
+export async function fetchReconcile(api: ApiConfig, planId: string, signal?: AbortSignal): Promise<DriftItem[]> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/reconcile`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`plan reconcile failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as ReconcileReport;
+  return body.drift ?? [];
 }
 
 // Lightweight index only — one request, no per-plan bodies.

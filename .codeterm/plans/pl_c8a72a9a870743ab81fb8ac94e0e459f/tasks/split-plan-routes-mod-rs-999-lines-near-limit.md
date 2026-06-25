@@ -1,0 +1,1 @@
+Split src-tauri/src/api/plan_routes/mod.rs by responsibility (tasks/sections/tags/coverage handlers) before adding more routes.

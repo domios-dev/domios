@@ -1,0 +1,1 @@
+On task create/edit, debounced top-3 similar past tasks (up-weight cancelled/stalled); click→canvas focus. Non-blocking.

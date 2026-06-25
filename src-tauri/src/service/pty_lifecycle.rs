@@ -9,11 +9,19 @@
 //! The loop exits gracefully on EOF (PTY closed) and marks the pane as Dead.
 
 use std::io::Read;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri::Emitter;
 use tokio::task::JoinHandle;
 
 use super::ServiceState;
+
+fn epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Start a backend read loop for the given PTY.
 ///
@@ -195,6 +203,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
     svc.shell_caps.lock().remove(pty_id);
 
     if let Some(ref pid) = pane_id {
+        svc.flag_bound_tasks_for_gone_pane(pid, epoch_ms());
         crate::api::events::emit_everywhere(
             &svc.app_handle,
             "pane-status-changed",

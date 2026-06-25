@@ -7,6 +7,7 @@ import { KeepAwakeTray } from "../Titlebar/KeepAwakeTray";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer } from "../../store/multiplexer";
+import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
@@ -529,7 +530,7 @@ export function Sidebar({
                                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
                               }`}
-                              title={tab.title}
+                              title={displayTitleForTab(tab, state.panes[tab.pane_id])}
                             >
                               {(() => {
                                 // Any pane with an agent_type set (backend already classified) — don't gate on the FE-only `getAgentProvider` registry, or drop-in plugins

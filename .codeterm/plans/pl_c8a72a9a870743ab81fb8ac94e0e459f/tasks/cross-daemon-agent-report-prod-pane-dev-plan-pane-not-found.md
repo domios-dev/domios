@@ -1,0 +1,1 @@
+agent report --plan/--task fails with RPC 'Pane not found' when the reporting pane belongs to a different daemon than the plan. Make report resolve the caller identity across daemons (or document --pane requirement). Also: installed CLI must be rebuilt (./build.sh cli) after CLI changes, else agents use stale flags — consider auto-rebuild or a version check.

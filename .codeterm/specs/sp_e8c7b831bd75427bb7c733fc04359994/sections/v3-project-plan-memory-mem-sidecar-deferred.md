@@ -1,0 +1,1 @@
+Embed-only sidecar index of plan tasks/sections into project-scoped mem (scope=plan_<project_root_hash>, skip_extract, source-path=§17 .md). Enables semantic search over plan history + 'related past work' + stalled-work recall. NOT authoritative; mem is an index. Per design §21. Deferred — after Canvas v2 core.

@@ -424,10 +424,13 @@ impl ServiceContext {
         let (tab_id, pane_id) = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
-            // Pin the sidebar label up-front (rename_pane sync runs later too).
             if let Some(ref t) = params.title {
                 if !t.trim().is_empty() {
-                    let _ = mux.rename_tab(&ws_id, &result.0, t);
+                    let _ = mux.rename_pane_at_level(
+                        &result.1,
+                        t,
+                        crate::multiplexer::types::TitleLevel::User,
+                    );
                 }
             }
             if let Some(ref dir) = params.cwd {

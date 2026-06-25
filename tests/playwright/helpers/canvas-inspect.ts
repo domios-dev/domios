@@ -13,6 +13,9 @@ import path from "node:path";
 
 export const CANVAS_ART_DIR = path.resolve(__dirname, "..", "artifacts", "canvas");
 
+// Must match useCanvasViewport.ts ZOOM_INTENSITY; scale = exp(-deltaY * INTENSITY).
+const ZOOM_INTENSITY = 0.004;
+
 export interface Box {
   x: number;
   y: number;
@@ -91,6 +94,106 @@ export async function zoomBy(page: Page, deltaY: number): Promise<void> {
     );
   }, deltaY);
   await page.waitForTimeout(140);
+}
+
+// Dispatch a cmd-wheel zoom anchored on the center of the first element matching
+// `anchorSel` (so it stays under the pointer); fall back to the viewport center
+// when nothing matches. worlds-v3 puts tasks in a cloud RIGHT of the plan, so a
+// plain viewport-center zoom drifts content off-screen and culls it.
+async function dispatchZoom(page: Page, anchorSel: string | null, deltaY: number): Promise<void> {
+  await page.evaluate(({ anchorSel, deltaY }) => {
+    const view = document.querySelector('[data-testid="canvas-view"]');
+    const target = view?.querySelector("div");
+    if (!target) return;
+    const anchor = anchorSel ? (document.querySelector(anchorSel) as HTMLElement | null) : null;
+    const r = (anchor ?? target).getBoundingClientRect();
+    target.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+        clientX: r.left + r.width / 2,
+        clientY: r.top + r.height / 2,
+      }),
+    );
+  }, { anchorSel, deltaY });
+  await page.waitForTimeout(150);
+}
+
+export async function zoomTowardTask(page: Page, taskId: string, deltaY: number): Promise<void> {
+  await dispatchZoom(page, `[data-testid="canvas-task-card"][data-task-id="${taskId}"]`, deltaY);
+}
+
+// Absolute-scale zoom anchored on the first element matching `anchorSel`, keeping
+// it on-screen across the dive. Falls back to viewport center while it is culled.
+export async function setCanvasScaleOn(page: Page, anchorSel: string, targetScale: number): Promise<void> {
+  for (let i = 0; i < 5; i++) {
+    const current = await canvasScale(page);
+    if (Math.abs(current - targetScale) < 0.02) return;
+    const deltaY = -Math.log(targetScale / current) / ZOOM_INTENSITY;
+    await dispatchZoom(page, anchorSel, deltaY);
+    await page.waitForTimeout(30);
+  }
+}
+
+export async function setCanvasScaleOnTask(page: Page, taskId: string, targetScale: number): Promise<void> {
+  return setCanvasScaleOn(page, `[data-testid="canvas-task-card"][data-task-id="${taskId}"]`, targetScale);
+}
+
+// Drive the PRODUCT navigation method: POST /api/canvas/focus to land the camera
+// on a node by id (centered + blink). Deterministic — no pan/zoom heuristics. The
+// page already holds the dev token (connectUi seeds it). Optional scale lands at an
+// exact zoom (needs backend scale passthrough; auto-fits otherwise).
+export async function focusTaskById(page: Page, taskId: string, scale?: number): Promise<void> {
+  await page.evaluate(async ({ id, scale }) => {
+    const token = localStorage.getItem(`codeterm-web-token:${window.location.origin}`) || "";
+    await fetch("/api/canvas/focus", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(scale != null ? { task_id: id, scale } : { task_id: id }),
+    });
+  }, { id: taskId, scale });
+  await page.waitForTimeout(700);
+}
+
+// Read the rendered plan node's id, fetch its tasks, return an in_progress task id
+// (else the first) — a stable probe without needing a card already on-screen.
+export async function pickProbeTaskId(page: Page): Promise<string | null> {
+  const planId = await page.getAttribute('[data-testid="canvas-plan-node"]', "data-plan-id").catch(() => null);
+  if (!planId) return null;
+  return page.evaluate(async (pid) => {
+    const token = localStorage.getItem(`codeterm-web-token:${window.location.origin}`) || "";
+    const r = await fetch(`/api/plans/${pid}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return null;
+    const p = await r.json();
+    const tasks = (p.tasks || []) as Array<{ id: string; status: string }>;
+    const t = tasks.find((x) => x.status === "in_progress") || tasks.find((x) => x.status !== "done") || tasks[0];
+    return t?.id ?? null;
+  }, planId);
+}
+
+// worlds-v3 places the task cloud spatially to the RIGHT of the plan (triptych:
+// spec-left, plan-center, tasks-right). Fit-to-view frames the plan, so the cloud
+// sits off-screen and its cards are culled. Mount them by PANNING toward the cloud
+// at a mid zoom (where cards cross into a card LOD band), not by zooming. Returns
+// the mounted cards (empty if none after the sweep).
+export async function panToMountTaskCards(page: Page, midScale = 1.6): Promise<NodeBox[]> {
+  await setCanvasScaleOn(page, '[data-testid="canvas-plan-node"]', midScale);
+  let cards = await collectBoxes(page, "canvas-task-card");
+  // The cloud spreads UP-RIGHT of the plan (phyllotaxis disk); sweep diagonally,
+  // panning content down-left so the cloud scrolls into view, with vertical bands.
+  const dyBands = [-160, -320, 0];
+  for (const dy of dyBands) {
+    for (let i = 0; i < 16 && cards.length === 0; i++) {
+      await panBy(page, 300, i === 0 ? dy : -120);
+      cards = await collectBoxes(page, "canvas-task-card");
+    }
+    if (cards.length > 0) break;
+    // Re-center on the plan before trying the next band.
+    await setCanvasScaleOn(page, '[data-testid="canvas-plan-node"]', midScale);
+  }
+  return cards;
 }
 
 // No fit-to-view button; toggle the pane out of and back into Plan mode to remount
@@ -257,12 +360,12 @@ export async function setCanvasScale(page: Page, targetScale: number): Promise<v
   for (let i = 0; i < 4; i++) {
     const current = await canvasScale(page);
     if (Math.abs(current - targetScale) < 0.015) return;
-    await page.evaluate(({ currentScale, nextScale }) => {
+    await page.evaluate(({ currentScale, nextScale, intensity }) => {
       const view = document.querySelector('[data-testid="canvas-view"]');
       const target = view?.querySelector("div");
       if (!target) return;
       const r = target.getBoundingClientRect();
-      const deltaY = -Math.log(nextScale / currentScale) / 0.0016;
+      const deltaY = -Math.log(nextScale / currentScale) / intensity;
       target.dispatchEvent(
         new WheelEvent("wheel", {
           deltaY,
@@ -273,7 +376,7 @@ export async function setCanvasScale(page: Page, targetScale: number): Promise<v
           clientY: r.top + r.height / 2,
         }),
       );
-    }, { currentScale: current, nextScale: targetScale });
+    }, { currentScale: current, nextScale: targetScale, intensity: ZOOM_INTENSITY });
     await page.waitForTimeout(180);
   }
 }

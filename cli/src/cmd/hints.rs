@@ -17,6 +17,22 @@ pub fn task_model_hint(plan_id: &str, task_id: &str) -> String {
     )
 }
 
+pub fn spec_create_next_plan_hint(spec_id: &str) -> String {
+    format!(
+        "hint: -> now build the plan: codeterm plan create --from-spec {spec_id} --title <title>"
+    )
+}
+
+pub fn spec_section_add_link_hint(spec_id: &str) -> String {
+    format!(
+        "hint: -> link it or build the plan from this spec: codeterm spec link add <plan_id> --spec {spec_id} --spec-section <section_id> --plan-section <section_id> OR codeterm plan create --from-spec {spec_id} --title <title>"
+    )
+}
+
+pub fn plan_create_spec_first_hint() -> String {
+    "WARNING: plans are built from a spec; create one with `codeterm spec create`, or use `plan create --from-spec <id>`".to_string()
+}
+
 pub fn task_quality_guard_hint(
     plan_id: &str,
     task_id: &str,

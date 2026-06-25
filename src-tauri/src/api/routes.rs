@@ -130,6 +130,7 @@ pub fn create_router(state: AppState) -> Router {
                 .delete(plan_routes::delete_plan),
         )
         .route("/api/plans/{id}/archive", post(plan_routes::archive))
+        .route("/api/plans/{id}/reconcile", get(plan_routes::reconcile))
         .route("/api/plans/{id}/transfer", post(plan_routes::transfer))
         .route("/api/plans/{id}/disown", post(plan_routes::disown))
         .route("/api/plans/{id}/claim", post(plan_routes::claim))

@@ -20,6 +20,7 @@ import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
+import { displayTitleForTab } from "../../store/multiplexer/tree";
 
 interface TabItemProps {
   tab: Tab;
@@ -69,10 +70,11 @@ function TabItemInner({
   const tabModel = pane?.agent_session_model ?? shellSessionModel;
   const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;
   const description = pane?.description ?? tab.description ?? null;
-  const displayTitle = hasAgent ? tab.title.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : tab.title;
+  const canonicalTitle = displayTitleForTab(tab, pane);
+  const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
   const isSubPane = Boolean(pane?.parent_pane_id) || (pane?.depth ?? 0) > 0;
   const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState(tab.title);
+  const [editName, setEditName] = useState(canonicalTitle);
   // Mirror TerminalPane's mode resolution: no client override falls back to
   // the agent default (claude/GA panes open in chat), so the menu reflects
   const resolveChatView = (p: typeof pane): boolean => {
@@ -114,7 +116,7 @@ function TabItemInner({
       items.push({
         label: "Rename",
         icon: <Pencil size={11} strokeWidth={2} />,
-        onClick: () => { setEditName(tab.title); setEditing(true); },
+        onClick: () => { setEditName(canonicalTitle); setEditing(true); },
       });
     }
     // Role management — hide for Orchestrators (default role on all tabs)
@@ -148,7 +150,7 @@ function TabItemInner({
       });
     }
     return items;
-  }, [tab.title, pane, chatView, canClose, hasAgent, onClose]);
+  }, [canonicalTitle, pane, chatView, canClose, hasAgent, onClose]);
 
   // Build animation CSS class
   const animClass = isClosing
@@ -208,13 +210,13 @@ function TabItemInner({
             onBlur={() => {
               const trimmed = editName.trim();
               setEditing(false);
-              if (trimmed && trimmed !== tab.title && _onRename) _onRename(trimmed);
+              if (trimmed && trimmed !== canonicalTitle && _onRename) _onRename(trimmed);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 (e.target as HTMLInputElement).blur();
               } else if (e.key === "Escape") {
-                setEditName(tab.title);
+                setEditName(canonicalTitle);
                 setEditing(false);
               }
             }}
@@ -227,7 +229,7 @@ function TabItemInner({
               onDoubleClick={(e) => {
                 if (pane?.protected) return; // Main is unrenameable
                 e.stopPropagation();
-                setEditName(tab.title);
+                setEditName(canonicalTitle);
                 setEditing(true);
               }}
             >

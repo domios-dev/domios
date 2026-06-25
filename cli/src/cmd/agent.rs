@@ -278,6 +278,26 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             test_result,
             skipped,
         } => {
+            // Footgun guard: `--pane X` sets the SENDER (you report AS X), NOT the
+            // destination. Reports route to your parent automatically. An agent passing
+            // another pane's id here (the "report TO" misconception) silently mis-routes
+            // to that pane's parent — refuse it. Drivers without an own pane are unaffected.
+            if let Some(ref explicit) = pane {
+                if let Ok(own) = std::env::var("CODETERM_PANE_ID") {
+                    let differs = !own.is_empty()
+                        && own != *explicit
+                        && !own.starts_with(explicit.as_str())
+                        && !explicit.starts_with(own.as_str());
+                    if differs {
+                        eprintln!(
+                            "Error: `agent report --pane {explicit}` reports AS that pane, not TO it.\n\
+                             Reports route to your parent automatically — drop --pane to report up the hierarchy.\n\
+                             To send a message to a specific pane, use `codeterm send --pane {explicit}`."
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
             let pane_id = resolve_pane(client, pane);
             let mut message = text.or(message).unwrap_or_default();
             if let Some(path) = doc {

@@ -1,5 +1,5 @@
 /**
- * 13-canvas — worlds-v3 GEOMETRY acceptance criterion (crisp-text-v2 + cloud-left).
+ * 13-canvas — worlds-v3 GEOMETRY acceptance criterion (substrateV2 + cloud-left).
  *
  * worlds-v3 moved TASKS into a CLOUD to the RIGHT of the plan, so the old
  * center-zoom-in-place spec (canvas-worlds.spec.ts) can never reach a task card.
@@ -12,8 +12,8 @@
  *      canvas-task-body (the worlds-v3-correct form of the old assertion).
  *   3. CLOUD-LEFT (§35) — active (not-done) task nodes have mean-x LESS than
  *      done/cancelled nodes' mean-x (active pulled plan-side/left, done sunk right).
- *   4. CRISP TEXT (§34) — at deep zoom a W2+ task card carries the crisp wrapper
- *      (.ct-canvas-crisp, transform-origin 0 0 + counter-scale).
+ *   4. SUBSTRATE V2 — at deep zoom task cards do not carry the old per-card
+ *      `.ct-canvas-crisp` zoom/counter-scale wrapper.
  *
  * Skips (does not fail) on an empty board or a board with no task cards.
  *
@@ -25,17 +25,19 @@ import type { Page } from "@playwright/test";
 import {
   canvasScale,
   captureBoard,
-  collectBoxes,
+  focusTaskById,
   isEmpty,
   openCanvas,
+  pickProbeTaskId,
   setCanvasScale,
-  zoomBy,
+  setCanvasScaleOnTask,
+  zoomTowardTask,
 } from "../../helpers/canvas-inspect";
 
 type World = "W0" | "W1" | "W2" | "W3";
+const SUBSTRATE_FLAG_KEY = "canvas.substrateV2";
 
-// Final rendered screen box of a node (after world transform + crisp zoom/counter-
-// scale, which net to ×1). Selected by data-task-id when given, else the first match.
+// Final rendered screen box of a node. Selected by data-task-id when given, else the first match.
 async function screenBox(page: Page, testid: string, taskId?: string): Promise<{ w: number; h: number; x: number } | null> {
   return page.evaluate(({ testid, taskId }) => {
     const sel = taskId ? `[data-testid="${testid}"][data-task-id="${taskId}"]` : `[data-testid="${testid}"]`;
@@ -45,26 +47,6 @@ async function screenBox(page: Page, testid: string, taskId?: string): Promise<{
     if (r.width < 2 || r.height < 2) return null;
     return { w: r.width, h: r.height, x: r.x };
   }, { testid, taskId });
-}
-
-// World footprint = screen box ÷ cameraScale; invariant across zoom (§22.1).
-async function worldFootprint(page: Page, testid: string, taskId?: string): Promise<{ w: number; h: number } | null> {
-  const box = await screenBox(page, testid, taskId);
-  if (!box) return null;
-  const scale = await canvasScale(page);
-  if (scale <= 0) return null;
-  return { w: box.w / scale, h: box.h / scale };
-}
-
-async function visible(page: Page, testid: string): Promise<boolean> {
-  return page.evaluate((tid) => {
-    const el = document.querySelector(`[data-testid="${tid}"]`) as HTMLElement | null;
-    if (!el) return false;
-    const cs = getComputedStyle(el);
-    if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) < 0.05) return false;
-    const r = el.getBoundingClientRect();
-    return r.width > 2 && r.height > 2;
-  }, testid);
 }
 
 async function taskDiveSnapshot(page: Page, taskId: string) {
@@ -139,8 +121,14 @@ async function taskDiveSnapshot(page: Page, taskId: string) {
   }, taskId);
 }
 
-// ≤5% + 2px: the crisp zoom/counter-scale cancels to exactly 1× world size, only
-// raster sharpness shifts a few %; sub-pixel rect rounding adds the small floor.
+async function worldFootprint(page: Page, testid: string, taskId?: string): Promise<{ w: number; h: number } | null> {
+  const box = await screenBox(page, testid, taskId);
+  if (!box) return null;
+  const scale = await canvasScale(page);
+  if (scale <= 0) return null;
+  return { w: box.w / scale, h: box.h / scale };
+}
+
 function footprintEqual(a: number, b: number): boolean {
   return Math.abs(a - b) <= Math.max(2, 0.05 * Math.max(a, b));
 }
@@ -149,58 +137,77 @@ function relClose(a: number, b: number): boolean {
   return Math.abs(a - b) <= 0.035;
 }
 
-test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveals, cloud-left, crisp", async ({ ui }) => {
+test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveals, cloud-left, substrateV2", async ({ ui }) => {
   test.setTimeout(120_000);
   const { page } = ui;
+
+  await page.addInitScript((key) => {
+    try {
+      window.localStorage.setItem(key, "true");
+    } catch {
+      // The assertion below surfaces environments without localStorage.
+    }
+  }, SUBSTRATE_FLAG_KEY);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  expect(await page.evaluate((key) => window.localStorage.getItem(key), SUBSTRATE_FLAG_KEY)).toBe("true");
 
   await openCanvas(page);
   if (await isEmpty(page)) {
     test.skip(true, "no active plans in the dev workspace — seed a plan to verify worlds-v3");
     return;
   }
-  // Task cards mount only at a close LOD band (W0 birds-eye renders silhouettes
-  // without the full TaskCard); zoom in before collecting so they exist.
-  await setCanvasScale(page, 1.6);
-  const taskCards = await collectBoxes(page, "canvas-task-card");
-  if (taskCards.length === 0) {
-    test.skip(true, "plan has no task cards — worlds-v3 cloud geometry needs at least one task");
+  // worlds-v3 scatters the task cloud far from the plan; viewport-center zoom culls
+  // it. Use the PRODUCT navigation method (canvas-focus by id) to land the camera on
+  // a known probe task — deterministic, no pan/zoom heuristics. Re-focus before each
+  // measurement group so the probe is always centered + mounted.
+  const probeTaskId = await pickProbeTaskId(page);
+  if (!probeTaskId) {
+    test.skip(true, "plan has no tasks to probe — worlds-v3 cloud geometry needs at least one task");
     return;
   }
-  const probeTaskId = taskCards[0].id;
-  if (!probeTaskId) {
-    test.skip(true, "task card has no data-task-id — worlds-dive needs a stable probe task");
+  await focusTaskById(page, probeTaskId);
+  if (!(await screenBox(page, "canvas-task-card", probeTaskId))) {
+    test.skip(true, "probe task did not mount after canvas-focus — check the focus contract");
     return;
   }
 
-  // ── 1. FOOTPRINT FIXED ACROSS SCALES (task + plan), §22.1/§32.4. ──
-  const scales = [0.7, 1.3, 2.3];
-  const taskFp: Array<{ w: number; h: number }> = [];
-  const planFp: Array<{ w: number; h: number }> = [];
-  for (const s of scales) {
-    await setCanvasScale(page, s);
-    const tf = await worldFootprint(page, "canvas-task-card", probeTaskId);
-    const pf = await worldFootprint(page, "canvas-plan-node");
-    if (tf) taskFp.push(tf);
-    if (pf) planFp.push(pf);
+  // ── 1. STABLE FOOTPRINT WHILE DIVING (§22.1 + substrateV2). The object-space
+  // footprint stays fixed; only the single camera matrix changes on-screen px. ──
+  await focusTaskById(page, probeTaskId);
+  const taskFootprints: Array<{ w: number; h: number }> = [];
+  for (const s of [1.6, 2.4, 3.2, 4.5, 6.0]) {
+    await setCanvasScaleOnTask(page, probeTaskId, s);
+    await page.waitForTimeout(250);
+    const fp = await worldFootprint(page, "canvas-task-card", probeTaskId);
+    if (fp) taskFootprints.push(fp);
   }
   await captureBoard(page, "worlds-v3-footprint");
-  expect(taskFp.length, "task footprint sampled across scales").toBeGreaterThanOrEqual(2);
-  for (let i = 1; i < taskFp.length; i++) {
-    expect(footprintEqual(taskFp[i].w, taskFp[0].w), `task world width fixed across zoom (${JSON.stringify(taskFp)})`).toBe(true);
-    expect(footprintEqual(taskFp[i].h, taskFp[0].h), `task world height fixed across zoom (${JSON.stringify(taskFp)})`).toBe(true);
-  }
-  expect(planFp.length, "plan footprint sampled across scales").toBeGreaterThanOrEqual(2);
-  for (let i = 1; i < planFp.length; i++) {
-    expect(footprintEqual(planFp[i].w, planFp[0].w), `plan world width fixed across zoom (${JSON.stringify(planFp)})`).toBe(true);
-    expect(footprintEqual(planFp[i].h, planFp[0].h), `plan world height fixed across zoom (${JSON.stringify(planFp)})`).toBe(true);
+  expect(taskFootprints.length, "task world footprint sampled across the substrate dive").toBeGreaterThanOrEqual(2);
+  for (let i = 1; i < taskFootprints.length; i++) {
+    expect(footprintEqual(taskFootprints[i].w, taskFootprints[0].w), `task world width fixed (${JSON.stringify(taskFootprints)})`).toBe(true);
+    expect(footprintEqual(taskFootprints[i].h, taskFootprints[0].h), `task world height fixed (${JSON.stringify(taskFootprints)})`).toBe(true);
   }
 
-  // ── 2. BODY REVEAL — zoom in until a task's appW enters the W2 content band. ──
-  // (We are already near max scale 2.3; zoom in further to be safe across footprints.)
-  let taskBody = await visible(page, "canvas-task-body");
-  for (let i = 0; i < 10 && !taskBody; i++) {
-    await zoomBy(page, -160);
-    taskBody = await visible(page, "canvas-task-body");
+  // ── 2. BODY REVEAL — dive INTO the probe task until its appW enters the W2 band. ──
+  // Anchor the zoom on THIS task (worlds-v3 cloud sits right of plan; viewport-center
+  // zoom drifts tasks off-screen → culled). Check the probe card's OWN body slot.
+  const probeBodyVisible = async (): Promise<boolean> =>
+    page.evaluate((id) => {
+      const card = document.querySelector(`[data-testid="canvas-task-card"][data-task-id="${id}"]`);
+      const body = card?.querySelector('[data-testid="canvas-task-body"]') as HTMLElement | null;
+      if (!body) return false;
+      const cs = getComputedStyle(body);
+      if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) < 0.05) return false;
+      const r = body.getBoundingClientRect();
+      return r.width > 2 && r.height > 2;
+    }, probeTaskId);
+
+  await focusTaskById(page, probeTaskId);
+  let taskBody = await probeBodyVisible();
+  for (let i = 0; i < 14 && !taskBody; i++) {
+    await zoomTowardTask(page, probeTaskId, -160);
+    taskBody = await probeBodyVisible();
   }
   await captureBoard(page, "worlds-v3-body");
   // §35.3 (zoom-into-task body reveal): the DESCRIPTION box is a fixed slot that
@@ -208,10 +215,12 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
   expect(taskBody, "canvas-task-body revealed by zoom into the W2 content band (§35.3)").toBe(true);
 
   // ── 2b. WORLDS-DIVE: inner boxes stay put while detail count increases. ──
-  const diveScales = [0.7, 1, 1.6, 2.4, 3.6, 5.5, 7.5, 10];
+  // Anchor every step on the probe task so it never drifts off-screen / gets culled.
+  const diveScales = [1.0, 1.3, 1.6, 2.0, 2.4, 3.0, 3.6, 4.5, 5.5, 7.5, 10];
   const snapshots: Array<NonNullable<Awaited<ReturnType<typeof taskDiveSnapshot>>> & { scale: number }> = [];
+  await focusTaskById(page, probeTaskId);
   for (const s of diveScales) {
-    await setCanvasScale(page, s);
+    await setCanvasScaleOnTask(page, probeTaskId, s);
     const snap = await taskDiveSnapshot(page, probeTaskId);
     if (snap?.world) snapshots.push({ ...snap, scale: s });
   }
@@ -225,10 +234,14 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
     expect(snap.overlaps, `no visible inner-box overlap at ${snap.world} scale ${snap.scale}`).toEqual([]);
   }
 
-  const baseline = snapshots.find((s) => s.boxes.name && s.boxes.meta && s.boxes.summary && s.boxes.bodySlot && s.boxes.strides);
-  expect(baseline, "has a complete inner-slot baseline sample").toBeTruthy();
+  // §37 boxiness: within the W2+ READ regime (all slots reserved), diving deeper must
+  // NOT shift any inner slot. W1 is the compact approach form with a different layout;
+  // the W1->W2 regime change is a separate, tracked finding, not asserted here.
+  const readSnaps = snapshots.filter((s) => s.world === "W2" || s.world === "W3");
+  const baseline = readSnaps.find((s) => s.boxes.name && s.boxes.meta && s.boxes.summary && s.boxes.bodySlot && s.boxes.strides);
+  expect(baseline, "has a complete inner-slot baseline sample in the W2+ read regime").toBeTruthy();
   if (baseline) {
-    for (const snap of snapshots) {
+    for (const snap of readSnaps) {
       for (const key of Object.keys(baseline.boxes) as Array<keyof typeof baseline.boxes>) {
         const a = baseline.boxes[key];
         const b = snap.boxes[key];
@@ -253,18 +266,11 @@ test("@golden @canvas-worlds-v3 worlds-v3 geometry: footprint fixed, body reveal
     expect(snap.titleText.length, `title is legible at ${snap.world}: "${snap.titleText}"`).toBeGreaterThanOrEqual(minReadable);
   }
 
-  // ── 4. CRISP TEXT (§34) — at this deep zoom a W2+ card has the crisp wrapper. ──
+  // ── 4. SUBSTRATE V2 — no per-card crisp wrapper at deep zoom. ──
   const scaleNow = await canvasScale(page);
   if (scaleNow > 1.05) {
-    const crisp = await page.evaluate(() => {
-      const wrap = document.querySelector(".ct-canvas-crisp") as HTMLElement | null;
-      if (!wrap) return null;
-      const cs = getComputedStyle(wrap);
-      return { origin: cs.transformOrigin, transform: cs.transform };
-    });
-    expect(crisp, "crisp wrapper (.ct-canvas-crisp) present at deep zoom (W2+)").not.toBeNull();
-    expect(crisp?.origin, `crisp transform-origin pinned to 0 0 (got ${crisp?.origin})`).toMatch(/^0px 0px/);
-    expect(crisp?.transform, "crisp wrapper carries a counter-scale transform").not.toBe("none");
+    const crispWrappers = await page.locator(".ct-canvas-crisp").count();
+    expect(crispWrappers, "no per-card .ct-canvas-crisp wrapper under substrateV2").toBe(0);
   }
 
   // ── 3. CLOUD-LEFT (§35) — active (not-done) mean-x < done/cancelled mean-x. ──

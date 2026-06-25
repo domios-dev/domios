@@ -1,4 +1,4 @@
-import type { Milestone, Plan, Section, Task } from "../types";
+import type { DriftItem, Milestone, Plan, Section, Task } from "../types";
 
 const emptyCanvas = { x: null, y: null, collapsed: false };
 
@@ -46,6 +46,23 @@ export const FIXTURE_MILESTONE: Milestone = {
   loop_id: null,
   iteration: 2,
   canvas: emptyCanvas,
+};
+
+export const FIXTURE_DRIFT: DriftItem = {
+  task_id: "task-dante",
+  plan_id: "plan-alpha",
+  kind: "in_progress_pane_gone",
+  detail: "Task is in progress but the worker pane is gone.",
+  suggested_fix: "Move it back to pending or spawn a replacement worker.",
+  not_mine: false,
+};
+
+export const FIXTURE_NOT_MINE_DRIFT: DriftItem = {
+  ...FIXTURE_DRIFT,
+  kind: "bound_to_closed_pane",
+  detail: "Task is bound to a closed pane owned by another orchestrator.",
+  suggested_fix: "Ask that orchestrator to reconcile the task.",
+  not_mine: true,
 };
 
 export const FIXTURE_PLAN: Plan = {

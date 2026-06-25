@@ -548,6 +548,33 @@ fn plan_handoff_subcommands_parse() {
         "handoff",
         "show",
         "pl_1",
+        "--seq",
+        "3",
+        "--markdown",
+    ])
+    .expect("plan handoff show parses with seq");
+    assert!(matches!(
+        parsed.command,
+        Commands::Plan {
+            action:
+                PlanAction::Handoff {
+                    action:
+                        PlanHandoffAction::Show {
+                            plan_id,
+                            seq,
+                            markdown: true,
+                            ..
+                        },
+                },
+        } if plan_id == "pl_1" && seq.as_deref() == Some("3")
+    ));
+
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "handoff",
+        "show",
+        "pl_1",
         "--latest",
         "--markdown",
     ])
@@ -562,6 +589,7 @@ fn plan_handoff_subcommands_parse() {
                             plan_id,
                             latest: true,
                             markdown: true,
+                            seq: None,
                             ..
                         },
                 },

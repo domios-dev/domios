@@ -1,0 +1,1 @@
+Write docs/specs/<date>-canvas-substrate-design.md: camera matrix model, node draw pipeline, worlds-LOD→draw-detail mapping, focus-by-id, edges, live-update/§31 camera-stability, hybrid DOM boundary, migration behind a flag, test strategy. Depends on R1+R2.

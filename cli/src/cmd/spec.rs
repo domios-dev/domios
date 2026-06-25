@@ -1,5 +1,8 @@
 use crate::args::spec::{SpecAction, SpecLinkAction, SpecSectionAction};
 use crate::client::SocketClient;
+use crate::cmd::hints::{
+    print_hints, push_hints, spec_create_next_plan_hint, spec_section_add_link_hint,
+};
 use serde_json::{json, Value};
 
 fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
@@ -57,7 +60,20 @@ pub fn handle_spec(client: &mut SocketClient, json_output: bool, action: SpecAct
         Ok(Some(val)) if json_output => {
             println!("{}", serde_json::to_string_pretty(&val).unwrap());
         }
-        Ok(Some(val)) => crate::cmd::print::print_object(&val),
+        Ok(Some(val)) => {
+            crate::cmd::print::print_object(&val);
+            let hints: Vec<String> = val
+                .get("_hints")
+                .and_then(|v| v.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            print_hints(&hints);
+        }
         Err(e) => {
             println!("{e}");
             std::process::exit(1);
@@ -76,7 +92,15 @@ fn run_spec(
             if let Some(project) = project {
                 params["project_path"] = json!(project);
             }
-            call(client, "spec.create", params)
+            let mut val = call(client, "spec.create", params)?;
+            let spec_id = val
+                .get("spec_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            if let Some(spec_id) = spec_id.as_deref() {
+                push_hints(&mut val, vec![spec_create_next_plan_hint(spec_id)]);
+            }
+            Ok(val)
         }
         SpecAction::List {
             project,
@@ -142,7 +166,9 @@ fn run_spec(
                 if let Some(handle) = handle {
                     params["handle"] = json!(handle);
                 }
-                call(client, "spec.section.add", params)
+                let mut val = call(client, "spec.section.add", params)?;
+                push_hints(&mut val, vec![spec_section_add_link_hint(&spec_id)]);
+                Ok(val)
             }
             SpecSectionAction::Update {
                 spec_id,

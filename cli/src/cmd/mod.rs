@@ -22,6 +22,7 @@ pub mod plan_handoff;
 pub mod plan_heartbeat;
 pub mod plan_linking;
 pub mod plan_markdown;
+pub mod plan_reconcile;
 pub mod plan_record;
 pub mod plan_sections;
 pub mod plugin;

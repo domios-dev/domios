@@ -1,42 +1,82 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 1 -->
+<!-- revision: 3 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
-## Model
+## Model — the EFFORT: GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides
+
+An effort is authored **top-down**. Define the GOAL first; the **Spec** says WHAT; the **Plan** says HOW and is built FROM the spec; Tasks execute; Strides are the working-points.
 
 ```
-Plan
- └─ Sections[]          structured spec tree — auto-split from headings
-     └─ Tasks[]          each task ⊆ one or more sections (many-to-many)
-         └─ Milestones[] report chain — one node per `agent report --plan --task`
-             └─ links[]  chain edges; loop-back edges form self-improving cycles
+GOAL              north-star vector (+ vision, constraints, postulates). MUTABLE —
+                  corrections are recorded (working-points), never silently overwritten.
+Spec  (WHAT)      the requirements doc — its OWN section tree. Stable under tactic change.
+ └─ Spec Sections[]
+Plan  (HOW)       built FROM the spec — its OWN section tree (execution phases).
+ └─ Plan Sections[]      each links to one or MORE spec sections (M:N, via spec_links)
+     └─ Tasks[]          each task ⊆ one or more plan sections; carries
+         │               acceptance_criteria + test_plan + correctness
+         └─ Strides / Milestones[]   report chain / working-points;
+                                     loop-back edges form self-improving cycles
 ```
 
-- **Sections** form a tree (`--parent` for nesting). Each section is a canvas node.
-- **Tasks** attach to sections via `--sections`. Coverage is derived (no tasks → uncovered; done tasks → covered).
-- **Milestones** are the persisted projection of `codeterm agent report --plan/--task`. Authorship is auto-resolved from the caller's pane env (`CODETERM_PANE_ID`).
-- **`milestone_kinds`** declared at plan creation define the column vocabulary (e.g. `status_update,testing,review`). A milestone must use a declared kind — the daemon returns a teaching error on mismatch.
-- **Loops** (`LoopSpec`) express declared self-improving cycles: a target + ordered stages + budget. Each iteration appends milestones tagged with `loop_id` + `iteration`. `plan task add --loop-from` is the lightweight single-continuation shortcut.
-- **Task env:** when a task is assigned to a pane, the daemon exports `CODETERM_PLAN_ID` and `CODETERM_TASK_ID` into it. Workers report without being told the ids: `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID`.
+- **GOAL is a first-class entity** (`Plan.goal` = `{vector, vision, constraints[], postulates[]}`). Set it **first** — it is the vector everything hangs off. It evolves via working-points and its changes are recorded, not overwritten.
+- **Spec ⊥ Plan are TWO DISTINCT entities**, each with its own section tree. The Spec holds WHAT/WHY; the Plan holds HOW. **Never cram WHAT into plan sections** — that conflation is the classic mistake.
+- **A spec section may belong to MANY plan sections** (M:N) via `spec_links`. Coverage of a spec section = union of tasks across its linked plan sections.
+- **Tasks** attach to plan sections via `--sections`. Coverage is derived.
+- **Strides / Milestones** are the persisted projection of `codeterm agent report --plan/--task` (authorship auto-resolved from `CODETERM_PANE_ID`). `milestone_kinds` declared at plan creation define the column vocabulary; **Loops** (`LoopSpec`) declare self-improving cycles.
+- **Task env:** assigning a task to a pane exports `CODETERM_PLAN_ID` + `CODETERM_TASK_ID`; workers report without being told the ids.
 
-## Lifecycle
+## Lifecycle (author top-down, GOAL-first)
 
 ```
-plan create                → orchestrator pane gets CODETERM_PLAN_ID
-  plan kinds set           → declare milestone columns (or use --kinds on create)
-  plan section add         → build the spec tree
-  plan task add --model --why  → add tasks with routing rationale
-  plan task assign --pane  → bind a pane (exports CODETERM_TASK_ID into it)
-  ...workers run, report via agent report --plan --task...
-  plan milestone add       → manual milestone (orchestrator checkpoints)
-  plan task close          → mark task done, attach final result
-  plan loop create         → declare a self-improving cycle on a task chain
-  plan archive             → done; hidden from canvas
+plan goal set <plan> --vector ...            # 1. GOAL first — the north-star vector
+spec create --title ...                      # 2. Spec (WHAT)
+  spec section add <spec> --title --body     #    requirements tree (--parent to nest)
+plan create --from-spec <spec> --title ...   # 3. Plan (HOW), built FROM the spec  [guided]
+  plan section add                           #    execution phases
+  spec link add <plan> --spec <s> \          #    M:N: a spec section ⟶ plan section(s)
+        --spec-section <ss> --plan-section <ps>
+  plan task add --model --why \              #    tasks carry routing rationale +
+        --acceptance-criteria ... --test-plan ... --correctness ...
+  plan task assign --pane                     #    bind a pane (exports CODETERM_TASK_ID)
+  ...workers run, report → strides/milestones...
+  # §38 acceptance: workers report in_review; the ORCHESTRATOR judges `done`.
+  plan loop create                            #    declare a self-improving cycle
+  plan archive                                #    done; hidden from canvas
 ```
 
-Edit while work runs — `codeterm plan ...` handles mutate a running plan safely. Re-orient with `plan get PLAN_ID` (markdown) at any time.
+Edit while work runs — `codeterm plan ...`/`spec ...` mutate a running effort safely. Re-orient with `plan get PLAN_ID` / `spec show SPEC_ID` (markdown) at any time.
+
+## Handoffs
+
+A handoff is a durable, goal-anchored resume point attached to the plan — far sharper than a provider's generic `/compact` recap. Whoever wakes (you post-compaction, a reseeded session, or another orchestrator) pulls it first and continues from its `next_actions`.
+
+**WHEN to author one:**
+- **Ready to compact / context getting heavy** — the primary case (see discipline below). Author your own handoff *before* compacting, never compact-then-hope.
+- **End of a run / session** — so the next session resumes cleanly instead of cold-reading the transcript.
+- **Handing ownership to another orchestrator** (pair with `plan transfer`).
+- **Any durable checkpoint of a long effort** — after a phase lands, before a risky step.
+
+**WHAT goes in one** (the resume contract):
+- The **GOAL vector** + where the effort stands against it.
+- Current branch/worktree map + integrated diff summary; gates run (exact commands + outcomes); UI/Playwright/manual-oracle status.
+- Known gaps / residual risk; branches or worktrees intentionally left in place.
+- An ordered **`next_actions`** list — the resume entry point.
+
+**HOW (commands):**
+- `codeterm plan handoff create <plan_id> --from-file body.md --goal "<vector>" --next "..." [--next ...] --rule "..." --decision "..."` — attach a structured handoff to the plan.
+- `codeterm plan handoff show <plan_id> --latest [--markdown]` or `codeterm plan handoff show <plan_id> --seq <n> [--markdown]` / `plan handoff list <plan_id>` — read them back.
+- `codeterm orchestrator handoff --mode new|compact [--reseed] [--from-file|--stdin] [--plan <id>]` — compose + (optionally) reseed this pane in one shot.
+
+### Compaction discipline
+
+When YOU sense you are ready to compact, do **not** rely on the provider's generic `/compact` summary. Author your **own** handoff and continue from it:
+
+1. `codeterm orchestrator handoff --mode new` (preferred) — composes a goal-anchored handoff attached to the plan and self-reseeds the pane into a fresh zero-context session that resumes **exactly** from the handoff. (`--mode compact` sends the handoff then `/compact` as a fallback when you want to preserve in-context working memory.)
+2. **Pair it with a quiet/delayed self-message** (`codeterm delayed create --pane <you> --delay 30m --from-file heartbeat.md`) carrying current state + focus + a self-recovery pointer (`codeterm mem get skill_codeterm_orchestrator`), so a compaction between fire-and-handle can't wipe the discipline.
+3. Resume from the handoff's `next_actions` — never a generic recap.
 
 ## Command Reference
 

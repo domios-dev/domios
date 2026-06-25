@@ -1,0 +1,1 @@
+Using the guided flow, split pl_c8a72a9a (canvas dogfood) and pl_2e932e82 (substrate epic) into a real Spec (WHAT) + Plan (HOW) with spec_links. Retire the shortcut sections.

@@ -1,11 +1,13 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
 do not edit it by hand. Conventions: `--pane` accepts alias `--id`; `--json` is
 a global flag on every command.
+
+**Planning?** Read the EFFORT workflow first — `docs/ORCHESTRATION.md` (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
 <!-- cli:auto-start -->
 #### `codeterm agent`
@@ -1324,6 +1326,7 @@ Show section coverage (% + gaps)
 
 Create a new plan
 
+- `--from_spec`
 - `--kinds`
 - `--project`
 - `--spec`
@@ -1425,6 +1428,7 @@ Orchestrator handoffs attached to the plan
 - `--markdown`
 - `<plan_id>`
 - `<selector>`
+- `--seq`
 
 #### `codeterm plan ingest`
 
@@ -1537,6 +1541,13 @@ Free-form notes on the canvas
 - `<plan_id>`
 - `--text`
 - `--text_file`
+
+#### `codeterm plan reconcile`
+
+Detect plan/task drift and optionally apply conservative fixes
+
+- `--fix`
+- `<plan_id>`
 
 #### `codeterm plan record`
 
