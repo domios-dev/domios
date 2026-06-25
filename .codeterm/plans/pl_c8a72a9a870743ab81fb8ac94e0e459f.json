@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782426386948,
+  "updated_at": 1782426755152,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -4929,12 +4929,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 1782290890640,
-      "updated_at": 1782400417708,
-      "status_changed_at": 1782290890640,
+      "updated_at": 1782426755152,
+      "status_changed_at": 1782426755152,
       "handle": "zoom-drill-into-tasks-content-lod-no-click-24-4",
       "tags": [],
       "section_ids": [
@@ -4943,17 +4943,19 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "4cee5e67",
       "lane": {
-        "pane_id": null,
+        "pane_id": "4cee5e67",
         "workspace_id": null,
         "workspace_name": null,
-        "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
-        "cleanup_status": null,
-        "cleanup_hints": []
+        "worktree_path": "/Users/rollacode/Developer/codeterm-zoom-drill-tasks",
+        "branch": "lane/zoom-drill-tasks",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After integration: close pane 4cee5e67, remove worktree /Users/rollacode/Developer/codeterm-zoom-drill-tasks, delete branch lane/zoom-drill-tasks."
+        ]
       },
       "taken_by_role": null,
       "peer": null,
@@ -5012,6 +5014,25 @@
           "kind": "decision",
           "text": "Ladder (appW @280px cell): L0 GLYPH <150 = handle+status ring + step constellation + volume cue only. L1 THREAD 150-320 = labels + step thread w/ 1-line titles + roster chips. L2 CARDS 320-560 = step mini-cards + subtask fan-out + clamped body. L3 READING >560 = full bodies+step cards+subtask bodies+rationale+pane link. Crossfade = opacity + 4px rise, ±10% hysteresis, NO geometry reflow.",
           "ts": 1782291309163,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_5f789bb56f3344c39471430cc0e87323",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Integrated zoom-drill task content-LOD fix. Hot checkout gates: cards.test.tsx 17/17, npx tsc --noEmit, Playwright @content-lod and @canvas-multiview-overflow passed; @canvas-worlds-v3 skipped in current dev setup; CODETERM_API_PORT=7686 ./build.sh check; git diff --check.",
+          "ts": 1782426755152,
           "links": [],
           "loop_id": null,
           "iteration": null,

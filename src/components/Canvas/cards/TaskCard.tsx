@@ -252,13 +252,16 @@ export function TaskCard({
   const topicTile = resolved.topics.slice(0, 2);
   const freshnessAt = taskFreshnessAt(task);
   const freshnessLabel = freshnessAt != null ? formatTaskFreshness(freshnessAt) : "";
+  const showStrides = strideCount > 0 && (showBodySlot || !showStructure);
   const contentRows = showBodySlot ? "auto 20px 0 minmax(36px, 1fr)" : "auto 26px 42px minmax(0, 1fr)";
   const contentGap = showBodySlot ? 4 : 7;
   const contentPadding = showBodySlot ? "8px 10px" : "10px 12px";
   const bodyRows = showFullBody
     ? (showDeepDive ? "auto minmax(0, 1fr)" : "minmax(36px, 0.8fr) minmax(28px, 1fr)")
-    : (showBodySlot ? "minmax(36px, 1fr) 0" : "minmax(36px, 0.8fr) minmax(28px, 1fr)");
-  const bodyGap = showFullBody || !showBodySlot ? 10 : 0;
+    : (showBodySlot
+      ? (showStrides ? "minmax(36px, 1fr) minmax(28px, 1fr)" : "minmax(36px, 1fr) 0")
+      : "minmax(36px, 0.8fr) minmax(28px, 1fr)");
+  const bodyGap = showFullBody || !showBodySlot ? 10 : (showStrides ? 10 : 0);
 
   // chrome overrides win over the box geometry (§32.3 surface chrome by shelf).
   const chromeOverrides: CSSProperties = {
@@ -384,7 +387,7 @@ export function TaskCard({
                 {bodyChars > 0 ? <RichMarkdown text={task.body} /> : <span style={{ opacity: 0.4, fontStyle: "italic" }}>No description</span>}
               </div>
           </div>
-          <div data-testid="canvas-task-strides-slot" data-visible={showFullBody || (!showStructure && strideCount > 0) ? "true" : "false"} style={{ minHeight: 0, overflow: showFullBody ? "visible" : "hidden", ...revealStyle(showFullBody || (!showStructure && strideCount > 0)) }}>
+          <div data-testid="canvas-task-strides-slot" data-visible={showStrides ? "true" : "false"} style={{ minHeight: 0, overflow: showFullBody ? "visible" : "hidden", ...revealStyle(showStrides) }}>
             {strideCount > 0 && <StrideSnake milestones={task.milestones} colors={stepColors} world={world} width={innerW} onCopyLink={showFullBody ? onCopyStrideLink : undefined} onFocusStride={showFullBody ? onFocusStride : undefined} />}
           </div>
         </div>
