@@ -16,6 +16,8 @@ import { fileURLToPath } from "node:url";
 
 // Mirror the core reactor gate (src-tauri/src/agent/state_reactor.rs).
 const GLOBAL_THRESHOLD = 0.8;
+// Pin "now" so reset-time parsing is deterministic: 2026-06-25 22:38 local (same evening as 11:07 PM reset).
+const NOW_MS = new Date(2026, 5, 25, 22, 38, 0, 0).getTime();
 
 let passed = 0;
 let failed = 0;
@@ -41,7 +43,7 @@ function loadCodex() {
     homeDir: () => "/tmp/home",
     platform: () => "linux",
     envGet: () => null,
-    unixNowMs: () => 0,
+    unixNowMs: () => NOW_MS,
     log: () => {},
     shell: { quoteFor: (v: unknown) => String(v), quote: (v: unknown) => String(v) },
     fs: { fileExists: () => false, readFile: () => null, readJson: () => null, writeJson: () => true, writeFile: () => true },
@@ -100,13 +102,49 @@ console.log("\n--- auth guard: login screen → waiting_on_auth, NEVER auto-acte
   assert(!r?.action?.keys, "auth prompt carries NO key action (never auto-pressed)", JSON.stringify(r?.action));
 }
 
+console.log("\n--- positive: usage limit notice → rate_limited + scheduled resume ---\n");
+{
+  const r = classify(plugin, fixture("rate-limit-try-again.txt"));
+  eq(r?.state, "rate_limited", "state is rate_limited");
+  assert((r?.confidence ?? 0) >= GLOBAL_THRESHOLD, "confidence >= threshold", `conf=${r?.confidence}`);
+  assert(!r?.action?.keys, "no key action on plain-text limit notice", JSON.stringify(r?.action));
+  const resume = r?.action?.delayedResume;
+  assert(!!resume, "carries a delayed resume", JSON.stringify(r?.action));
+  eq(resume?.text, "continue your work", "resume text is 'continue your work'");
+  eq(resume?.thenKeys, ["enter"], "resume submits with enter");
+  assert(typeof r?.data?.resetAt === "string", "data.resetAt is set", JSON.stringify(r?.data));
+  const resetMs = Date.parse(r?.data?.resetAt ?? "");
+  assert(!Number.isNaN(resetMs) && resetMs > NOW_MS, "resetAt parses and is in the future", r?.data?.resetAt);
+  const resumeMs = Date.parse(resume?.at ?? "");
+  assert(resumeMs > resetMs, "resume fires strictly after reset (buffer)", `${resume?.at} vs ${r?.data?.resetAt}`);
+}
+
+console.log("\n--- positive: usage limit without reset time → surface only (no schedule) ---\n");
+{
+  const r = classify(plugin, fixture("rate-limit-no-reset-time.txt"));
+  eq(r?.state, "rate_limited", "state is rate_limited");
+  assert((r?.confidence ?? 0) >= GLOBAL_THRESHOLD, "confidence >= threshold", `conf=${r?.confidence}`);
+  assert(!r?.action?.delayedResume, "no blind schedule when reset time didn't parse", JSON.stringify(r?.action));
+  eq(r?.action?.surface?.kind, "rate_limit", "surfaces for a manual resume instead");
+}
+
 console.log("\n--- negatives: normal output never fires (no false positives) ---\n");
 for (const f of ["normal-working.txt", "tool-call-list.txt", "diff-and-shell.txt"]) {
   const r = classify(plugin, fixture(f));
   const state = r?.state ?? "unknown";
   assert(state !== "update_prompt", `${f}: not classified update_prompt`, `state=${state}`);
   assert(state !== "waiting_on_auth", `${f}: not classified waiting_on_auth`, `state=${state}`);
+  assert(state !== "rate_limited", `${f}: not classified rate_limited`, `state=${state}`);
   assert(!r?.action?.keys, `${f}: no auto-key action`, JSON.stringify(r?.action));
+}
+
+console.log("\n--- picker guard: model picker must not classify as rate_limited ---\n");
+{
+  const picker = fs.readFileSync(path.join(here, "fixtures", "model-picker.txt"), "utf8");
+  const r = classify(plugin, picker);
+  const state = r?.state ?? "unknown";
+  assert(state !== "rate_limited", "model picker is not rate_limited", `state=${state}`);
+  assert(!r?.action?.delayedResume, "model picker gets no delayed resume", JSON.stringify(r?.action));
 }
 
 console.log("\n--- ensemble: a single weak signal must NOT reach threshold ---\n");
@@ -117,13 +155,17 @@ console.log("\n--- ensemble: a single weak signal must NOT reach threshold ---\n
   const r = classify(plugin, weak);
   const fires = r?.state === "update_prompt" && (r?.confidence ?? 0) >= GLOBAL_THRESHOLD && !!r?.action?.keys;
   assert(!fires, "weak single-signal screen does not produce an actionable update verdict", JSON.stringify(r));
+  const rlWeak = "Heads up: your usage limit resets 5pm today. Continuing for now.\n";
+  const r2 = classify(plugin, rlWeak);
+  const rlFires = r2?.state === "rate_limited" && (r2?.confidence ?? 0) >= GLOBAL_THRESHOLD;
+  assert(!rlFires, "casual limit mention without try-again notice does not fire", JSON.stringify(r2));
 }
 
 console.log("\n--- CRLF robustness: Windows pane output (\\r\\n) classifies identically to LF ---\n");
 // Real Windows agent panes emit CRLF; the classifier must normalize internally
 // so the verdict (state + confidence + actions) is byte-identical to the LF read.
 const toCrlf = (s: string) => s.replace(/\r\n?/g, "\n").replace(/\n/g, "\r\n");
-for (const f of ["update-prompt-skip-option2.txt", "update-prompt-skip-option3.txt", "auth-login.txt"]) {
+for (const f of ["update-prompt-skip-option2.txt", "update-prompt-skip-option3.txt", "auth-login.txt", "rate-limit-try-again.txt"]) {
   const lf = fixture(f).replace(/\r\n?/g, "\n");
   const crlf = toCrlf(lf);
   assert(crlf.includes("\r\n"), `${f}: CRLF variant actually contains \\r\\n`);
