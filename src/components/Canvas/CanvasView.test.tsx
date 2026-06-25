@@ -4,7 +4,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setListenForTest } from "../../lib/bridge";
-import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
+import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import { CanvasViewInner } from "./CanvasView";
 import { registerNodeRenderer } from "./nodeRegistry";
 import type { CanvasElement, Plan } from "./types";
@@ -17,6 +17,9 @@ function test(name: string, fn: TestFn) {
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
+
+const STABLE_PANES = {};
+const CANVAS_PROPS = { mode: "workspace" as const, panes: STABLE_PANES, viewportPadding: 10000 };
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -41,30 +44,37 @@ function setupDom() {
   __setListenForTest(async () => () => {});
 }
 
-async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
+async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root; rerender: (ui: ReactElement) => Promise<void> }> {
   const host = document.createElement("div");
   host.style.width = "1200px";
   host.style.height = "800px";
   document.body.appendChild(host);
   const root = createRoot(host);
-  await act(async () => {
-    root.render(ui);
-  });
-  await act(async () => {
-    await Promise.resolve();
-  });
-  return { host, root };
+  const rerender = async (next: ReactElement) => {
+    await act(async () => {
+      root.render(next);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+  await rerender(ui);
+  return { host, root, rerender };
 }
+
+const FIXTURE_PLAN_WITH_SPEC: Plan = {
+  ...FIXTURE_PLAN,
+  primary_spec_id: "spec-fixture",
+};
 
 test("CanvasViewInner renders the SEPARATE spec + plan nodes (§24.3) and a task card", async () => {
   const { host, root } = await render(
-    <CanvasViewInner mode="workspace" plans={[FIXTURE_PLAN]} viewportPadding={10000} />,
+    <CanvasViewInner {...CANVAS_PROPS} plans={[FIXTURE_PLAN_WITH_SPEC]} />,
   );
   await act(async () => {
     await new Promise((r) => setTimeout(r, 10));
   });
   assert(host.querySelector('[data-testid="canvas-view"]'), "canvas shell");
-  // §24.3 un-merge: two connected sectioned nodes, SPEC (left) + PLAN (middle).
   assert(host.querySelector('[data-testid="canvas-plan-node"]'), "plan node present");
   assert(host.querySelector('[data-testid="canvas-spec-node"]'), "separate spec node present");
   assert(host.querySelector('[data-testid="canvas-plan-row"]'), "plan section rows");
@@ -73,14 +83,13 @@ test("CanvasViewInner renders the SEPARATE spec + plan nodes (§24.3) and a task
   assert(host.querySelector('[data-testid="canvas-task-card"]'), "task card");
   assert(host.querySelector('[data-testid="canvas-task-name"]')?.textContent === "Dante", "task name");
   assert(host.querySelector('[data-testid="canvas-orchestrator-group"]'), "orchestrator group wrapper");
-  // Edges at rest: spec↔plan 1:1 + plan-output→task.
   const paths = host.querySelectorAll("svg path");
   assert(paths.length >= 2, `spec↔plan + section→task edges drawn at rest, got ${paths.length}`);
   await act(async () => root.unmount());
 });
 
 test("double-click camera-focuses a node (breadcrumb appears), Esc clears it", async () => {
-  const { host, root } = await render(<CanvasViewInner mode="workspace" plans={[FIXTURE_PLAN]} viewportPadding={10000} />);
+  const { host, root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[FIXTURE_PLAN]} />);
   await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
   const planNode = host.querySelector('[data-testid="canvas-plan-node"]') as HTMLElement;
   assert(!host.querySelector('[data-testid="canvas-breadcrumb"]'), "no breadcrumb before focus");
@@ -96,9 +105,6 @@ function elementAt(id: string, kind: string, x: number, y: number): CanvasElemen
   return { id, kind, canvas: { x, y, collapsed: false }, content: `**${kind}** body`, links: [] };
 }
 
-// Extensibility gate (§6.3): a NEW kind plugs in via one registerNodeRenderer
-// call — CanvasView dispatches it through the registry with ZERO core edits —
-// and an unregistered kind safely hits the fallback card (no crash).
 test("CanvasViewInner renders a registered new kind via the registry and falls back on unknown kinds", async () => {
   registerNodeRenderer("note", ({ node, style }) => (
     <div data-testid="canvas-note-element" data-id={node.id} style={style}>
@@ -116,7 +122,7 @@ test("CanvasViewInner renders a registered new kind via the registry and falls b
   };
 
   const { host, root } = await render(
-    <CanvasViewInner mode="workspace" plans={[plan]} viewportPadding={10000} />,
+    <CanvasViewInner {...CANVAS_PROPS} plans={[plan]} />,
   );
   await act(async () => {
     await new Promise((r) => setTimeout(r, 10));
@@ -129,7 +135,7 @@ test("CanvasViewInner renders a registered new kind via the registry and falls b
 });
 
 test("CanvasViewInner shows empty state without plans", async () => {
-  const { host, root } = await render(<CanvasViewInner mode="workspace" plans={[]} />);
+  const { host, root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[]} />);
   assert(host.querySelector('[data-testid="canvas-empty"]'), "empty hint");
   await act(async () => root.unmount());
 });
@@ -146,12 +152,7 @@ test("CanvasViewInner scopes workspace plans by project_path from fetch", async 
   };
 
   const { host, root } = await render(
-    <CanvasViewInner
-      mode="workspace"
-      plans={[planA]}
-      projectPath="/repo/a"
-      viewportPadding={10000}
-    />,
+    <CanvasViewInner {...CANVAS_PROPS} plans={[planA]} projectPath="/repo/a" />,
   );
   await act(async () => {
     await new Promise((r) => setTimeout(r, 10));
@@ -166,7 +167,7 @@ test("CanvasViewInner scopes workspace plans by project_path from fetch", async 
   await act(async () => root.unmount());
 
   const { host: host2, root: root2 } = await render(
-    <CanvasViewInner mode="workspace" plans={[planB]} projectPath="/repo/b" viewportPadding={10000} />,
+    <CanvasViewInner {...CANVAS_PROPS} plans={[planB]} projectPath="/repo/b" />,
   );
   await act(async () => {
     await new Promise((r) => setTimeout(r, 10));
@@ -176,6 +177,96 @@ test("CanvasViewInner scopes workspace plans by project_path from fetch", async 
   );
   assert(titlesB.some((t) => t.includes("Plan B")), "plan B rendered for its project");
   await act(async () => root2.unmount());
+});
+
+test("CanvasViewInner recomputes world bounds when plan task data changes in place", async () => {
+  const plans: Plan[] = [
+    {
+      ...FIXTURE_PLAN,
+      tasks: [{ ...FIXTURE_TASK, body: "small" }],
+    },
+  ];
+  const { host, root, rerender } = await render(
+    <CanvasViewInner {...CANVAS_PROPS} plans={plans} />,
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+  });
+  const layer = () => host.querySelector('[data-testid="canvas-world-layer"]') as HTMLElement;
+  const rev0 = layer()?.getAttribute("data-layout-revision") ?? "";
+  const w0 = Number.parseFloat(layer()?.style.width ?? "0");
+  const h0 = Number.parseFloat(layer()?.style.height ?? "0");
+
+  plans[0] = {
+    ...plans[0],
+    updated_at: plans[0].updated_at + 1,
+    tasks: [
+      { ...FIXTURE_TASK, id: "task-dante", body: "small" },
+      {
+        ...FIXTURE_TASK,
+        id: "task-extra-1",
+        name: "Extra",
+        body: "y".repeat(700),
+        section_ids: ["sec-auth"],
+      },
+      {
+        ...FIXTURE_TASK,
+        id: "task-extra-2",
+        name: "More",
+        body: "z".repeat(700),
+        section_ids: ["sec-auth"],
+      },
+    ],
+  };
+
+  await rerender(<CanvasViewInner {...CANVAS_PROPS} plans={plans} />);
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  const rev1 = layer()?.getAttribute("data-layout-revision") ?? "";
+  const w1 = Number.parseFloat(layer()?.style.width ?? "0");
+  const h1 = Number.parseFloat(layer()?.style.height ?? "0");
+  assert(rev0 !== rev1, "layout revision advances on task growth");
+  assert(w1 > w0 || h1 > h0, `world bounds grow (${w0}x${h0} -> ${w1}x${h1})`);
+  await act(async () => root.unmount());
+});
+
+test("CanvasViewInner recomputes layout revision when spec sections load", async () => {
+  const plans: Plan[] = [{ ...FIXTURE_PLAN, primary_spec_id: "spec-entity-1", sections: [FIXTURE_SECTION] }];
+  const originalFetch = globalThis.fetch;
+  Object.defineProperty(globalThis, "fetch", {
+    configurable: true,
+    value: async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/specs/spec-entity-1")) {
+        return new Response(
+          JSON.stringify({
+            spec: {
+              sections: [
+                FIXTURE_SECTION,
+                { ...FIXTURE_SECTION, id: "sec-extra", title: "Extra section", subsections: [] },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }
+      return originalFetch(input);
+    },
+  });
+
+  const api = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: true };
+  const { host, root } = await render(
+    <CanvasViewInner {...CANVAS_PROPS} plans={plans} api={api} />,
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  const rev = host.querySelector('[data-testid="canvas-world-layer"]')?.getAttribute("data-layout-revision") ?? "";
+  assert(rev.includes("sec-extra"), "loaded spec sections participate in layout revision");
+  Object.defineProperty(globalThis, "fetch", { configurable: true, value: originalFetch });
+  await act(async () => root.unmount());
 });
 
 async function main() {

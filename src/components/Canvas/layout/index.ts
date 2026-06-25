@@ -29,6 +29,7 @@ export { focusAt } from "./focus";
 export type { FocusResult } from "./focus";
 export { visibleNodeIds, visibleFrameIds, viewportWorldRect } from "./viewport";
 export type { CanvasSize } from "./viewport";
+export { layoutInputRevision, plansForLayout } from "./layoutInputRevision";
 
 // Top-level deterministic layout (§6.1): only active plans, intra-plan cascade
 // then region packing. Same data + settings → identical positions.

@@ -91,6 +91,7 @@ function samplePlans(): Plan[] {
       task("t2", ["s2", "s1"], [milestone("m4", "status_update", 0)]),
     ],
   );
+  p1.primary_spec_id = "spec-p1";
   const p2 = plan("p2", "orchA", 50, [section("s3")], [task("t3", ["s3"])]);
   const p3 = plan("p3", "orchB", 75, [section("s4")], [task("t4", ["s4"])]);
   return [p1, p2, p3];
