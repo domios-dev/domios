@@ -1,5 +1,6 @@
 use crate::client::SocketClient;
 use crate::cmd::hints::maybe_orchestration_reminder;
+use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::{handle_result, print_object};
 use crate::{build_http, read_api_config, resolve_pane, AgentAction};
 use std::io::Read;
@@ -351,7 +352,15 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(sk) = skipped {
                 body["skipped"] = serde_json::json!(sk);
             }
-            let result = client.call("agent.report", Some(body));
+            let result = client
+                .call_detailed("agent.report", Some(body.clone()))
+                .map_err(|err| {
+                    if body.get("plan_id").and_then(|v| v.as_str()).is_some() {
+                        render_plan_call_error(err, &body)
+                    } else {
+                        err.to_string()
+                    }
+                });
             handle_result(json, result);
         }
         AgentAction::Reports { pane, clear, limit } => {
