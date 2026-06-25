@@ -367,7 +367,7 @@ fn dispatch(
                     "plan.create", "plan.batch", "plan.handoff.create", "plan.handoff.list", "plan.handoff.show", "plan.handoff.reseed", "plan.list", "plan.get", "plan.goal.set", "plan.goal.show", "plan.spec", "plan.files", "plan.tags", "plan.update", "plan.archive",
                     "plan.delete", "plan.transfer", "plan.disown", "plan.claim",
                     "plan.ingest", "plan.section.add", "plan.section.update", "plan.section.rm",
-                    "plan.kinds.set",
+                    "plan.kinds.set", "plan.tag_facets.set",
                     "plan.task.add", "plan.task.update", "plan.task.close", "plan.task.assign",
                     "plan.task.rm",
                     "plan.milestone.add", "plan.milestone.update", "plan.milestone.rm",

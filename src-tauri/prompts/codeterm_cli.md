@@ -431,6 +431,7 @@ codeterm plan gaps PLAN_ID
 codeterm plan update PLAN_ID [--title T] [--status active|archived]
 codeterm plan archive PLAN_ID
 codeterm plan groups set PLAN_ID --groups phase-1:Phase 1,phase-2:Phase 2
+codeterm plan facets set PLAN_ID --facets '[{"key":"area","label":"Area","color_lane":true,"values":[{"v":"api","label":"API"}]}]'
 codeterm plan link PLAN_ID --to OTHER_PLAN_ID
 codeterm plan unlink PLAN_ID --to OTHER_PLAN_ID
 codeterm plan section add PLAN_ID --title "..." [--body "..." | --body-file PATH]

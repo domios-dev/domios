@@ -1,8 +1,9 @@
 use std::io::Read;
 
 use crate::args::plan::{
-    PlanAction, PlanElementAction, PlanGoalAction, PlanGroupsAction, PlanKindsAction,
-    PlanLayoutAction, PlanLoopAction, PlanMilestoneAction, PlanNoteAction, PlanTaskAction,
+    PlanAction, PlanElementAction, PlanFacetsAction, PlanGoalAction, PlanGroupsAction,
+    PlanKindsAction, PlanLayoutAction, PlanLoopAction, PlanMilestoneAction, PlanNoteAction,
+    PlanTaskAction,
 };
 use crate::client::SocketClient;
 use crate::cmd::hints::{
@@ -414,6 +415,14 @@ fn run_plan(
                 client,
                 "plan.groups.set",
                 json!({ "plan_id": plan_id, "groups": groups }),
+            ),
+        },
+
+        PlanAction::Facets { action } => match action {
+            PlanFacetsAction::Set { plan_id, facets } => call(
+                client,
+                "plan.tag_facets.set",
+                json!({ "plan_id": plan_id, "facets": facets }),
             ),
         },
 

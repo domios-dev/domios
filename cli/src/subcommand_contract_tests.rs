@@ -592,6 +592,32 @@ fn plan_goal_subcommands_parse() {
 }
 
 #[test]
+fn plan_facets_set_parses() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "facets",
+        "set",
+        "pl_1",
+        "--facets",
+        r#"[{"key":"area","color_lane":true,"values":[{"v":"api"}]}]"#,
+    ])
+    .expect("plan facets set parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Facets {
+                    action: crate::args::plan::PlanFacetsAction::Set { plan_id, facets },
+                },
+        } => {
+            assert_eq!(plan_id, "pl_1");
+            assert!(facets.contains(r#""key":"area""#));
+        }
+        _ => panic!("expected plan facets set"),
+    }
+}
+
+#[test]
 fn plan_handoff_subcommands_parse() {
     let parsed = Cli::try_parse_from([
         "codeterm",

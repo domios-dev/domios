@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782423559358,
+  "updated_at": 1782424800858,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -15271,12 +15271,12 @@
       ],
       "test_plan": "Add focused route/CLI tests for facet update and rerun CT_E2E_PORT=7686 npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep @canvas-tag-filter",
       "correctness": "A fresh dev run can declare plan tag facets through supported CLI/API and the canvas tag-filter Playwright test performs highlight/dim assertions instead of skipping.",
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782423510916,
-      "updated_at": 1782423517308,
-      "status_changed_at": 1782423510916,
+      "updated_at": 1782424800858,
+      "status_changed_at": 1782424800858,
       "handle": "plan-tag-facets-update-surface-and-non-skipping-canvas-filter-e2e",
       "tags": [
         "canvas",
@@ -15287,17 +15287,19 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "2522c1f8",
       "lane": {
-        "pane_id": null,
+        "pane_id": "2522c1f8",
         "workspace_id": null,
         "workspace_name": null,
-        "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
-        "cleanup_status": null,
-        "cleanup_hints": []
+        "worktree_path": "/Users/rollacode/Developer/codeterm-tag-facet-surface",
+        "branch": "lane/tag-facet-surface",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After integration: close pane 2522c1f8, remove worktree /Users/rollacode/Developer/codeterm-tag-facet-surface, delete branch lane/tag-facet-surface."
+        ]
       },
       "taken_by_role": null,
       "peer": null,
@@ -15307,7 +15309,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_db347d6c24554074b368de361efb4456",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Integrated tag-facet update surface and non-skipping canvas filter e2e. Verified in hot checkout: cargo fmt --check for cli/src-tauri, cargo test cli plan_facets_set_parses, cargo test src-tauri tag_facets_from_body --lib, cargo test src-tauri set_tag_facets_persists_and_reloads --lib, npx tsc --noEmit, CT_E2E_PORT=7686 Playwright @canvas-tag-filter 1/1, CODETERM_API_PORT=7686 ./build.sh check, git diff --check.",
+          "ts": 1782424800858,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     }
   ],
   "task_groups": [],

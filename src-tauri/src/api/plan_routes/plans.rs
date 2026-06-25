@@ -4,12 +4,16 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::plan::{OrchestratorRef, PlanStatus};
 use crate::service::plan::PlanError;
 
-use super::{emit_plan_changed, epoch_ms, kinds_from_csv, plan_err, text_err, PlanRouteResult};
+use super::{
+    emit_plan_changed, epoch_ms, kinds_from_csv, plan_err, tag_facets_from_body, text_err,
+    PlanRouteResult,
+};
 
 #[derive(Deserialize, Default)]
 pub(crate) struct CreatePlanBody {
@@ -317,6 +321,29 @@ pub async fn kinds_set(
         .svc
         .plan_store
         .set_kinds(&id, kinds_from_csv(&body.kinds), epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct TagFacetsSetBody {
+    facets: Value,
+}
+
+pub async fn tag_facets_set(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<TagFacetsSetBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let facets = tag_facets_from_body(&body.facets)
+        .map_err(|message| text_err(StatusCode::BAD_REQUEST, message))?;
+    state
+        .svc
+        .plan_store
+        .set_tag_facets(&id, facets, epoch_ms())
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))

@@ -11,7 +11,7 @@ use crate::service::ServiceState;
 
 use super::plan_fields::{
     groups_from_csv, kinds_from_csv, optional_string_field, pane_and_ancestors, pane_role,
-    string_array_field,
+    string_array_field, tag_facets_field,
 };
 use super::plan_linking::{csv_string_field, owner_from_params, plan_with_linking, tags_field};
 use super::{get_string_param, JsonRpcError};
@@ -599,6 +599,21 @@ pub(super) fn dispatch(
             let kinds = get_string_param(params, "kinds")?;
             store
                 .set_kinds(&id, kinds_from_csv(&kinds), now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true }))
+        }
+
+        "plan.tag_facets.set" => {
+            let id = get_string_param(params, "plan_id")?;
+            let facets =
+                tag_facets_field(params.as_ref(), "facets").map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
+            store
+                .set_tag_facets(&id, facets, now)
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
