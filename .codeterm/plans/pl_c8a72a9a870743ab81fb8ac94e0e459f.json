@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782427465176,
+  "updated_at": 1782427579553,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -14581,12 +14581,12 @@
       ],
       "test_plan": "Assign+dispatch a worker; assert the task shows its branch/pane/folder; close worker -> §39.3 flags it; orchestrator finds the worktree from the task",
       "correctness": "Every active task is traceable to its branch/agent/folder for find+restore",
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782395806303,
-      "updated_at": 1782395806303,
-      "status_changed_at": 1782395806303,
+      "updated_at": 1782427579553,
+      "status_changed_at": 1782427579553,
       "handle": "state-integrity-39-7-task-execution-binding-metadata-git-branch-agent-pane-provider-working-folder-worktree-on-each-task-for-find-restore",
       "tags": [
         "state-integrity"
@@ -14617,7 +14617,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_43d1f97e6e7f4f3d88dd0fe420237d4b",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Closed from existing landed work: commit 03535e96 adds task lane metadata for pane/workspace/worktree/branch/base/destination/cleanup hints across Task model, CLI add/update flags, HTTP/socket persistence, plan markdown and in-progress rendering. Re-verified in hot checkout with cargo test --manifest-path cli/Cargo.toml plan_in_progress and cargo test --manifest-path cli/Cargo.toml renders_file_manifest.",
+          "ts": 1782427579553,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_3bb8e3afcc954354b36aea4a0133a694",
