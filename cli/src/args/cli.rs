@@ -341,6 +341,14 @@ pub enum Commands {
         head: Option<usize>,
     },
 
+    /// Read one embedded CodeTerm document in full.
+    ///
+    /// Canonical recovery entry for agents: `codeterm doc orchestration`.
+    Doc {
+        /// Doc name (e.g. orchestration).
+        name: String,
+    },
+
     /// Internal diagnostics — verify crash reporter, etc. Dev-only;
     /// hidden from --help because the matching daemon endpoint is gated to
     /// debug builds. Calling against a prod daemon returns Method-not-found.

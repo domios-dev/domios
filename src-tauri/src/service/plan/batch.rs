@@ -852,6 +852,9 @@ impl PlanStore {
                         }
                     }
                 }
+                if let Some(hint) = super::hints::maybe_orchestration_reminder() {
+                    result.hints.push(hint);
+                }
                 *plan = working;
                 Ok((result, pending_markdown_writes, staged_specs, staged_plans))
             })?;

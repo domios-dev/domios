@@ -1,5 +1,10 @@
 use serde_json::{json, Value};
 
+const ORCHESTRATION_REMINDER: &str =
+    "hint: you work autonomously; if unsure how to orchestrate -> codeterm doc orchestration";
+const ORCHESTRATION_REMINDER_EVERY: u64 = 5;
+const ORCHESTRATION_REMINDER_STATE: &str = "orchestration-hint-count";
+
 pub fn task_sections_hint(plan_id: &str, task_id: &str) -> String {
     format!(
         "hint: task is not linked to a plan section. If it belongs to a plan, connect it: codeterm plan task link {plan_id} {task_id} --sections <id-or-handle> (ids: codeterm plan get {plan_id} --sections)"
@@ -36,6 +41,28 @@ pub fn task_quality_guard_hint(
         "WARNING: task is missing {}. Add checkable work definition now: codeterm plan task add {plan_id} --name <name> --criterion <condition> --test-plan <how verified> --correctness <one-line vector>; existing task: {task_id}",
         missing.join(", ")
     ))
+}
+
+pub fn orchestration_reminder_for_count(count: u64) -> Option<String> {
+    if count == 1 || count % ORCHESTRATION_REMINDER_EVERY == 0 {
+        Some(ORCHESTRATION_REMINDER.to_string())
+    } else {
+        None
+    }
+}
+
+pub fn maybe_orchestration_reminder() -> Option<String> {
+    let path = crate::data_root().join(ORCHESTRATION_REMINDER_STATE);
+    let current = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+    let next = current.saturating_add(1);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(&path, next.to_string());
+    orchestration_reminder_for_count(next)
 }
 
 pub fn push_hints(value: &mut Value, hints: Vec<String>) {
@@ -154,5 +181,13 @@ mod tests {
         push_hints(&mut value, vec![" ".into()]);
         assert!(value.get("_hints").is_none());
         assert_eq!(value["task_id"], "task_1");
+    }
+
+    #[test]
+    fn orchestration_reminder_fires_on_first_and_cadence() {
+        assert!(orchestration_reminder_for_count(1).is_some());
+        assert!(orchestration_reminder_for_count(2).is_none());
+        assert!(orchestration_reminder_for_count(5).is_some());
+        assert!(orchestration_reminder_for_count(6).is_none());
     }
 }

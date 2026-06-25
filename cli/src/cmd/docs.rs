@@ -42,6 +42,24 @@ pub fn handle(name: Option<String>, full: bool, head: Option<usize>) {
     }
 }
 
+pub fn handle_doc(name: String) {
+    let resolved = if name.eq_ignore_ascii_case("orchestration") {
+        "ORCHESTRATION"
+    } else {
+        name.as_str()
+    };
+    match render_doc(resolved, true, None, false) {
+        Ok(rendered) => print!("{}", rendered),
+        Err(available) => {
+            eprintln!("No doc named '{}'. Available:", name);
+            for name in available {
+                eprintln!("  {}", name);
+            }
+            std::process::exit(1);
+        }
+    }
+}
+
 fn list_docs() {
     println!("Available docs (use `codeterm docs <name>` to read):");
     for (name, body) in DOCS {
@@ -156,5 +174,13 @@ mod tests {
 
         assert!(rendered.contains("showing 12/"));
         assert!(rendered.lines().count() < 30);
+    }
+
+    #[test]
+    fn orchestration_doc_alias_is_non_empty() {
+        let rendered = render_doc("orchestration", true, None, false).expect("doc exists");
+
+        assert!(rendered.contains("# Orchestration"));
+        assert!(rendered.len() > 100);
     }
 }

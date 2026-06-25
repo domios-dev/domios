@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -348,6 +348,12 @@ List delayed messages for a pane
 Send a delayed message immediately
 
 - `<id>` — Delayed message ID
+
+#### `codeterm doc`
+
+Read one embedded CodeTerm document in full
+
+- `<name>` — Doc name (e.g. orchestration)
 
 #### `codeterm docs`
 

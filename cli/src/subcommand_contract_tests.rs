@@ -206,6 +206,15 @@ fn top_level_docs_parse() {
 }
 
 #[test]
+fn top_level_doc_parse() {
+    let parsed = Cli::try_parse_from(["codeterm", "doc", "orchestration"]).expect("doc parses");
+    match parsed.command {
+        Commands::Doc { name } => assert_eq!(name, "orchestration"),
+        _ => panic!("expected doc"),
+    }
+}
+
+#[test]
 fn plan_record_parses_batch_sugar() {
     let parsed = Cli::try_parse_from([
         "codeterm",

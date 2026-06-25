@@ -393,10 +393,11 @@ fn main() {
         return;
     }
 
-    // `docs` reads embedded markdown bundled at compile time — no daemon dependency. Short-circuit so agents can read references even when the daemon is wedged or restarting.
-    if matches!(cli.command, Commands::Docs { .. }) {
+    // `docs` / `doc` read embedded markdown — no daemon dependency.
+    if matches!(cli.command, Commands::Docs { .. } | Commands::Doc { .. }) {
         match cli.command {
             Commands::Docs { name, full, head } => cmd::docs::handle(name, full, head),
+            Commands::Doc { name } => cmd::docs::handle_doc(name),
             _ => unreachable!(),
         }
         return;
@@ -702,8 +703,9 @@ fn main() {
             return;
         }
 
-        // Docs is handled before socket connect (embedded markdown)
+        // Docs are handled before socket connect (embedded markdown)
         Commands::Docs { .. } => unreachable!(),
+        Commands::Doc { .. } => unreachable!(),
 
         // Config is handled before socket connect (uses HTTP API)
         Commands::Config { .. } => unreachable!(),

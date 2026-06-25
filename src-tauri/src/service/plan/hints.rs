@@ -1,3 +1,10 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+
+const ORCHESTRATION_REMINDER: &str =
+    "hint: you work autonomously; if unsure how to orchestrate -> codeterm doc orchestration";
+const ORCHESTRATION_REMINDER_EVERY: u64 = 5;
+static ORCHESTRATION_REMINDER_COUNT: AtomicU64 = AtomicU64::new(0);
+
 pub fn task_sections_hint(plan_id: &str, task_id: &str) -> String {
     format!(
         "hint: task is not linked to a plan section. If it belongs to a plan, connect it: codeterm plan task link {plan_id} {task_id} --sections <id-or-handle> (ids: codeterm plan get {plan_id} --sections)"
@@ -67,6 +74,19 @@ pub fn task_create_hints(
         hints.push(hint);
     }
     hints
+}
+
+pub fn orchestration_reminder_for_count(count: u64) -> Option<String> {
+    if count == 1 || count % ORCHESTRATION_REMINDER_EVERY == 0 {
+        Some(ORCHESTRATION_REMINDER.to_string())
+    } else {
+        None
+    }
+}
+
+pub fn maybe_orchestration_reminder() -> Option<String> {
+    let count = ORCHESTRATION_REMINDER_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    orchestration_reminder_for_count(count)
 }
 
 #[cfg(test)]
@@ -195,5 +215,13 @@ mod tests {
                 assert!(joined.contains(expected), "{}: {joined}", case.name);
             }
         }
+    }
+
+    #[test]
+    fn orchestration_reminder_fires_on_first_and_cadence() {
+        assert!(orchestration_reminder_for_count(1).is_some());
+        assert!(orchestration_reminder_for_count(2).is_none());
+        assert!(orchestration_reminder_for_count(5).is_some());
+        assert!(orchestration_reminder_for_count(6).is_none());
     }
 }

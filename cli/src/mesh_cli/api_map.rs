@@ -748,8 +748,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         // `system` is local-only platform config (schtasks/launchd/systemd).
         // Mesh relay falls through to /identify for a valid response shape.
         Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
-        // `docs` reads embedded markdown — local-only by definition.
+        // `docs` / `doc` read embedded markdown — local-only by definition.
         Commands::Docs { .. } => ("GET".into(), "/api/identify".into(), None),
+        Commands::Doc { .. } => ("GET".into(), "/api/identify".into(), None),
         Commands::Usage { action } => match action {
             crate::UsageAction::Latest {
                 provider,
