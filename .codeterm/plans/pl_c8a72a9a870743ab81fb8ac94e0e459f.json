@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782421507093,
+  "updated_at": 1782421713869,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -2825,10 +2825,10 @@
       "test_plan": null,
       "correctness": null,
       "status": "in_review",
-      "status_label": "partial accepted; verified build; child remains",
+      "status_label": "verified partial; filter/highlight child remains",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782413177644,
+      "updated_at": 1782421713869,
       "status_changed_at": 1782413068695,
       "handle": "tag-frontend-tile-payload-facet-color-hud-legend",
       "tags": [],
