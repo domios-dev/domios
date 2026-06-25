@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782424800858,
+  "updated_at": 1782424921514,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -3437,12 +3437,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "in_review",
+      "status": "done",
       "status_label": "integrated; child task remains",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782419465893,
-      "status_changed_at": 1782419465893,
+      "updated_at": 1782424921514,
+      "status_changed_at": 1782424921514,
       "handle": "render-attached-discussion-docs-chat-canvas-expandable",
       "tags": [],
       "section_ids": [
@@ -3562,6 +3562,25 @@
           "kind": "status_update",
           "text": "STATUS: partial\nCHANGES: none\nBUILD/TYPECHECK/TESTS: not run\nFOLLOWUP: alive; current state: done — discussion-doc rendering landed; awaiting Orchestrator warm-verify for React tests",
           "ts": 1782414694060,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_2f5d4c3fc48d4cdea95b70567a7f05e1",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Verified and closed discussion-doc rendering. Hot checkout gates: npx tsx packages/chat-ui/src/discussionDoc.test.ts 4/4, npx tsx src/components/Canvas/cards/cards.test.tsx 14/14 including StrideSnake attached discussion doc bloom, npx tsc --noEmit passed.",
+          "ts": 1782424921514,
           "links": [],
           "loop_id": null,
           "iteration": null,
