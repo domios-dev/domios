@@ -114,6 +114,20 @@ for (const literal of ["OpenAI Codex", "codex/", "ctrl+c to cancel"]) {
 assert(!plugin.detect({ bytes: "$ ls\nfile.txt", title: "bash" }), "plain shell negative");
 assert(!plugin.detect({ bytes: "claude code", title: "claude" }), "claude title is not codex");
 
+console.log("\n--- screenHasTui ---\n");
+const runtimePlugin = loadHostPlugin();
+assert(
+  runtimePlugin.screenHasTui([
+    "• Implemented the CLI-side fix and reported via codeterm agent report.",
+    "",
+    "─ Worked for 2m 48s ─────────────────────────────────────────────────────────",
+    "› Explain this codebase",
+    "gpt-5.5 medium · /Users/rollacode/Developer/codeterm-cross-report",
+  ].join("\n")),
+  "post-turn Codex composer with model footer is still a live TUI"
+);
+assert(!runtimePlugin.screenHasTui("$ echo gpt-5.5 medium · ~/tmp"), "plain shell text is not Codex TUI");
+
 console.log("\n--- statusOf ---\n");
 eq(plugin.statusOf({ kind: "anything" }), null, "statusOf always returns null (PTY-driven status)");
 
