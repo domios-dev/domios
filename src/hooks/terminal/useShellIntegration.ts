@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { invoke } from "../../lib/bridge";
-import { useMultiplexer } from "../../store/multiplexer";
-import { TitleLevel } from "../../lib/types";
 import { consumePendingCommand } from "../../lib/pendingCommands";
 
 export interface UseShellIntegrationOptions {
@@ -27,10 +25,6 @@ export function useShellIntegration({
   ptyId,
   termReady,
 }: UseShellIntegrationOptions): UseShellIntegrationReturn {
-  const { state, setPaneTitle } = useMultiplexer();
-  const stateRef = useRef(state);
-  stateRef.current = state;
-
   const [shellReady, setShellReady] = useState(!!ptyId);
   const [overlayVisible, setOverlayVisible] = useState(!ptyId);
 
@@ -93,27 +87,17 @@ export function useShellIntegration({
         if (/^\/[A-Z]:/i.test(dir)) dir = dir.slice(1);
         if (dir && dir.length > 2) {
           invoke("mux_update_pane_cwd", { paneId, cwd: dir }).catch(() => {});
-          const pane = stateRef.current.panes[paneId];
-          if (pane && pane.title_level !== TitleLevel.User) {
-            const dirName = dir.split("/").pop() || dir;
-            if (dirName) setPaneTitle(paneId, dirName, TitleLevel.Auto);
-          }
         }
       } catch {
         if (data && data.length > 2) {
           invoke("mux_update_pane_cwd", { paneId, cwd: data }).catch(() => {});
-          const pane = stateRef.current.panes[paneId];
-          if (pane && pane.title_level !== TitleLevel.User) {
-            const dirName = data.split("/").pop() || data;
-            if (dirName) setPaneTitle(paneId, dirName, TitleLevel.Auto);
-          }
         }
       }
       return true;
     });
 
     return () => disposable.dispose();
-  }, [termReady, termRef, paneId, setPaneTitle]);
+  }, [termReady, termRef, paneId]);
 
   // Feed output for shell readiness detection (Unix prompt patterns)
   const feedOutput = useCallback((text: string) => {

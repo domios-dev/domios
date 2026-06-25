@@ -137,9 +137,10 @@ impl UsageProbe {
         let warmup = svc
             .agent_registry
             .with_provider(provider, |p| p.task_input_warmup())
-            .unwrap_or(Duration::ZERO);
+            .unwrap_or(Duration::ZERO)
+            .min(USAGE_PROBE_WARMUP_CAP);
 
-        wait_for_tui(&svc, pty_id, TUI_READY_TIMEOUT)
+        wait_for_tui(&svc, pty_id, provider, TUI_READY_TIMEOUT)
             .await
             .map_err(ProbeError::NotReady)?;
 
@@ -229,7 +230,16 @@ async fn write_slash_command(
     Ok(())
 }
 
-async fn wait_for_tui(svc: &ServiceContext, pty_id: &str, timeout: Duration) -> Result<(), String> {
+/// Slash-command probes don't type long prompts — cap the post-command settle so
+/// codex/claude don't burn 3s of task-delivery warmup on every `/status` poll.
+const USAGE_PROBE_WARMUP_CAP: Duration = Duration::from_millis(500);
+
+async fn wait_for_tui(
+    svc: &ServiceContext,
+    pty_id: &str,
+    provider: &str,
+    timeout: Duration,
+) -> Result<(), String> {
     let started = Instant::now();
     let poll = Duration::from_millis(250);
     let content_fallback_after = Duration::from_secs(25);
@@ -240,7 +250,11 @@ async fn wait_for_tui(svc: &ServiceContext, pty_id: &str, timeout: Duration) -> 
             .lock()
             .get_screen_text(pty_id)
             .unwrap_or_default();
-        if screen_has_tui_input(&text) {
+        let provider_tui = svc
+            .agent_registry
+            .with_provider(provider, |p| p.screen_has_tui(&text))
+            .unwrap_or(false);
+        if screen_has_tui_input(&text) || provider_tui {
             return Ok(());
         }
         if !text.trim().is_empty() {
@@ -287,7 +301,7 @@ const TUI_READY_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(windows)]
 const TOTAL_BUDGET: Duration = Duration::from_secs(25);
 #[cfg(not(windows))]
-const TOTAL_BUDGET: Duration = Duration::from_secs(15);
+const TOTAL_BUDGET: Duration = Duration::from_secs(22);
 
 const POLL_INTERVAL: Duration = Duration::from_millis(400);
 

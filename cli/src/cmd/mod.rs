@@ -27,6 +27,7 @@ pub mod plan_markdown;
 pub mod plan_reconcile;
 pub mod plan_record;
 pub mod plan_sections;
+pub mod plan_task_update;
 pub mod plugin;
 pub mod print;
 pub mod send_text;

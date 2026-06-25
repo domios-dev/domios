@@ -873,7 +873,8 @@ interface CodexGauge { pct: number | null; resetsMs: number | null }
 
 function codexParseGauge(text: string, marker: string, isWeekly: boolean, nowMs: number): CodexGauge {
   const re = new RegExp(
-    marker + "[\\s\\S]{0,200}?(\\d+(?:\\.\\d+)?)\\s*%\\s*left[\\s\\S]*?\\(resets?\\s+([^)]+?)\\)",
+    marker + "[\\s\\S]{0,320}?(\\d+(?:\\.\\d+)?)\\s*%\\s*left[\\s\\S]*?\\(resets?\\s+([^)]+?)\\)",
+    "i",
   );
   const caps = re.exec(text);
   if (!caps) return { pct: null, resetsMs: null };

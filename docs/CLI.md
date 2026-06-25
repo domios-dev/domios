@@ -1724,6 +1724,8 @@ Plan tasks
 
 - `--body`
 - `--body_file`
+- `--correctness`
+- `--criterion`
 - `--group`
 - `--handle`
 - `--intent`
@@ -1740,6 +1742,7 @@ Plan tasks
 - `--status_label`
 - `--tags`
 - `<task_id>`
+- `--test_plan`
 - `--why`
 - `--why_file`
 

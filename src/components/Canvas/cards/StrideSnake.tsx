@@ -1,9 +1,9 @@
 import { Fragment } from "react";
-import { RichMarkdown } from "@codeterm/chat-ui";
 import type { Milestone } from "../types";
 import { MILESTONE_LANE_COLORS } from "../settings";
 import { atLeast, type World } from "../worlds";
 import { digestMarkdown } from "./digest";
+import { MilestoneText } from "./MilestoneText";
 
 // §32.5 Strides = a serpentine snake of kind-colored circular beads (Thread & Coil).
 // ONE continuous 2px path threads every stride; it wraps as a boustrophedon snake
@@ -116,8 +116,8 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
                   )}
                 </div>
                 {m.text.trim() && (
-                  <div data-testid="canvas-task-step-text" data-canvas-selectable className="ct-canvas-text" style={{ marginTop: 3, fontSize: "0.82em", lineHeight: 1.5, overflowWrap: "anywhere" }}>
-                    <RichMarkdown text={m.text} />
+                  <div data-canvas-selectable style={{ marginTop: 3, fontSize: "0.82em", lineHeight: 1.5 }}>
+                    <MilestoneText text={m.text} testId="canvas-task-step-text" />
                   </div>
                 )}
                 {(m.links.length > 0 || m.iteration != null) && (

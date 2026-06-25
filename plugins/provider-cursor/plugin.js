@@ -294,14 +294,19 @@ var plugin = {
     );
     if (!agg) return null;
     const current = cursorApi("GetCurrentPeriodUsage", {}, token);
-    const spendCents = numFrom(agg.totalCostCents);
-    if (spendCents == null) return null;
+    const spendRaw = numFrom(agg.totalCostCents);
+    if (spendRaw == null) return null;
     const planUsage = current && typeof current.planUsage === "object" ? current.planUsage : null;
-    const limitCents = planUsage ? numFrom(planUsage.limit) : null;
-    const remainingCents = planUsage ? numFrom(planUsage.remaining) : null;
-    const includedSpendCents = planUsage ? numFrom(planUsage.includedSpend) : null;
+    const limitRaw = planUsage ? numFrom(planUsage.limit) : null;
+    const remainingRaw = planUsage ? numFrom(planUsage.remaining) : null;
+    const includedSpendRaw = planUsage ? numFrom(planUsage.includedSpend) : null;
+    const spendDollars = includedSpendRaw != null ? includedSpendRaw : spendRaw;
+    const spendCents = cursorDollarsToCents(spendDollars);
+    if (spendCents == null) return null;
+    const limitCents = cursorDollarsToCents(limitRaw);
+    const remainingCents = cursorDollarsToCents(remainingRaw);
     return JSON.stringify({
-      spendCents: includedSpendCents != null ? includedSpendCents : spendCents,
+      spendCents,
       limitCents,
       remainingCents,
       resetsAtMs: periodEnd,
@@ -697,6 +702,10 @@ function numFrom(v) {
     if (isFinite(n)) return n;
   }
   return null;
+}
+function cursorDollarsToCents(dollars) {
+  if (dollars == null) return null;
+  return Math.round(dollars * 100);
 }
 function toExcludeList(exclude) {
   if (Array.isArray(exclude)) return exclude;

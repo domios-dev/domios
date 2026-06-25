@@ -100,6 +100,21 @@ fn merge_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
     }
 }
 
+/// Explicit `workspace_id` wins; `parent_pane_id` only picks a workspace when none was requested.
+pub(crate) fn resolve_spawn_workspace_id(
+    requested_workspace_id: Option<String>,
+    parent_pane_id: Option<&str>,
+    parent_workspace: impl FnOnce(&str) -> Option<String>,
+    active_workspace_id: Option<String>,
+    fallback_workspace_id: Option<String>,
+) -> Result<String, String> {
+    requested_workspace_id
+        .or_else(|| parent_pane_id.and_then(parent_workspace))
+        .or(active_workspace_id)
+        .or(fallback_workspace_id)
+        .ok_or_else(|| "No workspace found".to_string())
+}
+
 pub(crate) fn should_default_agent_pane_to_chat(
     default_enabled: bool,
     visibility: PaneVisibility,
@@ -303,15 +318,13 @@ impl ServiceContext {
 
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
-            let from_parent = spec
-                .parent_pane_id
-                .as_ref()
-                .and_then(|pid| mux.find_workspace_for_pane(pid));
-            let id = from_parent
-                .or_else(|| spec.workspace_id.clone())
-                .or_else(|| mux.snapshot().active_workspace_id.clone())
-                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or("No workspace found")?;
+            let id = resolve_spawn_workspace_id(
+                spec.workspace_id.clone(),
+                spec.parent_pane_id.as_deref(),
+                |pid| mux.find_workspace_for_pane(pid),
+                mux.get_active_workspace().map(|w| w.id.clone()),
+                mux.list_workspaces().first().map(|w| w.id.clone()),
+            )?;
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
@@ -504,15 +517,13 @@ impl ServiceContext {
     ) -> Result<PaneHandle, String> {
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
-            let from_parent = spec
-                .parent_pane_id
-                .as_ref()
-                .and_then(|pid| mux.find_workspace_for_pane(pid));
-            let id = from_parent
-                .or_else(|| spec.workspace_id.clone())
-                .or_else(|| mux.snapshot().active_workspace_id.clone())
-                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or("No workspace found")?;
+            let id = resolve_spawn_workspace_id(
+                spec.workspace_id.clone(),
+                spec.parent_pane_id.as_deref(),
+                |pid| mux.find_workspace_for_pane(pid),
+                mux.get_active_workspace().map(|w| w.id.clone()),
+                mux.list_workspaces().first().map(|w| w.id.clone()),
+            )?;
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };

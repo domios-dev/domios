@@ -61,7 +61,11 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         const backendLevel = backendPane.title_level || TitleLevel.Default;
         const frontendLevel = existing?.title_level || TitleLevel.Default;
         const highestLevel = highestTitleLevel(backendLevel, frontendLevel);
-        const title = highestLevel === frontendLevel && existing ? existing.title : backendPane.title;
+        const keepFrontendTitle =
+          existing &&
+          highestLevel === frontendLevel &&
+          frontendLevel !== TitleLevel.Auto;
+        const title = keepFrontendTitle ? existing.title : backendPane.title;
         mergedPanes[id] = {
           ...backendPane,
           title_level: highestLevel as TitleLevel,

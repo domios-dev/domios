@@ -24,6 +24,8 @@ pub struct PlanSearchHit {
     pub title: String,
     pub body: String,
     pub scope: String,
+    pub updated_at: u64,
+    pub age_ms: u64,
     pub plan_id: Option<String>,
     pub spec_id: Option<String>,
     pub unit_id: String,
@@ -69,6 +71,7 @@ struct Unit {
     unit_title: String,
     parent_title: String,
     status: Option<String>,
+    updated_at: u64,
 }
 
 impl super::PlanStore {
@@ -290,7 +293,7 @@ fn unit_ids_like(conn: &Connection, prefix_like: &str) -> Result<Vec<String>, St
 }
 
 fn insert_unit(conn: &Connection, unit: &Unit) -> Result<(), String> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let updated_at = timestamp_ms_to_rfc3339(unit.updated_at);
     let tags = unit_tags(unit);
     let tags_json = serde_json::to_string(&tags).map_err(|e| e.to_string())?;
     let meta = serde_json::json!({
@@ -301,12 +304,13 @@ fn insert_unit(conn: &Connection, unit: &Unit) -> Result<(), String> {
         "unit_title": unit.unit_title,
         "parent_title": unit.parent_title,
         "status": unit.status,
+        "updated_at": unit.updated_at,
     });
     conn.execute(
         "INSERT INTO mem_items
          (id, uid, kind, scope, title, summary, area, tags_json, body_inline,
           body_blob_path, source, importance, created_at, updated_at, accessed_at,
-          is_pinned_wakeup)
+         is_pinned_wakeup)
          VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'plan', ?6, ?7, NULL, ?8, 3.0, ?9, ?9, NULL, 0)",
         params![
             &unit.id,
@@ -317,7 +321,7 @@ fn insert_unit(conn: &Connection, unit: &Unit) -> Result<(), String> {
             &tags_json,
             &unit.body,
             meta.to_string(),
-            &now,
+            &updated_at,
         ],
     )
     .map_err(|e| format!("insert plan unit: {e}"))?;
@@ -360,6 +364,7 @@ fn plan_units(plan: &Plan, scope: &str) -> Vec<Unit> {
         unit_title: plan.title.clone(),
         parent_title: plan.title.clone(),
         status: Some("active".into()),
+        updated_at: plan.updated_at,
     }];
     let total = count_sections(&plan.sections);
     let mut ordinal = 0usize;
@@ -393,6 +398,7 @@ fn spec_units(spec: &Spec, scope: &str) -> Vec<Unit> {
         unit_title: spec.title.clone(),
         parent_title: spec.title.clone(),
         status: Some("active".into()),
+        updated_at: spec.updated_at,
     }];
     let total = count_sections(&spec.sections);
     let mut ordinal = 0usize;
@@ -425,6 +431,7 @@ fn collect_plan_sections(
             unit_title: section.title.clone(),
             parent_title: plan.title.clone(),
             status: Some("active".into()),
+            updated_at: plan.updated_at,
         });
         collect_plan_sections(plan, &section.subsections, total, ordinal, scope, units);
     }
@@ -455,6 +462,7 @@ fn collect_spec_sections(
             unit_title: section.title.clone(),
             parent_title: spec.title.clone(),
             status: Some("active".into()),
+            updated_at: spec.updated_at,
         });
         collect_spec_sections(spec, &section.subsections, total, ordinal, scope, units);
     }
@@ -476,6 +484,7 @@ fn task_unit(plan: &Plan, task: &Task, scope: &str) -> Unit {
         unit_title: task.name.clone(),
         parent_title: plan.title.clone(),
         status: Some(task_status_text(task)),
+        updated_at: task.updated_at,
     }
 }
 
@@ -495,7 +504,14 @@ fn stride_unit(plan: &Plan, task: &Task, stride: &Milestone, scope: &str) -> Uni
         unit_title: stride.kind.clone(),
         parent_title: task.name.clone(),
         status: Some(task_status_text(task)),
+        updated_at: stride.ts,
     }
+}
+
+fn timestamp_ms_to_rfc3339(ms: u64) -> String {
+    chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms as i64)
+        .unwrap_or_else(chrono::Utc::now)
+        .to_rfc3339()
 }
 
 fn task_status_text(task: &Task) -> String {
@@ -551,6 +567,11 @@ fn plan_hit(hit: search::SearchHit) -> PlanSearchHit {
         .as_deref()
         .and_then(|s| serde_json::from_str(s).ok())
         .unwrap_or_default();
+    let updated_at = meta
+        .get("updated_at")
+        .and_then(|v| v.as_u64())
+        .or_else(|| rfc3339_to_timestamp_ms(&hit.item.updated_at))
+        .unwrap_or_default();
     PlanSearchHit {
         source: "plan",
         score: hit.score,
@@ -559,6 +580,10 @@ fn plan_hit(hit: search::SearchHit) -> PlanSearchHit {
         title: hit.item.title,
         body: hit.item.body,
         scope: hit.item.scope,
+        updated_at,
+        age_ms: u64::try_from(chrono::Utc::now().timestamp_millis())
+            .unwrap_or_default()
+            .saturating_sub(updated_at),
         plan_id: meta
             .get("plan_id")
             .and_then(|v| v.as_str())
@@ -587,6 +612,12 @@ fn plan_hit(hit: search::SearchHit) -> PlanSearchHit {
             .and_then(|v| v.as_str())
             .map(str::to_string),
     }
+}
+
+fn rfc3339_to_timestamp_ms(value: &str) -> Option<u64> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .and_then(|dt| u64::try_from(dt.timestamp_millis()).ok())
 }
 
 fn related_units(plans: &[Plan], specs: &[Spec], id: &str) -> Vec<RelatedGroup> {

@@ -294,6 +294,47 @@ fn plan_task_update_parses_sections() {
 }
 
 #[test]
+fn plan_task_update_parses_quality_fields() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "task",
+        "update",
+        "pl_1",
+        "task_1",
+        "--criterion",
+        "no separate task button",
+        "--test-plan",
+        "focused CLI update smoke",
+        "--correctness",
+        "one Plan action focuses optional task target",
+    ])
+    .expect("plan task update parses quality fields");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action:
+                        crate::args::plan::PlanTaskAction::Update {
+                            criterion,
+                            test_plan,
+                            correctness,
+                            ..
+                        },
+                },
+        } => {
+            assert_eq!(criterion, vec!["no separate task button"]);
+            assert_eq!(test_plan.as_deref(), Some("focused CLI update smoke"));
+            assert_eq!(
+                correctness.as_deref(),
+                Some("one Plan action focuses optional task target")
+            );
+        }
+        _ => panic!("expected plan task update"),
+    }
+}
+
+#[test]
 fn plan_task_link_and_relink_parse() {
     let parsed = Cli::try_parse_from([
         "codeterm",

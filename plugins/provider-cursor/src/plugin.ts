@@ -303,16 +303,21 @@ const plugin: PluginModule = {
     );
     if (!agg) return null;
     const current = cursorApi("GetCurrentPeriodUsage", {}, token);
-    const spendCents = numFrom(agg.totalCostCents);
-    if (spendCents == null) return null;
+    const spendRaw = numFrom(agg.totalCostCents);
+    if (spendRaw == null) return null;
     const planUsage = current && typeof current.planUsage === "object"
       ? current.planUsage as Record<string, unknown>
       : null;
-    const limitCents = planUsage ? numFrom(planUsage.limit) : null;
-    const remainingCents = planUsage ? numFrom(planUsage.remaining) : null;
-    const includedSpendCents = planUsage ? numFrom(planUsage.includedSpend) : null;
+    const limitRaw = planUsage ? numFrom(planUsage.limit) : null;
+    const remainingRaw = planUsage ? numFrom(planUsage.remaining) : null;
+    const includedSpendRaw = planUsage ? numFrom(planUsage.includedSpend) : null;
+    const spendDollars = includedSpendRaw != null ? includedSpendRaw : spendRaw;
+    const spendCents = cursorDollarsToCents(spendDollars);
+    if (spendCents == null) return null;
+    const limitCents = cursorDollarsToCents(limitRaw);
+    const remainingCents = cursorDollarsToCents(remainingRaw);
     return JSON.stringify({
-      spendCents: includedSpendCents != null ? includedSpendCents : spendCents,
+      spendCents: spendCents,
       limitCents: limitCents,
       remainingCents: remainingCents,
       resetsAtMs: periodEnd,
@@ -850,6 +855,13 @@ function numFrom(v: unknown): number | null {
     if (isFinite(n)) return n;
   }
   return null;
+}
+
+// api2.cursor.sh planUsage fields are dollar decimals (limit/spend/remaining sum
+// as dollars); only the aggregated totalCostCents name suggests cents.
+function cursorDollarsToCents(dollars: number | null): number | null {
+  if (dollars == null) return null;
+  return Math.round(dollars * 100);
 }
 
 // ── misc helpers ──

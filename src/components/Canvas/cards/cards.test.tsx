@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import {
   MilestoneBubble,
   SectionNode,
+  StrideSnake,
   TaskCard,
 } from "./index";
 import {
@@ -205,6 +206,21 @@ test("MilestoneBubble shows kind initial + iteration at rest; tooltip is hover-o
   // The bug: at near LOD every bubble auto-opened its tooltip → overlapping,
   // clipped, word-glued mess. Tooltip must NOT render until hover.
   assert(!host.querySelector('[data-testid="canvas-milestone-text"]'), "no auto tooltip at near LOD");
+  await act(async () => root.unmount());
+});
+
+test("StrideSnake W3 bloom renders attached discussion doc collapsed by default", async () => {
+  const milestone = {
+    ...FIXTURE_MILESTONE,
+    text: "STATUS: done\n\ndoc: notes/design.md\n\n# Design notes\n\nExpand me.",
+  };
+  const { host, root } = await render(
+    <StrideSnake milestones={[milestone]} world="W3" width={280} />,
+  );
+  assert(host.querySelector('[data-testid="attached-discussion-doc"]'), "discussion doc chrome");
+  assert(host.textContent?.includes("STATUS: done"), "summary visible");
+  assert(!host.textContent?.includes("Expand me."), "doc body hidden until expand");
+  assert(host.querySelector('[data-testid="attached-discussion-toggle"]'), "expand toggle");
   await act(async () => root.unmount());
 });
 

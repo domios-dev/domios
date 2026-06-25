@@ -144,6 +144,13 @@
 - [state-integrity-39-7-task-execution-binding-metadata-git-branch-agent-pane-provider-working-folder-worktree-on-each-task-for-find-restore (State-integrity §39.7: task execution-binding metadata — git BRANCH + AGENT (pane/provider) + working FOLDER (worktree) on each task, for find/restore)](tasks/state-integrity-39-7-task-execution-binding-metadata-git-branch-agent-pane-provider-working-folder-worktree-on-each-task-for-find-restore.md)
 - [cli-handoff-selector-mismatch-seq-in-resume-docs-but-current-cli-expects-positional-selector (CLI handoff selector mismatch: --seq in resume/docs but current CLI expects positional selector)](tasks/cli-handoff-selector-mismatch-seq-in-resume-docs-but-current-cli-expects-positional-selector.md)
 - [worlds-v3-fix-w2-inner-slot-stability-at-scale-3-after-deep-zoom-body-reveal-passes (Worlds v3: fix W2 inner-slot stability at scale 3 after deep zoom/body reveal passes)](tasks/worlds-v3-fix-w2-inner-slot-stability-at-scale-3-after-deep-zoom-body-reveal-passes.md)
+- [plan-button-task-focus (Plan button task-context camera focus)](tasks/plan-button-task-focus.md)
+- [cli-task-update-quality-fields (CLI task update parity for quality fields)](tasks/cli-task-update-quality-fields.md)
+- [workspace-moved-tabs-visible (Workspace moved tabs visible in sidebar)](tasks/workspace-moved-tabs-visible.md)
+- [tab-title-stability-no-auto-rename (Tab title stability: remove automatic rename on unselect)](tasks/tab-title-stability-no-auto-rename.md)
+- [usage-checker-reliability (Usage checker reliability: Cursor remaining + Codex status timeout)](tasks/usage-checker-reliability.md)
+- [task-lane-metadata-cleanup-hints (Task lane metadata and cleanup hints)](tasks/task-lane-metadata-cleanup-hints.md)
+- [usage-limit-reset-delay-detector (Usage limit reset detector and auto-delay scheduling)](tasks/usage-limit-reset-delay-detector.md)
 
 ## Handoffs
 

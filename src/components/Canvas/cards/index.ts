@@ -5,6 +5,7 @@ export { OrchestratorGroup, type OrchestratorGroupProps } from "./OrchestratorGr
 export { NoteCard, type NoteCardProps } from "./NoteCard";
 export { DecisionCard, type DecisionCardProps } from "./DecisionCard";
 export { StrideSnake } from "./StrideSnake";
+export { MilestoneText } from "./MilestoneText";
 export { HandoffCoin, type HandoffContent } from "./HandoffCoin";
 export { planCoverageFraction } from "./coverage";
 export { digestMarkdown } from "./digest";
