@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782427579553,
+  "updated_at": 1782427686722,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -14455,19 +14455,19 @@
       "id": "task_0d26beab238a4d1f8056e057645574e9",
       "name": "State-integrity §39.5: the built-in reminder/heartbeat/notifier injectors must surface the STATE-RECONCILIATION prompt at the right moments (tool-enforced, every orchestrator)",
       "type": "feat",
-      "model": null,
-      "model_rationale": null,
+      "model": "codex",
+      "model_rationale": "Bounded terminal-heavy state-integrity slice: ensure delayed reminder/heartbeat/notifier prompts inject the reconciliation routine automatically.",
       "acceptance_criteria": [
         "On heartbeat + after a worker report close + on idle, the built-in injector includes a reconcile reminder (process reports, in_progress<=>live worker, in_review->decide, accepted-branch->done, sweep) reaching the orchestrator automatically"
       ],
-      "test_plan": "Trigger a heartbeat/notifier with a stale in_progress present; assert the injected text carries the reconcile prompt",
+      "test_plan": "Add/adjust focused tests around delayed/reminder/notifier prompt construction; orchestrator reruns focused tests and build.sh check in hot checkout.",
       "correctness": "State-integrity is enforced by the tool for every orchestrator, not dependent on the agent remembering",
-      "status": "pending",
+      "status": "in_progress",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782395664028,
-      "updated_at": 1782395664028,
-      "status_changed_at": 1782395664028,
+      "updated_at": 1782427686722,
+      "status_changed_at": 1782427649167,
       "handle": "state-integrity-39-5-the-built-in-reminder-heartbeat-notifier-injectors-must-surface-the-state-reconciliation-prompt-at-the-right-moments-tool-enforced-every-orchestrator",
       "tags": [
         "state-integrity"
@@ -14478,17 +14478,19 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "767bb1b8",
       "lane": {
-        "pane_id": null,
+        "pane_id": "767bb1b8",
         "workspace_id": null,
         "workspace_name": null,
-        "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
-        "cleanup_status": null,
-        "cleanup_hints": []
+        "worktree_path": "/Users/rollacode/Developer/codeterm-state-reconcile-injectors",
+        "branch": "lane/state-reconcile-injectors",
+        "base": "19ce4094",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After accepted integration: close worker pane, remove /Users/rollacode/Developer/codeterm-state-reconcile-injectors, delete branch lane/state-reconcile-injectors, prune worktrees."
+        ]
       },
       "taken_by_role": null,
       "peer": null,
