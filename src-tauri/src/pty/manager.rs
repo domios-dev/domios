@@ -540,6 +540,46 @@ mod tests {
         );
     }
 
+    /// Regression guard for the CREATE_NO_WINDOW ConPTY bug: spawning a child
+    /// with CREATE_NO_WINDOW detaches it from the pseudoconsole, so the conout
+    /// reader gets zero bytes and every terminal renders blank. A bare cmd.exe
+    /// must produce output through the PTY reader within a few seconds.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn conpty_shell_produces_output() {
+        use std::io::Read;
+        use std::sync::mpsc;
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 30,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty");
+        let mut reader = pair.master.try_clone_reader().expect("clone reader");
+        let _child = pair
+            .slave
+            .spawn_command(CommandBuilder::new("cmd.exe"))
+            .expect("spawn cmd.exe");
+        drop(pair.slave);
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = vec![0u8; 4096];
+            let n = reader.read(&mut buf).unwrap_or(0);
+            buf.truncate(n);
+            let _ = tx.send(buf);
+        });
+        let got = rx
+            .recv_timeout(std::time::Duration::from_secs(8))
+            .unwrap_or_default();
+        assert!(
+            !got.is_empty(),
+            "ConPTY cmd.exe produced no output within 8s — CREATE_NO_WINDOW likely re-added to the pseudoconsole spawn"
+        );
+    }
+
     #[test]
     fn kill_returns_err_for_unknown_pty() {
         let mut manager = PtyManager::new();
