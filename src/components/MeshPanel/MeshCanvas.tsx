@@ -4,7 +4,7 @@ import { PeerTerminal } from "./PeerTerminal";
 import { ConnectionLine } from "./ConnectionLine";
 import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
-import { useCanvasViewport } from "../Canvas/useCanvasViewport";
+import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
 
 export interface RecentPush {
   source_id: string;
@@ -170,7 +170,7 @@ export function MeshCanvas({
     [remoteLayout],
   );
 
-  const { transform, handlers, fitToView, zoomBy, isDragging, containerRef } = useCanvasViewport({
+  const { transform, handlers, fitToView, zoomBy, isDragging, containerRef, layerRef } = useCanvasViewport({
     width,
     height,
     minScale: MIN_SCALE,
@@ -212,6 +212,7 @@ export function MeshCanvas({
           "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)",
         cursor: isDragging ? "grabbing" : "grab",
         userSelect: "none",
+        touchAction: "none",
       }}
     >
       {onOpenWebUi && (
@@ -250,8 +251,9 @@ export function MeshCanvas({
         </button>
       </div>
       <div
+        ref={layerRef}
         style={{
-          transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+          transform: formatLayerTransform(transform),
           transformOrigin: "0 0",
           width: width,
           height: height,

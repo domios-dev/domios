@@ -10,11 +10,12 @@
 import { expect, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { CANVAS_ZOOM_INTENSITY } from "../../../src/components/Canvas/useCanvasViewport";
 
 export const CANVAS_ART_DIR = path.resolve(__dirname, "..", "artifacts", "canvas");
 
-// Must match useCanvasViewport.ts ZOOM_INTENSITY; scale = exp(-deltaY * INTENSITY).
-const ZOOM_INTENSITY = 0.004;
+// Must match useCanvasViewport.ts CANVAS_ZOOM_INTENSITY; scale = exp(-deltaY * INTENSITY).
+const ZOOM_INTENSITY = CANVAS_ZOOM_INTENSITY;
 
 export interface Box {
   x: number;

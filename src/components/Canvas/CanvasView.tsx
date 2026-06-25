@@ -26,7 +26,7 @@ import { useCanvasPlans } from "./PlansProvider";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { CanvasElement, DriftItem, OrchestratorRef, Plan, Section, TagFacet, Task } from "./types";
 import { usePlanDrift } from "./usePlanDrift";
-import { useCanvasViewport } from "./useCanvasViewport";
+import { useCanvasViewport, formatLayerTransform } from "./useCanvasViewport";
 
 export interface CanvasViewInnerProps {
   mode: "workspace" | "focus";
@@ -229,7 +229,7 @@ export function CanvasViewInner({
     };
   }, [api, filteredPlans]);
 
-  const { transform, handlers, fitToView, zoomBy, setTransform, isDragging, containerRef } = useCanvasViewport({
+  const { transform, handlers, fitToView, zoomBy, setTransform, isDragging, containerRef, layerRef } = useCanvasViewport({
     width: size.width,
     height: size.height,
     panButton: "middle",
@@ -735,6 +735,7 @@ export function CanvasViewInner({
         style={{
           cursor: isDragging ? "grabbing" : "default",
           userSelect: "none",
+          touchAction: "none",
           background: "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)",
         }}
       >
@@ -760,9 +761,10 @@ export function CanvasViewInner({
         )}
         {!loading && filteredPlans.length > 0 && (
           <div
+            ref={layerRef}
             onDoubleClick={onWorldDoubleClick}
             style={{
-              transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+              transform: formatLayerTransform(transform),
               transformOrigin: "0 0",
               width: worldW,
               height: worldH,
