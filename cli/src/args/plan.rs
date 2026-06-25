@@ -208,6 +208,9 @@ pub enum PlanAction {
 
 #[derive(Subcommand)]
 pub enum PlanGoalAction {
+    Get {
+        plan_id: String,
+    },
     Set {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -323,6 +326,14 @@ pub enum PlanLoopAction {
 
 #[derive(Subcommand)]
 pub enum PlanTaskAction {
+    List {
+        plan_id: String,
+        #[arg(
+            long,
+            help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
+        )]
+        status: Option<String>,
+    },
     Add {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]

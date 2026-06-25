@@ -105,9 +105,10 @@ fn run_task(
             unassigned,
             workspace: _,
             plan,
+            status,
         } => {
             let mut params = json!({
-                "active": active || !all,
+                "active": status.is_none() && (active || !all),
                 "mine": mine,
                 "unassigned": unassigned,
             });
@@ -119,6 +120,9 @@ fn run_task(
             }
             if let Some(plan_id) = plan {
                 params["plan_id"] = json!(plan_id);
+            }
+            if let Some(status) = status {
+                params["status"] = json!(status);
             }
             call(client, "task.list", params)
         }

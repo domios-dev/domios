@@ -327,6 +327,26 @@ fn plan_task_link_and_relink_parse() {
 }
 
 #[test]
+fn plan_task_list_parses_plan_and_status() {
+    let parsed = Cli::try_parse_from([
+        "codeterm", "plan", "task", "list", "pl_1", "--status", "blocked",
+    ])
+    .expect("plan task list parses");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action: crate::args::plan::PlanTaskAction::List { plan_id, status },
+                },
+        } => {
+            assert_eq!(plan_id, "pl_1");
+            assert_eq!(status.as_deref(), Some("blocked"));
+        }
+        _ => panic!("expected plan task list"),
+    }
+}
+
+#[test]
 fn plan_task_add_parses_quality_fields() {
     let parsed = Cli::try_parse_from([
         "codeterm",
@@ -482,6 +502,18 @@ fn plan_goal_subcommands_parse() {
             action:
                 PlanAction::Goal {
                     action: crate::args::plan::PlanGoalAction::Show { plan_id },
+                },
+        } if plan_id == "pl_1"
+    ));
+
+    let parsed =
+        Cli::try_parse_from(["codeterm", "plan", "goal", "get", "pl_1"]).expect("get parses");
+    assert!(matches!(
+        parsed.command,
+        Commands::Plan {
+            action:
+                PlanAction::Goal {
+                    action: crate::args::plan::PlanGoalAction::Get { plan_id },
                 },
         } if plan_id == "pl_1"
     ));

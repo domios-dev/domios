@@ -321,6 +321,20 @@ fn run_plan(
         }
 
         PlanAction::Goal { action } => match action {
+            PlanGoalAction::Get { plan_id } | PlanGoalAction::Show { plan_id } => {
+                let val = call(client, "plan.goal.show", json!({ "plan_id": plan_id }))?;
+                if json {
+                    return Ok(Some(val));
+                }
+                if let Some(goal) = val.get("goal").filter(|v| !v.is_null()) {
+                    let mut out = String::new();
+                    render_goal_block(goal, &mut out);
+                    print!("{out}");
+                } else {
+                    println!("(no goal)");
+                }
+                return Ok(None);
+            }
             PlanGoalAction::Set {
                 plan_id,
                 vector,
@@ -341,20 +355,6 @@ fn run_plan(
                         "postulates": postulate,
                     }),
                 )
-            }
-            PlanGoalAction::Show { plan_id } => {
-                let val = call(client, "plan.goal.show", json!({ "plan_id": plan_id }))?;
-                if json {
-                    return Ok(Some(val));
-                }
-                if let Some(goal) = val.get("goal").filter(|v| !v.is_null()) {
-                    let mut out = String::new();
-                    render_goal_block(goal, &mut out);
-                    print!("{out}");
-                } else {
-                    println!("(no goal)");
-                }
-                return Ok(None);
             }
         },
 
@@ -529,6 +529,24 @@ fn run_plan(
         },
 
         PlanAction::Task { action } => match action {
+            PlanTaskAction::List { plan_id, status } => {
+                let mut params = json!({
+                    "active": status.is_none(),
+                    "mine": false,
+                    "unassigned": false,
+                    "plan_id": plan_id,
+                });
+                if let Some(project) = std::env::current_dir()
+                    .ok()
+                    .map(|path| path.display().to_string())
+                {
+                    params["project"] = json!(project);
+                }
+                if let Some(status) = status {
+                    params["status"] = json!(status);
+                }
+                call(client, "task.list", params)
+            }
             PlanTaskAction::Add {
                 plan_id,
                 name,
@@ -959,6 +977,19 @@ fn print_plan_result(json: bool, val: &Value) {
                     let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("?");
                     println!("{}\t{}", id, title);
                 }
+            }
+        }
+    } else if let Some(tasks) = val.get("tasks").and_then(|v| v.as_array()) {
+        if tasks.is_empty() {
+            println!("(no tasks)");
+        } else {
+            for item in tasks {
+                let task = item.get("task").unwrap_or(item);
+                let id = task.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                let name = task.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                let status = task.get("status").and_then(|v| v.as_str()).unwrap_or("?");
+                let plan = item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
+                println!("{id}\t{status}\t{plan}\t{name}");
             }
         }
     } else if val.get("ok").is_some() {

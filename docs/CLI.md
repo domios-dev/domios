@@ -1380,6 +1380,10 @@ Get a plan (markdown by default)
 
 Plan north-star goal
 
+#### `codeterm plan goal get`
+
+- `<plan_id>`
+
 #### `codeterm plan goal set`
 
 - `--constraint`
@@ -1684,6 +1688,11 @@ Plan tasks
 - `<plan_id>`
 - `--sections`
 - `<task_id>`
+
+#### `codeterm plan task list`
+
+- `<plan_id>`
+- `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 
 #### `codeterm plan task relink`
 
@@ -2078,6 +2087,7 @@ List tasks across active plans
 - `--all`
 - `--mine`
 - `--plan`
+- `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 - `--unassigned`
 - `--workspace`
 
