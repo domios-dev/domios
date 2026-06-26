@@ -184,6 +184,40 @@ test("TaskCard pane link chip appears for assigned tasks and fires onOpenPane", 
   await act(async () => root.unmount());
 });
 
+test("TaskCard presence marker shows assignee focus and latest stride", async () => {
+  const assigned = {
+    ...FIXTURE_TASK,
+    assigned_pane_id: "pane-42",
+    milestones: [
+      {
+        ...FIXTURE_MILESTONE,
+        from: { pane_id: "pane-42", session_id: null, title: "Puccini" },
+        kind: "status_update",
+      },
+    ],
+  };
+  const { host, root } = await render(
+    <TaskCard
+      task={assigned}
+      presence={{
+        paneId: "pane-42",
+        label: "Puccini",
+        focus: "Implement presence chip",
+        latest: { authorLabel: "Puccini", kindLabel: "status update" },
+      }}
+      style={cardStyle}
+      world="W3"
+    />,
+  );
+  const marker = host.querySelector('[data-testid="canvas-task-presence"]') as HTMLElement | null;
+  assert(marker, "presence marker rendered");
+  assert(marker.getAttribute("data-pane-id") === "pane-42", "pane id attached for presence marker");
+  assert(marker.textContent?.includes("Puccini"), `assignee label visible, got ${marker.textContent}`);
+  assert(marker.textContent?.includes("Implement presence chip"), `focus visible, got ${marker.textContent}`);
+  assert(marker.textContent?.includes("status update"), `latest stride kind visible, got ${marker.textContent}`);
+  await act(async () => root.unmount());
+});
+
 test("TaskCard drift badge renders actionable, muted not_mine, and absent states", async () => {
   const plain = await render(<TaskCard task={FIXTURE_TASK} style={cardStyle} world="W3" />);
   assert(!plain.host.querySelector('[data-testid="canvas-task-drift-badge"]'), "no badge without drift");

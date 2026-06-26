@@ -4,6 +4,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setListenForTest } from "../../lib/bridge";
+import type { Pane } from "../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import { CanvasViewInner } from "./CanvasView";
 import { registerNodeRenderer } from "./nodeRegistry";
@@ -85,6 +86,59 @@ test("CanvasViewInner renders the SEPARATE spec + plan nodes (§24.3) and a task
   assert(host.querySelector('[data-testid="canvas-orchestrator-group"]'), "orchestrator group wrapper");
   const paths = host.querySelectorAll("svg path");
   assert(paths.length >= 2, `spec↔plan + section→task edges drawn at rest, got ${paths.length}`);
+  await act(async () => root.unmount());
+});
+
+test("CanvasViewInner derives task presence from panes heartbeat and latest stride", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    heartbeat: {
+      current_focus: "Implement presence chip",
+      active_lanes: ["task-dante"],
+      rules: [],
+      learnings: [],
+    },
+    tasks: [
+      {
+        ...FIXTURE_TASK,
+        assigned_pane_id: "pane-42",
+        milestones: [
+          {
+            id: "stride-1",
+            from: { pane_id: "pane-42", session_id: null, title: null },
+            kind: "status_update",
+            text: "Presence marker wired.",
+            ts: 1_700_000_200_000,
+            links: [],
+            loop_id: null,
+            iteration: null,
+            canvas: { x: null, y: null, collapsed: false },
+          },
+        ],
+      },
+    ],
+  };
+  const panes: Record<string, Pane> = {
+    "pane-42": {
+      id: "pane-42",
+      pty_id: null,
+      pane_type: "Terminal",
+      title: "Puccini",
+      cwd: "/tmp/project",
+      agent_type: "codex",
+    },
+  };
+  const { host, root } = await render(
+    <CanvasViewInner {...CANVAS_PROPS} plans={[plan]} panes={panes} />,
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+  });
+  const marker = host.querySelector('[data-testid="canvas-task-presence"]') as HTMLElement | null;
+  assert(marker, "presence marker rendered on task card");
+  assert(marker.textContent?.includes("Puccini"), `pane title used as assignee label, got ${marker?.textContent}`);
+  assert(marker.textContent?.includes("Implement presence chip"), `heartbeat focus visible, got ${marker?.textContent}`);
+  assert(marker.textContent?.includes("status update"), `latest stride kind visible, got ${marker?.textContent}`);
   await act(async () => root.unmount());
 });
 

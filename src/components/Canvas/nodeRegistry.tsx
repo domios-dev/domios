@@ -13,6 +13,7 @@ import { type World } from "./worlds";
 import type { LaidOutNode } from "./layout";
 import { registerProvenanceRenderers } from "./registerProvenanceRenderers";
 import type { CanvasElement, DriftItem, Plan, TagFacet, Task } from "./types";
+import type { TaskPresence } from "./taskPresence";
 
 // kind → renderer dispatch. Adding a node kind = one register call; canvas core,
 // layout, pan/zoom and focus detection stay untouched. Open-kind fallback kept.
@@ -109,12 +110,12 @@ registerNodeRenderer("spec", ({ model, style, world, crispScale, onSectionClick,
   model ? <SectionNode variant="spec" plan={model as Plan} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} /> : null,
 );
 registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride, tagFilterDimmed, tagFilterHighlighted }) => {
-  const m = model as { task: Task; tagFacets?: TagFacet[]; childCount?: number; childDone?: number; parentTaskName?: string | null; stepColors?: Map<string, string>; drift?: DriftItem } | undefined;
+  const m = model as { task: Task; tagFacets?: TagFacet[]; childCount?: number; childDone?: number; parentTaskName?: string | null; stepColors?: Map<string, string>; drift?: DriftItem; presence?: TaskPresence | null } | undefined;
   if (!m) return null;
   // §32.3: subtasks are SOLID satellite tiles swarming around their parent (packed
   // by the same cloud logic, smaller footprint) — never gated, never faded. Opacity
   // is NEVER a hierarchy/zoom signal; a subtask reads at every zoom, just smaller.
-  return <TaskCard task={m.task} tagFacets={m.tagFacets} childCount={m.childCount} childDone={m.childDone} parentTaskName={m.parentTaskName} stepColors={m.stepColors} drift={m.drift} style={style} world={world} crispScale={crispScale} onOpenPane={onOpenPane} onHover={onHoverTask} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} />;
+  return <TaskCard task={m.task} tagFacets={m.tagFacets} childCount={m.childCount} childDone={m.childDone} parentTaskName={m.parentTaskName} stepColors={m.stepColors} drift={m.drift} presence={m.presence} style={style} world={world} crispScale={crispScale} onOpenPane={onOpenPane} onHover={onHoverTask} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} />;
 });
 registerNodeRenderer("milestone", ({ model, style, lod }) =>
   model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} /> : null,
