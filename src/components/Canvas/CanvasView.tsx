@@ -52,6 +52,7 @@ import { MAX_ACTIVE_RICH_OVERLAYS, buildOverlayNodes } from "./richOverlays";
 import { overlayBudgetEnabled } from "./overlayBudgetFlag";
 import { buildCanvasScene, pickCanvasSceneNodeAtScreenPoint, publishCanvasSceneReadback } from "./scene";
 import { substrateV2Enabled } from "./substrateFlag";
+import { perfFixtureCount, buildPerfFixturePlans, realFixtureEnabled, realFixturePlans } from "./perfFixture";
 
 export interface CanvasViewInnerProps {
   mode: "workspace" | "focus";
@@ -200,7 +201,9 @@ export function CanvasViewInner({
   const layoutRevision = layoutInputRevision(layoutSourcePlans, specSectionsByPlan);
   const lineageCatalog = useMemo(() => buildLineageCatalog(plans), [plansRevision]);
   const layout = useMemo(() => layoutWorkspace(layoutSourcePlans), [layoutRevision]);
-  const scene = useMemo(() => buildCanvasScene({ layout, plans: layoutSourcePlans, cameraScale: transform.scale }), [layout, layoutSourcePlans, transform.scale]);
+  // Scale-independent: scene structure does not depend on camera zoom, so it
+  // rebuilds only when the layout changes — not on every pan/zoom frame.
+  const scene = useMemo(() => buildCanvasScene({ layout, plans: layoutSourcePlans }), [layout, layoutSourcePlans]);
 
   const lookups = useMemo<CanvasLookups>(() => {
     const nodeById = new Map<string, LaidOutNode>();
@@ -434,7 +437,13 @@ export function CanvasViewInner({
       const minY = Math.min(...boxes.map((b) => b.y));
       const maxX = Math.max(...boxes.map((b) => b.x + b.width));
       const maxY = Math.max(...boxes.map((b) => b.y + b.height));
-      fitToView({ x: minX, y: minY, width: maxX - minX, height: maxY - minY });
+      // Inflate the framed bbox so a focused node sits fully inside the viewport
+      // with margin (no title/edge clipped at the viewport border).
+      const w = maxX - minX;
+      const h = maxY - minY;
+      const padX = w * 0.12;
+      const padY = h * 0.18;
+      fitToView({ x: minX - padX, y: minY - padY, width: w + padX * 2, height: h + padY * 2 });
     },
     [lookups, fitToView],
   );
@@ -824,6 +833,7 @@ export function CanvasViewInner({
                     key={frame.planId}
                     edges={frame.edges}
                     nodeById={lookups.nodeById}
+                    visibleIds={nodeIds}
                     hoveredTask={hoveredTask}
                     highlight={highlight}
                     tagFilterActive={tagFilterActive}
@@ -834,6 +844,7 @@ export function CanvasViewInner({
               <CanvasEdges
                 edges={layout.crossEdges ?? []}
                 nodeById={lookups.nodeById}
+                visibleIds={nodeIds}
                 hoveredTask={hoveredTask}
                 highlight={highlight}
                 tagFilterActive={tagFilterActive}
@@ -934,7 +945,14 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
   const workspaceTarget = useCanvasWorkspaceTarget();
-  const { plans, loading, error } = useCanvasPlans(mode, projectPath);
+  const { plans: livePlans, loading, error } = useCanvasPlans(mode, projectPath);
+  // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
+  const perfN = perfFixtureCount();
+  const useReal = realFixtureEnabled();
+  const plans = useMemo(
+    () => (useReal ? realFixturePlans() : perfN > 0 ? buildPerfFixturePlans(perfN) : livePlans),
+    [useReal, perfN, livePlans],
+  );
   return (
     <CanvasViewInner
       mode={mode}

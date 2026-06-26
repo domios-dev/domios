@@ -12,6 +12,8 @@ interface EdgePaintCtx {
 interface CanvasEdgesProps extends EdgePaintCtx {
   edges: readonly LaidOutEdge[];
   nodeById: Map<string, LaidOutNode>;
+  /** Viewport cull: only paint edges touching a visible node (point-only edges always paint). */
+  visibleIds?: ReadonlySet<string>;
 }
 
 function edgeJitter(id: string): number {
@@ -78,17 +80,16 @@ function paintEdge(edge: LaidOutEdge, nodeById: Map<string, LaidOutNode>, ctx: E
   );
 }
 
-export function CanvasEdges({ edges, nodeById, hoveredTask, highlight, tagFilterActive, tagFilterMatchIds }: CanvasEdgesProps) {
+export function CanvasEdges({ edges, nodeById, visibleIds, hoveredTask, highlight, tagFilterActive, tagFilterMatchIds }: CanvasEdgesProps) {
   return (
     <>
-      {edges.map((edge) =>
-        paintEdge(edge, nodeById, {
-          hoveredTask,
-          highlight,
-          tagFilterActive,
-          tagFilterMatchIds,
-        }),
-      )}
+      {edges.map((edge) => {
+        if (visibleIds && (edge.from != null || edge.to != null)) {
+          const seen = (edge.from != null && visibleIds.has(edge.from)) || (edge.to != null && visibleIds.has(edge.to));
+          if (!seen) return null;
+        }
+        return paintEdge(edge, nodeById, { hoveredTask, highlight, tagFilterActive, tagFilterMatchIds });
+      })}
     </>
   );
 }
