@@ -47,6 +47,8 @@ import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePl
 import { CanvasFocusBreadcrumb } from "./CanvasFocusBreadcrumb";
 import { CanvasPassiveRenderLayer } from "./CanvasPassiveRenderLayer";
 import { CanvasRichOverlayLayer } from "./CanvasRichOverlayLayer";
+import { CanvasPresenceLayer } from "./CanvasPresenceLayer";
+import { MAX_ACTIVE_PRESENCE_OVERLAYS, buildPresenceOverlays, type PresenceSource } from "./presenceOverlays";
 import { CanvasWorldNodeList } from "./CanvasWorldNodeList";
 import { CanvasWorldDecorations } from "./CanvasWorldDecorations";
 import { MAX_ACTIVE_RICH_OVERLAYS, buildOverlayNodes } from "./richOverlays";
@@ -394,6 +396,24 @@ export function CanvasViewInner({
     [scene, transform, mode, planId, richOverlays],
   );
 
+  // EMERGENCE: the swarm (only tasks with executing agents). Built off the existing
+  // per-task presence — O(tasks) once per data change, NOT per pan/zoom.
+  const presenceByTask = useMemo(() => {
+    const m = new Map<string, PresenceSource>();
+    for (const [id, model] of lookups.taskModelById) {
+      const p = model.presence;
+      if (!p || p.agents.length === 0) continue;
+      m.set(id, { agents: p.agents, live: model.task.status === "in_progress", label: p.agents[0]?.label ?? p.label });
+    }
+    return m;
+  }, [lookups.taskModelById]);
+  // Floating presence pins: budget-bounded + viewport-culled → constant pin count on
+  // a 20k board, recomputed only when camera/visibility/swarm change (no per-frame O(N)).
+  const presenceOverlays = useMemo(
+    () => buildPresenceOverlays({ presenceByTask, nodeById: lookups.nodeById, visibleIds: nodeIds, worldByNode, transform, maxActive: MAX_ACTIVE_PRESENCE_OVERLAYS }),
+    [presenceByTask, lookups.nodeById, nodeIds, worldByNode, transform],
+  );
+
   // §25.3 DOMINANCE (focus-assist for the task you "fell into"): when one task fills
   // ≳60% of the viewport it ELEVATES (paint above + shadow, NO footprint change).
   // Siblings stay SOLID (§32.3 — depth, not fade). Viewport-relative, transient.
@@ -491,6 +511,15 @@ export function CanvasViewInner({
       setBlinkIds(new Set(ids));
     },
     [fitCameraToNodes, centerCameraOnNodes],
+  );
+
+  // A presence pin → fly to the task its agent is executing (eased + blink), reusing
+  // the shared fly primitive. The literal "click an agent, go to its work" gesture.
+  const onFlyToTask = useCallback(
+    (taskId: string) => {
+      if (lookups.nodeById.has(taskId)) focusOnNodes([taskId], undefined, true);
+    },
+    [lookups, focusOnNodes],
   );
 
   // Task ids covering a given plan section — the section→tasks mapping for nav.
@@ -843,6 +872,9 @@ export function CanvasViewInner({
             onSectionClick={onSectionClick}
             onSectionFrame={onSectionFrame}
           />
+        )}
+        {!loading && filteredPlans.length > 0 && (
+          <CanvasPresenceLayer overlays={presenceOverlays} onFlyToTask={onFlyToTask} onHoverTask={onHoverTask} />
         )}
         {!loading && filteredPlans.length > 0 && (
           <div
