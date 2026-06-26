@@ -90,9 +90,11 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   onFitNode?: () => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
+  suppressRichContent?: boolean;
+  richOverlay?: boolean;
 }
 
-export function SectionNode({ variant, plan, style, world, driftCount = 0, workspaceScope, crispScale = 1, onArchive, onFitNode, onSectionClick, onSectionFrame }: SectionNodeProps) {
+export function SectionNode({ variant, plan, style, world, driftCount = 0, workspaceScope, crispScale = 1, onArchive, onFitNode, onSectionClick, onSectionFrame, suppressRichContent = false, richOverlay = false }: SectionNodeProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
@@ -103,7 +105,8 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
     ? `Participating workspaces: ${workspaceScope.participantWorkspaceLabels.join(", ")}`
     : undefined;
   const showRows = atLeast(world, "W1");
-  const showBody = atLeast(world, "W2"); // the reveal band (§26.2)
+  const budgetRich = suppressRichContent && !richOverlay;
+  const showBody = atLeast(world, "W2") && !budgetRich; // the reveal band (§26.2)
   const scroll = showBody;
 
   const counts = { uncovered: 0, progress: 0, done: 0 };
@@ -205,7 +208,7 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
           </div>
         ) : showRows ? (
           rows.map((row) => (
-            <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} />
+            <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={budgetRich} />
           ))
         ) : (
           // §32.2 W0: COMPRESSED — top section rows + status counts, never hollow.
@@ -253,15 +256,16 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
 // deepest applied to content: W2→W3 changes only rasterization, never geometry.
 // §32.7: single-click highlights connected tasks; double-click / target button
 // frames them; copy-id yanks the section id. All camera motion is user-initiated.
-function SectionRowView({ row, variant, world, planId, onSectionClick, onSectionFrame }: {
+function SectionRowView({ row, variant, world, planId, onSectionClick, onSectionFrame, suppressRichContent = false }: {
   row: SectionRow; variant: "plan" | "spec"; world: World; planId: string;
   onSectionClick?: (a: SectionNavArgs) => void; onSectionFrame?: (a: SectionNavArgs) => void;
+  suppressRichContent?: boolean;
 }) {
   const g = GLYPH[row.glyph];
   const isPlan = variant === "plan";
   const hasBody = row.section.body.trim().length > 0;
-  const showBody = atLeast(world, "W2") && hasBody;
-  const showAbstract = !isPlan && !showBody && atLeast(world, "W1") && hasBody;
+  const showBody = atLeast(world, "W2") && hasBody && !suppressRichContent;
+  const showAbstract = !isPlan && !showBody && atLeast(world, "W1") && hasBody && !suppressRichContent;
   const clamp = isPlan; // §22.1: spec body is unclamped from W2 on (deepest layout reserved, no W2→W3 reflow)
   const grow = showBody || showAbstract;
   const nav: SectionNavArgs = { planId, sectionId: row.section.id, variant };

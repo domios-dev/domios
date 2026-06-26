@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782469908838,
+  "updated_at": 1782470418079,
   "milestone_kinds": [
     {
       "key": "research",
@@ -569,12 +569,12 @@
       ],
       "test_plan": "Focused unit/component tests plus orchestrator-run Playwright with substrate/overlay flags enabled.",
       "correctness": "Rich content moves toward a Figma-like overlay model: canvas/scene geometry owns layout, DOM richness is capped to focused nodes.",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782469883785,
-      "updated_at": 1782469908838,
-      "status_changed_at": 1782469908838,
+      "updated_at": 1782470418079,
+      "status_changed_at": 1782470418079,
       "handle": "s5-runtime-rich-overlay-dom-and-budgeted-card-degradation",
       "tags": [
         "canvas",

@@ -41,6 +41,8 @@ export interface NodeRenderArgs {
   onSectionFrame?: (a: SectionNavArgs) => void;
   tagFilterDimmed?: boolean;
   tagFilterHighlighted?: boolean;
+  suppressRichContent?: boolean;
+  richOverlay?: boolean;
   /** §26 worlds: this node's appW-driven content band (W0 mass → W3 deep). */
   world: World;
   /** §34 crisp text: re-rasterize factor for this node (1 = none, else camera scale). */
@@ -93,7 +95,7 @@ export function getNodeRenderer(kind: string): NodeRenderer {
   return renderers[kind] ?? fallbackRenderer;
 }
 
-registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive, onFitNode, onSectionClick, onSectionFrame }) =>
+registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive, onFitNode, onSectionClick, onSectionFrame, suppressRichContent, richOverlay }) =>
   model ? (
     <SectionNode
       variant="plan"
@@ -107,22 +109,24 @@ registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive
       onFitNode={onFitNode ? () => onFitNode(node.id) : undefined}
       onSectionClick={onSectionClick}
       onSectionFrame={onSectionFrame}
+      suppressRichContent={suppressRichContent}
+      richOverlay={richOverlay}
     />
   ) : null,
 );
 registerNodeRenderer("plan-ghost", ({ model, style }) =>
   model ? <PlanGhostCard model={model as PlanGhostModel} style={style} /> : null,
 );
-registerNodeRenderer("spec", ({ model, style, world, crispScale, onSectionClick, onSectionFrame }) =>
-  model ? <SectionNode variant="spec" plan={model as PlanNodeModel} workspaceScope={(model as PlanNodeModel).workspaceScope} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} /> : null,
+registerNodeRenderer("spec", ({ model, style, world, crispScale, onSectionClick, onSectionFrame, suppressRichContent, richOverlay }) =>
+  model ? <SectionNode variant="spec" plan={model as PlanNodeModel} workspaceScope={(model as PlanNodeModel).workspaceScope} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={suppressRichContent} richOverlay={richOverlay} /> : null,
 );
-registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride, tagFilterDimmed, tagFilterHighlighted }) => {
+registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay }) => {
   const m = model as { task: Task; tagFacets?: TagFacet[]; childCount?: number; childDone?: number; parentTaskName?: string | null; stepColors?: Map<string, string>; drift?: DriftItem; presence?: TaskPresence | null } | undefined;
   if (!m) return null;
   // §32.3: subtasks are SOLID satellite tiles swarming around their parent (packed
   // by the same cloud logic, smaller footprint) — never gated, never faded. Opacity
   // is NEVER a hierarchy/zoom signal; a subtask reads at every zoom, just smaller.
-  return <TaskCard task={m.task} tagFacets={m.tagFacets} childCount={m.childCount} childDone={m.childDone} parentTaskName={m.parentTaskName} stepColors={m.stepColors} drift={m.drift} presence={m.presence} style={style} world={world} crispScale={crispScale} onOpenPane={onOpenPane} onHover={onHoverTask} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} />;
+  return <TaskCard task={m.task} tagFacets={m.tagFacets} childCount={m.childCount} childDone={m.childDone} parentTaskName={m.parentTaskName} stepColors={m.stepColors} drift={m.drift} presence={m.presence} style={style} world={world} crispScale={crispScale} onOpenPane={onOpenPane} onHover={onHoverTask} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} suppressRichContent={suppressRichContent} richOverlay={richOverlay} />;
 });
 registerNodeRenderer("milestone", ({ model, style, lod }) =>
   model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} /> : null,

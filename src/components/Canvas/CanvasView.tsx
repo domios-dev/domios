@@ -9,7 +9,6 @@ import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
 import { CanvasEdges } from "./CanvasEdges";
-import { CanvasNodeCard } from "./CanvasNodeCard";
 import { CanvasTagLegend } from "./CanvasTagLegend";
 import { CanvasUnownedTray } from "./CanvasUnownedTray";
 import type { CanvasLod, MilestoneBubbleModel } from "./cards";
@@ -46,7 +45,11 @@ import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
 import { CanvasFocusBreadcrumb } from "./CanvasFocusBreadcrumb";
 import { CanvasPassiveRenderLayer } from "./CanvasPassiveRenderLayer";
+import { CanvasRichOverlayLayer } from "./CanvasRichOverlayLayer";
+import { CanvasWorldNodeList } from "./CanvasWorldNodeList";
+import { CanvasWorldDecorations } from "./CanvasWorldDecorations";
 import { MAX_ACTIVE_RICH_OVERLAYS, buildOverlayNodes } from "./richOverlays";
+import { overlayBudgetEnabled } from "./overlayBudgetFlag";
 import { buildCanvasScene, pickCanvasSceneNodeAtScreenPoint, publishCanvasSceneReadback } from "./scene";
 import { substrateV2Enabled } from "./substrateFlag";
 
@@ -366,6 +369,10 @@ export function CanvasViewInner({
   const nodeIds = useMemo(
     () => new Set(visibleNodeIds(layout, transform, canvasSize, padding)),
     [layout, transform, canvasSize, padding],
+  );
+  const visibleNodes = useMemo(
+    () => layout.frames.flatMap((frame) => frame.nodes.filter((n) => nodeIds.has(n.id))),
+    [layout, nodeIds],
   );
 
   const [blinkIds, setBlinkIds] = useState<Set<string>>(() => new Set());
@@ -711,7 +718,7 @@ export function CanvasViewInner({
     : null;
 
   return (
-    <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view">
+    <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view" data-overlay-budget={overlayBudgetEnabled() ? "true" : "false"}>
       {onClose && (
         <button
           type="button"
@@ -759,6 +766,21 @@ export function CanvasViewInner({
           <CanvasPassiveRenderLayer scene={scene} transform={transform} width={size.width} height={size.height} hostRef={containerRef}
             focusedNodeId={focusedNodeId} dominantNodeId={dominantNodeId} hoveredTask={hoveredTask} highlight={highlight}
             tagFilterMatchIds={tagFilterMatchIds} blinkIds={blinkIds} pulsePlanIds={pulsePlanIds} tagFilterActive={tagFilterActive} />
+        )}
+        {!loading && filteredPlans.length > 0 && (
+          <CanvasRichOverlayLayer
+            overlays={richOverlays}
+            nodeById={lookups.nodeById}
+            resolveModel={resolveModel}
+            onOpenPane={onOpenPane}
+            onHoverTask={onHoverTask}
+            onArchive={api ? handleArchive : undefined}
+            onFitNode={fitNode}
+            onCopyLink={onCopyLink}
+            onFocusStride={onFocusStride}
+            onSectionClick={onSectionClick}
+            onSectionFrame={onSectionFrame}
+          />
         )}
         {!loading && filteredPlans.length > 0 && (
           <div
@@ -818,97 +840,34 @@ export function CanvasViewInner({
                 tagFilterMatchIds={tagFilterMatchIds}
               />
             </svg>
-            {layout.frames.flatMap((frame) =>
-              frame.nodes
-                .filter((n) => nodeIds.has(n.id))
-                .map((n) => {
-                  const nodeWorld = worldByNode.get(n.id) ?? "W1";
-                  const tagFilterDimmed = tagFilterActive && n.kind === "task" && !tagFilterMatchIds!.has(n.id);
-                  const tagFilterHighlighted = tagFilterActive && n.kind === "task" && tagFilterMatchIds!.has(n.id);
-                  return (
-                  <CanvasNodeCard
-                    key={n.id}
-                    node={n}
-                    model={resolveModel(n)}
-                    lod={lod}
-                    world={nodeWorld}
-                    crispScale={crispRasterScale(nodeWorld, transform.scale)}
-                    elevated={dominantNodeId != null && n.id === dominantNodeId}
-                    onOpenPane={onOpenPane}
-                    onHoverTask={onHoverTask}
-                    onArchive={n.kind === "plan" && api ? () => handleArchive(n.id) : undefined}
-                    onFitNode={n.kind === "plan" ? fitNode : undefined}
-                    onCopyLink={onCopyLink}
-                    onFocusStride={onFocusStride}
-                    onSectionClick={onSectionClick}
-                    onSectionFrame={onSectionFrame}
-                    tagFilterDimmed={tagFilterDimmed}
-                    tagFilterHighlighted={tagFilterHighlighted}
-                  />
-                  );
-                }),
-            )}
-            {hoveredTask && lookups.nodeById.has(hoveredTask) && nodeIds.has(hoveredTask) && (() => {
-              const box = lookups.nodeById.get(hoveredTask)!.box;
-              return (
-                <div
-                  className="ct-canvas-hovered pointer-events-none absolute"
-                  style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-md)" }}
-                />
-              );
-            })()}
-            {/* §32.7 section highlight: connected task nodes get a steady ring (no
-                camera move) so a single-clicked section's tasks read at a glance. */}
-            {highlight && [...highlight.taskIds].map((id) => {
-              const box = lookups.nodeById.get(id)?.box;
-              if (!box || !nodeIds.has(id)) return null;
-              return (
-                <div
-                  key={`hl-${id}`}
-                  data-testid="canvas-section-highlight"
-                  className="ct-canvas-hovered pointer-events-none absolute"
-                  style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-md)" }}
-                />
-              );
-            })}
-            {tagFilterMatchIds && [...tagFilterMatchIds].map((id) => {
-              const box = lookups.nodeById.get(id)?.box;
-              if (!box || !nodeIds.has(id)) return null;
-              return (
-                <div
-                  key={`tag-hl-${id}`}
-                  data-testid="canvas-tag-filter-highlight"
-                  className="ct-canvas-hovered pointer-events-none absolute"
-                  style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-md)" }}
-                />
-              );
-            })}
-            {[...blinkIds].map((id) => {
-              const box = lookups.nodeById.get(id)?.box;
-              if (!box || !nodeIds.has(id)) return null;
-              // Outer ring/glow ONLY (no overlay over the card) — text stays readable.
-              return (
-                <div
-                  key={`blink-${id}`}
-                  className="ct-canvas-blink pointer-events-none absolute"
-                  style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-lg)" }}
-                />
-              );
-            })}
-            {/* §31 in-place pulse: a live-changed plan that's on-screen pulses gently
-                (no camera move). Ring/glow only, over the plan node box. */}
-            {[...pulsePlanIds].map((id) => {
-              const box = lookups.nodeById.get(id)?.box;
-              if (!box || !nodeIds.has(id)) return null;
-              return (
-                <div
-                  key={`pulse-${id}`}
-                  data-testid="canvas-change-pulse"
-                  className="ct-canvas-pulse pointer-events-none absolute"
-                  style={{ left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: "var(--ct-radius-lg)" }}
-                />
-              );
-            })}
+            <CanvasWorldNodeList
+              nodes={visibleNodes}
+              lod={lod}
+              worldByNode={worldByNode}
+              crispRasterScale={crispRasterScale}
+              transformScale={transform.scale}
+              dominantNodeId={dominantNodeId}
+              resolveModel={resolveModel}
+              onOpenPane={onOpenPane}
+              onHoverTask={onHoverTask}
+              onArchive={api ? handleArchive : undefined}
+              onFitNode={fitNode}
+              onCopyLink={onCopyLink}
+              onFocusStride={onFocusStride}
+              onSectionClick={onSectionClick}
+              onSectionFrame={onSectionFrame}
+              tagFilterActive={tagFilterActive}
+              tagFilterMatchIds={tagFilterMatchIds}
+            />
+            <CanvasWorldDecorations
+              nodeById={lookups.nodeById}
+              nodeIds={nodeIds}
+              hoveredTask={hoveredTask}
+              highlight={highlight}
+              tagFilterMatchIds={tagFilterMatchIds}
+              blinkIds={blinkIds}
+              pulsePlanIds={pulsePlanIds}
+            />
           </div>
         )}
         {/* §31 off-screen change marker: a directional dot at the viewport edge
