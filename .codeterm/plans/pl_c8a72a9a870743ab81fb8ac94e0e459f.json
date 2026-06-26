@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782454235512,
+  "updated_at": 1782454437686,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -15721,12 +15721,12 @@
       ],
       "test_plan": "Run the new union-merge regression test plus git diff --check and the relevant repo build/check wrapper in the hot checkout.",
       "correctness": "Append-only plan log storage uses plain git built-ins safely before broader §33 migration work begins.",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p1",
       "created_at": 1782454167418,
-      "updated_at": 1782454235512,
-      "status_changed_at": 1782454189995,
+      "updated_at": 1782454437686,
+      "status_changed_at": 1782454437686,
       "handle": "33-1-spike-git-merge-union-for-append-only-stride-logs",
       "tags": [],
       "section_ids": [
@@ -15757,7 +15757,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_2494b228d5584f70a35be6c31954f19f",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted and integrated §33.1 merge=union prerequisite spike.\n\nChanges:\n- Added `.codeterm/plans/**/strides.jsonl merge=union` to `.gitattributes` for future append-only plan stride/event logs.\n- Added `scripts/test-plan-strides-union-merge.sh`, a temp-git regression that creates concurrent branch EOF appends to a plan `strides.jsonl`, merges with git's built-in union driver, asserts both branch events survive exactly once, and asserts deterministic fold/dedup order by `(ts, id)`.\n\nOrchestrator gates:\n- scripts/test-plan-strides-union-merge.sh: passed.\n- git diff --check: passed.\n- bash scripts/check-file-sizes.sh: reports unrelated pre-existing oversized files; touched files are 89 and 11 lines.\n- CODETERM_API_PORT=7686 ./build.sh check: passed.\n\nResidual risk:\n- This is only the §33 prerequisite spike/rule/test. The parent mergeable-storage implementation remains open for explode migration, per-entity write path, post-merge reindex, and compaction.\n",
+          "ts": 1782454437686,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     }
   ],
   "task_groups": [],
