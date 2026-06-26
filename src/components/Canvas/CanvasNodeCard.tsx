@@ -23,6 +23,7 @@ interface CanvasNodeCardProps {
   tagFilterHighlighted?: boolean;
   suppressRichContent?: boolean;
   richOverlay?: boolean;
+  lightweightWorld?: boolean;
   fillParent?: boolean;
 }
 
@@ -37,7 +38,7 @@ function nodeStyle(box: { x: number; y: number; width: number; height?: number }
 }
 
 export const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, world, crispScale, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay, fillParent }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, world, crispScale, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay, lightweightWorld, fillParent }: CanvasNodeCardProps) {
     const base = fillParent
       ? { position: "absolute" as const, left: 0, top: 0, width: "100%", height: "100%" }
       : nodeStyle(node.box);
@@ -65,6 +66,7 @@ export const CanvasNodeCard = memo(
       tagFilterHighlighted,
       suppressRichContent,
       richOverlay,
+      lightweightWorld,
     });
     return rendered ? <Fragment key={node.id}>{rendered}</Fragment> : null;
   },
@@ -78,6 +80,7 @@ export const CanvasNodeCard = memo(
     if (prev.tagFilterHighlighted !== next.tagFilterHighlighted) return false;
     if (prev.suppressRichContent !== next.suppressRichContent) return false;
     if (prev.richOverlay !== next.richOverlay) return false;
+    if (prev.lightweightWorld !== next.lightweightWorld) return false;
     if (prev.fillParent !== next.fillParent) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;

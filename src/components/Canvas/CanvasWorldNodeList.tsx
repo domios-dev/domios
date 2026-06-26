@@ -1,7 +1,7 @@
 import { CanvasNodeCard } from "./CanvasNodeCard";
 import type { CanvasLod } from "./cards";
 import type { LaidOutNode } from "./layout";
-import { shouldSuppressWorldRichContent } from "./overlayBudget";
+import { shouldUseLightweightWorldCard } from "./overlayBudget";
 import type { World } from "./worlds";
 
 export interface CanvasWorldNodeListProps {
@@ -68,7 +68,8 @@ export function CanvasWorldNodeList({
             onSectionFrame={onSectionFrame}
             tagFilterDimmed={tagFilterDimmed}
             tagFilterHighlighted={tagFilterHighlighted}
-            suppressRichContent={shouldSuppressWorldRichContent(n.kind)}
+            suppressRichContent={shouldUseLightweightWorldCard(n.kind)}
+            lightweightWorld={shouldUseLightweightWorldCard(n.kind)}
           />
         );
       })}

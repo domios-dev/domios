@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782470561645,
+  "updated_at": 1782472938624,
   "milestone_kinds": [
     {
       "key": "research",
@@ -622,12 +622,12 @@
       ],
       "test_plan": "Focused component/unit tests and orchestrator-run Playwright budget gate with canvas.substrateV2/canvas.overlayBudget/canvas.passiveRenderer enabled.",
       "correctness": "World layer becomes cheap; DOM richness is reserved for bounded overlays.",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782470526859,
-      "updated_at": 1782470561645,
-      "status_changed_at": 1782470561645,
+      "updated_at": 1782472938624,
+      "status_changed_at": 1782472938624,
       "handle": "s6-lightweight-world-cards-under-substrate-overlay-budget",
       "tags": [
         "canvas",
