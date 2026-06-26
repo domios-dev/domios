@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782457022744,
+  "updated_at": 1782457728888,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -16001,12 +16001,12 @@
       ],
       "test_plan": "Run focused body_file/stride_log Rust tests plus git diff --check, file-size check, and CODETERM_API_PORT=7686 ./build.sh check in the hot checkout.",
       "correctness": "§33 sidecar logs remain git-merge-safe across ordinary saves before the larger append-only/explode storage rewrite.",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p1",
       "created_at": 1782456853411,
-      "updated_at": 1782456899864,
-      "status_changed_at": 1782456899864,
+      "updated_at": 1782457728888,
+      "status_changed_at": 1782457728888,
       "handle": "33-5-preserve-merged-stride-log-entries-on-save",
       "tags": [],
       "section_ids": [
@@ -16037,7 +16037,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_4d16263b14b34bf8823735ea4e46e66c",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted and integrated into feat/canvas.\n\nChanges:\n- `persist_stride_log` now reads existing `tasks/<handle>/strides.jsonl`, combines it with the task's current milestones, folds/dedupes deterministically, and rewrites the folded log.\n- This preserves sidecar-only entries from git union merges or manual sidecar edits during ordinary plan saves.\n- Raw plan JSON remains stripped of `tasks[].milestones`.\n\nOrchestrator verification in /Users/rollacode/Developer/codeterm:\n- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check\n- perl -e 'alarm 180; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml --lib service::plan::body_file_tests::save_preserves_existing_sidecar_only_stride_entries -- --nocapture (1 passed)\n- perl -e 'alarm 180; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml --lib service::plan::body_file_tests -- --nocapture (8 passed)\n- perl -e 'alarm 180; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml --lib service::plan::stride_log -- --nocapture (7 passed)\n- git diff --check for touched files\n- bash scripts/check-file-sizes.sh (only known unrelated baseline files; touched files under limits)\n- CODETERM_API_PORT=7686 ./build.sh check\n",
+          "ts": 1782457728888,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_982bf856a061417798c7fd9314929385",

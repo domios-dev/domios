@@ -567,10 +567,13 @@ fn persist_optional_markdown(path: &Path, body: &str, should_persist: bool) -> s
 
 fn persist_stride_log(plan: &Plan, task: &Task) -> std::io::Result<()> {
     let path = task_stride_log_path(plan, task)?;
-    if task.milestones.is_empty() {
+    let mut milestones = task.milestones.clone();
+    milestones.extend(super::stride_log::read_milestones(&path).map_err(stride_log_to_io_error)?);
+    let folded = super::stride_log::fold_milestones(milestones);
+    if folded.is_empty() {
         return remove_file_if_exists(&path);
     }
-    super::stride_log::rewrite_milestones(&path, task.milestones.clone())
+    super::stride_log::rewrite_milestones(&path, folded)
         .map(|_| ())
         .map_err(stride_log_to_io_error)
 }
