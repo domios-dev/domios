@@ -50,6 +50,10 @@ setup_env() {
 # Scoped strictly to $CT_PORT / $CT_VITE_PORT / this instance's screen+pidfile.
 # No global pgrep on target/debug/codeterm — that would take down every worktree.
 kill_dev() {
+  if [ "$CT_PORT" = "7685" ]; then
+    echo "ERROR: refusing to kill prod CodeTerm port 7685" >&2
+    exit 1
+  fi
   kill_web_watch 2>/dev/null || true
   local session_prefix="codeterm-dev${CT_SUFFIX}-"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
@@ -82,19 +86,17 @@ kill_dev() {
 
 setup_env
 
+CMD="${1:-dev}"
+
 # --- Per-worktree dev instance isolation ---
 # CODETERM_INSTANCE (optional) names a dev instance so multiple worktrees can
 # run ./build.sh dev concurrently without colliding. Unset = canonical defaults
 # (.codeterm-dev / 7686 / 1420). See AGENTS.md "Process safety".
 CT_INSTANCE="${CODETERM_INSTANCE:-}"
-CT_PORT="${CODETERM_API_PORT:-7686}"
-# PROD GUARD: 7685 is the production daemon. build.sh is dev-only; it must NEVER
-# target prod, even if a caller inherited CODETERM_API_PORT=7685 from a prod pane.
-if [ "$CT_PORT" = "7685" ]; then
-  echo "REFUSING: port 7685 is PRODUCTION. build.sh is dev-only and will not kill/start it." >&2
-  echo "  (You inherited CODETERM_API_PORT=7685 from a prod pane. Set CODETERM_API_PORT=7686" >&2
-  echo "   for the canonical dev, or CODETERM_INSTANCE=<name> CODETERM_API_PORT=<port> for a worktree.)" >&2
-  exit 2
+if [ -n "$CT_INSTANCE" ]; then
+  CT_PORT="${CODETERM_API_PORT:-7686}"
+else
+  CT_PORT=7686
 fi
 if [ -n "$CT_INSTANCE" ]; then
   CT_SLUG=$(printf '%s' "$CT_INSTANCE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
@@ -108,6 +110,10 @@ else
   CT_VITE_PORT=1420
 fi
 CT_DATA_DIR="$HOME/.codeterm-dev${CT_SUFFIX}"
+if [ "$CT_PORT" = "7685" ]; then
+  echo "ERROR: refusing to target prod CodeTerm port 7685. Use dev port 7686 or a named non-prod instance." >&2
+  exit 1
+fi
 # Export so the spawned daemon + its child PTYs inherit the instance identity.
 export CODETERM_INSTANCE="$CT_INSTANCE"
 export CODETERM_API_PORT="$CT_PORT"
@@ -207,6 +213,34 @@ web_watch_pidfile() {
   echo "/tmp/codeterm-web-watch${CT_SUFFIX}.pid"
 }
 
+kill_process_tree() {
+  local pid="$1"
+  if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+    return
+  fi
+  if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
+    local child
+    for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+      kill_process_tree "$child"
+    done
+  fi
+  kill "$pid" 2>/dev/null || true
+}
+
+kill_orphan_web_watchers() {
+  if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
+    return
+  fi
+  local root pid cwd
+  root="$(pwd)"
+  for pid in $(pgrep -f "vite build --watch" 2>/dev/null || true); do
+    cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
+    if [ "$cwd" = "$root" ]; then
+      kill_process_tree "$pid"
+    fi
+  done
+}
+
 start_web_watch() {
   kill_web_watch
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
@@ -219,9 +253,10 @@ kill_web_watch() {
   local pidfile
   pidfile="$(web_watch_pidfile)"
   if [ -f "$pidfile" ]; then
-    kill "$(cat "$pidfile")" 2>/dev/null || true
+    kill_process_tree "$(cat "$pidfile")"
     rm -f "$pidfile"
   fi
+  kill_orphan_web_watchers
 }
 
 dev_health_status() {
@@ -246,8 +281,6 @@ ensure_deps() {
     pnpm install --frozen-lockfile 2>/dev/null || pnpm install
   fi
 }
-
-CMD="${1:-dev}"
 
 case "$CMD" in
   env)

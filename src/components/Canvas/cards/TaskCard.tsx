@@ -2,7 +2,6 @@ import type { CSSProperties } from "react";
 import { CheckCircle2, Clock3, CornerDownRight, ExternalLink, Layers, Link2, TriangleAlert, Unplug } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../settings";
-import { substrateV2Enabled } from "../substrateFlag";
 import { atLeast, DEEP_DIVE_CRISP_SCALE, type World } from "../worlds";
 import type { DriftItem, DriftKind, TagFacet, Task, TaskStatus } from "../types";
 import { resolveTags } from "../tagModel";
@@ -457,16 +456,7 @@ export function TaskCard({
     </div>
   );
 
-  if (substrateV2Enabled()) return card(style);
-  // §34: birds-eye / 1× → single layer, GPU upscale is imperceptible while small.
-  if (crispScale <= 1) return card(style);
-  // Readable band → zoom to display px (crisp reflow incl. body + stride snake) then
-  // counter-scale back to world size. transform-origin 0,0 keeps footprint identity.
-  return (
-    <div style={{ ...style, transition: SLOT_TRANSITION }}>
-      <div className="ct-canvas-crisp" style={{ width: "100%", height: "100%", zoom: crispScale, transform: `scale(${1 / crispScale})`, transformOrigin: "0 0" }}>
-        {card({ width: "100%", height: "100%" })}
-      </div>
-    </div>
-  );
+  // §34 superseded: world geometry stays under the single camera transform; the
+  // per-card zoom/counter-scale wrapper reflowed internals and drifted at zoom steps.
+  return card(style);
 }

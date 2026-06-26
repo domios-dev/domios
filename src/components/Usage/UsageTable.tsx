@@ -70,7 +70,7 @@ function TableRow({ row, now }: { row: UsageSnapshot; now: number }) {
               ok
             </span>
           ) : (
-            <ErrorPill capturedAt={row.captured_at} now={now} />
+            <ErrorPill row={row} now={now} />
           )}
         </td>
       </tr>
@@ -78,9 +78,26 @@ function TableRow({ row, now }: { row: UsageSnapshot; now: number }) {
   );
 }
 
-function ErrorPill({ capturedAt, now }: { capturedAt: number; now: number }) {
+export function usageFailureCopy(row: UsageSnapshot): {
+  providerLabel: string;
+  command: string;
+  reason: string;
+} {
+  const providerLabel =
+    row.provider === "codex"
+      ? "Codex"
+      : row.provider === "claude"
+        ? "Claude"
+        : row.provider || "Provider";
+  const command = row.probe_command || (row.provider === "codex" ? "/status" : "/usage");
+  const reason = row.failure_reason || "output did not reach a parseable state before the probe timed out";
+  return { providerLabel, command, reason };
+}
+
+function ErrorPill({ row, now }: { row: UsageSnapshot; now: number }) {
   const ref = useRef<HTMLSpanElement>(null);
   const [tip, setTip] = useState<{ x: number; y: number } | null>(null);
+  const copy = usageFailureCopy(row);
 
   const show = () => {
     const el = ref.current;
@@ -113,11 +130,11 @@ function ErrorPill({ capturedAt, now }: { capturedAt: number; now: number }) {
           >
             <div className="ct-usage-tip-title">Probe failed</div>
             <div className="ct-usage-tip-body">
-              The Claude CLI didn't surface a parseable <code>/usage</code>
+              {copy.providerLabel} <code>{copy.command}</code> probe failed.
               <br />
-              response in time. We'll retry on the next cycle.
+              Reason: {copy.reason}
             </div>
-            <div className="ct-usage-tip-foot">{formatRelative(now, capturedAt)}</div>
+            <div className="ct-usage-tip-foot">{formatRelative(now, row.captured_at)}</div>
           </div>,
           document.body,
         )}

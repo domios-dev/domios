@@ -22,6 +22,12 @@
 - [s4-scene-hit-testing-and-rich-overlay-budget-contract (S4 — Scene hit-testing and rich overlay budget contract)](tasks/s4-scene-hit-testing-and-rich-overlay-budget-contract.md)
 - [s5-runtime-rich-overlay-dom-and-budgeted-card-degradation (S5 — Runtime rich overlay DOM and budgeted card degradation)](tasks/s5-runtime-rich-overlay-dom-and-budgeted-card-degradation.md)
 - [s6-lightweight-world-cards-under-substrate-overlay-budget (S6 — Lightweight world cards under substrate overlay budget)](tasks/s6-lightweight-world-cards-under-substrate-overlay-budget.md)
+- [r4-canvas-perf-root-cause-trace-and-renderer-architecture-decision (R4 — Canvas perf root-cause trace and renderer architecture decision)](tasks/r4-canvas-perf-root-cause-trace-and-renderer-architecture-decision.md)
+- [t-r4-1-canvas-perf-harness-and-baseline-trace (T-R4.1 — Canvas perf harness and baseline trace)](tasks/t-r4-1-canvas-perf-harness-and-baseline-trace.md)
+- [t-r4-2-tier1-decouple-canvas-derivation-from-transform-frames (T-R4.2 — Tier1 decouple canvas derivation from transform frames)](tasks/t-r4-2-tier1-decouple-canvas-derivation-from-transform-frames.md)
+- [t-r4-3-tier2-canvas-primary-board-with-bounded-dom-overlays (T-R4.3 — Tier2 canvas-primary board with bounded DOM overlays)](tasks/t-r4-3-tier2-canvas-primary-board-with-bounded-dom-overlays.md)
+- [r4-zoom-reference-audit-for-zoom-scale-drift-and-stable-node-geometry (R4-Zoom — Reference audit for zoom scale drift and stable node geometry)](tasks/r4-zoom-reference-audit-for-zoom-scale-drift-and-stable-node-geometry.md)
+- [t-zd-1-remove-css-zoom-reflow-path-for-stable-node-geometry (T-ZD.1 — Remove CSS zoom reflow path for stable node geometry)](tasks/t-zd-1-remove-css-zoom-reflow-path-for-stable-node-geometry.md)
 
 ## Stride Logs
 
@@ -37,6 +43,9 @@
 - [s4-scene-hit-testing-and-rich-overlay-budget-contract strides](tasks/s4-scene-hit-testing-and-rich-overlay-budget-contract/strides.jsonl)
 - [s5-runtime-rich-overlay-dom-and-budgeted-card-degradation strides](tasks/s5-runtime-rich-overlay-dom-and-budgeted-card-degradation/strides.jsonl)
 - [s6-lightweight-world-cards-under-substrate-overlay-budget strides](tasks/s6-lightweight-world-cards-under-substrate-overlay-budget/strides.jsonl)
+- [r4-canvas-perf-root-cause-trace-and-renderer-architecture-decision strides](tasks/r4-canvas-perf-root-cause-trace-and-renderer-architecture-decision/strides.jsonl)
+- [r4-zoom-reference-audit-for-zoom-scale-drift-and-stable-node-geometry strides](tasks/r4-zoom-reference-audit-for-zoom-scale-drift-and-stable-node-geometry/strides.jsonl)
+- [t-zd-1-remove-css-zoom-reflow-path-for-stable-node-geometry strides](tasks/t-zd-1-remove-css-zoom-reflow-path-for-stable-node-geometry/strides.jsonl)
 
 ## Milestones
 
@@ -63,6 +72,9 @@
 - [s4-scene-hit-testing-and-rich-overlay-budget-contract status_update (ms_f4c11912561d444794b8f1556511ea3b)](milestones/s4-scene-hit-testing-and-rich-overlay-budget-contract-ms_f4c11912561d444794b8f1556511ea3b.md)
 - [s5-runtime-rich-overlay-dom-and-budgeted-card-degradation status_update (ms_18ec6cd0d5944c5fb29f7e037d4dff60)](milestones/s5-runtime-rich-overlay-dom-and-budgeted-card-degradation-ms_18ec6cd0d5944c5fb29f7e037d4dff60.md)
 - [s6-lightweight-world-cards-under-substrate-overlay-budget status_update (ms_b3297c37a5104a67ad9f3670257a9360)](milestones/s6-lightweight-world-cards-under-substrate-overlay-budget-ms_b3297c37a5104a67ad9f3670257a9360.md)
+- [r4-canvas-perf-root-cause-trace-and-renderer-architecture-decision status_update (ms_49b1b9fc73d54a8da98870042abcd3ab)](milestones/r4-canvas-perf-root-cause-trace-and-renderer-architecture-decision-ms_49b1b9fc73d54a8da98870042abcd3ab.md)
+- [r4-zoom-reference-audit-for-zoom-scale-drift-and-stable-node-geometry status_update (ms_5311a9121d3746559b2019581b8a03a3)](milestones/r4-zoom-reference-audit-for-zoom-scale-drift-and-stable-node-geometry-ms_5311a9121d3746559b2019581b8a03a3.md)
+- [t-zd-1-remove-css-zoom-reflow-path-for-stable-node-geometry status_update (ms_eb1088afd3394c2baa451c3cf2319870)](milestones/t-zd-1-remove-css-zoom-reflow-path-for-stable-node-geometry-ms_eb1088afd3394c2baa451c3cf2319870.md)
 
 ## Elements
 
