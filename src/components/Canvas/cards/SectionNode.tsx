@@ -1,7 +1,7 @@
 import { useRef, type CSSProperties } from "react";
-import { Activity, Archive, ArrowUpRight, Check, CircleDot, Copy, Crosshair, FileText, GitBranch, Link2, Maximize2, Milestone, Repeat, Replace, Tags, TriangleAlert } from "lucide-react";
+import { Activity, Archive, ArrowUpRight, Check, CircleDot, Copy, Crosshair, FileText, GitBranch, Link2, Maximize2, Milestone, Repeat, Replace, Tags, TriangleAlert, Users } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
-import type { LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanStatus } from "../types";
+import type { LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanStatus, Task, TaskPriority, TaskStatus } from "../types";
 import type { PlanWorkspaceScope } from "../planWorkspaceScope";
 import { DEFAULT_CANVAS_SETTINGS, MILESTONE_LANE_COLORS } from "../settings";
 import { atLeast, type World } from "../worlds";
@@ -388,6 +388,141 @@ function LoopsStrip({ loops, world }: { loops: LoopSpec[]; world: World }) {
   );
 }
 
+// §swarm: the plan's TASKS are the work the swarm executes — its single most
+// meaningful content, yet today only a per-section count surfaces. The Swarm panel
+// fills the body with live collective state (north-star: never куцо; alive). Status
+// colors reuse the product's existing canvas vocabulary — no new palette. Live
+// (in_progress) leads; done/cancelled recede last.
+const TASK_STATUS_META: Record<TaskStatus, { label: string; color: string; live?: boolean }> = {
+  in_progress: { label: "in progress", color: "rgba(129,140,248,1)", live: true },
+  in_review: { label: "in review", color: "rgba(245,158,11,0.98)" },
+  blocked: { label: "blocked", color: "rgba(248,113,113,0.98)" },
+  pending: { label: "pending", color: "rgba(148,163,184,0.95)" },
+  done: { label: "done", color: "rgba(52,211,153,1)" },
+  cancelled: { label: "cancelled", color: "rgba(148,163,184,0.62)" },
+};
+const STATUS_ORDER: readonly TaskStatus[] = ["in_progress", "in_review", "blocked", "pending", "done", "cancelled"];
+const PRIORITY_TINT: Record<TaskPriority, string> = {
+  p0: "rgba(248,113,113,0.98)", p1: "rgba(245,158,11,0.98)", p2: "rgba(148,163,184,0.95)", p3: "rgba(148,163,184,0.78)",
+};
+
+// Who is driving a task right now: role > peer > pane — a single compact label so
+// the roster reads "what · who", the multiplayer-presence cue (north-star #2).
+function taskDriver(t: Task): string {
+  return (t.taken_by_role ?? t.peer ?? t.lane?.workspace_name ?? "").trim();
+}
+
+// The signature element: a proportional activity bar of task statuses; the live
+// (in_progress) segment pulses — the swarm's heartbeat at a single glance.
+function SwarmBar({ counts, order, total }: { counts: Record<TaskStatus, number>; order: readonly TaskStatus[]; total: number }) {
+  return (
+    <div data-testid="canvas-plan-swarm-bar" title={`${total} task${total === 1 ? "" : "s"}`} style={{ display: "flex", width: "100%", height: 7, borderRadius: 4, overflow: "hidden", background: "var(--ct-bg-active)", flexShrink: 0 }}>
+      {order.map((s) => {
+        const meta = TASK_STATUS_META[s];
+        return (
+          <span
+            key={s}
+            className={meta.live ? "ct-canvas-heartbeat-dot" : undefined}
+            aria-hidden
+            style={{ flexGrow: counts[s], flexBasis: 0, minWidth: 2, background: meta.color }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// §swarm panel: PLAN-only body filler. W0/W1 = activity bar + status counts; W2 adds
+// the active-task roster (the swarm working NOW); W3 = the full roster, node-internal
+// scroll (north-star #1: deep dive reveals every task, nothing truncated).
+function SwarmPanel({ tasks, world }: { tasks: Task[]; world: World }) {
+  const counts = { in_progress: 0, in_review: 0, blocked: 0, pending: 0, done: 0, cancelled: 0 } as Record<TaskStatus, number>;
+  for (const t of tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
+  const total = tasks.length;
+  const live = counts.in_progress;
+  const presentOrder = STATUS_ORDER.filter((s) => counts[s] > 0);
+  const structure = atLeast(world, "W1");
+  const detail = atLeast(world, "W2");
+  const deep = atLeast(world, "W3");
+
+  // Roster fills the body so the card is never куцо: every task, ranked active-first
+  // (in_progress → in_review → blocked → …) so the live work always leads. W1 = dot ·
+  // name (structure); W2 adds priority + driver; W3 wraps names + lists all, node-
+  // internal scroll. Non-deep caps to what fits the non-scrolling band.
+  const rank = (t: Task) => { const i = STATUS_ORDER.indexOf(t.status); return i < 0 ? STATUS_ORDER.length : i; };
+  const sorted = [...tasks].sort((a, b) => rank(a) - rank(b));
+  const roster = structure ? sorted : [];
+  const rosterCap = deep ? 200 : 18;
+  const shownRoster = roster.slice(0, rosterCap);
+
+  return (
+    <div
+      data-testid="canvas-plan-swarm"
+      className="ct-canvas-fade-in"
+      style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 7, padding: "8px 12px", borderTop: "1px solid var(--ct-border-subtle)" }}
+    >
+      <Eyebrow
+        icon={<Users size={12} strokeWidth={2.2} />}
+        label="Swarm"
+        accent={HEARTBEAT_ACCENT}
+        testid="canvas-plan-swarm-eyebrow"
+        trailing={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.74em", fontWeight: 600, flexShrink: 0 }}>
+            <span style={{ fontVariantNumeric: "tabular-nums", opacity: 0.8 }}>{total} task{total === 1 ? "" : "s"}</span>
+            {live > 0 && (
+              <span data-testid="canvas-plan-swarm-live" style={{ display: "inline-flex", alignItems: "center", gap: 4, color: HEARTBEAT_ACCENT, fontWeight: 700 }}>
+                <span className="ct-canvas-heartbeat-dot" aria-hidden style={{ width: 6, height: 6, borderRadius: "50%", background: HEARTBEAT_ACCENT }} />
+                {live} live
+              </span>
+            )}
+          </span>
+        }
+      />
+      <SwarmBar counts={counts} order={presentOrder} total={total} />
+      {atLeast(world, "W1") && (
+        <div data-testid="canvas-plan-swarm-counts" style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+          {presentOrder.map((s) => {
+            const meta = TASK_STATUS_META[s];
+            return (
+              <span key={s} title={`${counts[s]} ${meta.label}`} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "0.1em 0.55em", borderRadius: 999, fontSize: "0.72em", fontWeight: 600, border: `1px solid color-mix(in srgb, ${meta.color} 42%, transparent)`, background: `color-mix(in srgb, ${meta.color} 12%, transparent)`, color: "var(--ct-fg)", whiteSpace: "nowrap" }}>
+                <span className={meta.live ? "ct-canvas-heartbeat-dot" : undefined} aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color, flexShrink: 0 }} />
+                <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{counts[s]}</span>
+                <span style={{ opacity: 0.85 }}>{meta.label}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      {shownRoster.length > 0 && (
+        <div data-testid="canvas-plan-swarm-roster" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 3, overflow: "hidden" }}>
+          {shownRoster.map((t) => {
+            const meta = TASK_STATUS_META[t.status];
+            const driver = detail ? taskDriver(t) : "";
+            return (
+              <div key={t.id} data-testid="canvas-plan-swarm-task" data-task-id={t.id} data-task-status={t.status} style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, padding: "2px 0" }}>
+                <span className={meta.live ? "ct-canvas-heartbeat-dot" : undefined} aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color, flexShrink: 0 }} />
+                {detail && t.priority && (
+                  <span title={`Priority ${t.priority.toUpperCase()}`} style={{ flexShrink: 0, fontSize: "0.64em", fontWeight: 800, letterSpacing: "0.02em", fontFamily: "var(--ct-font-mono)", color: PRIORITY_TINT[t.priority], opacity: t.priority === "p2" || t.priority === "p3" ? 0.7 : 1 }}>{t.priority.toUpperCase()}</span>
+                )}
+                <span data-canvas-selectable className="ct-canvas-text" style={{ flex: 1, minWidth: 0, fontSize: "0.8em", lineHeight: 1.35, ...(deep ? { whiteSpace: "normal", wordBreak: "break-word" } : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }) }}>{t.name}</span>
+                {driver && (
+                  <span title={driver} style={{ flexShrink: 0, maxWidth: 130, display: "inline-flex", alignItems: "center", gap: 4, fontSize: "0.68em", fontWeight: 600, color: "var(--ct-fg)", opacity: 0.72, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <GitBranch size={9} aria-hidden style={{ flexShrink: 0, opacity: 0.7 }} />
+                    {driver}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+          {roster.length > shownRoster.length && (
+            <span style={{ fontSize: "0.7em", opacity: 0.6, paddingLeft: 14 }}>+{roster.length - shownRoster.length} more</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export interface SectionNodeProps extends CanvasCardStyleProps {
   variant: "plan" | "spec";
   plan: Plan;
@@ -447,6 +582,14 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
   const showLinkage = isPlan && (hasSpecLink || hasLineage);
   const hasVocab = (plan.milestone_kinds?.length ?? 0) > 0 || (plan.tag_facets ?? []).some((f) => f.values.length > 0);
   const showVocab = isPlan && showBody && hasVocab;
+
+  // §swarm: the plan's tasks fill the body as live collective state. When present
+  // the section index sits at natural height and the swarm panel takes the slack —
+  // killing the empty void a sparse section list used to leave (north-star: never
+  // куцо). PLAN-only; spec keeps its prose-driven layout untouched.
+  const tasks = plan.tasks ?? [];
+  const showSwarm = isPlan && tasks.length > 0;
+  const liveTaskCount = tasks.reduce((n, t) => n + (t.status === "in_progress" ? 1 : 0), 0);
 
   const card = (boxStyle: CSSProperties) => (
     <div data-testid={testid} data-plan-id={plan.id} data-plan-status={plan.status} data-world={world} className="ct-canvas-node" style={{ ...frameStyle(variant), ...boxStyle }}>
@@ -545,19 +688,27 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
         style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: scroll ? "auto" : "hidden" }}
       >
         {rows.length === 0 ? (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9em", opacity: "var(--ct-text-tertiary-opacity)" }}>
-            {isPlan ? `${plan.tasks.length} standalone task${plan.tasks.length === 1 ? "" : "s"}` : "no spec sections"}
-          </div>
+          // No sections: the swarm IS the plan's content — render it full, never a
+          // bare "N standalone tasks" line in a void.
+          showSwarm ? (
+            <SwarmPanel tasks={tasks} world={world} />
+          ) : (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9em", opacity: "var(--ct-text-tertiary-opacity)" }}>
+              {isPlan ? "no tasks yet" : "no spec sections"}
+            </div>
+          )
         ) : showRows ? (
           <>
             {showVocab && <VocabularyLegend plan={plan} world={world} />}
             {rows.map((row) => (
-              <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={budgetRich} />
+              <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={budgetRich} stretchEmpty={!showSwarm} />
             ))}
+            {showSwarm && <SwarmPanel tasks={tasks} world={world} />}
           </>
         ) : (
-          // §32.2 W0: COMPRESSED — top section rows + status counts, never hollow.
-          <div data-testid="canvas-section-compressed" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3, padding: "6px 8px", justifyContent: "center" }}>
+          // §32.2 W0: COMPRESSED — top section rows + status counts + swarm pulse,
+          // never hollow (north-star: meaningful far glance).
+          <div data-testid="canvas-section-compressed" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 5, padding: "10px 10px", justifyContent: "flex-start" }}>
             {rows.slice(0, 3).map((row) => {
               const g = GLYPH[row.glyph];
               return (
@@ -574,6 +725,16 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
               {counts.uncovered > 0 && <span style={{ color: GLYPH.uncovered.color }}>▲ {counts.uncovered} uncovered</span>}
               {counts.done > 0 && <span style={{ color: GLYPH.done.color }}>✓ {counts.done} done</span>}
             </div>
+            {showSwarm && (
+              <div data-testid="canvas-plan-swarm-glance" style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 5, minWidth: 0 }}>
+                <span style={{ flex: 1, minWidth: 0, display: "flex" }}>
+                  <SwarmBar counts={tasks.reduce((c, t) => { c[t.status] = (c[t.status] ?? 0) + 1; return c; }, { in_progress: 0, in_review: 0, blocked: 0, pending: 0, done: 0, cancelled: 0 } as Record<TaskStatus, number>)} order={STATUS_ORDER} total={tasks.length} />
+                </span>
+                <span style={{ flexShrink: 0, fontSize: "0.66em", fontWeight: 700, color: liveTaskCount > 0 ? HEARTBEAT_ACCENT : "var(--ct-fg)", opacity: liveTaskCount > 0 ? 1 : 0.7, whiteSpace: "nowrap" }}>
+                  {liveTaskCount > 0 ? `${liveTaskCount} live` : `${tasks.length} task${tasks.length === 1 ? "" : "s"}`}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -591,10 +752,10 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
 // deepest applied to content: W2→W3 changes only rasterization, never geometry.
 // §32.7: single-click highlights connected tasks; double-click / target button
 // frames them; copy-id yanks the section id. All camera motion is user-initiated.
-function SectionRowView({ row, variant, world, planId, onSectionClick, onSectionFrame, suppressRichContent = false }: {
+function SectionRowView({ row, variant, world, planId, onSectionClick, onSectionFrame, suppressRichContent = false, stretchEmpty = true }: {
   row: SectionRow; variant: "plan" | "spec"; world: World; planId: string;
   onSectionClick?: (a: SectionNavArgs) => void; onSectionFrame?: (a: SectionNavArgs) => void;
-  suppressRichContent?: boolean;
+  suppressRichContent?: boolean; stretchEmpty?: boolean;
 }) {
   const g = GLYPH[row.glyph];
   const isPlan = variant === "plan";
@@ -615,8 +776,8 @@ function SectionRowView({ row, variant, world, planId, onSectionClick, onSection
       onClick={onSectionClick ? (e) => { e.stopPropagation(); onSectionClick(nav); } : undefined}
       onDoubleClick={onSectionFrame ? (e) => { e.stopPropagation(); onSectionFrame(nav); } : undefined}
       style={{
-        flex: grow ? "0 0 auto" : 1,
-        minHeight: 0,
+        flex: grow || !stretchEmpty ? "0 0 auto" : 1,
+        minHeight: grow || !stretchEmpty ? 36 : 0,
         position: "relative",
         display: "flex",
         flexDirection: "column",
