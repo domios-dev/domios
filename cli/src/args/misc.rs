@@ -372,7 +372,7 @@ pub enum ConfigAction {
 
 #[derive(clap::Subcommand)]
 pub enum WebAction {
-    /// Print a ready-to-open /web URL for THIS machine with the API token
+    /// Print a ready-to-open browser UI URL for THIS machine with the API token
     /// embedded in the URL fragment (use --query for ?token= instead).
     Link {
         /// Build a link for a paired mesh PEER (by instance name) instead of

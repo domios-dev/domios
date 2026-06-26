@@ -20,7 +20,7 @@ export const E2E_PORT = process.env.CT_E2E_PORT ?? "7686";
 export const API_BASE = `http://127.0.0.1:${E2E_PORT}`;
 export const CDP_PORT = 9223;
 export const CDP_BASE = `http://127.0.0.1:${CDP_PORT}`;
-export const WEB_URL = `${API_BASE}/web/`;
+export const WEB_URL = `${API_BASE}/`;
 
 export const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
 

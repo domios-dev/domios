@@ -2,7 +2,7 @@
 //!
 //! Reachability over a tailnet is best served by `tailscale serve` terminating
 //! HTTPS and proxying to this daemon's loopback API port: phones get a clean
-//! `https://host.ts.net/web/` link with no mixed-content or cert prompts. Doing
+//! `https://host.ts.net/` link with no mixed-content or cert prompts. Doing
 //! that by hand is a fiddly multi-step CLI dance, so this module automates it —
 //! but every mutation is gated behind explicit user confirmation in the UI and
 //! is idempotent + defensive so it can never clobber a sibling CodeTerm.

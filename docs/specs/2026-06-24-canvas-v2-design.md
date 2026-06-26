@@ -266,7 +266,7 @@ report chain. The board must end up rendering its own construction.
 Visual quality cannot be achieved blind. Building this canvas REQUIRES a Playwright
 screenshot feedback loop, not just unit tests.
 - **Harness:** a Playwright helper (under `tests/playwright/`) that, on macOS web-mode
-  (`/web/` against dev on 7686), opens the workspace canvas / a pane's Plan mode,
+  (`/` against dev on 7686), opens the workspace canvas / a pane's Plan mode,
   **navigates the canvas** (programmatic wheel-pan, cmd-wheel-zoom, fit-to-view, focus a
   node), and captures **screenshots** (full board + per-region). It must be able to
   assert no-overflow / no-overlap structurally (bounding-box checks) AND produce images
