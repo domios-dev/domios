@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782455962123,
+  "updated_at": 1782456017232,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -15865,7 +15865,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782455368013,
-      "updated_at": 1782455962123,
+      "updated_at": 1782456017232,
       "status_changed_at": 1782455962123,
       "handle": "33-3-task-stride-log-sidecars-dual-write-and-hydrate",
       "tags": [],
@@ -15884,9 +15884,9 @@
         "branch": "lane/stride-log-sidecar",
         "base": "72fcaf97a3cdafdae30578eec913c60e9ab51fe9",
         "destination": "feat/canvas",
-        "cleanup_status": "pending",
+        "cleanup_status": "cleaned",
         "cleanup_hints": [
-          "After accepted integration: close worker pane, remove /Users/rollacode/Developer/codeterm-stride-log-sidecar, delete lane/stride-log-sidecar, prune worktrees."
+          "Cleaned after integration commit dbe71eff: closed pane 6d1fd567, removed /Users/rollacode/Developer/codeterm-stride-log-sidecar, deleted lane/stride-log-sidecar, pruned worktrees."
         ]
       },
       "taken_by_role": null,
