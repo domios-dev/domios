@@ -284,12 +284,23 @@ pub fn resolve_report_target(
     let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
     let title = pane.title.clone();
 
-    let nonempty = |s: &Option<String>| s.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
+    let nonempty = |s: &Option<String>| {
+        s.as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
     if let (Some(peer), Some(target_pane)) = (
         nonempty(&pane.report_target_mesh_peer),
         nonempty(&pane.report_target_pane_id),
     ) {
-        return Ok((title, Some(ReportTarget::Mesh { peer, pane: target_pane })));
+        return Ok((
+            title,
+            Some(ReportTarget::Mesh {
+                peer,
+                pane: target_pane,
+            }),
+        ));
     }
 
     let local = [
@@ -359,7 +370,7 @@ pub struct PaneStatusInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_report_target, ReportTarget, worker_death_report};
+    use super::{resolve_report_target, worker_death_report, ReportTarget};
     use crate::agent::reports::ReportStore;
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
@@ -384,7 +395,11 @@ mod tests {
 
         let (from_title, target) = resolve_report_target(&mux, &worker).expect("resolve target");
         let target = target.expect("worker has a parent target");
-        assert_eq!(target, ReportTarget::Local(orch.clone()), "worker reports to its direct parent");
+        assert_eq!(
+            target,
+            ReportTarget::Local(orch.clone()),
+            "worker reports to its direct parent"
+        );
         assert_eq!(from_title, "Worker-1");
 
         store.add(&target.storage_key(), &worker, &from_title, "task done");
@@ -405,8 +420,7 @@ mod tests {
         let (mux, orch, worker) = build_orchestrator_with_worker("Worker-A");
         let mut store = ReportStore::new(100);
 
-        let (from_title, target) =
-            resolve_report_target(&mux, &worker).expect("resolve target");
+        let (from_title, target) = resolve_report_target(&mux, &worker).expect("resolve target");
         let storage_key = target.expect("worker has a parent target").storage_key();
         store.add(&storage_key, &worker, &from_title, "msg");
 
