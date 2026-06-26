@@ -42,6 +42,7 @@ const MS_KINDS = ["status_update", "testing", "review"];
 const PRIORITIES = [TaskPriority.P0, TaskPriority.P1, TaskPriority.P2, TaskPriority.P3] as const;
 const ROLES = ["backend-dev", "frontend-dev", "code-reviewer", null, null];
 const GROUPS = ["layout", "navigation", null, "isolation", null];
+const CLEANUP_STATES = ["pending", "not_applicable", "done", "failed"];
 
 // Complex cards (not bare placeholders): long title, multi-line body, and several
 // milestone bubbles each — representative of real card rendering cost at scale.
@@ -60,7 +61,20 @@ export function buildPerfFixturePlans(n: number): Plan[] {
       group: GROUPS[i % GROUPS.length],
       taken_by_role: ROLES[i % ROLES.length],
       peer: i % 7 === 0 ? "claude-sonnet" : null,
-      lane: i % 2 === 0 ? { branch: `feat/module-${i}`, base: "master" } : undefined,
+      handle: `t${i}-implement-feature-module-${i}`,
+      lane: i % 2 === 0
+        ? {
+            pane_id: `pane-${i}`,
+            workspace_id: `ws-${i}`,
+            workspace_name: i % 4 === 0 ? "codeterm" : `lane-workspace-${i}`,
+            worktree_path: `/Users/dev/Developer/codeterm-module-${i}`,
+            branch: `feat/module-${i}`,
+            base: "master",
+            destination: i % 4 === 0 ? "develop" : "master",
+            cleanup_status: CLEANUP_STATES[i % CLEANUP_STATES.length],
+            cleanup_hints: i % 6 === 0 ? ["Remove worktree and branch after orchestrator accepts the report."] : [],
+          }
+        : undefined,
       name: `Synthetic task ${i}: implement feature module ${i} with a deliberately long title to exercise wrapping and overflow`,
       body: `Description for task ${i}. Multi-line body to exercise text layout, wrapping, ellipsis and overflow within the card bounds. Acceptance: renders cleanly with title, body and milestone bubbles, no text spilling past the node frame.`,
       status_label: i % 3 === 0 ? "in review" : null,
