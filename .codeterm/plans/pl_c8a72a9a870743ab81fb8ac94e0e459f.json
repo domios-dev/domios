@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782456722435,
+  "updated_at": 1782456899864,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -15988,6 +15988,56 @@
           }
         }
       ]
+    },
+    {
+      "id": "task_e5d117ec75114a749455df279d5cb476",
+      "name": "§33.5 preserve merged stride-log entries on save",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Terminal-heavy Rust storage slice; small merge-safety fix before larger §33 explode/compaction work.",
+      "acceptance_criteria": [
+        "Saving a plan must not drop existing task stride-log entries that are not currently in memory.",
+        "Raw plan JSON remains stripped of task milestone arrays."
+      ],
+      "test_plan": "Run focused body_file/stride_log Rust tests plus git diff --check, file-size check, and CODETERM_API_PORT=7686 ./build.sh check in the hot checkout.",
+      "correctness": "§33 sidecar logs remain git-merge-safe across ordinary saves before the larger append-only/explode storage rewrite.",
+      "status": "in_progress",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1782456853411,
+      "updated_at": 1782456899864,
+      "status_changed_at": 1782456899864,
+      "handle": "33-5-preserve-merged-stride-log-entries-on-save",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
+      "assigned_pane_id": "58b78505",
+      "lane": {
+        "pane_id": "58b78505",
+        "workspace_id": "ef145fd1",
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm-stride-preserve-save",
+        "branch": "lane/stride-preserve-save",
+        "base": "62c1d47f149927913aabfbf0f891b66c69d22041",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "Active worker pane 58b78505. After accepted integration: close worker pane, remove /Users/rollacode/Developer/codeterm-stride-preserve-save, delete lane/stride-preserve-save, prune worktrees."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
     }
   ],
   "task_groups": [],
