@@ -5,6 +5,7 @@ import type { ApiConfig, Pane, Workspace } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { CanvasComposer } from "./CanvasComposer";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
+import { resolveFlyToNodeId } from "./flyToTarget";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
@@ -185,7 +186,7 @@ export function CanvasViewInner({
     };
   }, [api, filteredPlans]);
 
-  const { transform, handlers, fitToView, zoomBy, setTransform, isDragging, containerRef, layerRef } = useCanvasViewport({
+  const { transform, handlers, fitToView, animateTo, animateToView, zoomBy, setTransform, isDragging, containerRef, layerRef } = useCanvasViewport({
     width: size.width,
     height: size.height,
     panButton: "middle",
@@ -379,6 +380,13 @@ export function CanvasViewInner({
   );
 
   const [blinkIds, setBlinkIds] = useState<Set<string>>(() => new Set());
+  // The arrival blink is transient: the ring pulses then fades so it never leaves a
+  // permanent halo, and a later fly to the same node re-mounts → re-triggers it.
+  useEffect(() => {
+    if (!blinkIds.size) return;
+    const h = setTimeout(() => setBlinkIds(new Set()), 3200);
+    return () => clearTimeout(h);
+  }, [blinkIds]);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   const richOverlays = useMemo(() => buildOverlayNodes({ scene, transform, focusedId: focusedNodeId }), [scene, transform, focusedNodeId]);
   useEffect(
@@ -427,8 +435,9 @@ export function CanvasViewInner({
   }, [filteredPlans]);
 
   // Move the camera to frame a set of node ids (no blink) — the shared primitive.
+  // `animate` eases there (fly-to gesture); omitted = instant (mount / preset).
   const fitCameraToNodes = useCallback(
-    (ids: string[]) => {
+    (ids: string[], animate = false) => {
       const boxes = ids.map((id) => lookups.nodeById.get(id)?.box).filter(Boolean) as {
         x: number; y: number; width: number; height: number;
       }[];
@@ -443,15 +452,17 @@ export function CanvasViewInner({
       const h = maxY - minY;
       const padX = w * 0.12;
       const padY = h * 0.18;
-      fitToView({ x: minX - padX, y: minY - padY, width: w + padX * 2, height: h + padY * 2 });
+      const bounds = { x: minX - padX, y: minY - padY, width: w + padX * 2, height: h + padY * 2 };
+      if (animate) animateToView(bounds);
+      else fitToView(bounds);
     },
-    [lookups, fitToView],
+    [lookups, fitToView, animateToView],
   );
 
   // Center the camera on a node set at an EXPLICIT scale (vs fit-to-bbox). The
   // product "go to node id at zoom Z" primitive: deterministic landing point.
   const centerCameraOnNodes = useCallback(
-    (ids: string[], scale: number) => {
+    (ids: string[], scale: number, animate = false) => {
       const boxes = ids.map((id) => lookups.nodeById.get(id)?.box).filter(Boolean) as {
         x: number; y: number; width: number; height: number;
       }[];
@@ -463,17 +474,20 @@ export function CanvasViewInner({
       const cx = (minX + maxX) / 2;
       const cy = (minY + maxY) / 2;
       const s = Math.max(0.05, Math.min(10, scale));
-      setTransform({ x: size.width / 2 - cx * s, y: size.height / 2 - cy * s, scale: s });
+      const t = { x: size.width / 2 - cx * s, y: size.height / 2 - cy * s, scale: s };
+      if (animate) animateTo(t);
+      else setTransform(t);
     },
-    [lookups, setTransform, size.width, size.height],
+    [lookups, setTransform, animateTo, size.width, size.height],
   );
 
   // Camera + blink onto a set of node ids (shared by canvas-focus + Plan-on-pane).
   // scale given → land centered at that exact zoom; omitted → fit the bbox.
+  // `animate` flies the camera (user fly-to) instead of an instant jump.
   const focusOnNodes = useCallback(
-    (ids: string[], scale?: number) => {
-      if (scale != null) centerCameraOnNodes(ids, scale);
-      else fitCameraToNodes(ids);
+    (ids: string[], scale?: number, animate = false) => {
+      if (scale != null) centerCameraOnNodes(ids, scale, animate);
+      else fitCameraToNodes(ids, animate);
       setBlinkIds(new Set(ids));
     },
     [fitCameraToNodes, centerCameraOnNodes],
@@ -515,6 +529,44 @@ export function CanvasViewInner({
       setHighlight({ sectionId: a.sectionId, taskIds: new Set(ids) });
     },
     [sectionTaskIds, focusOnNodes, fitCameraToNodes],
+  );
+
+  // Fly-to navigation (north-star liveness): ONE delegated click across BOTH the
+  // world layer and the rich-overlay layer. A swarm-roster row flies to its task; a
+  // spec/lineage chip flies to the linked node (or its ghost); a task's section
+  // control flies to the plan section it's bound to + highlights it. All eased +
+  // blink-on-arrival via focusOnNodes(…, animate) — no camera math reinvented here.
+  const onCanvasFlyClick = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target || typeof target.closest !== "function") return;
+      const secBtn = target.closest<HTMLElement>("[data-fly-to-kind='task-section']");
+      if (secBtn) {
+        const taskId = secBtn.closest<HTMLElement>("[data-task-id]")?.getAttribute("data-task-id") ?? null;
+        const planId = taskId ? lookups.nodeById.get(taskId)?.planId ?? null : null;
+        if (planId && lookups.nodeById.has(planId)) {
+          focusOnNodes([planId], undefined, true);
+          const secId = (taskId ? lookups.taskById.get(taskId)?.section_ids?.[0] : null) ?? null;
+          if (secId) setHighlight({ sectionId: secId, taskIds: new Set(taskId ? [taskId] : []) });
+        }
+        return;
+      }
+      const chip = target.closest<HTMLElement>("[data-fly-to-id]");
+      if (chip) {
+        const kind = chip.getAttribute("data-fly-to-kind") ?? "";
+        const rawId = chip.getAttribute("data-fly-to-id") ?? "";
+        const planCtx = chip.closest<HTMLElement>("[data-plan-id]")?.getAttribute("data-plan-id") ?? null;
+        const nodeId = resolveFlyToNodeId(kind, rawId, planCtx, (id) => lookups.nodeById.has(id));
+        if (nodeId) focusOnNodes([nodeId], undefined, true);
+        return;
+      }
+      const row = target.closest<HTMLElement>("[data-testid='canvas-plan-swarm-task']");
+      if (row) {
+        const id = row.getAttribute("data-task-id");
+        if (id && lookups.nodeById.has(id)) focusOnNodes([id], undefined, true);
+      }
+    },
+    [lookups, focusOnNodes],
   );
 
   // Copy a stable id/link to the clipboard (task, section, stride). User-initiated.
@@ -744,6 +796,7 @@ export function CanvasViewInner({
         ref={containerRef}
         className="relative h-full w-full overflow-hidden"
         onMouseDown={handlers.onMouseDown}
+        onClick={onCanvasFlyClick}
         style={{
           cursor: isDragging ? "grabbing" : "default",
           userSelect: "none",

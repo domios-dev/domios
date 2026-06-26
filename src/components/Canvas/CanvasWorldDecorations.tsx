@@ -46,7 +46,7 @@ export function CanvasWorldDecorations({
         const box = nodeById.get(id)?.box;
         if (!box || !nodeIds.has(id)) return null;
         return (
-          <div key={`blink-${id}`} className="ct-canvas-blink pointer-events-none absolute" style={boxStyle(box, "var(--ct-radius-lg)")} />
+          <div key={`blink-${id}`} data-testid="canvas-fly-blink" data-blink-id={id} className="ct-canvas-blink pointer-events-none absolute" style={boxStyle(box, "var(--ct-radius-lg)")} />
         );
       })}
       {[...pulsePlanIds].map((id) => {

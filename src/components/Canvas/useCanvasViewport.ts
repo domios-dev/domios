@@ -34,6 +34,10 @@ export interface CanvasViewportHandlers {
 export interface UseCanvasViewportResult {
   transform: ViewportTransform;
   setTransform: (next: ViewportTransform) => void;
+  /** Ease the camera to an exact transform (fly-to). Interrupted by any pan/zoom. */
+  animateTo: (next: ViewportTransform, durationMs?: number) => void;
+  /** Ease the camera so `bounds` fits the viewport (fly-to a node bbox). */
+  animateToView: (bounds: ViewportBox, durationMs?: number) => void;
   handlers: CanvasViewportHandlers;
   fitToView: (bounds: ViewportBox) => void;
   zoomBy: (delta: number) => void;
@@ -49,6 +53,8 @@ const DEF_FIT_PADDING = 28;
 // Fit may zoom IN so a small board fills the viewport, but not past this so a
 // single tiny plan doesn't blow up to fill the screen.
 const FIT_MAX_ZOOM = 3;
+// Fly-to camera ease: long enough to read as travel, short enough to feel instant.
+const FLY_DURATION_MS = 460;
 const LINE_PX = 16;
 // Pinch / cmd-wheel zoom sensitivity. ~2.5x the old 0.0016 so a pinch feels
 // immediate/Figma-like; the exponential keeps it smooth. Pan path is unchanged.
@@ -101,14 +107,32 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
   const frameRef = useRef<number | null>(null);
   const pendingRef = useRef<ViewportTransform | null>(null);
+  const animRef = useRef<number | null>(null);
 
-  const setTransform = useCallback((next: ViewportTransform) => {
+  // Stop any in-flight fly-to. Called whenever the user takes the wheel — a fly
+  // must yield to direct manipulation instantly, never fight the pointer.
+  const cancelAnim = useCallback(() => {
+    if (animRef.current != null) {
+      cancelAnimationFrame(animRef.current);
+      animRef.current = null;
+    }
+  }, []);
+
+  // Commit a transform to ref + layer paint + React state in one shot (the fly-to
+  // frame writer — bypasses setTransform so it doesn't self-cancel the animation).
+  const commit = useCallback((next: ViewportTransform) => {
     transformRef.current = next;
     paintLayer(layerRef.current, next);
     setTransformState(next);
   }, []);
 
+  const setTransform = useCallback((next: ViewportTransform) => {
+    cancelAnim();
+    commit(next);
+  }, [cancelAnim, commit]);
+
   const schedule = useCallback((next: ViewportTransform) => {
+    cancelAnim();
     transformRef.current = next;
     pendingRef.current = next;
     paintLayer(layerRef.current, next);
@@ -119,20 +143,70 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
       pendingRef.current = null;
       if (pending) setTransformState(pending);
     });
-  }, []);
+  }, [cancelAnim]);
 
-  const fitToView = useCallback(
-    (bounds: ViewportBox) => {
-      if (width <= 0 || height <= 0 || bounds.width <= 0 || bounds.height <= 0) return;
+  const fitTransform = useCallback(
+    (bounds: ViewportBox): ViewportTransform | null => {
+      if (width <= 0 || height <= 0 || bounds.width <= 0 || bounds.height <= 0) return null;
       const scaleX = (width - fitPadding * 2) / bounds.width;
       const scaleY = (height - fitPadding * 2) / bounds.height;
       const scale = clamp(Math.min(scaleX, scaleY, FIT_MAX_ZOOM), minScale, maxScale);
       const cx = bounds.x + bounds.width / 2;
       const cy = bounds.y + bounds.height / 2;
-      setTransform({ x: width / 2 - cx * scale, y: height / 2 - cy * scale, scale });
+      return { x: width / 2 - cx * scale, y: height / 2 - cy * scale, scale };
     },
-    [width, height, fitPadding, minScale, maxScale, setTransform],
+    [width, height, fitPadding, minScale, maxScale],
   );
+
+  const fitToView = useCallback(
+    (bounds: ViewportBox) => {
+      const t = fitTransform(bounds);
+      if (t) setTransform(t);
+    },
+    [fitTransform, setTransform],
+  );
+
+  // Ease the camera to an exact transform. Reduced-motion (or a zero delta) lands
+  // instantly; otherwise an ease-out-cubic rAF loop drives ref+paint+state together
+  // so every layer (canvas, overlays, world DOM) flies in lockstep.
+  const animateTo = useCallback(
+    (next: ViewportTransform, durationMs = FLY_DURATION_MS) => {
+      cancelAnim();
+      const from = transformRef.current;
+      const dx = next.x - from.x;
+      const dy = next.y - from.y;
+      const ds = next.scale - from.scale;
+      const reduce =
+        typeof window !== "undefined" &&
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (durationMs <= 0 || reduce || (dx === 0 && dy === 0 && ds === 0)) {
+        commit(next);
+        return;
+      }
+      let start: number | null = null;
+      const step = (ts: number) => {
+        if (start == null) start = ts;
+        const t = Math.min(1, (ts - start) / durationMs);
+        const e = 1 - Math.pow(1 - t, 3);
+        commit({ x: from.x + dx * e, y: from.y + dy * e, scale: from.scale + ds * e });
+        if (t < 1) animRef.current = requestAnimationFrame(step);
+        else animRef.current = null;
+      };
+      animRef.current = requestAnimationFrame(step);
+    },
+    [cancelAnim, commit],
+  );
+
+  const animateToView = useCallback(
+    (bounds: ViewportBox, durationMs = FLY_DURATION_MS) => {
+      const t = fitTransform(bounds);
+      if (t) animateTo(t, durationMs);
+    },
+    [fitTransform, animateTo],
+  );
+
+  useEffect(() => cancelAnim, [cancelAnim]);
 
   const zoomAround = useCallback(
     (factor: number, px: number, py: number) => {
@@ -199,6 +273,7 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
       const allowed = middle || spaceLeft || panButton === "any";
       if (!allowed) return;
       if (ignoreSelector && (e.target as HTMLElement).closest(ignoreSelector)) return;
+      cancelAnim();
       dragRef.current = {
         startX: e.clientX,
         startY: e.clientY,
@@ -207,7 +282,7 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
       };
       setIsDragging(true);
     },
-    [panButton, ignoreSelector],
+    [panButton, ignoreSelector, cancelAnim],
   );
 
   useEffect(() => {
@@ -236,6 +311,8 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
   return {
     transform,
     setTransform,
+    animateTo,
+    animateToView,
     handlers: { onMouseDown },
     fitToView,
     zoomBy,

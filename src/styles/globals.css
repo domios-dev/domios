@@ -1044,6 +1044,15 @@ button,
   }
 }
 
+/* Fly-to affordance: a roster row lifts on hover so it reads as a jump target. */
+.ct-canvas-swarm-row:hover {
+  background: color-mix(in srgb, var(--ct-border-focus) 14%, transparent);
+}
+.ct-canvas-swarm-row:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-border-focus) 70%, transparent);
+}
+
 /* Hover ring: a steady, subtle outer glow (never an overlay) for the focused card. */
 .ct-canvas-hovered {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ct-border-focus) 65%, transparent), 0 0 14px 2px color-mix(in srgb, var(--ct-border-focus) 30%, transparent);

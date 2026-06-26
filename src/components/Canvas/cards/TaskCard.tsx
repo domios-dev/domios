@@ -506,6 +506,18 @@ export function TaskCard({
           <ExternalLink size={11} />
         </button>
       )}
+      {showBodySlot && task.section_ids.length > 0 && (
+        <button
+          type="button"
+          data-testid="canvas-task-section-link"
+          data-fly-to-kind="task-section"
+          title="Fly to the plan section this task is bound to"
+          onMouseDown={(e) => e.stopPropagation()}
+          style={iconBtn()}
+        >
+          <Layers size={11} />
+        </button>
+      )}
       {showBodySlot && onCopyLink && (
         <button type="button" data-testid="canvas-task-copy-link" title="Copy task link" onClick={(e) => { e.stopPropagation(); onCopyLink(task.id); }} onMouseDown={(e) => e.stopPropagation()} style={iconBtn()}>
           <Link2 size={11} />
