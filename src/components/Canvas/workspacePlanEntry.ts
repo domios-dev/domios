@@ -18,10 +18,14 @@ export function deriveWorkspacePlanEntries(
   panes: Record<string, Pane>,
 ): PlanIndexEntry[] {
   const paneIds = workspacePaneIds(workspace, panes);
-  if (paneIds.size === 0) return [];
   const active = index.filter((e) => e.status === "active");
   const seen = new Set<string>();
   const out: PlanIndexEntry[] = [];
+  for (const entry of active) {
+    if (!planBelongsToWorkspacePath(entry, workspace)) continue;
+    seen.add(entry.plan_id);
+    out.push(entry);
+  }
   for (const paneId of paneIds) {
     for (const entry of findPlanIndexForPane(active, paneId, panes)) {
       if (seen.has(entry.plan_id)) continue;
@@ -30,6 +34,18 @@ export function deriveWorkspacePlanEntries(
     }
   }
   return out.sort((a, b) => b.updated_at - a.updated_at);
+}
+
+function planBelongsToWorkspacePath(entry: PlanIndexEntry, workspace: Workspace): boolean {
+  if (!workspace.cwd) return false;
+  const root = normalizePath(workspace.cwd);
+  const file = normalizePath(entry.file_path);
+  return file === `${root}/.codeterm/plans/${entry.plan_id}.json`
+    || file.startsWith(`${root}/.codeterm/plans/`);
+}
+
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
 export function workspacePlanEntryLabel(entries: PlanIndexEntry[]): string {

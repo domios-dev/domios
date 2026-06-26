@@ -147,6 +147,8 @@ For each fix, track a ledger:
 - Build/typecheck passed through the repo's required wrapper.
 - Integration or UI pass run by the Orchestrator.
 - Playwright/web-mode pass for UI behavior where practical.
+- Visual/UI changes from Workers require visual confirmation before acceptance.
+  Run Playwright yourself for small changes, or dispatch a separate verifier Worker for broader UI changes.
 - Manual oracle checked when the bug depends on real session data or visuals.
 - Test path exercises the real failing scenario, not a helper-only shortcut.
 - Blast radius reviewed across relevant providers/platforms.
