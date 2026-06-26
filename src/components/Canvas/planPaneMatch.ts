@@ -29,6 +29,18 @@ export function resolveOrchestratorPaneId(
   return paneId;
 }
 
+// Ownership by the pane ITSELF — its own pane id or its own agent session, never
+// an ancestor. The shared rule behind both the orchestrator strip (paneOwnedPlans)
+// and the tab indicator (paneTabActivity) so they classify a pane identically.
+export function ownerIsPaneSelf(
+  owner: OrchestratorRef,
+  paneId: string,
+  sessionId: string | null,
+): boolean {
+  if (owner.pane_id === paneId) return true;
+  return !!sessionId && owner.session_id === sessionId;
+}
+
 function ownerMatchesPaneChain(owner: OrchestratorRef, chain: Pane[]): boolean {
   const paneIds = new Set(chain.map((p) => p.id));
   const sessionIds = new Set(

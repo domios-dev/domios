@@ -20,6 +20,8 @@ import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
+import { TabActivityIndicator } from "./TabActivityIndicator";
+import type { PaneTabActivity } from "../Canvas/paneTabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 
 interface TabItemProps {
@@ -40,6 +42,8 @@ interface TabItemProps {
   isClosing?: boolean;
   touchMode?: boolean;
   uiFontScale?: number;
+  /** Plan-membership glance (resolved from the cheap index gate by the Sidebar). */
+  activity?: PaneTabActivity | null;
 }
 
 function TabItemInner({
@@ -59,6 +63,7 @@ function TabItemInner({
   isClosing,
   touchMode = false,
   uiFontScale,
+  activity,
 }: TabItemProps) {
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // panes — drives the icon, tooltip, and (for shells) the model badge.
@@ -242,6 +247,10 @@ function TabItemInner({
             )}
           </span>
         )}
+        {/* Plan-membership glance — worker dot / orchestrator glyph (EMERGENCE) */}
+        {activity && pane && !editing && (
+          <TabActivityIndicator activity={activity} paneId={pane.id} status={status} />
+        )}
         {/* Connected services */}
         {pane?.connected_services?.includes("telegram") && (
           <span className="shrink-0 text-[var(--ct-muted-fg)]/50">
@@ -329,6 +338,19 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.tab.title !== next.tab.title ||
     prev.tab.description !== next.tab.description
   ) return false;
+
+  // Plan-membership glance is a fresh object each Sidebar render — compare by value
+  // so a non-task tab (both null) and an unchanged indicator skip the re-render.
+  const pa = prev.activity;
+  const na = next.activity;
+  if (!!pa !== !!na) return false;
+  if (pa && na && (
+    pa.kind !== na.kind ||
+    pa.planId !== na.planId ||
+    pa.planTitle !== na.planTitle ||
+    pa.taskCount !== na.taskCount ||
+    pa.planCount !== na.planCount
+  )) return false;
 
   const pp = prev.pane;
   const np = next.pane;
