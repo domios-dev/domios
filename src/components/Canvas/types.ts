@@ -3,6 +3,16 @@
 
 export type PlanStatus = "active" | "archived";
 export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled";
+// Value-level mirror of the TaskStatus union — use these in comparisons/switches
+// instead of bare string literals (type + value namespaces merge by design).
+export const TaskStatus = {
+  Pending: "pending",
+  InProgress: "in_progress",
+  InReview: "in_review",
+  Blocked: "blocked",
+  Done: "done",
+  Cancelled: "cancelled",
+} as const satisfies Record<string, TaskStatus>;
 export type LoopStatus = "running" | "done" | "exhausted" | "stopped";
 export type DriftKind = "in_progress_pane_gone" | "stale_in_review" | "bound_to_closed_pane" | "accepted_but_not_done";
 
@@ -88,6 +98,7 @@ export interface Milestone {
 }
 
 export type TaskPriority = "p0" | "p1" | "p2" | "p3"; // p0 = highest
+export const TaskPriority = { P0: "p0", P1: "p1", P2: "p2", P3: "p3" } as const satisfies Record<string, TaskPriority>;
 
 export interface Task {
   id: string;

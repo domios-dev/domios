@@ -9,7 +9,8 @@ import { DEFAULT_CANVAS_SETTINGS, type CanvasLayoutSettings } from "./settings";
 //   W2 CONTENT   — bodies reveal (the bug fix): markdown excerpts, step/subtask cards.
 //   W3 DEEP      — full readable content, node-internal scroll.
 export type World = "W0" | "W1" | "W2" | "W3";
-export const WORLD_ORDER: readonly World[] = ["W0", "W1", "W2", "W3"];
+export const World = { W0: "W0", W1: "W1", W2: "W2", W3: "W3" } as const satisfies Record<string, World>;
+export const WORLD_ORDER: readonly World[] = [World.W0, World.W1, World.W2, World.W3];
 export const DEEP_DIVE_CRISP_SCALE = 7.5;
 
 export function worldThresholds(kind: string, s: CanvasLayoutSettings = DEFAULT_CANVAS_SETTINGS): [number, number, number] {

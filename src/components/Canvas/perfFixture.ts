@@ -1,4 +1,4 @@
-import type { Plan } from "./types";
+import { TaskPriority, TaskStatus, type Plan } from "./types";
 import { milestone, plan, section, task } from "./layout/fixtures";
 
 // Dev harness, LOCAL-ONLY: to validate rendering against a real exported plan,
@@ -39,9 +39,14 @@ export function perfFixtureCount(): number {
 }
 
 const MS_KINDS = ["status_update", "testing", "review"];
+const PRIORITIES = [TaskPriority.P0, TaskPriority.P1, TaskPriority.P2, TaskPriority.P3] as const;
+const ROLES = ["backend-dev", "frontend-dev", "code-reviewer", null, null];
+const GROUPS = ["layout", "navigation", null, "isolation", null];
 
 // Complex cards (not bare placeholders): long title, multi-line body, and several
 // milestone bubbles each — representative of real card rendering cost at scale.
+// Field spread (priority/role/branch/peer/group) is synthetic-only so the new
+// field-surfacing can be visually audited without a real plan that populates them.
 export function buildPerfFixturePlans(n: number): Plan[] {
   const sec = section("perf_sec", [], "Synthetic perf section body for scale testing.");
   const tasks = Array.from({ length: n }, (_, i) => {
@@ -49,8 +54,13 @@ export function buildPerfFixturePlans(n: number): Plan[] {
       milestone(`perf_t${i}_m${m}`, MS_KINDS[m % MS_KINDS.length], null),
     );
     return task(`perf_t${i}`, ["perf_sec"], {
-      status: i % 6 === 0 ? "in_progress" : i % 9 === 0 ? "done" : "pending",
+      status: i % 6 === 0 ? TaskStatus.InProgress : i % 9 === 0 ? TaskStatus.Done : TaskStatus.Pending,
       created_at: i,
+      priority: PRIORITIES[i % PRIORITIES.length],
+      group: GROUPS[i % GROUPS.length],
+      taken_by_role: ROLES[i % ROLES.length],
+      peer: i % 7 === 0 ? "claude-sonnet" : null,
+      lane: i % 2 === 0 ? { branch: `feat/module-${i}`, base: "master" } : undefined,
       name: `Synthetic task ${i}: implement feature module ${i} with a deliberately long title to exercise wrapping and overflow`,
       body: `Description for task ${i}. Multi-line body to exercise text layout, wrapping, ellipsis and overflow within the card bounds. Acceptance: renders cleanly with title, body and milestone bubbles, no text spilling past the node frame.`,
       status_label: i % 3 === 0 ? "in review" : null,
