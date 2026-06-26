@@ -1,4 +1,5 @@
 import type { Pane } from "../../lib/types";
+import { ownerIsPaneSelf } from "./planPaneMatch";
 import { buildTaskPresence } from "./taskPresence";
 import type { PresenceAgent } from "./presence/identity";
 import { TaskStatus, type Plan } from "./types";
@@ -63,9 +64,7 @@ export function resolvePaneOwnedPlans(
   if (!paneId) return [];
   const sessionId = panes[paneId]?.agent_session_id?.trim() || null;
   const owned = plans.filter(
-    (p) =>
-      p.status === "active" &&
-      (p.owner.pane_id === paneId || (!!sessionId && p.owner.session_id === sessionId)),
+    (p) => p.status === "active" && ownerIsPaneSelf(p.owner, paneId, sessionId),
   );
   const summaries = owned.map((p) => summarize(p, panes));
   summaries.sort(

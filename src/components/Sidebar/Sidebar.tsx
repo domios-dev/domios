@@ -42,6 +42,7 @@ import {
   topLevelTabsInWorkspace,
 } from "./workspaceTabs";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
@@ -634,6 +635,9 @@ export function Sidebar({
                             ): React.ReactNode => {
                               const tabPids = collectPaneIds(tab, state.panes);
                               const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
+                              const tabActivity = firstPane
+                                ? resolvePaneTabActivity(planIndex, firstPane.id, state.panes)
+                                : null;
                               const childTabs = firstPane
                                 ? childTabsForParent(sortedTabs, state.panes, firstPane.id)
                                 : [];
@@ -675,6 +679,7 @@ export function Sidebar({
                                     isClosing={isClosing}
                                     touchMode={touchMode}
                                     uiFontScale={uiFontScale}
+                                    activity={tabActivity}
                                   />
                                   </SortableRow>
                                   {childTabs.length > 0 && firstPane && (
@@ -754,6 +759,9 @@ export function Sidebar({
                         if (!activeTab) return null;
                         const atPids = collectPaneIds(activeTab, state.panes);
                         const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
+                        const atActivity = atFirstPane
+                          ? resolvePaneTabActivity(planIndex, atFirstPane.id, state.panes)
+                          : null;
                         return (
                           <TabItem
                             tab={activeTab}
@@ -776,6 +784,7 @@ export function Sidebar({
                             orchestrators={wsOrchestrators}
                             touchMode={touchMode}
                             uiFontScale={uiFontScale}
+                            activity={atActivity}
                           />
                         );
                       })()
