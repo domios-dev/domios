@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782451517391,
+  "updated_at": 1782451683897,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -9417,12 +9417,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782308820877,
-      "updated_at": 1782375611004,
-      "status_changed_at": 1782308820877,
+      "updated_at": 1782451683897,
+      "status_changed_at": 1782451683897,
       "handle": "central-project-and-git-storage",
       "tags": [],
       "section_ids": [
@@ -9528,6 +9528,25 @@
           "links": [
             "key:0ef6c19c27bbb133"
           ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_9f63a5a0f7f3451c9ca176e3b17b95d2",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Reconciled as already implemented and present on feat/canvas. Evidence: milestones say fd20e633 implemented central project root via git common-dir; source confirms paths::project_root resolves through git --git-common-dir, PlanStore scan/save/search/index canonicalize through project_root, and linked-worktree tests are present. Gates run now: perl -e 'alarm 120; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml service::plan::paths::tests::project_root_resolves_linked_worktree_to_main_worktree -- --nocapture passed; perl -e 'alarm 120; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml service::plan::search_index::tests::linked_worktree_uses_main_project_for_listing_search_and_index_scope -- --nocapture passed. No worker spawned because this was stale plan state, not missing implementation.",
+          "ts": 1782451683897,
+          "links": [],
           "loop_id": null,
           "iteration": null,
           "canvas": {
