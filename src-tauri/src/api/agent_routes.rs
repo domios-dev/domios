@@ -95,7 +95,10 @@ pub async fn record_remote_worker(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     if body.peer.trim().is_empty() || body.remote_pane.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, "peer and remote_pane required".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "peer and remote_pane required".into(),
+        ));
     }
     let orchestrator =
         resolve_pane(&state, &body.orchestrator_pane).map_err(|(s, m)| (s, m.to_string()))?;
