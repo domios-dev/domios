@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782470418079,
+  "updated_at": 1782470561645,
   "milestone_kinds": [
     {
       "key": "research",
@@ -592,6 +592,59 @@
         "workspace_name": null,
         "worktree_path": "/Users/rollacode/Developer/codeterm-runtime-rich-overlay",
         "branch": "lane/runtime-rich-overlay",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "remove worktree and branch after orchestrator accepts"
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_49da65ccc9314196bf83a734b9554bf8",
+      "name": "S6 — Lightweight world cards under substrate overlay budget",
+      "type": "feature",
+      "model": "cursor:composer-2.5",
+      "model_rationale": "Frontend performance slice after S5; Cursor can implement UI/components while orchestrator gates Playwright.",
+      "acceptance_criteria": [
+        "With substrate+overlay budget enabled, non-focused world plan/task/spec nodes use lightweight cards instead of full rich card chrome.",
+        "Focused overlay remains rich and positioned from OverlayNode screenRect.",
+        "Default non-flag behavior remains unchanged."
+      ],
+      "test_plan": "Focused component/unit tests and orchestrator-run Playwright budget gate with canvas.substrateV2/canvas.overlayBudget/canvas.passiveRenderer enabled.",
+      "correctness": "World layer becomes cheap; DOM richness is reserved for bounded overlays.",
+      "status": "in_progress",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782470526859,
+      "updated_at": 1782470561645,
+      "status_changed_at": 1782470561645,
+      "handle": "s6-lightweight-world-cards-under-substrate-overlay-budget",
+      "tags": [
+        "canvas",
+        "substrate",
+        "performance"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": "33b96cec",
+      "lane": {
+        "pane_id": "33b96cec",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-lightweight-world-cards",
+        "branch": "lane/lightweight-world-cards",
         "base": "feat/canvas",
         "destination": "feat/canvas",
         "cleanup_status": "pending",
