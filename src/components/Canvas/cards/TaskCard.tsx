@@ -11,6 +11,7 @@ import { digestMarkdown } from "./digest";
 import { formatTaskFreshness, taskFreshnessAt } from "./taskFreshness";
 import { StrideSnake } from "./StrideSnake";
 import { formatTime } from "../../../lib/formatters";
+import type { TaskPresence } from "../taskPresence";
 
 // §32 worlds task cell — fixed footprint (§32.4), content adapts to the node's appW
 // band (W0 mass → W3 deep). No manual mode, no click-to-reveal: zoom IS navigation.
@@ -121,6 +122,46 @@ function Chip({ testid, mono, accent, children }: { testid: string; mono?: boole
   );
 }
 
+function PresencePill({ presence }: { presence: TaskPresence }) {
+  const detail = [
+    presence.label,
+    presence.focus,
+    presence.latest ? `${presence.latest.authorLabel} ${presence.latest.kindLabel}` : null,
+  ].filter(Boolean).join(" · ");
+  const title = [
+    `Working: ${presence.label}`,
+    `Pane: ${presence.paneId}`,
+    presence.focus ? `Focus: ${presence.focus}` : null,
+    presence.latest ? `Latest: ${presence.latest.authorLabel} · ${presence.latest.kindLabel}` : null,
+  ].filter(Boolean).join("\n");
+  return (
+    <span
+      data-testid="canvas-task-presence"
+      data-pane-id={presence.paneId}
+      title={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        minWidth: 0,
+        maxWidth: "100%",
+        fontSize: "0.72em",
+        fontWeight: 700,
+        padding: "0.08em 0.5em",
+        borderRadius: 999,
+        border: "1px solid color-mix(in srgb, rgba(82,180,145,0.95) 55%, transparent)",
+        background: "color-mix(in srgb, rgba(82,180,145,0.95) 15%, transparent)",
+        color: "var(--ct-fg)",
+      }}
+    >
+      <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: "rgba(82,180,145,0.95)", flexShrink: 0 }} />
+      <span data-testid="canvas-task-presence-detail" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {detail}
+      </span>
+    </span>
+  );
+}
+
 function PrimaryFacetChip({ label, color }: { label: string; color: string }) {
   return (
     <span
@@ -201,6 +242,7 @@ export interface TaskCardProps extends CanvasCardStyleProps {
   parentTaskName?: string | null;
   stepColors?: Map<string, string>;
   drift?: DriftItem;
+  presence?: TaskPresence | null;
   world: World;
   /** §34 crisp text: >1 → re-rasterize at on-screen size (zoom + counter-scale). */
   crispScale?: number;
@@ -221,6 +263,7 @@ export function TaskCard({
   parentTaskName = null,
   stepColors,
   drift,
+  presence,
   style,
   world,
   crispScale = 1,
@@ -347,7 +390,8 @@ export function TaskCard({
             </div>
           ) : null}
 
-          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0 || freshnessLabel.length > 0 || !!parentTaskName) }}>
+          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0 || freshnessLabel.length > 0 || !!parentTaskName || !!presence) }}>
+            {presence && <PresencePill presence={presence} />}
             {parentTaskName && (
               <Counter testid="canvas-task-parent">
                 <CornerDownRight size={10} aria-hidden />

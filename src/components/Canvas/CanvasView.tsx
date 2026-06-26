@@ -37,6 +37,7 @@ import { useCanvasPlans } from "./PlansProvider";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { PlanGhostModel } from "./cards";
 import type { CanvasElement, DriftItem, OrchestratorRef, Plan, Section, TagFacet, Task } from "./types";
+import { buildTaskPresence, type TaskPresence } from "./taskPresence";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport, formatLayerTransform } from "./useCanvasViewport";
 
@@ -85,6 +86,7 @@ export interface TaskCardModel {
   parentTaskName: string | null;
   stepColors: Map<string, string>;
   drift?: DriftItem;
+  presence?: TaskPresence | null;
 }
 
 interface CanvasLookups {
@@ -227,6 +229,7 @@ export function CanvasViewInner({
           parentTaskName,
           stepColors: colors,
           drift: driftByTask.get(task.id),
+          presence: buildTaskPresence(plan, task, panes),
         });
         const seen = new Map<string, string>();
         for (const m of task.milestones) {
@@ -244,7 +247,7 @@ export function CanvasViewInner({
       for (const el of plan.elements) elementById.set(el.id, el);
     }
     return { nodeById, taskById, taskModelById, sectionById, specSectionById, milestoneModelById, milestoneTaskById, clusterModelById, elementById };
-  }, [layout, filteredPlans, driftByPlan]);
+  }, [layout, filteredPlans, driftByPlan, panes]);
 
   const resolveModel = useCallback(
     (node: LaidOutNode): unknown => {

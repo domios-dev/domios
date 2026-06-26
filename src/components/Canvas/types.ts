@@ -28,6 +28,18 @@ export interface OrchestratorRef {
 }
 export type AgentRef = OrchestratorRef;
 
+export interface TaskLaneMetadata {
+  pane_id?: string | null;
+  workspace_id?: string | null;
+  workspace_name?: string | null;
+  worktree_path?: string | null;
+  branch?: string | null;
+  base?: string | null;
+  destination?: string | null;
+  cleanup_status?: string | null;
+  cleanup_hints?: string[];
+}
+
 export interface TransferRecord {
   from: OrchestratorRef;
   to: OrchestratorRef;
@@ -97,6 +109,8 @@ export interface Task {
   intent: string | null;
   parent_task_id: string | null;
   assigned_pane_id: string | null;
+  lane?: TaskLaneMetadata;
+  taken_by_role?: string | null;
   peer: string | null;
   canvas: ElementCanvas;
   milestones: Milestone[];
@@ -145,6 +159,20 @@ export interface Goal {
   postulates?: string[];
 }
 
+export interface HeartbeatLearning {
+  id: string;
+  text: string;
+  ts: number;
+  tag?: string | null;
+}
+
+export interface OrchestratorHeartbeat {
+  current_focus?: string | null;
+  active_lanes?: string[];
+  rules?: string[];
+  learnings?: HeartbeatLearning[];
+}
+
 export interface SpecLink {
   spec_id: string;
   spec_section_id: string;
@@ -175,6 +203,7 @@ export interface Plan {
   canvas: PlanCanvas;
   owner_history: TransferRecord[];
   goal?: Goal | null;
+  heartbeat?: OrchestratorHeartbeat;
   primary_spec_id?: string | null;
   spec_links?: SpecLink[];
   links?: string[];
