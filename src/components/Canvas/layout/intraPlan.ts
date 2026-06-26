@@ -57,16 +57,18 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings): IntraPlanL
     anchors.set(section.id, { x: planBox.x + planBox.width, y: planBox.y + planOffsets[i] });
   });
 
-  // §2 circle-pack task disk to the RIGHT of the plan, centered on the plan
-  // mid-line. The pack returns centers relative to (0,0) + the disk radius R;
-  // diskCenter.x = planW + gap + R places the whole disk clear of the plan.
+  // §2 task cloud to the RIGHT of the plan, centered on the plan mid-line. The
+  // cloud is right-opening with a flat left edge; flush it to the plan by the
+  // leftmost tile extent (not the full radius, which left a radius-wide void).
   const cloud = layoutTaskCloud(plan, s, anchors);
-  const diskCenter: Point = { x: planBox.width + s.columnGapX + cloud.radius, y: axisY };
+  const leftExtent = cloud.nodes.reduce((m, n) => Math.min(m, n.box.x), 0);
+  const diskCenter: Point = { x: planBox.width + s.columnGapX - leftExtent, y: axisY };
   for (const n of cloud.nodes) {
     nodes.push({ ...n, box: { ...n.box, x: n.box.x + diskCenter.x, y: n.box.y + diskCenter.y } });
   }
-  edges.push(...cloud.edges);
-  extraPoints.push(...cloud.extraPoints);
+  // Loop, not push(...spread): a spread of 100k+ edge args overflows the call stack.
+  for (const e of cloud.edges) edges.push(e);
+  for (const pt of cloud.extraPoints) extraPoints.push(pt);
 
   // §32.8 handoff timeline lane: chronological reset coins ABOVE the plan frame
   // (never inside task clutter), linked [n-1]→[n] left→right by seq. Auto-placed
