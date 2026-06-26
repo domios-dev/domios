@@ -140,8 +140,8 @@ function LinkageStrip({ plan, world }: { plan: Plan; world: World }) {
             data-fly-to-id={resolvedSpec}
             role="button"
             tabIndex={0}
-            title={`Bound spec: ${resolvedSpec}${boundSections ? `\n${boundSections} section link${boundSections === 1 ? "" : "s"}` : ""}`}
-            onClick={(e) => { e.stopPropagation(); copyText(resolvedSpec); }}
+            title={`Fly to bound spec: ${resolvedSpec}${boundSections ? `\n${boundSections} section link${boundSections === 1 ? "" : "s"}` : ""}`}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } }}
             onMouseDown={(e) => e.stopPropagation()}
             style={metaChip(LINK_ACCENT, true)}
           >
@@ -164,8 +164,8 @@ function LinkageStrip({ plan, world }: { plan: Plan; world: World }) {
               data-fly-to-id={link.to}
               role="button"
               tabIndex={0}
-              title={`${link.rel} ${link.to}`}
-              onClick={(e) => { e.stopPropagation(); copyText(link.to); }}
+              title={`Fly to ${link.rel}: ${link.to}`}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } }}
               onMouseDown={(e) => e.stopPropagation()}
               style={metaChip(accent, true)}
             >
@@ -499,7 +499,19 @@ function SwarmPanel({ tasks, world }: { tasks: Task[]; world: World }) {
             const meta = TASK_STATUS_META[t.status];
             const driver = detail ? taskDriver(t) : "";
             return (
-              <div key={t.id} data-testid="canvas-plan-swarm-task" data-task-id={t.id} data-task-status={t.status} style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, padding: "2px 0" }}>
+              <div
+                key={t.id}
+                data-testid="canvas-plan-swarm-task"
+                data-task-id={t.id}
+                data-task-status={t.status}
+                role="button"
+                tabIndex={0}
+                title={`Fly to task: ${t.name}`}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.currentTarget.click(); } }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="ct-canvas-swarm-row"
+                style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, padding: "2px 4px", margin: "0 -4px", borderRadius: 5, cursor: "pointer" }}
+              >
                 <span className={meta.live ? "ct-canvas-heartbeat-dot" : undefined} aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color, flexShrink: 0 }} />
                 {detail && t.priority && (
                   <span title={`Priority ${t.priority.toUpperCase()}`} style={{ flexShrink: 0, fontSize: "0.64em", fontWeight: 800, letterSpacing: "0.02em", fontFamily: "var(--ct-font-mono)", color: PRIORITY_TINT[t.priority], opacity: t.priority === "p2" || t.priority === "p3" ? 0.7 : 1 }}>{t.priority.toUpperCase()}</span>
