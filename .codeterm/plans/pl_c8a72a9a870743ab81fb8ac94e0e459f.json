@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782454437686,
+  "updated_at": 1782454489522,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -15725,7 +15725,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782454167418,
-      "updated_at": 1782454437686,
+      "updated_at": 1782454489522,
       "status_changed_at": 1782454437686,
       "handle": "33-1-spike-git-merge-union-for-append-only-stride-logs",
       "tags": [],
@@ -15744,9 +15744,9 @@
         "branch": "lane/merge-storage-union-spike",
         "base": "fd1d4ac45384d4de0b805ee5d4d0e8ce9c170bcd",
         "destination": "feat/canvas",
-        "cleanup_status": "pending",
+        "cleanup_status": "cleaned",
         "cleanup_hints": [
-          "After accepted integration: close worker pane, remove /Users/rollacode/Developer/codeterm-merge-storage-union-spike, delete lane/merge-storage-union-spike, prune worktrees."
+          "Cleaned after integration commit 8be625b7: closed pane 6b50d21d, removed /Users/rollacode/Developer/codeterm-merge-storage-union-spike, deleted lane/merge-storage-union-spike, pruned worktrees."
         ]
       },
       "taken_by_role": null,
