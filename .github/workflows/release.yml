@@ -81,7 +81,6 @@ jobs:
         env:
           WIN_SSH: test@127.0.0.1
           WIN_PORT: '2222'
-          SSHPASS: ${{ secrets.WIN_VM_SSHPASS }}
         run: |
           .codeterm/build-machine/scripts/build-all.sh "${{ steps.ver.outputs.tag }}"
 
