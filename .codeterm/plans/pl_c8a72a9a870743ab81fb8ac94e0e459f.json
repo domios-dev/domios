@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782454646204,
+  "updated_at": 1782455196691,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -15791,12 +15791,12 @@
       ],
       "test_plan": "Run focused stride_log Rust tests plus git diff --check, file-size check, and CODETERM_API_PORT=7686 ./build.sh check in the hot checkout.",
       "correctness": "Future §33 append-only stride storage has a deterministic, tested primitive before write-path integration.",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p1",
       "created_at": 1782454576253,
-      "updated_at": 1782454646204,
-      "status_changed_at": 1782454605452,
+      "updated_at": 1782455196691,
+      "status_changed_at": 1782455196691,
       "handle": "33-2-stride-jsonl-codec-and-deterministic-fold-tests",
       "tags": [],
       "section_ids": [
@@ -15827,7 +15827,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_e8989dc26bd5472ab71d505d27e3a2b0",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted and integrated §33.2 stride JSONL primitive.\n\nChanges:\n- Added `src-tauri/src/service/plan/stride_log.rs`, a pure append/read/fold JSONL primitive for task `Milestone` records.\n- Exported the module from `src-tauri/src/service/plan/mod.rs`.\n- The primitive reads missing logs as empty, appends one JSON object per line, reports malformed line numbers, dedupes by milestone id, and sorts folded output by `(ts, id)`.\n- No PlanStore save/load migration or write-path integration was wired in this slice.\n\nOrchestrator gates:\n- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check: passed.\n- cargo test --manifest-path src-tauri/Cargo.toml stride_log --lib -- --nocapture: 6 passed.\n- git diff --check: passed.\n- bash scripts/check-file-sizes.sh: reports unrelated pre-existing oversized files; touched files are under hard limit (`stride_log.rs` 209 lines, `mod.rs` 871 advisory).\n- CODETERM_API_PORT=7686 ./build.sh check: passed.\n\nResidual risk:\n- Append callers must create parent directories; this is acceptable for the low-level primitive and should be handled by the later write-path integration slice.\n- Parent §33 storage task remains open for path wiring, explode migration, post-merge reindex, and compaction.\n",
+          "ts": 1782455196691,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     }
   ],
   "task_groups": [],
