@@ -79,6 +79,11 @@ pub enum SplitNodeSnapshot {
         /// legacy snapshots.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         report_target_pane_id: Option<String>,
+        /// Paired mesh peer the report target lives on (remote worker). Persisted
+        /// so a restarted remote worker still relays its reports back across the
+        /// mesh. `None` for local panes / legacy snapshots.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        report_target_mesh_peer: Option<String>,
         /// Can spawn children.
         #[serde(default)]
         can_spawn: bool,
