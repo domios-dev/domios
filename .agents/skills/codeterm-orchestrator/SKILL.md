@@ -24,6 +24,9 @@ final claim of readiness. Worker reports are inputs to review, not conclusions.
 - Use event-driven reports as the normal progress signal. Avoid active polling.
 - Keep a branch/worktree ledger for the whole run: owner, purpose, base,
   destination, and verification status.
+- Treat the plan as durable runtime state, not just notes. Record lane metadata
+  before spawn, bind the real pane id immediately after spawn, and persist the
+  ledger whenever it changes.
 - Prefer one integration branch for combined verification after parallel lanes
   finish. Keep source lane worktrees until their diffs are integrated or
   explicitly discarded.
@@ -53,9 +56,16 @@ The plan is the live ledger — keep it current on the daemon that owns the run.
 - Before dispatch: `plan task add` with `--model` and `--why` (routing rationale
   on the task); `plan task assign ... --pane` binds the worker (`CODETERM_TASK_ID`
   exports to the pane).
+- For lane work, set task metadata before spawn: status, model, why, base,
+  destination, branch, worktree, cleanup status, and cleanup hint. After spawn,
+  update the same task with the actual pane id. Read it back once; do not assume
+  the CLI response echoed the full task.
 - Workers report `blocked` / `partial` / completion; you judge `done` only after
   verify + integrate. Close with `plan task close` or `plan task update --status done`
   plus a milestone working-point.
+- If plan files are versioned for the run, commit the exact plan artifact after
+  dispatch and after close. If the plan directory is ignored, force-add only the
+  specific plan file you changed; never blanket-add ignored state.
 - `codeterm plan reconcile PLAN_ID` probes panes on **this daemon only**. Run it
   where your workers actually live. Inspect drift first; never `reconcile --fix`
   from prod against dev-spawned lanes (or vice versa) — false pane-gone drift.
@@ -78,17 +88,23 @@ This is a fixed checklist, not a menu. Skipping the cleanup step is the most com
 failure; it accumulates dead worktrees and GBs of cruft. Run the whole set per report.
 
 1. **Read** as evidence, not proof (status / changes / build-test claims / followup).
-2. **Verify** — re-run the meaningful gate yourself, in the integration checkout, **under a
+2. **Inspect the diff** — include untracked files, generated files, and file-size
+   impact before applying. A worker can pass focused tests while growing a
+   dispatcher past the repo limit or forgetting a generated manifest.
+3. **Verify** — re-run the meaningful gate yourself, in the integration checkout, **under a
    timeout** (see Build And Test Discipline). A worker's "tests pass" is a claim; a hang is a
    deadlock, not a pass.
-3. **Integrate** — if green, merge the lane branch into the mainline (serialized, one at a time).
-4. **Update the plan** — mark the task done/re-opened; record a work-point (who/what) so presence
-   stays accurate.
-5. **CLEAN UP** — remove the worktree, delete the merged branch, kill that lane's dev daemon
+4. **Integrate** — if green, merge/apply the lane branch into the mainline (serialized, one at a time).
+5. **Update the plan** — mark the task done/re-opened; record a work-point (who/what) so presence
+   stays accurate. Read back on slow responses rather than retrying blind.
+6. **CLEAN UP** — remove the worktree, delete the merged branch, kill that lane's dev daemon
    (`CODETERM_INSTANCE` + `CODETERM_API_PORT` in that worktree, then `./build.sh kill`).
    Do this NOW, not "later". `git worktree remove --force <path>` + `git branch -d <branch>`.
-6. **Dispatch next** — pull the next task from the active group; spawn/assign.
-7. **Re-arm** the heartbeat and refresh your own current-focus line.
+7. **Clear the processed report** — only after the task has been verified,
+   closed/bounced, and cleanup is complete. Otherwise report buffers replay old
+   work and confuse the next heartbeat.
+8. **Dispatch next** — pull the next task from the active group; spawn/assign.
+9. **Re-arm** the heartbeat and refresh your own current-focus line.
 
 **Under a flood (several reports at once):** queue them and run the FULL set for one before
 starting the next. Do not interleave half-cycles — that is exactly when the cleanup and
@@ -107,6 +123,9 @@ Rules:
 - Reports first — `codeterm agent reports` before any pane inspection.
 - No polling loop.
 - If reports arrived, process them and do not inspect worker panes.
+- If a heartbeat names a lane that is already done/cleaned, classify it as stale
+  by checking the plan and worktree list. Do not resurrect the old lane; process
+  current reports, then continue with the real active lane set.
 - If a worker is silent and overdue, check `pane status`/`pane chat` once, then
   re-arm a delayed heartbeat.
 - Delete stale delayed heartbeats when the active lane set changes.
@@ -130,6 +149,12 @@ For each fix, track a ledger:
 - Test path exercises the real failing scenario, not a helper-only shortcut.
 - Blast radius reviewed across relevant providers/platforms.
 - Change is in the version-controlled source, not only in an installed/dev copy.
+- Generated artifacts are fresh when command surfaces change (for example CLI
+  manifest/docs, prompts, completions, bindings). Run the generator and the
+  freshness tests before accepting the lane.
+- Source size discipline is preserved. If a worker patch grows a dispatcher or
+  test file past the repo limit/baseline, split or move the new concern before
+  committing; do not normalize the regression as "already close."
 
 For CodeTerm UI changes on macOS/Linux, Playwright can run against `/web/` via
 the local dev daemon. Do not skip UI gates on the assumption that only Windows
@@ -170,6 +195,10 @@ The Orchestrator is the single serialized build/verify gate. Hard rules, each le
   the error; retrying duplicates the row. Verify by reading back, not by retrying.
 - **Direct binary to bypass output filters.** If a tool wrapper (e.g. an rtk-style proxy) eats
   test output, run the toolchain binary directly (`$(rustup which cargo) test ...`).
+- **One gate ledger per lane.** Keep the final accepted command list in the
+  plan close message: focused unit tests, typecheck/build wrapper, generated
+  artifact checks, and any skipped/residual risk. Future handoffs should not
+  have to infer what was actually run.
 
 ## Review Discipline
 
@@ -218,6 +247,9 @@ git log --oneline <mainline>..<branch>
   branches.
 - Do not delete a worktree until its diff is integrated, reviewed, or confirmed
   obsolete.
+- After applying a worker patch, make sure untracked files from the worker are
+  included intentionally. `git diff` omits them; inspect worker `status --short`
+  and add explicit new-file patches or stage exact paths.
 - When a Worker report is accepted, cleanup immediately after integration and
   verification (worktree, branch, lane dev instance — all three or record why not):
 
