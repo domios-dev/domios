@@ -67,5 +67,24 @@ export function buildPerfFixturePlans(n: number): Plan[] {
       milestones,
     });
   });
-  return [plan("perf_plan", "perf_orch", 1, [sec], tasks)];
+  return [plan("perf_plan", "perf_orch", 1, [sec], tasks, {
+    goal: {
+      vector: "Render every plan at any scale with crisp text, zero reflow and full field coverage — the canvas is the orchestrator's command center.",
+      postulates: ["Object size is the camera matrix, never a per-card re-rasterization hack"],
+    },
+    heartbeat: {
+      current_focus: "Packing the task cloud flush against the plan and surfacing the orchestrator heartbeat + loop status on the plan node.",
+      active_lanes: ["feat/canvas-perf-polish", "feat/heartbeat-surface", "feat/loop-status"],
+      rules: ["Keep tsc + cloudFlush green", "No per-frame O(N) work", "Render fields only when present"],
+      learnings: [
+        { id: "hl1", text: "appW band beats raw camera scale for per-node LOD.", ts: 1, tag: "perf" },
+        { id: "hl2", text: "Counter-scale re-raster keeps glyphs crisp at deep zoom.", ts: 2, tag: "render" },
+      ],
+    },
+    loops: [
+      { id: "lp1", target: "canvas card field coverage", stages: [{ key: "audit", role: "designer", model: null, why: null, prompt: null }, { key: "fix", role: "frontend-dev", model: null, why: null, prompt: null }, { key: "verify", role: "reviewer", model: null, why: null, prompt: null }], budget: 10, count: 2, stop_when: "every field surfaced + zero overflow", status: "running" },
+      { id: "lp2", target: "perf regression sweep", stages: [], budget: 5, count: 5, stop_when: null, status: "done" },
+      { id: "lp3", target: "spec drift reconcile", stages: [], budget: 3, count: 3, stop_when: null, status: "exhausted" },
+    ],
+  })];
 }

@@ -4,6 +4,8 @@ import { MILESTONE_LANE_COLORS } from "../settings";
 import { atLeast, type World } from "../worlds";
 import { digestMarkdown } from "./digest";
 import { MilestoneText } from "./MilestoneText";
+import { ownerName } from "../owner";
+import { formatTime } from "../../../lib/formatters";
 
 // §32.5 Strides = a serpentine snake of kind-colored circular beads (Thread & Coil).
 // ONE continuous 2px path threads every stride; it wraps as a boustrophedon snake
@@ -120,11 +122,18 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
                     <MilestoneText text={m.text} testId="canvas-task-step-text" />
                   </div>
                 )}
-                {(m.links.length > 0 || m.iteration != null) && (
+                {m.links.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
                     {m.links.map((l) => (
                       <span key={l} style={{ fontSize: "0.64em", fontFamily: "var(--ct-font-mono)", padding: "0.05em 0.4em", borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg-active)", color: "var(--ct-fg)", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l}</span>
                     ))}
+                  </div>
+                )}
+                {(ownerName(m.from) || m.ts > 0 || m.loop_id) && (
+                  <div data-testid="canvas-task-step-meta" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 6, fontSize: "0.66em", opacity: 0.7 }}>
+                    {ownerName(m.from) && <span>{ownerName(m.from)}</span>}
+                    {m.ts > 0 && <span style={{ fontFamily: "var(--ct-font-mono)" }}>{formatTime(m.ts)}</span>}
+                    {m.loop_id && <span title={`Loop ${m.loop_id}`}>↻ {m.loop_id}</span>}
                   </div>
                 )}
               </div>

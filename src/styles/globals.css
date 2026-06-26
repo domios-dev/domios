@@ -1070,6 +1070,17 @@ button,
   50% { box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--ct-border-focus) 95%, transparent), 0 8px 26px -6px color-mix(in srgb, var(--ct-border-focus) 60%, transparent); }
 }
 
+/* Plan heartbeat / running-loop dot — a gentle live pulse on the orchestrator's
+   "now" strip. Reduced-motion drops to a static dot. */
+.ct-canvas-heartbeat-dot { animation: ct-canvas-heartbeat-dot 1.8s ease-in-out infinite; }
+@keyframes ct-canvas-heartbeat-dot {
+  0%, 100% { opacity: 0.55; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-canvas-heartbeat-dot { animation: none; }
+}
+
 /* Freshest step dot pulses (constellation / thread) — the live report. */
 .ct-canvas-step-live { animation: ct-canvas-step-live 1.8s ease-in-out infinite; }
 @keyframes ct-canvas-step-live {
