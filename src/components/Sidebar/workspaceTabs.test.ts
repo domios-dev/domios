@@ -2,13 +2,22 @@
 
 import assert from "node:assert/strict";
 import type { Pane, Tab } from "../../lib/types";
-import { childPaneIdsInWorkspace, topLevelTabsInWorkspace } from "./workspaceTabs";
+import {
+  childPaneIdsInWorkspace,
+  childTabsForParent,
+  topLevelTabsInWorkspace,
+} from "./workspaceTabs";
 
 function tab(id: string, paneId: string, sortOrder = 0): Tab {
   return { id, pane_id: paneId, sort_order: sortOrder };
 }
 
-function pane(id: string, parentPaneId?: string): Pane {
+function pane(
+  id: string,
+  parentPaneId?: string,
+  cwd?: string | null,
+  hidden?: boolean,
+): Pane {
   return {
     id,
     title: id,
@@ -16,6 +25,8 @@ function pane(id: string, parentPaneId?: string): Pane {
     title_level: "Default",
     parent_pane_id: parentPaneId ?? null,
     depth: parentPaneId ? 1 : 0,
+    cwd: cwd ?? null,
+    hidden: hidden ?? false,
   } as unknown as Pane;
 }
 
@@ -33,6 +44,15 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  childTabsForParent([parentTab, childTab], {
+    "parent-pane": pane("parent-pane", undefined, "/workspace"),
+    "child-pane": pane("child-pane", "parent-pane", "/other/project"),
+  }, "parent-pane").map((t) => t.id),
+  ["tab-child"],
+  "child nests under parent when cwd differs from workspace",
+);
+
+assert.deepEqual(
   topLevelTabsInWorkspace([movedChildTab], {
     "moved-pane": pane("moved-pane", "parent-pane"),
   }).map((t) => t.id),
@@ -46,6 +66,42 @@ assert.equal(
   }).size,
   0,
   "cross-workspace child is not treated as nested",
+);
+
+const grandparentTab = tab("tab-gp", "gp-pane", 0);
+const midTab = tab("tab-mid", "mid-pane", 1);
+const leafTab = tab("tab-leaf", "leaf-pane", 2);
+
+assert.deepEqual(
+  topLevelTabsInWorkspace([grandparentTab, midTab, leafTab], {
+    "gp-pane": pane("gp-pane"),
+    "mid-pane": pane("mid-pane", "gp-pane"),
+    "leaf-pane": pane("leaf-pane", "mid-pane"),
+  }).map((t) => t.id),
+  ["tab-gp"],
+  "only the hierarchy root is top-level",
+);
+
+assert.deepEqual(
+  childTabsForParent([grandparentTab, midTab, leafTab], {
+    "gp-pane": pane("gp-pane"),
+    "mid-pane": pane("mid-pane", "gp-pane"),
+    "leaf-pane": pane("leaf-pane", "mid-pane"),
+  }, "mid-pane").map((t) => t.id),
+  ["tab-leaf"],
+  "grandchild renders under its direct parent",
+);
+
+const hiddenParentTab = tab("tab-hidden-parent", "hidden-parent", 0);
+const visibleChildTab = tab("tab-visible-child", "visible-child", 1);
+
+assert.deepEqual(
+  topLevelTabsInWorkspace([hiddenParentTab, visibleChildTab], {
+    "hidden-parent": pane("hidden-parent", undefined, null, true),
+    "visible-child": pane("visible-child", "hidden-parent"),
+  }).map((t) => t.id),
+  ["tab-visible-child"],
+  "child of hidden parent surfaces at top level",
 );
 
 console.log("workspaceTabs.test.ts: ok");

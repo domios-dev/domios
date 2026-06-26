@@ -37,6 +37,7 @@ import {
 import {
   childTabsForParent,
   collectPaneIds,
+  flattenSidebarTabs,
   topLevelTabsInWorkspace,
 } from "./workspaceTabs";
 
@@ -512,7 +513,7 @@ export function Sidebar({
                         >
                           <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
                         </button>
-                        {isExpanded && sortByOrder(ws.tabs).map((tab) => {
+                        {isExpanded && flattenSidebarTabs(ws.tabs, state.panes).map((tab) => {
                           const tabPaneIds = collectPaneIds(tab, state.panes);
                           const isTabActive = isActiveVisual && tab.id === state.activeTabIds[ws.id];
                           return (
