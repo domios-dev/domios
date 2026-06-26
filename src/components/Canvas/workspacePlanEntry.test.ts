@@ -11,8 +11,11 @@ import {
   resolvePanePlanFocusTarget,
   resolveWorkspaceFocusNodeIds,
   canvasFitContextKey,
+  workspacePlanEntryExtraCount,
+  workspacePlanEntryHint,
   workspacePlanEntryKind,
   workspacePlanEntryLabel,
+  workspacePlanEntryPrimaryTitle,
   workspacePlanEntryTitle,
   workspacePaneIds,
 } from "./workspacePlanEntry";
@@ -175,7 +178,42 @@ test("workspacePlanEntryKind and label singular and plural", () => {
   assert(workspacePlanEntryKind([indexEntry(), indexEntry({ plan_id: "plan-b", title: "Beta" })]) === "Plan", "plural kind still pinned action");
   assert(workspacePlanEntryLabel([indexEntry(), indexEntry({ plan_id: "plan-b", title: "Beta" })]) === "Plan", "multiple visible label");
   assert(workspacePlanEntryTitle([indexEntry()]).includes(FIXTURE_PLAN.title), "single title keeps plan name");
-  assert(workspacePlanEntryTitle([indexEntry(), indexEntry({ plan_id: "plan-b", title: "Beta" })]) === "Open 2 workspace plans", "multiple title detail");
+  const manyTitle = workspacePlanEntryTitle([indexEntry(), indexEntry({ plan_id: "plan-b", title: "Beta" })]);
+  assert(manyTitle.includes(FIXTURE_PLAN.title) && manyTitle.includes("+1 more plan"), `multiple title detail (got ${manyTitle})`);
+});
+
+test("workspacePlanEntryPrimaryTitle leads with the freshest plan name", () => {
+  assert(workspacePlanEntryPrimaryTitle([indexEntry()]) === FIXTURE_PLAN.title, "single primary title");
+  assert(workspacePlanEntryPrimaryTitle([]) === "Untitled plan", "empty falls back");
+  assert(
+    workspacePlanEntryPrimaryTitle([indexEntry({ title: "  " })]) === "Untitled plan",
+    "blank title falls back",
+  );
+});
+
+test("workspacePlanEntryHint prefers tasks then sections then items", () => {
+  assert(workspacePlanEntryHint([indexEntry({ task_count: 12 })]) === "12 tasks", "task plural");
+  assert(workspacePlanEntryHint([indexEntry({ task_count: 1 })]) === "1 task", "task singular");
+  assert(
+    workspacePlanEntryHint([indexEntry({ task_count: 0, section_count: 3 })]) === "3 sections",
+    "falls back to sections",
+  );
+  assert(
+    workspacePlanEntryHint([indexEntry({ task_count: 0, section_count: 0, element_count: 5 })]) === "5 items",
+    "falls back to items",
+  );
+  assert(
+    workspacePlanEntryHint([indexEntry({ task_count: 0, section_count: 0, element_count: 0 })]) === null,
+    "no count → no hint",
+  );
+});
+
+test("workspacePlanEntryExtraCount counts plans beyond the lead", () => {
+  assert(workspacePlanEntryExtraCount([indexEntry()]) === 0, "single → 0");
+  assert(
+    workspacePlanEntryExtraCount([indexEntry(), indexEntry({ plan_id: "b" }), indexEntry({ plan_id: "c" })]) === 2,
+    "three → +2",
+  );
 });
 
 test("resolvePanePlanFocusTarget carries pane and optional plan id", () => {
