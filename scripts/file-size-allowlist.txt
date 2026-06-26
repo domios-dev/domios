@@ -6,6 +6,10 @@
 # removed from this list (the script will warn when one is now under-limit).
 #
 # Adding a new line to this list = admitting we shipped a >1000 file. Don't.
+#
+# HARD RULE (owner directive): NEVER add a new entry here. If a file crosses
+# 1000 lines, SPLIT it — do not allowlist it. Entries only shrink and get
+# removed. A new oversized file is a bug to fix, not to baseline.
 
 # Baselined 2026-06-11 (A5): pre-existing >1000 files at HEAD on branch security.
 # Files with a dedicated split task lose their entry once split; the rest are
@@ -17,5 +21,3 @@ cli/src/cmd/plugin.rs	1743
 src-tauri/src/agent/provider.rs	1231
 # Mem hybrid search — no split task yet; baselined to unblock CI.
 src-tauri/src/mem/search.rs	1137
-# Mem store test module — test file, baselined.
-src-tauri/src/mem/store/tests.rs	1215
