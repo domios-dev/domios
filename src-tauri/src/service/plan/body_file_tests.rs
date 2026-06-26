@@ -108,11 +108,16 @@ fn milestone_and_note_bodies_roundtrip_through_markdown_files() {
 
     let plan_dir = dir.path().join(format!(".codeterm/plans/{}", plan.id));
     let milestone_path = plan_dir.join(format!("milestones/build-{}.md", milestone_id));
+    let stride_log_path = plan_dir.join("tasks/build/strides.jsonl");
     let note_path = plan_dir.join(format!("elements/note-{}.md", note_id));
     assert_eq!(
         std::fs::read_to_string(&milestone_path).unwrap(),
         milestone_text
     );
+    let strides = crate::service::plan::stride_log::read_milestones(&stride_log_path).unwrap();
+    assert_eq!(strides.len(), 1);
+    assert_eq!(strides[0].id, milestone_id);
+    assert_eq!(strides[0].text, milestone_text);
     assert_eq!(std::fs::read_to_string(&note_path).unwrap(), note_text);
     let raw_json = std::fs::read_to_string(
         dir.path()
@@ -132,6 +137,117 @@ fn milestone_and_note_bodies_roundtrip_through_markdown_files() {
         "edited milestone\n\nbody"
     );
     assert_eq!(loaded.elements[0].content["text"], "edited note\n\nbody");
+}
+
+#[test]
+fn task_stride_log_hydrates_when_inline_milestones_are_missing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Stride hydrate".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Build".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let milestone_id = store
+        .add_milestone(
+            &plan.id,
+            &task_id,
+            "testing",
+            "sidecar-only",
+            AgentRef::from_pane("worker"),
+            true,
+            3,
+        )
+        .unwrap();
+    let json_path = dir
+        .path()
+        .join(".codeterm/plans")
+        .join(format!("{}.json", plan.id));
+    let mut disk_plan: Plan =
+        serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
+    disk_plan.tasks[0].milestones.clear();
+    std::fs::write(
+        &json_path,
+        serde_json::to_string_pretty(&disk_plan).unwrap(),
+    )
+    .unwrap();
+
+    store.reload_from_disk(&plan.id).unwrap();
+
+    let loaded = store.get(&plan.id).unwrap();
+    assert_eq!(loaded.tasks[0].milestones.len(), 1);
+    assert_eq!(loaded.tasks[0].milestones[0].id, milestone_id);
+    assert_eq!(loaded.tasks[0].milestones[0].text, "sidecar-only");
+}
+
+#[test]
+fn inline_and_stride_log_milestones_dedupe_deterministically() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Stride dedupe".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Build".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let milestone_id = store
+        .add_milestone(
+            &plan.id,
+            &task_id,
+            "status_update",
+            "inline duplicate",
+            AgentRef::from_pane("worker"),
+            true,
+            30,
+        )
+        .unwrap();
+    let mut older = store.get(&plan.id).unwrap().tasks[0].milestones[0].clone();
+    older.text = "older sidecar duplicate".into();
+    older.ts = 10;
+    let mut other = older.clone();
+    other.id = "ms_other".into();
+    other.text = "other sidecar stride".into();
+    other.ts = 20;
+    let stride_log_path = dir.path().join(format!(
+        ".codeterm/plans/{}/tasks/build/strides.jsonl",
+        plan.id
+    ));
+    crate::service::plan::stride_log::append_milestone(&stride_log_path, &older).unwrap();
+    crate::service::plan::stride_log::append_milestone(&stride_log_path, &other).unwrap();
+
+    store.reload_from_disk(&plan.id).unwrap();
+
+    let loaded = store.get(&plan.id).unwrap();
+    assert_eq!(loaded.tasks[0].milestones.len(), 2);
+    assert_eq!(loaded.tasks[0].milestones[0].id, milestone_id);
+    assert_eq!(
+        loaded.tasks[0].milestones[0].text,
+        "older sidecar duplicate"
+    );
+    assert_eq!(loaded.tasks[0].milestones[1].id, "ms_other");
 }
 
 #[test]
@@ -265,6 +381,10 @@ fn plan_file_manifest_lists_milestone_and_canvas_body_paths() {
 
     let manifest = store.file_manifest(&plan.id).unwrap();
     assert!(manifest.entries.iter().any(|entry| {
+        entry.kind == "stride_log"
+            && entry.path == format!(".codeterm/plans/{}/tasks/build/strides.jsonl", plan.id)
+    }));
+    assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "milestone"
             && entry.path
                 == format!(
@@ -286,6 +406,8 @@ fn plan_file_manifest_lists_milestone_and_canvas_body_paths() {
     )
     .unwrap();
     assert!(index.contains("## Milestones"));
+    assert!(index.contains("## Stride Logs"));
+    assert!(index.contains("tasks/build/strides.jsonl"));
     assert!(index.contains(&format!("milestones/build-{}.md", milestone_id)));
     assert!(index.contains("## Elements"));
     assert!(index.contains(&format!("elements/decision-{}.md", decision_id)));

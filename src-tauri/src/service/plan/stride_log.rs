@@ -46,10 +46,33 @@ impl From<io::Error> for StrideLogError {
 }
 
 pub fn append_milestone(path: &Path, milestone: &Milestone) -> Result<(), StrideLogError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     let json = serde_json::to_string(milestone).map_err(StrideLogError::Serialize)?;
     writeln!(file, "{json}")?;
     Ok(())
+}
+
+pub fn rewrite_milestones(
+    path: &Path,
+    milestones: Vec<Milestone>,
+) -> Result<Vec<Milestone>, StrideLogError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let folded = fold_milestones(milestones);
+    let tmp = path.with_extension("jsonl.tmp");
+    {
+        let mut file = File::create(&tmp)?;
+        for milestone in &folded {
+            let json = serde_json::to_string(milestone).map_err(StrideLogError::Serialize)?;
+            writeln!(file, "{json}")?;
+        }
+    }
+    std::fs::rename(&tmp, path)?;
+    Ok(folded)
 }
 
 pub fn read_milestones(path: &Path) -> Result<Vec<Milestone>, StrideLogError> {
@@ -130,6 +153,21 @@ mod tests {
         let raw = std::fs::read_to_string(&path).unwrap();
         assert_eq!(raw.lines().count(), 2);
         assert_eq!(read_milestones(&path).unwrap(), vec![first, second]);
+    }
+
+    #[test]
+    fn rewrite_milestones_dedupes_and_orders_json_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nested/strides.jsonl");
+        let later = milestone("m-1", 40, "later");
+        let earlier = milestone("m-1", 20, "earlier");
+        let other = milestone("m-2", 30, "other");
+
+        let written =
+            rewrite_milestones(&path, vec![later, other.clone(), earlier.clone()]).unwrap();
+
+        assert_eq!(written, vec![earlier, other]);
+        assert_eq!(read_milestones(&path).unwrap(), written);
     }
 
     #[test]

@@ -61,6 +61,13 @@ pub fn task_path(plan: &Plan, task_id: &str) -> std::io::Result<PathBuf> {
     body_path(plan, BodyKind::Task, handle)
 }
 
+pub fn task_stride_log_path(plan: &Plan, task: &Task) -> std::io::Result<PathBuf> {
+    Ok(plan_body_dir(plan)?
+        .join("tasks")
+        .join(super::tag_model::task_handle(task))
+        .join("strides.jsonl"))
+}
+
 pub fn handoff_path(plan: &Plan, element_id: &str) -> std::io::Result<PathBuf> {
     body_path(plan, BodyKind::Handoff, element_id)
 }
@@ -138,6 +145,7 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
                 should_externalize_markdown(&milestone.text),
             )?;
         }
+        persist_stride_log(plan, task)?;
     }
     for element in &plan.elements {
         if element.kind == "handoff" {
@@ -163,6 +171,10 @@ pub fn body_paths(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     collect_section_paths(plan, &plan.sections, &mut paths)?;
     for task in &plan.tasks {
         paths.push(task_path(plan, &task.id)?);
+        let stride_log_path = task_stride_log_path(plan, task)?;
+        if !task.milestones.is_empty() || stride_log_path.exists() {
+            paths.push(stride_log_path);
+        }
         for milestone in &task.milestones {
             let path = milestone_path(plan, task, milestone)?;
             if should_externalize_markdown(&milestone.text) || path.exists() {
@@ -226,6 +238,22 @@ pub fn hydrate_and_migrate(plan: &mut Plan) -> std::io::Result<bool> {
         let fallback = base_dir.join("tasks").join(format!("{}.md", task.id));
         migrated |= hydrate_body(&path, Some(&fallback), &mut task.body, &mut task.tags)?;
         let task_handle = super::tag_model::task_handle(task).to_string();
+        let stride_log_path = base_dir
+            .join("tasks")
+            .join(&task_handle)
+            .join("strides.jsonl");
+        if stride_log_path.exists() {
+            let mut combined = task.milestones.clone();
+            combined.extend(
+                super::stride_log::read_milestones(&stride_log_path)
+                    .map_err(stride_log_to_io_error)?,
+            );
+            let folded = super::stride_log::fold_milestones(combined);
+            if folded != task.milestones {
+                task.milestones = folded;
+                migrated = true;
+            }
+        }
         for milestone in &mut task.milestones {
             let path = base_dir
                 .join("milestones")
@@ -295,6 +323,10 @@ fn index_entries(plan: &Plan) -> std::io::Result<Vec<IndexEntryRaw>> {
     collect_section_index_entries(plan, &plan.sections, &mut entries)?;
     for task in &plan.tasks {
         entries.push(task_index_entry(plan, task)?);
+        let stride_log_path = task_stride_log_path(plan, task)?;
+        if !task.milestones.is_empty() || stride_log_path.exists() {
+            entries.push(stride_log_index_entry(plan, task)?);
+        }
         for milestone in &task.milestones {
             let path = milestone_path(plan, task, milestone)?;
             if should_externalize_markdown(&milestone.text) || path.exists() {
@@ -350,6 +382,16 @@ fn task_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntryRaw> 
     })
 }
 
+fn stride_log_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntryRaw> {
+    let task_handle = super::tag_model::task_handle(task);
+    Ok(IndexEntryRaw {
+        kind: "stride_log",
+        title: format!("{} strides", task_handle),
+        path: task_stride_log_path(plan, task)?,
+        index_link_path: format!("tasks/{}/strides.jsonl", task_handle),
+    })
+}
+
 fn handoff_index_entry(plan: &Plan, element: &CanvasElement) -> std::io::Result<IndexEntryRaw> {
     let seq = element
         .content
@@ -393,6 +435,7 @@ fn write_index(plan: &Plan) -> std::io::Result<()> {
     write_index_group(&mut out, "Goal", &entries, "goal");
     write_index_group(&mut out, "Sections", &entries, "section");
     write_index_group(&mut out, "Tasks", &entries, "task");
+    write_index_group(&mut out, "Stride Logs", &entries, "stride_log");
     write_index_group(&mut out, "Milestones", &entries, "milestone");
     write_index_group(&mut out, "Elements", &entries, "element");
     write_index_group(&mut out, "Handoffs", &entries, "handoff");
@@ -524,6 +567,20 @@ fn persist_optional_markdown(path: &Path, body: &str, should_persist: bool) -> s
     } else {
         remove_file_if_exists(path)
     }
+}
+
+fn persist_stride_log(plan: &Plan, task: &Task) -> std::io::Result<()> {
+    let path = task_stride_log_path(plan, task)?;
+    if task.milestones.is_empty() {
+        return remove_file_if_exists(&path);
+    }
+    super::stride_log::rewrite_milestones(&path, task.milestones.clone())
+        .map(|_| ())
+        .map_err(stride_log_to_io_error)
+}
+
+fn stride_log_to_io_error(error: super::stride_log::StrideLogError) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, error)
 }
 
 fn remove_file_if_exists(path: &Path) -> std::io::Result<()> {
