@@ -44,6 +44,8 @@ import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport, formatLayerTransform } from "./useCanvasViewport";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
+import { CanvasFocusBreadcrumb } from "./CanvasFocusBreadcrumb";
+import { CanvasPassiveRenderLayer } from "./CanvasPassiveRenderLayer";
 import { buildCanvasScene, publishCanvasSceneReadback } from "./scene";
 
 export interface CanvasViewInnerProps {
@@ -748,6 +750,11 @@ export function CanvasViewInner({
           </div>
         )}
         {!loading && filteredPlans.length > 0 && (
+          <CanvasPassiveRenderLayer scene={scene} transform={transform} width={size.width} height={size.height} hostRef={containerRef}
+            focusedNodeId={focusedNodeId} dominantNodeId={dominantNodeId} hoveredTask={hoveredTask} highlight={highlight}
+            tagFilterMatchIds={tagFilterMatchIds} blinkIds={blinkIds} pulsePlanIds={pulsePlanIds} tagFilterActive={tagFilterActive} />
+        )}
+        {!loading && filteredPlans.length > 0 && (
           <div
             ref={layerRef}
             data-testid="canvas-world-layer"
@@ -759,6 +766,7 @@ export function CanvasViewInner({
               width: worldW,
               height: worldH,
               position: "relative",
+              zIndex: 2,
             }}
           >
             {layout.groups.map((group) => (
@@ -924,20 +932,7 @@ export function CanvasViewInner({
           minimapOn={minimapOn}
         />
       )}
-      {focusedNodeId && (
-        <div
-          data-testid="canvas-breadcrumb"
-          className="absolute top-2 left-2 z-20 flex items-center gap-1.5 rounded px-2.5 py-1 text-xs"
-          style={{ background: "color-mix(in srgb, var(--ct-titlebar-bg) 92%, transparent)", border: "1px solid var(--ct-border-default)", color: "var(--ct-fg)", backdropFilter: "blur(8px)" }}
-        >
-          <span style={{ opacity: "var(--ct-text-secondary-opacity)" }}>Workspace</span>
-          <span style={{ opacity: 0.5 }}>▸</span>
-          <span style={{ fontWeight: 600, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{focusedTitle ?? "node"}</span>
-          <button type="button" data-testid="canvas-breadcrumb-back" title="Back (Esc)" onClick={() => setFocusedNodeId(null)} style={{ marginLeft: 4, padding: "0 6px", borderRadius: 4, border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-fg)", cursor: "pointer" }}>
-            Esc
-          </button>
-        </div>
-      )}
+      {focusedNodeId && <CanvasFocusBreadcrumb title={focusedTitle} onBack={() => setFocusedNodeId(null)} />}
       {legendFacets.length > 0 && !loading && !error && filteredPlans.length > 0 && (
         <CanvasTagLegend facets={legendFacets} filter={tagFilter} onToggleTag={onToggleTagFilter} />
       )}

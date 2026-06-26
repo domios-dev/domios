@@ -10,6 +10,7 @@ import { expect, type Page } from "@playwright/test";
 import { canvasScale } from "./canvas-inspect";
 
 export const FIGMA_SUBSTRATE_FLAG_KEY = "canvas.substrateV2";
+export const PASSIVE_RENDERER_FLAG_KEY = "canvas.passiveRenderer";
 export const OVERLAY_BUDGET_FLAG_KEY = "canvas.overlayBudget";
 export const DEFAULT_RICH_OVERLAY_BUDGET = 24;
 
@@ -78,7 +79,7 @@ export function screenTracksWorldScale(
 
 export async function enableCanvasFeatureFlags(
   page: Page,
-  flags: Partial<Record<typeof FIGMA_SUBSTRATE_FLAG_KEY | typeof OVERLAY_BUDGET_FLAG_KEY, boolean>>,
+  flags: Partial<Record<typeof FIGMA_SUBSTRATE_FLAG_KEY | typeof PASSIVE_RENDERER_FLAG_KEY | typeof OVERLAY_BUDGET_FLAG_KEY, boolean>>,
 ): Promise<void> {
   await page.addInitScript((entries) => {
     for (const [key, on] of Object.entries(entries)) {
@@ -168,6 +169,7 @@ export async function assertWorldFootprintStable(
 }
 
 const RENDERER_LAYER_SELECTORS = [
+  '[data-testid="canvas-render-layer"]',
   '[data-testid="canvas-renderer-layer"]',
   '[data-testid="canvas-view"] canvas',
   'canvas[data-testid="canvas-passive-layer"]',

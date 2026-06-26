@@ -163,6 +163,7 @@
 - [plan-doctor-foundation-storage-structure-errors-and-smoke-prune (Plan doctor foundation: storage/structure errors and smoke prune)](tasks/plan-doctor-foundation-storage-structure-errors-and-smoke-prune.md)
 - [workspace-plan-entry-and-focus-to-item-navigation (Workspace Plan entry and focus-to-item navigation)](tasks/workspace-plan-entry-and-focus-to-item-navigation.md)
 - [workspace-plan-entry-visual-treatment-and-empty-state-policy (Workspace Plan entry visual treatment and empty-state policy)](tasks/workspace-plan-entry-visual-treatment-and-empty-state-policy.md)
+- [remote-mesh-workers-report-to-spawning-orchestrator (Remote mesh workers report to spawning orchestrator)](tasks/remote-mesh-workers-report-to-spawning-orchestrator.md)
 
 ## Stride Logs
 
