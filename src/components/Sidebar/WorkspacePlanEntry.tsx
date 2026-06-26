@@ -7,8 +7,10 @@ import type { PlanIndexEntry } from "../Canvas/plansApi";
 import {
   deriveWorkspacePlanEntries,
   openWorkspacePlanForEntries,
+  workspacePlanEntryExtraCount,
+  workspacePlanEntryHint,
   workspacePlanEntryKind,
-  workspacePlanEntryLabel,
+  workspacePlanEntryPrimaryTitle,
   workspacePlanEntryTitle,
 } from "../Canvas/workspacePlanEntry";
 
@@ -31,9 +33,11 @@ export function WorkspacePlanEntry({
   compact = false,
   uiFontScale,
 }: WorkspacePlanEntryProps) {
-  const label = workspacePlanEntryLabel(entries);
   const kind = workspacePlanEntryKind(entries);
   const title = workspacePlanEntryTitle(entries);
+  const planTitle = workspacePlanEntryPrimaryTitle(entries);
+  const hint = workspacePlanEntryHint(entries);
+  const extra = workspacePlanEntryExtraCount(entries);
   const rowText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const rowTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
   const iconSize = touchMode ? 14 : compact ? 11 : 12;
@@ -86,18 +90,24 @@ export function WorkspacePlanEntry({
             className={isActive ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted)]"}
           />
         </span>
-        <span className={`sidebar-workspace-plan-kind ${touchMode ? "text-[10px]" : ""}`}>
+        <span className={`sidebar-workspace-plan-kind ${touchMode ? "text-[10px]" : ""}`} aria-hidden>
           {kind}
         </span>
-        {label !== kind && (
-          <>
-            <span className="text-[var(--ct-muted)] shrink-0" aria-hidden>
-              ·
-            </span>
-            <span className={`${touchMode ? rowTouchText : rowText} truncate ${isActive ? "font-medium" : ""}`}>
-              {label}
-            </span>
-          </>
+        <span
+          data-testid="workspace-plan-title"
+          className={`sidebar-workspace-plan-title flex-1 min-w-0 truncate ${touchMode ? rowTouchText : rowText} ${isActive ? "font-medium" : ""}`}
+        >
+          {planTitle}
+        </span>
+        {hint && (
+          <span className="sidebar-workspace-plan-hint" data-testid="workspace-plan-hint">
+            {hint}
+          </span>
+        )}
+        {extra > 0 && (
+          <span className="sidebar-workspace-plan-more" data-testid="workspace-plan-more">
+            +{extra}
+          </span>
         )}
       </div>
     </button>
