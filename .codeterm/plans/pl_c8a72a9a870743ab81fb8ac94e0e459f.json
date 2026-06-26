@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782453997031,
+  "updated_at": 1782454053651,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -7347,7 +7347,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782299252758,
-      "updated_at": 1782453997031,
+      "updated_at": 1782454053651,
       "status_changed_at": 1782453997031,
       "handle": "cross-workspace-plans",
       "tags": [],
@@ -7366,9 +7366,9 @@
         "branch": "lane/cross-workspace-plans",
         "base": "5a3c3b7d0fa5412444898f7cfc1fe2392544abf5",
         "destination": "feat/canvas",
-        "cleanup_status": "pending",
+        "cleanup_status": "cleaned",
         "cleanup_hints": [
-          "After accepted integration: close worker pane, remove /Users/rollacode/Developer/codeterm-cross-workspace-plans, delete lane/cross-workspace-plans, prune worktrees."
+          "Cleaned after integration commit fe80d3f4: closed pane 183fb079, removed /Users/rollacode/Developer/codeterm-cross-workspace-plans, deleted lane/cross-workspace-plans, pruned worktrees."
         ]
       },
       "taken_by_role": null,
