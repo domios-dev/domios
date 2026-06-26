@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782467765381,
+  "updated_at": 1782468070617,
   "milestone_kinds": [
     {
       "key": "research",
@@ -373,12 +373,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p0",
       "created_at": 1782466185212,
-      "updated_at": 1782467765279,
-      "status_changed_at": 1782467718192,
+      "updated_at": 1782468070617,
+      "status_changed_at": 1782468070617,
       "handle": "t1-figma-canvas-acceptance-harness",
       "tags": [
         "canvas,figma-substrate,playwright"
