@@ -357,10 +357,8 @@ pub fn mesh_spawn_and_register(
         .unwrap_or(serde_json::json!({}));
     let data = mesh_relay_invoke(http, base, token, target, "POST", "/api/agents/spawn", body);
 
-    // Key the registry on the peer's instance_name (what the origin stamps on
-    // inbound reports), not the raw `--mesh` arg — `target` may be an
-    // instance_id or differently-cased name, which would split the ghost entry
-    // from its later reports.
+    // Key on the peer's instance_name (what the origin stamps on reports), not
+    // the raw `--mesh` arg, which may be an id/alias and split the ghost entry.
     let peer_name = find_peer(&fetch_peers(http, base, token), target)
         .and_then(|p| p.get("instance_name").and_then(|v| v.as_str()))
         .map(str::to_string)
