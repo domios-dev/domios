@@ -1079,6 +1079,18 @@ button,
   50% { box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--ct-border-focus) 95%, transparent), 0 8px 26px -6px color-mix(in srgb, var(--ct-border-focus) 60%, transparent); }
 }
 
+/* EMERGENCE: a presence token whose agent is actively executing pulses an
+   in-identity ring (uses the circle's own --ct-presence-color). Reduced-motion
+   keeps a static ring so the "who is here" read survives without animation. */
+.ct-presence-live { animation: ct-presence-live 1.8s ease-in-out infinite; }
+@keyframes ct-presence-live {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-presence-color, var(--ct-border-focus)) 65%, transparent); }
+  50% { box-shadow: 0 0 0 2.5px color-mix(in srgb, var(--ct-presence-color, var(--ct-border-focus)) 80%, transparent), 0 0 10px 1px color-mix(in srgb, var(--ct-presence-color, var(--ct-border-focus)) 45%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ct-presence-live { animation: none; }
+}
+
 /* Plan heartbeat / running-loop dot — a gentle live pulse on the orchestrator's
    "now" strip. Reduced-motion drops to a static dot. */
 .ct-canvas-heartbeat-dot { animation: ct-canvas-heartbeat-dot 1.8s ease-in-out infinite; }

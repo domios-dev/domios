@@ -40,9 +40,18 @@ export function perfFixtureCount(): number {
 
 const MS_KINDS = ["status_update", "testing", "review"];
 const PRIORITIES = [TaskPriority.P0, TaskPriority.P1, TaskPriority.P2, TaskPriority.P3] as const;
-const ROLES = ["backend-dev", "frontend-dev", "code-reviewer", null, null];
+const ROLES = ["backend-dev", "frontend-dev", "code-reviewer", "docs-sync", null];
 const GROUPS = ["layout", "navigation", null, "isolation", null];
 const CLEANUP_STATES = ["pending", "not_applicable", "done", "failed"];
+// Synthetic presence (EMERGENCE audit): an active task names its executing peer(s).
+// A comma-list exercises the multiplayer +N stack; flag = synthetic until live
+// taskPresence data is wired from the pane/agent registry.
+function syntheticPeer(i: number): string | null {
+  if (i % 12 === 0) return "claude-sonnet, gpt-5-codex, gemini-2";
+  if (i % 6 === 0) return "claude-sonnet";
+  if (i % 7 === 0) return "opus-orchestrator";
+  return null;
+}
 
 // Complex cards (not bare placeholders): long title, multi-line body, and several
 // milestone bubbles each — representative of real card rendering cost at scale.
@@ -54,13 +63,15 @@ export function buildPerfFixturePlans(n: number): Plan[] {
     const milestones = Array.from({ length: 4 }, (_, m) =>
       milestone(`perf_t${i}_m${m}`, MS_KINDS[m % MS_KINDS.length], null),
     );
+    const active = i % 6 === 0;
     return task(`perf_t${i}`, ["perf_sec"], {
-      status: i % 6 === 0 ? TaskStatus.InProgress : i % 9 === 0 ? TaskStatus.Done : TaskStatus.Pending,
+      status: active ? TaskStatus.InProgress : i % 9 === 0 ? TaskStatus.Done : TaskStatus.Pending,
       created_at: i,
       priority: PRIORITIES[i % PRIORITIES.length],
       group: GROUPS[i % GROUPS.length],
       taken_by_role: ROLES[i % ROLES.length],
-      peer: i % 7 === 0 ? "claude-sonnet" : null,
+      peer: syntheticPeer(i),
+      assigned_pane_id: active ? `pane-agent-${i}` : null,
       handle: `t${i}-implement-feature-module-${i}`,
       lane: i % 2 === 0
         ? {

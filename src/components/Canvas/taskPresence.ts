@@ -1,4 +1,5 @@
 import type { Pane } from "../../lib/types";
+import { presenceColor, type PresenceAgent } from "./presence/identity";
 import type { AgentRef, Milestone, Plan, Task } from "./types";
 
 export interface TaskPresenceLatest {
@@ -11,6 +12,10 @@ export interface TaskPresence {
   label: string;
   focus: string | null;
   latest: TaskPresenceLatest | null;
+  /** WHO is executing: lead (the lane's pane) first, then peers. Color-keyed. */
+  agents: PresenceAgent[];
+  /** WHERE the work lives — surfaced glanceably, not buried in the W3 lane block. */
+  branch: string | null;
 }
 
 const EMPTY_LABELS = new Set(["", "unknown"]);
@@ -65,6 +70,25 @@ function focusApplies(plan: Plan, task: Task, paneId: string, focus: string): bo
   return candidates.some((c) => haystack.includes(c.toLowerCase()));
 }
 
+// Lead identity prefers the pane's own title; falls back to the orchestrator's
+// role label, then the short pane id — so a synthetic/headless lane still reads as
+// a handle ("backend-dev") rather than a bare id.
+function buildAgents(task: Task, paneId: string, panes: Record<string, Pane>): PresenceAgent[] {
+  const role = clean(task.taken_by_role);
+  const lead: PresenceAgent = {
+    id: paneId,
+    label: clean(panes[paneId]?.title) ?? role ?? shortPaneId(paneId),
+    role,
+    color: presenceColor(paneId),
+  };
+  // peer may name >1 collaborator (comma-separated) → a real multiplayer stack.
+  const peers = (clean(task.peer)?.split(",") ?? [])
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map<PresenceAgent>((label) => ({ id: `peer:${label}`, label, role: "peer", color: presenceColor(label), isPeer: true }));
+  return [lead, ...peers];
+}
+
 export function buildTaskPresence(plan: Plan, task: Task, panes: Record<string, Pane>): TaskPresence | null {
   const paneId = clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
   if (!paneId) return null;
@@ -80,5 +104,7 @@ export function buildTaskPresence(plan: Plan, task: Task, panes: Record<string, 
         kindLabel: kindLabel(latest.kind),
       }
       : null,
+    agents: buildAgents(task, paneId, panes),
+    branch: clean(task.lane?.branch),
   };
 }
