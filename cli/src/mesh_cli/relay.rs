@@ -166,8 +166,11 @@ pub fn mesh_relay_fetch_json(
     }
 }
 
-/// Generic relay — send any API call through mesh to a remote peer.
-pub fn mesh_relay_generic(
+/// Resolve a peer (refreshing once on miss), sign, POST the relay envelope, and
+/// return the unwrapped `data`. Exits the process on any hard failure (peer not
+/// found, unsigned, transport error, or relay `ok:false`). Shared by the
+/// printing path and callers that need to post-process the response.
+pub(crate) fn mesh_relay_invoke(
     http: &reqwest::blocking::Client,
     base: &str,
     token: &Option<String>,
@@ -175,8 +178,7 @@ pub fn mesh_relay_generic(
     method: &str,
     path: &str,
     body: Option<&str>,
-    json_mode: bool,
-) {
+) -> serde_json::Value {
     let mut peers_json = fetch_peers(http, base, token);
     let mut peer = find_peer(&peers_json, target).cloned();
     if peer.is_none() {
@@ -259,30 +261,126 @@ pub fn mesh_relay_generic(
                 }
             }
 
-            let data = val.get("data").cloned().unwrap_or(serde_json::Value::Null);
-
-            if json_mode {
-                // Unwrap envelope so `--json` output matches local CLI shape.
-                println!("{}", serde_json::to_string_pretty(&data).unwrap());
-            } else if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
-                // /panes/<id>/output returns {"text": "..."} — print raw.
-                print!("{}", text);
-            } else if data.is_null() {
-                let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
-                eprintln!(
-                    "Error: unexpected response from peer (HTTP {}): {}",
-                    status.as_u16(),
-                    preview.trim()
-                );
-                std::process::exit(1);
-            } else {
-                crate::cmd::print::print_human(&data);
-            }
+            val.get("data").cloned().unwrap_or(serde_json::Value::Null)
         }
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+/// Generic relay — send any API call through mesh to a remote peer and print.
+pub fn mesh_relay_generic(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    target: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    json_mode: bool,
+) {
+    let data = mesh_relay_invoke(http, base, token, target, method, path, body);
+
+    if json_mode {
+        // Unwrap envelope so `--json` output matches local CLI shape.
+        println!("{}", serde_json::to_string_pretty(&data).unwrap());
+    } else if let Some(text) = data.get("text").and_then(|v| v.as_str()) {
+        // /panes/<id>/output returns {"text": "..."} — print raw.
+        print!("{}", text);
+    } else if data.is_null() {
+        eprintln!("Error: unexpected response from peer (null data)");
+        std::process::exit(1);
+    } else {
+        crate::cmd::print::print_human(&data);
+    }
+}
+
+/// Build the `POST /api/remote-workers` body that registers a freshly spawned
+/// cross-mesh worker on the origin. `report_to` and `model` come from the spawn
+/// REQUEST body (so the registry keys on the same target the worker reports to);
+/// `pane_id`/`title` come from the spawn RESPONSE. Returns `None` when there is
+/// no report target or the spawn produced no pane id (nothing to nest).
+pub(crate) fn remote_worker_record_body(
+    peer: &str,
+    spawn_body: &serde_json::Value,
+    spawn_data: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let report_to = spawn_body
+        .get("report_to")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let pane_id = spawn_data
+        .get("pane_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let title = spawn_data
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(pane_id);
+    let mut body = serde_json::json!({
+        "orchestrator_pane": report_to,
+        "peer": peer,
+        "remote_pane": pane_id,
+        "title": title,
+    });
+    if let Some(m) = spawn_body
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        body["model"] = serde_json::json!(m);
+    }
+    Some(body)
+}
+
+/// Relay an `agent spawn` to a peer, then register the resulting worker in the
+/// origin's remote-worker registry so the sidebar ghosts it under its
+/// orchestrator without waiting for the first report. Registration is
+/// best-effort — a spawn that succeeds is never failed by a registry hiccup.
+pub fn mesh_spawn_and_register(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    target: &str,
+    body: Option<&str>,
+    json_mode: bool,
+) {
+    let spawn_body: serde_json::Value = body
+        .and_then(|b| serde_json::from_str(b).ok())
+        .unwrap_or(serde_json::json!({}));
+    let data = mesh_relay_invoke(http, base, token, target, "POST", "/api/agents/spawn", body);
+
+    // Key on the peer's instance_name (what the origin stamps on reports), not
+    // the raw `--mesh` arg, which may be an id/alias and split the ghost entry.
+    let peer_name = find_peer(&fetch_peers(http, base, token), target)
+        .and_then(|p| p.get("instance_name").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .unwrap_or_else(|| target.to_string());
+    if let Some(reg) = remote_worker_record_body(&peer_name, &spawn_body, &data) {
+        let _ = http
+            .post(format!("{}/api/remote-workers", base))
+            .header(
+                "Authorization",
+                format!("Bearer {}", token.as_deref().unwrap_or("")),
+            )
+            .json(&reg)
+            .send();
+    }
+
+    if json_mode {
+        println!("{}", serde_json::to_string_pretty(&data).unwrap());
+    } else if let Some(pid) = data.get("pane_id").and_then(|v| v.as_str()) {
+        let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+        println!("Spawned: {} (pane {}) on {}", title, pid, target);
+    } else {
+        crate::cmd::print::print_human(&data);
     }
 }
 

@@ -157,7 +157,6 @@ pub async fn send_text(
             body.source_peer.as_deref().filter(|s| !s.is_empty()),
             body.source_pane.as_deref().filter(|s| !s.is_empty()),
         ) {
-            use tauri::Emitter as _;
             let label = body
                 .source_label
                 .as_deref()
@@ -176,13 +175,7 @@ pub async fn send_text(
                 body.text.as_deref().unwrap_or(""),
                 now_ms,
             );
-            let _ = state.svc.app_handle.emit(
-                "remote-workers-changed",
-                serde_json::json!({
-                    "orchestrator_pane_id": pane_id,
-                    "workers": state.svc.remote_workers.snapshot(),
-                }),
-            );
+            state.svc.emit_remote_workers_changed(&pane_id);
         }
     }
 
