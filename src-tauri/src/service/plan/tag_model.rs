@@ -70,16 +70,41 @@ pub fn task_handle(task: &Task) -> &str {
     task.handle.as_deref().unwrap_or(&task.id)
 }
 
+pub fn preview_handle(tags: &[String], title: &str) -> String {
+    handle_seed(tags, title)
+}
+
 pub fn apply_tags(tags: &mut Vec<String>, add: &[String], primary: Option<&str>) {
+    if let Some(primary) = primary {
+        if let Some(key) = facet_key(primary) {
+            clear_facet_key(tags, key);
+        }
+        tags.retain(|tag| tag != primary);
+        tags.insert(0, primary.to_string());
+    }
     for tag in add {
+        if primary == Some(tag.as_str()) {
+            continue;
+        }
+        if let Some(key) = facet_key(tag) {
+            clear_facet_key(tags, key);
+        }
         if !tags.iter().any(|existing| existing == tag) {
             tags.push(tag.clone());
         }
     }
-    if let Some(primary) = primary {
-        tags.retain(|tag| tag != primary);
-        tags.insert(0, primary.to_string());
+}
+
+fn facet_key(tag: &str) -> Option<&str> {
+    let (key, value) = tag.split_once(':')?;
+    if key.is_empty() || value.is_empty() {
+        return None;
     }
+    Some(key)
+}
+
+fn clear_facet_key(tags: &mut Vec<String>, key: &str) {
+    tags.retain(|tag| facet_key(tag) != Some(key));
 }
 
 pub fn tag_report(plan: &Plan) -> TagReport {
@@ -241,6 +266,26 @@ fn duplicate_warnings(tags: &BTreeSet<String>) -> Vec<TagDuplicateWarning> {
 mod tests {
     use super::*;
     use crate::plan::{OrchestratorRef, Plan};
+
+    #[test]
+    fn apply_tags_replaces_same_facet_key() {
+        let mut tags = vec!["area:nav".into(), "pan-zoom".into()];
+        apply_tags(&mut tags, &["area:ui".into()], Some("area:ui"));
+        assert_eq!(tags, vec!["area:ui", "pan-zoom"]);
+    }
+
+    #[test]
+    fn apply_tags_primary_only_swaps_facet_value() {
+        let mut tags = vec!["area:nav".into(), "pan-zoom".into()];
+        apply_tags(&mut tags, &[], Some("area:layout"));
+        assert_eq!(tags, vec!["area:layout", "pan-zoom"]);
+    }
+
+    #[test]
+    fn preview_handle_matches_normalized_seed() {
+        let tags = vec!["area:nav".into(), "pan-zoom".into()];
+        assert_eq!(preview_handle(&tags, "Pan Zoom"), "nav-pan-zoom");
+    }
 
     #[test]
     fn generated_handles_use_primary_facet_and_topic() {

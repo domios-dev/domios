@@ -7,15 +7,15 @@ use crate::args::plan::{
 };
 use crate::client::SocketClient;
 use crate::cmd::hints::{
-    maybe_orchestration_reminder, plan_create_spec_first_hint, print_hints, push_hints,
-    task_model_hint, task_quality_guard_hint, task_sections_hint,
+    maybe_orchestration_reminder, plan_create_spec_first_hint, push_hints, task_model_hint,
+    task_quality_guard_hint, task_sections_hint,
 };
 use crate::cmd::plan_errors::render_plan_call_error;
 #[cfg(test)]
 use crate::cmd::plan_errors::render_plan_error;
 use crate::cmd::plan_linking::render_relink_report;
 use crate::cmd::plan_markdown::{render_goal_block, render_plan_markdown};
-use crate::cmd::print::print_object;
+use crate::cmd::plan_render::{print_plan_result, render_coverage, render_plan_sections};
 use serde_json::{json, Value};
 
 pub(crate) fn resolve_text(
@@ -111,63 +111,6 @@ pub(crate) fn lane_params(
     } else {
         None
     }
-}
-
-fn render_plan_sections(plan: &Value) -> String {
-    fn walk(sections: &[Value], depth: usize, out: &mut String) {
-        for section in sections {
-            let id = section.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-            let title = section.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-            out.push_str(&format!("{}{}\t{}\n", "  ".repeat(depth), id, title));
-            if let Some(children) = section.get("subsections").and_then(|v| v.as_array()) {
-                walk(children, depth + 1, out);
-            }
-        }
-    }
-
-    let mut out = String::new();
-    if let Some(sections) = plan.get("sections").and_then(|v| v.as_array()) {
-        walk(sections, 0, &mut out);
-    }
-    if out.is_empty() {
-        out.push_str("(no sections)\n");
-    }
-    out
-}
-
-fn render_coverage(val: &Value) -> String {
-    let mut out = String::new();
-    let frac = val
-        .get("plan_covered_fraction")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
-    out.push_str(&format!("Coverage: {:.0}%\n", frac * 100.0));
-    if let Some(sections) = val.get("sections").and_then(|v| v.as_array()) {
-        for s in sections {
-            let title = s.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-            let total = s.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-            let status = s.get("status").and_then(|v| v.as_str()).unwrap_or("none");
-            out.push_str(&format!("  - {title}: {total} task(s) [{status}]\n"));
-        }
-    }
-    let gaps: Vec<&str> = val
-        .get("gaps")
-        .and_then(|v| v.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
-        .unwrap_or_default();
-    if gaps.is_empty() {
-        out.push_str("Gaps: none — every section has at least one task.\n");
-    } else {
-        out.push_str(&format!("Gaps ({}): {}\n", gaps.len(), gaps.join(", ")));
-    }
-    let unlinked_count = val
-        .get("unlinked_count")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    if unlinked_count > 0 {
-        out.push_str(&format!("Unlinked tasks: {unlinked_count}\n"));
-    }
-    out
 }
 
 pub fn handle_plan(client: &mut SocketClient, json: bool, action: PlanAction) {
@@ -291,7 +234,14 @@ fn run_plan(
             return Ok(None);
         }
 
-        PlanAction::Tags { plan_id } => call(client, "plan.tags", json!({ "plan_id": plan_id })),
+        PlanAction::Tags { plan_id } => {
+            let val = call(client, "plan.tags", json!({ "plan_id": plan_id }))?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", crate::cmd::plan_tags::render_tag_report(&val));
+            return Ok(None);
+        }
 
         PlanAction::Coverage { plan_id } => {
             let val = call(client, "plan.coverage", json!({ "plan_id": plan_id }))?;
@@ -802,6 +752,16 @@ fn run_plan(
                 primary,
                 handle,
             ),
+            PlanTaskAction::Retag {
+                plan_id,
+                task_id,
+                tags,
+                primary,
+            } => {
+                return crate::cmd::plan_task_retag::run(
+                    client, json, plan_id, task_id, tags, primary,
+                );
+            }
             PlanTaskAction::Close {
                 plan_id,
                 task_id,
@@ -991,73 +951,6 @@ fn run_plan(
     };
 
     result.map(Some)
-}
-
-fn print_plan_result(json: bool, val: &Value) {
-    if json {
-        println!("{}", serde_json::to_string_pretty(val).unwrap());
-        return;
-    }
-
-    let hints: Vec<String> = val
-        .get("_hints")
-        .and_then(|v| v.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    if val.get("plan_id").is_some() && val.get("plan").is_none() {
-        if let Some(id) = val.get("plan_id").and_then(|v| v.as_str()) {
-            println!("{}", id);
-        } else {
-            print_object(val);
-        }
-    } else if val.get("task_id").is_some()
-        || val.get("section_id").is_some()
-        || val.get("loop_id").is_some()
-        || val.get("milestone_id").is_some()
-        || val.get("element_id").is_some()
-    {
-        let id = val
-            .get("task_id")
-            .or_else(|| val.get("section_id"))
-            .or_else(|| val.get("loop_id"))
-            .or_else(|| val.get("milestone_id"))
-            .or_else(|| val.get("element_id"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("?");
-        println!("{}", id);
-    } else if val.get("plans").is_some() {
-        if let Some(arr) = val.get("plans").and_then(|v| v.as_array()) {
-            if arr.is_empty() {
-                println!("(no plans)");
-            } else {
-                for item in arr {
-                    let id = item.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
-                    let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("?");
-                    println!("{}\t{}", id, title);
-                }
-            }
-        }
-    } else if let Some(tasks) = val.get("tasks").and_then(|v| v.as_array()) {
-        if tasks.is_empty() {
-            println!("(no tasks)");
-        } else {
-            print!(
-                "{}",
-                crate::cmd::task_list_render::render_simple_task_list(tasks)
-            );
-        }
-    } else if val.get("ok").is_some() {
-        println!("OK");
-    } else {
-        print_object(val);
-    }
-    print_hints(&hints);
 }
 
 #[cfg(test)]

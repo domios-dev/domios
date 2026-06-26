@@ -1718,6 +1718,15 @@ Plan tasks
 - `--apply`
 - `<plan_id>`
 
+#### `codeterm plan task retag`
+
+Replace facet/topic tags and regenerate the task handle
+
+- `<plan_id>`
+- `--primary`
+- `--tags`
+- `<task_id>`
+
 #### `codeterm plan task rm`
 
 - `<plan_id>`

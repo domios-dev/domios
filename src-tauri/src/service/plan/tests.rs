@@ -2,6 +2,8 @@ use super::*;
 use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, Plan, PlanStatus, TaskStatus};
 use crate::service::plan::task_queries::TaskListFilter;
 
+mod tag_retag;
+
 #[test]
 fn store_saves_loads_indexes() {
     let dir = tempfile::tempdir().unwrap();

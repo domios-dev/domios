@@ -21,6 +21,62 @@ export function isFacetedTag(tag: string): boolean {
   return i > 0 && i < tag.length - 1;
 }
 
+function facetKey(tag: string): string | null {
+  if (!isFacetedTag(tag)) return null;
+  return tag.slice(0, tag.indexOf(":"));
+}
+
+function slug(raw: string): string {
+  let out = "";
+  let dash = false;
+  for (const ch of raw.toLowerCase()) {
+    if (/[a-z0-9]/.test(ch)) {
+      out += ch;
+      dash = false;
+    } else if (!dash && out.length > 0) {
+      out += "-";
+      dash = true;
+    }
+  }
+  return out.replace(/^-+|-+$/g, "");
+}
+
+/** Mirrors plan tag_model handle_seed for UI previews. */
+export function previewHandle(tags: string[] | undefined, title: string): string {
+  const clean = tags?.map((t) => t.trim()).filter(Boolean) ?? [];
+  const primary = clean.find(isFacetedTag)?.split(":", 2)[1];
+  const topic = clean.find((tag) => !isFacetedTag(tag))
+    ?? title.split(/\s+/)[0]
+    ?? "item";
+  return primary ? `${slug(primary)}-${slug(topic)}` : slug(title);
+}
+
+export function applyTags(tags: string[], add: string[], primary?: string | null): string[] {
+  const next = [...tags];
+  if (primary) {
+    const key = facetKey(primary);
+    if (key) {
+      for (let i = next.length - 1; i >= 0; i--) {
+        if (facetKey(next[i]) === key) next.splice(i, 1);
+      }
+    }
+    const idx = next.indexOf(primary);
+    if (idx >= 0) next.splice(idx, 1);
+    next.unshift(primary);
+  }
+  for (const tag of add) {
+    if (primary && tag === primary) continue;
+    const key = facetKey(tag);
+    if (key) {
+      for (let i = next.length - 1; i >= 0; i--) {
+        if (facetKey(next[i]) === key) next.splice(i, 1);
+      }
+    }
+    if (!next.includes(tag)) next.push(tag);
+  }
+  return next;
+}
+
 export function facetColorMap(facets: TagFacet[] | undefined): Map<string, string> {
   const map = new Map<string, string>();
   if (!facets?.length) return map;
