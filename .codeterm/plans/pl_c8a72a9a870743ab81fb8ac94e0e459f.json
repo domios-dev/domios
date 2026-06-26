@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782455414749,
+  "updated_at": 1782455962123,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -15861,12 +15861,12 @@
       ],
       "test_plan": "Run focused body_file/stride_log Rust tests plus git diff --check, file-size check, and CODETERM_API_PORT=7686 ./build.sh check in the hot checkout.",
       "correctness": "§33 can migrate toward append-only stride storage without breaking existing JSON-backed plan loads.",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p1",
       "created_at": 1782455368013,
-      "updated_at": 1782455414749,
-      "status_changed_at": 1782455380744,
+      "updated_at": 1782455962123,
+      "status_changed_at": 1782455962123,
       "handle": "33-3-task-stride-log-sidecars-dual-write-and-hydrate",
       "tags": [],
       "section_ids": [
@@ -15897,7 +15897,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_fa9c2a8b2ca34c7b8f63b2117f9615a3",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted and integrated §33.3 task stride-log sidecars dual-write/hydrate.\n\nChanges:\n- Added task-scoped `tasks/<task-handle>/strides.jsonl` paths.\n- `persist_bodies` now writes each task's current milestones to a deterministic folded JSONL sidecar while keeping inline `task.milestones` in plan JSON.\n- `hydrate_and_migrate` reads existing stride logs, combines them with inline milestones, dedupes by id, and sorts by `(ts, id)`.\n- INDEX/file manifest now include stride logs when a task has milestones or the sidecar exists.\n- Existing long milestone markdown sidecars remain supported.\n\nOrchestrator gates:\n- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check: passed.\n- cargo test --manifest-path src-tauri/Cargo.toml --lib service::plan::body_file_tests -- --nocapture: 6 passed.\n- cargo test --manifest-path src-tauri/Cargo.toml --lib service::plan::stride_log -- --nocapture: 7 passed.\n- git diff --check: passed.\n- bash scripts/check-file-sizes.sh: reports unrelated pre-existing oversized files; touched files are under hard limits.\n- CODETERM_API_PORT=7686 ./build.sh check: passed.\n\nResidual risk:\n- This is dual-write/hydrate only. It intentionally does not strip milestones from JSON, implement append-only mutation, explode migration, compaction, or post-merge reindex.\n",
+          "ts": 1782455962123,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     }
   ],
   "task_groups": [],
