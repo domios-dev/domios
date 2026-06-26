@@ -1,15 +1,16 @@
 import { useRef, type CSSProperties } from "react";
-import { Activity, Archive, Check, CircleDot, Copy, Crosshair, FileText, GitBranch, Maximize2, Repeat, TriangleAlert } from "lucide-react";
+import { Activity, Archive, ArrowUpRight, Check, CircleDot, Copy, Crosshair, FileText, GitBranch, Link2, Maximize2, Milestone, Repeat, Replace, Tags, TriangleAlert } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
-import type { LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan } from "../types";
+import type { LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanStatus } from "../types";
 import type { PlanWorkspaceScope } from "../planWorkspaceScope";
-import { DEFAULT_CANVAS_SETTINGS } from "../settings";
+import { DEFAULT_CANVAS_SETTINGS, MILESTONE_LANE_COLORS } from "../settings";
 import { atLeast, type World } from "../worlds";
 import { sectionRows, type SectionRow, type SectionRowGlyph } from "../sectionRows";
 import { ownerName } from "../owner";
 import type { SectionNavArgs } from "../nodeRegistry";
 import { planCoverageFraction } from "./coverage";
 import { digestMarkdown } from "./digest";
+import { Eyebrow } from "./provenanceShell";
 import type { CanvasCardStyleProps } from "./types";
 
 const S = DEFAULT_CANVAS_SETTINGS;
@@ -69,6 +70,165 @@ function smallBtn(): CSSProperties {
 
 function copyText(text: string): void {
   if (typeof navigator !== "undefined" && navigator.clipboard) void navigator.clipboard.writeText(text).catch(() => {});
+}
+
+// Structural-link blue (matches the owner dot): spec binding + lineage are the
+// plan's relationships to OTHER nodes — fly-to anchors. Supersedes borrows the
+// drift amber (a replacement is an attention edge), so no new color vocabulary.
+const LINK_ACCENT = "rgba(56,189,248,0.95)";
+const SUPERSEDE_ACCENT = "rgba(245,158,11,0.98)";
+const VOCAB_ACCENT = "rgba(148,163,184,0.95)";
+
+function metaChip(accent: string, interactive = false): CSSProperties {
+  return {
+    display: "inline-flex", alignItems: "center", gap: 5, maxWidth: 260,
+    padding: "0.14em 0.6em", borderRadius: 999, fontSize: "0.74em", fontWeight: 600,
+    border: `1px solid color-mix(in srgb, ${accent} 42%, transparent)`,
+    background: `color-mix(in srgb, ${accent} 12%, transparent)`,
+    color: "var(--ct-fg)", whiteSpace: "nowrap",
+    cursor: interactive ? "pointer" : "default",
+  };
+}
+
+function shortId(id: string): string {
+  return id.length > 14 ? `${id.slice(0, 7)}…${id.slice(-4)}` : id;
+}
+
+// Plan lifecycle at a glance: ACTIVE reuses the live presence green (+ pulse —
+// north-star liveness); ARCHIVED is a quiet slate badge. Shown at every band so
+// the far glance already says whether this plan is live (§32.2 meaningful far).
+function StatusChip({ status, world }: { status: PlanStatus; world: World }) {
+  const archived = status === "archived";
+  const accent = archived ? VOCAB_ACCENT : HEARTBEAT_ACCENT;
+  return (
+    <span
+      data-testid="canvas-plan-status"
+      data-plan-status={status}
+      title={archived ? "Archived plan" : "Active plan"}
+      style={{ display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, height: 20, padding: atLeast(world, "W1") ? "0 8px 0 7px" : "0 6px", borderRadius: 999, fontSize: "0.78em", fontWeight: 700, letterSpacing: "0.01em", color: accent, background: `color-mix(in srgb, ${accent} 13%, transparent)`, border: `1px solid color-mix(in srgb, ${accent} 45%, transparent)`, whiteSpace: "nowrap" }}
+    >
+      {archived
+        ? <Archive size={11} strokeWidth={2.2} aria-hidden />
+        : <span className="ct-canvas-heartbeat-dot" aria-hidden style={{ width: 6, height: 6, borderRadius: "50%", background: accent }} />}
+      {atLeast(world, "W1") && <span>{archived ? "Archived" : "Active"}</span>}
+    </span>
+  );
+}
+
+// §linkage: the plan's edges to OTHER efforts — the spec(s) it binds to and its
+// lineage (follows / supersedes). Far glance = a single spec-bound chip + lineage
+// count; W2 adds the bound-section count; W3 reveals short ids. Each chip carries
+// data-fly-to-* so a later iter can POST /api/canvas/focus to the linked node;
+// today click yanks the id (immediately useful, fly-ready).
+function LinkageStrip({ plan, world }: { plan: Plan; world: World }) {
+  const specId = plan.primary_spec_id?.trim() ?? "";
+  const links = plan.spec_links ?? [];
+  const lineage = (plan.lineage ?? []).filter((l) => l.to?.trim());
+  const boundSections = new Set(links.map((l) => l.plan_section_id)).size;
+  const resolvedSpec = specId || links[0]?.spec_id || "";
+  const detail = atLeast(world, "W2");
+  const deep = atLeast(world, "W3");
+
+  return (
+    <div data-testid="canvas-plan-linkage" className="ct-canvas-fade-in" style={{ flexShrink: 0, padding: "6px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", flexDirection: "column", gap: 5 }}>
+      <Eyebrow icon={<Link2 size={12} strokeWidth={2.2} />} label="Linked" accent={LINK_ACCENT} testid="canvas-plan-linkage-eyebrow" />
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+        {resolvedSpec && (
+          <span
+            data-testid="canvas-plan-spec-link"
+            data-fly-to-kind="spec"
+            data-fly-to-id={resolvedSpec}
+            role="button"
+            tabIndex={0}
+            title={`Bound spec: ${resolvedSpec}${boundSections ? `\n${boundSections} section link${boundSections === 1 ? "" : "s"}` : ""}`}
+            onClick={(e) => { e.stopPropagation(); copyText(resolvedSpec); }}
+            onMouseDown={(e) => e.stopPropagation()}
+            style={metaChip(LINK_ACCENT, true)}
+          >
+            <FileText size={11} strokeWidth={2.2} aria-hidden style={{ flexShrink: 0, opacity: 0.85 }} />
+            <span style={{ fontWeight: 700 }}>Spec</span>
+            {detail && boundSections > 0 && (
+              <span style={{ fontFamily: "var(--ct-font-mono)", fontSize: "0.9em", opacity: 0.7 }}>{boundSections}§</span>
+            )}
+            {deep && <span style={{ fontFamily: "var(--ct-font-mono)", fontSize: "0.86em", opacity: 0.55 }}>{shortId(resolvedSpec)}</span>}
+          </span>
+        )}
+        {lineage.map((link, i) => {
+          const sup = link.rel === "supersedes";
+          const accent = sup ? SUPERSEDE_ACCENT : LINK_ACCENT;
+          return (
+            <span
+              key={`${link.rel}:${link.to}:${i}`}
+              data-testid="canvas-plan-lineage"
+              data-fly-to-kind={link.rel}
+              data-fly-to-id={link.to}
+              role="button"
+              tabIndex={0}
+              title={`${link.rel} ${link.to}`}
+              onClick={(e) => { e.stopPropagation(); copyText(link.to); }}
+              onMouseDown={(e) => e.stopPropagation()}
+              style={metaChip(accent, true)}
+            >
+              {sup ? <Replace size={10} strokeWidth={2.2} aria-hidden style={{ flexShrink: 0 }} /> : <ArrowUpRight size={11} strokeWidth={2.4} aria-hidden style={{ flexShrink: 0 }} />}
+              <span style={{ fontWeight: 700 }}>{link.rel}</span>
+              {deep && <span style={{ fontFamily: "var(--ct-font-mono)", fontSize: "0.86em", opacity: 0.55 }}>{shortId(link.to)}</span>}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// §vocabulary: the plan's DECLARED vocabularies — milestone kinds (with their lane
+// colors) and tag facets. Reference material, not glance-critical: revealed inside
+// the scroll body at W2 (kinds) / W3 (facets), so the deep dive shows the full
+// legend via node-internal scroll and the far glance stays uncluttered.
+function VocabularyLegend({ plan, world }: { plan: Plan; world: World }) {
+  const kinds = plan.milestone_kinds ?? [];
+  const facets = (plan.tag_facets ?? []).filter((f) => f.values.length > 0);
+  const deep = atLeast(world, "W3");
+  const maxKinds = deep ? 32 : 6;
+  const shownKinds = kinds.slice(0, maxKinds);
+  const showFacets = deep && facets.length > 0;
+
+  return (
+    <div data-testid="canvas-plan-vocab" className="ct-canvas-fade-in" style={{ flexShrink: 0, padding: "8px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", flexDirection: "column", gap: 8 }}>
+      {kinds.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          <Eyebrow icon={<Milestone size={12} strokeWidth={2.2} />} label="Milestone kinds" accent={VOCAB_ACCENT} testid="canvas-plan-kinds-eyebrow" />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {shownKinds.map((k, i) => {
+              const color = k.color ?? MILESTONE_LANE_COLORS[i % MILESTONE_LANE_COLORS.length];
+              return (
+                <span key={k.key} data-testid="canvas-plan-kind" title={k.label ?? k.key} style={metaChip(color)}>
+                  <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{k.label ?? k.key}</span>
+                </span>
+              );
+            })}
+            {kinds.length > maxKinds && <span style={{ fontSize: "0.72em", opacity: 0.6, alignSelf: "center" }}>+{kinds.length - maxKinds} more</span>}
+          </div>
+        </div>
+      )}
+      {showFacets && facets.map((facet) => (
+        <div key={facet.key} style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          <Eyebrow icon={<Tags size={12} strokeWidth={2.2} />} label={facet.label ?? facet.key} accent={VOCAB_ACCENT} testid="canvas-plan-facet-eyebrow" />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {facet.values.map((val) => {
+              const color = val.color ?? VOCAB_ACCENT;
+              return (
+                <span key={val.v} data-testid="canvas-plan-facet-value" title={val.label ?? val.v} style={metaChip(color)}>
+                  {val.color && <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: color, flexShrink: 0 }} />}
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{val.label ?? val.v}</span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function SectionMarkdownBody({ text, testid }: { text: string; testid: string }) {
@@ -279,8 +439,17 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
   const loops = plan.loops ?? [];
   const showLoops = isPlan && loops.length > 0;
 
+  // Linkage = the plan's edges to other efforts (spec binding + lineage); vocab =
+  // its declared milestone-kind / tag-facet legends. Both PLAN-only, render-when-
+  // present. Linkage is glanceable (all bands); vocab reveals inside the body at W2+.
+  const hasSpecLink = !!plan.primary_spec_id?.trim() || (plan.spec_links?.length ?? 0) > 0;
+  const hasLineage = (plan.lineage ?? []).some((l) => l.to?.trim());
+  const showLinkage = isPlan && (hasSpecLink || hasLineage);
+  const hasVocab = (plan.milestone_kinds?.length ?? 0) > 0 || (plan.tag_facets ?? []).some((f) => f.values.length > 0);
+  const showVocab = isPlan && showBody && hasVocab;
+
   const card = (boxStyle: CSSProperties) => (
-    <div data-testid={testid} data-plan-id={plan.id} data-world={world} className="ct-canvas-node" style={{ ...frameStyle(variant), ...boxStyle }}>
+    <div data-testid={testid} data-plan-id={plan.id} data-plan-status={plan.status} data-world={world} className="ct-canvas-node" style={{ ...frameStyle(variant), ...boxStyle }}>
       {isPlan && <div style={{ height: 3, flexShrink: 0, background: "linear-gradient(90deg, var(--ct-border-focus), rgba(52,211,153,0.85))" }} />}
 
       <div style={{ height: S.planHeaderHeight - (isPlan ? 3 : 0), boxSizing: "border-box", padding: "8px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
@@ -295,6 +464,7 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
         </div>
         {isPlan ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.86em", minWidth: 0 }}>
+            <StatusChip status={plan.status} world={world} />
             {owner && (
               <span data-testid="canvas-plan-owner" title={workspaceScope?.ownerWorkspaceLabel ? `${owner} @ ${workspaceScope.ownerWorkspaceLabel}` : owner} style={{ display: "flex", alignItems: "center", gap: 5, maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "1px 8px 1px 6px", borderRadius: 999, background: "var(--ct-bg-selected)", border: "1px solid var(--ct-border-subtle)" }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(56,189,248,0.95)", flexShrink: 0 }} />
@@ -362,6 +532,7 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
         </div>
       )}
 
+      {showLinkage && <LinkageStrip plan={plan} world={world} />}
       {showHeartbeat && hb && <HeartbeatStrip hb={hb} world={world} />}
       {showLoops && <LoopsStrip loops={loops} world={world} />}
 
@@ -378,9 +549,12 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
             {isPlan ? `${plan.tasks.length} standalone task${plan.tasks.length === 1 ? "" : "s"}` : "no spec sections"}
           </div>
         ) : showRows ? (
-          rows.map((row) => (
-            <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={budgetRich} />
-          ))
+          <>
+            {showVocab && <VocabularyLegend plan={plan} world={world} />}
+            {rows.map((row) => (
+              <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={budgetRich} />
+            ))}
+          </>
         ) : (
           // §32.2 W0: COMPRESSED — top section rows + status counts, never hollow.
           <div data-testid="canvas-section-compressed" style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3, padding: "6px 8px", justifyContent: "center" }}>
