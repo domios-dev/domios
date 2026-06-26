@@ -34,6 +34,7 @@ import { crispRasterScale, nextWorld, worldThresholds, type World } from "./worl
 import { assignedTaskIdsForPane } from "./planOpenFocus";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useCanvasPlans } from "./PlansProvider";
+import { useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { PlanGhostModel } from "./cards";
 import type { CanvasElement, DriftItem, OrchestratorRef, Plan, Section, TagFacet, Task } from "./types";
@@ -41,6 +42,8 @@ import { buildTaskPresence, type TaskPresence } from "./taskPresence";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport, formatLayerTransform } from "./useCanvasViewport";
+import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
+import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
 
 export interface CanvasViewInnerProps {
   mode: "workspace" | "focus";
@@ -55,6 +58,7 @@ export interface CanvasViewInnerProps {
   workspaces?: Workspace[];
   focusedPaneId?: string | null;
   projectPath?: string | null;
+  workspaceTarget?: CanvasWorkspaceTarget | null;
   onClose?: () => void;
   onOpenPane?: (paneId: string) => void;
   /** Talk-to-area composer needs an API config to POST to the owner pane. */
@@ -124,6 +128,7 @@ export function CanvasViewInner({
   workspaces = EMPTY_WORKSPACES,
   focusedPaneId = null,
   projectPath = null,
+  workspaceTarget = null,
   onClose,
   onOpenPane,
   api,
@@ -515,21 +520,27 @@ export function CanvasViewInner({
     [focusPaneId, filteredPlans],
   );
 
+  const workspaceFocusIds = useMemo(
+    () => resolveWorkspaceFocusNodeIds(mode, workspaceTarget, filteredPlans),
+    [mode, workspaceTarget, filteredPlans],
+  );
+
   // §31: auto-fit runs ONLY on mount / when the mount CONTEXT changes (mode or the
   // focused pane) — NEVER on a data change. A new task/plan/stride updates nodes in
   // place; the camera transform stays byte-identical (no surprise pan/recenter).
   const fittedRef = useRef<string | null>(null);
-  const fitContextKey = `${mode}:${focusPaneId ?? ""}`;
+  const fitContextKey = canvasFitContextKey(mode, focusPaneId, workspaceTarget);
   useEffect(() => {
     if (size.width <= 0 || size.height <= 0 || layout.bounds.width <= 0) return;
     if (fittedRef.current === fitContextKey) return;
     fittedRef.current = fitContextKey;
     // Task context -> fly to assigned task(s) on the full board. Normal Plan open
     // frames the active plan (§23.4), not fit-all (which lands at 5% on a big board).
-    if (paneTaskIds.length) focusOnNodes(paneTaskIds);
+    if (workspaceFocusIds.length) focusOnNodes(workspaceFocusIds);
+    else if (paneTaskIds.length) focusOnNodes(paneTaskIds);
     else if (activePlanId) fitCameraToNodes([activePlanId]);
     else fitToView(layout.bounds);
-  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, paneTaskIds, activePlanId, layout.bounds, size.width, size.height]);
+  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, paneTaskIds, activePlanId, layout.bounds, size.width, size.height]);
 
   // canvas-focus event (camera + blink). Backends emit {task_id, plan_id, pane_id}
   // (a task/plan node id == its id; a pane resolves to its assigned tasks). Optional
@@ -962,6 +973,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
   const { state, setFocusedPane } = useMultiplexer();
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
+  const workspaceTarget = useCanvasWorkspaceTarget();
   const { plans, loading, error } = useCanvasPlans(mode, projectPath);
   return (
     <CanvasViewInner
@@ -976,6 +988,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
       workspaces={state.workspaces}
       focusedPaneId={state.focused_pane_id}
       projectPath={projectPath}
+      workspaceTarget={mode === "workspace" ? workspaceTarget : null}
       onClose={onClose}
       onOpenPane={setFocusedPane}
       api={api}

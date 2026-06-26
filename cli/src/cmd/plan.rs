@@ -294,6 +294,18 @@ fn run_plan(
             return Ok(None);
         }
 
+        PlanAction::Doctor {
+            plan_id,
+            project,
+            kind,
+        } => {
+            return crate::cmd::plan_doctor::run(json, plan_id, project, kind);
+        }
+
+        PlanAction::Prune { project, apply } => {
+            return crate::cmd::plan_prune::run(json, apply, project);
+        }
+
         PlanAction::Relink { plan_id, apply } => {
             let val = call(
                 client,

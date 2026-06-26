@@ -66,6 +66,8 @@ The plan is the live ledger — keep it current on the daemon that owns the run.
 - If plan files are versioned for the run, commit the exact plan artifact after
   dispatch and after close. If the plan directory is ignored, force-add only the
   specific plan file you changed; never blanket-add ignored state.
+- Do not archive plans as an automation default. Archiving hides active context
+  from the human; only the human explicitly decides that a plan belongs in the archive.
 - `codeterm plan reconcile PLAN_ID` probes panes on **this daemon only**. Run it
   where your workers actually live. Inspect drift first; never `reconcile --fix`
   from prod against dev-spawned lanes (or vice versa) — false pane-gone drift.

@@ -4787,6 +4787,38 @@
           "subcommands": []
         },
         {
+          "name": "doctor",
+          "about": "Inspect project-local plan files for storage and structure errors",
+          "aliases": [],
+          "args": [
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": "all",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "element",
           "about": "Generic canvas elements",
           "aliases": [],
@@ -5801,6 +5833,30 @@
               "subcommands": []
             }
           ]
+        },
+        {
+          "name": "prune",
+          "about": "Preview or delete smoke/empty project-local plan files (dry-run by default)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "apply",
+              "positional": false,
+              "value_name": "APPLY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         },
         {
           "name": "reconcile",

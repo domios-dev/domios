@@ -160,6 +160,8 @@
 - [bug-sidebar-expanded-child-panes-hidden (bug: Sidebar hides expanded child panes from backend tree)](tasks/bug-sidebar-expanded-child-panes-hidden.md)
 - [33-6-watcher-reloads-task-stride-log-sidecar-changes (§33.6 watcher reloads task stride-log sidecar changes)](tasks/33-6-watcher-reloads-task-stride-log-sidecar-changes.md)
 - [integrate-web-root-browser-ui-migration (Integrate web-root browser UI migration)](tasks/integrate-web-root-browser-ui-migration.md)
+- [plan-doctor-foundation-storage-structure-errors-and-smoke-prune (Plan doctor foundation: storage/structure errors and smoke prune)](tasks/plan-doctor-foundation-storage-structure-errors-and-smoke-prune.md)
+- [workspace-plan-entry-and-focus-to-item-navigation (Workspace Plan entry and focus-to-item navigation)](tasks/workspace-plan-entry-and-focus-to-item-navigation.md)
 
 ## Stride Logs
 
@@ -288,6 +290,8 @@
 - [bug-sidebar-expanded-child-panes-hidden strides](tasks/bug-sidebar-expanded-child-panes-hidden/strides.jsonl)
 - [33-6-watcher-reloads-task-stride-log-sidecar-changes strides](tasks/33-6-watcher-reloads-task-stride-log-sidecar-changes/strides.jsonl)
 - [integrate-web-root-browser-ui-migration strides](tasks/integrate-web-root-browser-ui-migration/strides.jsonl)
+- [plan-doctor-foundation-storage-structure-errors-and-smoke-prune strides](tasks/plan-doctor-foundation-storage-structure-errors-and-smoke-prune/strides.jsonl)
+- [workspace-plan-entry-and-focus-to-item-navigation strides](tasks/workspace-plan-entry-and-focus-to-item-navigation/strides.jsonl)
 
 ## Milestones
 
@@ -526,6 +530,8 @@
 - [bug-sidebar-expanded-child-panes-hidden status_update (ms_b8d5154082414936a6ed348ac965ae1a)](milestones/bug-sidebar-expanded-child-panes-hidden-ms_b8d5154082414936a6ed348ac965ae1a.md)
 - [33-6-watcher-reloads-task-stride-log-sidecar-changes status_update (ms_e47c580035c04067920a74fe7a3f711e)](milestones/33-6-watcher-reloads-task-stride-log-sidecar-changes-ms_e47c580035c04067920a74fe7a3f711e.md)
 - [integrate-web-root-browser-ui-migration status (ms_8d41cac07ceb2b62)](milestones/integrate-web-root-browser-ui-migration-ms_8d41cac07ceb2b62.md)
+- [plan-doctor-foundation-storage-structure-errors-and-smoke-prune status_update (ms_1b96da20c83343799c58092017a800b8)](milestones/plan-doctor-foundation-storage-structure-errors-and-smoke-prune-ms_1b96da20c83343799c58092017a800b8.md)
+- [workspace-plan-entry-and-focus-to-item-navigation status_update (ms_232a29f3afcd43e181f64077f10dfc0c)](milestones/workspace-plan-entry-and-focus-to-item-navigation-ms_232a29f3afcd43e181f64077f10dfc0c.md)
 
 ## Elements
 

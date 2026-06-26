@@ -17,6 +17,7 @@ import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } fr
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
+import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
 import { RecentlyClosed } from "./RecentlyClosed";
 import {
   SidebarDnd,
@@ -40,6 +41,7 @@ import {
   flattenSidebarTabs,
   topLevelTabsInWorkspace,
 } from "./workspaceTabs";
+import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
 
@@ -81,6 +83,7 @@ export function Sidebar({
   mainView = "workspace",
   config,
   uiFontScale,
+  workspaceCanvasActive = false,
 }: SidebarProps) {
   const {
     state,
@@ -116,6 +119,7 @@ export function Sidebar({
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
   const { providers } = useAgentProviders();
+  const { index: planIndex } = usePlanIndexOptional();
   const agentsConfig = config?.agents;
   // Skip-permissions "remember" choice is centralized in backend config so it
   // carries across the desktop app and every web client (not per-localStorage).
@@ -513,7 +517,21 @@ export function Sidebar({
                         >
                           <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
                         </button>
-                        {isExpanded && flattenSidebarTabs(ws.tabs, state.panes).map((tab) => {
+                        {isExpanded && (
+                          <>
+                            <WorkspacePlanTreeSlot
+                              workspace={ws}
+                              panes={state.panes}
+                              planIndex={planIndex}
+                              canvasActive={isActiveVisual && workspaceCanvasActive}
+                              touchMode={touchMode}
+                              uiFontScale={uiFontScale}
+                              onBeforeOpen={() => {
+                                setActiveWorkspace(ws.id);
+                                onNavigateToTab?.();
+                              }}
+                            />
+                            {flattenSidebarTabs(ws.tabs, state.panes).map((tab) => {
                           const tabPaneIds = collectPaneIds(tab, state.panes);
                           const isTabActive = isActiveVisual && tab.id === state.activeTabIds[ws.id];
                           return (
@@ -540,7 +558,9 @@ export function Sidebar({
                               })()}
                             </button>
                           );
-                        })}
+                            })}
+                          </>
+                        )}
                         <div className="w-5 h-px bg-[var(--ct-border)] my-0.5" />
                       </div>
                     );
@@ -675,11 +695,25 @@ export function Sidebar({
                               .filter((t) => state.panes[t.pane_id]?.protected)
                               .map((t) => `${TAB_PREFIX}${t.id}`);
                             return (
-                              <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
-                                {topLevel.map((tab, index) =>
-                                  renderTab(tab, index, 0, "tab", ws.id, topLevelIds, pinnedTabIds),
-                                )}
-                              </SortableContext>
+                              <>
+                                <WorkspacePlanTreeSlot
+                                  workspace={ws}
+                                  panes={state.panes}
+                                  planIndex={planIndex}
+                                  canvasActive={isActiveVisual && workspaceCanvasActive}
+                                  touchMode={touchMode}
+                                  uiFontScale={uiFontScale}
+                                  onBeforeOpen={() => {
+                                    setActiveWorkspace(ws.id);
+                                    onNavigateToTab?.();
+                                  }}
+                                />
+                                <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
+                                  {topLevel.map((tab, index) =>
+                                    renderTab(tab, index, 0, "tab", ws.id, topLevelIds, pinnedTabIds),
+                                  )}
+                                </SortableContext>
+                              </>
                             );
                           })()}
                           {/* Add agent session button */}

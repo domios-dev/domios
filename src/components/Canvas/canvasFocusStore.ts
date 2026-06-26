@@ -7,10 +7,17 @@ export interface CanvasFocusTarget {
   focusPaneId?: string;
 }
 
+export interface CanvasWorkspaceTarget {
+  planId?: string;
+  focusPaneId?: string;
+  nodeIds?: string[];
+}
+
 let open = false;
 let target: CanvasFocusTarget | null = null;
 let workspaceOpen = false;
 let workspaceDismissed = false;
+let workspaceTarget: CanvasWorkspaceTarget | null = null;
 const pulsing = new Set<string>();
 const listeners = new Set<() => void>();
 
@@ -31,25 +38,32 @@ export const canvasFocusStore = {
     target = null;
     notify();
   },
-  openWorkspace() {
+  openWorkspace(next?: CanvasWorkspaceTarget) {
     workspaceOpen = true;
     workspaceDismissed = false;
+    workspaceTarget = next ?? null;
     notify();
   },
   closeWorkspace() {
     workspaceOpen = false;
     workspaceDismissed = true;
+    workspaceTarget = null;
     notify();
   },
   toggleWorkspace(currentlyVisible: boolean) {
     if (currentlyVisible) {
       workspaceOpen = false;
       workspaceDismissed = true;
+      workspaceTarget = null;
     } else {
       workspaceOpen = true;
       workspaceDismissed = false;
+      workspaceTarget = null;
     }
     notify();
+  },
+  getWorkspaceTarget(): CanvasWorkspaceTarget | null {
+    return workspaceTarget;
   },
   resetWorkspaceDismissed() {
     if (!workspaceDismissed) return;
@@ -111,6 +125,14 @@ export function useCanvasWorkspaceDismissed(): boolean {
 
 export function useCanvasFocusTarget(): CanvasFocusTarget | null {
   return useSyncExternalStore(canvasFocusStore.subscribe, () => canvasFocusStore.getTarget(), () => null);
+}
+
+export function useCanvasWorkspaceTarget(): CanvasWorkspaceTarget | null {
+  return useSyncExternalStore(
+    canvasFocusStore.subscribe,
+    () => canvasFocusStore.getWorkspaceTarget(),
+    () => null,
+  );
 }
 
 export function usePlanPulseVersion(planIds: string[]): number {
