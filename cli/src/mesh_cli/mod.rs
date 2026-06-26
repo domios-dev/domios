@@ -220,6 +220,24 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         eprintln!("Error: {}", path);
         std::process::exit(2);
     }
+    // A remote spawn must register the worker in the origin's registry so the
+    // sidebar ghosts it under its report target immediately (before any report).
+    if matches!(
+        cli.command,
+        Commands::Agent {
+            action: super::AgentAction::Spawn { .. }
+        }
+    ) {
+        relay::mesh_spawn_and_register(
+            &http,
+            &base,
+            &token,
+            target,
+            body.as_deref(),
+            cli.json,
+        );
+        return;
+    }
     // Resolve the source agent's label/model locally so the remote can render
     // `label@PEER` — the source pane is foreign to the peer and unresolvable
     let body = if matches!(cli.command, Commands::SendText { .. }) {

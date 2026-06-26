@@ -173,6 +173,20 @@ pub type ServiceState = Arc<ServiceContext>;
 impl ServiceContext {
     // ── Event helpers (used by all sub-modules) ─────────────────────
 
+    /// Notify the UI that an orchestrator's remote (cross-mesh) workers changed.
+    /// One payload shape for every mutation site (spawn registration, UI relay
+    /// hook, inbound report) so the sidebar refreshes consistently.
+    pub(crate) fn emit_remote_workers_changed(&self, orchestrator_pane: &str) {
+        use tauri::Emitter as _;
+        let _ = self.app_handle.emit(
+            "remote-workers-changed",
+            serde_json::json!({
+                "orchestrator_pane_id": orchestrator_pane,
+                "workers": self.remote_workers.snapshot(),
+            }),
+        );
+    }
+
     pub(crate) fn emit_state_changed(&self) {
         self.events
             .publish(crate::api::events::SystemEvent::MuxStateChanged);

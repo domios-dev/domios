@@ -102,6 +102,12 @@ pub async fn check_and_apply(
 
     update_state.lock().set_phase(UpdatePhase::Applying);
 
+    // Refresh the installed PATH CLI from the freshly-applied bundle so
+    // `~/.codeterm/bin/codeterm` matches the new app immediately — don't depend
+    // on the next cold startup re-running the install (the v1.5.6 shim-stayed-
+    // stale incident: bundle updated, PATH CLI lacked `--report-to`).
+    crate::startup::refresh_bundled_cli(app);
+
     if let Err(e) = shutdown::graceful_shutdown(app).await {
         log::error!("[updater] graceful shutdown failed: {}", e);
     }
