@@ -13,7 +13,7 @@ import { devDataDir } from "../../helpers/reset";
 import { REPO_ROOT } from "../../helpers/dev-console";
 import { type ApiClient } from "../../helpers/api-client";
 
-const WEB_URL = API_BASE + "/web/";
+const WEB_URL = API_BASE + "/";
 const PLUGIN_ID = "lmstudio";
 const SYSTEM_PROMPT_PREFIX = "-=-codeterm:system_prompt-=-";
 

@@ -9,7 +9,7 @@
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
-const WEB_URL = `${API_BASE}/web/`;
+const WEB_URL = `${API_BASE}/`;
 
 // 1x1 transparent PNG.
 const PNG_B64 =

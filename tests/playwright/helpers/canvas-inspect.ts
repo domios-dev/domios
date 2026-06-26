@@ -2,7 +2,7 @@
  * Canvas inspection helper — reusable Playwright primitives for driving and
  * visually auditing the v2 plan-review canvas (workspace + focus modes).
  *
- * macOS/Linux run in web-mode (Chromium against dev /web/); Windows over CDP.
+ * macOS/Linux run in web-mode (Chromium against dev /); Windows over CDP.
  * Built for a long visual-iteration loop: open the board, pan/zoom/fit/focus,
  * capture full-board + per-region screenshots, and assert no-overlap/no-overflow
  * from real DOM bounding boxes. No app-internal hooks — pure UI driving.

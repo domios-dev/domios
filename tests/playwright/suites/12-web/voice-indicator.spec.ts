@@ -11,7 +11,7 @@
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
-const WEB_URL = `${API_BASE}/web/`;
+const WEB_URL = `${API_BASE}/`;
 
 // Deterministic recorder: stop() emits one >5KB chunk then fires onstop, so the
 // composer's upload path runs without a real microphone.

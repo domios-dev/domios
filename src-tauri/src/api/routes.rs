@@ -30,12 +30,16 @@ pub struct AppState {
     pub test_clock: Option<std::sync::Arc<crate::cron::clock::MockClock>>,
     /// System event bus — feeds the web mirror's SSE stream.
     pub events: crate::api::events::EventBroadcasterState,
-    /// Directory holding the built React bundle, served at /web.
+    /// Directory holding the built React bundle, served at the daemon root.
     pub web_dist: Option<std::path::PathBuf>,
 }
 
 /// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
 pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
+
+async fn legacy_web_route_gone() -> StatusCode {
+    StatusCode::NOT_FOUND
+}
 
 pub fn create_router(state: AppState) -> Router {
     let router = Router::new()
@@ -780,26 +784,29 @@ pub fn create_router(state: AppState) -> Router {
             .layer(CompressionLayer::new()),
     );
 
-    // Web mirror: serve the built React bundle at /web with an SPA fallback (deep links resolve to index.html). Public route — the auth middleware
-    // skips /web; all API calls remain token-gated.
+    // Web mirror: serve the built React bundle at the daemon root with an SPA
+    // fallback (deep links resolve to index.html). Public route — the auth
+    // middleware skips non-/api paths; all API calls remain token-gated.
     let router = if let Some(dist) = &state.web_dist {
-        let serve = tower_http::services::ServeDir::new(dist).fallback(
+        let root_serve = tower_http::services::ServeDir::new(dist).fallback(
             tower_http::services::ServeFile::new(dist.join("index.html")),
         );
         // no-cache = revalidate every load (304s via Last-Modified). Installed
         // iOS web apps otherwise heuristically cache index.html and miss updates.
-        let serve = tower_http::set_header::SetResponseHeader::overriding(
-            serve,
+        let root_serve = tower_http::set_header::SetResponseHeader::overriding(
+            root_serve,
             axum::http::header::CACHE_CONTROL,
             axum::http::HeaderValue::from_static("no-cache"),
         );
         router
-            .route("/web/manifest.webmanifest", get(web_routes::web_manifest))
+            .route("/manifest.webmanifest", get(web_routes::web_manifest))
             .route(
-                "/web/manifest-bootstrap",
+                "/manifest-bootstrap",
                 axum::routing::post(web_routes::web_manifest_bootstrap),
             )
-            .nest_service("/web", serve)
+            .route("/web", get(legacy_web_route_gone))
+            .route("/web/{*path}", get(legacy_web_route_gone))
+            .fallback_service(root_serve)
     } else {
         router
     };

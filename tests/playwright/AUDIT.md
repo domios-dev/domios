@@ -61,7 +61,7 @@ Files: 20. Tests: 78. Findings: 0 (0 errors, 0 warnings).
 | good | @golden pasting a screenshot into the chat composer attaches it | tests/playwright/suites/12-web/chat-image-paste.spec.ts:18 | 0 |
 | good | @golden voice note: transcribing placeholder morphs into transcript, and failure shows an honest error | tests/playwright/suites/12-web/voice-indicator.spec.ts:48 | 0 |
 | good | @golden mic stream is warm: two recordings → getUserMedia called exactly once | tests/playwright/suites/12-web/voice-warm-mic.spec.ts:45 | 0 |
-| good | @smoke /web serves the SPA; token gate authenticates; self is the default host | tests/playwright/suites/12-web/web.spec.ts:30 | 0 |
+| good | @smoke / serves the SPA; token gate authenticates; self is the default host | tests/playwright/suites/12-web/web.spec.ts:30 | 0 |
 | good | @golden bad token is rejected with a rendered error, not a broken app | tests/playwright/suites/12-web/web.spec.ts:45 | 0 |
 | good | @golden peer switching: dropdown lists the stub, traffic routes to it, switch-back restores | tests/playwright/suites/12-web/web.spec.ts:55 | 0 |
 | good | @golden unreachable peer fails gracefully at the gate, back-to-self recovers | tests/playwright/suites/12-web/web.spec.ts:136 | 0 |
