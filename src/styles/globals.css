@@ -805,6 +805,113 @@ button,
   color: var(--ct-fg, #c9d1d9);
 }
 
+/* Pinned workspace plan action — sits above closable tab rows, not a tab. */
+.sidebar-workspace-plan {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  width: calc(100% - 1rem);
+  margin: 0.125rem 0.5rem 0.375rem;
+  padding: 0.3rem 0.55rem 0.3rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.sidebar-workspace-plan::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.3rem;
+  bottom: 0.3rem;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background-color 150ms ease;
+}
+
+.sidebar-workspace-plan[data-active="true"] {
+  color: var(--ct-fg, #c9d1d9);
+  border-color: color-mix(in srgb, var(--ct-accent, #6366f1) 30%, var(--ct-border, #30363d));
+  background: var(--ct-bg-selected, rgba(99, 102, 241, 0.12));
+}
+
+.sidebar-workspace-plan[data-active="true"]::before {
+  background: var(--ct-accent, #6366f1);
+}
+
+.sidebar-workspace-plan:not([data-active="true"]) {
+  color: var(--ct-muted-fg, #8b949e);
+}
+
+.sidebar-workspace-plan:not([data-active="true"]):hover {
+  color: var(--ct-fg, #c9d1d9);
+  background: var(--ct-hover, rgba(255, 255, 255, 0.04));
+  border-color: var(--ct-border, #30363d);
+}
+
+.sidebar-workspace-plan-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--ct-border, #30363d);
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--ct-bg, #0d1117) 88%, var(--ct-fg, #c9d1d9) 12%);
+}
+
+.sidebar-workspace-plan[data-active="true"] .sidebar-workspace-plan-icon {
+  border-color: color-mix(in srgb, var(--ct-accent, #6366f1) 45%, var(--ct-border, #30363d));
+}
+
+.sidebar-workspace-plan-kind {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ct-muted, #6e7681);
+}
+
+.sidebar-workspace-plan[data-active="true"] .sidebar-workspace-plan-kind {
+  color: color-mix(in srgb, var(--ct-accent, #6366f1) 70%, var(--ct-muted, #6e7681));
+}
+
+.sidebar-workspace-plan-touch {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.65rem 0.55rem 0.75rem;
+}
+
+.sidebar-workspace-plan-compact {
+  width: 2rem;
+  height: 1.75rem;
+  margin: 0.125rem auto 0.25rem;
+  padding: 0;
+  justify-content: center;
+  border-radius: 0.25rem;
+}
+
+.sidebar-workspace-plan-compact::before {
+  display: none;
+}
+
+.sidebar-workspace-plan-pulse {
+  animation: ct-plan-sidebar-pulse 0.85s ease-in-out 3;
+}
+
+@keyframes ct-plan-sidebar-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ct-accent, #6366f1) 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ct-accent, #6366f1) 24%, transparent);
+  }
+}
+
 /* =========================================================================
    Split Pane Animations
    ========================================================================= */

@@ -7,7 +7,9 @@ import type { PlanIndexEntry } from "../Canvas/plansApi";
 import {
   deriveWorkspacePlanEntries,
   openWorkspacePlanForEntries,
+  workspacePlanEntryKind,
   workspacePlanEntryLabel,
+  workspacePlanEntryTitle,
 } from "../Canvas/workspacePlanEntry";
 
 interface WorkspacePlanEntryProps {
@@ -16,6 +18,7 @@ interface WorkspacePlanEntryProps {
   pulsing?: boolean;
   onClick: () => void;
   touchMode?: boolean;
+  compact?: boolean;
   uiFontScale?: number;
 }
 
@@ -25,42 +28,77 @@ export function WorkspacePlanEntry({
   pulsing = false,
   onClick,
   touchMode = false,
+  compact = false,
   uiFontScale,
 }: WorkspacePlanEntryProps) {
   const label = workspacePlanEntryLabel(entries);
+  const kind = workspacePlanEntryKind(entries);
+  const title = workspacePlanEntryTitle(entries);
   const rowText = pickUiFontScaleValue(uiFontScale, ["text-[11px]", "text-xs", "text-sm", "text-base"]);
   const rowTouchText = pickUiFontScaleValue(uiFontScale, ["text-[13px]", "text-[14px]", "text-[15px]", "text-base"]);
+  const iconSize = touchMode ? 14 : compact ? 11 : 12;
+  const iconBox = touchMode ? "h-6 w-6" : compact ? "h-5 w-5" : "h-5 w-5";
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        data-testid="workspace-plan-entry"
+        data-workspace-action="plan"
+        data-pinned="true"
+        data-active={isActive ? "true" : "false"}
+        aria-pressed={isActive}
+        title={title}
+        onClick={onClick}
+        className={`
+          sidebar-workspace-plan sidebar-workspace-plan-compact border-0
+          ${pulsing ? "sidebar-workspace-plan-pulse" : ""}
+        `}
+      >
+        <Map
+          size={iconSize}
+          className={isActive ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted)]"}
+        />
+      </button>
+    );
+  }
 
   return (
     <button
       type="button"
       data-testid="workspace-plan-entry"
-      title="Open workspace plan canvas"
+      data-workspace-action="plan"
+      data-pinned="true"
+      data-active={isActive ? "true" : "false"}
+      aria-pressed={isActive}
+      title={title}
       onClick={onClick}
       className={`
-        sidebar-tab w-full flex items-center cursor-pointer transition-colors relative border-0 bg-transparent text-left
-        ${touchMode ? "sidebar-tab-touch min-h-11 pl-5 pr-2 py-2" : "pl-4 pr-2 py-1.5"}
-        ${pulsing ? "ct-plan-button-pulse" : ""}
-        ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
+        sidebar-workspace-plan w-full border-0
+        ${touchMode ? "sidebar-workspace-plan-touch" : ""}
+        ${pulsing ? "sidebar-workspace-plan-pulse" : ""}
       `}
     >
-      {isActive && (
-        <div
-          className="absolute inset-y-0 left-0 right-0 pointer-events-none"
-          style={{
-            background: "var(--ct-bg-selected, rgba(99, 102, 241, 0.12))",
-            transition: "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease",
-          }}
-        />
-      )}
-      <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
-        <Map
-          size={touchMode ? 15 : 12}
-          className={`shrink-0 ${isActive ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted)]"}`}
-        />
-        <span className={`${touchMode ? rowTouchText : rowText} truncate ${isActive ? "font-medium" : ""}`}>
-          {label}
+      <div className={`flex flex-1 items-center min-w-0 gap-2 ${touchMode ? "gap-2.5" : ""}`}>
+        <span className={`sidebar-workspace-plan-icon ${iconBox}`}>
+          <Map
+            size={iconSize}
+            className={isActive ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted)]"}
+          />
         </span>
+        <span className={`sidebar-workspace-plan-kind ${touchMode ? "text-[10px]" : ""}`}>
+          {kind}
+        </span>
+        {label !== kind && (
+          <>
+            <span className="text-[var(--ct-muted)] shrink-0" aria-hidden>
+              ·
+            </span>
+            <span className={`${touchMode ? rowTouchText : rowText} truncate ${isActive ? "font-medium" : ""}`}>
+              {label}
+            </span>
+          </>
+        )}
       </div>
     </button>
   );
@@ -72,6 +110,7 @@ export function WorkspacePlanTreeSlot({
   planIndex,
   canvasActive,
   touchMode = false,
+  compact = false,
   uiFontScale,
   onBeforeOpen,
 }: {
@@ -80,6 +119,7 @@ export function WorkspacePlanTreeSlot({
   planIndex: PlanIndexEntry[];
   canvasActive: boolean;
   touchMode?: boolean;
+  compact?: boolean;
   uiFontScale?: number;
   onBeforeOpen?: () => void;
 }) {
@@ -97,6 +137,7 @@ export function WorkspacePlanTreeSlot({
       isActive={canvasActive}
       pulsing={pulsing}
       touchMode={touchMode}
+      compact={compact}
       uiFontScale={uiFontScale}
       onClick={() => {
         onBeforeOpen?.();

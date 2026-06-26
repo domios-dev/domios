@@ -283,6 +283,11 @@ function AppInner() {
     !pluginViewId &&
     activeWs != null;
   const workspaceCanvasVisible = showInlineWorkspaceCanvas || showOverlayWorkspaceCanvas;
+  const handleNavigateToTab = useCallback(() => {
+    canvasFocusStore.closeWorkspace();
+    setMainView("workspace");
+    closeSidebarOnMobile();
+  }, [closeSidebarOnMobile]);
   useEffect(() => {
     if (!activeTab) canvasFocusStore.resetWorkspaceDismissed();
   }, [activeTab]);
@@ -553,7 +558,7 @@ function AppInner() {
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
                 onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
-                onNavigateToTab={() => { setMainView("workspace"); closeSidebarOnMobile(); }}
+                onNavigateToTab={handleNavigateToTab}
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
@@ -632,7 +637,6 @@ function AppInner() {
                 mode="workspace"
                 workspaceId={activeWs?.id}
                 api={stableApiConfig}
-                onClose={() => canvasFocusStore.closeWorkspace()}
               />
             </div>
           )}
