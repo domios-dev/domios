@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782469318039,
+  "updated_at": 1782469753823,
   "milestone_kinds": [
     {
       "key": "research",
@@ -518,12 +518,12 @@
       ],
       "test_plan": "Run focused scene hit-test/overlay-budget unit tests, npx tsc --noEmit, and Playwright @canvas-passive-renderer plus a new/updated overlay budget gate.",
       "correctness": "Canvas interaction and focused rich content are driven by fixed scene geometry; DOM richness is limited to selected/focused overlays.",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p1",
       "created_at": 1782466185605,
-      "updated_at": 1782469318039,
-      "status_changed_at": 1782469318039,
+      "updated_at": 1782469753823,
+      "status_changed_at": 1782469753823,
       "handle": "s4-scene-hit-testing-and-rich-overlay-budget-contract",
       "tags": [
         "canvas,figma-substrate,overlay"

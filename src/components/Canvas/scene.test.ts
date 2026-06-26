@@ -2,7 +2,7 @@
 
 import { layoutWorkspace } from "./layout";
 import { bandedSeedPlans } from "./layout/fixtures";
-import { buildCanvasScene, projectSceneBoxes, projectWorldBox } from "./scene";
+import { buildCanvasScene, pickCanvasSceneNodeAtScreenPoint, projectSceneBoxes, projectWorldBox, unprojectScreenPoint } from "./scene";
 
 let passed = 0;
 let failed = 0;
@@ -68,6 +68,32 @@ console.log("\nprojection helpers:");
   const projectedNode = projected.find((entry) => entry.id === "t_parent")!;
   ok("projectSceneBoxes includes node screen boxes", sameJson(projectedNode.screenBox, b2));
   ok("projectSceneBoxes preserves world boxes", sameJson(projectedNode.worldBox, node.worldBox));
+}
+
+console.log("\nscene picking:");
+{
+  const scene = buildCanvasScene({ layout, plans, cameraScale: 1 });
+  const task = scene.nodes.find((entry) => entry.id === "t_parent")!;
+  const transform = { x: 123, y: 77, scale: 1.75 };
+  const screenPoint = {
+    x: (task.worldBox.x + task.worldBox.width / 2) * transform.scale + transform.x,
+    y: (task.worldBox.y + task.worldBox.height / 2) * transform.scale + transform.y,
+  };
+  const worldPoint = unprojectScreenPoint(screenPoint, transform);
+  const hit = pickCanvasSceneNodeAtScreenPoint(scene, screenPoint, transform);
+  ok("unprojectScreenPoint inverts camera translation and scale", Math.abs(worldPoint.x - (task.worldBox.x + task.worldBox.width / 2)) < 0.001);
+  ok("pickCanvasSceneNodeAtScreenPoint resolves task id from world geometry", hit?.id === "t_parent" && hit.kind === "task");
+
+  const plan = scene.nodes.find((entry) => entry.kind === "plan" && entry.id === "pl_banded_main")!;
+  const planHit = pickCanvasSceneNodeAtScreenPoint(
+    scene,
+    {
+      x: (plan.worldBox.x + 10) * transform.scale + transform.x,
+      y: (plan.worldBox.y + 10) * transform.scale + transform.y,
+    },
+    transform,
+  );
+  ok("pickCanvasSceneNodeAtScreenPoint resolves plan id from world geometry", planHit?.id === "pl_banded_main");
 }
 
 if (failed) {

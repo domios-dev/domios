@@ -15,3 +15,7 @@ export function substrateV2Enabled(): boolean {
   }
   return cached;
 }
+
+export function __resetSubstrateV2ForTest(): void {
+  cached = null;
+}

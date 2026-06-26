@@ -46,7 +46,9 @@ import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
 import { CanvasFocusBreadcrumb } from "./CanvasFocusBreadcrumb";
 import { CanvasPassiveRenderLayer } from "./CanvasPassiveRenderLayer";
-import { buildCanvasScene, publishCanvasSceneReadback } from "./scene";
+import { MAX_ACTIVE_RICH_OVERLAYS, buildOverlayNodes } from "./richOverlays";
+import { buildCanvasScene, pickCanvasSceneNodeAtScreenPoint, publishCanvasSceneReadback } from "./scene";
+import { substrateV2Enabled } from "./substrateFlag";
 
 export interface CanvasViewInnerProps {
   mode: "workspace" | "focus";
@@ -196,7 +198,6 @@ export function CanvasViewInner({
   const lineageCatalog = useMemo(() => buildLineageCatalog(plans), [plansRevision]);
   const layout = useMemo(() => layoutWorkspace(layoutSourcePlans), [layoutRevision]);
   const scene = useMemo(() => buildCanvasScene({ layout, plans: layoutSourcePlans, cameraScale: transform.scale }), [layout, layoutSourcePlans, transform.scale]);
-  useEffect(() => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`), [scene, transform, mode, planId]);
 
   const lookups = useMemo<CanvasLookups>(() => {
     const nodeById = new Map<string, LaidOutNode>();
@@ -368,9 +369,12 @@ export function CanvasViewInner({
   );
 
   const [blinkIds, setBlinkIds] = useState<Set<string>>(() => new Set());
-  // Camera-focus reading gesture (§23.4): frames + locks the Document and shows a
-  // breadcrumb; never fades neighbours (§32.3). Esc/back clears it. null = no focus.
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const richOverlays = useMemo(() => buildOverlayNodes({ scene, transform, focusedId: focusedNodeId }), [scene, transform, focusedNodeId]);
+  useEffect(
+    () => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`, richOverlays, MAX_ACTIVE_RICH_OVERLAYS),
+    [scene, transform, mode, planId, richOverlays],
+  );
 
   // §25.3 DOMINANCE (focus-assist for the task you "fell into"): when one task fills
   // ≳60% of the viewport it ELEVATES (paint above + shadow, NO footprint change).
@@ -680,7 +684,6 @@ export function CanvasViewInner({
     [fitCameraToNodes],
   );
 
-  // Esc backs out of a camera-focus (un-dim, release lock).
   useEffect(() => {
     if (!focusedNodeId) return;
     const onKey = (e: KeyboardEvent) => {
@@ -690,14 +693,17 @@ export function CanvasViewInner({
     return () => window.removeEventListener("keydown", onKey);
   }, [focusedNodeId]);
 
-  // Double-click a node → camera-focus it (frame + lock Document + dim the rest).
   const onWorldDoubleClick = useCallback(
     (e: React.MouseEvent) => {
-      const el = (e.target as HTMLElement).closest("[data-plan-id],[data-task-id]") as HTMLElement | null;
-      const id = el?.getAttribute("data-plan-id") ?? el?.getAttribute("data-task-id");
+      const rect = containerRef.current?.getBoundingClientRect();
+      const hit = substrateV2Enabled() && rect
+        ? pickCanvasSceneNodeAtScreenPoint(scene, { x: e.clientX - rect.left, y: e.clientY - rect.top }, transform)
+        : null;
+      const el = hit ? null : (e.target as HTMLElement).closest("[data-plan-id],[data-task-id]") as HTMLElement | null;
+      const id = hit?.id ?? el?.getAttribute("data-plan-id") ?? el?.getAttribute("data-task-id");
       if (id) focusNodeCamera(id);
     },
-    [focusNodeCamera],
+    [containerRef, focusNodeCamera, scene, transform],
   );
 
   const focusedTitle = focusedNodeId
