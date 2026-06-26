@@ -16,7 +16,9 @@ import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } fr
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
+import { RemoteWorkerRow } from "./RemoteWorkerRow";
 import { RecentlyClosed } from "./RecentlyClosed";
+import { useRemoteWorkers } from "../../hooks/useRemoteWorkers";
 import {
   SidebarDnd,
   SortableRow,
@@ -119,6 +121,7 @@ export function Sidebar({
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
   const { providers } = useAgentProviders();
+  const remoteWorkers = useRemoteWorkers();
   const agentsConfig = config?.agents;
   // Skip-permissions "remember" choice is centralized in backend config so it
   // carries across the desktop app and every web client (not per-localStorage).
@@ -679,6 +682,15 @@ export function Sidebar({
                                       )}
                                     </SortableContext>
                                   )}
+                                  {/* Remote (cross-mesh) workers reporting to this pane — ghost nodes, no local PTY. */}
+                                  {firstPane &&
+                                    remoteWorkers[firstPane.id]?.map((w) => (
+                                      <RemoteWorkerRow
+                                        key={`${w.peer}/${w.remote_pane}`}
+                                        worker={w}
+                                        depth={depth + 1}
+                                      />
+                                    ))}
                                 </div>
                               );
                             };

@@ -374,6 +374,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 task_file,
                 role,
                 parent,
+                report_to,
                 workspace,
                 can_spawn,
                 cwd,
@@ -408,6 +409,17 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(p) = parent {
                     body["parent_pane_id"] = serde_json::json!(p);
+                }
+                // Remote worker report target on the ORIGIN peer (this machine).
+                // Default to the caller's pane so a spawned worker reports back to
+                // whoever ran the spawn; `--report-to main` targets General.
+                let report_to = report_to.clone().or_else(|| {
+                    std::env::var("CODETERM_PANE_ID")
+                        .ok()
+                        .filter(|s| !s.is_empty())
+                });
+                if let Some(rt) = report_to {
+                    body["report_to"] = serde_json::json!(rt);
                 }
                 if let Some(w) = workspace {
                     body["workspace_id"] = serde_json::json!(w);
