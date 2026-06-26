@@ -259,10 +259,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/agents/providers",
             get(agent_routes::list_agent_providers),
         )
-        .route(
-            "/api/remote-workers",
-            get(agent_routes::remote_workers),
-        )
+        .route("/api/remote-workers", get(agent_routes::remote_workers))
         .route("/api/debug/clock", get(debug_routes::clock_status))
         .route(
             "/api/debug/clock/advance",

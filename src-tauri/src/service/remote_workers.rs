@@ -152,15 +152,34 @@ mod tests {
     #[test]
     fn upsert_replaces_same_worker_and_keeps_distinct() {
         let reg = RemoteWorkerRegistry::new();
-        reg.record_report("orch", "eight", "w1", "Worker-1", None, "STATUS: working", 10);
-        reg.record_report("orch", "eight", "w1", "Worker-1", Some("opus".into()), "STATUS: done", 20);
+        reg.record_report(
+            "orch",
+            "eight",
+            "w1",
+            "Worker-1",
+            None,
+            "STATUS: working",
+            10,
+        );
+        reg.record_report(
+            "orch",
+            "eight",
+            "w1",
+            "Worker-1",
+            Some("opus".into()),
+            "STATUS: done",
+            20,
+        );
         reg.record_report("orch", "eight", "w2", "Worker-2", None, "working", 15);
 
         let list = reg.for_orchestrator("orch");
         assert_eq!(list.len(), 2, "two distinct remote panes");
         // Newest activity first.
         assert_eq!(list[0].remote_pane, "w1");
-        assert_eq!(list[0].status, "done", "same worker upserts, not duplicates");
+        assert_eq!(
+            list[0].status, "done",
+            "same worker upserts, not duplicates"
+        );
         assert_eq!(list[0].model.as_deref(), Some("opus"));
         assert_eq!(list[1].remote_pane, "w2");
     }

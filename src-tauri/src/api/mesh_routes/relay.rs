@@ -422,7 +422,11 @@ mod tests {
         assert_eq!(body.get("origin_peer"), None);
         let mut body2 = serde_json::json!({});
         tag_relay_spawn_source(&mut body2, "GET", "/api/agents/spawn", "Mac-Air");
-        assert_eq!(body2.get("origin_peer"), None, "GET spawn must not be tagged");
+        assert_eq!(
+            body2.get("origin_peer"),
+            None,
+            "GET spawn must not be tagged"
+        );
     }
 
     #[test]
