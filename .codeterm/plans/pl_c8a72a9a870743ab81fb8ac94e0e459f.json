@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782458025639,
+  "updated_at": 1782458178354,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -16128,6 +16128,56 @@
           }
         }
       ]
+    },
+    {
+      "id": "task_d2a91c3db96a4d37a1572a7ec61f8850",
+      "name": "§33.6 watcher reloads task stride-log sidecar changes",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Terminal-heavy Rust watcher/storage slice; small post-merge reindex prerequisite.",
+      "acceptance_criteria": [
+        "Task stride-log JSONL sidecar changes resolve to the owning plan id and project root.",
+        "Watcher/reload path can hydrate sidecar-only stride entries without a JSON plan edit."
+      ],
+      "test_plan": "Run cargo test service::plan::watcher plus focused body_file/stride_log tests and CODETERM_API_PORT=7686 ./build.sh check in hot checkout.",
+      "correctness": "Git-merged append-only stride logs trigger plan reload/reindex instead of staying invisible until another file changes.",
+      "status": "in_progress",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1782458145538,
+      "updated_at": 1782458178354,
+      "status_changed_at": 1782458178354,
+      "handle": "33-6-watcher-reloads-task-stride-log-sidecar-changes",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
+      "assigned_pane_id": "dec58517",
+      "lane": {
+        "pane_id": "dec58517",
+        "workspace_id": "ef145fd1",
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm-stride-watcher-jsonl",
+        "branch": "lane/stride-watcher-jsonl",
+        "base": "4499d2f921b5ab32f330ba45f3406e7b81102549",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "Active worker pane dec58517. After accepted integration: close worker pane, remove /Users/rollacode/Developer/codeterm-stride-watcher-jsonl, delete lane/stride-watcher-jsonl, prune worktrees."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
     }
   ],
   "task_groups": [],

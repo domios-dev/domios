@@ -158,6 +158,7 @@
 - [33-4-strip-task-milestones-from-monolithic-plan-json (§33.4 strip task milestones from monolithic plan JSON)](tasks/33-4-strip-task-milestones-from-monolithic-plan-json.md)
 - [33-5-preserve-merged-stride-log-entries-on-save (§33.5 preserve merged stride-log entries on save)](tasks/33-5-preserve-merged-stride-log-entries-on-save.md)
 - [bug-sidebar-expanded-child-panes-hidden (bug: Sidebar hides expanded child panes from backend tree)](tasks/bug-sidebar-expanded-child-panes-hidden.md)
+- [33-6-watcher-reloads-task-stride-log-sidecar-changes (§33.6 watcher reloads task stride-log sidecar changes)](tasks/33-6-watcher-reloads-task-stride-log-sidecar-changes.md)
 
 ## Handoffs
 
