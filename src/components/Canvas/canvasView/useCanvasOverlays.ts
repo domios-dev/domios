@@ -1,7 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ViewportTransform } from "../useCanvasViewport";
 import type { World } from "../worlds";
 import { MAX_ACTIVE_PRESENCE_OVERLAYS, buildPresenceOverlays, type PresenceSource } from "../presenceOverlays";
+import { presenceAnimateDemoEnabled, rotatePresenceForDemo } from "../presenceDemo";
 import { buildSwarmRoster } from "../swarmRoster";
 import { MAX_ACTIVE_RICH_OVERLAYS, buildOverlayNodes } from "../richOverlays";
 import { buildCanvasScene, publishCanvasSceneReadback } from "../scene";
@@ -30,6 +31,14 @@ export function useCanvasOverlays({ scene, transform, focusedNodeId, mode, planI
 
   // EMERGENCE: the swarm (only tasks with executing agents). Built off the existing
   // per-task presence — O(tasks) once per data change, NOT per pan/zoom.
+  const demoOn = presenceAnimateDemoEnabled();
+  const [demoTick, setDemoTick] = useState(0);
+  useEffect(() => {
+    if (!demoOn) return;
+    // Slower than a glide (presenceGlide GLIDE_DURATION_MS) so each hop settles.
+    const id = window.setInterval(() => setDemoTick((t) => t + 1), 1600);
+    return () => window.clearInterval(id);
+  }, [demoOn]);
   const presenceByTask = useMemo(() => {
     const m = new Map<string, PresenceSource>();
     for (const [id, model] of lookups.taskModelById) {
@@ -37,8 +46,8 @@ export function useCanvasOverlays({ scene, transform, focusedNodeId, mode, planI
       if (!p || p.agents.length === 0) continue;
       m.set(id, { agents: p.agents, live: model.task.status === "in_progress", label: p.agents[0]?.label ?? p.label });
     }
-    return m;
-  }, [lookups.taskModelById]);
+    return demoOn ? rotatePresenceForDemo(m, demoTick) : m;
+  }, [lookups.taskModelById, demoOn, demoTick]);
   // Floating presence pins: budget-bounded + viewport-culled → constant pin count on
   // a 20k board, recomputed only when camera/visibility/swarm change (no per-frame O(N)).
   const presenceOverlays = useMemo(
