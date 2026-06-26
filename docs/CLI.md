@@ -1340,6 +1340,14 @@ Release plan ownership
 
 - `<plan_id>`
 
+#### `codeterm plan doctor`
+
+Inspect project-local plan files for storage and structure errors
+
+- `--kind`
+- `<plan_id>`
+- `--project`
+
 #### `codeterm plan element`
 
 Generic canvas elements
@@ -1570,6 +1578,13 @@ Free-form notes on the canvas
 - `<plan_id>`
 - `--text`
 - `--text_file`
+
+#### `codeterm plan prune`
+
+Preview or delete smoke/empty project-local plan files (dry-run by default)
+
+- `--apply`
+- `--project`
 
 #### `codeterm plan reconcile`
 

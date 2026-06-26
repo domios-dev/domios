@@ -219,6 +219,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "sqlite-vec",
+ "tempfile",
  "toml",
  "urlencoding",
  "uuid",

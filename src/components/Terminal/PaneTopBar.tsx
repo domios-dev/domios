@@ -1,4 +1,5 @@
 import { PaneModeSwitch } from "./PaneModeSwitch";
+import { PanePlanFocusChip } from "./PanePlanFocusChip";
 import { ChatDefaultSuggestion } from "./ChatDefaultSuggestion";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
@@ -68,6 +69,7 @@ export function PaneTopBar({
             isDefault={chatFirst}
           />
         )}
+        <PanePlanFocusChip paneId={paneId} />
       </div>
       <div className="flex min-w-0 items-center gap-1.5">
         <PluginBubbles cwd={cwd} paneId={paneId} />

@@ -66,6 +66,21 @@ pub enum PlanAction {
         #[arg(long)]
         fix: bool,
     },
+    /// Inspect project-local plan files for storage and structure errors
+    Doctor {
+        plan_id: Option<String>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long, default_value = "all")]
+        kind: String,
+    },
+    /// Preview or delete smoke/empty project-local plan files (dry-run by default)
+    Prune {
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        apply: bool,
+    },
     /// Preview or apply automatic section links for unlinked tasks
     Relink {
         plan_id: String,

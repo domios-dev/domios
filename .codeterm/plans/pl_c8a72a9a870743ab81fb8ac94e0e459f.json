@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782459258300,
+  "updated_at": 1782464028701,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -8024,6 +8024,109 @@
         "cleanup_status": "not_applicable",
         "cleanup_hints": [
           "Main hot checkout integration; no lane worktree to remove."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_b735e3b529954063bd0d6d9cb5e9916e",
+      "name": "Plan doctor foundation: storage/structure errors and smoke prune",
+      "type": "implement",
+      "model": "cursor:auto",
+      "model_rationale": "Bounded CLI tooling slice; Cursor can finish draft implementation while Orchestrator owns warm gates.",
+      "acceptance_criteria": [
+        "CLI exposes a focused plan doctor/prune foundation that can detect malformed project-local plans, structural task/link orphans, and dry-run deletion candidates for smoke/empty plans."
+      ],
+      "test_plan": "Add unit tests for doctor findings and CLI parse/render; run focused cargo tests, manifest generation, build.sh check, and live CLI smoke against the project plan directory.",
+      "correctness": "A project-local plan file that exists on disk but cannot be loaded is reported as an error, valid plans report structural issues without crashing, and prune defaults to dry-run with explicit apply required.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782462559251,
+      "updated_at": 1782463997981,
+      "status_changed_at": 1782463335333,
+      "handle": "plan-doctor-foundation-storage-structure-errors-and-smoke-prune",
+      "tags": [
+        "plan-doctor",
+        "dogfood"
+      ],
+      "section_ids": [
+        "sec_7f17ba5016294c42bafdf74db3832bdd"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": "44322b76",
+      "lane": {
+        "pane_id": "44322b76",
+        "workspace_id": "ef145fd1",
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm-plan-doctor-foundation",
+        "branch": "lane/plan-doctor-foundation",
+        "base": "36102717",
+        "destination": "feat/canvas",
+        "cleanup_status": "done",
+        "cleanup_hints": [
+          "After integration: close pane 44322b76, git worktree remove /Users/rollacode/Developer/codeterm-plan-doctor-foundation, delete branch lane/plan-doctor-foundation."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_d5fbb06ef62248afa8f79f56cd4e92c2",
+      "name": "Workspace Plan entry and focus-to-item navigation",
+      "type": "ux",
+      "model": "cursor:auto",
+      "model_rationale": "UI/UX slice in Sidebar/Plan focus routing; Cursor is appropriate for TSX component and interaction work while Orchestrator owns warm gates.",
+      "acceptance_criteria": [
+        "A workspace with project plans exposes a persistent Plan entry directly under the workspace in the sidebar; selecting a pane/task focus can open/switch to that Plan entry and zoom the canvas to one or more focused plan items."
+      ],
+      "test_plan": "Focused unit tests for workspace tab/action derivation and focus target resolution; UI/Playwright or component test covering sidebar Plan entry visibility and click/focus behavior where practical.",
+      "correctness": "Plan entry is not closable like a normal tab; it disappears only when the workspace has no relevant plans. Pane task affordance routes to the full plan canvas, not a separate mini-task view, and zooms/blinks the focused task/plan element(s).",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782463384277,
+      "updated_at": 1782464028701,
+      "status_changed_at": 1782463958158,
+      "handle": "workspace-plan-entry-and-focus-to-item-navigation",
+      "tags": [
+        "sidebar,plan,canvas-focus"
+      ],
+      "section_ids": [
+        "sec_7f17ba5016294c42bafdf74db3832bdd"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": "a57ac42d",
+      "lane": {
+        "pane_id": "a57ac42d",
+        "workspace_id": "ef145fd1",
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm-workspace-plan-entry",
+        "branch": "lane/workspace-plan-entry",
+        "base": "36102717",
+        "destination": "feat/canvas",
+        "cleanup_status": "done",
+        "cleanup_hints": [
+          "After integration: close pane a57ac42d, git worktree remove /Users/rollacode/Developer/codeterm-workspace-plan-entry, delete branch lane/workspace-plan-entry."
         ]
       },
       "taken_by_role": null,
