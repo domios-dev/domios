@@ -177,12 +177,15 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
           );
         })}
       </svg>
-      {/* W1 labels alternate above/below each bead; W2 callouts sit on the line. */}
+      {/* W1 labels alternate above/below each bead; W2 callouts sit on the line and
+          carry the stride's author + time so provenance reads without diving to W3. */}
       {(cfg.labels || cfg.callouts) && beads.map((b, i) => {
         const m = shown[i];
         const above = b.row % 2 === 0;
         const label = digestMarkdown(m.text, cfg.callouts ? 64 : 24) || m.kind.replace(/_/g, " ");
         const lw = cfg.callouts ? cfg.pitch * 1.7 : cfg.pitch - 4;
+        const who = ownerName(m.from);
+        const when = m.ts > 0 ? formatTime(m.ts) : "";
         return (
           <div
             key={`l-${m.id}`}
@@ -190,7 +193,7 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
             style={{
               position: "absolute",
               left: b.x,
-              top: b.y + (above ? -cfg.r - 13 : cfg.r + 3),
+              top: b.y + (above ? -cfg.r - (cfg.callouts ? 26 : 13) : cfg.r + 3),
               transform: "translateX(-50%)",
               width: lw,
               fontSize: cfg.callouts ? "0.72em" : "0.62em",
@@ -204,6 +207,12 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
             }}
           >
             {label}
+            {cfg.callouts && (who || when) && (
+              <div data-testid="canvas-stride-meta" style={{ marginTop: 2, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 5, fontSize: "0.82em", opacity: 0.62, whiteSpace: "nowrap" }}>
+                {who && <span style={{ maxWidth: lw, overflow: "hidden", textOverflow: "ellipsis" }}>{who}</span>}
+                {when && <span style={{ fontFamily: "var(--ct-font-mono)" }}>{when}</span>}
+              </div>
+            )}
           </div>
         );
       })}

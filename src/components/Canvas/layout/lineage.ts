@@ -7,6 +7,14 @@ export interface PlanLineageTarget {
   id: string;
   title: string;
   status: PlanStatus;
+  sectionCount: number;
+  taskCount: number;
+}
+
+function countSections(sections: Plan["sections"]): number {
+  let n = 0;
+  for (const s of sections) n += 1 + countSections(s.subsections);
+  return n;
 }
 
 export interface PlanLineageEdge {
@@ -157,7 +165,7 @@ export function attachPlanLineage(
 export function buildLineageCatalog(plans: readonly Plan[]): Map<string, PlanLineageTarget> {
   const out = new Map<string, PlanLineageTarget>();
   for (const p of plans) {
-    out.set(p.id, { id: p.id, title: p.title, status: p.status });
+    out.set(p.id, { id: p.id, title: p.title, status: p.status, sectionCount: countSections(p.sections), taskCount: p.tasks.length });
   }
   return out;
 }

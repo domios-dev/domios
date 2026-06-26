@@ -119,8 +119,8 @@ registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive
     />
   ) : null;
 });
-registerNodeRenderer("plan-ghost", ({ model, style }) =>
-  model ? <PlanGhostCard model={model as PlanGhostModel} style={style} /> : null,
+registerNodeRenderer("plan-ghost", ({ model, style, world }) =>
+  model ? <PlanGhostCard model={model as PlanGhostModel} style={style} world={world} /> : null,
 );
 registerNodeRenderer("spec", ({ node, model, style, world, crispScale, onSectionClick, onSectionFrame, suppressRichContent, richOverlay, lightweightWorld }) => {
   if (lightweightWorld) {

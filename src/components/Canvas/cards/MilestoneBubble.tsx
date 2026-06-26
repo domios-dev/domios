@@ -1,6 +1,8 @@
 import { useState, type CSSProperties } from "react";
 import type { Milestone } from "../types";
 import { MilestoneText } from "./MilestoneText";
+import { ownerName } from "../owner";
+import { formatTime } from "../../../lib/formatters";
 import type { CanvasCardStyleProps } from "./types";
 
 export interface MilestoneBubbleModel {
@@ -36,6 +38,8 @@ export function MilestoneBubble({ model, style }: MilestoneBubbleProps) {
   // overlapping, clipped, word-glued mess. One clean card on hover instead.
   const showTip = hover;
   const kindLabel = milestone.kind.replace(/_/g, " ");
+  const who = ownerName(milestone.from);
+  const when = milestone.ts > 0 ? formatTime(milestone.ts) : "";
 
   return (
     <div
@@ -145,6 +149,26 @@ export function MilestoneBubble({ model, style }: MilestoneBubbleProps) {
               }}
             >
               <MilestoneText text={milestone.text} testId="canvas-milestone-detail-text" />
+            </div>
+          )}
+          {(who || when || milestone.loop_id) && (
+            <div
+              data-testid="canvas-milestone-meta"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                gap: 8,
+                marginTop: 6,
+                paddingTop: 5,
+                borderTop: `1px solid color-mix(in srgb, ${color} 22%, var(--ct-border-subtle))`,
+                fontSize: "0.92em",
+                opacity: 0.72,
+              }}
+            >
+              {who && <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 130 }}>{who}</span>}
+              {when && <span style={{ fontFamily: "var(--ct-font-mono)" }}>{when}</span>}
+              {milestone.loop_id && <span title={`Loop ${milestone.loop_id}`}>↻ {milestone.loop_id}</span>}
             </div>
           )}
         </div>
