@@ -20,6 +20,7 @@
 - [s2-extract-canvasscene-substrate-beside-dom-canvasview (S2 — Extract CanvasScene substrate beside DOM CanvasView)](tasks/s2-extract-canvasscene-substrate-beside-dom-canvasview.md)
 - [s3-passive-canvas-renderer-layer-behind-current-dom-ui (S3 — Passive canvas renderer layer behind current DOM UI)](tasks/s3-passive-canvas-renderer-layer-behind-current-dom-ui.md)
 - [s4-scene-hit-testing-and-rich-overlay-budget-contract (S4 — Scene hit-testing and rich overlay budget contract)](tasks/s4-scene-hit-testing-and-rich-overlay-budget-contract.md)
+- [s5-runtime-rich-overlay-dom-and-budgeted-card-degradation (S5 — Runtime rich overlay DOM and budgeted card degradation)](tasks/s5-runtime-rich-overlay-dom-and-budgeted-card-degradation.md)
 
 ## Stride Logs
 
