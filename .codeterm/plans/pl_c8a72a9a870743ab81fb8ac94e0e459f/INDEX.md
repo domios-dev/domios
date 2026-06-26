@@ -300,6 +300,7 @@
 - [workspace-plan-entry-visual-treatment-and-empty-state-policy strides](tasks/workspace-plan-entry-visual-treatment-and-empty-state-policy/strides.jsonl)
 - [remote-mesh-workers-report-to-spawning-orchestrator strides](tasks/remote-mesh-workers-report-to-spawning-orchestrator/strides.jsonl)
 - [p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env strides](tasks/p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env/strides.jsonl)
+- [remote-worker-nesting-and-registry-release-v1-5-7 strides](tasks/remote-worker-nesting-and-registry-release-v1-5-7/strides.jsonl)
 
 ## Milestones
 
