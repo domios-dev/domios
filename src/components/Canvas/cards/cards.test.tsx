@@ -17,6 +17,7 @@ import {
   FIXTURE_TAG_FACETS,
   FIXTURE_TASK,
 } from "./fixtures.testdata";
+import type { PlanWorkspaceScope } from "../planWorkspaceScope";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -103,6 +104,25 @@ test("PLAN SectionNode: owner chip hidden for an all-empty OrchestratorRef (no '
   const owned = await render(<SectionNode variant="plan" plan={FIXTURE_PLAN} style={cardStyle} world="W3" />);
   assert(owned.host.querySelector('[data-testid="canvas-plan-owner"]')?.textContent?.includes("Orchestrator"), "owner chip shows title when owned");
   await act(async () => owned.root.unmount());
+});
+
+test("PLAN SectionNode: cross-workspace scope badge includes owner workspace", async () => {
+  const workspaceScope: PlanWorkspaceScope = {
+    ownerWorkspaceId: "ws-owner",
+    ownerWorkspaceLabel: "Canvas Hub",
+    participantWorkspaceLabels: ["Canvas Hub", "API Lane"],
+    isCrossWorkspace: true,
+  };
+  const { host, root } = await render(
+    <SectionNode variant="plan" plan={FIXTURE_PLAN} workspaceScope={workspaceScope} style={cardStyle} world="W3" />,
+  );
+  const owner = host.querySelector('[data-testid="canvas-plan-owner"]');
+  assert(owner?.textContent?.includes("Orchestrator"), "owner pane still visible");
+  assert(owner?.textContent?.includes("Canvas Hub"), `owner workspace visible, got ${owner?.textContent}`);
+  const badge = host.querySelector('[data-testid="canvas-plan-cross-workspace"]');
+  assert(badge?.textContent?.toLowerCase().includes("cross-workspace"), `cross-workspace badge visible, got ${badge?.textContent}`);
+  assert((badge as HTMLElement | null)?.title?.includes("API Lane"), "participant workspace labels in tooltip");
+  await act(async () => root.unmount());
 });
 
 test("PLAN SectionNode: uncovered section row pops with uncovered glyph", async () => {
