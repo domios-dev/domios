@@ -155,6 +155,7 @@
 - [33-1-spike-git-merge-union-for-append-only-stride-logs (§33.1 spike git merge=union for append-only stride logs)](tasks/33-1-spike-git-merge-union-for-append-only-stride-logs.md)
 - [33-2-stride-jsonl-codec-and-deterministic-fold-tests (§33.2 stride JSONL codec and deterministic fold tests)](tasks/33-2-stride-jsonl-codec-and-deterministic-fold-tests.md)
 - [33-3-task-stride-log-sidecars-dual-write-and-hydrate (§33.3 task stride-log sidecars dual-write and hydrate)](tasks/33-3-task-stride-log-sidecars-dual-write-and-hydrate.md)
+- [33-4-strip-task-milestones-from-monolithic-plan-json (§33.4 strip task milestones from monolithic plan JSON)](tasks/33-4-strip-task-milestones-from-monolithic-plan-json.md)
 
 ## Handoffs
 
