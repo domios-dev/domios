@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782458178354,
+  "updated_at": 1782458709490,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -16141,12 +16141,12 @@
       ],
       "test_plan": "Run cargo test service::plan::watcher plus focused body_file/stride_log tests and CODETERM_API_PORT=7686 ./build.sh check in hot checkout.",
       "correctness": "Git-merged append-only stride logs trigger plan reload/reindex instead of staying invisible until another file changes.",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p1",
       "created_at": 1782458145538,
-      "updated_at": 1782458178354,
-      "status_changed_at": 1782458178354,
+      "updated_at": 1782458709490,
+      "status_changed_at": 1782458709490,
       "handle": "33-6-watcher-reloads-task-stride-log-sidecar-changes",
       "tags": [],
       "section_ids": [
@@ -16177,7 +16177,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_e47c580035c04067920a74fe7a3f711e",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted and integrated into feat/canvas.\n\nChanges:\n- Plan watcher now maps `.codeterm/plans/<plan_id>/tasks/<task-handle>/strides.jsonl` changes back to `<plan_id>`.\n- Project-root resolution now handles that JSONL sidecar shape.\n- Existing JSON and section/task markdown path behavior remains covered.\n\nOrchestrator verification in /Users/rollacode/Developer/codeterm:\n- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check\n- perl -e 'alarm 180; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml --lib service::plan::watcher -- --nocapture (2 passed)\n- perl -e 'alarm 180; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml --lib service::plan::body_file_tests::task_stride_log_hydrates_when_inline_milestones_are_missing -- --nocapture (1 passed)\n- perl -e 'alarm 180; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml --lib service::plan::stride_log -- --nocapture (7 passed)\n- git diff --check for touched file\n- bash scripts/check-file-sizes.sh (only known unrelated baseline files; touched file under limits)\n- CODETERM_API_PORT=7686 ./build.sh check\n\nResidual:\n- This is path classification + reload trigger plumbing. Full live notify debounce/end-to-end merge simulation remains broader than this slice.\n",
+          "ts": 1782458709490,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     }
   ],
   "task_groups": [],
