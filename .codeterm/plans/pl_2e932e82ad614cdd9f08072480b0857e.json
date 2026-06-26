@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782468070617,
+  "updated_at": 1782468193851,
   "milestone_kinds": [
     {
       "key": "research",
@@ -420,12 +420,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p0",
       "created_at": 1782466185368,
-      "updated_at": 1782467765381,
-      "status_changed_at": 1782467718313,
+      "updated_at": 1782468193851,
+      "status_changed_at": 1782468193851,
       "handle": "s2-extract-canvasscene-substrate-beside-dom-canvasview",
       "tags": [
         "canvas,figma-substrate,scene"

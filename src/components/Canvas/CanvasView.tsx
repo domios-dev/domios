@@ -44,6 +44,7 @@ import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport, formatLayerTransform } from "./useCanvasViewport";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
+import { buildCanvasScene, publishCanvasSceneReadback } from "./scene";
 
 export interface CanvasViewInnerProps {
   mode: "workspace" | "focus";
@@ -191,10 +192,9 @@ export function CanvasViewInner({
   const layoutSourcePlans = plansForLayout(filteredPlans, specSectionsByPlan);
   const layoutRevision = layoutInputRevision(layoutSourcePlans, specSectionsByPlan);
   const lineageCatalog = useMemo(() => buildLineageCatalog(plans), [plansRevision]);
-  const layout = useMemo(
-    () => layoutWorkspace(layoutSourcePlans),
-    [layoutRevision],
-  );
+  const layout = useMemo(() => layoutWorkspace(layoutSourcePlans), [layoutRevision]);
+  const scene = useMemo(() => buildCanvasScene({ layout, plans: layoutSourcePlans, cameraScale: transform.scale }), [layout, layoutSourcePlans, transform.scale]);
+  useEffect(() => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`), [scene, transform, mode, planId]);
 
   const lookups = useMemo<CanvasLookups>(() => {
     const nodeById = new Map<string, LaidOutNode>();
