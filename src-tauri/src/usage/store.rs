@@ -28,6 +28,10 @@ pub struct UsageSnapshotRow {
     pub spend_remaining_cents: Option<f64>,
     #[serde(default)]
     pub spend_resets_at: Option<i64>,
+    #[serde(default)]
+    pub failure_reason: Option<String>,
+    #[serde(default)]
+    pub probe_command: Option<String>,
 }
 
 // Keep up to a 90-day baseline (~30 samples/day) per provider.
@@ -101,16 +105,17 @@ impl UsageStore {
         provider: &str,
         account_id: Option<&str>,
         _raw_text: Option<&str>,
-        _error: &str,
+        error: &str,
+        probe_command: Option<&str>,
     ) -> Result<i64, String> {
         let mut conn = self.conn.lock();
         let tx = conn.transaction().map_err(|e| format!("begin tx: {}", e))?;
         let now_ms = chrono::Utc::now().timestamp_millis();
         tx.execute(
             r#"INSERT INTO usage_snapshots
-               (provider, account_id, captured_at, parsed_ok)
-               VALUES (?1, ?2, ?3, 0)"#,
-            params![provider, account_id, now_ms],
+               (provider, account_id, captured_at, parsed_ok, failure_reason, probe_command)
+               VALUES (?1, ?2, ?3, 0, ?4, ?5)"#,
+            params![provider, account_id, now_ms, error, probe_command],
         )
         .map_err(|e| format!("insert failure: {}", e))?;
         let id = tx.last_insert_rowid();
@@ -210,7 +215,8 @@ impl UsageStore {
 const SELECT_HEADER: &str = r#"SELECT id, provider, account_id, captured_at, parsed_ok,
         session_pct, session_resets_at,
         weekly_pct, weekly_resets_at,
-        spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at
+        spend_cents, spend_limit_cents, spend_remaining_cents, spend_resets_at,
+        failure_reason, probe_command
         FROM usage_snapshots"#;
 
 fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
@@ -228,6 +234,8 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<UsageSnapshotRow> {
         spend_limit_cents: r.get(10)?,
         spend_remaining_cents: r.get(11)?,
         spend_resets_at: r.get(12)?,
+        failure_reason: r.get(13)?,
+        probe_command: r.get(14)?,
     })
 }
 
@@ -295,6 +303,8 @@ const ADDED_COLUMNS: &[(&str, &str)] = &[
     ("spend_limit_cents", "REAL"),
     ("spend_remaining_cents", "REAL"),
     ("spend_resets_at", "INTEGER"),
+    ("failure_reason", "TEXT"),
+    ("probe_command", "TEXT"),
 ];
 
 fn add_missing_columns(conn: &Connection) -> Result<(), String> {
@@ -433,13 +443,15 @@ mod tests {
         let good = make_snapshot(1_000_000_000_000);
         store.insert_snapshot(&good).unwrap();
         store
-            .insert_failure("claude", None, Some("raw"), "regex panic")
+            .insert_failure("claude", None, Some("raw"), "regex panic", Some("/usage"))
             .unwrap();
         let latest = store.get_latest("claude", None).unwrap().unwrap();
         assert!(latest.parsed_ok, "get_latest must skip failed snapshots");
         assert_eq!(latest.session_pct, Some(42.0));
         let hist = store.get_history("claude", 0, 10, None).unwrap();
         assert_eq!(hist.len(), 2, "history still contains the failure row");
+        assert_eq!(hist[0].failure_reason.as_deref(), Some("regex panic"));
+        assert_eq!(hist[0].probe_command.as_deref(), Some("/usage"));
     }
 
     #[test]

@@ -84,7 +84,7 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   world: World;
   driftCount?: number;
   workspaceScope?: PlanWorkspaceScope;
-  /** §34 crisp text: >1 → re-rasterize at on-screen size (zoom + counter-scale). */
+  /** Kept for nodeRegistry compatibility; geometry stays under one camera transform. */
   crispScale?: number;
   onArchive?: () => void;
   onFitNode?: () => void;
@@ -94,7 +94,7 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   richOverlay?: boolean;
 }
 
-export function SectionNode({ variant, plan, style, world, driftCount = 0, workspaceScope, crispScale = 1, onArchive, onFitNode, onSectionClick, onSectionFrame, suppressRichContent = false, richOverlay = false }: SectionNodeProps) {
+export function SectionNode({ variant, plan, style, world, driftCount = 0, workspaceScope, onArchive, onFitNode, onSectionClick, onSectionFrame, suppressRichContent = false, richOverlay = false }: SectionNodeProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
@@ -235,19 +235,9 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
     </div>
   );
 
-  // §34: birds-eye / 1× → single layer, GPU upscale is imperceptible while small.
-  if (crispScale <= 1) return card(style);
-  // Readable band → zoom the card to display px (crisp reflow) then counter-scale it
-  // back to world size on its own compositing layer. zoom × scale(1/zoom) = 1× world.
-  // transform-origin MUST be top-left: default center drifts the box by (k-1)/2·size
-  // → footprint appears to move/resize on zoom (§22.1/§37.1 boxiness). 0,0 = identity.
-  return (
-    <div style={style}>
-      <div className="ct-canvas-crisp" style={{ width: "100%", height: "100%", zoom: crispScale, transform: `scale(${1 / crispScale})`, transformOrigin: "0 0" }}>
-        {card({ width: "100%", height: "100%" })}
-      </div>
-    </div>
-  );
+  // §34 superseded: world geometry stays under the single camera transform; the
+  // per-card zoom/counter-scale wrapper reflowed internals and drifted at zoom steps.
+  return card(style);
 }
 
 // One section. PLAN row = index (glyph·title·count·output dot) + a CLAMPED excerpt
