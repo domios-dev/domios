@@ -71,14 +71,11 @@ function activeRanks(tasks: Task[]): Map<string, number> {
   return m;
 }
 
-// §35 comet fold: keep the phyllotaxis radius/slot ordering, but mirror each
-// cluster's DIRECTION onto its status half — active (not-done) to the LEFT half
-// (negative-x = toward the plan/eye), sunk (done/cancelled) to the RIGHT/outer.
-// A pure horizontal sign flip → deterministic, append-stable, no jitter.
-function foldedTheta(slot: number, sunk: boolean): number {
+// Right-opening cloud: all tiles on +x so the cloud's left side is a flat edge
+// packed flush to the plan; active core (small radius) sits nearest that edge.
+function foldedTheta(slot: number): number {
   const base = slot * GOLDEN_ANGLE;
-  const x = sunk ? Math.abs(Math.cos(base)) : -Math.abs(Math.cos(base));
-  return Math.atan2(Math.sin(base), x);
+  return Math.atan2(Math.sin(base), Math.abs(Math.cos(base)));
 }
 
 // §2.3 two-zone sunflower index: active core (rank < K) at the eye, everything
@@ -118,15 +115,55 @@ export interface CloudPack {
 // CENTER-FILL: the seed radius uses the area of the tiles placed BEFORE this one,
 // so tile 0 lands at the origin (r=0) and the disk fills from the middle outward.
 // (The old `cumArea + area/2` seeded even tile 0 at ≈0.7ρ → a hollow center ring.)
+type Placed = { cx: number; cy: number; rho: number };
+
+// Uniform spatial-hash grid over placed tiles: a tile only ever overlaps another
+// whose centers are within ρ_i+ρ_j ≤ 2·maxρ, so collision checks query a fixed
+// neighborhood of cells instead of ALL placed tiles. Same placement output as the
+// brute-force O(N²) loop, but ~O(N) — the layout no longer blows up at scale.
+class PackGrid {
+  private cells = new Map<number, Placed[]>();
+  constructor(private cell: number) {}
+  private key(gx: number, gy: number): number {
+    return (gx + 16384) * 32768 + (gy + 16384);
+  }
+  insert(p: Placed): void {
+    const k = this.key(Math.floor(p.cx / this.cell), Math.floor(p.cy / this.cell));
+    const a = this.cells.get(k);
+    if (a) a.push(p);
+    else this.cells.set(k, [p]);
+  }
+  deepestPenetration(cx: number, cy: number, rho: number): number {
+    const gx = Math.floor(cx / this.cell);
+    const gy = Math.floor(cy / this.cell);
+    let pen = 0;
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        const a = this.cells.get(this.key(gx + dx, gy + dy));
+        if (!a) continue;
+        for (const p of a) {
+          const d = Math.hypot(cx - p.cx, cy - p.cy);
+          const minD = rho + p.rho;
+          if (d < minD - 1e-6) pen = Math.max(pen, minD - d);
+        }
+      }
+    }
+    return pen;
+  }
+}
+
 export function packCloud(items: CloudItem[], gap = TILE_GAP): CloudPack {
   const ordered = [...items].sort((a, b) => a.slot - b.slot || a.id.localeCompare(b.id));
-  const placed: { cx: number; cy: number; rho: number }[] = [];
+  const rhoOf = (w: number, h: number) => 0.5 * Math.hypot(w, h) + gap; // ρ = ½√(w²+h²) + g
+  let maxRho = 1;
+  for (const it of ordered) maxRho = Math.max(maxRho, rhoOf(it.w, it.h));
+  const grid = new PackGrid(maxRho * 2);
   const result: PackedItem[] = [];
   let cumArea = 0;
   let radius = 0;
 
   for (const it of ordered) {
-    const rho = 0.5 * Math.hypot(it.w, it.h) + gap; // ρ = ½√(w²+h²) + g
+    const rho = rhoOf(it.w, it.h);
     const area = Math.PI * rho * rho; // a = π·ρ²
     let r = Math.sqrt(cumArea / Math.PI); // center-out areal-density radius
     const theta = it.theta ?? it.slot * GOLDEN_ANGLE;
@@ -135,19 +172,14 @@ export function packCloud(items: CloudItem[], gap = TILE_GAP): CloudPack {
 
     // Outward-only: bump r by the deepest penetration until no circle overlaps.
     for (let guard = 0; guard < 4096; guard++) {
-      let pen = 0;
-      for (const p of placed) {
-        const d = Math.hypot(cx - p.cx, cy - p.cy);
-        const minD = rho + p.rho;
-        if (d < minD - 1e-6) pen = Math.max(pen, minD - d);
-      }
+      const pen = grid.deepestPenetration(cx, cy, rho);
       if (pen <= 1e-6) break;
       r += pen;
       cx = r * Math.cos(theta);
       cy = r * Math.sin(theta);
     }
 
-    placed.push({ cx, cy, rho });
+    grid.insert({ cx, cy, rho });
     result.push({ id: it.id, cx, cy, w: it.w, h: it.h });
     cumArea += area;
     radius = Math.max(radius, r + rho);
@@ -253,7 +285,7 @@ export function layoutTaskCloud(
   // so side = R·√2 → enclosing radius R). Cluster circles never overlap → no two
   // satellites from different parents collide.
   const outerItems: CloudItem[] = clusters.map((cl) => {
-    const theta = foldedTheta(cl.slot, isSunk(cl.task.status));
+    const theta = foldedTheta(cl.slot);
     if (cl.radius === 0) {
       const p = cl.locals[0];
       return { id: cl.task.id, w: p.w, h: p.h, slot: cl.slot, theta };
