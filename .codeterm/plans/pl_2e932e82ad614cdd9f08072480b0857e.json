@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782466185605,
+  "updated_at": 1782467765381,
   "milestone_kinds": [
     {
       "key": "research",
@@ -373,12 +373,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "in_progress",
       "status_label": null,
       "priority": "p0",
       "created_at": 1782466185212,
-      "updated_at": 1782466185212,
-      "status_changed_at": 1782466185212,
+      "updated_at": 1782467765279,
+      "status_changed_at": 1782467718192,
       "handle": "t1-figma-canvas-acceptance-harness",
       "tags": [
         "canvas,figma-substrate,playwright"
@@ -387,17 +387,19 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "73b9572b",
       "lane": {
-        "pane_id": null,
+        "pane_id": "73b9572b",
         "workspace_id": null,
-        "workspace_name": null,
-        "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
-        "cleanup_status": null,
-        "cleanup_hints": []
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm-figma-test-harness",
+        "branch": "lane/figma-test-harness",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "remove worktree and branch after orchestrator accepts"
+        ]
       },
       "taken_by_role": null,
       "peer": null,
@@ -418,12 +420,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "in_progress",
       "status_label": null,
       "priority": "p0",
       "created_at": 1782466185368,
-      "updated_at": 1782466185368,
-      "status_changed_at": 1782466185368,
+      "updated_at": 1782467765381,
+      "status_changed_at": 1782467718313,
       "handle": "s2-extract-canvasscene-substrate-beside-dom-canvasview",
       "tags": [
         "canvas,figma-substrate,scene"
@@ -432,17 +434,19 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "93eca089",
       "lane": {
-        "pane_id": null,
+        "pane_id": "93eca089",
         "workspace_id": null,
-        "workspace_name": null,
-        "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
-        "cleanup_status": null,
-        "cleanup_hints": []
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm-canvas-scene",
+        "branch": "lane/canvas-scene",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "remove worktree and branch after orchestrator accepts"
+        ]
       },
       "taken_by_role": null,
       "peer": null,
