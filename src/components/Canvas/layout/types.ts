@@ -68,6 +68,7 @@ export interface WorkspaceLayout {
   nodeIndex: Map<string, LaidOutNode>;
   groups: OwnerGroup[];
   bounds: Box;
+  crossEdges?: LaidOutEdge[];
 }
 
 // Frame in local coords (origin 0,0), before region packing offsets it. Points

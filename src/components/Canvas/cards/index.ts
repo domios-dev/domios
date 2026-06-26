@@ -7,6 +7,7 @@ export { DecisionCard, type DecisionCardProps } from "./DecisionCard";
 export { StrideSnake } from "./StrideSnake";
 export { MilestoneText } from "./MilestoneText";
 export { HandoffCoin, type HandoffContent } from "./HandoffCoin";
+export { PlanGhostCard, type PlanGhostModel } from "./PlanGhostCard";
 export { planCoverageFraction } from "./coverage";
 export { digestMarkdown } from "./digest";
 export type { CanvasLod, CanvasCardStyleProps } from "./types";

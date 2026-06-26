@@ -2,10 +2,12 @@ import type { CSSProperties, ReactNode } from "react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import {
   MilestoneBubble,
+  PlanGhostCard,
   SectionNode,
   TaskCard,
   type CanvasLod,
   type MilestoneBubbleModel,
+  type PlanGhostModel,
 } from "./cards";
 import { type World } from "./worlds";
 import type { LaidOutNode } from "./layout";
@@ -99,6 +101,9 @@ registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive
       onSectionFrame={onSectionFrame}
     />
   ) : null,
+);
+registerNodeRenderer("plan-ghost", ({ model, style }) =>
+  model ? <PlanGhostCard model={model as PlanGhostModel} style={style} /> : null,
 );
 registerNodeRenderer("spec", ({ model, style, world, crispScale, onSectionClick, onSectionFrame }) =>
   model ? <SectionNode variant="spec" plan={model as Plan} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} /> : null,
