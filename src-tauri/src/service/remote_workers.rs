@@ -61,6 +61,24 @@ pub fn status_from_body(body: &str) -> String {
     "working".to_string()
 }
 
+/// Drop workers silent past `STALE_MS`, then prune now-empty orchestrator
+/// buckets — bounds growth from closed orchestrators / churned panes.
+fn evict_stale(map: &mut HashMap<String, Vec<RemoteWorker>>, now_ms: u64) {
+    let cutoff = now_ms.saturating_sub(STALE_MS);
+    map.retain(|_, list| {
+        list.retain(|w| w.last_seen_ms >= cutoff);
+        !list.is_empty()
+    });
+}
+
+/// Enforce the per-orchestrator cap, evicting oldest activity first.
+fn cap_bucket(list: &mut Vec<RemoteWorker>) {
+    if list.len() > MAX_PER_ORCHESTRATOR {
+        list.sort_by(|a, b| b.last_seen_ms.cmp(&a.last_seen_ms));
+        list.truncate(MAX_PER_ORCHESTRATOR);
+    }
+}
+
 impl RemoteWorkerRegistry {
     pub fn new() -> Self {
         Self::default()
@@ -89,14 +107,7 @@ impl RemoteWorkerRegistry {
             last_seen_ms: now_ms,
         };
         let mut map = self.by_orchestrator.lock();
-        // Evict stale entries everywhere, then drop now-empty buckets — keeps a
-        // long-running daemon from accumulating dead orchestrators / churned panes.
-        let cutoff = now_ms.saturating_sub(STALE_MS);
-        map.retain(|_, list| {
-            list.retain(|w| w.last_seen_ms >= cutoff);
-            !list.is_empty()
-        });
-
+        evict_stale(&mut map, now_ms);
         let list = map.entry(orchestrator_pane.to_string()).or_default();
         if let Some(slot) = list
             .iter_mut()
@@ -106,10 +117,42 @@ impl RemoteWorkerRegistry {
         } else {
             list.push(entry);
         }
-        if list.len() > MAX_PER_ORCHESTRATOR {
-            list.sort_by(|a, b| b.last_seen_ms.cmp(&a.last_seen_ms));
-            list.truncate(MAX_PER_ORCHESTRATOR);
+        cap_bucket(list);
+    }
+
+    /// Register a remote worker at spawn time, before its first report. Keyed
+    /// by (peer, remote_pane) under the orchestrator/report-target pane. Status
+    /// is `working` (just launched). Insert-only: if a real report already
+    /// landed for this worker, that richer entry is kept untouched — spawn
+    /// registration never downgrades a reported status back to `working`.
+    pub fn record_spawn(
+        &self,
+        orchestrator_pane: &str,
+        peer: &str,
+        remote_pane: &str,
+        title: &str,
+        model: Option<String>,
+        now_ms: u64,
+    ) {
+        let mut map = self.by_orchestrator.lock();
+        evict_stale(&mut map, now_ms);
+        let list = map.entry(orchestrator_pane.to_string()).or_default();
+        if list
+            .iter()
+            .any(|w| w.peer == peer && w.remote_pane == remote_pane)
+        {
+            return;
         }
+        list.push(RemoteWorker {
+            peer: peer.to_string(),
+            remote_pane: remote_pane.to_string(),
+            title: title.to_string(),
+            model,
+            status: "working".to_string(),
+            last_message: "spawned via mesh".to_string(),
+            last_seen_ms: now_ms,
+        });
+        cap_bucket(list);
     }
 
     /// Drop an orchestrator's bucket when its pane closes.
@@ -196,6 +239,41 @@ mod tests {
             "stale worker + its empty bucket must be evicted"
         );
         assert_eq!(reg.for_orchestrator("orch-b").len(), 1);
+    }
+
+    #[test]
+    fn record_spawn_inserts_pending_worker_then_report_upgrades_without_clobber() {
+        let reg = RemoteWorkerRegistry::new();
+        // Spawn registers a pending worker before any report.
+        reg.record_spawn("orch", "eight", "w1", "Canvas", Some("opus".into()), 100);
+        let list = reg.for_orchestrator("orch");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].remote_pane, "w1");
+        assert_eq!(list[0].status, "working");
+        assert_eq!(list[0].model.as_deref(), Some("opus"));
+
+        // A real report upserts the same (peer, pane) — no duplicate, richer status.
+        reg.record_report(
+            "orch",
+            "eight",
+            "w1",
+            "Canvas",
+            Some("opus".into()),
+            "STATUS: done",
+            200,
+        );
+        let list = reg.for_orchestrator("orch");
+        assert_eq!(list.len(), 1, "same worker, no duplicate");
+        assert_eq!(list[0].status, "done");
+
+        // Re-spawn registration must NOT downgrade the reported `done` status.
+        reg.record_spawn("orch", "eight", "w1", "Canvas", None, 300);
+        let list = reg.for_orchestrator("orch");
+        assert_eq!(list.len(), 1);
+        assert_eq!(
+            list[0].status, "done",
+            "spawn re-registration must not clobber a real report"
+        );
     }
 
     #[test]

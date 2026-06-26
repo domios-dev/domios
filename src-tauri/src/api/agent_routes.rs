@@ -71,6 +71,56 @@ pub async fn remote_workers(
     Ok(Json(value))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct RecordRemoteWorkerBody {
+    /// Local report-target / orchestrator pane the remote worker reports to
+    /// (pane id or `main`/`general` alias). Resolved the same way as the
+    /// inbound report path so spawn-time and report-time entries share a key.
+    orchestrator_pane: String,
+    /// Paired peer (instance name) the worker runs on.
+    peer: String,
+    /// The worker's pane id on that peer.
+    remote_pane: String,
+    title: Option<String>,
+    model: Option<String>,
+}
+
+/// Register a freshly spawned cross-mesh worker on the origin before its first
+/// report arrives, so the sidebar can ghost it under its orchestrator
+/// immediately. Called by the CLI right after a successful `agent spawn --mesh`.
+pub async fn record_remote_worker(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RecordRemoteWorkerBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if body.peer.trim().is_empty() || body.remote_pane.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "peer and remote_pane required".into()));
+    }
+    let orchestrator =
+        resolve_pane(&state, &body.orchestrator_pane).map_err(|(s, m)| (s, m.to_string()))?;
+    let title = body
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&body.remote_pane);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    state.svc.remote_workers.record_spawn(
+        &orchestrator,
+        &body.peer,
+        &body.remote_pane,
+        title,
+        body.model.clone(),
+        now_ms,
+    );
+    state.svc.emit_remote_workers_changed(&orchestrator);
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 pub async fn spawn_agent(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
