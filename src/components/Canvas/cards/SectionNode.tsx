@@ -2,6 +2,7 @@ import { useRef, type CSSProperties } from "react";
 import { Archive, Check, CircleDot, Copy, Crosshair, FileText, Maximize2, TriangleAlert } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import type { Plan } from "../types";
+import type { PlanWorkspaceScope } from "../planWorkspaceScope";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import { atLeast, type World } from "../worlds";
 import { sectionRows, type SectionRow, type SectionRowGlyph } from "../sectionRows";
@@ -82,6 +83,7 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   plan: Plan;
   world: World;
   driftCount?: number;
+  workspaceScope?: PlanWorkspaceScope;
   /** §34 crisp text: >1 → re-rasterize at on-screen size (zoom + counter-scale). */
   crispScale?: number;
   onArchive?: () => void;
@@ -90,13 +92,16 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   onSectionFrame?: (a: SectionNavArgs) => void;
 }
 
-export function SectionNode({ variant, plan, style, world, driftCount = 0, crispScale = 1, onArchive, onFitNode, onSectionClick, onSectionFrame }: SectionNodeProps) {
+export function SectionNode({ variant, plan, style, world, driftCount = 0, workspaceScope, crispScale = 1, onArchive, onFitNode, onSectionClick, onSectionFrame }: SectionNodeProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
   const owner = ownerName(plan.owner);
   const isPlan = variant === "plan";
   const testid = isPlan ? "canvas-plan-node" : "canvas-spec-node";
+  const participantTitle = workspaceScope?.participantWorkspaceLabels.length
+    ? `Participating workspaces: ${workspaceScope.participantWorkspaceLabels.join(", ")}`
+    : undefined;
   const showRows = atLeast(world, "W1");
   const showBody = atLeast(world, "W2"); // the reveal band (§26.2)
   const scroll = showBody;
@@ -153,9 +158,15 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, crisp
         {isPlan ? (
           <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.86em" }}>
             {owner && (
-              <span data-testid="canvas-plan-owner" style={{ display: "flex", alignItems: "center", gap: 5, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "1px 8px 1px 6px", borderRadius: 999, background: "var(--ct-bg-selected)", border: "1px solid var(--ct-border-subtle)" }}>
+              <span data-testid="canvas-plan-owner" title={workspaceScope?.ownerWorkspaceLabel ? `${owner} @ ${workspaceScope.ownerWorkspaceLabel}` : owner} style={{ display: "flex", alignItems: "center", gap: 5, maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "1px 8px 1px 6px", borderRadius: 999, background: "var(--ct-bg-selected)", border: "1px solid var(--ct-border-subtle)" }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(56,189,248,0.95)", flexShrink: 0 }} />
                 {owner}
+                {workspaceScope?.ownerWorkspaceLabel && <span style={{ opacity: "var(--ct-text-secondary-opacity)" }}>@ {workspaceScope.ownerWorkspaceLabel}</span>}
+              </span>
+            )}
+            {workspaceScope?.isCrossWorkspace && (
+              <span data-testid="canvas-plan-cross-workspace" title={participantTitle} style={{ display: "inline-flex", alignItems: "center", height: 20, padding: "0 7px", borderRadius: 999, fontSize: "0.78em", fontWeight: 800, letterSpacing: "0.01em", color: "rgba(129,140,248,0.98)", background: "color-mix(in srgb, rgba(129,140,248,0.98) 13%, transparent)", border: "1px solid color-mix(in srgb, rgba(129,140,248,0.98) 48%, transparent)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                cross-workspace
               </span>
             )}
             <CoverageBar pct={pct} />

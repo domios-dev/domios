@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
-import type { ApiConfig, Pane } from "../../lib/types";
+import type { ApiConfig, Pane, Workspace } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { CanvasComposer } from "./CanvasComposer";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
@@ -38,6 +38,7 @@ import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilte
 import type { PlanGhostModel } from "./cards";
 import type { CanvasElement, DriftItem, OrchestratorRef, Plan, Section, TagFacet, Task } from "./types";
 import { buildTaskPresence, type TaskPresence } from "./taskPresence";
+import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport, formatLayerTransform } from "./useCanvasViewport";
 
@@ -51,6 +52,7 @@ export interface CanvasViewInnerProps {
   /** The pane that opened Plan mode — its assigned tasks get the initial camera. */
   focusPaneId?: string | null;
   panes?: Record<string, Pane>;
+  workspaces?: Workspace[];
   focusedPaneId?: string | null;
   projectPath?: string | null;
   onClose?: () => void;
@@ -60,6 +62,8 @@ export interface CanvasViewInnerProps {
   /** Test hook: expand viewport culling margin. */
   viewportPadding?: number;
 }
+
+const EMPTY_WORKSPACES: Workspace[] = [];
 
 function lodForScale(scale: number): CanvasLod {
   const s = DEFAULT_CANVAS_SETTINGS;
@@ -117,6 +121,7 @@ export function CanvasViewInner({
   orchestratorPaneId,
   focusPaneId = null,
   panes = {},
+  workspaces = EMPTY_WORKSPACES,
   focusedPaneId = null,
   projectPath = null,
   onClose,
@@ -138,6 +143,10 @@ export function CanvasViewInner({
 
   const planById = useMemo(() => new Map(filteredPlans.map((p) => [p.id, p])), [filteredPlans]);
   const filteredPlanIds = useMemo(() => filteredPlans.map((p) => p.id), [filteredPlans]);
+  const workspaceScopeByPlan = useMemo(
+    () => new Map(filteredPlans.map((p) => [p.id, derivePlanWorkspaceScope(p, workspaces)])),
+    [filteredPlans, workspaces],
+  );
   const driftByPlan = usePlanDrift(api, filteredPlanIds);
 
   // Fetch the REAL linked Spec entity per plan (Spec=WHAT ⊥ Plan=HOW). The spec
@@ -253,12 +262,22 @@ export function CanvasViewInner({
     (node: LaidOutNode): unknown => {
       switch (node.kind) {
         case "plan":
-          return planById.has(node.id) ? { ...planById.get(node.id)!, driftCount: driftByPlan.get(node.id)?.length ?? 0 } : undefined;
+          return planById.has(node.id)
+            ? {
+              ...planById.get(node.id)!,
+              driftCount: driftByPlan.get(node.id)?.length ?? 0,
+              workspaceScope: workspaceScopeByPlan.get(node.id),
+            }
+            : undefined;
         case "spec": {
           const plan = planById.get(node.planId);
           const specSections = specSectionsByPlan.get(node.planId);
           // Render the REAL spec's sections (no tasks → coverage is a plan concept).
-          return plan && specSections ? { ...plan, sections: specSections, tasks: [] } : plan;
+          return plan && specSections
+            ? { ...plan, sections: specSections, tasks: [], workspaceScope: workspaceScopeByPlan.get(node.planId) }
+            : plan
+              ? { ...plan, workspaceScope: workspaceScopeByPlan.get(node.planId) }
+              : undefined;
         }
         case "task":
           return lookups.taskModelById.get(node.id);
@@ -274,7 +293,7 @@ export function CanvasViewInner({
           return lookups.elementById.get(node.id);
       }
     },
-    [planById, lookups, specSectionsByPlan, lineageCatalog],
+    [planById, lookups, specSectionsByPlan, lineageCatalog, workspaceScopeByPlan],
   );
 
   const handleArchive = useCallback(
@@ -954,6 +973,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
       orchestratorPaneId={orchestratorPaneId}
       focusPaneId={focusPaneId}
       panes={state.panes}
+      workspaces={state.workspaces}
       focusedPaneId={state.focused_pane_id}
       projectPath={projectPath}
       onClose={onClose}

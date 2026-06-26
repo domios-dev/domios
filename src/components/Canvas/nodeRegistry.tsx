@@ -14,6 +14,7 @@ import type { LaidOutNode } from "./layout";
 import { registerProvenanceRenderers } from "./registerProvenanceRenderers";
 import type { CanvasElement, DriftItem, Plan, TagFacet, Task } from "./types";
 import type { TaskPresence } from "./taskPresence";
+import type { PlanWorkspaceScope } from "./planWorkspaceScope";
 
 // kind → renderer dispatch. Adding a node kind = one register call; canvas core,
 // layout, pan/zoom and focus detection stay untouched. Open-kind fallback kept.
@@ -47,6 +48,11 @@ export interface NodeRenderArgs {
 }
 
 export type NodeRenderer = (args: NodeRenderArgs) => ReactNode;
+
+type PlanNodeModel = Plan & {
+  driftCount?: number;
+  workspaceScope?: PlanWorkspaceScope;
+};
 
 const renderers: Record<string, NodeRenderer> = {};
 
@@ -91,10 +97,11 @@ registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive
   model ? (
     <SectionNode
       variant="plan"
-      plan={model as Plan}
+      plan={model as PlanNodeModel}
       style={style}
       world={world}
-      driftCount={(model as Plan & { driftCount?: number }).driftCount ?? 0}
+      driftCount={(model as PlanNodeModel).driftCount ?? 0}
+      workspaceScope={(model as PlanNodeModel).workspaceScope}
       crispScale={crispScale}
       onArchive={onArchive}
       onFitNode={onFitNode ? () => onFitNode(node.id) : undefined}
@@ -107,7 +114,7 @@ registerNodeRenderer("plan-ghost", ({ model, style }) =>
   model ? <PlanGhostCard model={model as PlanGhostModel} style={style} /> : null,
 );
 registerNodeRenderer("spec", ({ model, style, world, crispScale, onSectionClick, onSectionFrame }) =>
-  model ? <SectionNode variant="spec" plan={model as Plan} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} /> : null,
+  model ? <SectionNode variant="spec" plan={model as PlanNodeModel} workspaceScope={(model as PlanNodeModel).workspaceScope} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} /> : null,
 );
 registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride, tagFilterDimmed, tagFilterHighlighted }) => {
   const m = model as { task: Task; tagFacets?: TagFacet[]; childCount?: number; childDone?: number; parentTaskName?: string | null; stepColors?: Map<string, string>; drift?: DriftItem; presence?: TaskPresence | null } | undefined;

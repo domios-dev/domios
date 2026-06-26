@@ -4,7 +4,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setListenForTest } from "../../lib/bridge";
-import type { Pane } from "../../lib/types";
+import type { Pane, Workspace } from "../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import { CanvasViewInner } from "./CanvasView";
 import { registerNodeRenderer } from "./nodeRegistry";
@@ -139,6 +139,39 @@ test("CanvasViewInner derives task presence from panes heartbeat and latest stri
   assert(marker.textContent?.includes("Puccini"), `pane title used as assignee label, got ${marker?.textContent}`);
   assert(marker.textContent?.includes("Implement presence chip"), `heartbeat focus visible, got ${marker?.textContent}`);
   assert(marker.textContent?.includes("status update"), `latest stride kind visible, got ${marker?.textContent}`);
+  await act(async () => root.unmount());
+});
+
+test("CanvasViewInner labels cross-workspace plans with owner workspace", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      { ...FIXTURE_TASK, id: "task-api", assigned_pane_id: "pane-api" },
+      {
+        ...FIXTURE_TASK,
+        id: "task-ui",
+        assigned_pane_id: "pane-ui",
+        lane: { pane_id: "pane-ui", workspace_id: "ws-ui", workspace_name: "UI Lane" },
+      },
+    ],
+  };
+  const workspaces: Workspace[] = [
+    { id: "ws-owner", name: "Canvas Hub", tabs: [{ id: "tab-owner", pane_id: "orch-1" }], active_tab_id: null, cwd: "/repo/hub" },
+    { id: "ws-api", name: "API Lane", tabs: [{ id: "tab-api", pane_id: "pane-api" }], active_tab_id: null, cwd: "/repo/api" },
+    { id: "ws-ui", name: "UI Lane", tabs: [{ id: "tab-ui", pane_id: "pane-ui" }], active_tab_id: null, cwd: "/repo/ui" },
+  ];
+
+  const { host, root } = await render(
+    <CanvasViewInner {...CANVAS_PROPS} plans={[plan]} workspaces={workspaces} />,
+  );
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 10));
+  });
+  const owner = host.querySelector('[data-testid="canvas-plan-owner"]');
+  assert(owner?.textContent?.includes("Canvas Hub"), `owner workspace label visible, got ${owner?.textContent}`);
+  const badge = host.querySelector('[data-testid="canvas-plan-cross-workspace"]') as HTMLElement | null;
+  assert(badge, "cross-workspace badge rendered on plan node");
+  assert(badge.title.includes("API Lane") && badge.title.includes("UI Lane"), `participant workspaces in tooltip, got ${badge.title}`);
   await act(async () => root.unmount());
 });
 
