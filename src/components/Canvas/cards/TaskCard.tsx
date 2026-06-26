@@ -411,6 +411,26 @@ export function TaskCard({
     </div>
   );
 
+  // §header: title is the card's identity, so it earns a full-width line. At W2+ the
+  // status/drift/actions ride an eyebrow row ABOVE it (label → headline) so a long
+  // title reads to the card edge instead of fighting a chip for ~50px. W0/W1 stay
+  // compact inline — the glance band where the chip is the signal and the title is
+  // short-clamped anyway.
+  const nameSpan = (
+    <span data-testid="canvas-task-name" data-visible="true" data-task-name-full={task.name} data-canvas-selectable className="ct-canvas-text" style={{ minWidth: 0, maxWidth: "100%", fontWeight: shelf === Shelf.Done ? 600 : 700, fontSize: shelf === Shelf.Done ? "0.98em" : "1.03em", lineHeight: 1.25, overflowWrap: "break-word", ...(nameClamp != null ? { display: "-webkit-box", WebkitLineClamp: nameClamp, WebkitBoxOrient: "vertical", overflow: "hidden" } : { display: "block" }) }}>
+      {titlePriority && task.priority && (
+        <span style={{ marginRight: 5, verticalAlign: "1px" }}><PriorityTag priority={task.priority} dim={isDone} /></span>
+      )}
+      {titleText}
+    </span>
+  );
+  const statusCluster = (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+      <StatusChip color={badgeColor} label={displayStatus} solid />
+      <DriftBadge drift={drift} />
+    </div>
+  );
+
   const card = (boxStyle: CSSProperties) => (
     <div
       data-testid="canvas-task-card"
@@ -430,24 +450,22 @@ export function TaskCard({
           ? { flex: 1, display: "flex", flexDirection: "column", gap: contentGap, padding: contentPadding, minWidth: 0, overflowY: "auto" }
           : { flex: 1, display: "grid", gridTemplateRows: contentRows, gridTemplateColumns: "minmax(0, 1fr)", gap: contentGap, padding: contentPadding, minWidth: 0, overflow: "hidden" }}
       >
-        {/* Header — present at every band (the navigation layer). Solid status chip. */}
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "start", gap: 6, minWidth: 0 }}>
-              <span data-testid="canvas-task-name" data-visible="true" data-task-name-full={task.name} data-canvas-selectable className="ct-canvas-text" style={{ minWidth: 0, maxWidth: "100%", fontWeight: shelf === Shelf.Done ? 600 : 700, fontSize: shelf === Shelf.Done ? "0.98em" : "1.03em", lineHeight: 1.25, overflowWrap: "break-word", ...(nameClamp != null ? { display: "-webkit-box", WebkitLineClamp: nameClamp, WebkitBoxOrient: "vertical", overflow: "hidden" } : { display: "block" }) }}>
-                {titlePriority && task.priority && (
-                  <span style={{ marginRight: 5, verticalAlign: "1px" }}><PriorityTag priority={task.priority} dim={isDone} /></span>
-                )}
-                {titleText}
-              </span>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                <StatusChip color={badgeColor} label={displayStatus} solid />
-                <DriftBadge drift={drift} />
-              </div>
+        {/* Header — present at every band (the navigation layer). See §header above. */}
+        {showStructure ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+              {statusCluster}
+              <span style={{ flex: 1, minWidth: 0 }} />
+              {actions}
             </div>
+            {nameSpan}
           </div>
-          {actions}
-        </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "start", gap: 6, minWidth: 0 }}>
+            {nameSpan}
+            {statusCluster}
+          </div>
+        )}
 
         <div data-testid="canvas-task-meta-slot" style={{ display: "flex", flexWrap: "wrap", alignContent: "flex-start", gap: 6, minHeight: 0, maxHeight: showFullBody ? undefined : 44, overflow: "hidden", ...revealStyle(showStructure) }}>
           {metaPriority && task.priority && <span style={{ display: "inline-flex", alignItems: "center" }}><PriorityTag priority={task.priority} dim={isDone} /></span>}

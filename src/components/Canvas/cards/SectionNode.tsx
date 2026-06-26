@@ -284,49 +284,17 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
       {isPlan && <div style={{ height: 3, flexShrink: 0, background: "linear-gradient(90deg, var(--ct-border-focus), rgba(52,211,153,0.85))" }} />}
 
       <div style={{ height: S.planHeaderHeight - (isPlan ? 3 : 0), boxSizing: "border-box", padding: "8px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {/* §header: title owns the full first line (no inline chip/button competing
+            for width); drift + node actions drop to the coverage meta row below —
+            same "title is the identity" principle the task cards follow. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           {!isPlan && <FileText size={13} style={{ flexShrink: 0, opacity: 0.7 }} />}
           <span title={plan.title} data-canvas-selectable className="ct-canvas-title ct-canvas-text" style={{ fontWeight: 700, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "-0.01em" }}>
             {isPlan ? plan.title : "Specification"}
           </span>
-          {isPlan && (
-            <span
-              data-testid={driftCount > 0 ? "canvas-plan-drift-count" : "canvas-plan-drift-slot"}
-              title={driftCount > 0 ? `${driftCount} drift item${driftCount === 1 ? "" : "s"}` : undefined}
-              style={{
-                minWidth: 48,
-                height: 20,
-                padding: "0 7px",
-                borderRadius: 999,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "0.72em",
-                fontWeight: 800,
-                color: "rgba(245,158,11,0.98)",
-                background: "color-mix(in srgb, rgba(245,158,11,0.98) 13%, transparent)",
-                border: "1px solid color-mix(in srgb, rgba(245,158,11,0.98) 50%, transparent)",
-                opacity: driftCount > 0 ? 1 : 0,
-                visibility: driftCount > 0 ? "visible" : "hidden",
-                flexShrink: 0,
-              }}
-            >
-              {driftCount} drift
-            </span>
-          )}
-          {isPlan && onFitNode && (
-            <button type="button" data-testid="canvas-plan-fit" title="Focus this plan" onClick={(e) => { e.stopPropagation(); onFitNode(); }} onMouseDown={(e) => e.stopPropagation()} style={iconBtn()}>
-              <Maximize2 size={12} />
-            </button>
-          )}
-          {isPlan && onArchive && (
-            <button type="button" data-testid="canvas-plan-archive" title="Archive plan" onClick={(e) => { e.stopPropagation(); onArchive(); }} onMouseDown={(e) => e.stopPropagation()} style={iconBtn()}>
-              <Archive size={12} />
-            </button>
-          )}
         </div>
         {isPlan ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.86em" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.86em", minWidth: 0 }}>
             {owner && (
               <span data-testid="canvas-plan-owner" title={workspaceScope?.ownerWorkspaceLabel ? `${owner} @ ${workspaceScope.ownerWorkspaceLabel}` : owner} style={{ display: "flex", alignItems: "center", gap: 5, maxWidth: 190, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "1px 8px 1px 6px", borderRadius: 999, background: "var(--ct-bg-selected)", border: "1px solid var(--ct-border-subtle)" }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "rgba(56,189,248,0.95)", flexShrink: 0 }} />
@@ -341,6 +309,39 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
             )}
             <CoverageBar pct={pct} />
             <span data-testid="canvas-plan-coverage-pct" style={{ fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{pct}%</span>
+            <span
+              data-testid={driftCount > 0 ? "canvas-plan-drift-count" : "canvas-plan-drift-slot"}
+              title={driftCount > 0 ? `${driftCount} drift item${driftCount === 1 ? "" : "s"}` : undefined}
+              style={{
+                minWidth: 48,
+                height: 20,
+                padding: "0 7px",
+                borderRadius: 999,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.86em",
+                fontWeight: 800,
+                color: "rgba(245,158,11,0.98)",
+                background: "color-mix(in srgb, rgba(245,158,11,0.98) 13%, transparent)",
+                border: "1px solid color-mix(in srgb, rgba(245,158,11,0.98) 50%, transparent)",
+                opacity: driftCount > 0 ? 1 : 0,
+                visibility: driftCount > 0 ? "visible" : "hidden",
+                flexShrink: 0,
+              }}
+            >
+              {driftCount} drift
+            </span>
+            {onFitNode && (
+              <button type="button" data-testid="canvas-plan-fit" title="Focus this plan" onClick={(e) => { e.stopPropagation(); onFitNode(); }} onMouseDown={(e) => e.stopPropagation()} style={iconBtn()}>
+                <Maximize2 size={12} />
+              </button>
+            )}
+            {onArchive && (
+              <button type="button" data-testid="canvas-plan-archive" title="Archive plan" onClick={(e) => { e.stopPropagation(); onArchive(); }} onMouseDown={(e) => e.stopPropagation()} style={iconBtn()}>
+                <Archive size={12} />
+              </button>
+            )}
           </div>
         ) : (
           <span style={{ fontSize: "0.76em", opacity: "var(--ct-text-tertiary-opacity)" }}>{rows.length} section{rows.length === 1 ? "" : "s"}</span>
