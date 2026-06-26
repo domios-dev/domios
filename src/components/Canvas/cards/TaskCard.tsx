@@ -1,11 +1,12 @@
-import type { CSSProperties } from "react";
-import { CheckCircle2, Clock3, CornerDownRight, ExternalLink, GitBranch, Layers, Link2, TriangleAlert, Unplug, UserRound, Users } from "lucide-react";
+import type { CSSProperties, ReactNode } from "react";
+import { ArrowRight, CheckCircle2, Clock3, CornerDownRight, ExternalLink, FolderGit2, GitBranch, Hash, Layers, Link2, Trash2, TriangleAlert, Unplug, UserRound, Users } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../settings";
 import { atLeast, DEEP_DIVE_CRISP_SCALE, World } from "../worlds";
-import { TaskPriority, TaskStatus, type DriftItem, type DriftKind, type TagFacet, type Task } from "../types";
+import { TaskPriority, TaskStatus, type DriftItem, type DriftKind, type TagFacet, type Task, type TaskLaneMetadata } from "../types";
 import { resolveTags } from "../tagModel";
 import type { CanvasCardStyleProps } from "./types";
+import { Eyebrow } from "./provenanceShell";
 import { digestMarkdown } from "./digest";
 import { formatTaskFreshness, taskFreshnessAt } from "./taskFreshness";
 import { StrideSnake } from "./StrideSnake";
@@ -229,6 +230,105 @@ function PrimaryFacetChip({ label, color }: { label: string; color: string }) {
   );
 }
 
+// The lane `handle` is the orchestrator's canonical short-id for the task (the slug
+// CLI commands address). It rides as a dashed identity token — never a value chip —
+// so it reads as a name tag at glance and the full slug stays one hover away.
+function HandleChip({ handle, dim }: { handle: string; dim?: boolean }) {
+  return (
+    <span
+      data-testid="canvas-task-handle"
+      title={`Handle: ${handle}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 2,
+        maxWidth: 132,
+        fontSize: "0.7em",
+        fontFamily: "var(--ct-font-mono)",
+        fontWeight: 600,
+        padding: "0.05em 0.42em 0.05em 0.28em",
+        borderRadius: "var(--ct-radius-sm)",
+        border: "1px dashed var(--ct-border-subtle)",
+        color: "color-mix(in srgb, var(--ct-fg) 64%, transparent)",
+        opacity: dim ? 0.5 : 1,
+        flexShrink: 0,
+      }}
+    >
+      <Hash size={9} strokeWidth={2.5} aria-hidden style={{ opacity: 0.7, flexShrink: 0 }} />
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{handle}</span>
+    </span>
+  );
+}
+
+// cleanup_status reuses the product's semantic palette: amber = pending/attention,
+// green = settled, red = failed; an unrecognised/not-applicable status stays neutral.
+function cleanupTone(status: string): string {
+  const s = status.toLowerCase();
+  if (s.includes("fail") || s.includes("error")) return "rgba(248,113,113,0.98)";
+  if (s.includes("pending") || s.includes("await")) return "rgba(245,158,11,0.97)";
+  if (s.includes("done") || s.includes("complete") || s.includes("clean")) return "rgba(82,180,145,0.95)";
+  return "color-mix(in srgb, var(--ct-fg) 60%, transparent)";
+}
+
+function LaneRow({ icon, testid, children }: { icon: ReactNode; testid?: string; children: ReactNode }) {
+  return (
+    <div data-testid={testid} style={{ display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0, fontSize: "0.86em", lineHeight: 1.45 }}>
+      <span aria-hidden style={{ display: "inline-flex", marginTop: 2, color: "color-mix(in srgb, var(--ct-fg) 50%, transparent)", flexShrink: 0 }}>{icon}</span>
+      <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{children}</span>
+    </div>
+  );
+}
+
+// §deep-dive (W3): the full lane provenance — where the work physically lives
+// (workspace + worktree), how the branch flows (base → destination), and what
+// cleanup it still owes. Reveal-by-zoom; rendered only when a field is present.
+function LaneDetail({ lane }: { lane: TaskLaneMetadata }) {
+  const workspace = lane.workspace_name?.trim() || null;
+  const worktree = lane.worktree_path?.trim() || null;
+  const branch = lane.branch?.trim() || null;
+  const base = lane.base?.trim() || null;
+  const destination = lane.destination?.trim() || null;
+  const cleanup = lane.cleanup_status?.trim() || null;
+  const hints = Array.isArray(lane.cleanup_hints) ? lane.cleanup_hints.filter((h) => h && h.trim()) : [];
+  const muted = "color-mix(in srgb, var(--ct-fg) 55%, transparent)";
+  const mono = { fontFamily: "var(--ct-font-mono)" } as const;
+  return (
+    <div data-testid="canvas-task-lane" style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid var(--ct-border-subtle)", paddingTop: 8, marginTop: 2 }}>
+      <Eyebrow icon={<FolderGit2 size={12} />} label="Lane" accent="rgba(96,165,250,0.95)" testid="canvas-task-lane-eyebrow" />
+      {(workspace || worktree) && (
+        <LaneRow icon={<FolderGit2 size={12} />} testid="canvas-task-lane-workspace">
+          {workspace && <span style={{ fontWeight: 600 }}>{workspace}</span>}
+          {worktree && <span style={{ ...mono, color: muted }}>{workspace ? " · " : ""}{worktree}</span>}
+        </LaneRow>
+      )}
+      {(branch || base || destination) && (
+        <LaneRow icon={<GitBranch size={12} />} testid="canvas-task-lane-branch">
+          {branch && <span style={mono}>{branch}</span>}
+          {(base || destination) && (
+            <span style={{ ...mono, color: muted, display: "inline-flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+              {branch ? <span style={{ opacity: 0.6 }}>·</span> : null}
+              {base && <span>{base}</span>}
+              {base && destination && <ArrowRight size={11} aria-hidden style={{ flexShrink: 0 }} />}
+              {destination && <span>{destination}</span>}
+            </span>
+          )}
+        </LaneRow>
+      )}
+      {cleanup && (
+        <LaneRow icon={<Trash2 size={12} />} testid="canvas-task-lane-cleanup">
+          <span style={{ color: muted }}>cleanup </span>
+          <span style={{ color: cleanupTone(cleanup), fontWeight: 600 }}>{cleanup.replace(/_/g, " ")}</span>
+          {hints.length > 0 && (
+            <ul style={{ margin: "4px 0 0", paddingLeft: 16, color: muted, fontSize: "0.94em" }}>
+              {hints.map((h, i) => <li key={i} style={{ overflowWrap: "anywhere" }}>{h}</li>)}
+            </ul>
+          )}
+        </LaneRow>
+      )}
+    </div>
+  );
+}
+
 function iconBtn(): CSSProperties {
   return { display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-fg)", cursor: "pointer", flexShrink: 0 };
 }
@@ -336,9 +436,12 @@ export function TaskCard({
   const titlePriority = !!task.priority && isUrgent;
   const metaPriority = !!task.priority && !isUrgent && showStructure;
   const role = task.taken_by_role?.trim() || null;
-  const branch = task.lane?.branch?.trim() || null;
+  const lane = task.lane;
+  const branch = lane?.branch?.trim() || null;
+  const handle = task.handle?.trim() || null;
   const group = task.group?.trim() || null;
   const peer = task.peer?.trim() || null;
+  const hasLaneDetail = !!(branch || lane?.workspace_name?.trim() || lane?.worktree_path?.trim() || lane?.base?.trim() || lane?.destination?.trim() || lane?.cleanup_status?.trim() || (lane?.cleanup_hints?.some((h) => h && h.trim())));
   const budgetRich = suppressRichContent && !richOverlay;
   const showBodySlot = atLeast(world, World.W2) && !budgetRich;
   const showFullBody = atLeast(world, World.W3) && !budgetRich;
@@ -469,6 +572,7 @@ export function TaskCard({
 
         <div data-testid="canvas-task-meta-slot" style={{ display: "flex", flexWrap: "wrap", alignContent: "flex-start", gap: 6, minHeight: 0, maxHeight: showFullBody ? undefined : 44, overflow: "hidden", ...revealStyle(showStructure) }}>
           {metaPriority && task.priority && <span style={{ display: "inline-flex", alignItems: "center" }}><PriorityTag priority={task.priority} dim={isDone} /></span>}
+          {handle && <HandleChip handle={handle} dim={isDone} />}
           {task.type && <Chip testid="canvas-task-type">{task.type}</Chip>}
           {role && <Chip testid="canvas-task-role" accent="rgba(96,165,250,0.95)" icon={<UserRound size={11} aria-hidden />} max={150}>{role}</Chip>}
           {branch && <Chip testid="canvas-task-branch" mono icon={<GitBranch size={11} aria-hidden />} max={170}>{branch}</Chip>}
@@ -494,7 +598,8 @@ export function TaskCard({
             </div>
           ) : null}
 
-          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0 || freshnessLabel.length > 0 || !!parentTaskName || !!presence) }}>
+          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0 || freshnessLabel.length > 0 || !!parentTaskName || !!presence || (!!handle && showTitle)) }}>
+            {handle && showTitle && <HandleChip handle={handle} dim={isDone} />}
             {presence && <PresencePill presence={presence} />}
             {parentTaskName && (
               <Counter testid="canvas-task-parent">
@@ -571,6 +676,7 @@ export function TaskCard({
                 )}
               </div>
           </div>
+          {showFullBody && hasLaneDetail && lane && <LaneDetail lane={lane} />}
           <div data-testid="canvas-task-strides-slot" data-visible={showStrides ? "true" : "false"} style={{ minHeight: 0, overflow: showFullBody ? "visible" : "hidden", ...revealStyle(showStrides) }}>
             {strideCount > 0 && <StrideSnake milestones={task.milestones} colors={stepColors} world={world} width={innerW} onCopyLink={showFullBody ? onCopyStrideLink : undefined} onFocusStride={showFullBody ? onFocusStride : undefined} />}
           </div>
