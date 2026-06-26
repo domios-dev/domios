@@ -2,7 +2,6 @@ import type { CSSProperties } from "react";
 import { CheckCircle2, Clock3, CornerDownRight, ExternalLink, Layers, Link2, TriangleAlert, Unplug } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../settings";
-import { substrateV2Enabled } from "../substrateFlag";
 import { atLeast, DEEP_DIVE_CRISP_SCALE, type World } from "../worlds";
 import type { DriftItem, DriftKind, TagFacet, Task, TaskStatus } from "../types";
 import { resolveTags } from "../tagModel";
@@ -293,6 +292,9 @@ export function TaskCard({
 
   const strideCount = task.milestones.length;
   const bodyChars = task.body.trim().length;
+  const acItems = Array.isArray(task.acceptance_criteria) ? task.acceptance_criteria.filter((c) => c && c.trim()) : [];
+  const testPlan = typeof task.test_plan === "string" ? task.test_plan.trim() : "";
+  const hasFields = acItems.length > 0 || testPlan.length > 0;
   const digest = digestMarkdown(task.intent?.trim() ? task.intent! : task.body, 130);
   const freshKind = strideCount ? [...task.milestones].sort((a, b) => b.ts - a.ts)[0].kind : null;
   const freshColor = freshKind ? (stepColors?.get(freshKind) ?? "var(--ct-border-focus)") : null;
@@ -360,8 +362,8 @@ export function TaskCard({
         {/* Header — present at every band (the navigation layer). Solid status chip. */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: 6, minWidth: 0 }}>
-              <span data-testid="canvas-task-name" data-visible={showTitle ? "true" : "false"} data-task-name-full={task.name} data-canvas-selectable className="ct-canvas-text" style={{ minWidth: 0, maxWidth: "100%", fontWeight: shelf === "done" ? 600 : 700, fontSize: shelf === "done" ? "0.98em" : "1.03em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...revealStyle(showTitle) }}>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "start", gap: 6, minWidth: 0 }}>
+              <span data-testid="canvas-task-name" data-visible={showTitle ? "true" : "false"} data-task-name-full={task.name} data-canvas-selectable className="ct-canvas-text" style={{ minWidth: 0, maxWidth: "100%", fontWeight: shelf === "done" ? 600 : 700, fontSize: shelf === "done" ? "0.98em" : "1.03em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.25, wordBreak: "break-word", ...revealStyle(showTitle) }}>
                 {titleText}
               </span>
               <div style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
@@ -446,7 +448,28 @@ export function TaskCard({
                 </div>
               )}
               <div data-testid={showFullBody ? "canvas-task-full-body" : "canvas-task-body-preview"}>
-                {bodyChars > 0 ? <RichMarkdown text={task.body} /> : <span style={{ opacity: 0.4, fontStyle: "italic" }}>No description</span>}
+                {bodyChars > 0 ? (
+                  <RichMarkdown text={task.body} />
+                ) : showBodySlot && hasFields ? (
+                  <div data-testid="canvas-task-fields">
+                    {acItems.length > 0 && (
+                      <div data-testid="canvas-task-acceptance" style={{ marginBottom: testPlan ? 8 : 0 }}>
+                        <div style={{ fontWeight: 600, color: "var(--ct-border-focus)", marginBottom: 3 }}>Acceptance</div>
+                        <ul style={{ margin: 0, paddingLeft: 16 }}>
+                          {acItems.map((c, i) => <li key={i} style={{ overflowWrap: "anywhere" }}>{c}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {testPlan && (
+                      <div data-testid="canvas-task-test-plan">
+                        <div style={{ fontWeight: 600, color: "var(--ct-border-focus)", marginBottom: 3 }}>Test plan</div>
+                        <div style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{testPlan}</div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <span style={{ opacity: 0.4, fontStyle: "italic" }}>No description</span>
+                )}
               </div>
           </div>
           <div data-testid="canvas-task-strides-slot" data-visible={showStrides ? "true" : "false"} style={{ minHeight: 0, overflow: showFullBody ? "visible" : "hidden", ...revealStyle(showStrides) }}>
@@ -457,16 +480,7 @@ export function TaskCard({
     </div>
   );
 
-  if (substrateV2Enabled()) return card(style);
-  // §34: birds-eye / 1× → single layer, GPU upscale is imperceptible while small.
-  if (crispScale <= 1) return card(style);
-  // Readable band → zoom to display px (crisp reflow incl. body + stride snake) then
-  // counter-scale back to world size. transform-origin 0,0 keeps footprint identity.
-  return (
-    <div style={{ ...style, transition: SLOT_TRANSITION }}>
-      <div className="ct-canvas-crisp" style={{ width: "100%", height: "100%", zoom: crispScale, transform: `scale(${1 / crispScale})`, transformOrigin: "0 0" }}>
-        {card({ width: "100%", height: "100%" })}
-      </div>
-    </div>
-  );
+  // §34 superseded: world geometry stays under the single camera transform; the
+  // per-card zoom/counter-scale wrapper reflowed internals and drifted at zoom steps.
+  return card(style);
 }

@@ -106,6 +106,8 @@ export interface Task {
   group?: string | null;
   section_ids: string[];
   body: string;
+  acceptance_criteria?: string[];
+  test_plan?: string;
   intent: string | null;
   parent_task_id: string | null;
   assigned_pane_id: string | null;
