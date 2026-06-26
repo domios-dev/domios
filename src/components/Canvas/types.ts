@@ -151,6 +151,13 @@ export interface SpecLink {
   plan_section_id: string;
 }
 
+export type EffortLinkRel = "follows" | "supersedes";
+
+export interface EffortLink {
+  to: string;
+  rel: EffortLinkRel;
+}
+
 export interface Plan {
   id: string;
   title: string;
@@ -170,4 +177,6 @@ export interface Plan {
   goal?: Goal | null;
   primary_spec_id?: string | null;
   spec_links?: SpecLink[];
+  links?: string[];
+  lineage?: EffortLink[];
 }

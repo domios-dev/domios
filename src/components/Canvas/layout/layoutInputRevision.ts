@@ -47,6 +47,14 @@ export function layoutInputRevision(
     for (const el of p.elements) {
       parts.push(el.id, el.kind, String(el.canvas.x ?? ""), String(el.canvas.y ?? ""));
     }
+    parts.push(String(p.lineage?.length ?? 0));
+    for (const link of p.lineage ?? []) {
+      parts.push(link.to, link.rel);
+    }
+    parts.push(String(p.links?.length ?? 0));
+    for (const link of p.links ?? []) {
+      parts.push(link);
+    }
   }
   return parts.join("\0");
 }

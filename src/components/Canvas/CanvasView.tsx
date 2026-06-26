@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig, Pane } from "../../lib/types";
@@ -8,18 +8,20 @@ import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocu
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
+import { CanvasEdges } from "./CanvasEdges";
+import { CanvasNodeCard } from "./CanvasNodeCard";
 import { CanvasTagLegend } from "./CanvasTagLegend";
 import { CanvasUnownedTray } from "./CanvasUnownedTray";
 import type { CanvasLod, MilestoneBubbleModel } from "./cards";
 import { OrchestratorGroup } from "./cards";
-import { getNodeRenderer, type SectionNavArgs } from "./nodeRegistry";
-import { bezierPath, resolveEdgeEnds } from "./edges";
+import type { SectionNavArgs } from "./nodeRegistry";
 import { milestoneColorMap } from "./milestoneColors";
 import { sectionRows, type SectionRowGlyph } from "./sectionRows";
 import {
   layoutWorkspace,
   layoutInputRevision,
   plansForLayout,
+  buildLineageCatalog,
   visibleFrameIds,
   visibleNodeIds,
   viewportWorldRect,
@@ -33,6 +35,7 @@ import { assignedTaskIdsForPane } from "./planOpenFocus";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useCanvasPlans } from "./PlansProvider";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
+import type { PlanGhostModel } from "./cards";
 import type { CanvasElement, DriftItem, OrchestratorRef, Plan, Section, TagFacet, Task } from "./types";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport, formatLayerTransform } from "./useCanvasViewport";
@@ -57,33 +60,11 @@ export interface CanvasViewInnerProps {
   viewportPadding?: number;
 }
 
-// Deterministic [0,1) hash of an edge id → stable per-edge curvature jitter.
-function edgeJitter(id: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < id.length; i++) {
-    h ^= id.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return ((h >>> 0) % 1000) / 1000;
-}
-
 function lodForScale(scale: number): CanvasLod {
   const s = DEFAULT_CANVAS_SETTINGS;
   if (scale < s.zoomFarThreshold) return "far";
   if (scale < s.zoomNearThreshold) return "mid";
   return "near";
-}
-
-// Fixed bounds (§22.1): height is the layout-reserved box height, NOT minHeight —
-// content must fit/scroll inside, never push the node past its slot (overflow bug).
-function nodeStyle(box: { x: number; y: number; width: number; height?: number }) {
-  return {
-    position: "absolute" as const,
-    left: box.x,
-    top: box.y,
-    width: box.width,
-    height: box.height,
-  };
 }
 
 export interface ClusterCaptionModel {
@@ -124,70 +105,6 @@ function collectSections(sections: Section[], out: Map<string, Section>): void {
     if (s.subsections.length) collectSections(s.subsections, out);
   }
 }
-
-interface CanvasNodeCardProps {
-  node: LaidOutNode;
-  model: unknown;
-  lod: CanvasLod;
-  world: World;
-  crispScale: number;
-  elevated?: boolean;
-  onOpenPane?: (paneId: string) => void;
-  onHoverTask?: (taskId: string | null) => void;
-  onArchive?: () => void;
-  onFitNode?: (nodeId: string) => void;
-  onCopyLink?: (id: string) => void;
-  onFocusStride?: (milestoneId: string) => void;
-  onSectionClick?: (a: SectionNavArgs) => void;
-  onSectionFrame?: (a: SectionNavArgs) => void;
-  tagFilterDimmed?: boolean;
-  tagFilterHighlighted?: boolean;
-}
-
-const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, world, crispScale, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame, tagFilterDimmed, tagFilterHighlighted }: CanvasNodeCardProps) {
-    const base = nodeStyle(node.box);
-    // §32.3 nodes are SOLID at every zoom — status/hierarchy/focus deprioritize
-    // SPATIALLY (position, depth), never by fade. Elevation is depth, not opacity.
-    const style: typeof base & { zIndex?: number; transition?: string; filter?: string } =
-      elevated
-        ? { ...base, zIndex: 20, filter: "drop-shadow(0 18px 40px rgba(0,0,0,0.55))", transition: "filter var(--ct-duration-normal) var(--ct-ease-decel)" }
-        : base;
-    const rendered = getNodeRenderer(node.kind)({
-      node,
-      model,
-      style,
-      lod,
-      world,
-      crispScale,
-      onOpenPane,
-      onHoverTask,
-      onArchive,
-      onFitNode,
-      onCopyLink,
-      onCopyStrideLink: onCopyLink,
-      onFocusStride,
-      onSectionClick,
-      onSectionFrame,
-      tagFilterDimmed,
-      tagFilterHighlighted,
-    });
-    return rendered ? <Fragment key={node.id}>{rendered}</Fragment> : null;
-  },
-  (prev, next) => {
-    if (prev.node.id !== next.node.id) return false;
-    if (prev.lod !== next.lod) return false;
-    if (prev.world !== next.world) return false;
-    if (prev.crispScale !== next.crispScale) return false;
-    if (prev.elevated !== next.elevated) return false;
-    if (prev.tagFilterDimmed !== next.tagFilterDimmed) return false;
-    if (prev.tagFilterHighlighted !== next.tagFilterHighlighted) return false;
-    if (prev.model !== next.model) return false;
-    const a = prev.node.box;
-    const b = next.node.box;
-    return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
-  },
-);
 
 export function CanvasViewInner({
   mode,
@@ -257,6 +174,7 @@ export function CanvasViewInner({
 
   const layoutSourcePlans = plansForLayout(filteredPlans, specSectionsByPlan);
   const layoutRevision = layoutInputRevision(layoutSourcePlans, specSectionsByPlan);
+  const lineageCatalog = useMemo(() => buildLineageCatalog(plans), [plansRevision]);
   const layout = useMemo(
     () => layoutWorkspace(layoutSourcePlans),
     [layoutRevision],
@@ -341,11 +259,19 @@ export function CanvasViewInner({
         }
         case "task":
           return lookups.taskModelById.get(node.id);
+        case "plan-ghost": {
+          const planId = node.id.startsWith("ghost:") ? node.id.slice(6) : node.id;
+          const meta = lineageCatalog.get(planId);
+          const ghost: PlanGhostModel = meta
+            ? { planId: meta.id, title: meta.title, status: meta.status }
+            : { planId, title: planId, status: "archived" };
+          return ghost;
+        }
         default:
           return lookups.elementById.get(node.id);
       }
     },
-    [planById, lookups, specSectionsByPlan],
+    [planById, lookups, specSectionsByPlan, lineageCatalog],
   );
 
   const handleArchive = useCallback(
@@ -811,59 +737,39 @@ export function CanvasViewInner({
               />
             ))}
             <svg className="pointer-events-none absolute inset-0" width={worldW} height={worldH} style={{ overflow: "visible" }}>
-              {layout.frames.map((frame) => {
-                if (!frameIds.has(frame.planId)) return null;
-                return frame.edges.map((edge) => {
-                  const ends = resolveEdgeEnds(edge, lookups.nodeById);
-                  if (!ends) return null;
-                  const chain = edge.kind === "milestone-chain";
-                  const rowEdge = edge.kind === "section-task" || edge.kind === "spec-row";
-                  // ALL edges draw at rest as subtle accent strokes (nothing
-                  // floats); hovering a task lifts its own edges and dims the rest
-                  // so the row↔task / row↔spec mapping reads at a glance.
-                  const inHighlight = highlight != null && (edge.id.startsWith(`${highlight.sectionId}~`) || (edge.to != null && highlight.taskIds.has(edge.to)));
-                  const tagRelated = tagFilterActive && edge.to != null && tagFilterMatchIds!.has(edge.to);
-                  const related = (hoveredTask != null && (edge.from === hoveredTask || edge.to === hoveredTask)) || inHighlight || tagRelated;
-                  const dimmed = (hoveredTask != null || highlight != null || tagFilterActive) && !related;
-                  // Per-edge jitter so near-parallel row beziers fan out and each
-                  // connection is individually traceable (deterministic).
-                  const j = rowEdge ? edgeJitter(edge.id) : 0.5;
-                  const curve = DEFAULT_CANVAS_SETTINGS.edgeCurve * (0.65 + 0.8 * j);
-                  const baseW = rowEdge ? 1.6 : chain ? 1.2 : 1.4;
-                  const baseO = (rowEdge ? 0.42 : chain ? 0.3 : 0.36) * (rowEdge ? 0.82 + 0.36 * j : 1);
-                  const showDots = rowEdge || edge.kind === "task-cluster";
-                  return (
-                    <g key={edge.id}>
-                      <path
-                        d={bezierPath(ends.a, ends.b, curve)}
-                        fill="none"
-                        stroke="var(--ct-border-focus)"
-                        strokeWidth={related ? 2.6 : baseW}
-                        strokeLinecap="round"
-                        opacity={related ? 0.95 : dimmed ? 0.12 : baseO}
-                      />
-                      {rowEdge && (
-                        <circle
-                          cx={ends.a.x}
-                          cy={ends.a.y}
-                          r={related ? 4.5 : 3}
-                          fill="var(--ct-border-focus)"
-                          opacity={related ? 1 : dimmed ? 0.3 : 0.75}
-                        />
-                      )}
-                      {showDots && (
-                        <circle
-                          cx={ends.b.x}
-                          cy={ends.b.y}
-                          r={related ? 4.5 : 3}
-                          fill="var(--ct-border-focus)"
-                          opacity={related ? 1 : dimmed ? 0.3 : 0.75}
-                        />
-                      )}
-                    </g>
-                  );
-                });
-              })}
+              <defs>
+                <marker
+                  id="ct-plan-lineage-arrow"
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="7"
+                  refY="4"
+                  orient="auto"
+                >
+                  <polygon points="0,0 8,4 0,8" fill="var(--ct-border-focus)" />
+                </marker>
+              </defs>
+              {layout.frames.map((frame) =>
+                frameIds.has(frame.planId) ? (
+                  <CanvasEdges
+                    key={frame.planId}
+                    edges={frame.edges}
+                    nodeById={lookups.nodeById}
+                    hoveredTask={hoveredTask}
+                    highlight={highlight}
+                    tagFilterActive={tagFilterActive}
+                    tagFilterMatchIds={tagFilterMatchIds}
+                  />
+                ) : null,
+              )}
+              <CanvasEdges
+                edges={layout.crossEdges ?? []}
+                nodeById={lookups.nodeById}
+                hoveredTask={hoveredTask}
+                highlight={highlight}
+                tagFilterActive={tagFilterActive}
+                tagFilterMatchIds={tagFilterMatchIds}
+              />
             </svg>
             {layout.frames.flatMap((frame) =>
               frame.nodes

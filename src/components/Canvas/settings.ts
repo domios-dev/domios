@@ -70,6 +70,11 @@ export interface CanvasLayoutSettings {
   handoffLaneGap: number;
   handoffLaneMargin: number;
 
+  ghostPlanW: number;
+  ghostPlanH: number;
+  ghostPlanGap: number;
+  ghostPlanStackGap: number;
+
   // Column gaps between spec | plan | tasks.
   columnGapX: number;
 
@@ -136,6 +141,11 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   handoffCoinH: 150,
   handoffLaneGap: 22,
   handoffLaneMargin: 44,
+
+  ghostPlanW: 148,
+  ghostPlanH: 48,
+  ghostPlanGap: 20,
+  ghostPlanStackGap: 10,
 
   // Gutter rhythm: GUTTER intra-frame (spec→plan, plan→tasks), GUTTER*2 between
   // frames/owner groups, ~GUTTER for group padding. One base, no ad-hoc gaps.
