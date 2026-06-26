@@ -23,7 +23,12 @@ export function SectionRowView({ row, variant, world, planId, onSectionClick, on
   const showAbstract = !isPlan && !showBody && atLeast(world, "W1") && hasBody && !suppressRichContent;
   const deep = atLeast(world, "W3");
   const clamp = isPlan && !deep; // §22.1 spec unclamped from W2; PLAN excerpt clamps at W2 but opens FULLY at W3 (deep read)
-  const grow = showBody || showAbstract;
+  // §section-facets: a section's own tags surface as neutral chips at W2+ (the
+  // content band, where the row has room) — the same chip vocab task topics use, so
+  // a facet reads identically on a plan section and on the tasks under it.
+  const tags = (row.section.tags ?? []).filter((t) => t.trim());
+  const showTags = atLeast(world, "W2") && tags.length > 0 && !suppressRichContent;
+  const grow = showBody || showAbstract || showTags;
   const nav: SectionNavArgs = { planId, sectionId: row.section.id, variant };
   const showActions = atLeast(world, "W2");
 
@@ -68,6 +73,19 @@ export function SectionRowView({ row, variant, world, planId, onSectionClick, on
           </span>
         )}
       </div>
+      {showTags && (
+        <div data-testid="canvas-section-tags" style={{ display: "flex", flexWrap: "wrap", gap: 5, paddingLeft: row.depth * 8 }}>
+          {tags.map((t) => (
+            <span
+              key={t}
+              data-testid="canvas-section-tag"
+              style={{ fontSize: "0.72em", maxWidth: 150, padding: "0.06em 0.5em", borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg-active)", color: "var(--ct-fg)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
       {showAbstract && (
         <div data-testid="canvas-spec-abstract" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.78em", lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: row.depth * 8 }}>
           {digestMarkdown(row.section.body, 80)}

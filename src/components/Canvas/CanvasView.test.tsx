@@ -81,7 +81,17 @@ test("CanvasViewInner renders the SEPARATE spec + plan nodes (§24.3) and a task
   assert(host.querySelector('[data-testid="canvas-plan-node"]'), "plan node present");
   assert(host.querySelector('[data-testid="canvas-spec-node"]'), "separate spec node present");
   assert(host.querySelector('[data-testid="canvas-plan-row"]'), "plan section rows");
-  assert(host.querySelector('[data-testid="canvas-spec-block"]'), "spec section blocks");
+  // The spec node (narrower frame, wider §26 thresholds) sits a band below the
+  // plan at this fitted scale: plan reaches W2 while spec holds W0, so it renders
+  // its COMPRESSED section content, not the W1+ spec blocks (those are covered by
+  // cards.test.tsx at explicit bands). Assert the spec node still shows meaningful
+  // section content at the far band — never a hollow node (§32.2).
+  const specNode = host.querySelector('[data-testid="canvas-spec-node"]');
+  assert(
+    specNode?.querySelector('[data-testid="canvas-section-compressed"]') ||
+      specNode?.querySelector('[data-testid="canvas-spec-block"]'),
+    "spec node renders section content",
+  );
   assert(host.querySelector('[data-testid="canvas-plan-output"]'), "plan output dot (task anchor)");
   assert(host.querySelector('[data-testid="canvas-task-card"]'), "task card");
   assert(host.querySelector('[data-testid="canvas-task-name"]')?.textContent === "Dante", "task name");
