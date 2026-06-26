@@ -7,7 +7,7 @@
 # Env:
 #   WIN_SSH        ssh target, e.g. "test@127.0.0.1"   (default: test@127.0.0.1)
 #   WIN_PORT       ssh port (default: 2222)
-#   SSHPASS        password for the VM (used via sshpass -e); or set up key auth
+#   WIN_SSH_KEY    path to private key (default: ~/.ssh/codeterm-win-build)
 # Usage:  build-windows.sh <tag> <arch>   arch: x86_64 | aarch64
 set -euo pipefail
 TAG="${1:?usage: build-windows.sh <tag> <arch>}"
@@ -15,23 +15,23 @@ VER="${TAG#v}"
 ARCH="${2:?arch: x86_64|aarch64}"
 WIN_SSH="${WIN_SSH:-test@127.0.0.1}"
 WIN_PORT="${WIN_PORT:-2222}"
+WIN_SSH_KEY="${WIN_SSH_KEY:-$HOME/.ssh/codeterm-win-build}"
 case "$ARCH" in
   x86_64|x64)     TRIPLE=x86_64-pc-windows-msvc; LABEL=x64 ;;
   aarch64|arm64)  TRIPLE=aarch64-pc-windows-msvc; LABEL=arm64 ;;
   *) echo "bad arch $ARCH" >&2; exit 2 ;;
 esac
+if [ ! -f "$WIN_SSH_KEY" ]; then
+  echo "::error::WIN_SSH_KEY not found: $WIN_SSH_KEY — run setup-win-ssh-key.sh to provision key auth" >&2
+  exit 2
+fi
 # ConnectTimeout bounds ONLY connection establishment (not the established session), so it is safe
 # on the long build SSH yet makes the readiness probe fail fast instead of hanging ~75s on a VM
 # whose guest sshd isn't up yet — the stability-gate loop timing depends on a quick probe.
-SSH="sshpass -e ssh -p $WIN_PORT -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=1000 -o PreferredAuthentications=password -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 $WIN_SSH"
-SCP="sshpass -e scp -P $WIN_PORT -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no"
+SSH="ssh -i $WIN_SSH_KEY -p $WIN_PORT -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=1000 -o PreferredAuthentications=publickey -o PasswordAuthentication=no $WIN_SSH"
+SCP="scp -i $WIN_SSH_KEY -P $WIN_PORT -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=publickey -o PasswordAuthentication=no"
 
 OUT="${OUT:-/tmp/codeterm-${TAG}-mirror}"; mkdir -p "$OUT"
-
-if [ -z "${SSHPASS:-}" ]; then
-  echo "::error::SSHPASS is not set; Windows release build cannot authenticate to $WIN_SSH:$WIN_PORT" >&2
-  exit 2
-fi
 
 # Bring the Windows VM up ON DEMAND — start it if it's not already answering SSH, then wait for
 # it to boot. Lets the whole build machine spin the VM up only when a release actually arrives.

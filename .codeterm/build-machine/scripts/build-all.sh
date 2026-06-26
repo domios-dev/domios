@@ -18,7 +18,7 @@
 #       (build once:  docker build -t codeterm-build-linux-arm64 -f docker/Dockerfile.linux-arm64 .
 #                     docker build -t codeterm-build-linux-x64   -f docker/Dockerfile.linux-x64   . )
 #   - macOS signing: ~/.claude/.secrets/apple-notary.env + Developer ID in keychain + notary profile
-#   - windows VM:    WIN_SSH / WIN_PORT / SSHPASS env (see build-windows.sh)
+#   - windows VM:    WIN_SSH / WIN_PORT / WIN_SSH_KEY env (see build-windows.sh)
 #   - minisign updater key on the Mac: ~/.tauri/codeterm.key (updater .sig signed on the Mac)
 #
 # Usage:  build-all.sh vX.Y.Z
