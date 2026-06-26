@@ -476,14 +476,29 @@ impl ServiceContext {
         };
         self.emit_state_changed();
 
-        // 3. Set role in hierarchy (before async wait — role is metadata)
+        // 3. Set role in hierarchy. A cross-mesh worker has no local parent
+        // (its hierarchy lives on the origin) — skip_local_worker_role avoids a 500.
         if let Some(ref role_str) = params.role {
-            self.set_pane_role(
-                &pane_id,
-                role_str,
+            let role = Self::parse_role(role_str)?;
+            if skip_local_worker_role(
+                &role,
                 params.parent_pane_id.as_deref(),
-                params.can_spawn,
-            )?;
+                params.report_target_mesh_peer.as_deref(),
+            ) {
+                log::info!(
+                    "[spawn] cross-mesh worker {} → {}@{}: skipping local Worker hierarchy (no local parent)",
+                    pane_id,
+                    params.report_target_pane_id.as_deref().unwrap_or("?"),
+                    params.report_target_mesh_peer.as_deref().unwrap_or("?"),
+                );
+            } else {
+                self.set_pane_role(
+                    &pane_id,
+                    role_str,
+                    params.parent_pane_id.as_deref(),
+                    params.can_spawn,
+                )?;
+            }
         }
 
         // 3b. Set auto_approve if spawned with skip_permissions
@@ -602,6 +617,21 @@ impl ServiceContext {
             None,
         )
     }
+}
+
+/// A cross-mesh worker (mesh report target set, no local parent) must NOT be
+/// forced into the local Worker hierarchy — it has no local Orchestrator parent,
+/// so `set_pane_role(Worker, None)` errors. Its hierarchy is represented on the
+/// origin via the RemoteWorkerRegistry instead. Returns true to skip the local
+/// role assignment. Orchestrator-role and locally-parented spawns are unaffected.
+pub(crate) fn skip_local_worker_role(
+    role: &crate::multiplexer::types::AgentRole,
+    parent_pane_id: Option<&str>,
+    report_target_mesh_peer: Option<&str>,
+) -> bool {
+    matches!(role, crate::multiplexer::types::AgentRole::Worker)
+        && parent_pane_id.is_none()
+        && report_target_mesh_peer.map_or(false, |p| !p.is_empty())
 }
 
 pub(crate) use crate::agent::provider::{AgentLaunchParams, ReadinessStrategy, TaskDelivery};

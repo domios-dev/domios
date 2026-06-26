@@ -130,7 +130,7 @@ fn no_new_resolve_pty_id_outside_allowlist() {
         "commands/pane.rs",
         "api/pane_routes.rs",
         "api/pane_routes/send.rs",
-        "api/mem_routes/items.rs",
+        "api/mem_routes/items/mod.rs",
         "bridge/manager/mod.rs",
     ];
 
