@@ -228,14 +228,7 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
             action: super::AgentAction::Spawn { .. }
         }
     ) {
-        relay::mesh_spawn_and_register(
-            &http,
-            &base,
-            &token,
-            target,
-            body.as_deref(),
-            cli.json,
-        );
+        relay::mesh_spawn_and_register(&http, &base, &token, target, body.as_deref(), cli.json);
         return;
     }
     // Resolve the source agent's label/model locally so the remote can render

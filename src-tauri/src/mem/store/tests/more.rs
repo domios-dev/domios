@@ -34,7 +34,6 @@ fn stats_counts_by_kind() {
 
 // ── Phase C: history ──────────────────────────────────────────────
 
-
 #[test]
 fn history_logs_create_update_delete_events() {
     let (conn, blobs) = fresh();

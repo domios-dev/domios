@@ -28,7 +28,6 @@ fn mk_item(title: &str, body: &str) -> NewMemItem {
     }
 }
 
-
 #[test]
 fn schema_initializes_idempotently() {
     let conn = Connection::open_in_memory().unwrap();
