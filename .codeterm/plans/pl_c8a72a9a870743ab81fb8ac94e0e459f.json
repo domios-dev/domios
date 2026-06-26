@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782456160646,
+  "updated_at": 1782456642157,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -15931,12 +15931,12 @@
       ],
       "test_plan": "Run focused body_file/stride_log Rust tests plus git diff --check, file-size check, and CODETERM_API_PORT=7686 ./build.sh check in the hot checkout.",
       "correctness": "The largest remaining task-stride conflict surface leaves the monolithic plan JSON without losing legacy data.",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p1",
       "created_at": 1782456098179,
-      "updated_at": 1782456160646,
-      "status_changed_at": 1782456109598,
+      "updated_at": 1782456642157,
+      "status_changed_at": 1782456642157,
       "handle": "33-4-strip-task-milestones-from-monolithic-plan-json",
       "tags": [],
       "section_ids": [
@@ -15967,7 +15967,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_9daac15be8634692ae7c327fd4e2dbc8",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted and integrated into feat/canvas.\n\nChanges:\n- Saved plan JSON now strips task milestone arrays after stride sidecar persistence.\n- Legacy inline-only milestones still load, then save into tasks/<handle>/strides.jsonl and disappear from raw plan JSON.\n- Existing sidecar hydration and markdown body behavior remains covered.\n\nOrchestrator verification in /Users/rollacode/Developer/codeterm:\n- cargo fmt --manifest-path src-tauri/Cargo.toml -- --check\n- perl -e 'alarm 180; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml --lib service::plan::body_file_tests -- --nocapture (7 passed)\n- perl -e 'alarm 180; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml --lib service::plan::stride_log -- --nocapture (7 passed)\n- git diff --cached --check && git diff --check\n- bash scripts/check-file-sizes.sh (only known unrelated baseline files; touched files under limits)\n- CODETERM_API_PORT=7686 ./build.sh check\n",
+          "ts": 1782456642157,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     }
   ],
   "task_groups": [],
