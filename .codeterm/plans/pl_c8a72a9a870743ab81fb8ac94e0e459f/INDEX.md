@@ -154,6 +154,7 @@
 - [plan-tag-facets-update-surface-and-non-skipping-canvas-filter-e2e (Plan tag facets: update surface and non-skipping canvas filter e2e)](tasks/plan-tag-facets-update-surface-and-non-skipping-canvas-filter-e2e.md)
 - [33-1-spike-git-merge-union-for-append-only-stride-logs (§33.1 spike git merge=union for append-only stride logs)](tasks/33-1-spike-git-merge-union-for-append-only-stride-logs.md)
 - [33-2-stride-jsonl-codec-and-deterministic-fold-tests (§33.2 stride JSONL codec and deterministic fold tests)](tasks/33-2-stride-jsonl-codec-and-deterministic-fold-tests.md)
+- [33-3-task-stride-log-sidecars-dual-write-and-hydrate (§33.3 task stride-log sidecars dual-write and hydrate)](tasks/33-3-task-stride-log-sidecars-dual-write-and-hydrate.md)
 
 ## Handoffs
 
