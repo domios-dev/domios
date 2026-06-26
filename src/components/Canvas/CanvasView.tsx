@@ -5,18 +5,13 @@ import type { ApiConfig, Pane, Workspace } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { CanvasComposer } from "./CanvasComposer";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
-import { resolveFlyToNodeId } from "./flyToTarget";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
 import { CanvasEdges } from "./CanvasEdges";
 import { CanvasTagLegend } from "./CanvasTagLegend";
 import { CanvasUnownedTray } from "./CanvasUnownedTray";
-import type { CanvasLod, MilestoneBubbleModel } from "./cards";
 import { OrchestratorGroup } from "./cards";
-import type { SectionNavArgs } from "./nodeRegistry";
-import { milestoneColorMap } from "./milestoneColors";
-import { sectionRows, type SectionRowGlyph } from "./sectionRows";
 import {
   layoutWorkspace,
   layoutInputRevision,
@@ -24,8 +19,6 @@ import {
   buildLineageCatalog,
   visibleFrameIds,
   visibleNodeIds,
-  viewportWorldRect,
-  boxesOverlap,
   type LaidOutNode,
 } from "./layout";
 import { archivePlan, fetchSpecSections } from "./plansApi";
@@ -37,8 +30,7 @@ import { useCanvasPlans } from "./PlansProvider";
 import { useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { PlanGhostModel } from "./cards";
-import type { CanvasElement, DriftItem, OrchestratorRef, Plan, Section, TagFacet, Task } from "./types";
-import { buildTaskPresence, type TaskPresence } from "./taskPresence";
+import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport, formatLayerTransform } from "./useCanvasViewport";
@@ -49,15 +41,19 @@ import { CanvasPassiveRenderLayer } from "./CanvasPassiveRenderLayer";
 import { CanvasRichOverlayLayer } from "./CanvasRichOverlayLayer";
 import { CanvasPresenceLayer } from "./CanvasPresenceLayer";
 import { CanvasSwarmCluster } from "./CanvasSwarmCluster";
-import { MAX_ACTIVE_PRESENCE_OVERLAYS, buildPresenceOverlays, type PresenceSource } from "./presenceOverlays";
-import { buildSwarmRoster } from "./swarmRoster";
 import { CanvasWorldNodeList } from "./CanvasWorldNodeList";
 import { CanvasWorldDecorations } from "./CanvasWorldDecorations";
-import { MAX_ACTIVE_RICH_OVERLAYS, buildOverlayNodes } from "./richOverlays";
 import { overlayBudgetEnabled } from "./overlayBudgetFlag";
-import { buildCanvasScene, pickCanvasSceneNodeAtScreenPoint, publishCanvasSceneReadback } from "./scene";
+import { buildCanvasScene, pickCanvasSceneNodeAtScreenPoint } from "./scene";
 import { substrateV2Enabled } from "./substrateFlag";
 import { perfFixtureCount, buildPerfFixturePlans, realFixtureEnabled, realFixturePlans } from "./perfFixture";
+import { lodForScale } from "./canvasView/models";
+import { useCanvasLookups } from "./canvasView/useCanvasLookups";
+import { useCanvasFlyTo } from "./canvasView/useCanvasFlyTo";
+import { useCanvasOverlays } from "./canvasView/useCanvasOverlays";
+import { useCanvasChangeSignal } from "./canvasView/useCanvasChangeSignal";
+
+export type { ClusterCaptionModel, SpecSectionModel, TaskCardModel } from "./canvasView/models";
 
 export interface CanvasViewInnerProps {
   mode: "workspace" | "focus";
@@ -82,53 +78,6 @@ export interface CanvasViewInnerProps {
 }
 
 const EMPTY_WORKSPACES: Workspace[] = [];
-
-function lodForScale(scale: number): CanvasLod {
-  const s = DEFAULT_CANVAS_SETTINGS;
-  if (scale < s.zoomFarThreshold) return "far";
-  if (scale < s.zoomNearThreshold) return "mid";
-  return "near";
-}
-
-export interface ClusterCaptionModel {
-  kinds: { label: string; color: string }[];
-}
-
-export interface SpecSectionModel {
-  section: Section;
-  glyph: SectionRowGlyph;
-  taskCount: number;
-}
-
-export interface TaskCardModel {
-  task: Task;
-  tagFacets?: TagFacet[];
-  childCount: number;
-  childDone: number;
-  parentTaskName: string | null;
-  stepColors: Map<string, string>;
-  drift?: DriftItem;
-  presence?: TaskPresence | null;
-}
-
-interface CanvasLookups {
-  nodeById: Map<string, LaidOutNode>;
-  taskById: Map<string, Task>;
-  taskModelById: Map<string, TaskCardModel>;
-  sectionById: Map<string, Section>;
-  specSectionById: Map<string, SpecSectionModel>;
-  milestoneModelById: Map<string, MilestoneBubbleModel>;
-  milestoneTaskById: Map<string, string>;
-  clusterModelById: Map<string, ClusterCaptionModel>;
-  elementById: Map<string, CanvasElement>;
-}
-
-function collectSections(sections: Section[], out: Map<string, Section>): void {
-  for (const s of sections) {
-    out.set(s.id, s);
-    if (s.subsections.length) collectSections(s.subsections, out);
-  }
-}
 
 export function CanvasViewInner({
   mode,
@@ -210,72 +159,7 @@ export function CanvasViewInner({
   // rebuilds only when the layout changes — not on every pan/zoom frame.
   const scene = useMemo(() => buildCanvasScene({ layout, plans: layoutSourcePlans }), [layout, layoutSourcePlans]);
 
-  const lookups = useMemo<CanvasLookups>(() => {
-    const nodeById = new Map<string, LaidOutNode>();
-    for (const frame of layout.frames) for (const n of frame.nodes) nodeById.set(n.id, n);
-    const taskById = new Map<string, Task>();
-    const taskModelById = new Map<string, TaskCardModel>();
-    const sectionById = new Map<string, Section>();
-    const specSectionById = new Map<string, SpecSectionModel>();
-    const milestoneModelById = new Map<string, MilestoneBubbleModel>();
-    const milestoneTaskById = new Map<string, string>();
-    const clusterModelById = new Map<string, ClusterCaptionModel>();
-    const elementById = new Map<string, CanvasElement>();
-    for (const plan of filteredPlans) {
-      collectSections(plan.sections, sectionById);
-      for (const row of sectionRows(plan)) {
-        specSectionById.set(`${plan.id}::spec::${row.section.id}`, {
-          section: row.section,
-          glyph: row.glyph,
-          taskCount: row.taskCount,
-        });
-      }
-      const childCounts = new Map<string, number>();
-      const childDone = new Map<string, number>();
-      const taskNameById = new Map(plan.tasks.map((t) => [t.id, t.name]));
-      for (const t of plan.tasks) {
-        if (t.parent_task_id) {
-          childCounts.set(t.parent_task_id, (childCounts.get(t.parent_task_id) ?? 0) + 1);
-          if (t.status === "done" || t.status === "cancelled") childDone.set(t.parent_task_id, (childDone.get(t.parent_task_id) ?? 0) + 1);
-        }
-      }
-      const colors = milestoneColorMap(plan);
-      const driftForPlan = driftByPlan.get(plan.id) ?? [];
-      const driftByTask = new Map<string, DriftItem>();
-      for (const item of driftForPlan) {
-        const existing = driftByTask.get(item.task_id);
-        if (!existing || (existing.not_mine && !item.not_mine)) driftByTask.set(item.task_id, item);
-      }
-      for (const task of plan.tasks) {
-        taskById.set(task.id, task);
-        const parentTaskName = task.parent_task_id ? taskNameById.get(task.parent_task_id) ?? null : null;
-        taskModelById.set(task.id, {
-          task,
-          tagFacets: plan.tag_facets,
-          childCount: childCounts.get(task.id) ?? 0,
-          childDone: childDone.get(task.id) ?? 0,
-          parentTaskName,
-          stepColors: colors,
-          drift: driftByTask.get(task.id),
-          presence: buildTaskPresence(plan, task, panes),
-        });
-        const seen = new Map<string, string>();
-        for (const m of task.milestones) {
-          const color = colors.get(m.kind) ?? "var(--ct-border-focus)";
-          milestoneModelById.set(m.id, { milestone: m, color });
-          milestoneTaskById.set(m.id, task.id);
-          if (!seen.has(m.kind)) seen.set(m.kind, color);
-        }
-        if (seen.size) {
-          clusterModelById.set(`${task.id}::cluster`, {
-            kinds: [...seen.entries()].map(([label, color]) => ({ label: label.replace(/_/g, " "), color })),
-          });
-        }
-      }
-      for (const el of plan.elements) elementById.set(el.id, el);
-    }
-    return { nodeById, taskById, taskModelById, sectionById, specSectionById, milestoneModelById, milestoneTaskById, clusterModelById, elementById };
-  }, [layout, filteredPlans, driftByPlan, panes]);
+  const lookups = useCanvasLookups(layout, filteredPlans, driftByPlan, panes);
 
   const resolveModel = useCallback(
     (node: LaidOutNode): unknown => {
@@ -383,45 +267,31 @@ export function CanvasViewInner({
     [layout, nodeIds],
   );
 
-  const [blinkIds, setBlinkIds] = useState<Set<string>>(() => new Set());
-  // The arrival blink is transient: the ring pulses then fades so it never leaves a
-  // permanent halo, and a later fly to the same node re-mounts → re-triggers it.
-  useEffect(() => {
-    if (!blinkIds.size) return;
-    const h = setTimeout(() => setBlinkIds(new Set()), 3200);
-    return () => clearTimeout(h);
-  }, [blinkIds]);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
-  const richOverlays = useMemo(() => buildOverlayNodes({ scene, transform, focusedId: focusedNodeId }), [scene, transform, focusedNodeId]);
-  useEffect(
-    () => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`, richOverlays, MAX_ACTIVE_RICH_OVERLAYS),
-    [scene, transform, mode, planId, richOverlays],
-  );
 
-  // EMERGENCE: the swarm (only tasks with executing agents). Built off the existing
-  // per-task presence — O(tasks) once per data change, NOT per pan/zoom.
-  const presenceByTask = useMemo(() => {
-    const m = new Map<string, PresenceSource>();
-    for (const [id, model] of lookups.taskModelById) {
-      const p = model.presence;
-      if (!p || p.agents.length === 0) continue;
-      m.set(id, { agents: p.agents, live: model.task.status === "in_progress", label: p.agents[0]?.label ?? p.label });
-    }
-    return m;
-  }, [lookups.taskModelById]);
-  // Floating presence pins: budget-bounded + viewport-culled → constant pin count on
-  // a 20k board, recomputed only when camera/visibility/swarm change (no per-frame O(N)).
-  const presenceOverlays = useMemo(
-    () => buildPresenceOverlays({ presenceByTask, nodeById: lookups.nodeById, visibleIds: nodeIds, worldByNode, transform, maxActive: MAX_ACTIVE_PRESENCE_OVERLAYS }),
-    [presenceByTask, lookups.nodeById, nodeIds, worldByNode, transform],
-  );
-  // EMERGENCE top-right cluster: the WHOLE swarm deduped to one circle per distinct
-  // agent. Camera-DECOUPLED (no transform dep) so the screen-space faces stay put
-  // while you fly; recomputed only when the swarm/task data changes.
-  const swarmRoster = useMemo(
-    () => buildSwarmRoster({ presenceByTask, taskById: lookups.taskById }),
-    [presenceByTask, lookups.taskById],
-  );
+  const {
+    blinkIds,
+    highlight,
+    fitCameraToNodes,
+    focusOnNodes,
+    onFlyToTask,
+    onSectionClick,
+    onSectionFrame,
+    onCanvasFlyClick,
+    onCopyLink,
+    onFocusStride,
+  } = useCanvasFlyTo({ lookups, planById, size, fitToView, animateToView, animateTo, setTransform });
+
+  const { richOverlays, presenceOverlays, swarmRoster } = useCanvasOverlays({
+    scene,
+    transform,
+    focusedNodeId,
+    mode,
+    planId,
+    lookups,
+    nodeIds,
+    worldByNode,
+  });
 
   // §25.3 DOMINANCE (focus-assist for the task you "fell into"): when one task fills
   // ≳60% of the viewport it ELEVATES (paint above + shadow, NO footprint change).
@@ -443,183 +313,14 @@ export function CanvasViewInner({
     return best;
   }, [layout, nodeIds, transform.scale, size.width, size.height, focusedNodeId]);
 
-  // §31 change signal: a plan whose updated_at advanced changed live. The camera
-  // does NOT move — in-viewport plans pulse gently, off-screen ones surface a
-  // directional edge marker (click = user-initiated fly-there). Auto-clears.
-  const prevUpdatedRef = useRef<Map<string, number>>(new Map());
-  const [changedPlanIds, setChangedPlanIds] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    const prev = prevUpdatedRef.current;
-    const changed = new Set<string>();
-    for (const p of filteredPlans) {
-      const was = prev.get(p.id);
-      if (was != null && p.updated_at > was) changed.add(p.id);
-      prev.set(p.id, p.updated_at);
-    }
-    for (const id of [...prev.keys()]) if (!filteredPlans.some((p) => p.id === id)) prev.delete(id);
-    if (!changed.size) return;
-    setChangedPlanIds(changed);
-    const h = setTimeout(() => setChangedPlanIds(new Set()), 6000);
-    return () => clearTimeout(h);
-  }, [filteredPlans]);
-
-  // Move the camera to frame a set of node ids (no blink) — the shared primitive.
-  // `animate` eases there (fly-to gesture); omitted = instant (mount / preset).
-  const fitCameraToNodes = useCallback(
-    (ids: string[], animate = false) => {
-      const boxes = ids.map((id) => lookups.nodeById.get(id)?.box).filter(Boolean) as {
-        x: number; y: number; width: number; height: number;
-      }[];
-      if (!boxes.length) return;
-      const minX = Math.min(...boxes.map((b) => b.x));
-      const minY = Math.min(...boxes.map((b) => b.y));
-      const maxX = Math.max(...boxes.map((b) => b.x + b.width));
-      const maxY = Math.max(...boxes.map((b) => b.y + b.height));
-      // Inflate the framed bbox so a focused node sits fully inside the viewport
-      // with margin (no title/edge clipped at the viewport border).
-      const w = maxX - minX;
-      const h = maxY - minY;
-      const padX = w * 0.12;
-      const padY = h * 0.18;
-      const bounds = { x: minX - padX, y: minY - padY, width: w + padX * 2, height: h + padY * 2 };
-      if (animate) animateToView(bounds);
-      else fitToView(bounds);
-    },
-    [lookups, fitToView, animateToView],
-  );
-
-  // Center the camera on a node set at an EXPLICIT scale (vs fit-to-bbox). The
-  // product "go to node id at zoom Z" primitive: deterministic landing point.
-  const centerCameraOnNodes = useCallback(
-    (ids: string[], scale: number, animate = false) => {
-      const boxes = ids.map((id) => lookups.nodeById.get(id)?.box).filter(Boolean) as {
-        x: number; y: number; width: number; height: number;
-      }[];
-      if (!boxes.length) return;
-      const minX = Math.min(...boxes.map((b) => b.x));
-      const minY = Math.min(...boxes.map((b) => b.y));
-      const maxX = Math.max(...boxes.map((b) => b.x + b.width));
-      const maxY = Math.max(...boxes.map((b) => b.y + b.height));
-      const cx = (minX + maxX) / 2;
-      const cy = (minY + maxY) / 2;
-      const s = Math.max(0.05, Math.min(10, scale));
-      const t = { x: size.width / 2 - cx * s, y: size.height / 2 - cy * s, scale: s };
-      if (animate) animateTo(t);
-      else setTransform(t);
-    },
-    [lookups, setTransform, animateTo, size.width, size.height],
-  );
-
-  // Camera + blink onto a set of node ids (shared by canvas-focus + Plan-on-pane).
-  // scale given → land centered at that exact zoom; omitted → fit the bbox.
-  // `animate` flies the camera (user fly-to) instead of an instant jump.
-  const focusOnNodes = useCallback(
-    (ids: string[], scale?: number, animate = false) => {
-      if (scale != null) centerCameraOnNodes(ids, scale, animate);
-      else fitCameraToNodes(ids, animate);
-      setBlinkIds(new Set(ids));
-    },
-    [fitCameraToNodes, centerCameraOnNodes],
-  );
-
-  // A presence pin → fly to the task its agent is executing (eased + blink), reusing
-  // the shared fly primitive. The literal "click an agent, go to its work" gesture.
-  const onFlyToTask = useCallback(
-    (taskId: string) => {
-      if (lookups.nodeById.has(taskId)) focusOnNodes([taskId], undefined, true);
-    },
-    [lookups, focusOnNodes],
-  );
-
-  // Task ids covering a given plan section — the section→tasks mapping for nav.
-  const sectionTaskIds = useCallback(
-    (planId: string, sectionId: string) => {
-      const plan = planById.get(planId);
-      if (!plan) return [];
-      return plan.tasks.filter((t) => t.section_ids.includes(sectionId)).map((t) => t.id);
-    },
-    [planById],
-  );
-
-  // §32.7 section highlight: single-click a section row → highlight its outgoing
-  // task edges + connected task nodes (NO camera move). Auto-clears.
-  const [highlight, setHighlight] = useState<{ sectionId: string; taskIds: Set<string> } | null>(null);
-  const onSectionClick = useCallback(
-    (a: SectionNavArgs) => {
-      const ids = sectionTaskIds(a.planId, a.sectionId);
-      setHighlight({ sectionId: a.sectionId, taskIds: new Set(ids) });
-    },
-    [sectionTaskIds],
-  );
-  useEffect(() => {
-    if (!highlight) return;
-    const h = setTimeout(() => setHighlight(null), 5000);
-    return () => clearTimeout(h);
-  }, [highlight]);
-
-  // Double-click / row-action → FRAME the connected tasks (fly+blink). Empty
-  // section → frame the plan (user can then compose against it).
-  const onSectionFrame = useCallback(
-    (a: SectionNavArgs) => {
-      const ids = sectionTaskIds(a.planId, a.sectionId);
-      if (ids.length) focusOnNodes(ids);
-      else fitCameraToNodes([a.planId]);
-      setHighlight({ sectionId: a.sectionId, taskIds: new Set(ids) });
-    },
-    [sectionTaskIds, focusOnNodes, fitCameraToNodes],
-  );
-
-  // Fly-to navigation (north-star liveness): ONE delegated click across BOTH the
-  // world layer and the rich-overlay layer. A swarm-roster row flies to its task; a
-  // spec/lineage chip flies to the linked node (or its ghost); a task's section
-  // control flies to the plan section it's bound to + highlights it. All eased +
-  // blink-on-arrival via focusOnNodes(…, animate) — no camera math reinvented here.
-  const onCanvasFlyClick = useCallback(
-    (e: React.MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target || typeof target.closest !== "function") return;
-      const secBtn = target.closest<HTMLElement>("[data-fly-to-kind='task-section']");
-      if (secBtn) {
-        const taskId = secBtn.closest<HTMLElement>("[data-task-id]")?.getAttribute("data-task-id") ?? null;
-        const planId = taskId ? lookups.nodeById.get(taskId)?.planId ?? null : null;
-        if (planId && lookups.nodeById.has(planId)) {
-          focusOnNodes([planId], undefined, true);
-          const secId = (taskId ? lookups.taskById.get(taskId)?.section_ids?.[0] : null) ?? null;
-          if (secId) setHighlight({ sectionId: secId, taskIds: new Set(taskId ? [taskId] : []) });
-        }
-        return;
-      }
-      const chip = target.closest<HTMLElement>("[data-fly-to-id]");
-      if (chip) {
-        const kind = chip.getAttribute("data-fly-to-kind") ?? "";
-        const rawId = chip.getAttribute("data-fly-to-id") ?? "";
-        const planCtx = chip.closest<HTMLElement>("[data-plan-id]")?.getAttribute("data-plan-id") ?? null;
-        const nodeId = resolveFlyToNodeId(kind, rawId, planCtx, (id) => lookups.nodeById.has(id));
-        if (nodeId) focusOnNodes([nodeId], undefined, true);
-        return;
-      }
-      const row = target.closest<HTMLElement>("[data-testid='canvas-plan-swarm-task']");
-      if (row) {
-        const id = row.getAttribute("data-task-id");
-        if (id && lookups.nodeById.has(id)) focusOnNodes([id], undefined, true);
-      }
-    },
-    [lookups, focusOnNodes],
-  );
-
-  // Copy a stable id/link to the clipboard (task, section, stride). User-initiated.
-  const onCopyLink = useCallback((id: string) => {
-    if (typeof navigator !== "undefined" && navigator.clipboard) void navigator.clipboard.writeText(id).catch(() => {});
-  }, []);
-
-  // Focus a stride → frame its owning task (strides live inside the task interior).
-  const onFocusStride = useCallback(
-    (milestoneId: string) => {
-      const taskId = lookups.milestoneTaskById.get(milestoneId);
-      if (taskId) focusOnNodes([taskId]);
-    },
-    [lookups, focusOnNodes],
-  );
+  const { pulsePlanIds, changeMarkers, flyToPlan } = useCanvasChangeSignal({
+    filteredPlans,
+    layout,
+    transform,
+    canvasSize,
+    size,
+    fitCameraToNodes,
+  });
 
   // The active plan to land on at mount: an owned plan if any, else the first.
   const activePlanId = useMemo(
@@ -709,51 +410,6 @@ export function CanvasViewInner({
       y: (size.height / 2 - transform.y) / transform.scale,
     }),
     [size.width, size.height, transform.x, transform.y, transform.scale],
-  );
-
-  // §31: split changed plans into on-screen (pulse in place) vs off-screen
-  // (directional edge marker). Camera never moves on a data change — the marker is
-  // the only signal; clicking it is a USER-initiated fly-there.
-  const { pulsePlanIds, changeMarkers } = useMemo(() => {
-    const pulse = new Set<string>();
-    const markers: { planId: string; x: number; y: number }[] = [];
-    if (!changedPlanIds.size) return { pulsePlanIds: pulse, changeMarkers: markers };
-    const viewRect = viewportWorldRect(transform, canvasSize, 0);
-    const ccx = size.width / 2;
-    const ccy = size.height / 2;
-    const margin = 18;
-    const halfW = Math.max(20, size.width / 2 - margin);
-    const halfH = Math.max(20, size.height / 2 - margin);
-    for (const f of layout.frames) {
-      if (!changedPlanIds.has(f.planId)) continue;
-      if (boxesOverlap(f.box, viewRect)) {
-        pulse.add(f.planId);
-        continue;
-      }
-      const cx = f.box.x + f.box.width / 2;
-      const cy = f.box.y + f.box.height / 2;
-      const sx = cx * transform.scale + transform.x;
-      const sy = cy * transform.scale + transform.y;
-      const dx = sx - ccx;
-      const dy = sy - ccy;
-      if (dx === 0 && dy === 0) continue;
-      const tt = Math.min(dx !== 0 ? halfW / Math.abs(dx) : Infinity, dy !== 0 ? halfH / Math.abs(dy) : Infinity);
-      markers.push({ planId: f.planId, x: ccx + dx * tt, y: ccy + dy * tt });
-    }
-    return { pulsePlanIds: pulse, changeMarkers: markers };
-  }, [changedPlanIds, layout, transform, canvasSize, size.width, size.height]);
-
-  const flyToPlan = useCallback(
-    (planId: string) => {
-      fitCameraToNodes([planId]);
-      setChangedPlanIds((prev) => {
-        if (!prev.has(planId)) return prev;
-        const next = new Set(prev);
-        next.delete(planId);
-        return next;
-      });
-    },
-    [fitCameraToNodes],
   );
 
   const fitView = useCallback(() => fitToView(layout.bounds), [fitToView, layout.bounds]);
