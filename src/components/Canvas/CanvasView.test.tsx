@@ -8,6 +8,7 @@ import type { Pane, Workspace } from "../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import { CanvasViewInner } from "./CanvasView";
 import { registerNodeRenderer } from "./nodeRegistry";
+import { __resetSubstrateV2ForTest } from "./substrateFlag";
 import type { CanvasElement, Plan } from "./types";
 
 type TestFn = () => void | Promise<void>;
@@ -185,6 +186,35 @@ test("double-click camera-focuses a node (breadcrumb appears), Esc clears it", a
   });
   assert(host.querySelector('[data-testid="canvas-breadcrumb"]'), "breadcrumb shows the focused node");
   assert(host.querySelector('[data-testid="canvas-breadcrumb"]')?.textContent?.includes("Auth rollout"), "breadcrumb names the focused plan");
+  await act(async () => root.unmount());
+});
+
+test("substrate v2 double-click focuses by scene geometry when DOM target has no node id", async () => {
+  __resetSubstrateV2ForTest();
+  window.localStorage.setItem("canvas.substrateV2", "true");
+  const { host, root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[FIXTURE_PLAN]} />);
+  await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+
+  const readback = window.__codetermCanvasScene?.get("workspace:workspace");
+  const screenBox = readback?.nodeScreenBox(FIXTURE_PLAN.id);
+  const layer = host.querySelector('[data-testid="canvas-world-layer"]') as HTMLElement;
+  assert(screenBox, "scene readback exposes plan screen box");
+  assert(layer, "world layer present");
+
+  await act(async () => {
+    layer.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("dblclick", {
+      bubbles: true,
+      clientX: screenBox.x + screenBox.width / 2,
+      clientY: screenBox.y + screenBox.height / 2,
+    }));
+  });
+  assert(host.querySelector('[data-testid="canvas-breadcrumb"]')?.textContent?.includes("Auth rollout"), "scene geometry picked and focused plan");
+  const focusedReadback = window.__codetermCanvasScene?.get("workspace:workspace");
+  const overlays = focusedReadback?.activeOverlays() ?? [];
+  assert(overlays.length === 1 && overlays[0].id === FIXTURE_PLAN.id, "focused node publishes one rich overlay");
+  assert(focusedReadback?.maxActiveOverlays === 2, "readback publishes configured rich overlay budget");
+  window.localStorage.removeItem("canvas.substrateV2");
+  __resetSubstrateV2ForTest();
   await act(async () => root.unmount());
 });
 
