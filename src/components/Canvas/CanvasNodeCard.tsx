@@ -21,6 +21,9 @@ interface CanvasNodeCardProps {
   onSectionFrame?: (a: SectionNavArgs) => void;
   tagFilterDimmed?: boolean;
   tagFilterHighlighted?: boolean;
+  suppressRichContent?: boolean;
+  richOverlay?: boolean;
+  fillParent?: boolean;
 }
 
 function nodeStyle(box: { x: number; y: number; width: number; height?: number }) {
@@ -34,8 +37,10 @@ function nodeStyle(box: { x: number; y: number; width: number; height?: number }
 }
 
 export const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, world, crispScale, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame, tagFilterDimmed, tagFilterHighlighted }: CanvasNodeCardProps) {
-    const base = nodeStyle(node.box);
+  function CanvasNodeCard({ node, model, lod, world, crispScale, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay, fillParent }: CanvasNodeCardProps) {
+    const base = fillParent
+      ? { position: "absolute" as const, left: 0, top: 0, width: "100%", height: "100%" }
+      : nodeStyle(node.box);
     const style: typeof base & { zIndex?: number; transition?: string; filter?: string } =
       elevated
         ? { ...base, zIndex: 20, filter: "drop-shadow(0 18px 40px rgba(0,0,0,0.55))", transition: "filter var(--ct-duration-normal) var(--ct-ease-decel)" }
@@ -58,6 +63,8 @@ export const CanvasNodeCard = memo(
       onSectionFrame,
       tagFilterDimmed,
       tagFilterHighlighted,
+      suppressRichContent,
+      richOverlay,
     });
     return rendered ? <Fragment key={node.id}>{rendered}</Fragment> : null;
   },
@@ -69,6 +76,9 @@ export const CanvasNodeCard = memo(
     if (prev.elevated !== next.elevated) return false;
     if (prev.tagFilterDimmed !== next.tagFilterDimmed) return false;
     if (prev.tagFilterHighlighted !== next.tagFilterHighlighted) return false;
+    if (prev.suppressRichContent !== next.suppressRichContent) return false;
+    if (prev.richOverlay !== next.richOverlay) return false;
+    if (prev.fillParent !== next.fillParent) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;
     const b = next.node.box;

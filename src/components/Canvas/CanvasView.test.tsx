@@ -9,6 +9,7 @@ import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "./cards/fixtures.te
 import { CanvasViewInner } from "./CanvasView";
 import { registerNodeRenderer } from "./nodeRegistry";
 import { __resetSubstrateV2ForTest } from "./substrateFlag";
+import { __resetOverlayBudgetForTest } from "./overlayBudgetFlag";
 import type { CanvasElement, Plan } from "./types";
 
 type TestFn = () => void | Promise<void>;
@@ -383,6 +384,68 @@ test("CanvasViewInner recomputes layout revision when spec sections load", async
   const rev = host.querySelector('[data-testid="canvas-world-layer"]')?.getAttribute("data-layout-revision") ?? "";
   assert(rev.includes("sec-extra"), "loaded spec sections participate in layout revision");
   Object.defineProperty(globalThis, "fetch", { configurable: true, value: originalFetch });
+  await act(async () => root.unmount());
+});
+
+test("substrate v2 mounts focused rich overlay at scene screenRect", async () => {
+  __resetSubstrateV2ForTest();
+  window.localStorage.setItem("canvas.substrateV2", "true");
+  const { host, root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[FIXTURE_PLAN]} />);
+  await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+
+  const planNode = host.querySelector('[data-testid="canvas-plan-node"]') as HTMLElement;
+  await act(async () => {
+    planNode.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("dblclick", { bubbles: true }));
+  });
+
+  const overlay = host.querySelector('[data-testid="canvas-rich-overlay"]') as HTMLElement | null;
+  assert(overlay, "focused rich overlay mounted");
+  assert(overlay.getAttribute("data-overlay-id") === FIXTURE_PLAN.id, "overlay targets focused plan");
+  const readback = window.__codetermCanvasScene?.get("workspace:workspace");
+  const screenBox = readback?.nodeScreenBox(FIXTURE_PLAN.id);
+  assert(screenBox, "scene readback exposes plan screen box");
+  const left = Number.parseFloat(overlay.style.left);
+  const top = Number.parseFloat(overlay.style.top);
+  const width = Number.parseFloat(overlay.style.width);
+  const height = Number.parseFloat(overlay.style.height);
+  assert(Math.abs(left - screenBox!.x) < 1, `overlay left tracks screenRect (${left} ~ ${screenBox!.x})`);
+  assert(Math.abs(top - screenBox!.y) < 1, `overlay top tracks screenRect (${top} ~ ${screenBox!.y})`);
+  assert(Math.abs(width - screenBox!.width) < 1, `overlay width tracks screenRect (${width} ~ ${screenBox!.width})`);
+  assert(Math.abs(height - screenBox!.height) < 1, `overlay height tracks screenRect (${height} ~ ${screenBox!.height})`);
+
+  window.localStorage.removeItem("canvas.substrateV2");
+  __resetSubstrateV2ForTest();
+  await act(async () => root.unmount());
+});
+
+test("overlay budget suppresses world-layer rich bodies while focused overlay stays rich", async () => {
+  __resetSubstrateV2ForTest();
+  __resetOverlayBudgetForTest();
+  window.localStorage.setItem("canvas.substrateV2", "true");
+  window.localStorage.setItem("canvas.overlayBudget", "true");
+  const { host, root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[FIXTURE_PLAN_WITH_SPEC]} />);
+  await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+
+  assert(host.querySelector('[data-testid="canvas-view"]')?.getAttribute("data-overlay-budget") === "true", "canvas view advertises overlay budget");
+  const worldLayer = '[data-testid="canvas-world-layer"]';
+  const worldRichSelector = `${worldLayer} [data-testid="canvas-plan-section-body"], ${worldLayer} [data-testid="canvas-spec-section-body"], ${worldLayer} [data-testid="canvas-task-full-body"]`;
+  const worldRichBefore = host.querySelectorAll(worldRichSelector).length;
+  assert(worldRichBefore === 0, `world layer rich bodies suppressed before focus, got ${worldRichBefore}`);
+
+  const planNode = host.querySelector('[data-testid="canvas-plan-node"]') as HTMLElement;
+  await act(async () => {
+    planNode.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("dblclick", { bubbles: true }));
+  });
+
+  const overlayRich = host.querySelector('[data-testid="canvas-rich-overlay"] [data-testid="canvas-plan-section-body"], [data-testid="canvas-rich-overlay"] [data-testid="canvas-spec-section-body"], [data-testid="canvas-rich-overlay"] [data-testid="canvas-task-full-body"]');
+  assert(overlayRich, "focused overlay keeps rich section/body content");
+  const worldRichAfter = host.querySelectorAll(worldRichSelector).length;
+  assert(worldRichAfter === 0, `world layer stays degraded after focus, got ${worldRichAfter}`);
+
+  window.localStorage.removeItem("canvas.substrateV2");
+  window.localStorage.removeItem("canvas.overlayBudget");
+  __resetSubstrateV2ForTest();
+  __resetOverlayBudgetForTest();
   await act(async () => root.unmount());
 });
 

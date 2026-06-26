@@ -253,6 +253,8 @@ export interface TaskCardProps extends CanvasCardStyleProps {
   onFocusStride?: (milestoneId: string) => void;
   tagFilterDimmed?: boolean;
   tagFilterHighlighted?: boolean;
+  suppressRichContent?: boolean;
+  richOverlay?: boolean;
 }
 
 export function TaskCard({
@@ -274,6 +276,8 @@ export function TaskCard({
   onFocusStride,
   tagFilterDimmed = false,
   tagFilterHighlighted = false,
+  suppressRichContent = false,
+  richOverlay = false,
 }: TaskCardProps) {
   const badgeColor = TASK_STATUS_COLORS[task.status];
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
@@ -281,8 +285,9 @@ export function TaskCard({
   const shelf = shelfOf(task.status);
   const showTitle = atLeast(world, "W1");
   const showStructure = atLeast(world, "W2");
-  const showBodySlot = atLeast(world, "W2");
-  const showFullBody = atLeast(world, "W3");
+  const budgetRich = suppressRichContent && !richOverlay;
+  const showBodySlot = atLeast(world, "W2") && !budgetRich;
+  const showFullBody = atLeast(world, "W3") && !budgetRich;
   const showDeepDive = showFullBody && crispScale >= DEEP_DIVE_CRISP_SCALE;
   const innerW = (typeof style.width === "number" ? style.width : 260) - 26;
 

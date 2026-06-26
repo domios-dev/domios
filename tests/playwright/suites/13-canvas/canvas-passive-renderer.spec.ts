@@ -1,13 +1,18 @@
 import { expect, test } from "../../helpers/fixtures";
 import {
+  FIGMA_SUBSTRATE_FLAG_KEY,
+  OVERLAY_BUDGET_FLAG_KEY,
   PASSIVE_RENDERER_FLAG_KEY,
   sampleCanvasPixels,
 } from "../../helpers/canvas-figma-acceptance";
 
-test("@golden @canvas-passive-renderer passive canvas layer draws workspace scene", async ({ ui }) => {
+test("@golden @canvas-passive-renderer passive canvas layer draws budgeted substrate scene", async ({ ui }) => {
   const { page } = ui;
 
-  await page.evaluate((key) => window.localStorage.setItem(key, "true"), PASSIVE_RENDERER_FLAG_KEY);
+  await page.evaluate(
+    (keys) => keys.forEach((key) => window.localStorage.setItem(key, "true")),
+    [PASSIVE_RENDERER_FLAG_KEY, FIGMA_SUBSTRATE_FLAG_KEY, OVERLAY_BUDGET_FLAG_KEY],
+  );
   await page.reload({ waitUntil: "domcontentloaded" });
 
   const workspace = page.locator('[data-testid="workspace-item"][data-workspace-name="codeterm"]').first();
@@ -43,4 +48,31 @@ test("@golden @canvas-passive-renderer passive canvas layer draws workspace scen
   });
   expect(debug.pixels?.nonblank).toBe(true);
   expect(debug.boxCount).toBeGreaterThan(0);
+
+  const planNode = page.locator('[data-testid="canvas-plan-node"]').first();
+  await expect(planNode).toBeVisible({ timeout: 30_000 });
+  await planNode.dblclick({ force: true });
+
+  const overlay = page.locator('[data-testid="canvas-rich-overlay"]').first();
+  await expect(overlay).toBeVisible({ timeout: 30_000 });
+  await expect(overlay).toHaveAttribute("data-overlay-kind", /plan|task|spec/);
+
+  const budget = await page.evaluate(() => {
+    const worldLayer = document.querySelector('[data-testid="canvas-world-layer"]');
+    const worldRich = worldLayer?.querySelectorAll(
+      '[data-testid="canvas-plan-section-body"], [data-testid="canvas-spec-section-body"], [data-testid="canvas-task-full-body"]',
+    ).length ?? 0;
+    const overlays = document.querySelectorAll('[data-testid="canvas-rich-overlay"]').length;
+    const readback = window.__codetermCanvasScene?.get("workspace:workspace");
+    return {
+      overlays,
+      worldRich,
+      readbackOverlays: readback?.activeOverlays().length ?? 0,
+      maxActiveOverlays: readback?.maxActiveOverlays ?? 0,
+    };
+  });
+  expect(budget.overlays).toBeLessThanOrEqual(2);
+  expect(budget.readbackOverlays).toBeLessThanOrEqual(2);
+  expect(budget.maxActiveOverlays).toBe(2);
+  expect(budget.worldRich).toBe(0);
 });
