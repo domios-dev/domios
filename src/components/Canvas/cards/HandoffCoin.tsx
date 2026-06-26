@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { ArrowRight, RotateCcw } from "lucide-react";
+import { ArrowRight, ArrowLeftRight, RotateCcw } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { atLeast, type World } from "../worlds";
 import type { CanvasElement } from "../types";
@@ -58,6 +58,67 @@ function ChipRow({ label, items, color }: { label: string; items: string[]; colo
   );
 }
 
+// In-flight handoff status reads green=done, amber=in-review/blocked, focus=running.
+function statusAccent(status?: string): string {
+  const s = (status ?? "").toLowerCase();
+  if (s === "done" || s === "accepted") return "rgba(82,180,145,0.95)";
+  if (s.includes("review") || s === "blocked") return "var(--ct-warning, #fbbf24)";
+  return "var(--ct-border-focus)";
+}
+
+type InFlight = NonNullable<HandoffContent["in_flight"]>[number];
+
+// Per-agent reseed rows: each agent the next session inherits, its task status,
+// and the peer it pairs with — the live roster of who is mid-flight at handoff.
+function InFlightRows({ items }: { items: InFlight[] }) {
+  if (!items.length) return null;
+  return (
+    <div data-testid="canvas-handoff-agents" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ fontSize: "0.66em", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", opacity: 0.7 }}>in flight</span>
+      {items.slice(0, 8).map((t, i) => {
+        const accent = statusAccent(t.status);
+        const who = t.task_handle || t.assigned_pane_id || t.task_id;
+        return (
+          <div key={i} data-testid="canvas-handoff-agent-row" data-agent-status={t.status ?? "running"} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.74em", minWidth: 0 }}>
+            <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: accent, boxShadow: `0 0 0 2px color-mix(in srgb, ${accent} 24%, transparent)` }} />
+            <span data-canvas-selectable className="ct-canvas-text" style={{ fontFamily: "var(--ct-font-mono)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0, flex: "0 1 auto" }}>{who}</span>
+            {t.peer && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, opacity: 0.78, flexShrink: 0 }}>
+                <ArrowLeftRight size={10} style={{ opacity: 0.7 }} />
+                <span style={{ fontFamily: "var(--ct-font-mono)", maxWidth: 90, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.peer}</span>
+              </span>
+            )}
+            <span style={{ flex: 1, minWidth: 4 }} />
+            {t.status && (
+              <span style={{ fontSize: "0.86em", fontWeight: 700, padding: "0 6px", borderRadius: 999, flexShrink: 0, color: accent, background: `color-mix(in srgb, ${accent} 15%, transparent)`, border: `1px solid color-mix(in srgb, ${accent} 40%, transparent)`, whiteSpace: "nowrap" }}>{t.status.replace(/_/g, " ")}</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// done/total coverage as a labeled track — the plan's completion at this handoff.
+function PlanSnapshotBar({ snap }: { snap: NonNullable<HandoffContent["plan_snapshot"]> }) {
+  const done = snap.done ?? 0;
+  const total = snap.total ?? 0;
+  if (total <= 0) return null;
+  const pct = Math.max(0, Math.min(100, Math.round((done / total) * 100)));
+  return (
+    <div data-testid="canvas-handoff-progress" style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: "0.7em" }}>
+        <span style={{ fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em", opacity: 0.7 }}>plan</span>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: 0.85 }}>{snap.plan_title}</span>
+        <span style={{ fontFamily: "var(--ct-font-mono)", fontWeight: 700 }}>{done}/{total}</span>
+      </div>
+      <div style={{ position: "relative", height: 5, borderRadius: 999, background: "var(--ct-bg-active)", overflow: "hidden" }}>
+        <div style={{ position: "absolute", inset: 0, width: `${pct}%`, borderRadius: 999, background: "linear-gradient(90deg, color-mix(in srgb, rgba(82,180,145,0.9) 70%, var(--ct-border-focus)), rgba(82,180,145,0.95))" }} />
+      </div>
+    </div>
+  );
+}
+
 export interface HandoffCoinProps {
   element: CanvasElement;
   style: CSSProperties;
@@ -95,21 +156,32 @@ export function HandoffCoin({ element, style, world }: HandoffCoinProps) {
         {atLeast(world, "W1") && (
           <>
             {c.goal && (
-              <div data-testid="canvas-handoff-goal" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.86em", lineHeight: 1.35, fontWeight: 600, display: "-webkit-box", WebkitLineClamp: atLeast(world, "W2") ? 3 : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+              <div data-testid="canvas-handoff-goal" data-canvas-selectable className="ct-canvas-text" style={{ fontSize: "0.86em", lineHeight: 1.35, fontWeight: 600, display: "-webkit-box", WebkitLineClamp: atLeast(world, "W3") ? 4 : 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                 {c.goal}
               </div>
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.7em", opacity: 0.75 }}>
               {c.ts != null && <span data-testid="canvas-handoff-ts">{fmtTime(c.ts)}</span>}
               {c.plan_snapshot?.coverage_pct != null && <span>· {c.plan_snapshot.coverage_pct}% covered</span>}
+              {atLeast(world, "W1") && !atLeast(world, "W2") && inFlight.length > 0 && <span>· {inFlight.length} in flight</span>}
             </div>
           </>
         )}
 
-        {atLeast(world, "W2") && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 2 }}>
-            <ChipRow label="next" items={(c.next_actions ?? []).slice(0, 5)} color="color-mix(in srgb, var(--ct-border-focus) 45%, transparent)" />
-            <ChipRow label="agents" items={inFlight.map((t) => t.task_handle || t.assigned_pane_id || t.task_id).slice(0, 6)} />
+        {/* W2 stays compact — the footprint is fixed, so the plan progress bar is the
+            single highest-value glance; the verbose per-agent roster lives at W3. */}
+        {atLeast(world, "W2") && !atLeast(world, "W3") && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 2 }}>
+            <ChipRow label="next" items={(c.next_actions ?? []).slice(0, 3)} color="color-mix(in srgb, var(--ct-border-focus) 45%, transparent)" />
+            {c.plan_snapshot && <PlanSnapshotBar snap={c.plan_snapshot} />}
+          </div>
+        )}
+
+        {atLeast(world, "W3") && (
+          <div className="ct-canvas-scroll" data-canvas-scroll-body="1" style={{ marginTop: 4, flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+            {c.plan_snapshot && <PlanSnapshotBar snap={c.plan_snapshot} />}
+            <InFlightRows items={inFlight} />
+            <ChipRow label="next" items={c.next_actions ?? []} color="color-mix(in srgb, var(--ct-border-focus) 45%, transparent)" />
             {c.plan_snapshot?.plan_title && (
               <div data-testid="canvas-handoff-sessions" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: "0.7em", flexWrap: "wrap" }}>
                 <span style={{ padding: "0.05em 0.45em", borderRadius: 999, background: "var(--ct-bg-active)", border: "1px solid var(--ct-border-subtle)" }}>#{Math.max(0, seq - 1)}</span>
@@ -117,11 +189,6 @@ export function HandoffCoin({ element, style, world }: HandoffCoinProps) {
                 <span style={{ padding: "0.05em 0.45em", borderRadius: 999, background: "color-mix(in srgb, var(--ct-border-focus) 14%, transparent)", border: "1px solid color-mix(in srgb, var(--ct-border-focus) 40%, transparent)" }}>#{seq}</span>
               </div>
             )}
-          </div>
-        )}
-
-        {atLeast(world, "W3") && (
-          <div className="ct-canvas-scroll" data-canvas-scroll-body="1" style={{ marginTop: 4, flex: 1, overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column", gap: 8 }}>
             <ChipRow label="rules" items={c.foundational_rules ?? []} />
             <ChipRow label="open" items={c.open_decisions ?? []} color="color-mix(in srgb, var(--ct-warning, #fbbf24) 45%, transparent)" />
             {c.resume_prompt && (

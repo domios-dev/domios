@@ -299,7 +299,7 @@ export function CanvasViewInner({
           const planId = node.id.startsWith("ghost:") ? node.id.slice(6) : node.id;
           const meta = lineageCatalog.get(planId);
           const ghost: PlanGhostModel = meta
-            ? { planId: meta.id, title: meta.title, status: meta.status }
+            ? { planId: meta.id, title: meta.title, status: meta.status, sectionCount: meta.sectionCount, taskCount: meta.taskCount }
             : { planId, title: planId, status: "archived" };
           return ghost;
         }
@@ -811,6 +811,7 @@ export function CanvasViewInner({
                 key={group.ownerKey}
                 group={group}
                 style={{ left: group.box.x, top: group.box.y, width: group.box.width, height: group.box.height }}
+                scale={transform.scale}
                 onOpen={onOpenPane}
               />
             ))}
