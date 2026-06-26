@@ -138,9 +138,10 @@ test("CanvasViewInner derives task presence from panes heartbeat and latest stri
   });
   const marker = host.querySelector('[data-testid="canvas-task-presence"]') as HTMLElement | null;
   assert(marker, "presence marker rendered on task card");
-  assert(marker.textContent?.includes("Puccini"), `pane title used as assignee label, got ${marker?.textContent}`);
-  assert(marker.textContent?.includes("Implement presence chip"), `heartbeat focus visible, got ${marker?.textContent}`);
-  assert(marker.textContent?.includes("status update"), `latest stride kind visible, got ${marker?.textContent}`);
+  assert(marker.textContent?.includes("Puccini"), `pane title used as lead label, got ${marker?.textContent}`);
+  assert(host.querySelector('[data-testid="canvas-agent-circle"]'), "agent presence circle rendered");
+  assert(marker.getAttribute("title")?.includes("Implement presence chip"), `heartbeat focus in tooltip, got ${marker?.getAttribute("title")}`);
+  assert(marker.getAttribute("title")?.includes("status update"), `latest stride kind in tooltip, got ${marker?.getAttribute("title")}`);
   await act(async () => root.unmount());
 });
 

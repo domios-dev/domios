@@ -12,6 +12,7 @@ import { formatTaskFreshness, taskFreshnessAt } from "./taskFreshness";
 import { StrideSnake } from "./StrideSnake";
 import { formatTime } from "../../../lib/formatters";
 import type { TaskPresence } from "../taskPresence";
+import { AgentStack } from "../presence/AgentCircle";
 
 // §32 worlds task cell — fixed footprint (§32.4), content adapts to the node's appW
 // band (W0 mass → W3 deep). No manual mode, no click-to-reveal: zoom IS navigation.
@@ -166,15 +167,18 @@ function PriorityTag({ priority, dim }: { priority: TaskPriority; dim: boolean }
   );
 }
 
-function PresencePill({ presence }: { presence: TaskPresence }) {
-  const detail = [
-    presence.label,
-    presence.focus,
-    presence.latest ? `${presence.latest.authorLabel} ${presence.latest.kindLabel}` : null,
-  ].filter(Boolean).join(" · ");
+// EMERGENCE (north-star #2): the on-card "who is here" read. Color-keyed agent
+// circles (multiplayer) + the lead handle + the BRANCH, glanceable from W1 — so the
+// swarm is visible without diving to the W3 lane block. Activity (latest step kind)
+// rides along once there's room (W2+). `live` pulses the lead when executing.
+function PresenceCluster({ presence, live, showActivity }: { presence: TaskPresence; live: boolean; showActivity: boolean }) {
+  const lead = presence.agents[0];
+  const leadLabel = lead?.label ?? presence.label;
+  const activity = showActivity && presence.latest ? presence.latest.kindLabel : null;
   const title = [
-    `Working: ${presence.label}`,
+    `Working: ${presence.agents.map((a) => a.label + (a.role ? ` (${a.role})` : "")).join(", ") || presence.label}`,
     `Pane: ${presence.paneId}`,
+    presence.branch ? `Branch: ${presence.branch}` : null,
     presence.focus ? `Focus: ${presence.focus}` : null,
     presence.latest ? `Latest: ${presence.latest.authorLabel} · ${presence.latest.kindLabel}` : null,
   ].filter(Boolean).join("\n");
@@ -182,26 +186,52 @@ function PresencePill({ presence }: { presence: TaskPresence }) {
     <span
       data-testid="canvas-task-presence"
       data-pane-id={presence.paneId}
+      data-agent-count={presence.agents.length}
       title={title}
       style={{
-        display: "inline-flex",
+        display: "flex",
         alignItems: "center",
-        gap: 5,
+        flexWrap: "wrap",
+        gap: 6,
+        rowGap: 4,
         minWidth: 0,
         maxWidth: "100%",
         fontSize: "0.72em",
         fontWeight: 700,
-        padding: "0.08em 0.5em",
-        borderRadius: 999,
-        border: "1px solid color-mix(in srgb, rgba(82,180,145,0.95) 55%, transparent)",
-        background: "color-mix(in srgb, rgba(82,180,145,0.95) 15%, transparent)",
         color: "var(--ct-fg)",
       }}
     >
-      <span aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: "rgba(82,180,145,0.95)", flexShrink: 0 }} />
-      <span data-testid="canvas-task-presence-detail" style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {detail}
+      {presence.agents.length > 0 && <AgentStack agents={presence.agents} size={18} live={live} />}
+      <span data-testid="canvas-task-presence-detail" style={{ minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {leadLabel}
       </span>
+      {presence.branch && (
+        <span
+          data-testid="canvas-task-presence-branch"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 3,
+            minWidth: 0,
+            maxWidth: "100%",
+            padding: "0.05em 0.42em",
+            borderRadius: "var(--ct-radius-sm)",
+            border: "1px solid color-mix(in srgb, rgba(96,165,250,0.95) 40%, transparent)",
+            background: "color-mix(in srgb, rgba(96,165,250,0.95) 12%, transparent)",
+            fontFamily: "var(--ct-font-mono)",
+            fontWeight: 600,
+            color: "rgba(96,165,250,0.95)",
+          }}
+        >
+          <GitBranch size={10} strokeWidth={2.4} aria-hidden style={{ flexShrink: 0 }} />
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{presence.branch}</span>
+        </span>
+      )}
+      {activity && (
+        <span data-testid="canvas-task-presence-activity" style={{ minWidth: 0, fontWeight: 600, color: "color-mix(in srgb, var(--ct-fg) 55%, transparent)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {activity}
+        </span>
+      )}
     </span>
   );
 }
@@ -545,6 +575,12 @@ export function TaskCard({
       <DriftBadge drift={drift} />
     </div>
   );
+  // EMERGENCE: presence lives in the HEADER (never collapses, present every band)
+  // so "who is here + branch" is glanceable from W1 — the W2+ summary slot collapses
+  // to 0, so the counters row is the wrong home. Hidden at W0 (mass glance).
+  const presenceEl = presence && showTitle
+    ? <PresenceCluster presence={presence} live={task.status === TaskStatus.InProgress} showActivity={showStructure} />
+    : null;
 
   const card = (boxStyle: CSSProperties) => (
     <div
@@ -574,11 +610,15 @@ export function TaskCard({
               {actions}
             </div>
             {nameSpan}
+            {presenceEl}
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "start", gap: 6, minWidth: 0 }}>
-            {nameSpan}
-            {statusCluster}
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "start", gap: 6, minWidth: 0 }}>
+              {nameSpan}
+              {statusCluster}
+            </div>
+            {presenceEl}
           </div>
         )}
 
@@ -587,8 +627,8 @@ export function TaskCard({
           {handle && <HandleChip handle={handle} dim={isDone} />}
           {task.type && <Chip testid="canvas-task-type">{task.type}</Chip>}
           {role && <Chip testid="canvas-task-role" accent="rgba(96,165,250,0.95)" icon={<UserRound size={11} aria-hidden />} max={150}>{role}</Chip>}
-          {branch && <Chip testid="canvas-task-branch" mono icon={<GitBranch size={11} aria-hidden />} max={170}>{branch}</Chip>}
-          {peer && <Chip testid="canvas-task-peer" icon={<Users size={11} aria-hidden />} max={140}>{peer}</Chip>}
+          {branch && !presence?.branch && <Chip testid="canvas-task-branch" mono icon={<GitBranch size={11} aria-hidden />} max={170}>{branch}</Chip>}
+          {peer && !presence?.agents.some((a) => a.isPeer) && <Chip testid="canvas-task-peer" icon={<Users size={11} aria-hidden />} max={140}>{peer}</Chip>}
           {group && <Chip testid="canvas-task-group" max={140}>{group}</Chip>}
           {task.model && <Chip testid="canvas-task-model" mono>{task.model}</Chip>}
           {resolved.facets.map((facet) => (
@@ -610,9 +650,8 @@ export function TaskCard({
             </div>
           ) : null}
 
-          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0 || freshnessLabel.length > 0 || !!parentTaskName || !!presence || (!!handle && showTitle)) }}>
+          <div data-testid="canvas-task-counters" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", ...revealStyle(bodyChars > 0 || strideCount > 0 || childCount > 0 || freshnessLabel.length > 0 || !!parentTaskName || (!!handle && showTitle)) }}>
             {handle && showTitle && <HandleChip handle={handle} dim={isDone} />}
-            {presence && <PresencePill presence={presence} />}
             {parentTaskName && (
               <Counter testid="canvas-task-parent">
                 <CornerDownRight size={10} aria-hidden />

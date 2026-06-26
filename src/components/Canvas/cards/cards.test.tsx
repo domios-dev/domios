@@ -224,6 +224,11 @@ test("TaskCard presence marker shows assignee focus and latest stride", async ()
         label: "Puccini",
         focus: "Implement presence chip",
         latest: { authorLabel: "Puccini", kindLabel: "status update" },
+        agents: [
+          { id: "pane-42", label: "Puccini", role: "backend-dev", color: "#4f7df0" },
+          { id: "peer:claude-sonnet", label: "claude-sonnet", role: "peer", color: "#e8643c", isPeer: true },
+        ],
+        branch: "feat/login-endpoint",
       }}
       style={cardStyle}
       world="W3"
@@ -232,9 +237,11 @@ test("TaskCard presence marker shows assignee focus and latest stride", async ()
   const marker = host.querySelector('[data-testid="canvas-task-presence"]') as HTMLElement | null;
   assert(marker, "presence marker rendered");
   assert(marker.getAttribute("data-pane-id") === "pane-42", "pane id attached for presence marker");
-  assert(marker.textContent?.includes("Puccini"), `assignee label visible, got ${marker.textContent}`);
-  assert(marker.textContent?.includes("Implement presence chip"), `focus visible, got ${marker.textContent}`);
+  assert(marker.textContent?.includes("Puccini"), `lead label visible, got ${marker.textContent}`);
+  assert(host.querySelectorAll('[data-testid="canvas-agent-circle"]').length === 2, "both agent circles rendered");
+  assert(host.querySelector('[data-testid="canvas-task-presence-branch"]')?.textContent?.includes("feat/login-endpoint"), "branch surfaced glanceably");
   assert(marker.textContent?.includes("status update"), `latest stride kind visible, got ${marker.textContent}`);
+  assert(marker.getAttribute("title")?.includes("Implement presence chip"), "focus available in tooltip");
   await act(async () => root.unmount());
 });
 
