@@ -16,7 +16,14 @@ const cardStyle: CSSProperties = {
 };
 
 function elementMarkdown(element: CanvasElement): string {
-  return typeof element.content === "string" ? element.content : "";
+  if (typeof element.content === "string") return element.content;
+  if (!element.content || typeof element.content !== "object") return "";
+  const content = element.content as Record<string, unknown>;
+  for (const key of ["text", "body", "markdown"]) {
+    const value = content[key];
+    if (typeof value === "string") return value;
+  }
+  return "";
 }
 
 export interface NoteCardProps extends CanvasCardStyleProps {
