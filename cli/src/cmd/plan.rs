@@ -407,6 +407,10 @@ fn run_plan(
             call(client, "plan.archive", json!({ "plan_id": plan_id }))
         }
 
+        PlanAction::Unarchive { plan_id } => {
+            call(client, "plan.unarchive", json!({ "plan_id": plan_id }))
+        }
+
         PlanAction::Delete { plan_id } => {
             call(client, "plan.delete", json!({ "plan_id": plan_id }))
         }

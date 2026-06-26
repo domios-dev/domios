@@ -125,6 +125,8 @@ pub enum PlanAction {
     },
     /// Archive a plan
     Archive { plan_id: String },
+    /// Restore an archived plan to active
+    Unarchive { plan_id: String },
     /// Delete a plan
     Delete { plan_id: String },
     /// Transfer plan ownership

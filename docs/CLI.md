@@ -1789,6 +1789,12 @@ Transfer plan ownership
 - `--reason`
 - `--to`
 
+#### `codeterm plan unarchive`
+
+Restore an archived plan to active
+
+- `<plan_id>`
+
 #### `codeterm plan unlink`
 
 Remove a plan link

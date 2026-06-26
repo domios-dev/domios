@@ -7019,6 +7019,22 @@
           "subcommands": []
         },
         {
+          "name": "unarchive",
+          "about": "Restore an archived plan to active",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "unlink",
           "about": "Remove a plan link",
           "aliases": [],
