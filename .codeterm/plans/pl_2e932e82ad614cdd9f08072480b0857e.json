@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782469753823,
+  "updated_at": 1782469908838,
   "milestone_kinds": [
     {
       "key": "research",
@@ -539,6 +539,59 @@
         "workspace_name": null,
         "worktree_path": "/Users/rollacode/Developer/codeterm-scene-hit-overlay-budget",
         "branch": "lane/scene-hit-overlay-budget",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "remove worktree and branch after orchestrator accepts"
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_983a719b928d49f7b1953d90048e7193",
+      "name": "S5 — Runtime rich overlay DOM and budgeted card degradation",
+      "type": "feature",
+      "model": "cursor:composer-2.5",
+      "model_rationale": "Frontend/runtime UI slice; Cursor is cheaper and suitable while orchestrator owns final gates.",
+      "acceptance_criteria": [
+        "With substrate and overlay budget flags enabled, mounted rich DOM overlays are bounded to <=2.",
+        "Focused overlay uses OverlayNode screenRect and preserves world geometry.",
+        "Non-flag behavior remains unchanged."
+      ],
+      "test_plan": "Focused unit/component tests plus orchestrator-run Playwright with substrate/overlay flags enabled.",
+      "correctness": "Rich content moves toward a Figma-like overlay model: canvas/scene geometry owns layout, DOM richness is capped to focused nodes.",
+      "status": "in_progress",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782469883785,
+      "updated_at": 1782469908838,
+      "status_changed_at": 1782469908838,
+      "handle": "s5-runtime-rich-overlay-dom-and-budgeted-card-degradation",
+      "tags": [
+        "canvas",
+        "substrate",
+        "performance"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-runtime-rich-overlay",
+        "branch": "lane/runtime-rich-overlay",
         "base": "feat/canvas",
         "destination": "feat/canvas",
         "cleanup_status": "pending",
