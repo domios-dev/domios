@@ -36,6 +36,7 @@
 - [s3-passive-canvas-renderer-layer-behind-current-dom-ui strides](tasks/s3-passive-canvas-renderer-layer-behind-current-dom-ui/strides.jsonl)
 - [s4-scene-hit-testing-and-rich-overlay-budget-contract strides](tasks/s4-scene-hit-testing-and-rich-overlay-budget-contract/strides.jsonl)
 - [s5-runtime-rich-overlay-dom-and-budgeted-card-degradation strides](tasks/s5-runtime-rich-overlay-dom-and-budgeted-card-degradation/strides.jsonl)
+- [s6-lightweight-world-cards-under-substrate-overlay-budget strides](tasks/s6-lightweight-world-cards-under-substrate-overlay-budget/strides.jsonl)
 
 ## Milestones
 
@@ -61,6 +62,7 @@
 - [s3-passive-canvas-renderer-layer-behind-current-dom-ui status_update (ms_3f8e2935e7c34734bfa35b4885f37016)](milestones/s3-passive-canvas-renderer-layer-behind-current-dom-ui-ms_3f8e2935e7c34734bfa35b4885f37016.md)
 - [s4-scene-hit-testing-and-rich-overlay-budget-contract status_update (ms_f4c11912561d444794b8f1556511ea3b)](milestones/s4-scene-hit-testing-and-rich-overlay-budget-contract-ms_f4c11912561d444794b8f1556511ea3b.md)
 - [s5-runtime-rich-overlay-dom-and-budgeted-card-degradation status_update (ms_18ec6cd0d5944c5fb29f7e037d4dff60)](milestones/s5-runtime-rich-overlay-dom-and-budgeted-card-degradation-ms_18ec6cd0d5944c5fb29f7e037d4dff60.md)
+- [s6-lightweight-world-cards-under-substrate-overlay-budget status_update (ms_b3297c37a5104a67ad9f3670257a9360)](milestones/s6-lightweight-world-cards-under-substrate-overlay-budget-ms_b3297c37a5104a67ad9f3670257a9360.md)
 
 ## Elements
 

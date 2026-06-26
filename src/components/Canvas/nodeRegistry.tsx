@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import {
+  LightweightWorldCard,
   MilestoneBubble,
   PlanGhostCard,
   SectionNode,
@@ -43,6 +44,7 @@ export interface NodeRenderArgs {
   tagFilterHighlighted?: boolean;
   suppressRichContent?: boolean;
   richOverlay?: boolean;
+  lightweightWorld?: boolean;
   /** §26 worlds: this node's appW-driven content band (W0 mass → W3 deep). */
   world: World;
   /** §34 crisp text: re-rasterize factor for this node (1 = none, else camera scale). */
@@ -95,8 +97,11 @@ export function getNodeRenderer(kind: string): NodeRenderer {
   return renderers[kind] ?? fallbackRenderer;
 }
 
-registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive, onFitNode, onSectionClick, onSectionFrame, suppressRichContent, richOverlay }) =>
-  model ? (
+registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive, onFitNode, onSectionClick, onSectionFrame, suppressRichContent, richOverlay, lightweightWorld }) => {
+  if (lightweightWorld) {
+    return model ? <LightweightWorldCard kind="plan" node={node} model={model} style={style} world={world} /> : null;
+  }
+  return model ? (
     <SectionNode
       variant="plan"
       plan={model as PlanNodeModel}
@@ -112,17 +117,23 @@ registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive
       suppressRichContent={suppressRichContent}
       richOverlay={richOverlay}
     />
-  ) : null,
-);
+  ) : null;
+});
 registerNodeRenderer("plan-ghost", ({ model, style }) =>
   model ? <PlanGhostCard model={model as PlanGhostModel} style={style} /> : null,
 );
-registerNodeRenderer("spec", ({ model, style, world, crispScale, onSectionClick, onSectionFrame, suppressRichContent, richOverlay }) =>
-  model ? <SectionNode variant="spec" plan={model as PlanNodeModel} workspaceScope={(model as PlanNodeModel).workspaceScope} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={suppressRichContent} richOverlay={richOverlay} /> : null,
-);
-registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay }) => {
+registerNodeRenderer("spec", ({ node, model, style, world, crispScale, onSectionClick, onSectionFrame, suppressRichContent, richOverlay, lightweightWorld }) => {
+  if (lightweightWorld) {
+    return model ? <LightweightWorldCard kind="spec" node={node} model={model} style={style} world={world} /> : null;
+  }
+  return model ? <SectionNode variant="spec" plan={model as PlanNodeModel} workspaceScope={(model as PlanNodeModel).workspaceScope} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={suppressRichContent} richOverlay={richOverlay} /> : null;
+});
+registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay, lightweightWorld, node }) => {
   const m = model as { task: Task; tagFacets?: TagFacet[]; childCount?: number; childDone?: number; parentTaskName?: string | null; stepColors?: Map<string, string>; drift?: DriftItem; presence?: TaskPresence | null } | undefined;
   if (!m) return null;
+  if (lightweightWorld) {
+    return <LightweightWorldCard kind="task" node={node} model={m} style={style} world={world} onHover={onHoverTask} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} />;
+  }
   // §32.3: subtasks are SOLID satellite tiles swarming around their parent (packed
   // by the same cloud logic, smaller footprint) — never gated, never faded. Opacity
   // is NEVER a hierarchy/zoom signal; a subtask reads at every zoom, just smaller.

@@ -418,6 +418,38 @@ test("substrate v2 mounts focused rich overlay at scene screenRect", async () =>
   await act(async () => root.unmount());
 });
 
+test("overlay budget mounts lightweight world cards and keeps rich chrome in overlay only", async () => {
+  __resetSubstrateV2ForTest();
+  __resetOverlayBudgetForTest();
+  window.localStorage.setItem("canvas.substrateV2", "true");
+  window.localStorage.setItem("canvas.overlayBudget", "true");
+  const { host, root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[FIXTURE_PLAN_WITH_SPEC]} />);
+  await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+
+  const worldLayer = '[data-testid="canvas-world-layer"]';
+  const lightweight = host.querySelectorAll(`${worldLayer} [data-testid="canvas-world-lightweight"]`).length;
+  assert(lightweight >= 3, `world layer uses lightweight cards, got ${lightweight}`);
+  assert(host.querySelectorAll(`${worldLayer} [data-testid="canvas-plan-row"]`).length === 0, "no rich plan rows in world layer");
+  assert(host.querySelectorAll(`${worldLayer} [data-testid="canvas-spec-block"]`).length === 0, "no rich spec blocks in world layer");
+  assert(host.querySelectorAll(`${worldLayer} [data-renderer="rich-markdown"]`).length === 0, "no rich markdown in world layer");
+
+  const planNode = host.querySelector(`${worldLayer} [data-plan-id="${FIXTURE_PLAN.id}"]`) as HTMLElement;
+  assert(planNode?.getAttribute("data-world-render") === "lightweight", "focused target stays lightweight in world layer");
+  await act(async () => {
+    planNode.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("dblclick", { bubbles: true }));
+  });
+
+  const overlayRich = host.querySelector('[data-testid="canvas-rich-overlay"] [data-testid="canvas-plan-row"], [data-testid="canvas-rich-overlay"] [data-testid="canvas-spec-block"]');
+  assert(overlayRich, "focused overlay keeps rich plan/spec chrome");
+  assert(host.querySelectorAll(`${worldLayer} [data-testid="canvas-plan-row"]`).length === 0, "world layer stays lightweight after focus");
+
+  window.localStorage.removeItem("canvas.substrateV2");
+  window.localStorage.removeItem("canvas.overlayBudget");
+  __resetSubstrateV2ForTest();
+  __resetOverlayBudgetForTest();
+  await act(async () => root.unmount());
+});
+
 test("overlay budget suppresses world-layer rich bodies while focused overlay stays rich", async () => {
   __resetSubstrateV2ForTest();
   __resetOverlayBudgetForTest();
@@ -432,7 +464,8 @@ test("overlay budget suppresses world-layer rich bodies while focused overlay st
   const worldRichBefore = host.querySelectorAll(worldRichSelector).length;
   assert(worldRichBefore === 0, `world layer rich bodies suppressed before focus, got ${worldRichBefore}`);
 
-  const planNode = host.querySelector('[data-testid="canvas-plan-node"]') as HTMLElement;
+  const planNode = host.querySelector(`${worldLayer} [data-plan-id="${FIXTURE_PLAN.id}"]`) as HTMLElement;
+  assert(planNode, "plan node present in world layer for focus gesture");
   await act(async () => {
     planNode.dispatchEvent(new (window as unknown as { MouseEvent: typeof MouseEvent }).MouseEvent("dblclick", { bubbles: true }));
   });

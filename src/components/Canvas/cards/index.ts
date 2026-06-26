@@ -8,6 +8,7 @@ export { StrideSnake } from "./StrideSnake";
 export { MilestoneText } from "./MilestoneText";
 export { HandoffCoin, type HandoffContent } from "./HandoffCoin";
 export { PlanGhostCard, type PlanGhostModel } from "./PlanGhostCard";
+export { LightweightWorldCard, type LightweightWorldCardProps } from "./LightweightWorldCard";
 export { planCoverageFraction } from "./coverage";
 export { digestMarkdown } from "./digest";
 export type { CanvasLod, CanvasCardStyleProps } from "./types";

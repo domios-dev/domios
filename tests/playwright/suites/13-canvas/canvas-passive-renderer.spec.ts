@@ -49,7 +49,11 @@ test("@golden @canvas-passive-renderer passive canvas layer draws budgeted subst
   expect(debug.pixels?.nonblank).toBe(true);
   expect(debug.boxCount).toBeGreaterThan(0);
 
-  const planNode = page.locator('[data-testid="canvas-plan-node"]').first();
+  const lightweightCards = page.locator('[data-testid="canvas-world-lightweight"]');
+  await expect(lightweightCards.first()).toBeVisible({ timeout: 30_000 });
+  await expect(lightweightCards.first()).toHaveAttribute("data-world-render", "lightweight");
+
+  const planNode = page.locator('[data-testid="canvas-world-lightweight"][data-lightweight-kind="plan"]').first();
   await expect(planNode).toBeVisible({ timeout: 30_000 });
   await planNode.dblclick({ force: true });
 
@@ -67,10 +71,12 @@ test("@golden @canvas-passive-renderer passive canvas layer draws budgeted subst
     return {
       overlays,
       worldRich,
+      lightweight: document.querySelectorAll('[data-testid="canvas-world-lightweight"]').length,
       readbackOverlays: readback?.activeOverlays().length ?? 0,
       maxActiveOverlays: readback?.maxActiveOverlays ?? 0,
     };
   });
+  expect(budget.lightweight).toBeGreaterThan(0);
   expect(budget.overlays).toBeLessThanOrEqual(2);
   expect(budget.readbackOverlays).toBeLessThanOrEqual(2);
   expect(budget.maxActiveOverlays).toBe(2);
