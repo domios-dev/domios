@@ -1,4 +1,4 @@
-use crate::plan::{Plan, Section, Task};
+use crate::plan::{CanvasElement, Milestone, Plan, Section, Task};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -7,7 +7,11 @@ enum BodyKind {
     Section,
     Task,
     Handoff,
+    Milestone,
+    Element,
 }
+
+const MARKDOWN_SIDECAR_MIN_CHARS: usize = 240;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct PlanFileEntry {
@@ -28,6 +32,8 @@ impl BodyKind {
             BodyKind::Section => "sections",
             BodyKind::Task => "tasks",
             BodyKind::Handoff => "handoffs",
+            BodyKind::Milestone => "milestones",
+            BodyKind::Element => "elements",
         }
     }
 }
@@ -59,6 +65,22 @@ pub fn handoff_path(plan: &Plan, element_id: &str) -> std::io::Result<PathBuf> {
     body_path(plan, BodyKind::Handoff, element_id)
 }
 
+pub fn milestone_path(plan: &Plan, task: &Task, milestone: &Milestone) -> std::io::Result<PathBuf> {
+    body_path(
+        plan,
+        BodyKind::Milestone,
+        &format!("{}-{}", super::tag_model::task_handle(task), milestone.id),
+    )
+}
+
+pub fn element_path(plan: &Plan, element: &CanvasElement) -> std::io::Result<PathBuf> {
+    body_path(
+        plan,
+        BodyKind::Element,
+        &format!("{}-{}", element.kind, element.id),
+    )
+}
+
 pub fn index_path(plan: &Plan) -> std::io::Result<PathBuf> {
     Ok(plan_body_dir(plan)?.join("INDEX.md"))
 }
@@ -81,6 +103,16 @@ pub fn strip_bodies(plan: &Plan) -> Plan {
     clear_section_bodies(&mut stripped.sections);
     for task in &mut stripped.tasks {
         task.body.clear();
+        for milestone in &mut task.milestones {
+            if should_externalize_markdown(&milestone.text) {
+                milestone.text.clear();
+            }
+        }
+    }
+    for element in &mut stripped.elements {
+        if should_externalize_element(element) {
+            clear_element_markdown(element);
+        }
     }
     stripped
 }
@@ -99,6 +131,25 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
         let path = task_path(plan, &task.id)?;
         write_markdown_atomic(&path, &body_with_frontmatter(&task.tags, &task.body))?;
         remove_stale_id_path(plan, BodyKind::Task, &task.id, &path)?;
+        for milestone in &task.milestones {
+            persist_optional_markdown(
+                &milestone_path(plan, task, milestone)?,
+                &milestone.text,
+                should_externalize_markdown(&milestone.text),
+            )?;
+        }
+    }
+    for element in &plan.elements {
+        if element.kind == "handoff" {
+            continue;
+        }
+        if let Some(body) = element_markdown(element) {
+            persist_optional_markdown(
+                &element_path(plan, element)?,
+                body,
+                should_externalize_markdown(body),
+            )?;
+        }
     }
     write_index(plan)?;
     Ok(paths)
@@ -112,6 +163,12 @@ pub fn body_paths(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     collect_section_paths(plan, &plan.sections, &mut paths)?;
     for task in &plan.tasks {
         paths.push(task_path(plan, &task.id)?);
+        for milestone in &task.milestones {
+            let path = milestone_path(plan, task, milestone)?;
+            if should_externalize_markdown(&milestone.text) || path.exists() {
+                paths.push(path);
+            }
+        }
     }
     for element in plan
         .elements
@@ -119,6 +176,13 @@ pub fn body_paths(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
         .filter(|element| element.kind == "handoff")
     {
         paths.push(handoff_path(plan, &element.id)?);
+    }
+    for element in plan.elements.iter().filter(|element| {
+        element.kind != "handoff"
+            && (should_externalize_element(element)
+                || element_path(plan, element).is_ok_and(|path| path.exists()))
+    }) {
+        paths.push(element_path(plan, element)?);
     }
     paths.push(index_path(plan)?);
     Ok(paths)
@@ -161,6 +225,22 @@ pub fn hydrate_and_migrate(plan: &mut Plan) -> std::io::Result<bool> {
             .join(format!("{}.md", super::tag_model::task_handle(task)));
         let fallback = base_dir.join("tasks").join(format!("{}.md", task.id));
         migrated |= hydrate_body(&path, Some(&fallback), &mut task.body, &mut task.tags)?;
+        let task_handle = super::tag_model::task_handle(task).to_string();
+        for milestone in &mut task.milestones {
+            let path = base_dir
+                .join("milestones")
+                .join(format!("{}-{}.md", task_handle, milestone.id));
+            migrated |= hydrate_plain_markdown(&path, &mut milestone.text)?;
+        }
+    }
+    for element in &mut plan.elements {
+        if element.kind == "handoff" {
+            continue;
+        }
+        let path = base_dir
+            .join("elements")
+            .join(format!("{}-{}.md", element.kind, element.id));
+        migrated |= hydrate_element_markdown(&path, element)?;
     }
     Ok(migrated)
 }
@@ -215,6 +295,12 @@ fn index_entries(plan: &Plan) -> std::io::Result<Vec<IndexEntryRaw>> {
     collect_section_index_entries(plan, &plan.sections, &mut entries)?;
     for task in &plan.tasks {
         entries.push(task_index_entry(plan, task)?);
+        for milestone in &task.milestones {
+            let path = milestone_path(plan, task, milestone)?;
+            if should_externalize_markdown(&milestone.text) || path.exists() {
+                entries.push(milestone_index_entry(plan, task, milestone)?);
+            }
+        }
     }
     for element in plan
         .elements
@@ -222,6 +308,13 @@ fn index_entries(plan: &Plan) -> std::io::Result<Vec<IndexEntryRaw>> {
         .filter(|element| element.kind == "handoff")
     {
         entries.push(handoff_index_entry(plan, element)?);
+    }
+    for element in plan.elements.iter().filter(|element| {
+        element.kind != "handoff"
+            && (should_externalize_element(element)
+                || element_path(plan, element).is_ok_and(|path| path.exists()))
+    }) {
+        entries.push(element_index_entry(plan, element)?);
     }
     Ok(entries)
 }
@@ -257,10 +350,7 @@ fn task_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntryRaw> 
     })
 }
 
-fn handoff_index_entry(
-    plan: &Plan,
-    element: &crate::plan::CanvasElement,
-) -> std::io::Result<IndexEntryRaw> {
+fn handoff_index_entry(plan: &Plan, element: &CanvasElement) -> std::io::Result<IndexEntryRaw> {
     let seq = element
         .content
         .get("seq")
@@ -274,12 +364,37 @@ fn handoff_index_entry(
     })
 }
 
+fn milestone_index_entry(
+    plan: &Plan,
+    task: &Task,
+    milestone: &Milestone,
+) -> std::io::Result<IndexEntryRaw> {
+    let task_handle = super::tag_model::task_handle(task);
+    Ok(IndexEntryRaw {
+        kind: "milestone",
+        title: format!("{} {} ({})", task_handle, milestone.kind, milestone.id),
+        path: milestone_path(plan, task, milestone)?,
+        index_link_path: format!("milestones/{}-{}.md", task_handle, milestone.id),
+    })
+}
+
+fn element_index_entry(plan: &Plan, element: &CanvasElement) -> std::io::Result<IndexEntryRaw> {
+    Ok(IndexEntryRaw {
+        kind: "element",
+        title: format!("{} ({})", element.kind, element.id),
+        path: element_path(plan, element)?,
+        index_link_path: format!("elements/{}-{}.md", element.kind, element.id),
+    })
+}
+
 fn write_index(plan: &Plan) -> std::io::Result<()> {
     let entries = index_entries(plan)?;
     let mut out = format!("# {}\n\n", plan.title);
     write_index_group(&mut out, "Goal", &entries, "goal");
     write_index_group(&mut out, "Sections", &entries, "section");
     write_index_group(&mut out, "Tasks", &entries, "task");
+    write_index_group(&mut out, "Milestones", &entries, "milestone");
+    write_index_group(&mut out, "Elements", &entries, "element");
     write_index_group(&mut out, "Handoffs", &entries, "handoff");
     write_markdown_atomic(&index_path(plan)?, &out)
 }
@@ -340,6 +455,34 @@ fn hydrate_sections(
     Ok(())
 }
 
+fn hydrate_plain_markdown(path: &Path, body: &mut String) -> std::io::Result<bool> {
+    let had_inline_body = !body.is_empty();
+    if path.exists() {
+        *body = std::fs::read_to_string(path)?;
+        return Ok(had_inline_body);
+    }
+    if should_externalize_markdown(body) {
+        write_markdown_atomic(path, body)?;
+        return Ok(true);
+    }
+    Ok(false)
+}
+
+fn hydrate_element_markdown(path: &Path, element: &mut CanvasElement) -> std::io::Result<bool> {
+    let had_inline_body = should_externalize_element(element);
+    if path.exists() {
+        set_element_markdown(element, std::fs::read_to_string(path)?);
+        return Ok(had_inline_body);
+    }
+    if let Some(body) = element_markdown(element) {
+        if should_externalize_markdown(body) {
+            write_markdown_atomic(path, body)?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn hydrate_body(
     path: &Path,
     fallback: Option<&Path>,
@@ -375,6 +518,22 @@ fn clear_section_bodies(sections: &mut [Section]) {
     }
 }
 
+fn persist_optional_markdown(path: &Path, body: &str, should_persist: bool) -> std::io::Result<()> {
+    if should_persist {
+        write_markdown_atomic(path, body)
+    } else {
+        remove_file_if_exists(path)
+    }
+}
+
+fn remove_file_if_exists(path: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 pub fn write_markdown_atomic(path: &Path, body: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -404,6 +563,53 @@ fn body_with_frontmatter(tags: &[String], body: &str) -> String {
     }
     let yaml = serde_yaml::to_string(&serde_json::json!({ "tags": tags })).unwrap_or_default();
     format!("---\n{}---\n\n{}", yaml, body.trim_start())
+}
+
+fn should_externalize_markdown(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.len() >= MARKDOWN_SIDECAR_MIN_CHARS || trimmed.contains('\n')
+}
+
+fn should_externalize_element(element: &CanvasElement) -> bool {
+    element_markdown(element).is_some_and(should_externalize_markdown)
+}
+
+fn element_markdown(element: &CanvasElement) -> Option<&str> {
+    if matches!(element.kind.as_str(), "note" | "decision") {
+        if let Some(text) = element.content.as_str() {
+            return Some(text);
+        }
+    }
+    if !matches!(element.kind.as_str(), "note" | "decision" | "discussion") {
+        return None;
+    }
+    element
+        .content
+        .as_object()
+        .and_then(|obj| markdown_field_key(obj).and_then(|key| obj.get(key)))
+        .and_then(|value| value.as_str())
+}
+
+fn clear_element_markdown(element: &mut CanvasElement) {
+    set_element_markdown(element, String::new());
+}
+
+fn set_element_markdown(element: &mut CanvasElement, body: String) {
+    if matches!(element.kind.as_str(), "note" | "decision") && element.content.is_string() {
+        element.content = serde_json::Value::String(body);
+        return;
+    }
+    let Some(obj) = element.content.as_object_mut() else {
+        return;
+    };
+    let key = markdown_field_key(obj).unwrap_or("text");
+    obj.insert(key.into(), serde_json::Value::String(body));
+}
+
+fn markdown_field_key(obj: &serde_json::Map<String, serde_json::Value>) -> Option<&'static str> {
+    ["text", "body", "markdown"]
+        .into_iter()
+        .find(|key| obj.get(*key).is_some_and(|value| value.is_string()))
 }
 
 fn parse_frontmatter_tags(text: &str) -> (Vec<String>, String) {
