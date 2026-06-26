@@ -29,6 +29,7 @@
 - [s1-spike-minimal-substrate-board-task-cards-zoom-crisp-focus-by-id strides](tasks/s1-spike-minimal-substrate-board-task-cards-zoom-crisp-focus-by-id/strides.jsonl)
 - [s0-crisp-text-discriminator-micro-spike-dom-under-single-matrix-vs-alternatives-10x strides](tasks/s0-crisp-text-discriminator-micro-spike-dom-under-single-matrix-vs-alternatives-10x/strides.jsonl)
 - [r3-research-world-figma-canvas-architecture strides](tasks/r3-research-world-figma-canvas-architecture/strides.jsonl)
+- [t1-figma-canvas-acceptance-harness strides](tasks/t1-figma-canvas-acceptance-harness/strides.jsonl)
 
 ## Milestones
 
@@ -49,6 +50,7 @@
 - [r3-research-world-figma-canvas-architecture decision (ms_5db4d486122444a0b0703d2be0ac6e1e)](milestones/r3-research-world-figma-canvas-architecture-ms_5db4d486122444a0b0703d2be0ac6e1e.md)
 - [r3-research-world-figma-canvas-architecture decision (ms_a8b344cb1db04ba2aa592ce77708f690)](milestones/r3-research-world-figma-canvas-architecture-ms_a8b344cb1db04ba2aa592ce77708f690.md)
 - [r3-research-world-figma-canvas-architecture status_update (ms_1a26b633827d46b980922ccf10db415e)](milestones/r3-research-world-figma-canvas-architecture-ms_1a26b633827d46b980922ccf10db415e.md)
+- [t1-figma-canvas-acceptance-harness status_update (ms_49ee24a865994904a8d8d6de37130ece)](milestones/t1-figma-canvas-acceptance-harness-ms_49ee24a865994904a8d8d6de37130ece.md)
 
 ## Elements
 
