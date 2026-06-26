@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782465562457,
+  "updated_at": 1782468810252,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -8178,6 +8178,58 @@
         "cleanup_status": "pending",
         "cleanup_hints": [
           "After integration: close pane df2e6b06, git worktree remove /Users/rollacode/Developer/codeterm-workspace-plan-polish, delete branch lane/workspace-plan-polish."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_4a755363364a41f99734b6f1569780cd",
+      "name": "Remote mesh workers report to spawning orchestrator",
+      "type": "feature",
+      "model": "claude opus on mesh eight",
+      "model_rationale": "Complex cross-daemon orchestration/release task; user explicitly asked to use Opus on machine eight.",
+      "acceptance_criteria": [
+        "Remote mesh worker reports can target a pane or main/general alias on another peer without manual send commands.",
+        "agent report from a remote worker reaches the configured target automatically and preserves structured report metadata."
+      ],
+      "test_plan": "Run focused routing/serialization tests plus either a real mesh smoke or isolated mesh-route test seam; run build/check and release gates before tagging.",
+      "correctness": "Remote worker report target is explicit, durable, mesh-aware, and not tied to local same-daemon parent assumptions.",
+      "status": "in_progress",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782468757577,
+      "updated_at": 1782468810252,
+      "status_changed_at": 1782468801070,
+      "handle": "remote-mesh-workers-report-to-spawning-orchestrator",
+      "tags": [
+        "orchestration",
+        "mesh",
+        "release"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": "46c3bf2c",
+      "lane": {
+        "pane_id": "46c3bf2c",
+        "workspace_id": null,
+        "workspace_name": "codeterm-alpha",
+        "worktree_path": "/Users/kandrey/Developer/codeterm-alpha",
+        "branch": "lane/remote-mesh-workers",
+        "base": "develop",
+        "destination": "master",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "Release lane on remote mesh eight; clean remote branch/worktree after release verification."
         ]
       },
       "taken_by_role": null,
