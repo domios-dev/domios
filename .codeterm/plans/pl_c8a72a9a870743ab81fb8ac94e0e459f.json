@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782457794437,
+  "updated_at": 1782457972414,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -16071,12 +16071,12 @@
       ],
       "test_plan": "Run focused frontend tree/Sidebar tests plus npx tsc; orchestrator runs warm gates.",
       "correctness": "Dogfood workers remain visible and manageable from the UI while backend hierarchy stays authoritative.",
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p1",
       "created_at": 1782456973643,
-      "updated_at": 1782457022744,
-      "status_changed_at": 1782457022744,
+      "updated_at": 1782457972414,
+      "status_changed_at": 1782457972414,
       "handle": "bug-sidebar-expanded-child-panes-hidden",
       "tags": [],
       "section_ids": [
@@ -16107,7 +16107,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_b8d5154082414936a6ed348ac965ae1a",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "Accepted and integrated into feat/canvas.\n\nChanges:\n- Sidebar workspace tab helpers now distinguish visible pane ids from tab membership, preserve child nesting when child cwd differs from workspace cwd, and surface children of hidden parents at top level instead of losing them.\n- Compact sidebar mode now uses depth-first `flattenSidebarTabs` instead of raw tab sort, so backend child panes are reachable in compact expanded workspace lists too.\n- Added focused helper coverage for cwd-mismatched children, grandchildren, and hidden-parent surfacing.\n\nOrchestrator verification in /Users/rollacode/Developer/codeterm:\n- npx tsx src/components/Sidebar/workspaceTabs.test.ts (passed)\n- npx tsc --noEmit -p tsconfig.json (passed)\n- git diff --check for touched files\n- bash scripts/check-file-sizes.sh (only known unrelated baseline files; touched files under limits, Sidebar.tsx 932 lines)\n- CT_E2E_PORT=7686 npx playwright test --config=tests/playwright/playwright.config.ts --project=golden --grep \"C2 a child reorders\" (1 passed)\n\nResidual:\n- Live prod UI will need a build/restart/release to pick up this frontend code; dev web-mode passed the hierarchy reorder gate.\n",
+          "ts": 1782457972414,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     }
   ],
   "task_groups": [],
