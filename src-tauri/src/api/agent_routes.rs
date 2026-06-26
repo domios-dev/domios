@@ -35,6 +35,13 @@ pub(crate) struct SpawnAgentBody {
     workspace_id: Option<String>,
     force_tab: Option<bool>,
     report_target_pane_id: Option<String>,
+    /// User-facing report target (pane id or `main`/`general` alias). Collapses
+    /// into `report_target_pane_id`; with `origin_peer` it's a pane on that peer.
+    report_to: Option<String>,
+    /// Originating peer, injected by the mesh relay from the authenticated signed
+    /// token (never client-supplied). Present ⇒ this spawn was relayed across the
+    /// mesh and the worker should report back to `report_to` on that peer.
+    origin_peer: Option<String>,
     skip_permissions: Option<bool>,
     /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID).
     /// Recorded on the spawned pane for report routing fallback.
@@ -46,6 +53,22 @@ pub(crate) struct SpawnAgentBody {
     system_prompt: Option<String>,
     preset: Option<String>,
     activate: Option<bool>,
+}
+
+/// Orchestrator-side remote (cross-mesh) workers. `?pane=<id>` filters to one
+/// orchestrator's workers; otherwise returns the full `{ pane_id: [...] }` map.
+pub async fn remote_workers(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let reg = &state.svc.remote_workers;
+    let value = match params.get("pane").filter(|s| !s.is_empty()) {
+        Some(pane) => serde_json::json!(reg.for_orchestrator(pane)),
+        None => serde_json::json!(reg.snapshot()),
+    };
+    Ok(Json(value))
 }
 
 pub async fn spawn_agent(
@@ -71,7 +94,8 @@ pub async fn spawn_agent(
         task: body.task,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
-        report_target_pane_id: body.report_target_pane_id,
+        report_target_pane_id: body.report_to.or(body.report_target_pane_id),
+        report_target_mesh_peer: body.origin_peer,
         skip_permissions: body.skip_permissions,
         spawned_by_pane_id: body.spawned_by_pane_id,
         model: body.model,

@@ -93,6 +93,9 @@ impl SpawnPaneSpec {
             workspace_id: self.workspace_id.clone(),
             force_tab: None,
             report_target_pane_id: agent.report_target_pane_id.clone(),
+            // AgentSpawnSpec (sync/local spawn path) carries no remote target;
+            // mesh workers spawn via the async HTTP path which sets it directly.
+            report_target_mesh_peer: None,
             skip_permissions: Some(agent.auto_approve),
             spawned_by_pane_id: agent.spawned_by_pane_id.clone(),
             model: agent.model.clone(),
