@@ -12,6 +12,7 @@ pub mod search_index;
 pub mod section_links;
 pub mod spec;
 pub mod spec_files;
+pub mod stride_log;
 pub mod tag_model;
 pub mod task_queries;
 pub mod watcher;
