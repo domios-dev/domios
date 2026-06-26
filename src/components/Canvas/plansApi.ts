@@ -12,6 +12,11 @@ export interface PlanIndexEntry {
   status: PlanStatus;
   updated_at: number;
   assigned_pane_ids: string[];
+  task_count?: number;
+  section_count?: number;
+  element_count?: number;
+  loop_count?: number;
+  has_goal?: boolean;
 }
 
 interface PlanIndexResponse {

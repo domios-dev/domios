@@ -525,6 +525,7 @@ export function Sidebar({
                               planIndex={planIndex}
                               canvasActive={isActiveVisual && workspaceCanvasActive}
                               touchMode={touchMode}
+                              compact={isCompact}
                               uiFontScale={uiFontScale}
                               onBeforeOpen={() => {
                                 setActiveWorkspace(ws.id);
@@ -702,6 +703,7 @@ export function Sidebar({
                                   planIndex={planIndex}
                                   canvasActive={isActiveVisual && workspaceCanvasActive}
                                   touchMode={touchMode}
+                                  compact={isCompact}
                                   uiFontScale={uiFontScale}
                                   onBeforeOpen={() => {
                                     setActiveWorkspace(ws.id);

@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782464028701,
+  "updated_at": 1782465562457,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -3912,12 +3912,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "blocked",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782296425888,
-      "updated_at": 1782392858010,
-      "status_changed_at": 1782392858010,
+      "updated_at": 1782465558506,
+      "status_changed_at": 1782465558506,
       "handle": "spec-as-separate-object",
       "tags": [],
       "section_ids": [
@@ -5041,12 +5041,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "blocked",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782317522475,
-      "updated_at": 1782392856529,
-      "status_changed_at": 1782392856529,
+      "updated_at": 1782465562457,
+      "status_changed_at": 1782465562457,
       "handle": "plan-goal-north-star",
       "tags": [],
       "section_ids": [
@@ -8127,6 +8127,57 @@
         "cleanup_status": "done",
         "cleanup_hints": [
           "After integration: close pane a57ac42d, git worktree remove /Users/rollacode/Developer/codeterm-workspace-plan-entry, delete branch lane/workspace-plan-entry."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_81471e8425694c04890da2623297f224",
+      "name": "Workspace Plan entry visual treatment and empty-state policy",
+      "type": "ux",
+      "model": "cursor:auto",
+      "model_rationale": "Visual/sidebar polish should be implemented by Cursor, then accepted only after Orchestrator Playwright visual verification.",
+      "acceptance_criteria": [
+        "Workspace Plan entry should read as a pinned workspace action, not a normal closable tab; it must stay hidden for workspaces with no active project plans until a real empty-state design is chosen."
+      ],
+      "test_plan": "Focused component/unit coverage for empty workspace hiding and visual state props; Playwright visual confirmation that General/no-plan workspace has no Plan entry and codeterm/project workspace with active plans does.",
+      "correctness": "No empty canvas entry is shown just because a workspace exists. A workspace with project plans shows one pinned Plan action under the workspace, visually distinct from terminal tabs and non-closable.",
+      "status": "in_progress",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782465058489,
+      "updated_at": 1782465355572,
+      "status_changed_at": 1782465352409,
+      "handle": "workspace-plan-entry-visual-treatment-and-empty-state-policy",
+      "tags": [
+        "sidebar,plan,ux-polish"
+      ],
+      "section_ids": [
+        "sec_7f17ba5016294c42bafdf74db3832bdd"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": "df2e6b06",
+      "lane": {
+        "pane_id": "df2e6b06",
+        "workspace_id": "ef145fd1",
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm-workspace-plan-polish",
+        "branch": "lane/workspace-plan-polish",
+        "base": "694a36c9",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After integration: close pane df2e6b06, git worktree remove /Users/rollacode/Developer/codeterm-workspace-plan-polish, delete branch lane/workspace-plan-polish."
         ]
       },
       "taken_by_role": null,

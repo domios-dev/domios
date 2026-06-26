@@ -11,7 +11,9 @@ import {
   resolvePanePlanFocusTarget,
   resolveWorkspaceFocusNodeIds,
   canvasFitContextKey,
+  workspacePlanEntryKind,
   workspacePlanEntryLabel,
+  workspacePlanEntryTitle,
   workspacePaneIds,
 } from "./workspacePlanEntry";
 import type { Plan } from "./types";
@@ -71,6 +73,11 @@ function indexEntry(overrides: Partial<PlanIndexEntry> = {}): PlanIndexEntry {
     status: "active",
     updated_at: FIXTURE_PLAN.updated_at,
     assigned_pane_ids: [],
+    task_count: FIXTURE_PLAN.tasks.length,
+    section_count: FIXTURE_PLAN.sections.length,
+    element_count: FIXTURE_PLAN.elements.length,
+    loop_count: FIXTURE_PLAN.loops.length,
+    has_goal: !!FIXTURE_PLAN.goal,
     ...overrides,
   };
 }
@@ -81,7 +88,7 @@ test("workspacePaneIds collects visible tab panes and child panes", () => {
   assert(ids.has("worker-1"), "worker child pane");
 });
 
-test("deriveWorkspacePlanEntries matches plans owned by workspace panes", () => {
+test("deriveWorkspacePlanEntries matches project-local plans", () => {
   const entries = deriveWorkspacePlanEntries([indexEntry()], workspace, panes);
   assert(entries.length === 1, "one relevant plan");
   assert(entries[0].plan_id === FIXTURE_PLAN.id, "fixture plan id");
@@ -93,14 +100,26 @@ test("deriveWorkspacePlanEntries ignores archived plans", () => {
   assert(entries.length === 0, "archived hidden");
 });
 
-test("deriveWorkspacePlanEntries matches worker-assigned plans", () => {
+test("deriveWorkspacePlanEntries ignores assigned plans from another project", () => {
   const assigned = indexEntry({
     plan_id: "plan-worker",
+    file_path: "/repo/other/.codeterm/plans/plan-worker.json",
     owner: { pane_id: "other-orch", session_id: null, title: null },
     assigned_pane_ids: ["worker-1"],
   });
   const entries = deriveWorkspacePlanEntries([assigned], workspace, panes);
-  assert(entries.some((e) => e.plan_id === "plan-worker"), "worker assignment surfaces plan");
+  assert(entries.length === 0, "foreign worker assignment stays off workspace action");
+});
+
+test("deriveWorkspacePlanEntries does not leak foreign project plans through owner panes", () => {
+  const foreign = indexEntry({
+    plan_id: "plan-foreign",
+    file_path: "/repo/other/.codeterm/plans/plan-foreign.json",
+    owner: { pane_id: "orch-1", session_id: null, title: null },
+    assigned_pane_ids: [],
+  });
+  const entries = deriveWorkspacePlanEntries([foreign], workspace, panes);
+  assert(entries.length === 0, "foreign project owner does not surface plan");
 });
 
 test("deriveWorkspacePlanEntries matches project plans even when workspace has no panes", () => {
@@ -113,12 +132,50 @@ test("deriveWorkspacePlanEntries matches project plans even when workspace has n
   assert(entries.length === 1, "project-local plan surfaces without live panes");
 });
 
-test("workspacePlanEntryLabel singular and plural", () => {
-  assert(workspacePlanEntryLabel([indexEntry()]) === FIXTURE_PLAN.title, "single plan title");
-  assert(
-    workspacePlanEntryLabel([indexEntry(), indexEntry({ plan_id: "plan-b", title: "Beta" })]).startsWith("Plans"),
-    "multiple plans label",
+test("deriveWorkspacePlanEntries hides empty project plans without pane assignment", () => {
+  const emptyWorkspace = { ...workspace, tabs: [] };
+  const entries = deriveWorkspacePlanEntries(
+    [
+      indexEntry({
+        file_path: `${workspace.cwd}/.codeterm/plans/empty.json`,
+        assigned_pane_ids: [],
+        task_count: 0,
+        section_count: 0,
+        element_count: 0,
+        loop_count: 0,
+        has_goal: false,
+      }),
+    ],
+    emptyWorkspace,
+    {},
   );
+  assert(entries.length === 0, "empty project-local plan hidden");
+});
+
+test("deriveWorkspacePlanEntries hides plans outside workspace project path", () => {
+  const foreign = indexEntry({
+    file_path: "/other/repo/.codeterm/plans/plan.json",
+    owner: { pane_id: "foreign-orch", session_id: null, title: null },
+    assigned_pane_ids: [],
+  });
+  const entries = deriveWorkspacePlanEntries([foreign], { ...workspace, tabs: [] }, {});
+  assert(entries.length === 0, "foreign project path hidden");
+});
+
+test("deriveWorkspacePlanEntries hides plans when workspace has no cwd and no pane match", () => {
+  const noCwd = { ...workspace, cwd: null, tabs: [] };
+  const orphan = indexEntry({ assigned_pane_ids: [] });
+  const entries = deriveWorkspacePlanEntries([orphan], noCwd, {});
+  assert(entries.length === 0, "no cwd and no pane ownership");
+});
+
+test("workspacePlanEntryKind and label singular and plural", () => {
+  assert(workspacePlanEntryKind([indexEntry()]) === "Plan", "single kind");
+  assert(workspacePlanEntryLabel([indexEntry()]) === "Plan", "single visible label");
+  assert(workspacePlanEntryKind([indexEntry(), indexEntry({ plan_id: "plan-b", title: "Beta" })]) === "Plan", "plural kind still pinned action");
+  assert(workspacePlanEntryLabel([indexEntry(), indexEntry({ plan_id: "plan-b", title: "Beta" })]) === "Plan", "multiple visible label");
+  assert(workspacePlanEntryTitle([indexEntry()]).includes(FIXTURE_PLAN.title), "single title keeps plan name");
+  assert(workspacePlanEntryTitle([indexEntry(), indexEntry({ plan_id: "plan-b", title: "Beta" })]) === "Open 2 workspace plans", "multiple title detail");
 });
 
 test("resolvePanePlanFocusTarget carries pane and optional plan id", () => {

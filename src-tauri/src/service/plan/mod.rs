@@ -195,6 +195,11 @@ pub struct IndexEntry {
     pub status: PlanStatus,
     pub updated_at: u64,
     pub assigned_pane_ids: Vec<String>,
+    pub task_count: usize,
+    pub section_count: usize,
+    pub element_count: usize,
+    pub loop_count: usize,
+    pub has_goal: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -333,6 +338,11 @@ impl PlanStore {
                 .iter()
                 .filter_map(|t| t.assigned_pane_id.clone())
                 .collect(),
+            task_count: plan.tasks.len(),
+            section_count: plan.sections.len(),
+            element_count: plan.elements.len(),
+            loop_count: plan.loops.len(),
+            has_goal: plan.goal.is_some(),
         }
     }
 

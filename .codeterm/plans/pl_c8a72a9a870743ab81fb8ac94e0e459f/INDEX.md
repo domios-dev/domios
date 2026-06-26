@@ -162,6 +162,7 @@
 - [integrate-web-root-browser-ui-migration (Integrate web-root browser UI migration)](tasks/integrate-web-root-browser-ui-migration.md)
 - [plan-doctor-foundation-storage-structure-errors-and-smoke-prune (Plan doctor foundation: storage/structure errors and smoke prune)](tasks/plan-doctor-foundation-storage-structure-errors-and-smoke-prune.md)
 - [workspace-plan-entry-and-focus-to-item-navigation (Workspace Plan entry and focus-to-item navigation)](tasks/workspace-plan-entry-and-focus-to-item-navigation.md)
+- [workspace-plan-entry-visual-treatment-and-empty-state-policy (Workspace Plan entry visual treatment and empty-state policy)](tasks/workspace-plan-entry-visual-treatment-and-empty-state-policy.md)
 
 ## Stride Logs
 
@@ -292,6 +293,7 @@
 - [integrate-web-root-browser-ui-migration strides](tasks/integrate-web-root-browser-ui-migration/strides.jsonl)
 - [plan-doctor-foundation-storage-structure-errors-and-smoke-prune strides](tasks/plan-doctor-foundation-storage-structure-errors-and-smoke-prune/strides.jsonl)
 - [workspace-plan-entry-and-focus-to-item-navigation strides](tasks/workspace-plan-entry-and-focus-to-item-navigation/strides.jsonl)
+- [workspace-plan-entry-visual-treatment-and-empty-state-policy strides](tasks/workspace-plan-entry-visual-treatment-and-empty-state-policy/strides.jsonl)
 
 ## Milestones
 
@@ -387,6 +389,7 @@
 - [spec-as-separate-object testing (ms_f655006f54674dc686243c7567879c77)](milestones/spec-as-separate-object-ms_f655006f54674dc686243c7567879c77.md)
 - [spec-as-separate-object decision (ms_59b0b0ebdbcd4a689e0541809b8f487a)](milestones/spec-as-separate-object-ms_59b0b0ebdbcd4a689e0541809b8f487a.md)
 - [spec-as-separate-object decision (ms_242d1342d6284d439454809601b5ff58)](milestones/spec-as-separate-object-ms_242d1342d6284d439454809601b5ff58.md)
+- [spec-as-separate-object status_update (ms_2fda59abd1ad4a5d8948ffe1badb6035)](milestones/spec-as-separate-object-ms_2fda59abd1ad4a5d8948ffe1badb6035.md)
 - [plugin-extensible-canvas-nodes decision (ms_4ab4c21310ac4b8b927d8de80b4c3260)](milestones/plugin-extensible-canvas-nodes-ms_4ab4c21310ac4b8b927d8de80b4c3260.md)
 - [plugin-extensible-canvas-nodes status_update (ms_cadcdb2d95c74ab6bb80bc4743940c38)](milestones/plugin-extensible-canvas-nodes-ms_cadcdb2d95c74ab6bb80bc4743940c38.md)
 - [cli-per-instance decision (ms_827a418284b44390a74b5f42e5dc3da2)](milestones/cli-per-instance-ms_827a418284b44390a74b5f42e5dc3da2.md)
@@ -465,6 +468,7 @@
 - [plan-goal-north-star decision (ms_eec6deab936b48cbaee5de58ee959fd9)](milestones/plan-goal-north-star-ms_eec6deab936b48cbaee5de58ee959fd9.md)
 - [plan-goal-north-star decision (ms_e75b2d6d00494da4b984111549d44e40)](milestones/plan-goal-north-star-ms_e75b2d6d00494da4b984111549d44e40.md)
 - [plan-goal-north-star decision (ms_e234baf2c1ff40f7b0dc99ae5de2cdbf)](milestones/plan-goal-north-star-ms_e234baf2c1ff40f7b0dc99ae5de2cdbf.md)
+- [plan-goal-north-star status_update (ms_7ff98b3d99aa4d47a690df7d4401dd31)](milestones/plan-goal-north-star-ms_7ff98b3d99aa4d47a690df7d4401dd31.md)
 - [handoff-verify-loop status_update (ms_35f1a129953940cbb7a8738f5389e3f3)](milestones/handoff-verify-loop-ms_35f1a129953940cbb7a8738f5389e3f3.md)
 - [orchestration-skill-postulates status_update (ms_f0634361366045519027f6ce892560e6)](milestones/orchestration-skill-postulates-ms_f0634361366045519027f6ce892560e6.md)
 - [worlds-v3 decision (ms_9136be5173e645b4bc1d525d5f345999)](milestones/worlds-v3-ms_9136be5173e645b4bc1d525d5f345999.md)
@@ -532,6 +536,8 @@
 - [integrate-web-root-browser-ui-migration status (ms_8d41cac07ceb2b62)](milestones/integrate-web-root-browser-ui-migration-ms_8d41cac07ceb2b62.md)
 - [plan-doctor-foundation-storage-structure-errors-and-smoke-prune status_update (ms_1b96da20c83343799c58092017a800b8)](milestones/plan-doctor-foundation-storage-structure-errors-and-smoke-prune-ms_1b96da20c83343799c58092017a800b8.md)
 - [workspace-plan-entry-and-focus-to-item-navigation status_update (ms_232a29f3afcd43e181f64077f10dfc0c)](milestones/workspace-plan-entry-and-focus-to-item-navigation-ms_232a29f3afcd43e181f64077f10dfc0c.md)
+- [workspace-plan-entry-visual-treatment-and-empty-state-policy status_update (ms_147e62b7f3ac4477be559582c9e5c89e)](milestones/workspace-plan-entry-visual-treatment-and-empty-state-policy-ms_147e62b7f3ac4477be559582c9e5c89e.md)
+- [workspace-plan-entry-visual-treatment-and-empty-state-policy testing (ms_bff6b9c0833f4d5b9601163b0ee5de63)](milestones/workspace-plan-entry-visual-treatment-and-empty-state-policy-ms_bff6b9c0833f4d5b9601163b0ee5de63.md)
 
 ## Elements
 

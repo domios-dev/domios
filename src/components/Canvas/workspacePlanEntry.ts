@@ -2,7 +2,6 @@ import type { Pane, Workspace } from "../../lib/types";
 import { childPaneIdsInWorkspace, paneIdsInWorkspace } from "../Sidebar/workspaceTabs";
 import type { PlanIndexEntry } from "./plansApi";
 import { assignedTaskIdsForPane } from "./planOpenFocus";
-import { findPlanIndexForPane } from "./planPaneMatch";
 import { canvasFocusStore, type CanvasWorkspaceTarget } from "./canvasFocusStore";
 import type { Plan } from "./types";
 
@@ -15,23 +14,15 @@ export function workspacePaneIds(workspace: Workspace, panes: Record<string, Pan
 export function deriveWorkspacePlanEntries(
   index: PlanIndexEntry[],
   workspace: Workspace,
-  panes: Record<string, Pane>,
+  _panes: Record<string, Pane>,
 ): PlanIndexEntry[] {
-  const paneIds = workspacePaneIds(workspace, panes);
   const active = index.filter((e) => e.status === "active");
   const seen = new Set<string>();
   const out: PlanIndexEntry[] = [];
   for (const entry of active) {
-    if (!planBelongsToWorkspacePath(entry, workspace)) continue;
+    if (!planBelongsToWorkspacePath(entry, workspace) || !hasWorkspacePlanContent(entry)) continue;
     seen.add(entry.plan_id);
     out.push(entry);
-  }
-  for (const paneId of paneIds) {
-    for (const entry of findPlanIndexForPane(active, paneId, panes)) {
-      if (seen.has(entry.plan_id)) continue;
-      seen.add(entry.plan_id);
-      out.push(entry);
-    }
   }
   return out.sort((a, b) => b.updated_at - a.updated_at);
 }
@@ -48,10 +39,30 @@ function normalizePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
-export function workspacePlanEntryLabel(entries: PlanIndexEntry[]): string {
-  if (entries.length === 0) return "Plan";
-  if (entries.length === 1) return entries[0].title.trim() || "Plan";
-  return `Plans (${entries.length})`;
+function hasWorkspacePlanContent(entry: PlanIndexEntry): boolean {
+  return (entry.task_count ?? 0) > 0
+    || (entry.section_count ?? 0) > 0
+    || (entry.element_count ?? 0) > 0
+    || (entry.loop_count ?? 0) > 0
+    || entry.has_goal === true
+    || entry.assigned_pane_ids.length > 0;
+}
+
+export function workspacePlanEntryKind(_entries: PlanIndexEntry[]): string {
+  return "Plan";
+}
+
+export function workspacePlanEntryLabel(_entries: PlanIndexEntry[]): string {
+  return "Plan";
+}
+
+export function workspacePlanEntryTitle(entries: PlanIndexEntry[]): string {
+  if (entries.length === 0) return "Open workspace plan";
+  if (entries.length === 1) {
+    const title = entries[0].title.trim();
+    return title ? `Open plan: ${title}` : "Open workspace plan";
+  }
+  return `Open ${entries.length} workspace plans`;
 }
 
 export function resolvePanePlanFocusTarget(

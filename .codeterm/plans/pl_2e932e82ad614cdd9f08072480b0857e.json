@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782399838030,
+  "updated_at": 1782466185605,
   "milestone_kinds": [
     {
       "key": "research",
@@ -96,6 +96,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -104,92 +115,7 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": [
-        {
-          "id": "ms_c12f1363968d4d42a333867359045ed5",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": "R1 substrate survey dispatched to worker pane 931e7289 (worktree codeterm-r1)",
-          "ts": 1782377318942,
-          "links": [
-            "key:ed8e6e692ba063a3"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_0922be90444b49438938bd6ce7e20e76",
-          "from": {
-            "pane_id": "931e7289",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision|VERDICT",
-          "text": " hybrid but inverted — DOM-world + single CSS-transform camera (tldraw model) as primary substrate; thin GPU/Canvas2D layer only for ephemeral overlays + far-LOD labels. NOT pure-GPU-world+DOM-overlay. Invariant met by ONE container transform (no per-card transform = no reflow/re-raster); markdown(HTML)+mermaid(SVG) native. Weak-HW bounded by LOD content-swap + culling. Escalate to PixiJS+SDF for far bands only if S1 spike misses fps budget.",
-          "ts": 1782377370479,
-          "links": [
-            "key:7e5ff01af1df85a4"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_d0ff95f87a524760a4ee9275a27213a3",
-          "from": {
-            "pane_id": "931e7289",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "status_update",
-          "text": "R1 DONE. Scored table (top): DOM-world+single-CSS-transform-camera 37/40 > SVG 30 > PixiJS/WebGL 27 > react-konva 26 > r3f+troika 24 > Canvas2D 22 > Motion Canvas 14. Criteria: crisp-text, camera-matrix fit, 100s-nodes-weak-HW, md/mermaid feasibility, hit-test, live-update, React, impl-cost. Refs: tldraw (DOM-world, content stays DOM, overlays->canvas 25x), Figma (full GPU/WASM, custom text layout - the cost we avoid), Excalidraw (two-canvas split + culling). Doc: docs/spikes/r1-canvas-substrate-survey.md @4351454",
-          "ts": 1782377378496,
-          "links": [
-            "key:f882b62cdbc00c57"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_aab4f8bbd3c94bbbbdfefc0d8da4bfef",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "ACCEPTED by orchestrator. Verdict HYBRID-INVERTED (DOM-world + single CSS-transform camera, tldraw model; GPU/canvas only for ephemera+far-LOD). Resolves GOAL tension: enemy is PER-CARD transforms, not DOM; single container matrix = object-size-is-camera-matrix, crisp+zero-reflow. LOAD-BEARING ASSUMPTION for D1/S1: crisp DOM text at 1000% under one composited transform must be PROVEN first in the spike; PixiJS+MSDF far-band escalation recorded if fps fails. Doc docs/spikes/r1-canvas-substrate-survey.md @43514548 on canvas/r1-substrate-survey.",
-          "ts": 1782377468348,
-          "links": [
-            "key:cbe21ed480bfb6ff"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        }
-      ]
+      "milestones": []
     },
     {
       "id": "task_8085c5cef2ab4ed9a270bd7fef480f5d",
@@ -216,6 +142,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -224,113 +161,7 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": [
-        {
-          "id": "ms_4826aa6639d540f0a229ebd5d3b03c1f",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": "R2 rich-content dispatched to worker pane cf5730cc (worktree codeterm-r2)",
-          "ts": 1782377319031,
-          "links": [
-            "key:6e8cf8924d4c62a2"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_7e5fe63361374b0da819331092cbb71e",
-          "from": {
-            "pane_id": "cf5730cc",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision|hybrid boundary",
-          "text": " GPU draws all states; ONE thin DOM overlay only for focused/editing node; hidden DOM a11y mirror always",
-          "ts": 1782377413492,
-          "links": [
-            "key:9cdc4ad2c08309ac"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_8457da2c1b45471da12bbf2744fb1d20",
-          "from": {
-            "pane_id": "cf5730cc",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "riskiest=accessibility (silently invisible in dev); mitigation=hidden DOM mirror from day one, shares overlay interface; HTML-in-Canvas API future collapse",
-          "ts": 1782377413594,
-          "links": [
-            "key:c23750540373d95c"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_6b659f9bd83948ee945f7dbc910fdd57",
-          "from": {
-            "pane_id": "cf5730cc",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": " markdown 3-tier path. AST-to-canvas common subset plus colored code runs on idle, full react-markdown DOM overlay on focus. mermaid render-to-texture idle, live SVG overlay on focus. no MD feature dropped",
-          "ts": 1782377441908,
-          "links": [
-            "key:809aef4d54925093"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_239cfd676a0144de8ac412e9983765de",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "ACCEPTED. Per-capability table + hybrid boundary + no-silent-drop guarantee + precise transition rule all present. Doc docs/spikes/r2-canvas-rich-content.md @a4bc5f37 on canvas/r2-rich-content.",
-          "ts": 1782377559822,
-          "links": [
-            "key:ced683f6ed73bbdf"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        }
-      ]
+      "milestones": []
     },
     {
       "id": "task_6bf08952d04749bab0f5e16488798ac6",
@@ -358,6 +189,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -366,113 +208,7 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": [
-        {
-          "id": "ms_b18a137bea6540e5870ed8be599100a2",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": "SYNTHESIS of R1+R2 for D1. CONVERGED (bake into spec regardless): (1) ONE camera matrix on ONE world container, never per-card transforms = the #1 fix; (2) focused/editing/selection/IME/copy -> thin DOM overlay mounted at cameraMatrix*objectRect, demote-on-pan v1; (3) hidden DOM a11y proxy mirror from day one (opacity:0 not display:none), shares overlay interface. OPEN QUESTION (spike-gated, do NOT guess in design): idle/mid-node renderer = DOM-under-single-transform (R1) vs GPU MSDF-atlas+own-layout (R2). Discriminator = does single-container CSS matrix() keep DOM text crisp at 1000%? R2 says no (cites crispScale hack nodeRegistry.tsx:40), R1 says yes. S1 spike must answer THIS FIRST. Far/birds-eye band = cheap placeholder/canvas-label either way (both agree).",
-          "ts": 1782377559914,
-          "links": [
-            "key:23e0eaf121f1dde8"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_7c54e73804834960b37104ab2da4e7b0",
-          "from": {
-            "pane_id": "e03b5dbf",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": "current code already has ONE world-container transform; real offender is per-card crispScale re-raster hack (zoom+counter-scale) in TaskCard/SectionNode - that is the boxiness hack to subsume",
-          "ts": 1782377815981,
-          "links": [
-            "key:0a7a370fc4fac0ea"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_5b417d4f5c0a4c56a89295854056a0d8",
-          "from": {
-            "pane_id": "e03b5dbf",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": "idle-node renderer is the ONLY open seam, SPIKE-GATED on S0 - discriminator is whether single-container matrix() keeps DOM text crisp at 10x once crispScale removed; both branches fully specced, converged parts identical",
-          "ts": 1782377993302,
-          "links": [
-            "key:1e565bcb1a1f591a"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_d30242587dc94358b46b97349776edcd",
-          "from": {
-            "pane_id": "e03b5dbf",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "spec committed de420b4a on canvas/d1-design - camera/node-draw/LOD/focus/content/migration/tests all covered, capability map shows no regression",
-          "ts": 1782377993610,
-          "links": [
-            "key:1b556159f7faf237"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_219c20e3ec244e7c9450d86a5bacabcc",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "ACCEPTED (orchestrator + supervisor). 403-line spec docs/specs/2026-06-25-canvas-substrate-design.md @de420b4a on canvas/d1-design. Converged arch baked, idle-node renderer correctly spike-gated on S0, capability map no-silent-drop, §6 migration M0-M5 task-cards-first behind canvas.substrateV2 flag (crispScale subsumed), §8 camera-stability migration-must-not-regress. Brief correction confirmed: world matrix already at CanvasView:670; offender is per-card crispScale at TaskCard:296.",
-          "ts": 1782378211953,
-          "links": [
-            "key:09b0545962f7975a"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        }
-      ]
+      "milestones": []
     },
     {
       "id": "task_1356d9161530411d8a443081866d75f3",
@@ -501,6 +237,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -509,197 +256,7 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": [
-        {
-          "id": "ms_b059ae0c1b0f483f99790e0c812eb9c7",
-          "from": {
-            "pane_id": "165f331e",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": "M0+M1 done. Flag canvas.substrateV2 via localStorage (new substrateFlag.ts, default off, read-once cached) - existing canvas settings store is a React context for layout constants needing a Provider+settings.ts edit (outside file boundary), so used the lightest localStorage fallback. TaskCard gated: off=unchanged crispScale wrapper, on=pure DOM card(style) ignoring crispScale. No prop/signature change. tsc clean (7 pre-existing plugin-sdk errors unrelated).",
-          "ts": 1782378906426,
-          "links": [
-            "key:72729e5e567f8777"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_e8d5f4e1c4f8486b9467591329fc57c6",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "M0+M1 CODE accepted (orchestrator diff-review + tsc). substrateFlag.ts (localStorage canvas.substrateV2, default OFF, SSR-safe) + TaskCard early-return: flag ON -> card(style) pure DOM no crispScale wrapper, flag OFF -> byte-identical old behavior (ships green). Clean boundary: TaskCard.tsx + new file only, supervisor's CanvasView/SectionNode untouched. @e5bc9522 on canvas/mig-m1-taskcard. PENDING for S1 completion: in-app Playwright (size-constant W1->W3 + crisp@1000% + frontend-design eval) — needs dev redeploy with flag ON.",
-          "ts": 1782379294399,
-          "links": [
-            "key:4e73ebf9657309ec"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_694440fa77ed4d8b9182b9f2f1032092",
-          "from": {
-            "pane_id": "d2684f80",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "wrote substrate-v2-crisp.spec.ts — flag-on via addInitScript+reload, focus-by-id contract, object-size-constant W1->W3, no .ct-canvas-crisp at deep zoom, fit+1000% screenshots; tsc clean",
-          "ts": 1782379709119,
-          "links": [
-            "key:419d3065840f4cfe"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_384e3b45ed8d48a8b8c88ade1d2b5398",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "M0+M1 ACCEPTED on strong evidence (diff-review: TaskCard returns card(style) when flag on, .ct-canvas-crisp wrapper @299 skipped; tsc clean; S0 PROVED crisp@10x on real WebKit; size-constancy structural — fixed object-space style under world matrix). Curie's spec substrate-v2-crisp.spec.ts @53e94957 gated as CORRECT (data-task-id/data-world/.ct-canvas-crisp selectors all real, object-footprint=screenRect/scale invariant assert). FULL in-app Playwright run DEFERRED to low-load: weak machine at load 6-8 w/ concurrent build = freeze risk + fresh instance has empty canvas (needs data seed/snapshot). Will run cvf isolated instance when 1m load <4.",
-          "ts": 1782381335271,
-          "links": [
-            "key:62e7a4fdbfac4719"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_ee91417e7e93403d903b6637e969a633",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "M0+M1 ACCEPTED on evidence (diff-review TaskCard flag-gate skips .ct-canvas-crisp; tsc clean; S0 proved crisp@10x on real WebKit; size-constancy structural). Curie spec @53e94957 gated correct. FULL in-app Playwright DEFERRED to low-load (weak machine load 6-8 + concurrent build = freeze risk; fresh instance empty needs data snapshot). Run cvf isolated instance when 1m load <4.",
-          "ts": 1782381345829,
-          "links": [
-            "key:1a130a69aae2adb4"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_01d8142b84f948d78f84136fe4c94815",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "LIVE VERIFY ATTEMPTED end-to-end. Applied Brunel's 2 FE files to main checkout (HMR, flag default-off=no functional change, web-mode Chromium=no focus-fight), copied Curie spec, ran CT_E2E_PORT=7686 playwright --grep @canvas-substrate-v2. RESULT: harness CONNECTS+RUNS clean but SKIPS — fresh session canvas board empty (canvas-empty). ROOT CAUSE: pre-existing precondition — the WHOLE canvas suite incl supervisor's canvas-worlds-v3.spec.ts skips identically ('no active plans in the dev workspace'); canvas tests need an active plan board in the workspace, no self-seed setup exists. NOT a M0+M1 or Curie-spec defect. Reverted main checkout to pristine (supervisor tree untouched). M0+M1 ACCEPTED on evidence (S0 real-WebKit crisp proof + diff review + structural size-constancy + tsc). Live size-constant+frontend-design eval gated on a populated+flagged dev (cleanest when M0+M1 merges to mainline) OR canvas-suite self-seeding fix.",
-          "ts": 1782383782981,
-          "links": [
-            "key:ba7bc658d979e390"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_9c9d82739a084557bea9594c768b6f0d",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "Isolated-instance live verify CUT — hit macOS dev-launch PTY fragility (build pane died, no listener on 7687) on top of the plan-storage + empty-board walls. None are M0+M1 defects. M0+M1 stays ACCEPTED on evidence (S0 real-WebKit crisp proof + diff + structural size-constancy + tsc). Proper fix is SYSTEMIC: dispatching the canvas-test self-seed helper so the whole 13-canvas suite (incl supervisor's worlds-v3) stops skipping against 7686; once that + M0+M1 reach mainline, substrate-v2 spec runs normally. Visual frontend-design eval honestly still DEFERRED to that path.",
-          "ts": 1782384957005,
-          "links": [
-            "key:997b441cdda3fc2d"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_45738215806c45a58b5ec83f39388087",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "S1 VISUAL GATE PASSED (real app, isolated dev 7687). substrateV2 task cards: footprint 156px CONSTANT W1->W3 (no 296->153 snap), on-screen=footprint x cameraScale, NO .ct-canvas-crisp wrapper at deep zoom, reached 1000%. frontend-design verdict: CRISP+size-constant, razor-sharp glyphs at 1000%, pure DOM under world matrix, zero blur. GOAL invariant MET, Branch A validated end-to-end. Spec+harness @00b2cf86 on canvas/s1-verify-int (5 iterations, final pass). Built isolated dev via Hopper worktree-data + Turing seed + Brunel flag.",
-          "ts": 1782389427077,
-          "links": [
-            "key:3c1371a14c7b1b96"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_25b66106257b4ee5b9ba3352c41ea9dd",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": "Fermi fixed spec zoom harness (product zoom controls + dblclick-pin probe, setCanvasScale didn't drive substrateV2 camera) + added canvas-inspect helpers centerCard/resetZoom/zoomStep/zoomCardBy. NOTE collision: canvas-inspect.ts is supervisor's uncommitted - Fermi's additions are additive, reconcile at integration.",
-          "ts": 1782389427267,
-          "links": [
-            "key:02766e556c04d291"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        }
-      ]
+      "milestones": []
     },
     {
       "id": "task_03d359701b9b44c39486d0d5410d1e8f",
@@ -729,6 +286,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -737,57 +305,14 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": [
-        {
-          "id": "ms_5e0714d88417411dae72e9eea62fa0ae",
-          "from": {
-            "pane_id": "09c82f36",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "single-container transform:matrix() keeps DOM text crisp at 10x on BOTH Chromium(WebView2) and WebKit(WKWebView), var-Laplacian A=377 vs ground-truth re-layout B=388 (identical), crispScale hack unneeded for idle nodes - Branch A viable",
-          "ts": 1782378321474,
-          "links": [
-            "key:45bbc7230b0d8775"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_e1187a9bab9d4d3cb5eb919040ee9198",
-          "from": {
-            "pane_id": "fa0974b3",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": "ACCEPTED with pixel+metric evidence. VERDICT: Branch A. Single-container matrix() keeps DOM text crisp at 10x on BOTH Chromium AND WebKit (macOS Tauri engine). var-Laplacian A=376.8 vs re-layout ground-truth B=387.9 (within 3%); R2 predicted ~100x drop, reality ~3% = R2 empirically wrong for idle/at-rest. 0.0% reflow. crispScale buys nothing for idle nodes (it even rewraps text). CAVEAT (real grain of R2): mid-gesture/animation softness only, snaps crisp at rest — does NOT affect idle nodes; likely the original crispScale motivation. DECISION: drop crispScale from idle path, pure DOM under single matrix, NO GPU/MSDF (Branch B not justified). Deliverable spikes/crisp-text/ @8a8c85f9 on canvas/s0-crisp-discriminator (harness+capture.mjs+FINDINGS+screenshots both engines).",
-          "ts": 1782378660385,
-          "links": [
-            "key:a777240ea4b2b50f"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        }
-      ]
+      "milestones": []
     },
     {
       "id": "task_efc06368a5d54aea8b0844b2fd62fbd9",
       "name": "R3 — Research World/Figma canvas architecture",
       "type": "research",
       "model": "codex:gpt-5.5",
-      "model_rationale": "User explicitly redirected away from Worlds v3 implementation toward researching the right Figma-like world/canvas architecture before more fixes.",
+      "model_rationale": "Architecture research is terminal/web/source-heavy; Codex 5.5 assigned per user's direction for deeper design reasoning.",
       "acceptance_criteria": [
         "Defines the target architecture in one page: renderer substrate, camera model, node/content model, focused-node overlay strategy, and LOD/worlds semantics.",
         "Explains why current Worlds v3/per-card crispScale path is rejected or retained only as temporary legacy.",
@@ -796,12 +321,12 @@
       ],
       "test_plan": "Research deliverable: plan milestone/section with decision matrix + recommended architecture + migration slice. Verify by checking it directly answers the W2 shrink/wobble root cause and names the exact follow-up implementation task.",
       "correctness": "The result must answer which canvas/world architecture should replace the current Worlds v3 path, why it solves shrinking/wobble/reflow at the root, and what the first implementation slice should be.",
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p0",
       "created_at": 1782399794487,
-      "updated_at": 1782399794487,
-      "status_changed_at": 1782399794487,
+      "updated_at": 1782466134994,
+      "status_changed_at": 1782466134994,
       "handle": "r3-research-world-figma-canvas-architecture",
       "tags": [
         "substrate",
@@ -815,7 +340,20 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "f61e6203",
+      "lane": {
+        "pane_id": "f61e6203",
+        "workspace_id": "ef145fd1",
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm",
+        "branch": "feat/canvas",
+        "base": "694a36c9",
+        "destination": "feat/canvas",
+        "cleanup_status": "not_applicable",
+        "cleanup_hints": [
+          "Research lane uses canonical checkout, no worktree cleanup; close pane f61e6203 after accepted report."
+        ]
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -824,46 +362,187 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": [
-        {
-          "id": "ms_5db4d486122444a0b0703d2be0ac6e1e",
-          "from": {
-            "pane_id": "4d479b6c",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": "Created as the single active task for the canvas architecture pivot. Scope is research/design, not implementation: decide the World/Figma-like canvas substrate that should replace the current Worlds v3 DOM/CSS zoom path, using W2 shrink/wobble as the root-cause example.",
-          "ts": 1782399830767,
-          "links": [],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_a8b344cb1db04ba2aa592ce77708f690",
-          "from": {
-            "pane_id": "4d479b6c",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": "Created as the single active task for the canvas architecture pivot. Scope is research/design, not implementation: decide the World/Figma-like canvas substrate that should replace the current Worlds v3 DOM/CSS zoom path, using W2 shrink/wobble as the root-cause example.",
-          "ts": 1782399838030,
-          "links": [],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        }
-      ]
+      "milestones": []
+    },
+    {
+      "id": "task_3d7b1860732047f5b27a8bfd96bcf935",
+      "name": "T1 — Figma-canvas acceptance harness",
+      "type": "implement",
+      "model": "cursor",
+      "model_rationale": "test substrate first",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p0",
+      "created_at": 1782466185212,
+      "updated_at": 1782466185212,
+      "status_changed_at": 1782466185212,
+      "handle": "t1-figma-canvas-acceptance-harness",
+      "tags": [
+        "canvas,figma-substrate,playwright"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_638dbd55d0894626ab459d5d6112f09d",
+      "name": "S2 — Extract CanvasScene substrate beside DOM CanvasView",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "scene graph and geometry contract",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p0",
+      "created_at": 1782466185368,
+      "updated_at": 1782466185368,
+      "status_changed_at": 1782466185368,
+      "handle": "s2-extract-canvasscene-substrate-beside-dom-canvasview",
+      "tags": [
+        "canvas,figma-substrate,scene"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_7d5b3f4089b24c51903e04eaa170ce84",
+      "name": "S3 — Passive canvas renderer layer behind current DOM UI",
+      "type": "implement",
+      "model": "cursor",
+      "model_rationale": "visual renderer slice with Playwright gates",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1782466185497,
+      "updated_at": 1782466185497,
+      "status_changed_at": 1782466185497,
+      "handle": "s3-passive-canvas-renderer-layer-behind-current-dom-ui",
+      "tags": [
+        "canvas,figma-substrate,renderer"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_7f3081ed0b9a4f609e59599ab17a211e",
+      "name": "S4 — Scene hit-testing and rich overlay budget contract",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "interaction/overlay contract after scene exists",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1782466185605,
+      "updated_at": 1782466185605,
+      "status_changed_at": 1782466185605,
+      "handle": "s4-scene-hit-testing-and-rich-overlay-budget-contract",
+      "tags": [
+        "canvas,figma-substrate,overlay"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
     }
   ],
   "task_groups": [],
