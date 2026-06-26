@@ -1,9 +1,9 @@
 import type { CSSProperties } from "react";
-import { CheckCircle2, Clock3, CornerDownRight, ExternalLink, Layers, Link2, TriangleAlert, Unplug } from "lucide-react";
+import { CheckCircle2, Clock3, CornerDownRight, ExternalLink, GitBranch, Layers, Link2, TriangleAlert, Unplug, UserRound, Users } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
 import { TASK_STATUS_COLORS } from "../settings";
-import { atLeast, DEEP_DIVE_CRISP_SCALE, type World } from "../worlds";
-import type { DriftItem, DriftKind, TagFacet, Task, TaskStatus } from "../types";
+import { atLeast, DEEP_DIVE_CRISP_SCALE, World } from "../worlds";
+import { TaskPriority, TaskStatus, type DriftItem, type DriftKind, type TagFacet, type Task } from "../types";
 import { resolveTags } from "../tagModel";
 import type { CanvasCardStyleProps } from "./types";
 import { digestMarkdown } from "./digest";
@@ -40,24 +40,25 @@ function statusLabel(status: TaskStatus): string {
   return status.replace(/_/g, " ");
 }
 
-type Shelf = "active" | "normal" | "done";
+const Shelf = { Active: "active", Normal: "normal", Done: "done" } as const;
+type Shelf = (typeof Shelf)[keyof typeof Shelf];
 function shelfOf(status: TaskStatus): Shelf {
-  if (status === "in_progress") return "active";
-  if (status === "done" || status === "cancelled") return "done";
-  return "normal";
+  if (status === TaskStatus.InProgress) return Shelf.Active;
+  if (status === TaskStatus.Done || status === TaskStatus.Cancelled) return Shelf.Done;
+  return Shelf.Normal;
 }
 
 // Surface chrome by shelf (§32.3): active rises with an accent ring (pulses far);
 // done recesses (inset surface + softer header); blocked warns. NO content dim.
 function statusChrome(status: TaskStatus, world: World): { ring?: string; pulse: boolean; warnBorder: boolean; recessed: boolean } {
-  if (status === "in_progress") {
-    return { ring: "0 0 0 1.5px color-mix(in srgb, var(--ct-border-focus) 80%, transparent), 0 6px 22px -8px color-mix(in srgb, var(--ct-border-focus) 55%, transparent)", pulse: !atLeast(world, "W1"), warnBorder: false, recessed: false };
+  if (status === TaskStatus.InProgress) {
+    return { ring: "0 0 0 1.5px color-mix(in srgb, var(--ct-border-focus) 80%, transparent), 0 6px 22px -8px color-mix(in srgb, var(--ct-border-focus) 55%, transparent)", pulse: !atLeast(world, World.W1), warnBorder: false, recessed: false };
   }
-  if (status === "in_review") {
+  if (status === TaskStatus.InReview) {
     return { ring: "0 0 0 1.5px color-mix(in srgb, rgba(245, 158, 11, 0.92) 78%, transparent)", pulse: false, warnBorder: false, recessed: false };
   }
-  if (status === "done" || status === "cancelled") return { pulse: false, warnBorder: false, recessed: true };
-  if (status === "blocked") return { pulse: false, warnBorder: true, recessed: false };
+  if (status === TaskStatus.Done || status === TaskStatus.Cancelled) return { pulse: false, warnBorder: false, recessed: true };
+  if (status === TaskStatus.Blocked) return { pulse: false, warnBorder: true, recessed: false };
   return { pulse: false, warnBorder: false, recessed: false };
 }
 
@@ -100,11 +101,15 @@ function MiniBar({ frac }: { frac: number }) {
   );
 }
 
-function Chip({ testid, mono, accent, children }: { testid: string; mono?: boolean; accent?: string; children: React.ReactNode }) {
+function Chip({ testid, mono, accent, icon, max, children }: { testid: string; mono?: boolean; accent?: string; icon?: React.ReactNode; max?: number; children: React.ReactNode }) {
   return (
     <span
       data-testid={testid}
       style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: icon ? 4 : 0,
+        maxWidth: max,
         fontSize: "0.78em",
         fontFamily: mono ? "var(--ct-font-mono)" : undefined,
         padding: "0.08em 0.45em",
@@ -116,7 +121,46 @@ function Chip({ testid, mono, accent, children }: { testid: string; mono?: boole
         whiteSpace: "nowrap",
       }}
     >
-      {children}
+      {icon}
+      <span style={max ? { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } : undefined}>{children}</span>
+    </span>
+  );
+}
+
+// Priority (§seed gap): p0 highest. Reuses the product's semantic color language —
+// red = urgent (drift/error family), amber = attention (in_review) — so no new
+// vocabulary. p0 alarms (solid); p1 attention (amber tint); p2/p3 stay quiet.
+const PRIORITY_META: Record<TaskPriority, { label: string; color: string; solid: boolean }> = {
+  [TaskPriority.P0]: { label: "P0", color: "rgba(248,113,113,0.98)", solid: true },
+  [TaskPriority.P1]: { label: "P1", color: "rgba(245,158,11,0.97)", solid: false },
+  [TaskPriority.P2]: { label: "P2", color: "var(--ct-fg)", solid: false },
+  [TaskPriority.P3]: { label: "P3", color: "var(--ct-fg)", solid: false },
+};
+
+function PriorityTag({ priority, dim }: { priority: TaskPriority; dim: boolean }) {
+  const m = PRIORITY_META[priority];
+  const quiet = priority === TaskPriority.P2 || priority === TaskPriority.P3;
+  return (
+    <span
+      data-testid="canvas-task-priority"
+      data-priority={priority}
+      title={`Priority ${m.label}${priority === TaskPriority.P0 ? " · highest" : priority === TaskPriority.P3 ? " · lowest" : ""}`}
+      style={{
+        flexShrink: 0,
+        fontSize: "0.66em",
+        fontWeight: 800,
+        letterSpacing: "0.05em",
+        fontFamily: "var(--ct-font-mono)",
+        lineHeight: 1.55,
+        padding: "0 0.4em",
+        borderRadius: "var(--ct-radius-sm)",
+        background: m.solid ? m.color : `color-mix(in srgb, ${m.color} ${quiet ? 7 : 16}%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${m.color} ${quiet ? 28 : 55}%, transparent)`,
+        color: m.solid ? "var(--ct-bg)" : quiet ? "color-mix(in srgb, var(--ct-fg) 68%, transparent)" : m.color,
+        opacity: dim ? 0.45 : 1,
+      }}
+    >
+      {m.label}
     </span>
   );
 }
@@ -282,11 +326,22 @@ export function TaskCard({
   const displayStatus = task.status_label?.trim() || statusLabel(task.status);
   const chrome = statusChrome(task.status, world);
   const shelf = shelfOf(task.status);
-  const showTitle = atLeast(world, "W1");
-  const showStructure = atLeast(world, "W2");
+  const showTitle = atLeast(world, World.W1);
+  const showStructure = atLeast(world, World.W2);
+  const isDone = shelf === Shelf.Done;
+  // Urgent (p0/p1) leads the title from W1 — the overview must shout what's on
+  // fire. The quieter p2/p3 ranks ride a meta chip at W2, so they don't stamp every
+  // card or steal title space on a narrow tile.
+  const isUrgent = task.priority === TaskPriority.P0 || task.priority === TaskPriority.P1;
+  const titlePriority = !!task.priority && isUrgent;
+  const metaPriority = !!task.priority && !isUrgent && showStructure;
+  const role = task.taken_by_role?.trim() || null;
+  const branch = task.lane?.branch?.trim() || null;
+  const group = task.group?.trim() || null;
+  const peer = task.peer?.trim() || null;
   const budgetRich = suppressRichContent && !richOverlay;
-  const showBodySlot = atLeast(world, "W2") && !budgetRich;
-  const showFullBody = atLeast(world, "W3") && !budgetRich;
+  const showBodySlot = atLeast(world, World.W2) && !budgetRich;
+  const showFullBody = atLeast(world, World.W3) && !budgetRich;
   const showDeepDive = showFullBody && crispScale >= DEEP_DIVE_CRISP_SCALE;
   const innerW = (typeof style.width === "number" ? style.width : 260) - 26;
 
@@ -305,7 +360,7 @@ export function TaskCard({
   const freshnessAt = taskFreshnessAt(task);
   const freshnessLabel = freshnessAt != null ? formatTaskFreshness(freshnessAt) : "";
   const showStrides = strideCount > 0 && (showBodySlot || !showStructure);
-  const contentRows = showBodySlot ? "auto 20px 0 minmax(36px, 1fr)" : "auto 26px 42px minmax(0, 1fr)";
+  const contentRows = showBodySlot ? "auto minmax(0, auto) 0 minmax(28px, 1fr)" : "auto 26px 42px minmax(0, 1fr)";
   const contentGap = showBodySlot ? 4 : 7;
   const contentPadding = showBodySlot ? "8px 10px" : "10px 12px";
   const bodyRows = showFullBody
@@ -321,6 +376,11 @@ export function TaskCard({
     ...(chrome.ring ? { boxShadow: chrome.ring } : null),
     ...(chrome.warnBorder ? { borderLeft: "3px solid var(--ct-error, #ef8282)" } : null),
     ...(!chrome.warnBorder && resolved.primary?.color ? { borderLeftWidth: 3, borderLeftStyle: "solid", borderLeftColor: resolved.primary.color } : null),
+    // Ambient urgency: p0/p1 with no facet/blocked rail get a priority-tinted edge,
+    // so a fire is catchable in the W0/W1 cloud before the tag itself reveals.
+    ...(!chrome.warnBorder && !resolved.primary?.color && !isDone && isUrgent && task.priority
+      ? { borderLeftWidth: 3, borderLeftStyle: "solid", borderLeftColor: PRIORITY_META[task.priority].color }
+      : null),
   };
 
   const actions = showStructure && (
@@ -358,12 +418,15 @@ export function TaskCard({
       onMouseLeave={() => onHover?.(null)}
       style={{ ...cardStyle, ...boxStyle, ...chromeOverrides, ...(tagFilterDimmed ? { opacity: 0.22, pointerEvents: "none" as const } : {}) }}
     >
-      <div style={{ flex: 1, display: "grid", gridTemplateRows: contentRows, gap: contentGap, padding: contentPadding, minWidth: 0, overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "grid", gridTemplateRows: contentRows, gridTemplateColumns: "minmax(0, 1fr)", gap: contentGap, padding: contentPadding, minWidth: 0, overflow: "hidden" }}>
         {/* Header — present at every band (the navigation layer). Solid status chip. */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "start", gap: 6, minWidth: 0 }}>
-              <span data-testid="canvas-task-name" data-visible={showTitle ? "true" : "false"} data-task-name-full={task.name} data-canvas-selectable className="ct-canvas-text" style={{ minWidth: 0, maxWidth: "100%", fontWeight: shelf === "done" ? 600 : 700, fontSize: shelf === "done" ? "0.98em" : "1.03em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.25, wordBreak: "break-word", ...revealStyle(showTitle) }}>
+              <span data-testid="canvas-task-name" data-visible={showTitle ? "true" : "false"} data-task-name-full={task.name} data-canvas-selectable className="ct-canvas-text" style={{ minWidth: 0, maxWidth: "100%", fontWeight: shelf === Shelf.Done ? 600 : 700, fontSize: shelf === Shelf.Done ? "0.98em" : "1.03em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.25, wordBreak: "break-word", ...revealStyle(showTitle) }}>
+                {titlePriority && task.priority && (
+                  <span style={{ marginRight: 5, verticalAlign: "1px" }}><PriorityTag priority={task.priority} dim={isDone} /></span>
+                )}
                 {titleText}
               </span>
               <div style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
@@ -375,8 +438,13 @@ export function TaskCard({
           {actions}
         </div>
 
-        <div data-testid="canvas-task-meta-slot" style={{ display: "flex", flexWrap: "wrap", alignContent: "flex-start", gap: 6, minHeight: 0, overflow: "hidden", ...revealStyle(showStructure) }}>
+        <div data-testid="canvas-task-meta-slot" style={{ display: "flex", flexWrap: "wrap", alignContent: "flex-start", gap: 6, minHeight: 0, maxHeight: showFullBody ? undefined : 44, overflow: "hidden", ...revealStyle(showStructure) }}>
+          {metaPriority && task.priority && <span style={{ display: "inline-flex", alignItems: "center" }}><PriorityTag priority={task.priority} dim={isDone} /></span>}
           {task.type && <Chip testid="canvas-task-type">{task.type}</Chip>}
+          {role && <Chip testid="canvas-task-role" accent="rgba(96,165,250,0.95)" icon={<UserRound size={11} aria-hidden />} max={150}>{role}</Chip>}
+          {branch && <Chip testid="canvas-task-branch" mono icon={<GitBranch size={11} aria-hidden />} max={170}>{branch}</Chip>}
+          {peer && <Chip testid="canvas-task-peer" icon={<Users size={11} aria-hidden />} max={140}>{peer}</Chip>}
+          {group && <Chip testid="canvas-task-group" max={140}>{group}</Chip>}
           {task.model && <Chip testid="canvas-task-model" mono>{task.model}</Chip>}
           {resolved.facets.map((facet) => (
             <Chip key={facet.tag} testid="canvas-task-tag-facet" accent={facet.color ?? undefined}>{facet.label}</Chip>
