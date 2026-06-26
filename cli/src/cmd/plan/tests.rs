@@ -51,6 +51,17 @@ fn renders_unknown_task_fix() {
 }
 
 #[test]
+fn renders_unknown_element_fix() {
+    let msg = render_plan_error(
+        &json!({ "type": "element_not_found" }),
+        &json!({ "plan_id": "plan_1", "element_id": "missing_element" }),
+    )
+    .unwrap();
+    assert!(msg.contains("✗ no element 'missing_element'"));
+    assert!(msg.contains("codeterm plan element list plan_1"));
+}
+
+#[test]
 fn plan_tagged_pane_not_found_gets_cross_daemon_hint() {
     let err = crate::client::SocketCallError::Rpc(crate::client::RpcError {
         code: -32603,

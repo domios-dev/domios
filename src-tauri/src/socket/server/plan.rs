@@ -13,7 +13,7 @@ use super::plan_fields::{
     groups_from_csv, kinds_from_csv, optional_string_field, pane_and_ancestors, pane_role,
     string_array_field, tag_facets_field,
 };
-use super::plan_linking::{csv_string_field, owner_from_params, plan_with_linking, tags_field};
+use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::{get_string_param, JsonRpcError};
 
 fn epoch_ms() -> u64 {
@@ -99,6 +99,12 @@ pub(super) fn dispatch(
     }
     if method.starts_with("plan.goal.") {
         return super::plan_goal::dispatch(method, params, app, svc);
+    }
+    if super::plan_read::handles(method) {
+        return super::plan_read::dispatch(method, params, svc);
+    }
+    if super::plan_elements::handles(method) {
+        return super::plan_elements::dispatch(method, params, app, svc);
     }
     let p = params.as_ref();
     let store = &svc.plan_store;
@@ -220,34 +226,6 @@ pub(super) fn dispatch(
                 });
             }
             Ok(json!({ "plans": entries }))
-        }
-
-        "plan.related" => {
-            let id = get_string_param(params, "id")?;
-            let depth = p
-                .and_then(|x| x.get("depth"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(1);
-            Ok(json!({
-                "id": id,
-                "depth": depth,
-                "groups": store.related_units(&id),
-            }))
-        }
-
-        "plan.reindex" => {
-            let project = get_string_param(params, "project")?;
-            let project_root = svc
-                .ensure_plan_project_loaded(std::path::Path::new(&project))
-                .map_err(plan_rpc_err)?;
-            let result = store
-                .reindex_project_index(&project_root)
-                .map_err(|e| JsonRpcError {
-                    code: -32603,
-                    message: e,
-                    data: None,
-                })?;
-            Ok(json!(result))
         }
 
         "task.list" => {
@@ -420,39 +398,6 @@ pub(super) fn dispatch(
                 "task_id": task_id.clone(),
                 "_hints": response_hints
             }))
-        }
-
-        "plan.get" => {
-            let id = get_string_param(params, "plan_id")?;
-            let plan = store
-                .get(&id)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-            Ok(plan_with_linking(&plan))
-        }
-
-        "plan.spec" => {
-            let id = get_string_param(params, "plan_id")?;
-            let spec = store
-                .spec_markdown(&id)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-            Ok(json!({ "plan_id": id, "spec": spec }))
-        }
-
-        "plan.files" => {
-            let id = get_string_param(params, "plan_id")?;
-            let manifest = store.file_manifest(&id).map_err(plan_rpc_err)?;
-            Ok(serde_json::to_value(manifest).unwrap_or_default())
-        }
-
-        "plan.tags" => {
-            let id = get_string_param(params, "plan_id")?;
-            let plan = store
-                .get(&id)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-            Ok(
-                serde_json::to_value(crate::service::plan::tag_model::tag_report(&plan))
-                    .unwrap_or_default(),
-            )
         }
 
         "plan.update" => {
@@ -1037,72 +982,6 @@ pub(super) fn dispatch(
                 emit_plan_changed(app, &plan_id);
             }
             Ok(json!({ "ok": true }))
-        }
-
-        "plan.layout.set" => {
-            let id = get_string_param(params, "plan_id")?;
-            let element = get_string_param(params, "element")?;
-            store
-                .set_layout(
-                    &id,
-                    &element,
-                    p.and_then(|x| x.get("x")).and_then(|v| v.as_f64()),
-                    p.and_then(|x| x.get("y")).and_then(|v| v.as_f64()),
-                    now,
-                )
-                .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
-        }
-
-        "plan.note.add" => {
-            let id = get_string_param(params, "plan_id")?;
-            let text = p
-                .and_then(|x| x.get("text"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let links = p
-                .and_then(|x| x.get("links"))
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_default();
-            let eid = store
-                .add_note(
-                    &id,
-                    text,
-                    links,
-                    p.and_then(|x| x.get("x")).and_then(|v| v.as_f64()),
-                    p.and_then(|x| x.get("y")).and_then(|v| v.as_f64()),
-                    now,
-                )
-                .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
-            Ok(json!({ "element_id": eid }))
-        }
-
-        "plan.element.add" => {
-            let id = get_string_param(params, "plan_id")?;
-            let kind = get_string_param(params, "kind")?;
-            let content = p
-                .and_then(|x| x.get("content"))
-                .cloned()
-                .unwrap_or(json!({}));
-            let links = p
-                .and_then(|x| x.get("links"))
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_default();
-            let eid = store
-                .add_element(
-                    &id,
-                    &kind,
-                    content,
-                    links,
-                    p.and_then(|x| x.get("x")).and_then(|v| v.as_f64()),
-                    p.and_then(|x| x.get("y")).and_then(|v| v.as_f64()),
-                    now,
-                )
-                .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
-            Ok(json!({ "element_id": eid }))
         }
 
         _ => Err(JsonRpcError {

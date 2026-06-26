@@ -45,6 +45,13 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
             "✗ no task '{}' was found in plan '{plan_id}'.\nfix: codeterm plan list --active",
             task_id.unwrap_or("<task_id>")
         ))),
+        "element_not_found" => Some(format!(
+            "✗ no element '{}' was found in plan '{plan_id}'.\nfix: codeterm plan element list {plan_id}",
+            params
+                .get("element_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<element_id>")
+        )),
         "open_subtasks" => render_open_subtasks(data, plan_id, task_id),
         "budget_exhausted" => {
             let count = data.get("count").and_then(|v| v.as_u64()).unwrap_or(0);

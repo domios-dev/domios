@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1350,6 +1350,20 @@ Generic canvas elements
 - `--content_file`
 - `--kind`
 - `--link`
+- `<plan_id>`
+
+#### `codeterm plan element list`
+
+List generic canvas elements
+
+- `--kind`
+- `<plan_id>`
+
+#### `codeterm plan element show`
+
+Show one generic canvas element
+
+- `<element_id>`
 - `<plan_id>`
 
 #### `codeterm plan facets`
