@@ -55,6 +55,20 @@ function copyText(text: string): void {
   if (typeof navigator !== "undefined" && navigator.clipboard) void navigator.clipboard.writeText(text).catch(() => {});
 }
 
+function SectionMarkdownBody({ text, testid }: { text: string; testid: string }) {
+  return (
+    <div
+      data-testid={testid}
+      data-renderer="rich-markdown"
+      data-canvas-selectable
+      className="ct-canvas-fade-in ct-canvas-text"
+      style={{ fontSize: "inherit", lineHeight: "inherit", overflowWrap: "anywhere" }}
+    >
+      <RichMarkdown text={text} />
+    </div>
+  );
+}
+
 function CoverageBar({ pct }: { pct: number }) {
   return (
     <div title={`${pct}% covered`} style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--ct-bg-active)", overflow: "hidden" }}>
@@ -290,14 +304,14 @@ function SectionRowView({ row, variant, world, planId, onSectionClick, onSection
       )}
       {showBody && (
         <div
-          data-testid={isPlan ? "canvas-plan-section-body" : "canvas-spec-section-body"}
-          data-canvas-selectable
-          className="ct-canvas-fade-in ct-canvas-text"
           style={clamp
-            ? { fontSize: "0.82em", lineHeight: 1.5, overflowWrap: "anywhere", paddingLeft: row.depth * 8, display: "-webkit-box", WebkitLineClamp: isPlan ? 4 : 8, WebkitBoxOrient: "vertical", overflow: "hidden" }
-            : { fontSize: "0.82em", lineHeight: 1.55, overflowWrap: "anywhere", paddingLeft: row.depth * 8 }}
+            ? { fontSize: "0.82em", lineHeight: 1.5, paddingLeft: row.depth * 8, display: "-webkit-box", WebkitLineClamp: isPlan ? 4 : 8, WebkitBoxOrient: "vertical", overflow: "hidden" }
+            : { fontSize: "0.82em", lineHeight: 1.55, paddingLeft: row.depth * 8 }}
         >
-          <RichMarkdown text={row.section.body} />
+          <SectionMarkdownBody
+            text={row.section.body}
+            testid={isPlan ? "canvas-plan-section-body" : "canvas-spec-section-body"}
+          />
         </div>
       )}
       {/* Per-section anchor dot on the node's right edge: PLAN output → tasks; SPEC → plan row. */}

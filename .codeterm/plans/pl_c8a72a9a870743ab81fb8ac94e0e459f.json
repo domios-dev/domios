@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782429551237,
+  "updated_at": 1782448839866,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -1989,12 +1989,12 @@
       "acceptance_criteria": [],
       "test_plan": "Add/adjust focused card/node rendering tests; orchestrator reruns focused TS tests, npx tsc --noEmit, and relevant Canvas Playwright gate if behavior-visible.",
       "correctness": null,
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782429551237,
-      "status_changed_at": 1782429519759,
+      "updated_at": 1782448839866,
+      "status_changed_at": 1782448839866,
       "handle": "plan-spec-node-markdown-mermaid-code",
       "tags": [],
       "section_ids": [
@@ -2036,6 +2036,25 @@
           "kind": "decision",
           "text": "ANDREY OVERRIDE §24: (1) remove Doc/Card/Tile buttons — ONE canvas mode, content adapts to zoom only. (2) scroll over a node = node-only, NEVER hand off to canvas (remove boundary-release); pan by moving mouse off node. (3) UN-MERGE: separate SPEC node (section prose blocks) ↔ 1:1 edges ↔ PLAN node (section rows) ↔ tasks. Reverses the §22.2 one-node merge — spec+plan are two connected sectioned nodes showing section mapping.",
           "ts": 1782290817110,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_49f1376e57ca4875b6441708775e6a35",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Integrated plan-spec-rich-content: Plan/Spec section bodies now delegate through a SectionMarkdownBody wrapper with data-renderer=rich-markdown and focused coverage for markdown headings, code blocks, copy affordance, and mermaid rendering. Verified SectionNode.richContent.test.tsx 2/2, cards.test.tsx 18/18, npx tsc --noEmit, and CODETERM_API_PORT=7686 ./build.sh check.",
+          "ts": 1782448839866,
           "links": [],
           "loop_id": null,
           "iteration": null,
