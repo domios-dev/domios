@@ -536,6 +536,7 @@ function AppInner() {
         </button>
       )}
 
+      <PlansProvider api={stableApiConfig}>
       <div className="flex flex-1 min-h-0 relative">
         {sidebarMounted && (
           <>
@@ -563,7 +564,6 @@ function AppInner() {
         )}
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-        <PlansProvider api={stableApiConfig}>
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
           {/* All panels stay mounted — switching mainView only changes visibility.
               Unmounting the workspace would tear down xterm + re-run get_pane_text
@@ -695,9 +695,9 @@ function AppInner() {
             <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
         </main>
-        </PlansProvider>
         </div>
       </div>
+      </PlansProvider>
 
       <NotificationToastContainer
         toasts={state.toasts}

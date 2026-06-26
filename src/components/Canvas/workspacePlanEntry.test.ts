@@ -103,6 +103,16 @@ test("deriveWorkspacePlanEntries matches worker-assigned plans", () => {
   assert(entries.some((e) => e.plan_id === "plan-worker"), "worker assignment surfaces plan");
 });
 
+test("deriveWorkspacePlanEntries matches project plans even when workspace has no panes", () => {
+  const emptyWorkspace = { ...workspace, tabs: [] };
+  const entries = deriveWorkspacePlanEntries(
+    [indexEntry({ file_path: `${workspace.cwd}/.codeterm/plans/${FIXTURE_PLAN.id}.json` })],
+    emptyWorkspace,
+    {},
+  );
+  assert(entries.length === 1, "project-local plan surfaces without live panes");
+});
+
 test("workspacePlanEntryLabel singular and plural", () => {
   assert(workspacePlanEntryLabel([indexEntry()]) === FIXTURE_PLAN.title, "single plan title");
   assert(
