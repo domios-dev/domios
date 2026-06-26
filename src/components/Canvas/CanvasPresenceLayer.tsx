@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { AgentStack } from "./presence/AgentCircle";
 import type { PresenceOverlay } from "./presenceOverlays";
+import { usePresenceGlide } from "./presenceGlide";
 import { atLeast } from "./worlds";
 
 // EMERGENCE presence layer (north-star #2): floats the swarm ON the board. Screen-
@@ -23,6 +24,10 @@ function rosterTitle(overlay: PresenceOverlay): string {
 export function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: CanvasPresenceLayerProps) {
   // Stable identity: memo the render list so unchanged pins don't reconcile churn.
   const items = useMemo(() => overlays, [overlays]);
+  // EMERGENCE: pins GLIDE between tasks (Figma multiplayer) — the glide wrapper's
+  // transform is written by this controller ONLY, never by React, so it can't fight
+  // the camera-coupled base position or re-run any scene/layout memo.
+  const { pinRef } = usePresenceGlide(items);
   if (items.length === 0) return null;
 
   return (
@@ -70,6 +75,10 @@ export function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: Canv
               lineHeight: 0,
             }}
           >
+            <span
+              ref={pinRef(overlay.taskId)}
+              style={{ display: "inline-flex", alignItems: "center", lineHeight: 0, willChange: "transform" }}
+            >
             {showAvatar ? (
               <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
                 <AgentStack agents={overlay.agents} size={size} live={overlay.live} />
@@ -116,6 +125,7 @@ export function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: Canv
                 }}
               />
             )}
+            </span>
           </button>
         );
       })}
