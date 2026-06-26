@@ -171,7 +171,7 @@ function PriorityTag({ priority, dim }: { priority: TaskPriority; dim: boolean }
 // circles (multiplayer) + the lead handle + the BRANCH, glanceable from W1 — so the
 // swarm is visible without diving to the W3 lane block. Activity (latest step kind)
 // rides along once there's room (W2+). `live` pulses the lead when executing.
-function PresenceCluster({ presence, live, showActivity }: { presence: TaskPresence; live: boolean; showActivity: boolean }) {
+function PresenceCluster({ presence, live, showActivity, compact = false }: { presence: TaskPresence; live: boolean; showActivity: boolean; compact?: boolean }) {
   const lead = presence.agents[0];
   const leadLabel = lead?.label ?? presence.label;
   const activity = showActivity && presence.latest ? presence.latest.kindLabel : null;
@@ -191,7 +191,7 @@ function PresenceCluster({ presence, live, showActivity }: { presence: TaskPrese
       style={{
         display: "flex",
         alignItems: "center",
-        flexWrap: "wrap",
+        flexWrap: compact ? "nowrap" : "wrap",
         gap: 6,
         rowGap: 4,
         minWidth: 0,
@@ -201,11 +201,11 @@ function PresenceCluster({ presence, live, showActivity }: { presence: TaskPrese
         color: "var(--ct-fg)",
       }}
     >
-      {presence.agents.length > 0 && <AgentStack agents={presence.agents} size={18} live={live} />}
+      {presence.agents.length > 0 && <AgentStack agents={presence.agents} size={compact ? 15 : 18} live={live} />}
       <span data-testid="canvas-task-presence-detail" style={{ minWidth: 0, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {leadLabel}
       </span>
-      {presence.branch && (
+      {!compact && presence.branch && (
         <span
           data-testid="canvas-task-presence-branch"
           style={{
@@ -575,11 +575,12 @@ export function TaskCard({
       <DriftBadge drift={drift} />
     </div>
   );
-  // EMERGENCE: presence lives in the HEADER (never collapses, present every band)
-  // so "who is here + branch" is glanceable from W1 — the W2+ summary slot collapses
-  // to 0, so the counters row is the wrong home. Hidden at W0 (mass glance).
-  const presenceEl = presence && showTitle
-    ? <PresenceCluster presence={presence} live={task.status === TaskStatus.InProgress} showActivity={showStructure} />
+  // EMERGENCE (north-star #2): presence lives in the HEADER (never collapses, every
+  // band) so "who is here" is glanceable — at W0 a COMPACT cue (agent circle + lead
+  // handle only) so the far board already shows where the swarm is working (§32.2
+  // W0 identity glance); W1+ adds the branch + activity as the card earns pixels.
+  const presenceEl = presence
+    ? <PresenceCluster presence={presence} live={task.status === TaskStatus.InProgress} showActivity={showStructure} compact={!showTitle} />
     : null;
 
   const card = (boxStyle: CSSProperties) => (

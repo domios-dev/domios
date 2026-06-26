@@ -181,25 +181,37 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
           carry the stride's author + time so provenance reads without diving to W3. */}
       {(cfg.labels || cfg.callouts) && beads.map((b, i) => {
         const m = shown[i];
-        const above = b.row % 2 === 0;
-        const label = digestMarkdown(m.text, cfg.callouts ? 64 : 24) || m.kind.replace(/_/g, " ");
-        const lw = cfg.callouts ? cfg.pitch * 1.7 : cfg.pitch - 4;
+        // Alternate the callout side by COLUMN parity (not row): adjacent beads in a
+        // row zigzag above/below, so same-side neighbours sit 2·pitch apart — wider
+        // than the 1.7·pitch callout (no horizontal collision at any density). A
+        // column keeps one side across rows, so cross-row spacing stays a full rowH.
+        const above = b.col % 2 === 0;
+        const label = digestMarkdown(m.text, cfg.callouts ? 40 : 24) || m.kind.replace(/_/g, " ");
         const who = ownerName(m.from);
         const when = m.ts > 0 ? formatTime(m.ts) : "";
+        // Callouts are SINGLE-LINE: a row pitch only buys ~one text line of vertical
+        // room, so a multi-line callout collides with the next row's. Full text +
+        // provenance live in the hover title and the W3 bloom — the line stays a
+        // glance. Width 1.7·pitch with the column-parity stagger keeps same-side
+        // neighbours 2·pitch apart (no horizontal overlap at any density).
+        const lw = cfg.callouts ? cfg.pitch * 1.7 : cfg.pitch - 4;
+        const gap = cfg.callouts ? 5 : 2;
+        const title = cfg.callouts ? [m.text.trim(), who, when].filter(Boolean).join(" · ") : undefined;
         return (
           <div
             key={`l-${m.id}`}
             data-testid="canvas-stride-label"
+            title={title}
             style={{
               position: "absolute",
               left: b.x,
-              top: b.y + (above ? -cfg.r - (cfg.callouts ? 26 : 13) : cfg.r + 3),
-              transform: "translateX(-50%)",
+              top: b.y + (above ? -cfg.r - gap : cfg.r + gap),
+              transform: above ? "translate(-50%, -100%)" : "translateX(-50%)",
               width: lw,
               fontSize: cfg.callouts ? "0.72em" : "0.62em",
               lineHeight: 1.15,
               textAlign: "center",
-              whiteSpace: cfg.callouts ? "normal" : "nowrap",
+              whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
               color: "var(--ct-fg)",
@@ -207,12 +219,7 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
             }}
           >
             {label}
-            {cfg.callouts && (who || when) && (
-              <div data-testid="canvas-stride-meta" style={{ marginTop: 2, display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 5, fontSize: "0.82em", opacity: 0.62, whiteSpace: "nowrap" }}>
-                {who && <span style={{ maxWidth: lw, overflow: "hidden", textOverflow: "ellipsis" }}>{who}</span>}
-                {when && <span style={{ fontFamily: "var(--ct-font-mono)" }}>{when}</span>}
-              </div>
-            )}
+            {cfg.callouts && when && <span data-testid="canvas-stride-meta" style={{ marginLeft: 5, fontFamily: "var(--ct-font-mono)", fontSize: "0.82em", opacity: 0.55 }}>{when}</span>}
           </div>
         );
       })}
