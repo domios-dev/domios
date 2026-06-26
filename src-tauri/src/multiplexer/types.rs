@@ -242,8 +242,15 @@ pub struct Pane {
     #[serde(default)]
     pub depth: u8,
     /// Report target pane ID — for cron agents that report without joining hierarchy.
+    /// When `report_target_mesh_peer` is set, this is a pane id or `main`/`general`
+    /// alias on that remote peer rather than a local pane.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub report_target_pane_id: Option<String>,
+    /// Paired mesh peer (instance name or id) the report target lives on. Set by
+    /// `agent spawn --mesh PEER` so a remote worker's `agent report` relays back
+    /// to the spawning orchestrator / General target on another machine.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub report_target_mesh_peer: Option<String>,
     /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID at spawn time).
     /// Independent of `parent_pane_id` (which controls the role hierarchy and is
     /// forbidden for Orchestrators). Used as a final fallback by report routing
@@ -361,6 +368,7 @@ mod tests {
             can_spawn: false,
             depth: 0,
             report_target_pane_id: None,
+            report_target_mesh_peer: None,
             spawned_by_pane_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,

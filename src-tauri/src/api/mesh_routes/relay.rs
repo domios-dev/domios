@@ -202,6 +202,25 @@ fn tag_relay_send_source(
     }
 }
 
+/// Stamp the authenticated originating-peer name onto a relayed `agent spawn` so
+/// the spawned worker gets a durable cross-mesh report target back to the caller.
+/// Mirrors [`tag_relay_send_source`]: the peer name comes from the signed token,
+/// never the (spoofable) payload, and overrides any body-supplied value.
+fn tag_relay_spawn_source(
+    body: &mut serde_json::Value,
+    method: &str,
+    path: &str,
+    sender_name: &str,
+) {
+    let bare = path.split('?').next().unwrap_or(path);
+    if !(bare == "/api/agents/spawn" && method.eq_ignore_ascii_case("POST")) {
+        return;
+    }
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("origin_peer".into(), serde_json::json!(sender_name));
+    }
+}
+
 /// Local-origin relay: the web mirror stays pointed at its own daemon and asks
 /// it to proxy a request to a paired peer. Authenticated as a normal local call
 /// (the auth middleware gates it); the daemon then rides the existing signed
@@ -297,6 +316,7 @@ pub async fn mesh_relay(
     // canonical, agent-guarded Messenger (agents get `label@peer`; shells stay
     let mut body = cmd.body.clone();
     tag_relay_send_source(&mut body, &cmd.method, &cmd.path, &sender_name);
+    tag_relay_spawn_source(&mut body, &cmd.method, &cmd.path, &sender_name);
 
     let local_url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
     let signed_token = state.mesh.lock().sign_request().map_err(|e| {
@@ -375,7 +395,35 @@ pub async fn mesh_relay(
 
 #[cfg(test)]
 mod tests {
-    use super::{path_requires_full_access, tag_relay_send_source, validate_relay_path};
+    use super::{
+        path_requires_full_access, tag_relay_send_source, tag_relay_spawn_source,
+        validate_relay_path,
+    };
+
+    #[test]
+    fn relay_spawn_tags_origin_peer() {
+        let mut body = serde_json::json!({"agent": "claude", "report_to": "main"});
+        tag_relay_spawn_source(&mut body, "POST", "/api/agents/spawn", "Mac-Air");
+        assert_eq!(body["origin_peer"], serde_json::json!("Mac-Air"));
+        assert_eq!(body["report_to"], serde_json::json!("main"));
+    }
+
+    #[test]
+    fn relay_spawn_origin_overrides_spoofed_body() {
+        let mut body = serde_json::json!({"agent": "claude", "origin_peer": "I-AM-ROOT"});
+        tag_relay_spawn_source(&mut body, "post", "/api/agents/spawn", "Mac-Air");
+        assert_eq!(body["origin_peer"], serde_json::json!("Mac-Air"));
+    }
+
+    #[test]
+    fn relay_spawn_tagger_ignores_non_spawn_paths() {
+        let mut body = serde_json::json!({"text": "hi"});
+        tag_relay_spawn_source(&mut body, "POST", "/api/panes/x/send", "Mac-Air");
+        assert_eq!(body.get("origin_peer"), None);
+        let mut body2 = serde_json::json!({});
+        tag_relay_spawn_source(&mut body2, "GET", "/api/agents/spawn", "Mac-Air");
+        assert_eq!(body2.get("origin_peer"), None, "GET spawn must not be tagged");
+    }
 
     #[test]
     fn relay_send_tags_originating_peer() {

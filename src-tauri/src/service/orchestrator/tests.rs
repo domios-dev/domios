@@ -16,6 +16,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         workspace_id: None,
         force_tab: None,
         report_target_pane_id: None,
+        report_target_mesh_peer: None,
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,

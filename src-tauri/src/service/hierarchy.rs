@@ -5,6 +5,7 @@ use tauri::Emitter;
 
 use super::{ReportResult, ServiceContext};
 use crate::multiplexer::types::AgentRole;
+use tauri::Manager;
 
 impl ServiceContext {
     pub fn set_pane_role(
@@ -40,8 +41,9 @@ impl ServiceContext {
     }
 
     /// Send report to the resolved target. Routing priority:
-    /// `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`
-    /// → global system inbox. NEVER routes back to the reporter's own pane.
+    /// remote mesh target (`report_target_mesh_peer` + pane/alias) →
+    /// `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`.
+    /// NEVER routes back to the reporter's own pane; errors when none resolve.
     pub fn submit_report(
         &self,
         pane_id: &str,
@@ -57,10 +59,10 @@ impl ServiceContext {
             (from_title, target_opt, model)
         };
 
-        let target_id = target_opt.ok_or_else(|| {
-            "No report target for this pane. You are not attached to an orchestrator, report target, or spawning pane. Ask for the target pane id, then use `codeterm send --pane <id> \"...\"`.".to_string()
+        let target = target_opt.ok_or_else(|| {
+            "No report target for this pane. You are not attached to an orchestrator, report target, or spawning pane. Ask for the target pane id, then use `codeterm send [--mesh <peer>] --pane <pane-or-alias> \"...\"`, or spawn with a report target.".to_string()
         })?;
-        let storage_key = target_id.clone();
+        let storage_key = target.storage_key();
         let report = self.report_store.lock().add_detailed(
             &storage_key,
             pane_id,
@@ -87,20 +89,95 @@ impl ServiceContext {
             }),
         );
 
-        let envelope = crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
-            .model(model.clone());
-        let delivery = crate::service::messenger::Messenger::deliver(
-            self,
-            &target_id,
-            envelope,
-            &report.inject_body(),
-        )?;
-        log::info!("[report] target={} delivered via {:?}", target_id, delivery);
+        match target {
+            // Remote worker: the real orchestrator/General target lives on a
+            // paired peer. Reuse the signed mesh `/send` relay so the report
+            // surfaces there exactly like a local `[Report from <worker>@<peer>]`.
+            ReportTarget::Mesh { peer, pane } => {
+                self.relay_report_to_peer(
+                    peer,
+                    pane,
+                    from_title,
+                    pane_id.to_string(),
+                    model,
+                    report.inject_body(),
+                );
+            }
+            ReportTarget::Local(target_id) => {
+                let envelope =
+                    crate::service::messenger::MessageEnvelope::report(&from_title, pane_id)
+                        .model(model.clone());
+                let delivery = crate::service::messenger::Messenger::deliver(
+                    self,
+                    &target_id,
+                    envelope,
+                    &report.inject_body(),
+                )?;
+                log::info!("[report] target={} delivered via {:?}", target_id, delivery);
+            }
+        }
 
         Ok(ReportResult {
             report_id: report.id,
             orchestrator_pane_id: storage_key,
         })
+    }
+
+    /// Fire-and-forget delivery of a report to a pane (id or `main`/`general`
+    /// alias) on a paired mesh peer. Resolves the peer by instance name or id,
+    /// then rides the same signed relay the CLI `--mesh` send uses; the peer's
+    /// relay ingress stamps the authenticated origin so the report renders as
+    /// `[Report from <worker>@<peer>]`. Errors are logged, never surfaced — the
+    /// report is already stored locally and the reporter must not block.
+    fn relay_report_to_peer(
+        &self,
+        peer: String,
+        target_pane: String,
+        from_title: String,
+        from_pane: String,
+        model: Option<String>,
+        body: String,
+    ) {
+        let client = {
+            let mesh_handle = self.app_handle.state::<crate::MeshStateHandle>();
+            let mesh = mesh_handle.lock();
+            resolve_peer_client_by_name(&mesh, &peer)
+        };
+        let Some(client) = client else {
+            log::warn!(
+                "[report/mesh] no paired peer named '{}' — report from {} stored only",
+                peer,
+                from_pane
+            );
+            return;
+        };
+        let mut send_body = serde_json::json!({
+            "text": body,
+            "source_pane": from_pane,
+            "source_label": from_title,
+            "kind": "report",
+            "enter": true,
+        });
+        if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
+            send_body["source_model"] = serde_json::json!(m);
+        }
+        let cmd = crate::mesh::types::RelayCommand {
+            method: "POST".into(),
+            path: format!("/api/panes/{}/send", target_pane),
+            body: send_body,
+        };
+        tauri::async_runtime::spawn(async move {
+            match client.send_relay(&cmd).await {
+                Ok(r) if r.ok => log::info!("[report/mesh] delivered to {}/{}", peer, target_pane),
+                Ok(r) => log::warn!(
+                    "[report/mesh] {} rejected report to {}: {:?}",
+                    peer,
+                    target_pane,
+                    r.error
+                ),
+                Err(e) => log::warn!("[report/mesh] relay to {} failed: {}", peer, e),
+            }
+        });
     }
 
     pub fn get_reports(&self, pane_id: &str) -> Vec<serde_json::Value> {
@@ -157,27 +234,65 @@ impl ServiceContext {
     }
 }
 
+/// Where a report should be delivered. A target is either a pane on this same
+/// daemon, or a pane (id or `main`/`general` alias) on a paired mesh peer — the
+/// latter lets a worker spawned via `agent spawn --mesh PEER` report back to the
+/// real orchestrator / General target on another machine without the reporter
+/// ever naming the peer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReportTarget {
+    /// A pane on this daemon.
+    Local(String),
+    /// A pane id or alias on a paired peer, addressed by its instance name/id.
+    Mesh { peer: String, pane: String },
+}
+
+impl ReportTarget {
+    /// Stable key the report store and worker-death dedup index by. Local targets
+    /// key on the pane id (so `agent reports --pane <id>` finds them); mesh targets
+    /// key on a synthetic `mesh:<peer>/<pane>` so they neither collide with local
+    /// panes nor each other.
+    pub fn storage_key(&self) -> String {
+        match self {
+            ReportTarget::Local(id) => id.clone(),
+            ReportTarget::Mesh { peer, pane } => format!("mesh:{}/{}", peer, pane),
+        }
+    }
+}
+
 /// Resolve where a report from `pane_id` should be delivered.
 ///
-/// Returns `(from_title, Some(target_pane_id))` when a real target exists,
-/// or `(from_title, None)` when the report has no implicit recipient and must
-/// fail with an explicit `codeterm send --pane <id>` hint. The resolution order is:
+/// Returns `(from_title, Some(target))` when a real target exists, or
+/// `(from_title, None)` when the report has no implicit recipient and must fail
+/// with an explicit `codeterm send` hint. The resolution order is:
 ///
-/// 1. `parent_pane_id` — direct parent in the role hierarchy (cascades up)
-/// 2. `report_target_pane_id` — cron / mem worker non-hierarchy target
-/// 3. `spawned_by_pane_id` — agent that ran `agent spawn`, even when no
+/// 1. `report_target_mesh_peer` (+ pane/alias) — explicit remote target set by
+///    `agent spawn --mesh PEER --report-to ...`; wins so a remote worker reports
+///    across the mesh, not into a stale local field.
+/// 2. `parent_pane_id` — direct parent in the role hierarchy (cascades up)
+/// 3. `report_target_pane_id` — cron / mem worker non-hierarchy target
+/// 4. `spawned_by_pane_id` — agent that ran `agent spawn`, even when no
 ///    role parent (top-level Orchestrator spawned by another agent)
 ///
-/// The reporter's own pane id is filtered out at every level: a pane must
-/// never resolve to itself, otherwise reports get injected into the
-/// reporter's own buffer and never reach the spawning agent.
+/// The reporter's own pane id is filtered out at every local level: a pane must
+/// never resolve to itself, otherwise reports get injected into the reporter's
+/// own buffer and never reach the spawning agent.
 pub fn resolve_report_target(
     mux: &crate::multiplexer::state::MultiplexerState,
     pane_id: &str,
-) -> Result<(String, Option<String>), String> {
+) -> Result<(String, Option<ReportTarget>), String> {
     let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
     let title = pane.title.clone();
-    let target = [
+
+    let nonempty = |s: &Option<String>| s.as_deref().map(str::trim).filter(|v| !v.is_empty()).map(str::to_string);
+    if let (Some(peer), Some(target_pane)) = (
+        nonempty(&pane.report_target_mesh_peer),
+        nonempty(&pane.report_target_pane_id),
+    ) {
+        return Ok((title, Some(ReportTarget::Mesh { peer, pane: target_pane })));
+    }
+
+    let local = [
         pane.parent_pane_id.as_deref(),
         pane.report_target_pane_id.as_deref(),
         pane.spawned_by_pane_id.as_deref(),
@@ -185,8 +300,26 @@ pub fn resolve_report_target(
     .into_iter()
     .flatten()
     .find(|candidate| !candidate.is_empty() && *candidate != pane_id)
-    .map(str::to_string);
-    Ok((title, target))
+    .map(|id| ReportTarget::Local(id.to_string()));
+    Ok((title, local))
+}
+
+/// Resolve a paired peer by instance name (case-insensitive) or instance id and
+/// build a signed transport client for it. Name first so the human-facing
+/// `--mesh Mac-Air` works; falls back to a raw instance id.
+fn resolve_peer_client_by_name(
+    mesh: &crate::mesh::manager::MeshManager,
+    name: &str,
+) -> Option<crate::mesh::transport::PeerClient> {
+    if mesh.paired_peers.contains_key(name) {
+        return mesh.client_for(name);
+    }
+    let id = mesh
+        .paired_peers
+        .iter()
+        .find(|(_, p)| p.instance_name.eq_ignore_ascii_case(name))
+        .map(|(id, _)| id.clone())?;
+    mesh.client_for(&id)
 }
 
 /// Whether a dying pane needs a synthetic worker-death report, and to whom — a
@@ -199,12 +332,13 @@ pub fn worker_death_report(
     pane_id: &str,
 ) -> Option<(String, String)> {
     let (_from_title, target) = resolve_report_target(mux, pane_id).ok()?;
-    let target_id = target?;
-    if report_store.has_report_from(&target_id, pane_id) {
+    let target = target?;
+    let storage_key = target.storage_key();
+    if report_store.has_report_from(&storage_key, pane_id) {
         return None;
     }
     Some((
-        target_id,
+        storage_key,
         format!("WORKER {} EXITED without reporting (dead)", pane_id),
     ))
 }
@@ -225,7 +359,7 @@ pub struct PaneStatusInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_report_target, worker_death_report};
+    use super::{resolve_report_target, ReportTarget, worker_death_report};
     use crate::agent::reports::ReportStore;
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
@@ -248,12 +382,12 @@ mod tests {
         let (mux, orch, worker) = build_orchestrator_with_worker("Worker-1");
         let mut store = ReportStore::new(100);
 
-        let (from_title, target_id) = resolve_report_target(&mux, &worker).expect("resolve target");
-        let target_id = target_id.expect("worker has a parent target");
-        assert_eq!(target_id, orch, "worker reports to its direct parent");
+        let (from_title, target) = resolve_report_target(&mux, &worker).expect("resolve target");
+        let target = target.expect("worker has a parent target");
+        assert_eq!(target, ReportTarget::Local(orch.clone()), "worker reports to its direct parent");
         assert_eq!(from_title, "Worker-1");
 
-        store.add(&target_id, &worker, &from_title, "task done");
+        store.add(&target.storage_key(), &worker, &from_title, "task done");
 
         let listed = store.get(&orch, false);
         assert_eq!(
@@ -271,9 +405,9 @@ mod tests {
         let (mux, orch, worker) = build_orchestrator_with_worker("Worker-A");
         let mut store = ReportStore::new(100);
 
-        let (from_title, storage_key) =
+        let (from_title, target) =
             resolve_report_target(&mux, &worker).expect("resolve target");
-        let storage_key = storage_key.expect("worker has a parent target");
+        let storage_key = target.expect("worker has a parent target").storage_key();
         store.add(&storage_key, &worker, &from_title, "msg");
 
         let query_key = &orch;
@@ -295,7 +429,7 @@ mod tests {
         mux.rename_pane(&cron_pane, "cron-task").unwrap();
 
         let (from_title, target) = resolve_report_target(&mux, &cron_pane).unwrap();
-        assert_eq!(target.as_deref(), Some(orch.as_str()));
+        assert_eq!(target, Some(ReportTarget::Local(orch.clone())));
         assert_eq!(from_title, "cron-task");
     }
 
@@ -311,8 +445,8 @@ mod tests {
 
         let (_, target) = resolve_report_target(&mux, &worker).unwrap();
         assert_eq!(
-            target.as_deref(),
-            Some(orch.as_str()),
+            target,
+            Some(ReportTarget::Local(orch.clone())),
             "explicit parent_pane_id wins over report_target and spawned_by"
         );
     }
@@ -329,8 +463,8 @@ mod tests {
 
         let (_, target) = resolve_report_target(&mux, &orch).unwrap();
         assert_eq!(
-            target.as_deref(),
-            Some(spawner.as_str()),
+            target,
+            Some(ReportTarget::Local(spawner.clone())),
             "top-level orchestrator routes its report to whoever spawned it"
         );
     }
@@ -376,8 +510,8 @@ mod tests {
         }
         let (_, target) = resolve_report_target(&mux, &orch).unwrap();
         assert_eq!(
-            target.as_deref(),
-            Some(report_target.as_str()),
+            target,
+            Some(ReportTarget::Local(report_target.clone())),
             "report_target_pane_id wins over spawned_by_pane_id"
         );
     }
@@ -491,5 +625,78 @@ mod tests {
     fn report_format_message_with_special_chars() {
         let msg = format_report("Bot", "found 3 files: a.rs, b.rs, c.rs");
         assert!(msg.starts_with("[Report from Bot] "));
+    }
+
+    // ── Remote (mesh) report target ──
+
+    #[test]
+    fn mesh_target_resolves_when_peer_and_pane_set() {
+        // A worker spawned via `agent spawn --mesh PEER --report-to main` carries
+        // both fields; it must resolve to a Mesh target, never a local pane.
+        let (mut mux, _orch) = MultiplexerState::new();
+        let worker = mux.create_pane();
+        if let Some(pane) = mux.get_pane_mut(&worker) {
+            pane.report_target_mesh_peer = Some("Mac-Air".into());
+            pane.report_target_pane_id = Some("main".into());
+        }
+        mux.rename_pane(&worker, "Remote-Worker").unwrap();
+
+        let (from_title, target) = resolve_report_target(&mux, &worker).unwrap();
+        assert_eq!(from_title, "Remote-Worker");
+        assert_eq!(
+            target,
+            Some(ReportTarget::Mesh {
+                peer: "Mac-Air".into(),
+                pane: "main".into()
+            })
+        );
+    }
+
+    #[test]
+    fn mesh_target_wins_over_local_parent() {
+        // Even with a local role parent, an explicit remote target takes priority
+        // so the report crosses the mesh instead of landing in a stale local pane.
+        let (mux, _orch, worker) = build_orchestrator_with_worker("Remote-Pri");
+        let mut mux = mux;
+        if let Some(pane) = mux.get_pane_mut(&worker) {
+            pane.report_target_mesh_peer = Some("eight".into());
+            pane.report_target_pane_id = Some("orch-42".into());
+        }
+        let (_, target) = resolve_report_target(&mux, &worker).unwrap();
+        assert_eq!(
+            target,
+            Some(ReportTarget::Mesh {
+                peer: "eight".into(),
+                pane: "orch-42".into()
+            }),
+            "remote target must win over a local parent_pane_id"
+        );
+    }
+
+    #[test]
+    fn mesh_peer_without_target_pane_falls_back_to_local() {
+        // A dangling peer with no target pane is incomplete — don't synthesize a
+        // half-addressed remote target; fall through to the local chain.
+        let (mux, orch, worker) = build_orchestrator_with_worker("Half-Remote");
+        let mut mux = mux;
+        if let Some(pane) = mux.get_pane_mut(&worker) {
+            pane.report_target_mesh_peer = Some("eight".into());
+            pane.report_target_pane_id = None;
+        }
+        let (_, target) = resolve_report_target(&mux, &worker).unwrap();
+        assert_eq!(target, Some(ReportTarget::Local(orch)));
+    }
+
+    #[test]
+    fn storage_keys_distinguish_local_and_mesh() {
+        assert_eq!(ReportTarget::Local("p1".into()).storage_key(), "p1");
+        assert_eq!(
+            ReportTarget::Mesh {
+                peer: "Mac-Air".into(),
+                pane: "main".into()
+            }
+            .storage_key(),
+            "mesh:Mac-Air/main"
+        );
     }
 }

@@ -103,6 +103,7 @@ Spawn a new agent (creates tab in workspace, linked in hierarchy)
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--parent` — Parent pane ID (for Workers)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
+- `--report_to` — Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
 - `--role` — Role: Orchestrator, Worker
 - `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
@@ -367,6 +368,15 @@ Stop the current keep-awake session
 #### `codeterm mem`
 
 Unified memory store — skills, facts, notes, scripts, peers, preferences
+
+#### `codeterm mem append`
+
+Append text to an existing item's body (non-destructive). Loads the current body, appends with a blank-line separator, re-indexes the embedding. Use this instead of a full `update --body` replace
+
+- `--changed_by` — Actor label for audit trail (defaults to "user")
+- `--file` — Read the text to append from a file instead (bypasses shell quoting)
+- `<id>` — Mem item id
+- `<text>` — Text to append (positional). Use `-` for stdin, or pass --file
 
 #### `codeterm mem calibration`
 
@@ -718,6 +728,13 @@ Re-embed mem_items and/or graph entities into mem_vectors. Use this after swappi
 
 - `--scope` — What to re-embed: items (mem_items) | entities (graph) | all
 
+#### `codeterm mem restore`
+
+Restore a prior body from the audit history (undo a bad replace). With no --version, reverts to the body before the most recent change
+
+- `--changed_by` — Actor label for audit trail (defaults to "user")
+- `<id>` — Mem item id
+
 #### `codeterm mem run-worker`
 
 Run a single mem maintenance pass in this subprocess. Opens the DB directly (multi-process WAL) and performs one phase of work, then exits. Used by the daemon's supervisor so a panic / OOM in dreaming or librarian cannot take the API down
@@ -730,7 +747,8 @@ Run a single mem maintenance pass in this subprocess. Opens the DB directly (mul
 Save a new mem item
 
 - `--area` — Area tag (auth | deploy | home | ...)
-- `<body>` — Body content. If omitted and stdin is piped, read stdin
+- `<body>` — Body content. Use `-` (or omit with piped stdin) to read stdin
+- `--body_file` — Read body from a file instead of the positional arg (bypasses shell quoting)
 - `--importance` — Importance 1-5 (default 3.0). Higher = more likely in L1 wake-up
 - `--kind` — Item kind: skill | fact | note | conversation | script | peer | preference | daily | learning | rule | summary
 - `--pin` — Pin the item for L1 wake-up (always loaded)
@@ -884,7 +902,8 @@ Unpin a previously pinned item
 Partial update of an existing mem item by id. Only the flags you pass are written; everything else stays as-is
 
 - `--area` — 
-- `--body` — New body content (re-indexes embedding)
+- `--body` — New body content (re-indexes embedding). Use `-` to read stdin. REPLACES the whole body — to grow a body use `mem append`
+- `--body_file` — Read the new body from a file instead of --body (bypasses shell quoting)
 - `--changed_by` — Actor label for audit trail (defaults to "user"). Used by automated workflows
 - `<id>` — Mem item id
 - `--importance` — New importance 1-5

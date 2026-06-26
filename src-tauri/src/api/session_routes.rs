@@ -222,6 +222,7 @@ pub async fn resume_session_api(
         workspace_id: Some(ws_id.clone()),
         force_tab: None,
         report_target_pane_id: None,
+        report_target_mesh_peer: None,
         skip_permissions: Some(true),
         spawned_by_pane_id: None,
         model: body.model.clone(),

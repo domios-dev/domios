@@ -337,6 +337,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   fs_mkdir: (a) =>
     webJson("POST", "/api/fs/mkdir", { parent: a.parent, name: a.name }),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
+  get_remote_workers: () => webJson("GET", "/api/remote-workers"),
   save_session: () => webJson("POST", "/api/session/save"),
   usage_latest: (a) => {
     const accountId = a.accountId ?? a.account_id;

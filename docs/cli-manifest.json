@@ -384,6 +384,14 @@
               "aliases": []
             },
             {
+              "name": "report_to",
+              "positional": false,
+              "value_name": "REPORT_TO",
+              "default": null,
+              "help": "Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane",
+              "aliases": []
+            },
+            {
               "name": "role",
               "positional": false,
               "value_name": "ROLE",
@@ -1377,6 +1385,46 @@
       "aliases": [],
       "args": [],
       "subcommands": [
+        {
+          "name": "append",
+          "about": "Append text to an existing item's body (non-destructive). Loads the current body, appends with a blank-line separator, re-indexes the embedding. Use this instead of a full `update --body` replace",
+          "aliases": [],
+          "args": [
+            {
+              "name": "changed_by",
+              "positional": false,
+              "value_name": "CHANGED_BY",
+              "default": null,
+              "help": "Actor label for audit trail (defaults to \"user\")",
+              "aliases": []
+            },
+            {
+              "name": "file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the text to append from a file instead (bypasses shell quoting)",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Mem item id",
+              "aliases": []
+            },
+            {
+              "name": "text",
+              "positional": true,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Text to append (positional). Use `-` for stdin, or pass --file",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
         {
           "name": "calibration",
           "about": "Memory calibration: review or trigger the dreamer's importance/archive sweep",
@@ -2673,6 +2721,30 @@
           "subcommands": []
         },
         {
+          "name": "restore",
+          "about": "Restore a prior body from the audit history (undo a bad replace). With no --version, reverts to the body before the most recent change",
+          "aliases": [],
+          "args": [
+            {
+              "name": "changed_by",
+              "positional": false,
+              "value_name": "CHANGED_BY",
+              "default": null,
+              "help": "Actor label for audit trail (defaults to \"user\")",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "value_name": "ID",
+              "default": null,
+              "help": "Mem item id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "run-worker",
           "about": "Run a single mem maintenance pass in this subprocess. Opens the DB directly (multi-process WAL) and performs one phase of work, then exits. Used by the daemon's supervisor so a panic / OOM in dreaming or librarian cannot take the API down",
           "aliases": [],
@@ -2714,7 +2786,15 @@
               "positional": true,
               "value_name": "BODY",
               "default": null,
-              "help": "Body content. If omitted and stdin is piped, read stdin",
+              "help": "Body content. Use `-` (or omit with piped stdin) to read stdin",
+              "aliases": []
+            },
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read body from a file instead of the positional arg (bypasses shell quoting)",
               "aliases": []
             },
             {
@@ -3268,7 +3348,15 @@
               "positional": false,
               "value_name": "BODY",
               "default": null,
-              "help": "New body content (re-indexes embedding)",
+              "help": "New body content (re-indexes embedding). Use `-` to read stdin. REPLACES the whole body — to grow a body use `mem append`",
+              "aliases": []
+            },
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read the new body from a file instead of --body (bypasses shell quoting)",
               "aliases": []
             },
             {

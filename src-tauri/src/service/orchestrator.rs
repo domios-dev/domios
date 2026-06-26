@@ -161,7 +161,13 @@ pub struct SpawnAgentParams {
     /// Force creation as a new tab instead of split pane (even with parent).
     pub force_tab: Option<bool>,
     /// Report target pane ID — for cron agents to report without joining hierarchy.
+    /// With `report_target_mesh_peer` set, this is a pane id / `main` / `general`
+    /// alias on that remote peer.
     pub report_target_pane_id: Option<String>,
+    /// Paired mesh peer the report target lives on. Set (un-spoofably, from the
+    /// authenticated relay sender) when `agent spawn --mesh PEER` lands here, so
+    /// the spawned worker reports back across the mesh.
+    pub report_target_mesh_peer: Option<String>,
     /// Default true; set false to spawn an agent that asks for permission.
     pub skip_permissions: Option<bool>,
     /// CODETERM_PANE_ID of the caller — recorded for report routing fallback.
@@ -202,7 +208,13 @@ impl SpawnAgentParams {
             task: json_str(params, "task"),
             workspace_id: json_str(params, "workspace_id"),
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
-            report_target_pane_id: json_str(params, "report_target_pane_id"),
+            // `report_to` is the user-facing alias; it collapses into the report
+            // target pane (local or, with origin_peer, remote). `origin_peer` is
+            // injected by the mesh relay from the authenticated sender.
+            report_target_pane_id: json_str(params, "report_to")
+                .or_else(|| json_str(params, "report_target_pane_id")),
+            report_target_mesh_peer: json_str(params, "origin_peer")
+                .or_else(|| json_str(params, "report_target_mesh_peer")),
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
             spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
             model: json_str(params, "model"),
@@ -437,10 +449,19 @@ impl ServiceContext {
                     pane.chat_view = true;
                 }
             }
-            // Set report target for cron agents
+            // Set report target for cron agents and remote (mesh) workers. When
+            // a mesh peer is present the target pane id is a pane / alias on that
+            // peer, so persist both halves together.
             if let Some(ref rtid) = params.report_target_pane_id {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.report_target_pane_id = Some(rtid.clone());
+                }
+            }
+            if let Some(ref peer) = params.report_target_mesh_peer {
+                if !peer.is_empty() {
+                    if let Some(pane) = mux.get_pane_mut(&result.1) {
+                        pane.report_target_mesh_peer = Some(peer.clone());
+                    }
                 }
             }
             // Record the spawning agent for report routing fallback, independent of explicit --parent / role hierarchy.

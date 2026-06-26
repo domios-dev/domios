@@ -32,6 +32,7 @@ pub mod pane_transport_chat;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
+pub mod remote_workers;
 pub mod smart_add;
 pub mod spawn;
 mod spawn_chatbackend;
@@ -100,6 +101,9 @@ pub struct ServiceContext {
     // Auto-completes hidden agent runs from claude stream-json result events, idle silence, or hard timeout — replaces relying on claude calling
     // codeterm cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
+    /// Orchestrator-side view of remote (cross-mesh) workers, populated from
+    /// inbound mesh reports. Drives the "remote pane" ghost nodes in the UI.
+    pub remote_workers: crate::service::remote_workers::RemoteWorkerRegistryHandle,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
     /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.

@@ -141,7 +141,8 @@ Closed panes and workspaces are recorded in a persistent ring. Every close actio
 | POST | `/api/panes/{id}/prompt/clear` | — | Clear a pending permission prompt |
 | GET | `/api/agents/providers` | — | List registered agent providers **and open agent shells**. Each entry carries `id`, `display_name`, `available_models`, `default_model`, `settings_schema`, etc. plus a **`kind`** field: `"agent"` (PTY providers — claude/codex/opencode) or `"shell"` (installed `chatBackend` plugins, e.g. lmstudio). Shell entries also carry `presets` and `supports_chat_ui: true`. Single source of truth for "what agents and shells does this CodeTerm instance know about" — frontend dropdowns, CLI `agent providers/models`, and cron/mem job dialogs all read from here. |
 | GET | `/api/providers` | — | Public provider list alias for agent/provider selectors |
-| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, system_prompt? (alias `system`), preset?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as pane describe. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` into the shell's `openSession` ctx); otherwise the PTY agent path. An unknown id errors with the available agent **and** shell ids. |
+| POST | `/api/agents/spawn` | `{agent?, agent_name?, title?, description?, cwd?, role?, parent_pane_id?, can_spawn?, task?, args?, workspace_id?, model?, system_prompt? (alias `system`), preset?, report_to?, origin_peer?}` | One-call agent spawn (see below). `description` follows the same trim/empty-clear/200-char validation as pane describe. Routing is **by capability, not identity**: if `agent` matches a `chatBackend` shell id, the request opens an open agent shell (threading `system_prompt`/`preset`/`model` into the shell's `openSession` ctx); otherwise the PTY agent path. An unknown id errors with the available agent **and** shell ids. `report_to` sets where the worker's `agent report` lands (pane id or `main`/`general` alias). `origin_peer` is **never client-supplied** — the mesh relay stamps it from the authenticated sender so a worker spawned via `agent spawn --mesh PEER` reports back across the mesh; see *Remote mesh workers*. |
+| GET | `/api/remote-workers` | `?pane=<id>` | Orchestrator-side view of remote (cross-mesh) workers, populated from inbound mesh reports. With `?pane=` returns that orchestrator's workers; otherwise the full `{ pane_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_pane, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
 
 #### Interactive chat prompts (#162)
 
@@ -556,6 +557,7 @@ Daemon-kind services are registered here; cron jobs are projected as virtual `cr
 **Tauri events:**
 - `service-health-changed` — `{service_id, status}` — fired by the health probe scheduler on confirmed status transitions only (3-tick debounced).
 - `service-pushed` — `{service_id, pane_id, body_preview}` — fired when a daemon writes to a pane via its push token. Also fired by the mesh-relay path when a paired peer relays a `/send` to us, so the activity log reflects cross-peer push traffic the same way as local pushes.
+- `remote-workers-changed` — `{orchestrator_pane_id, workers}` — fired when an inbound mesh report updates the remote-worker registry; `workers` is the full `{ pane_id: RemoteWorker[] }` map. Drives the sidebar's remote-pane ghost nodes. See `GET /api/remote-workers`.
 
 #### Activity Log
 
@@ -924,6 +926,16 @@ All fields are optional. `agent` defaults to `"claude"`. For Claude, `--dangerou
 {"pane_id": "a3f1b2c7", "tab_id": "d5e6f7a8", "pty_id": "c9d0e1f2", "agent": "claude", "title": "Worker-1", "role": "Worker"}
 ```
 
+### Remote mesh workers
+
+A worker spawned on another peer with `codeterm agent spawn <agent> --mesh PEER [--report-to <pane|main|general>]` gets a **durable cross-mesh report target**: the CLI relays the spawn to `PEER`, whose relay ingress stamps an authenticated `origin_peer` onto the body, and the spawned pane persists `report_target_mesh_peer = <caller's peer>` + `report_target_pane_id = <report_to>` (defaults to the caller's pane).
+
+The worker then just runs `codeterm agent report "..."` — no `--mesh`, no `--pane`. Its daemon resolves the remote target and relays the report over the same signed `/send` path (with `kind: "report"`), so it surfaces on the origin peer as `[Report from <worker>@<peer>]`, identical to a local report. If no target resolves, `agent report` fails with an actionable hint instead of silently dropping.
+
+Report routing precedence: **remote mesh target → `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`**; never self.
+
+Each inbound mesh report registers the worker in the orchestrator-side registry exposed by `GET /api/remote-workers` and the `remote-workers-changed` event, which the sidebar renders as a read-only "remote pane" ghost node under its orchestrator (peer chip + status, no local PTY).
+
 ### Batch Commands (POST /api/batch)
 
 Execute multiple operations in a single HTTP request. Commands run sequentially. Each command can have an `id` that other commands reference via `$id` (resolves to `pane_id` from that result).
@@ -1232,4 +1244,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 66 -->
+<!-- revision: 67 -->

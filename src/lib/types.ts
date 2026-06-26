@@ -215,6 +215,25 @@ export interface Notification {
 
 export type PaneStatus = "Working" | "Waiting" | "Idle" | "Dead";
 
+/** A worker running on another mesh peer that reports to a local orchestrator.
+ *  It has no local PTY — the UI renders it as a read-only "remote pane" ghost
+ *  node under its orchestrator. Mirrors the Rust `RemoteWorker`. */
+export interface RemoteWorker {
+  /** Paired peer (instance name) the worker runs on. */
+  peer: string;
+  /** The worker's pane id on that peer. */
+  remote_pane: string;
+  title: string;
+  model: string | null;
+  /** Last reported lifecycle: working | done | blocked | partial. */
+  status: string;
+  last_message: string;
+  last_seen_ms: number;
+}
+
+/** Map of local orchestrator pane id → its remote workers. */
+export type RemoteWorkersByOrchestrator = Record<string, RemoteWorker[]>;
+
 // Graph worker (Phase E memory visualization)
 
 export type GraphWorkerStatus =
