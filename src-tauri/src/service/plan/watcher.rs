@@ -76,6 +76,7 @@ fn plan_id_from_path(path: &Path) -> Option<String> {
                 }
             }),
         Some("md") => plan_id_from_body_path(path),
+        Some("jsonl") => plan_id_from_stride_log_path(path),
         _ => None,
     }
 }
@@ -94,6 +95,23 @@ fn plan_id_from_body_path(path: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
+fn plan_id_from_stride_log_path(path: &Path) -> Option<String> {
+    if path.file_name()?.to_str()? != "strides.jsonl" {
+        return None;
+    }
+    let task_dir = path.parent()?;
+    let tasks_dir = task_dir.parent()?;
+    if tasks_dir.file_name()?.to_str()? != "tasks" {
+        return None;
+    }
+    tasks_dir
+        .parent()?
+        .file_name()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 fn project_from_plan_path(path: &Path) -> Option<std::path::PathBuf> {
     match path.extension().and_then(|e| e.to_str()) {
         Some("json") => path
@@ -102,6 +120,14 @@ fn project_from_plan_path(path: &Path) -> Option<std::path::PathBuf> {
             .parent()
             .map(std::path::Path::to_path_buf),
         Some("md") => path
+            .parent()?
+            .parent()?
+            .parent()?
+            .parent()?
+            .parent()
+            .map(std::path::Path::to_path_buf),
+        Some("jsonl") if plan_id_from_stride_log_path(path).is_some() => path
+            .parent()?
             .parent()?
             .parent()?
             .parent()?
@@ -132,6 +158,24 @@ mod tests {
             )),
             Some("pl_1".into())
         );
+        assert_eq!(
+            plan_id_from_path(&std::path::PathBuf::from(
+                "/tmp/project/.codeterm/plans/pl_1/tasks/task_1/strides.jsonl"
+            )),
+            Some("pl_1".into())
+        );
+        assert_eq!(
+            plan_id_from_path(&std::path::PathBuf::from(
+                "/tmp/project/.codeterm/plans/pl_1/tasks/task_1/other.jsonl"
+            )),
+            None
+        );
+        assert_eq!(
+            plan_id_from_path(&std::path::PathBuf::from(
+                "/tmp/project/.codeterm/plans/pl_1/sections/sec_1/strides.jsonl"
+            )),
+            None
+        );
     }
 
     #[test]
@@ -147,6 +191,18 @@ mod tests {
                 "/tmp/project/.codeterm/plans/pl_1/tasks/task_1.md"
             )),
             Some(std::path::PathBuf::from("/tmp/project"))
+        );
+        assert_eq!(
+            project_from_plan_path(&std::path::PathBuf::from(
+                "/tmp/project/.codeterm/plans/pl_1/tasks/task_1/strides.jsonl"
+            )),
+            Some(std::path::PathBuf::from("/tmp/project"))
+        );
+        assert_eq!(
+            project_from_plan_path(&std::path::PathBuf::from(
+                "/tmp/project/.codeterm/plans/pl_1/tasks/task_1/other.jsonl"
+            )),
+            None
         );
     }
 }
