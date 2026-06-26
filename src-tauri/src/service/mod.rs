@@ -177,8 +177,10 @@ impl ServiceContext {
     /// One payload shape for every mutation site (spawn registration, UI relay
     /// hook, inbound report) so the sidebar refreshes consistently.
     pub(crate) fn emit_remote_workers_changed(&self, orchestrator_pane: &str) {
-        use tauri::Emitter as _;
-        let _ = self.app_handle.emit(
+        // emit_everywhere (not raw app.emit): reaches the native webview AND the
+        // SSE bus, so the web mirror updates live too — not only on next remount.
+        crate::api::events::emit_everywhere(
+            &self.app_handle,
             "remote-workers-changed",
             serde_json::json!({
                 "orchestrator_pane_id": orchestrator_pane,
