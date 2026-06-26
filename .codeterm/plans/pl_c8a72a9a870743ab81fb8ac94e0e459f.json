@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782455196691,
+  "updated_at": 1782455272779,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -15795,7 +15795,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782454576253,
-      "updated_at": 1782455196691,
+      "updated_at": 1782455272779,
       "status_changed_at": 1782455196691,
       "handle": "33-2-stride-jsonl-codec-and-deterministic-fold-tests",
       "tags": [],
@@ -15814,9 +15814,9 @@
         "branch": "lane/stride-log-codec",
         "base": "c8b0f8b92128163b7af7139aa20b8f1445c67013",
         "destination": "feat/canvas",
-        "cleanup_status": "pending",
+        "cleanup_status": "cleaned",
         "cleanup_hints": [
-          "After accepted integration: close worker pane, remove /Users/rollacode/Developer/codeterm-stride-log-codec, delete lane/stride-log-codec, prune worktrees."
+          "Cleaned after integration commit 3fb17099: closed pane e2e3458c, removed /Users/rollacode/Developer/codeterm-stride-log-codec, deleted lane/stride-log-codec, pruned worktrees."
         ]
       },
       "taken_by_role": null,
