@@ -110,11 +110,7 @@ pub fn strip_bodies(plan: &Plan) -> Plan {
     clear_section_bodies(&mut stripped.sections);
     for task in &mut stripped.tasks {
         task.body.clear();
-        for milestone in &mut task.milestones {
-            if should_externalize_markdown(&milestone.text) {
-                milestone.text.clear();
-            }
-        }
+        task.milestones.clear();
     }
     for element in &mut stripped.elements {
         if should_externalize_element(element) {

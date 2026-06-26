@@ -125,6 +125,8 @@ fn milestone_and_note_bodies_roundtrip_through_markdown_files() {
             .join(format!("{}.json", plan.id)),
     )
     .unwrap();
+    let raw_plan: Plan = serde_json::from_str(&raw_json).unwrap();
+    assert!(raw_plan.tasks[0].milestones.is_empty());
     assert!(!raw_json.contains("long milestone detail"));
     assert!(!raw_json.contains("long note detail"));
 
@@ -322,6 +324,8 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         "legacy discussion\n\nbody"
     );
     let raw_json = std::fs::read_to_string(json_path).unwrap();
+    let raw_plan: Plan = serde_json::from_str(&raw_json).unwrap();
+    assert!(raw_plan.tasks[0].milestones.is_empty());
     assert!(!raw_json.contains("legacy milestone"));
     assert!(!raw_json.contains("legacy discussion"));
     let loaded = store.get(&plan.id).unwrap();
@@ -333,6 +337,81 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         loaded.elements[0].content["body"],
         "legacy discussion\n\nbody"
     );
+}
+
+#[test]
+fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let project = paths::project_root(dir.path());
+    let plans_dir = paths::plans_dir(&project).unwrap();
+    let mut plan = Plan::new(
+        "Legacy inline strides".into(),
+        project.display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    plan.tasks.push(crate::plan::Task {
+        id: "task_legacy".into(),
+        name: "Task".into(),
+        kind: "implement".into(),
+        model: None,
+        model_rationale: None,
+        acceptance_criteria: vec![],
+        test_plan: None,
+        correctness: None,
+        status: crate::plan::TaskStatus::Pending,
+        status_label: None,
+        priority: Default::default(),
+        created_at: 0,
+        updated_at: 0,
+        status_changed_at: 0,
+        handle: Some("legacy-task".into()),
+        tags: vec![],
+        section_ids: vec![],
+        body: String::new(),
+        intent: None,
+        parent_task_id: None,
+        assigned_pane_id: None,
+        lane: Default::default(),
+        taken_by_role: None,
+        peer: None,
+        group: None,
+        canvas: Default::default(),
+        milestones: vec![crate::plan::Milestone {
+            id: "ms_legacy".into(),
+            from: AgentRef::from_pane("worker"),
+            kind: "status_update".into(),
+            text: "legacy short milestone".into(),
+            ts: 1,
+            links: vec![],
+            loop_id: None,
+            iteration: None,
+            canvas: Default::default(),
+        }],
+    });
+    let json_path = plans_dir.join(format!("{}.json", plan.id));
+    std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
+
+    store.scan_project(dir.path()).unwrap();
+
+    let loaded = store.get(&plan.id).unwrap();
+    assert_eq!(loaded.tasks[0].milestones.len(), 1);
+    assert_eq!(loaded.tasks[0].milestones[0].text, "legacy short milestone");
+    let stride_log_path = plans_dir
+        .join(&plan.id)
+        .join("tasks/legacy-task/strides.jsonl");
+    assert!(!stride_log_path.exists());
+
+    let mut loaded = loaded;
+    store.save(&mut loaded, 2).unwrap();
+
+    let strides = crate::service::plan::stride_log::read_milestones(&stride_log_path).unwrap();
+    assert_eq!(strides.len(), 1);
+    assert_eq!(strides[0].id, "ms_legacy");
+    assert_eq!(strides[0].text, "legacy short milestone");
+    let raw_plan: Plan =
+        serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
+    assert!(raw_plan.tasks[0].milestones.is_empty());
 }
 
 #[test]
