@@ -353,7 +353,12 @@ export function TaskCard({
   const digest = digestMarkdown(task.intent?.trim() ? task.intent! : task.body, 130);
   const freshKind = strideCount ? [...task.milestones].sort((a, b) => b.ts - a.ts)[0].kind : null;
   const freshColor = freshKind ? (stepColors?.get(freshKind) ?? "var(--ct-border-focus)") : null;
-  const titleText = showTitle ? task.name : (task.handle?.trim() || task.name);
+  const titleText = task.name;
+  // The worlds promise: dive in → read everything. Title is the card's identity, so
+  // it shows from the farthest band (W0) and un-clamps entirely at W3 (the deep-read
+  // document scrolls, so a long title is never cut). W1/W2 widen the clamp as the
+  // card earns the pixels.
+  const nameClamp = showFullBody ? null : showStructure ? 4 : 2;
   const resolved = resolveTags(task.tags, tagFacets);
   const tileTags = !showBodySlot && (resolved.primary || resolved.topics.length > 0);
   const topicTile = resolved.topics.slice(0, 2);
@@ -418,12 +423,18 @@ export function TaskCard({
       onMouseLeave={() => onHover?.(null)}
       style={{ ...cardStyle, ...boxStyle, ...chromeOverrides, ...(tagFilterDimmed ? { opacity: 0.22, pointerEvents: "none" as const } : {}) }}
     >
-      <div style={{ flex: 1, display: "grid", gridTemplateRows: contentRows, gridTemplateColumns: "minmax(0, 1fr)", gap: contentGap, padding: contentPadding, minWidth: 0, overflow: "hidden" }}>
+      <div
+        className={showFullBody ? "ct-canvas-scroll" : undefined}
+        data-canvas-scroll-body={showFullBody ? "1" : undefined}
+        style={showFullBody
+          ? { flex: 1, display: "flex", flexDirection: "column", gap: contentGap, padding: contentPadding, minWidth: 0, overflowY: "auto" }
+          : { flex: 1, display: "grid", gridTemplateRows: contentRows, gridTemplateColumns: "minmax(0, 1fr)", gap: contentGap, padding: contentPadding, minWidth: 0, overflow: "hidden" }}
+      >
         {/* Header — present at every band (the navigation layer). Solid status chip. */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "start", gap: 6, minWidth: 0 }}>
-              <span data-testid="canvas-task-name" data-visible={showTitle ? "true" : "false"} data-task-name-full={task.name} data-canvas-selectable className="ct-canvas-text" style={{ minWidth: 0, maxWidth: "100%", fontWeight: shelf === Shelf.Done ? 600 : 700, fontSize: shelf === Shelf.Done ? "0.98em" : "1.03em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", lineHeight: 1.25, wordBreak: "break-word", ...revealStyle(showTitle) }}>
+              <span data-testid="canvas-task-name" data-visible="true" data-task-name-full={task.name} data-canvas-selectable className="ct-canvas-text" style={{ minWidth: 0, maxWidth: "100%", fontWeight: shelf === Shelf.Done ? 600 : 700, fontSize: shelf === Shelf.Done ? "0.98em" : "1.03em", lineHeight: 1.25, overflowWrap: "break-word", ...(nameClamp != null ? { display: "-webkit-box", WebkitLineClamp: nameClamp, WebkitBoxOrient: "vertical", overflow: "hidden" } : { display: "block" }) }}>
                 {titlePriority && task.priority && (
                   <span style={{ marginRight: 5, verticalAlign: "1px" }}><PriorityTag priority={task.priority} dim={isDone} /></span>
                 )}
@@ -504,9 +515,11 @@ export function TaskCard({
             zoom, never click) — body markdown when present, an empty-state otherwise
             so the slot never collapses/shifts. Clamped at W2, full+scroll at W3; the
             stride snake blooms below it. W0/W1 = snake preview pinned to the bottom. */}
-        <div className="ct-canvas-scroll ct-canvas-fade-in" data-canvas-scroll-body="1" style={{ marginTop: 2, overflowY: showFullBody ? "auto" : "hidden", minHeight: 0, display: "grid", gridTemplateRows: bodyRows, gap: bodyGap, ...revealStyle(showBodySlot || strideCount > 0) }}>
+        <div className="ct-canvas-fade-in" data-canvas-scroll-body={showFullBody ? undefined : "1"} style={showFullBody
+          ? { marginTop: 2, display: "flex", flexDirection: "column", gap: bodyGap, ...revealStyle(true) }
+          : { marginTop: 2, overflowY: "hidden", minHeight: 0, display: "grid", gridTemplateRows: bodyRows, gap: bodyGap, ...revealStyle(showBodySlot || strideCount > 0) }}>
           <div data-testid={showBodySlot ? "canvas-task-body" : "canvas-task-body-slot"} data-visible={showBodySlot ? "true" : "false"} data-canvas-selectable className="ct-canvas-text" style={showFullBody
-            ? { fontSize: "0.92em", lineHeight: 1.5, minHeight: 0, overflowY: "auto", overflowWrap: "anywhere", ...revealStyle(showBodySlot) }
+            ? { fontSize: "0.92em", lineHeight: 1.5, minHeight: 0, overflowWrap: "anywhere", ...revealStyle(showBodySlot) }
             : { fontSize: "0.9em", lineHeight: 1.45, minHeight: showBodySlot ? 36 : "1.2em", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden", ...revealStyle(showBodySlot) }}>
               {task.intent && <div data-testid="canvas-task-intent" style={{ marginBottom: 6, fontStyle: "italic" }}>{task.intent}</div>}
               {showFullBody && task.model_rationale && (

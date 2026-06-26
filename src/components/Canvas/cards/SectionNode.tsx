@@ -1,7 +1,7 @@
 import { useRef, type CSSProperties } from "react";
-import { Archive, Check, CircleDot, Copy, Crosshair, FileText, Maximize2, TriangleAlert } from "lucide-react";
+import { Activity, Archive, Check, CircleDot, Copy, Crosshair, FileText, GitBranch, Maximize2, Repeat, TriangleAlert } from "lucide-react";
 import { RichMarkdown } from "@codeterm/chat-ui";
-import type { Plan } from "../types";
+import type { LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan } from "../types";
 import type { PlanWorkspaceScope } from "../planWorkspaceScope";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import { atLeast, type World } from "../worlds";
@@ -44,6 +44,21 @@ const GLYPH = {
   uncovered: { Icon: TriangleAlert, color: "rgba(251,191,36,1)", rail: "rgba(251,191,36,1)" },
 } as const satisfies Record<SectionRowGlyph, { Icon: typeof Check; color: string; rail: string }>;
 
+// The orchestrator's LIVE pulse, distinct from the static goal (north-star): reuse
+// the product's "live presence" green (matches TaskCard's working pill) so a plan
+// that is actively being driven reads the same everywhere.
+const HEARTBEAT_ACCENT = "rgba(82,180,145,0.95)";
+
+// Loop status maps onto the SAME semantics as section-row glyphs: running = the
+// "progress" indigo (+ pulse), done = green, exhausted = amber attention, stopped
+// = quiet. No new color vocabulary.
+const LOOP_STATUS: Record<LoopStatus, { label: string; color: string; live: boolean }> = {
+  running: { label: "running", color: "rgba(129,140,248,1)", live: true },
+  done: { label: "done", color: "rgba(52,211,153,1)", live: false },
+  exhausted: { label: "exhausted", color: "rgba(251,191,36,1)", live: false },
+  stopped: { label: "stopped", color: "var(--ct-fg)", live: false },
+};
+
 function iconBtn(): CSSProperties {
   return { display: "flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-fg)", cursor: "pointer", flexShrink: 0 };
 }
@@ -74,6 +89,141 @@ function CoverageBar({ pct }: { pct: number }) {
   return (
     <div title={`${pct}% covered`} style={{ flex: 1, height: 6, borderRadius: 3, background: "var(--ct-bg-active)", overflow: "hidden" }}>
       <div data-testid="canvas-plan-coverage-bar" style={{ width: `${pct}%`, height: "100%", background: pct >= 100 ? "rgba(52,211,153,0.95)" : "var(--ct-border-focus)" }} />
+    </div>
+  );
+}
+
+// §heartbeat: the orchestrator's PRESENT tense — current focus + the lanes it is
+// driving right now, with operating rules (W2+) and recent learnings (W3) below.
+// The goal strip above is the destination; this strip is the live pulse toward it.
+function HeartbeatStrip({ hb, world }: { hb: OrchestratorHeartbeat; world: World }) {
+  const focus = hb.current_focus?.trim() ?? "";
+  const lanes = (hb.active_lanes ?? []).map((l) => l.trim()).filter(Boolean);
+  const rules = atLeast(world, "W2") ? (hb.rules ?? []).map((r) => r.trim()).filter(Boolean) : [];
+  const learnings = atLeast(world, "W3") ? (hb.learnings ?? []).filter((l) => l.text?.trim()) : [];
+  const showLanes = atLeast(world, "W1") && lanes.length > 0;
+  const maxLanes = 5;
+
+  return (
+    <div
+      data-testid="canvas-plan-heartbeat"
+      className="ct-canvas-fade-in"
+      style={{ flexShrink: 0, padding: "6px 12px", borderBottom: "1px solid var(--ct-border-subtle)", background: `color-mix(in srgb, ${HEARTBEAT_ACCENT} 7%, transparent)`, display: "flex", flexDirection: "column", gap: 5 }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+        <span aria-hidden style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, color: HEARTBEAT_ACCENT }}>
+          <span className="ct-canvas-heartbeat-dot" style={{ width: 7, height: 7, borderRadius: "50%", background: HEARTBEAT_ACCENT, marginRight: 5 }} />
+          <Activity size={12} strokeWidth={2.4} />
+        </span>
+        <span style={{ fontSize: "0.62em", fontWeight: 800, letterSpacing: "0.14em", textTransform: "uppercase", color: HEARTBEAT_ACCENT, flexShrink: 0 }}>Now</span>
+        {focus && (
+          <span
+            data-testid="canvas-plan-focus"
+            title={focus}
+            data-canvas-selectable
+            className="ct-canvas-text"
+            style={{ flex: 1, minWidth: 0, fontSize: "0.82em", fontWeight: 600, lineHeight: 1.3, display: "-webkit-box", WebkitLineClamp: atLeast(world, "W1") ? 2 : 1, WebkitBoxOrient: "vertical", overflow: "hidden" }}
+          >
+            {focus}
+          </span>
+        )}
+      </div>
+      {showLanes && (
+        <div data-testid="canvas-plan-lanes" style={{ display: "flex", flexWrap: "wrap", gap: 5, paddingLeft: 1 }}>
+          {lanes.slice(0, maxLanes).map((lane) => (
+            <span
+              key={lane}
+              data-testid="canvas-plan-lane"
+              title={lane}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, maxWidth: 160, fontSize: "0.72em", fontWeight: 600, padding: "0.05em 0.5em", borderRadius: 999, border: `1px solid color-mix(in srgb, ${HEARTBEAT_ACCENT} 45%, transparent)`, background: `color-mix(in srgb, ${HEARTBEAT_ACCENT} 13%, transparent)`, color: "var(--ct-fg)", whiteSpace: "nowrap" }}
+            >
+              <GitBranch size={10} aria-hidden style={{ flexShrink: 0, opacity: 0.8 }} />
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{lane}</span>
+            </span>
+          ))}
+          {lanes.length > maxLanes && <span style={{ fontSize: "0.7em", opacity: 0.6, alignSelf: "center" }}>+{lanes.length - maxLanes}</span>}
+        </div>
+      )}
+      {rules.length > 0 && (
+        <ul data-testid="canvas-plan-rules" style={{ margin: 0, paddingLeft: 16, fontSize: "0.76em", lineHeight: 1.4, opacity: 0.92, display: "flex", flexDirection: "column", gap: 2 }}>
+          {rules.slice(0, 4).map((r, i) => (
+            <li key={i} style={{ overflowWrap: "anywhere" }}>{r}</li>
+          ))}
+          {rules.length > 4 && <li style={{ listStyle: "none", opacity: 0.6 }}>+{rules.length - 4} more</li>}
+        </ul>
+      )}
+      {learnings.length > 0 && (
+        <div data-testid="canvas-plan-learnings" style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 1 }}>
+          {learnings.slice(-3).reverse().map((l) => (
+            <div key={l.id} style={{ display: "flex", gap: 5, fontSize: "0.75em", lineHeight: 1.35 }}>
+              <span aria-hidden style={{ flexShrink: 0, opacity: 0.7 }}>💡</span>
+              <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                {l.tag && <span style={{ fontWeight: 700, opacity: 0.8, marginRight: 4 }}>{l.tag}</span>}
+                {l.text}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LoopPill({ loop, showDetail }: { loop: LoopSpec; showDetail: boolean }) {
+  const meta = LOOP_STATUS[loop.status] ?? LOOP_STATUS.stopped;
+  const stages = showDetail ? loop.stages.map((s) => s.role || s.key).filter(Boolean) : [];
+  const title = [
+    `Loop: ${loop.target}`,
+    `Status: ${meta.label}`,
+    `Iterations: ${loop.count}${loop.budget > 0 ? ` / ${loop.budget}` : ""}`,
+    loop.stop_when ? `Stop when: ${loop.stop_when}` : null,
+    stages.length ? `Stages: ${stages.join(" › ")}` : null,
+  ].filter(Boolean).join("\n");
+  return (
+    <span
+      data-testid="canvas-plan-loop"
+      data-loop-status={loop.status}
+      title={title}
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: showDetail ? 300 : 210, padding: "0.12em 0.55em", borderRadius: 999, fontSize: "0.76em", border: `1px solid color-mix(in srgb, ${meta.color} 45%, transparent)`, background: `color-mix(in srgb, ${meta.color} 12%, transparent)`, color: "var(--ct-fg)", whiteSpace: "nowrap" }}
+    >
+      <span className={meta.live ? "ct-canvas-heartbeat-dot" : undefined} aria-hidden style={{ width: 7, height: 7, borderRadius: "50%", background: meta.color, flexShrink: 0 }} />
+      <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", fontWeight: 600 }}>{loop.target}</span>
+      {loop.budget > 0 && (
+        <span data-testid="canvas-plan-loop-count" style={{ fontFamily: "var(--ct-font-mono)", fontSize: "0.92em", opacity: 0.8, flexShrink: 0 }}>
+          {loop.count}/{loop.budget}
+        </span>
+      )}
+      {stages.length > 0 && (
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", opacity: 0.6, fontSize: "0.9em" }}>{stages.join(" › ")}</span>
+      )}
+    </span>
+  );
+}
+
+// §loops: surface the orchestrator's iteration engines. W0 = a one-line count/running
+// summary (never a hollow strip); W1+ = a pill per loop (target · count/budget · status
+// dot), revealing pipeline stages + stop-when at W2.
+function LoopsStrip({ loops, world }: { loops: LoopSpec[]; world: World }) {
+  const running = loops.filter((l) => l.status === "running").length;
+  const showDetail = atLeast(world, "W2");
+  const maxLoops = 4;
+
+  if (!atLeast(world, "W1")) {
+    return (
+      <div data-testid="canvas-plan-loops" style={{ flexShrink: 0, padding: "5px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", alignItems: "center", gap: 6, fontSize: "0.74em", fontWeight: 600 }}>
+        <Repeat size={11} strokeWidth={2.2} style={{ opacity: 0.7, flexShrink: 0 }} aria-hidden />
+        <span>{loops.length} loop{loops.length === 1 ? "" : "s"}</span>
+        {running > 0 && <span style={{ color: LOOP_STATUS.running.color }}>· {running} running</span>}
+      </div>
+    );
+  }
+  return (
+    <div data-testid="canvas-plan-loops" className="ct-canvas-fade-in" style={{ flexShrink: 0, padding: "6px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+      <Repeat size={12} strokeWidth={2.2} style={{ opacity: 0.6, flexShrink: 0 }} aria-hidden />
+      {loops.slice(0, maxLoops).map((loop) => (
+        <LoopPill key={loop.id} loop={loop} showDetail={showDetail} />
+      ))}
+      {loops.length > maxLoops && <span style={{ fontSize: "0.72em", opacity: 0.6, alignSelf: "center" }}>+{loops.length - maxLoops} more</span>}
     </div>
   );
 }
@@ -111,6 +261,23 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
 
   const counts = { uncovered: 0, progress: 0, done: 0 };
   for (const r of rows) counts[r.glyph]++;
+
+  // Heartbeat/loops are PLAN-only live state, rendered only when present (§render-
+  // when-present). Heartbeat gates per-band so a rules/learnings-only beat never
+  // shows a hollow strip below its reveal band.
+  const hb = plan.heartbeat;
+  const hbFocus = hb?.current_focus?.trim() ?? "";
+  const hbLanes = (hb?.active_lanes ?? []).filter((l) => l.trim());
+  const hbRules = (hb?.rules ?? []).filter((r) => r.trim());
+  const hbLearnings = (hb?.learnings ?? []).filter((l) => l.text?.trim());
+  const showHeartbeat = isPlan && !!hb && (
+    !!hbFocus ||
+    (atLeast(world, "W1") && hbLanes.length > 0) ||
+    (atLeast(world, "W2") && hbRules.length > 0) ||
+    (atLeast(world, "W3") && hbLearnings.length > 0)
+  );
+  const loops = plan.loops ?? [];
+  const showLoops = isPlan && loops.length > 0;
 
   const card = (boxStyle: CSSProperties) => (
     <div data-testid={testid} data-plan-id={plan.id} data-world={world} className="ct-canvas-node" style={{ ...frameStyle(variant), ...boxStyle }}>
@@ -194,6 +361,9 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
         </div>
       )}
 
+      {showHeartbeat && hb && <HeartbeatStrip hb={hb} world={world} />}
+      {showLoops && <LoopsStrip loops={loops} world={world} />}
+
       <div
         ref={bodyRef}
         className="ct-canvas-scroll"
@@ -256,7 +426,8 @@ function SectionRowView({ row, variant, world, planId, onSectionClick, onSection
   const hasBody = row.section.body.trim().length > 0;
   const showBody = atLeast(world, "W2") && hasBody && !suppressRichContent;
   const showAbstract = !isPlan && !showBody && atLeast(world, "W1") && hasBody && !suppressRichContent;
-  const clamp = isPlan; // §22.1: spec body is unclamped from W2 on (deepest layout reserved, no W2→W3 reflow)
+  const deep = atLeast(world, "W3");
+  const clamp = isPlan && !deep; // §22.1 spec unclamped from W2; PLAN excerpt clamps at W2 but opens FULLY at W3 (deep read)
   const grow = showBody || showAbstract;
   const nav: SectionNavArgs = { planId, sectionId: row.section.id, variant };
   const showActions = atLeast(world, "W2");
@@ -285,7 +456,7 @@ function SectionRowView({ row, variant, world, planId, onSectionClick, onSection
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: row.depth * 8 }}>
         <g.Icon size={12} color={g.color} style={{ flexShrink: 0 }} strokeWidth={row.glyph === "uncovered" ? 2.4 : 2.2} />
-        <span data-canvas-selectable className="ct-canvas-title ct-canvas-text" style={{ flex: 1, minWidth: 0, fontSize: "0.84em", fontWeight: row.glyph === "uncovered" ? 600 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <span data-canvas-selectable className="ct-canvas-title ct-canvas-text" style={{ flex: 1, minWidth: 0, fontSize: "0.84em", fontWeight: row.glyph === "uncovered" ? 600 : 500, ...(deep ? { whiteSpace: "normal", wordBreak: "break-word" } : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }) }}>
           {row.section.title}
         </span>
         {isPlan && <span data-testid="canvas-plan-row-count" style={{ flexShrink: 0, fontSize: "0.68em", fontFamily: "var(--ct-font-mono)", fontWeight: 600, opacity: 0.7, paddingRight: showActions ? 0 : 8 }}>{row.taskCount}</span>}
