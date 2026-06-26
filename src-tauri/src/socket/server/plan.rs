@@ -419,14 +419,18 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
-
         "plan.archive" => {
             let id = get_string_param(params, "plan_id")?;
             store.archive(&id, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
-
+        "plan.unarchive" => {
+            let id = get_string_param(params, "plan_id")?;
+            store.unarchive(&id, now).map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true }))
+        }
         "plan.delete" => {
             let id = get_string_param(params, "plan_id")?;
             store.delete(&id).map_err(|e| JsonRpcError {

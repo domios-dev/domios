@@ -246,6 +246,21 @@ pub async fn archive(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+pub async fn unarchive(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    state
+        .svc
+        .plan_store
+        .unarchive(&id, epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct TransferBody {
     to: OrchestratorRef,
