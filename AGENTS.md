@@ -24,7 +24,7 @@
 
 ## Source file size discipline
 
-**Hard limit: 1000 lines per source file** (`.rs`, `.ts`, `.tsx`, `.py`, `.swift`). When a file approaches this, split by responsibility. If a single concern legitimately needs more than 1000 lines, your concern is two concerns wearing a trenchcoat.
+**NEVER ship a source file over 1000 lines. Ever.** (`.rs`, `.ts`, `.tsx`, `.py`, `.swift`). This is absolute: an oversized file is a bug to fix by splitting, never to silence by adding it to the allowlist. The allowlist only shrinks. When a file approaches the limit, split by responsibility. If a single concern legitimately needs more than 1000 lines, your concern is two concerns wearing a trenchcoat.
 
 - `mod.rs` files target <800 lines — facade + light glue. Heavy logic belongs in concrete files inside the module.
 - Excluded: `target/`, `node_modules/`, `dist/`, `gen/`, `references/`, `vendor/`, `src-tauri/pty-fork/`, data formats.

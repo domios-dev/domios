@@ -67,7 +67,6 @@ var plugin = {
   },
   // Cheap incremental gate: a selector glyph, a keyboard footer, or a
   // trust/approval keyword means a prompt frame might be on screen → let the
-  // host read the full screen and run parsePrompt (the authoritative gate).
   hasEventMarkers(chunk) {
     return chunkHasPromptSignal(String(chunk || ""));
   },
@@ -77,16 +76,11 @@ var plugin = {
   },
   // Read cursor's alt-screen menu (permission / workspace-trust / model picker)
   // into {question, options}. Returns null on non-menu output so normal chat
-  // never surfaces a phantom card. The host navigates via buildPromptResponse.
   parsePrompt(text) {
     return parseCursorPrompt(String(text || ""));
   },
   // Cursor menus are vertical lists navigated with ↑/↓ + Enter. The highlight is
   // NOT the top row — the /model picker lands the → selector on the CURRENT model —
-  // so navigate RELATIVE to the live highlight (delta = target − current), not from
-  // the top. `screen` is the cleaned terminal text the host passes for this reason;
-  // absent it, fall back to top-start. Esc-cancel is the host's separate path.
-  // Base64 byte steps: down=ESC[B, up=ESC[A, enter=\r.
   buildPromptResponse(optionIndex, screen) {
     const DOWN = "G1tC";
     const UP = "G1tB";
