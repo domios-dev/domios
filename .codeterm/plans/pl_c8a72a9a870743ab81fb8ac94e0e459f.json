@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782448938783,
+  "updated_at": 1782449702855,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -3216,12 +3216,12 @@
       "acceptance_criteria": [],
       "test_plan": "Add/adjust focused tag/handle tests; orchestrator reruns focused TS tests, npx tsc --noEmit, and relevant Canvas/CLI gate.",
       "correctness": null,
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782448938783,
-      "status_changed_at": 1782448910002,
+      "updated_at": 1782449702855,
+      "status_changed_at": 1782449702855,
       "handle": "dogfood-the-tags-facets-retag-rename-to-handles",
       "tags": [],
       "section_ids": [
@@ -3252,7 +3252,27 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": []
+      "milestones": [
+        {
+          "id": "ms_de96110384b540e4a28d0197873a577d",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Integrated tag-dogfood-handles: retag command, tag report rendering, facet-key replacement on retag, handle preview parity in Rust/TS, regenerated CLI docs/manifest, and split plan rendering helpers so cli/src/cmd/plan.rs stays under 1000 lines. Verified cli render_tag_report, cli find_task_matches, cli manifest freshness, src-tauri tag_model tests, src-tauri update_task_retag integration test, tagModel.test.ts 7/7, npx tsc --noEmit, and CODETERM_API_PORT=7686 ./build.sh check.",
+          "ts": 1782449702855,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
     },
     {
       "id": "task_6c318b94c61f40cb8050b66789117750",

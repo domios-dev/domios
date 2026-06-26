@@ -6609,6 +6609,46 @@
               "subcommands": []
             },
             {
+              "name": "retag",
+              "about": "Replace facet/topic tags and regenerate the task handle",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "rm",
               "about": null,
               "aliases": [],

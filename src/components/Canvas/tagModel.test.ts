@@ -1,4 +1,4 @@
-import { facetColorMap, isTagFilterActive, isTagFilterSelected, legendEntries, resolveTags, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
+import { applyTags, facetColorMap, isTagFilterActive, isTagFilterSelected, legendEntries, previewHandle, resolveTags, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { TagFacet } from "./types";
 
 type TestFn = () => void | Promise<void>;
@@ -39,6 +39,15 @@ test("legendEntries includes only color_lane facets with resolved colors", () =>
   assert(legend.length === 1, "one facet group");
   assert(legend[0].key === "area", "area facet");
   assert(legend[0].values.length === 2, "both values have colors");
+});
+
+test("applyTags replaces same facet key when retagging", () => {
+  const next = applyTags(["area:nav", "pan-zoom"], ["area:ui"], "area:ui");
+  assert(next.join(",") === "area:ui,pan-zoom", "facet value swapped, topic kept");
+});
+
+test("previewHandle mirrors primary facet plus topic seed", () => {
+  assert(previewHandle(["area:nav", "pan-zoom"], "Pan Zoom") === "nav-pan-zoom", "handle seed");
 });
 
 test("toggleTagFilter selects and clears facet tags per facet bucket", () => {

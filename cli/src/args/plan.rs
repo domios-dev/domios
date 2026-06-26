@@ -482,6 +482,15 @@ pub enum PlanTaskAction {
         #[arg(long)]
         handle: Option<String>,
     },
+    /// Replace facet/topic tags and regenerate the task handle
+    Retag {
+        plan_id: String,
+        task_id: String,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        #[arg(long)]
+        primary: Option<String>,
+    },
     Close {
         plan_id: String,
         task_id: String,
