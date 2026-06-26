@@ -17,6 +17,7 @@ pub mod orchestrator;
 pub mod pane;
 pub mod paste;
 pub mod plan;
+pub mod plan_elements;
 pub mod plan_errors;
 pub mod plan_files;
 pub mod plan_handoff;

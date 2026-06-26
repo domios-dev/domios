@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod body_files;
+pub mod element_queries;
 pub mod handoff;
 pub mod heartbeat;
 pub mod hints;
@@ -46,6 +47,7 @@ use std::time::SystemTime;
 #[derive(Debug)]
 pub enum PlanError {
     NotFound,
+    ElementNotFound,
     TaskNotFound,
     OpenSubtasks { subtasks: Vec<OpenSubtask> },
     TransitionDenied { from: TaskStatus, to: TaskStatus },
@@ -68,6 +70,7 @@ impl fmt::Display for PlanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             PlanError::NotFound => write!(f, "plan not found"),
+            PlanError::ElementNotFound => write!(f, "element not found"),
             PlanError::TaskNotFound => write!(f, "task not found"),
             PlanError::OpenSubtasks { subtasks } => {
                 let listed = subtasks
@@ -113,6 +116,7 @@ impl PlanError {
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             PlanError::NotFound => serde_json::json!({ "type": "not_found" }),
+            PlanError::ElementNotFound => serde_json::json!({ "type": "element_not_found" }),
             PlanError::TaskNotFound => serde_json::json!({ "type": "task_not_found" }),
             PlanError::OpenSubtasks { subtasks } => {
                 serde_json::json!({ "type": "open_subtasks", "subtasks": subtasks })

@@ -930,6 +930,33 @@ fn run_plan(
         },
 
         PlanAction::Element { action } => match action {
+            PlanElementAction::List { plan_id, kind } => {
+                let mut params = json!({ "plan_id": plan_id });
+                if let Some(kind) = kind {
+                    params["kind"] = json!(kind);
+                }
+                let val = call(client, "plan.element.list", params)?;
+                if json {
+                    return Ok(Some(val));
+                }
+                print!("{}", crate::cmd::plan_elements::render_element_list(&val));
+                return Ok(None);
+            }
+            PlanElementAction::Show {
+                plan_id,
+                element_id,
+            } => {
+                let val = call(
+                    client,
+                    "plan.element.show",
+                    json!({ "plan_id": plan_id, "element_id": element_id }),
+                )?;
+                if json {
+                    return Ok(Some(val));
+                }
+                print!("{}", crate::cmd::plan_elements::render_element_show(&val));
+                return Ok(None);
+            }
             PlanElementAction::Add {
                 plan_id,
                 kind,

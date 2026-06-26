@@ -590,6 +590,14 @@ pub enum PlanNoteAction {
 
 #[derive(Subcommand)]
 pub enum PlanElementAction {
+    /// List generic canvas elements
+    List {
+        plan_id: String,
+        #[arg(long)]
+        kind: Option<String>,
+    },
+    /// Show one generic canvas element
+    Show { plan_id: String, element_id: String },
     Add {
         plan_id: String,
         #[arg(long)]

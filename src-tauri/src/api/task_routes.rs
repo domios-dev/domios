@@ -16,7 +16,9 @@ type TaskRouteResult = Result<Json<Value>, (StatusCode, Json<Value>)>;
 
 fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
     let status = match e {
-        PlanError::NotFound | PlanError::TaskNotFound => StatusCode::NOT_FOUND,
+        PlanError::NotFound | PlanError::ElementNotFound | PlanError::TaskNotFound => {
+            StatusCode::NOT_FOUND
+        }
         PlanError::BadStatus
         | PlanError::BadPriority
         | PlanError::UndeclaredKind { .. }

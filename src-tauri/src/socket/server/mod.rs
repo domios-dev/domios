@@ -13,11 +13,13 @@ mod cron;
 mod notification;
 mod pane;
 mod plan;
+mod plan_elements;
 mod plan_fields;
 mod plan_goal;
 mod plan_handoff;
 mod plan_heartbeat;
 mod plan_linking;
+mod plan_read;
 mod services;
 mod spec;
 mod workspace;
@@ -373,6 +375,7 @@ fn dispatch(
                     "plan.milestone.add", "plan.milestone.update", "plan.milestone.rm",
                     "plan.loop.create", "plan.loop.set", "plan.loop.status", "plan.loop.stop",
                     "plan.layout.set", "plan.note.add", "plan.element.add",
+                    "plan.element.list", "plan.element.show",
                     "spec.create", "spec.list", "spec.show", "spec.files",
                     "spec.section.add", "spec.section.update", "spec.section.rm",
                     "spec.link.add", "spec.link.rm", "spec.link.list",

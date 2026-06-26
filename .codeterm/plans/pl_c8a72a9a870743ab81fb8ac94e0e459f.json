@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782452455134,
+  "updated_at": 1782453370231,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -6767,12 +6767,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "in_progress",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 1782297064519,
-      "updated_at": 1782452455134,
-      "status_changed_at": 1782452424564,
+      "updated_at": 1782453370231,
+      "status_changed_at": 1782453370231,
       "handle": "plugin-extensible-canvas-nodes",
       "tags": [],
       "section_ids": [
@@ -6814,6 +6814,25 @@
           "kind": "decision",
           "text": "ANDREY: canvas OPEN FOR PLUGINS — plugin creates EXTERNAL node kinds (GitHub node etc), visible on canvas, AGENTS query via CLI. FOUNDATION EXISTS: FE nodeRegistry.registerNodeRenderer(kind,renderer)+open-kind fallback; BE CanvasElement{kind:String}+Plan.elements. GAPS: (1) plugin API to register node kind+renderer; (2) plugins create/update CanvasElement via batch add_element/host API; (3) agent CLI codeterm canvas nodes list|show; (4) capability+JS parity. Honors plugin boundary: core asks capabilities not identities.",
           "ts": 1782297064519,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_cadcdb2d95c74ab6bb80bc4743940c38",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Accepted canvas-nodes-cli foundation lane. Added generic plan.element.list/show socket methods and CLI commands for existing Plan.elements, with ElementSummary/ElementDetails projections, human-readable CLI renderers, element_not_found hinting, and split plan_read/plan_elements socket handlers so src-tauri/src/socket/server/plan.rs is 996 lines. Regenerated docs/CLI.md and docs/cli-manifest.json. Gates: cargo fmt --manifest-path cli/Cargo.toml -- --check passed; cargo fmt --manifest-path src-tauri/Cargo.toml -- --check passed; cargo test --manifest-path cli/Cargo.toml plan_elements -- --nocapture passed; cargo test --manifest-path cli/Cargo.toml renders_unknown_element_fix -- --nocapture passed; cargo test --manifest-path cli/Cargo.toml cmd::manifest -- --nocapture passed (manifest/docs fresh); perl -e 'alarm 120; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml service::plan::element_queries -- --nocapture passed (3 tests); CODETERM_API_PORT=7686 ./build.sh check passed; git diff --check passed. File-size guard: touched files under hard cap; script still reports unrelated pre-existing oversized files and src-tauri/src/mem/store/tests.rs baseline growth.",
+          "ts": 1782453370231,
           "links": [],
           "loop_id": null,
           "iteration": null,

@@ -4839,6 +4839,54 @@
                 }
               ],
               "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List generic canvas elements",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "Show one generic canvas element",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "element_id",
+                  "positional": true,
+                  "value_name": "ELEMENT_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
             }
           ]
         },
