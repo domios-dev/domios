@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782450530409,
+  "updated_at": 1782450706881,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -2447,12 +2447,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "done",
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782375526097,
-      "status_changed_at": 0,
+      "updated_at": 1782450706881,
+      "status_changed_at": 1782450706881,
       "handle": "externalize-bodies-to-md-files",
       "tags": [],
       "section_ids": [
@@ -2492,6 +2492,25 @@
           "kind": "status_update",
           "text": "DONE: externalized plan section/task bodies into sibling markdown files; JSON stores structure only; load/save hydrates/migrates bodies; recursive watcher reloads body edits and emits plan-changed",
           "ts": 1782282712091,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_5cc2ea930b89424c80d5d9f7a9ff672e",
+          "from": {
+            "pane_id": "4d479b6c",
+            "session_id": null,
+            "title": "Puccini"
+          },
+          "kind": "status_update",
+          "text": "Reconciled as already implemented. Evidence: task milestone from Main says section/task bodies were externalized into sibling markdown files with hydrate/migrate and watcher reload. Source verification: src-tauri/src/service/plan/body_files.rs persists/strips/hydrates sections and tasks, writes INDEX.md, removes stale id paths; PlanStore save/get paths call persist_bodies/strip_bodies/hydrate_and_migrate; plan files CLI renderer exists. Gate run now: perl -e 'alarm 90; exec @ARGV' cargo test --manifest-path src-tauri/Cargo.toml service::plan::body_file_tests -- --nocapture (section_and_task_bodies_roundtrip_through_markdown_files passed). No worker spawned because this was stale plan state, not missing implementation.",
+          "ts": 1782450706881,
           "links": [],
           "loop_id": null,
           "iteration": null,
