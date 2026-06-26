@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782457728888,
+  "updated_at": 1782457794437,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -16005,7 +16005,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782456853411,
-      "updated_at": 1782457728888,
+      "updated_at": 1782457794437,
       "status_changed_at": 1782457728888,
       "handle": "33-5-preserve-merged-stride-log-entries-on-save",
       "tags": [],
@@ -16024,9 +16024,9 @@
         "branch": "lane/stride-preserve-save",
         "base": "62c1d47f149927913aabfbf0f891b66c69d22041",
         "destination": "feat/canvas",
-        "cleanup_status": "pending",
+        "cleanup_status": "cleaned",
         "cleanup_hints": [
-          "Active worker pane 58b78505. After accepted integration: close worker pane, remove /Users/rollacode/Developer/codeterm-stride-preserve-save, delete lane/stride-preserve-save, prune worktrees."
+          "Integrated as 0165aa8c, worker pane 58b78505 closed, worktree /Users/rollacode/Developer/codeterm-stride-preserve-save removed, branch lane/stride-preserve-save deleted, worktrees pruned."
         ]
       },
       "taken_by_role": null,
