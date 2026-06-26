@@ -89,7 +89,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782454053651,
+  "updated_at": 1782454235512,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -15708,6 +15708,56 @@
           }
         }
       ]
+    },
+    {
+      "id": "task_21b91111c35641ada026d08401c6b97d",
+      "name": "§33.1 spike git merge=union for append-only stride logs",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Terminal-heavy storage prerequisite: verify git merge=union semantics and add deterministic regression coverage before any broader §33 storage rewrite.",
+      "acceptance_criteria": [
+        "Repository declares a scoped merge=union attribute for future append-only plan stride/event JSONL logs.",
+        "A deterministic temp-git regression test proves concurrent branch EOF appends both survive merge and can be folded/deduped predictably."
+      ],
+      "test_plan": "Run the new union-merge regression test plus git diff --check and the relevant repo build/check wrapper in the hot checkout.",
+      "correctness": "Append-only plan log storage uses plain git built-ins safely before broader §33 migration work begins.",
+      "status": "in_progress",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1782454167418,
+      "updated_at": 1782454235512,
+      "status_changed_at": 1782454189995,
+      "handle": "33-1-spike-git-merge-union-for-append-only-stride-logs",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
+      "assigned_pane_id": "6b50d21d",
+      "lane": {
+        "pane_id": "6b50d21d",
+        "workspace_id": "ef145fd1",
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm-merge-storage-union-spike",
+        "branch": "lane/merge-storage-union-spike",
+        "base": "fd1d4ac45384d4de0b805ee5d4d0e8ce9c170bcd",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After accepted integration: close worker pane, remove /Users/rollacode/Developer/codeterm-merge-storage-union-spike, delete lane/merge-storage-union-spike, prune worktrees."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
     }
   ],
   "task_groups": [],
