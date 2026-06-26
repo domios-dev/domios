@@ -48,7 +48,9 @@ import { CanvasFocusBreadcrumb } from "./CanvasFocusBreadcrumb";
 import { CanvasPassiveRenderLayer } from "./CanvasPassiveRenderLayer";
 import { CanvasRichOverlayLayer } from "./CanvasRichOverlayLayer";
 import { CanvasPresenceLayer } from "./CanvasPresenceLayer";
+import { CanvasSwarmCluster } from "./CanvasSwarmCluster";
 import { MAX_ACTIVE_PRESENCE_OVERLAYS, buildPresenceOverlays, type PresenceSource } from "./presenceOverlays";
+import { buildSwarmRoster } from "./swarmRoster";
 import { CanvasWorldNodeList } from "./CanvasWorldNodeList";
 import { CanvasWorldDecorations } from "./CanvasWorldDecorations";
 import { MAX_ACTIVE_RICH_OVERLAYS, buildOverlayNodes } from "./richOverlays";
@@ -412,6 +414,13 @@ export function CanvasViewInner({
   const presenceOverlays = useMemo(
     () => buildPresenceOverlays({ presenceByTask, nodeById: lookups.nodeById, visibleIds: nodeIds, worldByNode, transform, maxActive: MAX_ACTIVE_PRESENCE_OVERLAYS }),
     [presenceByTask, lookups.nodeById, nodeIds, worldByNode, transform],
+  );
+  // EMERGENCE top-right cluster: the WHOLE swarm deduped to one circle per distinct
+  // agent. Camera-DECOUPLED (no transform dep) so the screen-space faces stay put
+  // while you fly; recomputed only when the swarm/task data changes.
+  const swarmRoster = useMemo(
+    () => buildSwarmRoster({ presenceByTask, taskById: lookups.taskById }),
+    [presenceByTask, lookups.taskById],
   );
 
   // §25.3 DOMINANCE (focus-assist for the task you "fell into"): when one task fills
@@ -875,6 +884,9 @@ export function CanvasViewInner({
         )}
         {!loading && filteredPlans.length > 0 && (
           <CanvasPresenceLayer overlays={presenceOverlays} onFlyToTask={onFlyToTask} onHoverTask={onHoverTask} />
+        )}
+        {!loading && !error && filteredPlans.length > 0 && (
+          <CanvasSwarmCluster roster={swarmRoster} onFlyToTask={onFlyToTask} reserveTopRight={!!onClose} />
         )}
         {!loading && filteredPlans.length > 0 && (
           <div
