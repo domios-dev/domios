@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782468193851,
+  "updated_at": 1782468306540,
   "milestone_kinds": [
     {
       "key": "research",
@@ -467,12 +467,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
+      "status": "in_progress",
       "status_label": null,
       "priority": "p1",
       "created_at": 1782466185497,
-      "updated_at": 1782466185497,
-      "status_changed_at": 1782466185497,
+      "updated_at": 1782468306540,
+      "status_changed_at": 1782468276605,
       "handle": "s3-passive-canvas-renderer-layer-behind-current-dom-ui",
       "tags": [
         "canvas,figma-substrate,renderer"
@@ -481,17 +481,19 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": null,
+      "assigned_pane_id": "ce8669f3",
       "lane": {
-        "pane_id": null,
+        "pane_id": "ce8669f3",
         "workspace_id": null,
-        "workspace_name": null,
-        "worktree_path": null,
-        "branch": null,
-        "base": null,
-        "destination": null,
-        "cleanup_status": null,
-        "cleanup_hints": []
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm-passive-renderer",
+        "branch": "lane/passive-renderer",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "remove worktree and branch after orchestrator accepts"
+        ]
       },
       "taken_by_role": null,
       "peer": null,
