@@ -16,12 +16,13 @@ test("crispRasterScale: birds-eye bands never re-rasterize", () => {
   assert(crispRasterScale("W1", 4) === 1, "W1 stays 1×");
 });
 
-test("crispRasterScale: readable bands re-rasterize only above the min scale", () => {
-  assert(crispRasterScale("W2", 1) === 1, "no re-raster at 1× (GPU upscale imperceptible)");
-  assert(crispRasterScale("W2", CRISP_MIN_SCALE) === 1, "no re-raster at the threshold itself");
-  assert(crispRasterScale("W2", 2) === 2, "W2 pinned at 2×");
-  assert(crispRasterScale("W2", 3.5) === 2, "W2 stays pinned while diving");
-  assert(crispRasterScale("W3", 4) === 4, "W3 re-rasters at 4×");
+test("crispRasterScale: readable bands quantize to 0.25 steps above the min scale", () => {
+  assert(crispRasterScale("W2", 1) === 1, "no crisp step at 1× (GPU upscale imperceptible)");
+  assert(crispRasterScale("W2", CRISP_MIN_SCALE) === 1, "no crisp step at the threshold itself");
+  assert(crispRasterScale("W2", 2) === 2, "W2 quantizes to 2× at 2×");
+  assert(crispRasterScale("W2", 3.5) === 3.5, "W2 tracks the dive, quantized to 0.25 steps");
+  assert(crispRasterScale("W2", 3.6) === 3.5, "W2 rounds to the nearest 0.25 step");
+  assert(crispRasterScale("W3", 4) === 4, "W3 quantizes to 4× at 4×");
 });
 
 // Quantization bounds the reflow count across a zoom sweep; geometry still cancels
