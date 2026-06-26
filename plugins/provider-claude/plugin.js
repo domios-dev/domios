@@ -580,75 +580,9 @@ function scoreAuthPrompt(screen) {
   return score > 1 ? 1 : score;
 }
 
-// plugins/provider-claude/src/plugin.ts
-var TITLE_RE = /claude/i;
-var BRAILLE_LO = 10241;
-var BRAILLE_HI = 10495;
-var OUTPUT_FINGERPRINTS = [
-  "Claude Code",
-  "Do you want to proceed?",
-  "may I proceed",
-  "Would you like me to",
-  "Yes, and don't ask again",
-  "Enter to confirm",
-  "Cogitated for",
-  "Brewed for",
-  "Reasoned for"
-];
-var NOISE_FRAGMENTS = [
-  "bypass permissions on",
-  "shift+tab to cycle",
-  "Update available! Run:",
-  "brew upgrade claude-code",
-  "esc to interrupt",
-  "? for shortcuts",
-  "ctrl+g to edit",
-  "Monthly spend limit",
-  "hold Space"
-];
-function xmlTagBody(content, tag) {
-  const open = `<${tag}>`;
-  const close = `</${tag}>`;
-  const start = content.indexOf(open);
-  if (start < 0) return null;
-  const bodyStart = start + open.length;
-  const end = content.indexOf(close, bodyStart);
-  if (end < 0) return null;
-  return content.slice(bodyStart, end).trim();
-}
-function taskNotificationStatus(content) {
-  const trimmed = content.trim();
-  const start = trimmed.indexOf("<task-notification>");
-  const end = trimmed.indexOf("</task-notification>", start);
-  if (start < 0 || end < 0) {
-    return null;
-  }
-  const block = trimmed.slice(start, end + "</task-notification>".length);
-  const status = xmlTagBody(block, "status");
-  return status ? `Task ${status}` : "Task notification";
-}
-function isCompactSummaryRow(entry, content) {
-  if (entry.isCompactSummary === true) return true;
-  return entry.isVisibleInTranscriptOnly === true && content.trimStart().startsWith("This session is being continued from a previous conversation");
-}
-var TUI_FRAGMENTS = [
-  "? for shortcuts",
-  "for shortcuts",
-  "ctrl+l",
-  "esc to interrupt",
-  // v2.1+ idle footer
-  "bypass permissions",
-  "shift+tab to cycle"
-];
-var SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
-var SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
+// plugins/provider-claude/src/prompts.ts
 var WIZARD_SUBMIT_VALUE = 9e3;
 var WIZARD_MULTI_MASK_BASE = 1e4;
-function isBrailleSpinner(ch) {
-  if (!ch) return false;
-  const code = ch.charCodeAt(0);
-  return code >= BRAILLE_LO && code <= BRAILLE_HI || ch === "\u2733" || ch === "\u273B";
-}
 function parseClaudeWizardPrompt(text) {
   const raw = String(text || "");
   if (raw.indexOf("Submit") === -1 || raw.indexOf("Enter to select") === -1) return null;
@@ -912,6 +846,74 @@ function buildWizardSubmitResponse(screen) {
   for (let i = 0; i < moves; i++) steps.push("G1tD");
   steps.push("DQ==");
   return steps;
+}
+
+// plugins/provider-claude/src/plugin.ts
+var TITLE_RE = /claude/i;
+var BRAILLE_LO = 10241;
+var BRAILLE_HI = 10495;
+var OUTPUT_FINGERPRINTS = [
+  "Claude Code",
+  "Do you want to proceed?",
+  "may I proceed",
+  "Would you like me to",
+  "Yes, and don't ask again",
+  "Enter to confirm",
+  "Cogitated for",
+  "Brewed for",
+  "Reasoned for"
+];
+var NOISE_FRAGMENTS = [
+  "bypass permissions on",
+  "shift+tab to cycle",
+  "Update available! Run:",
+  "brew upgrade claude-code",
+  "esc to interrupt",
+  "? for shortcuts",
+  "ctrl+g to edit",
+  "Monthly spend limit",
+  "hold Space"
+];
+function xmlTagBody(content, tag) {
+  const open = `<${tag}>`;
+  const close = `</${tag}>`;
+  const start = content.indexOf(open);
+  if (start < 0) return null;
+  const bodyStart = start + open.length;
+  const end = content.indexOf(close, bodyStart);
+  if (end < 0) return null;
+  return content.slice(bodyStart, end).trim();
+}
+function taskNotificationStatus(content) {
+  const trimmed = content.trim();
+  const start = trimmed.indexOf("<task-notification>");
+  const end = trimmed.indexOf("</task-notification>", start);
+  if (start < 0 || end < 0) {
+    return null;
+  }
+  const block = trimmed.slice(start, end + "</task-notification>".length);
+  const status = xmlTagBody(block, "status");
+  return status ? `Task ${status}` : "Task notification";
+}
+function isCompactSummaryRow(entry, content) {
+  if (entry.isCompactSummary === true) return true;
+  return entry.isVisibleInTranscriptOnly === true && content.trimStart().startsWith("This session is being continued from a previous conversation");
+}
+var TUI_FRAGMENTS = [
+  "? for shortcuts",
+  "for shortcuts",
+  "ctrl+l",
+  "esc to interrupt",
+  // v2.1+ idle footer
+  "bypass permissions",
+  "shift+tab to cycle"
+];
+var SESSION_EXPLICIT_RE = /session(?:\s+id)?\s*[:=]\s*([a-z]+-[a-z]+-\d{2,6})\b/i;
+var SESSION_BARE_RE = /(?:^|\n)\s*([a-z]{4,10}-[a-z]{4,10}-\d{4})\s*(?:$|\n)/m;
+function isBrailleSpinner(ch) {
+  if (!ch) return false;
+  const code = ch.charCodeAt(0);
+  return code >= BRAILLE_LO && code <= BRAILLE_HI || ch === "\u2733" || ch === "\u273B";
 }
 var plugin = {
   detectFromTitle(title) {

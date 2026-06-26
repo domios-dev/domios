@@ -4,9 +4,8 @@ use crate::shell::ShellSyntax;
 #[test]
 fn cross_mesh_worker_skips_local_role_assignment() {
     use crate::multiplexer::types::AgentRole;
-    // The bug: `agent spawn --mesh PEER --role Worker` 500'd because the peer
-    // tried set_pane_role(Worker, None). A mesh report target + no local parent
-    // must skip local role assignment.
+    // Regression: mesh `--role Worker` 500'd via set_pane_role(Worker, None).
+    // A mesh report target + no local parent must skip local role assignment.
     assert!(skip_local_worker_role(
         &AgentRole::Worker,
         None,

@@ -967,49 +967,8 @@ fn marker_token_and_rest(text: &str) -> Option<(&str, &str)> {
     }
 }
 
-fn has_selected_glyph(text: &str) -> bool {
-    starts_with_any(text, &["❯", "›", ">", "→", "➜", "▸", "▶", "●"])
-}
-
-fn contains_checkbox(text: &str) -> bool {
-    ["[ ]", "[x]", "[X]", "( )", "(x)", "(X)", "☐", "☑", "☒"]
-        .iter()
-        .any(|needle| text.contains(needle))
-}
-
-fn has_checked_box(text: &str) -> bool {
-    ["[x]", "[X]", "(x)", "(X)", "☑", "☒"]
-        .iter()
-        .any(|needle| text.contains(needle))
-}
-
-fn contains_select_all_hint(text: &str) -> bool {
-    let lower = text.to_lowercase();
-    lower.contains("select all") || lower.contains("space select") || lower.contains("tab select")
-}
-
-fn is_footer_hint(text: &str) -> bool {
-    let lower = text.to_lowercase();
-    lower.contains("enter to select")
-        || lower.contains("space select")
-        || lower.contains("tab toggle")
-        || lower.contains("tab select")
-        || lower.contains("esc dismiss")
-        || lower.contains("esc to")
-        || lower.contains("←/→")
-        || lower.contains("left/right")
-}
-
-fn is_box_border(text: &str) -> bool {
-    let trimmed = text.trim();
-    !trimmed.is_empty()
-        && (trimmed.chars().filter(|c| is_border_char(*c)).count() * 2 >= trimmed.chars().count()
-            || trimmed.chars().filter(|c| is_border_char(*c)).count() >= 6)
-}
-
-fn is_vertical_border(c: char) -> bool {
-    matches!(c, '│' | '┃' | '║')
-}
+mod markers;
+use markers::*;
 
 #[cfg(test)]
 mod tests;
