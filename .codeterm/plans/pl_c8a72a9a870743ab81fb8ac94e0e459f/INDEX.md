@@ -164,6 +164,9 @@
 - [workspace-plan-entry-and-focus-to-item-navigation (Workspace Plan entry and focus-to-item navigation)](tasks/workspace-plan-entry-and-focus-to-item-navigation.md)
 - [workspace-plan-entry-visual-treatment-and-empty-state-policy (Workspace Plan entry visual treatment and empty-state policy)](tasks/workspace-plan-entry-visual-treatment-and-empty-state-policy.md)
 - [remote-mesh-workers-report-to-spawning-orchestrator (Remote mesh workers report to spawning orchestrator)](tasks/remote-mesh-workers-report-to-spawning-orchestrator.md)
+- [plan-task-attachments-for-docs-links-and-artifacts (Plan task attachments for docs, links, and artifacts)](tasks/plan-task-attachments-for-docs-links-and-artifacts.md)
+- [p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env (P0 Safety — build.sh kill must never target prod from inherited env)](tasks/p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env.md)
+- [remote-worker-nesting-and-registry-release-v1-5-7 (Remote worker nesting and registry release v1.5.7)](tasks/remote-worker-nesting-and-registry-release-v1-5-7.md)
 
 ## Stride Logs
 
@@ -295,6 +298,9 @@
 - [plan-doctor-foundation-storage-structure-errors-and-smoke-prune strides](tasks/plan-doctor-foundation-storage-structure-errors-and-smoke-prune/strides.jsonl)
 - [workspace-plan-entry-and-focus-to-item-navigation strides](tasks/workspace-plan-entry-and-focus-to-item-navigation/strides.jsonl)
 - [workspace-plan-entry-visual-treatment-and-empty-state-policy strides](tasks/workspace-plan-entry-visual-treatment-and-empty-state-policy/strides.jsonl)
+- [remote-mesh-workers-report-to-spawning-orchestrator strides](tasks/remote-mesh-workers-report-to-spawning-orchestrator/strides.jsonl)
+- [p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env strides](tasks/p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env/strides.jsonl)
+- [remote-worker-nesting-and-registry-release-v1-5-7 strides](tasks/remote-worker-nesting-and-registry-release-v1-5-7/strides.jsonl)
 
 ## Milestones
 
@@ -539,6 +545,11 @@
 - [workspace-plan-entry-and-focus-to-item-navigation status_update (ms_232a29f3afcd43e181f64077f10dfc0c)](milestones/workspace-plan-entry-and-focus-to-item-navigation-ms_232a29f3afcd43e181f64077f10dfc0c.md)
 - [workspace-plan-entry-visual-treatment-and-empty-state-policy status_update (ms_147e62b7f3ac4477be559582c9e5c89e)](milestones/workspace-plan-entry-visual-treatment-and-empty-state-policy-ms_147e62b7f3ac4477be559582c9e5c89e.md)
 - [workspace-plan-entry-visual-treatment-and-empty-state-policy testing (ms_bff6b9c0833f4d5b9601163b0ee5de63)](milestones/workspace-plan-entry-visual-treatment-and-empty-state-policy-ms_bff6b9c0833f4d5b9601163b0ee5de63.md)
+- [workspace-plan-entry-visual-treatment-and-empty-state-policy status_update (ms_a71778516af94ed1a55fd6073266b011)](milestones/workspace-plan-entry-visual-treatment-and-empty-state-policy-ms_a71778516af94ed1a55fd6073266b011.md)
+- [remote-mesh-workers-report-to-spawning-orchestrator status_update (ms_61830d811f984ca88d91af6acfecfd76)](milestones/remote-mesh-workers-report-to-spawning-orchestrator-ms_61830d811f984ca88d91af6acfecfd76.md)
+- [remote-mesh-workers-report-to-spawning-orchestrator status_update (ms_f14b1db4d2c74bf3a38bcb6901ff0777)](milestones/remote-mesh-workers-report-to-spawning-orchestrator-ms_f14b1db4d2c74bf3a38bcb6901ff0777.md)
+- [p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env status_update (ms_b099c9439e2245248e1e50728939de7c)](milestones/p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env-ms_b099c9439e2245248e1e50728939de7c.md)
+- [p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env status_update (ms_47e5780428eb4e109c4b415f674e78eb)](milestones/p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env-ms_47e5780428eb4e109c4b415f674e78eb.md)
 
 ## Elements
 

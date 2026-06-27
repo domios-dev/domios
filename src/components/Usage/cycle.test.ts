@@ -35,6 +35,8 @@ function snap(over: Partial<UsageSnapshot>): UsageSnapshot {
     spend_limit_cents: null,
     spend_remaining_cents: null,
     spend_resets_at: null,
+    failure_reason: null,
+    probe_command: null,
     ...over,
   };
 }

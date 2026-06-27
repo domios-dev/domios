@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370043277,
-  "updated_at": 1782472938624,
+  "updated_at": 1782480298686,
   "milestone_kinds": [
     {
       "key": "research",
@@ -650,6 +650,328 @@
         "cleanup_status": "pending",
         "cleanup_hints": [
           "remove worktree and branch after orchestrator accepts"
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_57e08f54ffd5451f9a52db2068574035",
+      "name": "R4 — Canvas perf root-cause trace and renderer architecture decision",
+      "type": "research",
+      "model": "remote-opus:eight",
+      "model_rationale": "User reports canvas still lags after S3-S6; need measured root cause and renderer decision before more implementation patches.",
+      "acceptance_criteria": [
+        "Measured trace/source evidence identifies the dominant remaining jank source and why the current passive/substrate path is insufficient."
+      ],
+      "test_plan": "Use dev/prod canvas with substrate flags on/off; capture Playwright/Chrome performance evidence where possible; inspect downloaded renderer references.",
+      "correctness": "Next implementation slices are driven by measurements and include verification gates for frame budget, DOM mount count, and visual correctness.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782474006132,
+      "updated_at": 1782474583918,
+      "status_changed_at": 1782474583918,
+      "handle": "r4-canvas-perf-root-cause-trace-and-renderer-architecture-decision",
+      "tags": [
+        "canvas",
+        "substrate",
+        "performance",
+        "research"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": "53854ac8",
+      "lane": {
+        "pane_id": "53854ac8",
+        "workspace_id": "9df81cb3",
+        "workspace_name": "codeterm-canvas",
+        "worktree_path": "/Users/kandrey/Developer/codeterm-canvas",
+        "branch": "lane/canvas-perf-root-cause",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "remote Opus pane on mesh eight; verify report locally before close"
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_1cff17806abd4bafbc9c56d471ddd72c",
+      "name": "T-R4.1 — Canvas perf harness and baseline trace",
+      "type": "test",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "R4 found likely per-frame derivation jank but no live trace; need measured baseline before changing renderer again.",
+      "acceptance_criteria": [
+        "Perf harness captures frame, longtask, DOM count, overlay, and canvas nonblank metrics across 100/500/1000 task fixtures."
+      ],
+      "test_plan": "Run focused Playwright perf spec on dev with flags off and on; include exact command and artifacts.",
+      "correctness": "Metrics distinguish React/DOM derivation costs from canvas draw costs so Tier1/Tier2 work is measurable.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782474584121,
+      "updated_at": 1782474584121,
+      "status_changed_at": 1782474584121,
+      "handle": "t-r4-1-canvas-perf-harness-and-baseline-trace",
+      "tags": [
+        "canvas",
+        "performance",
+        "playwright",
+        "substrate"
+      ],
+      "section_ids": [
+        "sec_f6e82e3fdad64b6294ba9cbfd4617a5b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-canvas-perf-harness",
+        "branch": "lane/canvas-perf-harness",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "remove worktree and branch after orchestrator verifies/merges"
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_bb87400104f24e13857324fa3ec3b2fd",
+      "name": "T-R4.2 — Tier1 decouple canvas derivation from transform frames",
+      "type": "implementation",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "R4 identified full-scene/culling/readback recomputation on every transform frame as the likely immediate jank source.",
+      "acceptance_criteria": [
+        "Pure pan/zoom no longer rebuilds scene/culling/readback every rAF and measured frame metrics improve versus T-R4.1 baseline."
+      ],
+      "test_plan": "Run focused canvas unit tests, npx tsc, T-R4.1 perf spec, and relevant 13-canvas Playwright goldens.",
+      "correctness": "Visual behavior remains the same while per-frame derivation work is bounded.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782474584370,
+      "updated_at": 1782474584370,
+      "status_changed_at": 1782474584370,
+      "handle": "t-r4-2-tier1-decouple-canvas-derivation-from-transform-frames",
+      "tags": [
+        "canvas",
+        "performance",
+        "implementation",
+        "substrate"
+      ],
+      "section_ids": [
+        "sec_f6e82e3fdad64b6294ba9cbfd4617a5b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-canvas-transform-decouple",
+        "branch": "lane/canvas-transform-decouple",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "dispatch after T-R4.1 baseline is integrated"
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_6f6bbab91eef413b86b3ec2e5573b619",
+      "name": "T-R4.3 — Tier2 canvas-primary board with bounded DOM overlays",
+      "type": "implementation",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "R4 says current passive renderer is additive and DOM still scales; next architecture step is canvas-primary base rendering.",
+      "acceptance_criteria": [
+        "Base world rendering is canvas-primary and visible DOM node count is bounded at large task counts."
+      ],
+      "test_plan": "Run T-R4.1 perf spec, canvas nonblank checks, overlay budget checks, focus/hit Playwright goldens, npx tsc, pnpm build.",
+      "correctness": "Large canvases pan/zoom smoothly without losing active rich content behavior.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782474584529,
+      "updated_at": 1782474584529,
+      "status_changed_at": 1782474584529,
+      "handle": "t-r4-3-tier2-canvas-primary-board-with-bounded-dom-overlays",
+      "tags": [
+        "canvas",
+        "performance",
+        "implementation",
+        "substrate"
+      ],
+      "section_ids": [
+        "sec_f6e82e3fdad64b6294ba9cbfd4617a5b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-canvas-primary-board",
+        "branch": "lane/canvas-primary-board",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "dispatch after T-R4.2 proves Tier1 is insufficient or completed"
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_4791af2e2a8c4a56b58dde843144e3b8",
+      "name": "R4-Zoom — Reference audit for zoom scale drift and stable node geometry",
+      "type": "research",
+      "model": "remote-opus:eight",
+      "model_rationale": "User reports nodes change scale/transform while zooming in; need reference-project audit for stable infinite-canvas geometry before more fixes.",
+      "acceptance_criteria": [
+        "Report explains why node internals scale/drift during zoom and how reference projects preserve geometry or rasterize content."
+      ],
+      "test_plan": "Inspect CodeTerm canvas code plus downloaded/local reference projects; provide exact source paths/links and recommended implementation gates.",
+      "correctness": "Recommended fix preserves world footprint and slot geometry under zoom while allowing intentional LOD swaps only at controlled thresholds.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782474666247,
+      "updated_at": 1782475117657,
+      "status_changed_at": 1782475117657,
+      "handle": "r4-zoom-reference-audit-for-zoom-scale-drift-and-stable-node-geometry",
+      "tags": [
+        "canvas",
+        "zoom",
+        "research",
+        "substrate"
+      ],
+      "section_ids": [
+        "sec_f6e82e3fdad64b6294ba9cbfd4617a5b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": "53854ac8",
+      "lane": {
+        "pane_id": "53854ac8",
+        "workspace_id": "9df81cb3",
+        "workspace_name": "codeterm-canvas",
+        "worktree_path": "/Users/kandrey/Developer/codeterm-canvas",
+        "branch": "lane/canvas-zoom-scale-reference",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "remote Opus reference research on mesh eight"
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_7a10164bf5994ebca2f892c6eeaaead6",
+      "name": "T-ZD.1 — Remove CSS zoom reflow path for stable node geometry",
+      "type": "implementation",
+      "model": "remote-opus:eight",
+      "model_rationale": "R4-Zoom found per-card CSS zoom/counter-scale is the high-confidence cause of node scale drift.",
+      "acceptance_criteria": [
+        "Zooming no longer changes node internals through CSS layout zoom; world geometry and slot rects remain stable under camera scale."
+      ],
+      "test_plan": "Run focused slot-rect Playwright probe, 13-canvas worlds/goldens, npx tsc --noEmit, pnpm build; cargo checks only if Rust touched.",
+      "correctness": "All zoom scale changes come from the camera matrix or intentional LOD swaps; no per-card CSS zoom reflow remains.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782475117853,
+      "updated_at": 1782480298686,
+      "status_changed_at": 1782480298686,
+      "handle": "t-zd-1-remove-css-zoom-reflow-path-for-stable-node-geometry",
+      "tags": [
+        "canvas",
+        "zoom",
+        "implementation",
+        "substrate"
+      ],
+      "section_ids": [
+        "sec_f6e82e3fdad64b6294ba9cbfd4617a5b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": "53854ac8",
+      "lane": {
+        "pane_id": "53854ac8",
+        "workspace_id": "9df81cb3",
+        "workspace_name": "codeterm-canvas",
+        "worktree_path": "/Users/kandrey/Developer/codeterm-canvas",
+        "branch": "lane/canvas-zoom-drift-fix",
+        "base": "feat/canvas",
+        "destination": "feat/canvas",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "remote Opus execution on mesh eight; verify visual gates before close"
         ]
       },
       "taken_by_role": null,

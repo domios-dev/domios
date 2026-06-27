@@ -312,6 +312,7 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
     }
 
     let outcome = run_probe_with_retry(&inner.svc, &key).await;
+    let probe_command = probe_command_for(&inner.svc, &key.provider);
 
     match outcome {
         Ok(o) => {
@@ -343,6 +344,7 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
                                 key.account_id.as_deref(),
                                 Some(&o.raw_text),
                                 &format!("db: {}", e),
+                                probe_command.as_deref(),
                             );
                         }
                     }
@@ -354,6 +356,7 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
                         key.account_id.as_deref(),
                         Some(&o.raw_text),
                         &msg,
+                        probe_command.as_deref(),
                     );
                     on_failure(&inner, &key, &msg);
                 }
@@ -364,10 +367,13 @@ async fn run_probe_for(inner: Arc<UsagePollerInner>, key: AccountKey) -> Result<
         }
         Err(e) => {
             let msg = e.to_string();
-            let _ =
-                inner
-                    .store
-                    .insert_failure(&key.provider, key.account_id.as_deref(), None, &msg);
+            let _ = inner.store.insert_failure(
+                &key.provider,
+                key.account_id.as_deref(),
+                None,
+                &msg,
+                probe_command.as_deref(),
+            );
             on_failure(&inner, &key, &msg);
         }
     }
@@ -456,6 +462,12 @@ fn provider_is_fetch_based(svc: &ServiceContext, provider: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn probe_command_for(svc: &ServiceContext, provider: &str) -> Option<String> {
+    svc.agent_registry
+        .with_provider(provider, |p| p.usage_probe_command().map(str::to_string))
+        .flatten()
+}
+
 fn visible_panes_for_provider(svc: &ServiceContext, provider: &str) -> Vec<String> {
     let mux = svc.mux.write();
     let snap = mux.snapshot();
@@ -502,6 +514,8 @@ mod tests {
             spend_limit_cents: None,
             spend_remaining_cents: None,
             spend_resets_at: None,
+            failure_reason: None,
+            probe_command: None,
         }
     }
 

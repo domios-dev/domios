@@ -15,7 +15,9 @@ CREATE TABLE IF NOT EXISTS usage_snapshots (
   spend_cents REAL,
   spend_limit_cents REAL,
   spend_remaining_cents REAL,
-  spend_resets_at INTEGER
+  spend_resets_at INTEGER,
+  failure_reason TEXT,
+  probe_command TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_usage_provider_ts ON usage_snapshots(provider, captured_at DESC);
 CREATE INDEX IF NOT EXISTS idx_usage_account_ts ON usage_snapshots(account_id, captured_at DESC);
