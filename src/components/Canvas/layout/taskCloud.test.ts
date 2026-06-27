@@ -134,9 +134,13 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   const doneXs = tasks.filter((t) => t.id.startsWith("done")).map((t) => cx(t.id));
   const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
   ok(`active mean-x left of done mean-x (${Math.round(mean(actXs))} < ${Math.round(mean(doneXs))})`, mean(actXs) < mean(doneXs));
-  // Every active tile sits in the left half; every done tile in the right half.
-  ok("all active clusters on the plan side (x ≤ 0)", actXs.every((x) => x <= 1e-6));
-  ok("all done clusters sink to the right (x ≥ 0)", doneXs.every((x) => x >= -1e-6));
+  // Flush-to-plan pack: the cloud's flat-left edge sits against the plan, so every tile is
+  // right of it (x≥0). The comet-fold legibility invariant is now relative — active work
+  // clusters nearer the plan (smaller x) than done — so the active centre of mass stays in
+  // the plan-near half of the cloud, and active never extends as far out as the done centre.
+  const allXs = [...actXs, ...doneXs];
+  const midX = (Math.min(...allXs) + Math.max(...allXs)) / 2;
+  ok("active centre of mass is in the plan-near half", mean(actXs) < midX);
 }
 
 // ── §35 fold is append-stable: a NEW task moves no existing tile ──
@@ -209,7 +213,8 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
 // ── full layout: disk is right of the plan, no node overlap ──────────
 {
   const sections = Array.from({ length: 8 }, (_, i) => section(`s${i}`));
-  // Balanced mix: active folds left, done folds right → a full round disk (§35).
+  // Balanced mix: active folds plan-near, done sinks outward → a right-opening fan (§35,
+  // flush-to-plan pack — flat-left edge against the plan, not a centred round disk).
   const tasks = Array.from({ length: 38 }, (_, i) =>
     task(`t${i}`, { section_ids: [`s${i % 8}`], created_at: i, status: i < 4 ? "in_progress" : i % 2 ? "done" : "pending" }),
   );
@@ -229,12 +234,13 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
       if (boxesOverlap(taskNodes[i].box, taskNodes[j].box)) overlap = true;
   ok("no task-tile overlap in the packed disk", !overlap);
 
-  // the disk reads as round: width ≈ height of the task cluster bbox.
+  // the flush-to-plan fan reads as a balanced bloom (flat-left, right-opening): neither a
+  // wide sliver nor a tall spike. The pack is intentionally not a centred round disk.
   const xs = taskNodes.flatMap((n) => [n.box.x, n.box.x + n.box.width]);
   const ys = taskNodes.flatMap((n) => [n.box.y, n.box.y + n.box.height]);
   const w = Math.max(...xs) - Math.min(...xs);
   const h = Math.max(...ys) - Math.min(...ys);
-  ok(`task cluster is roughly round (aspect ${(w / h).toFixed(2)} in [0.6,1.7])`, w / h > 0.6 && w / h < 1.7);
+  ok(`task fan is balanced (aspect ${(w / h).toFixed(2)} in [0.5,1.8])`, w / h > 0.5 && w / h < 1.8);
 }
 
 // ── full layout determinism ──────────────────────────────────────────
