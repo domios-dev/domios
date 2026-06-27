@@ -85,6 +85,26 @@ if command -v npm  >/dev/null 2>&1; then echo "[npm] cache ($(sz ~/.npm))"; run 
 PW="$HOME/Library/Caches/ms-playwright"
 [[ -d "$PW" ]] && echo "[playwright] browsers $(sz "$PW") (self-GC on next 'npx playwright install' in a project)"
 
+# 6) Language / tool caches. Prefer OFFICIAL prune/verify (they only drop unreferenced/old);
+#    for caches with no official pruner, remove dirs untouched > KEEP_DAYS. NEVER touch app
+#    STATE under ~/Library/Application Support or ~/Library/org.swift.swiftpm — only
+#    regenerable download/build caches. Aggressive variants are opt-in via env.
+prune_stale_dir() {  # $1=cache root: rm immediate children untouched > KEEP_DAYS
+  [[ -d "$1" ]] || return 0
+  echo "[cache] $1 ($(sz "$1"))"
+  while IFS= read -r old; do run "rm -rf '$old'"; done \
+    < <(find "$1" -mindepth 1 -maxdepth 1 -mtime +"$KEEP_DAYS" 2>/dev/null)
+}
+command -v pip3   >/dev/null 2>&1 && { echo "[pip] $(pip3 cache dir 2>/dev/null)"; run "pip3 cache purge >/dev/null 2>&1 || true"; }
+command -v poetry >/dev/null 2>&1 && run "poetry cache clear --all PyPI -n >/dev/null 2>&1 || true"
+command -v go     >/dev/null 2>&1 && { echo "[go] build cache $(sz "$(go env GOCACHE 2>/dev/null)")"; run "go clean -cache >/dev/null 2>&1 || true"; [[ "${GO_MODCACHE_CLEAN:-0}" == 1 ]] && run "go clean -modcache >/dev/null 2>&1 || true"; }
+command -v brew   >/dev/null 2>&1 && { echo "[brew] cache $(sz "$(brew --cache 2>/dev/null)")"; run "brew cleanup -s >/dev/null 2>&1 || true"; [[ "${BREW_AUTOREMOVE:-0}" == 1 ]] && run "brew autoremove >/dev/null 2>&1 || true"; }
+prune_stale_dir "$HOME/Library/Caches/org.swift.swiftpm"   # SwiftPM repo/clone cache (NOT ~/Library/org.swift.swiftpm state)
+prune_stale_dir "$HOME/Library/Caches/node-gyp"            # per-node-version C++ headers
+prune_stale_dir "$HOME/.cache/node-gyp"
+prune_stale_dir "$HOME/.cache/puppeteer"                   # old chrome revisions (separate from Playwright)
+prune_stale_dir "$HOME/.cache/typescript"                  # tsc fetched lib cache
+
 echo "free after:  $(avail)"
 [[ $APPLY -eq 0 ]] && echo ">>> DRY-RUN — re-run with --apply to reclaim."
 exit 0
