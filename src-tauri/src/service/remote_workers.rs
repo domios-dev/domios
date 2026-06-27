@@ -8,13 +8,14 @@
 //! status — without owning a real PTY for it.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// One remote worker, as last seen by the orchestrator it reports to.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RemoteWorker {
     /// Paired peer (instance name) the worker runs on.
     pub peer: String,
@@ -32,12 +33,14 @@ pub struct RemoteWorker {
     pub last_seen_ms: u64,
 }
 
-/// In-memory map: local orchestrator/General pane id → its remote workers.
-/// Rebuilt from inbound reports; not persisted (a restarted orchestrator
-/// repopulates as workers report again).
+/// Map: local orchestrator/General pane id → its remote workers. Mutated by
+/// inbound reports + spawn registration, and (when `path` is set) persisted to
+/// disk so recent ghosts survive an origin restart without waiting for a new
+/// report. `path` is None in tests → pure in-memory, no I/O.
 #[derive(Default)]
 pub struct RemoteWorkerRegistry {
     by_orchestrator: Mutex<HashMap<String, Vec<RemoteWorker>>>,
+    path: Option<PathBuf>,
 }
 
 /// Drop workers silent for longer than this; their orchestrator bucket is
@@ -79,9 +82,47 @@ fn cap_bucket(list: &mut Vec<RemoteWorker>) {
     }
 }
 
+fn now_ms_epoch() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
 impl RemoteWorkerRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Construct a registry backed by `path`, rehydrating durable state and
+    /// dropping entries already past `STALE_MS` so a restart restores only
+    /// recent ghosts. Missing/corrupt file → empty (best-effort).
+    pub fn load(path: PathBuf) -> Self {
+        let mut map: HashMap<String, Vec<RemoteWorker>> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        evict_stale(&mut map, now_ms_epoch());
+        Self {
+            by_orchestrator: Mutex::new(map),
+            path: Some(path),
+        }
+    }
+
+    /// Atomically write the current map to the durable path (no-op without
+    /// one). Best-effort: a write hiccup must never fail a report.
+    fn persist(&self) {
+        let Some(path) = self.path.as_ref() else {
+            return;
+        };
+        let snapshot = self.by_orchestrator.lock().clone();
+        let Ok(json) = serde_json::to_string(&snapshot) else {
+            return;
+        };
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, json).is_ok() {
+            let _ = std::fs::rename(&tmp, path);
+        }
     }
 
     /// Upsert a remote worker from an inbound mesh report. Keyed by
@@ -106,18 +147,21 @@ impl RemoteWorkerRegistry {
             last_message: body.chars().take(280).collect(),
             last_seen_ms: now_ms,
         };
-        let mut map = self.by_orchestrator.lock();
-        evict_stale(&mut map, now_ms);
-        let list = map.entry(orchestrator_pane.to_string()).or_default();
-        if let Some(slot) = list
-            .iter_mut()
-            .find(|w| w.peer == entry.peer && w.remote_pane == entry.remote_pane)
         {
-            *slot = entry;
-        } else {
-            list.push(entry);
+            let mut map = self.by_orchestrator.lock();
+            evict_stale(&mut map, now_ms);
+            let list = map.entry(orchestrator_pane.to_string()).or_default();
+            if let Some(slot) = list
+                .iter_mut()
+                .find(|w| w.peer == entry.peer && w.remote_pane == entry.remote_pane)
+            {
+                *slot = entry;
+            } else {
+                list.push(entry);
+            }
+            cap_bucket(list);
         }
-        cap_bucket(list);
+        self.persist();
     }
 
     /// Register a remote worker at spawn time, before its first report. Keyed
@@ -134,30 +178,33 @@ impl RemoteWorkerRegistry {
         model: Option<String>,
         now_ms: u64,
     ) {
-        let mut map = self.by_orchestrator.lock();
-        evict_stale(&mut map, now_ms);
-        let list = map.entry(orchestrator_pane.to_string()).or_default();
-        if list
-            .iter()
-            .any(|w| w.peer == peer && w.remote_pane == remote_pane)
         {
-            return;
+            let mut map = self.by_orchestrator.lock();
+            evict_stale(&mut map, now_ms);
+            let list = map.entry(orchestrator_pane.to_string()).or_default();
+            if !list
+                .iter()
+                .any(|w| w.peer == peer && w.remote_pane == remote_pane)
+            {
+                list.push(RemoteWorker {
+                    peer: peer.to_string(),
+                    remote_pane: remote_pane.to_string(),
+                    title: title.to_string(),
+                    model,
+                    status: "working".to_string(),
+                    last_message: "spawned via mesh".to_string(),
+                    last_seen_ms: now_ms,
+                });
+                cap_bucket(list);
+            }
         }
-        list.push(RemoteWorker {
-            peer: peer.to_string(),
-            remote_pane: remote_pane.to_string(),
-            title: title.to_string(),
-            model,
-            status: "working".to_string(),
-            last_message: "spawned via mesh".to_string(),
-            last_seen_ms: now_ms,
-        });
-        cap_bucket(list);
+        self.persist();
     }
 
     /// Drop an orchestrator's bucket when its pane closes.
     pub fn forget_orchestrator(&self, orchestrator_pane: &str) {
         self.by_orchestrator.lock().remove(orchestrator_pane);
+        self.persist();
     }
 
     /// Remote workers reporting to one orchestrator pane, newest activity first.
@@ -183,6 +230,67 @@ pub type RemoteWorkerRegistryHandle = Arc<RemoteWorkerRegistry>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn persists_and_rehydrates_across_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("remote_workers.json");
+        let now = now_ms_epoch();
+        {
+            let reg = RemoteWorkerRegistry::load(path.clone());
+            reg.record_spawn("orch", "eight", "w1", "Canvas", Some("opus".into()), now);
+            reg.record_report("orch", "eight", "w2", "Renderer", None, "STATUS: done", now);
+        } // drop — simulates daemon shutdown
+        assert!(path.exists(), "registry persisted to disk");
+
+        // Fresh registry from the same path = post-restart rehydrate.
+        let reloaded = RemoteWorkerRegistry::load(path);
+        let list = reloaded.for_orchestrator("orch");
+        assert_eq!(
+            list.len(),
+            2,
+            "both ghosts survive restart without a new report"
+        );
+        let canvas = list.iter().find(|w| w.remote_pane == "w1").unwrap();
+        assert_eq!(canvas.peer, "eight");
+        assert_eq!(canvas.status, "working");
+        assert_eq!(canvas.model.as_deref(), Some("opus"));
+        let renderer = list.iter().find(|w| w.remote_pane == "w2").unwrap();
+        assert_eq!(renderer.status, "done");
+    }
+
+    #[test]
+    fn load_drops_stale_entries_so_restart_restores_only_recent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("remote_workers.json");
+        let now = now_ms_epoch();
+        {
+            let reg = RemoteWorkerRegistry::load(path.clone());
+            // One fresh, one already older than STALE_MS.
+            reg.record_report("orch", "eight", "fresh", "F", None, "working", now);
+            reg.record_report(
+                "orch",
+                "eight",
+                "old",
+                "O",
+                None,
+                "working",
+                now.saturating_sub(STALE_MS + 1),
+            );
+        }
+        let reloaded = RemoteWorkerRegistry::load(path);
+        let list = reloaded.for_orchestrator("orch");
+        assert_eq!(list.len(), 1, "stale ghost evicted on rehydrate");
+        assert_eq!(list[0].remote_pane, "fresh");
+    }
+
+    #[test]
+    fn in_memory_registry_writes_nothing() {
+        // new() has no path → pure in-memory, no disk I/O.
+        let reg = RemoteWorkerRegistry::new();
+        reg.record_spawn("orch", "eight", "w1", "W", None, now_ms_epoch());
+        assert_eq!(reg.for_orchestrator("orch").len(), 1);
+    }
 
     #[test]
     fn status_parsing_picks_lifecycle_token() {

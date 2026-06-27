@@ -656,7 +656,9 @@ pub fn run() {
                 agent_run_pty_map: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
                 remote_workers: Arc::new(
-                    crate::service::remote_workers::RemoteWorkerRegistry::new(),
+                    crate::service::remote_workers::RemoteWorkerRegistry::load(
+                        crate::paths::data_dir().join("remote_workers.json"),
+                    ),
                 ),
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
