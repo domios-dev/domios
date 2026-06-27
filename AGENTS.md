@@ -207,11 +207,15 @@ fetch (do not try `codeterm mem get skill_<role>_role` — those do not exist).
 
 CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs. Currently:
 
-- `.agents/skills/codeterm-orchestrator/` — orchestration discipline and gates
 - `.agents/skills/dev-run/` — dev daemon start/restart/diagnostics
 - `.agents/skills/dev-testing/` — dev API testing helpers
 - `.agents/skills/github-release/` — release pipeline procedure
 - `.agents/skills/prompt-evaluator/` — prompt regression harness
+
+> The **orchestrator** skill is NOT project-local — it is a cross-project discipline.
+> Canonical copy is **one per machine** at `~/.codeterm/skills/codeterm-orchestrator/`, indexed
+> in mem as `skill_codeterm_orchestrator`. Do not keep a duplicate under `.agents/`/`.claude`/
+> `~/.agents`. Each machine adapts only its build-capacity section (weak vs powerful).
 
 Prod build lives in `./build.sh build`; Windows local NSIS self-install in `scripts/self-install-local.ps1`.
 
