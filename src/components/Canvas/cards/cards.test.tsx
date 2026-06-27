@@ -134,6 +134,44 @@ test("PLAN SectionNode: uncovered section row pops with uncovered glyph", async 
   await act(async () => root.unmount());
 });
 
+test("PLAN SectionNode: spec-reference bubbles render per section and fly to spec-section", async () => {
+  const plan = {
+    ...FIXTURE_PLAN,
+    primary_spec_id: "spec-x",
+    spec_links: [
+      { spec_id: "spec-x", spec_section_id: "sp-1", plan_section_id: "sec-auth" },
+      { spec_id: "spec-x", spec_section_id: "sp-2", plan_section_id: "sec-auth" },
+      // duplicate must collapse to one bubble
+      { spec_id: "spec-x", spec_section_id: "sp-1", plan_section_id: "sec-auth" },
+    ],
+  };
+  const specTitleById = new Map([["sp-1", "Sign-in requirement"], ["sp-2", "Token lifetime"]]);
+  const { host, root } = await render(
+    <SectionNode variant="plan" plan={plan} style={cardStyle} world="W3" specTitleById={specTitleById} />,
+  );
+  const authRow = host.querySelector('[data-section-id="sec-auth"]');
+  const bubbles = authRow?.querySelectorAll('[data-testid="canvas-plan-spec-ref"]');
+  assert(bubbles && bubbles.length === 2, `two spec bubbles after dedup, got ${bubbles?.length}`);
+  const first = bubbles![0];
+  assert(first.getAttribute("data-fly-to-kind") === "spec-section", "bubble carries spec-section fly kind");
+  assert(first.getAttribute("data-fly-to-id") === "sp-1", "bubble carries spec section id");
+  assert(host.textContent?.includes("Sign-in requirement"), "bubble shows resolved spec section title");
+  // Plan body reads as a document at W2 (not just W3) — no clamp.
+  assert(host.querySelector('[data-testid="canvas-plan-section-body"]'), "plan body renders as document");
+  await act(async () => root.unmount());
+});
+
+test("PLAN SectionNode: full body revealed at W2 (document, not clamped excerpt)", async () => {
+  const longBody = Array.from({ length: 12 }, (_, i) => `Paragraph ${i} of the plan section body.`).join("\n\n");
+  const plan = { ...FIXTURE_PLAN, sections: [{ ...FIXTURE_PLAN.sections[0], body: longBody, subsections: [] }] };
+  const { host, root } = await render(<SectionNode variant="plan" plan={plan} style={cardStyle} world="W2" />);
+  const body = host.querySelector('[data-testid="canvas-plan-section-body"]');
+  assert(body, "plan body present at W2");
+  assert(host.textContent?.includes("Paragraph 0"), "first paragraph rendered at W2");
+  assert(host.textContent?.includes("Paragraph 11"), "last paragraph rendered (full body, nothing clamped)");
+  await act(async () => root.unmount());
+});
+
 test("SPEC SectionNode: titles far (index), full body prose on zoom (content-LOD)", async () => {
   const far = await render(<SectionNode variant="spec" plan={FIXTURE_PLAN} style={{ ...cardStyle, height: 300 }} world="W1" />);
   assert(far.host.querySelector('[data-testid="canvas-spec-block"]'), "spec block present far");

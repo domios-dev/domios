@@ -19,8 +19,13 @@ function flatten(sections: Section[], depth: number, out: Section[]): void {
 // Ordered flat list of every section (subsections inline after their parent).
 // The layout's anchor math and the PlanNode card MUST iterate this same order.
 export function flatSections(plan: Plan): Section[] {
+  return flattenSections(plan.sections);
+}
+
+// Same flatten over a bare section tree (spec sections arrive as Section[], not a Plan).
+export function flattenSections(sections: Section[]): Section[] {
   const out: Section[] = [];
-  flatten(plan.sections, 0, out);
+  flatten(sections, 0, out);
   return out;
 }
 

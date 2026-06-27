@@ -1,5 +1,12 @@
-import { TaskPriority, TaskStatus, type Plan } from "./types";
-import { milestone, plan, section, task } from "./layout/fixtures";
+import { TaskPriority, TaskStatus, type Plan, type Section } from "./types";
+import { milestone, plan, task } from "./layout/fixtures";
+import {
+  PERF_PLAN_SECTIONS,
+  PERF_PLAN_SECTION_IDS,
+  PERF_SPEC_ID,
+  PERF_SPEC_LINKS,
+  PERF_SPEC_SECTIONS,
+} from "./perfFixtureSections";
 
 // Dev harness, LOCAL-ONLY: to validate rendering against a real exported plan,
 // a dev stores the plan JSON in localStorage["canvas.realPlanJson"] and flips
@@ -58,13 +65,15 @@ function syntheticPeer(i: number): string | null {
 // Field spread (priority/role/branch/peer/group) is synthetic-only so the new
 // field-surfacing can be visually audited without a real plan that populates them.
 export function buildPerfFixturePlans(n: number): Plan[] {
-  const sec = section("perf_sec", [], "Synthetic perf section body for scale testing.");
+  const sectionIds = PERF_PLAN_SECTION_IDS;
   const tasks = Array.from({ length: n }, (_, i) => {
     const milestones = Array.from({ length: 4 }, (_, m) =>
       milestone(`perf_t${i}_m${m}`, MS_KINDS[m % MS_KINDS.length], null),
     );
     const active = i % 6 === 0;
-    return task(`perf_t${i}`, ["perf_sec"], {
+    // Spread tasks across the rich plan sections so every section carries real
+    // coverage (its glyph + count) while the document body stays readable.
+    return task(`perf_t${i}`, [sectionIds[i % sectionIds.length]], {
       status: active ? TaskStatus.InProgress : i % 9 === 0 ? TaskStatus.Done : TaskStatus.Pending,
       created_at: i,
       priority: PRIORITIES[i % PRIORITIES.length],
@@ -92,7 +101,9 @@ export function buildPerfFixturePlans(n: number): Plan[] {
       milestones,
     });
   });
-  return [plan("perf_plan", "perf_orch", 1, [sec], tasks, {
+  return [plan("perf_plan", "perf_orch", 1, PERF_PLAN_SECTIONS, tasks, {
+    primary_spec_id: PERF_SPEC_ID,
+    spec_links: PERF_SPEC_LINKS,
     goal: {
       vector: "Render every plan at any scale with crisp text, zero reflow and full field coverage — the canvas is the orchestrator's command center.",
       postulates: ["Object size is the camera matrix, never a per-card re-rasterization hack"],
@@ -112,4 +123,16 @@ export function buildPerfFixturePlans(n: number): Plan[] {
       { id: "lp3", target: "spec drift reconcile", stages: [], budget: 3, count: 3, stop_when: null, status: "exhausted" },
     ],
   })];
+}
+
+// The synthetic SPEC sections a fixture plan derives from. The daemon's spec-fetch
+// path can't serve these (no real Spec entity exists at dev time), so CanvasView
+// seeds the spec node + bubble titles from here for any plan bound to the synthetic
+// spec id. Real plans (with a real primary_spec_id) still fetch from the API.
+export function fixtureSpecSectionsByPlan(plans: Plan[]): Map<string, Section[]> {
+  const out = new Map<string, Section[]>();
+  for (const p of plans) {
+    if (p.primary_spec_id === PERF_SPEC_ID) out.set(p.id, PERF_SPEC_SECTIONS);
+  }
+  return out;
 }

@@ -25,6 +25,7 @@ import { HeartbeatStrip } from "./sectionNode/HeartbeatStrip";
 import { LoopsStrip } from "./sectionNode/LoopsStrip";
 import { SwarmPanel } from "./sectionNode/SwarmPanel";
 import { SectionRowView } from "./sectionNode/SectionRowView";
+import type { SpecRef } from "./sectionNode/SpecRefBubbles";
 
 const S = DEFAULT_CANVAS_SETTINGS;
 
@@ -42,9 +43,11 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   onSectionFrame?: (a: SectionNavArgs) => void;
   suppressRichContent?: boolean;
   richOverlay?: boolean;
+  /** spec_section_id → title, for resolving per-section spec-reference bubble labels. */
+  specTitleById?: ReadonlyMap<string, string>;
 }
 
-export function SectionNode({ variant, plan, style, world, driftCount = 0, workspaceScope, onArchive, onFitNode, onSectionClick, onSectionFrame, suppressRichContent = false, richOverlay = false }: SectionNodeProps) {
+export function SectionNode({ variant, plan, style, world, driftCount = 0, workspaceScope, onArchive, onFitNode, onSectionClick, onSectionFrame, suppressRichContent = false, richOverlay = false, specTitleById }: SectionNodeProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
@@ -95,6 +98,30 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
   const tasks = plan.tasks ?? [];
   const showSwarm = isPlan && tasks.length > 0;
   const liveTaskCount = tasks.reduce((n, t) => n + (t.status === "in_progress" ? 1 : 0), 0);
+
+  // §plan-as-doc: resolve, per plan section, the spec section(s) it derives from
+  // (spec_links plan_section_id → spec_section_id), titled from the linked spec.
+  // These render as inline spec-reference bubbles — they REPLACE node-to-node edges.
+  const specRefsBySection = (() => {
+    if (!isPlan) return undefined;
+    const links = plan.spec_links ?? [];
+    if (!links.length) return undefined;
+    const m = new Map<string, SpecRef[]>();
+    const seen = new Map<string, Set<string>>();
+    for (const l of links) {
+      const ps = l.plan_section_id?.trim();
+      const ss = l.spec_section_id?.trim();
+      if (!ps || !ss) continue;
+      let dedup = seen.get(ps);
+      if (!dedup) { dedup = new Set(); seen.set(ps, dedup); }
+      if (dedup.has(ss)) continue;
+      dedup.add(ss);
+      const arr = m.get(ps) ?? [];
+      arr.push({ id: ss, title: specTitleById?.get(ss) ?? "" });
+      m.set(ps, arr);
+    }
+    return m;
+  })();
 
   const card = (boxStyle: CSSProperties) => (
     <div data-testid={testid} data-plan-id={plan.id} data-plan-status={plan.status} data-world={world} className="ct-canvas-node" style={{ ...frameStyle(variant), ...boxStyle }}>
@@ -206,7 +233,7 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
           <>
             {showVocab && <VocabularyLegend plan={plan} world={world} />}
             {rows.map((row) => (
-              <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={budgetRich} stretchEmpty={!showSwarm} />
+              <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} specRefs={specRefsBySection?.get(row.section.id)} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={budgetRich} stretchEmpty={!showSwarm} />
             ))}
             {showSwarm && <SwarmPanel tasks={tasks} world={world} />}
           </>

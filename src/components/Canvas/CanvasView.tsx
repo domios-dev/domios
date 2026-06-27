@@ -46,7 +46,8 @@ import { CanvasWorldDecorations } from "./CanvasWorldDecorations";
 import { overlayBudgetEnabled } from "./overlayBudgetFlag";
 import { buildCanvasScene, pickCanvasSceneNodeAtScreenPoint } from "./scene";
 import { substrateV2Enabled } from "./substrateFlag";
-import { perfFixtureCount, buildPerfFixturePlans, realFixtureEnabled, realFixturePlans } from "./perfFixture";
+import { perfFixtureCount, buildPerfFixturePlans, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
+import { flattenSections } from "./sectionRows";
 import { lodForScale } from "./canvasView/models";
 import { useCanvasLookups } from "./canvasView/useCanvasLookups";
 import { useCanvasFlyTo } from "./canvasView/useCanvasFlyTo";
@@ -118,12 +119,15 @@ export function CanvasViewInner({
   const driftByPlan = usePlanDrift(api, filteredPlanIds);
 
   // Fetch the REAL linked Spec entity per plan (Spec=WHAT ⊥ Plan=HOW). The spec
-  // node renders THESE sections, not the plan's — they are distinct entities.
-  const [specSectionsByPlan, setSpecSectionsByPlan] = useState<Map<string, Section[]>>(new Map());
+  // node renders THESE sections, not the plan's — they are distinct entities. Dev
+  // fixtures have no real Spec entity to fetch, so their spec sections are seeded
+  // synthetically and the API fetch skips them.
+  const fixtureSpecSections = useMemo(() => fixtureSpecSectionsByPlan(filteredPlans), [filteredPlans]);
+  const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
   useEffect(() => {
     if (!api) return;
     let active = true;
-    const targets = filteredPlans.filter((p) => p.primary_spec_id);
+    const targets = filteredPlans.filter((p) => p.primary_spec_id && !fixtureSpecSections.has(p.id));
     if (!targets.length) return;
     void Promise.all(
       targets.map((p) =>
@@ -132,12 +136,27 @@ export function CanvasViewInner({
           .catch(() => [p.id, [] as Section[]] as const),
       ),
     ).then((pairs) => {
-      if (active) setSpecSectionsByPlan(new Map(pairs));
+      if (active) setFetchedSpecSections(new Map(pairs));
     });
     return () => {
       active = false;
     };
-  }, [api, filteredPlans]);
+  }, [api, filteredPlans, fixtureSpecSections]);
+  const specSectionsByPlan = useMemo(() => {
+    if (!fixtureSpecSections.size) return fetchedSpecSections;
+    const merged = new Map(fetchedSpecSections);
+    for (const [k, v] of fixtureSpecSections) merged.set(k, v);
+    return merged;
+  }, [fetchedSpecSections, fixtureSpecSections]);
+  // Per plan: spec_section_id → title, for the plan node's spec-reference bubbles.
+  const specTitleByPlan = useMemo(() => {
+    const m = new Map<string, Map<string, string>>();
+    for (const [pid, secs] of specSectionsByPlan) {
+      if (!secs.length) continue;
+      m.set(pid, new Map(flattenSections(secs).map((s) => [s.id, s.title])));
+    }
+    return m;
+  }, [specSectionsByPlan]);
 
   const { transform, handlers, fitToView, animateTo, animateToView, zoomBy, setTransform, isDragging, containerRef, layerRef } = useCanvasViewport({
     width: size.width,
@@ -170,6 +189,7 @@ export function CanvasViewInner({
               ...planById.get(node.id)!,
               driftCount: driftByPlan.get(node.id)?.length ?? 0,
               workspaceScope: workspaceScopeByPlan.get(node.id),
+              specTitleById: specTitleByPlan.get(node.id),
             }
             : undefined;
         case "spec": {
@@ -196,7 +216,7 @@ export function CanvasViewInner({
           return lookups.elementById.get(node.id);
       }
     },
-    [planById, lookups, specSectionsByPlan, lineageCatalog, workspaceScopeByPlan],
+    [planById, lookups, specSectionsByPlan, specTitleByPlan, lineageCatalog, workspaceScopeByPlan],
   );
 
   const handleArchive = useCallback(

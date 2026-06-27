@@ -26,6 +26,14 @@ test("spec chip with no resolvable target returns null", () => {
   assert(resolveFlyToNodeId("spec", "nope", "pl_missing", has) === null, "null when nothing flyable");
 });
 
+test("spec-section bubble lands on the plan's spec node (section scroll handled by caller)", () => {
+  assert(resolveFlyToNodeId("spec-section", "sp_readable", "pl_a", has) === "pl_a::spec", "spec node from plan ctx");
+});
+
+test("spec-section bubble returns null when the spec node is absent and id is off-board", () => {
+  assert(resolveFlyToNodeId("spec-section", "sp_x", "pl_missing", has) === null, "null when nothing flyable");
+});
+
 test("lineage chip flies to the linked plan when present", () => {
   assert(resolveFlyToNodeId("follows", "pl_b", "pl_a", has) === "pl_b", "linked plan node");
 });
