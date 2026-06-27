@@ -392,6 +392,37 @@ test("MilestoneBubble shows kind initial + iteration at rest; tooltip is hover-o
   await act(async () => root.unmount());
 });
 
+test("MilestoneBubble W2 names the kind on the face; W3 pins the detail open (deep-read without hover)", async () => {
+  const ms = { ...FIXTURE_MILESTONE, links: ["spec#auth"], text: "Refactored the **token** path." };
+  const w1 = await render(<MilestoneBubble model={{ milestone: ms, color: "rgba(99,102,241,0.9)" }} style={cardStyle} world="W1" />);
+  assert(!w1.host.querySelector('[data-testid="canvas-milestone-kind-face"]'), "no kind face below W2");
+  assert(!w1.host.querySelector('[data-testid="canvas-milestone-text"]'), "no pinned panel below W3");
+  await act(async () => w1.root.unmount());
+
+  const w3 = await render(<MilestoneBubble model={{ milestone: ms, color: "rgba(99,102,241,0.9)" }} style={cardStyle} world="W3" />);
+  assert(w3.host.querySelector('[data-testid="canvas-milestone-kind-face"]')?.textContent === "status update", "kind named on face at W2+");
+  assert(w3.host.querySelector('[data-testid="canvas-milestone-text"]'), "detail panel pinned open at W3 (no hover)");
+  assert(w3.host.textContent?.includes("token"), "full text readable at W3");
+  assert(w3.host.querySelector('[data-testid="canvas-milestone-links"]')?.textContent?.includes("spec#auth"), "links shown at W3");
+  await act(async () => w3.root.unmount());
+});
+
+test("StrideSnake names each working point by kind at W1/W2 (distinguishable, kind-colored)", async () => {
+  const ms = [
+    { ...FIXTURE_MILESTONE, id: "a", kind: "testing", text: "ran the suite" },
+    { ...FIXTURE_MILESTONE, id: "b", kind: "decision", text: "chose snake layout" },
+  ];
+  const w1 = await render(<StrideSnake milestones={ms} world="W1" width={280} />);
+  const kinds1 = [...w1.host.querySelectorAll('[data-testid="canvas-stride-kind"]')].map((e) => e.textContent);
+  assert(kinds1.includes("testing") && kinds1.includes("decision"), "W1 labels name the kind");
+  await act(async () => w1.root.unmount());
+
+  const w2 = await render(<StrideSnake milestones={ms} world="W2" width={280} />);
+  assert([...w2.host.querySelectorAll('[data-testid="canvas-stride-kind"]')].some((e) => e.textContent === "testing"), "W2 callout names the kind");
+  assert(w2.host.querySelector('[data-testid="canvas-task-step-dot"][data-milestone-kind="testing"]'), "bead carries kind for color/identity");
+  await act(async () => w2.root.unmount());
+});
+
 test("StrideSnake W3 bloom renders attached discussion doc collapsed by default", async () => {
   const milestone = {
     ...FIXTURE_MILESTONE,

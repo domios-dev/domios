@@ -142,8 +142,8 @@ registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onH
   // is NEVER a hierarchy/zoom signal; a subtask reads at every zoom, just smaller.
   return <TaskCard task={m.task} tagFacets={m.tagFacets} childCount={m.childCount} childDone={m.childDone} parentTaskName={m.parentTaskName} stepColors={m.stepColors} drift={m.drift} presence={m.presence} style={style} world={world} crispScale={crispScale} onOpenPane={onOpenPane} onHover={onHoverTask} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} suppressRichContent={suppressRichContent} richOverlay={richOverlay} />;
 });
-registerNodeRenderer("milestone", ({ model, style, lod }) =>
-  model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} /> : null,
+registerNodeRenderer("milestone", ({ model, style, lod, world }) =>
+  model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} world={world} /> : null,
 );
 // Faint enclosure behind a task's step-bubble cluster + a kind caption row.
 registerNodeRenderer("cluster", ({ model, style }) => {
