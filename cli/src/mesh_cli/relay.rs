@@ -23,18 +23,7 @@ pub(crate) fn resolve_peer_url(
         p.get("instance_name").and_then(|v| v.as_str()) == Some(target)
             || p.get("instance_id").and_then(|v| v.as_str()) == Some(target)
     })?;
-    let ip = peer
-        .get("addresses")
-        .and_then(|v| v.as_array())
-        .and_then(|a| a.first())
-        .and_then(|a| a.get("ip"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("127.0.0.1");
-    let port = peer
-        .get("api_port")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(7685);
-    Some(format!("http://{}:{}", ip, port))
+    peer_api_url(peer)
 }
 
 /// Send a relay envelope to a peer's /api/mesh/relay and return the parsed JSON response.
@@ -196,18 +185,10 @@ pub(crate) fn mesh_relay_invoke(
         eprintln!("Peer '{}' not found (after refresh)", target);
         std::process::exit(1);
     };
-    let ip = peer
-        .get("addresses")
-        .and_then(|v| v.as_array())
-        .and_then(|a| a.first())
-        .and_then(|a| a.get("ip"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("127.0.0.1");
-    let port = peer
-        .get("api_port")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(7685);
-    let peer_url = format!("http://{}:{}", ip, port);
+    let Some(peer_url) = peer_api_url(&peer) else {
+        eprintln!("Peer '{}' has no non-loopback API address", target);
+        std::process::exit(1);
+    };
 
     // Mesh peers require a freshly signed Ed25519 token from mesh identity.
     // Local CODETERM_API_TOKEN is not accepted by peer verifiers.
@@ -267,6 +248,33 @@ pub(crate) fn mesh_relay_invoke(
             eprintln!("Error: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+pub(crate) fn peer_api_url(peer: &serde_json::Value) -> Option<String> {
+    let port = peer
+        .get("api_port")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(7685);
+    let addresses = peer.get("addresses").and_then(|v| v.as_array())?;
+    let ip = addresses
+        .iter()
+        .filter_map(|addr| addr.get("ip").and_then(|v| v.as_str()))
+        .find(|ip| !is_loopback_ip(ip))?;
+    Some(format!("http://{}:{}", format_host(ip), port))
+}
+
+fn is_loopback_ip(ip: &str) -> bool {
+    ip.parse::<std::net::IpAddr>()
+        .map(|addr| addr.is_loopback())
+        .unwrap_or(false)
+}
+
+fn format_host(ip: &str) -> String {
+    if ip.contains(':') && !ip.starts_with('[') {
+        format!("[{}]", ip)
+    } else {
+        ip.to_string()
     }
 }
 
