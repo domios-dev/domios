@@ -17,6 +17,10 @@ export interface UsageSnapshot {
   spend_remaining_cents: number | null;
   /** Billing-cycle reset for spend-based providers. */
   spend_resets_at: number | null;
+  /** Backend failure reason for parsed_ok=false rows. */
+  failure_reason: string | null;
+  /** Slash command used by the failed probe, for example /status or /usage. */
+  probe_command: string | null;
 }
 
 export interface UsageSnapshotEvent {
