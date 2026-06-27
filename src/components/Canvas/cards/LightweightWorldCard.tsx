@@ -50,6 +50,70 @@ function StatusChip({ color, label }: { color: string; label: string }) {
   );
 }
 
+function glanceFont(style: CSSProperties): number {
+  const h = typeof style.height === "number" ? style.height : 140;
+  return Math.max(30, Math.round(h * 0.32));
+}
+
+// W0 far-glance: a single big centered kind word ("Task"/"Plan"/"Spec") so a node reads at a
+// glance when zoomed all the way out; plan/spec add a row of declared tags underneath. Detail
+// (titles, status, coverage) only appears from W1 in — far out it would be unreadable noise.
+function BigKindGlance({
+  shared,
+  label,
+  accent,
+  tags,
+  extra,
+}: {
+  shared: Record<string, unknown> & { style: CSSProperties };
+  label: string;
+  accent?: string;
+  tags?: string[];
+  extra?: Record<string, unknown>;
+}) {
+  const font = glanceFont(shared.style);
+  return (
+    <div
+      {...shared}
+      {...extra}
+      style={{
+        ...shared.style,
+        alignItems: "center",
+        justifyContent: "center",
+        gap: Math.round(font * 0.28),
+        ...(accent ? { borderLeftWidth: 4, borderLeftStyle: "solid", borderLeftColor: accent } : null),
+      }}
+    >
+      <span
+        className="ct-canvas-text"
+        style={{ fontSize: font, fontWeight: 800, letterSpacing: "-0.01em", lineHeight: 1, opacity: 0.92 }}
+      >
+        {label}
+      </span>
+      {tags && tags.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: Math.round(font * 0.12), maxWidth: "92%" }}>
+          {tags.slice(0, 4).map((t) => (
+            <span
+              key={t}
+              style={{
+                fontSize: Math.round(font * 0.3),
+                fontWeight: 600,
+                padding: `${Math.round(font * 0.05)}px ${Math.round(font * 0.18)}px`,
+                borderRadius: 999,
+                background: "var(--ct-bg-active)",
+                color: "var(--ct-fg-subtle)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type PlanModel = Plan & { driftCount?: number };
 type TaskModel = {
   task: Task;
@@ -102,6 +166,16 @@ export function LightweightWorldCard({
     const displayStatus = task.status_label?.trim() || statusLabel(task.status);
     const resolved = resolveTags(task.tags, m.tagFacets);
     const accent = resolved.primary?.color;
+    if (world === "W0") {
+      return (
+        <BigKindGlance
+          shared={shared}
+          label="Task"
+          accent={accent ?? badgeColor}
+          extra={{ "data-task-id": task.id, onMouseEnter: () => onHover?.(task.id), onMouseLeave: () => onHover?.(null) }}
+        />
+      );
+    }
     return (
       <div
         {...shared}
@@ -114,17 +188,44 @@ export function LightweightWorldCard({
           ...(accent ? { borderLeftWidth: 3, borderLeftStyle: "solid", borderLeftColor: accent } : null),
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 14px", minWidth: 0, height: "100%", justifyContent: "center" }}>
           <span
             data-testid="canvas-task-name"
             data-task-name-full={task.name}
             data-canvas-selectable
             className="ct-canvas-text"
-            style={{ flex: 1, minWidth: 0, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+            style={{
+              minWidth: 0,
+              fontWeight: 800,
+              fontSize: `${Math.max(18, Math.round(glanceFont(style) * 0.6))}px`,
+              lineHeight: 1.15,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+            }}
           >
             {task.name}
           </span>
-          <StatusChip color={badgeColor} label={displayStatus} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", minWidth: 0 }}>
+            <StatusChip color={badgeColor} label={displayStatus} />
+            {resolved.primary && (
+              <span
+                style={{
+                  fontSize: "0.78em",
+                  fontWeight: 600,
+                  padding: "0 0.55em",
+                  lineHeight: 1.7,
+                  borderRadius: 999,
+                  background: "var(--ct-bg-active)",
+                  color: accent ?? "var(--ct-fg-subtle)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {resolved.primary.label}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -133,6 +234,19 @@ export function LightweightWorldCard({
   const plan = model as PlanModel | undefined;
   if (!plan) return null;
   const isPlan = kind === "plan";
+  if (world === "W0") {
+    const tags = (plan.tag_facets ?? [])
+      .map((f) => (f.label || f.key || "").trim())
+      .filter(Boolean);
+    return (
+      <BigKindGlance
+        shared={shared}
+        label={isPlan ? "Plan" : "Spec"}
+        tags={tags}
+        extra={{ "data-plan-id": plan.id }}
+      />
+    );
+  }
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
   const driftCount = plan.driftCount ?? 0;
