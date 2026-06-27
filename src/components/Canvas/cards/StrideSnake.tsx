@@ -146,15 +146,19 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
 
   // W0/W1/W2 — the SVG snake. Geometry scales with the band.
   const cfg = !atLeast(world, "W1")
-    ? { r: 3.5, pitch: 16, rowH: 14, topPad: 8, cap: 10, labels: false as const, callouts: false as const }
+    ? { r: 3.5, pitch: 16, rowH: 14, topPad: 8, cap: 10, labels: false as const, callouts: false as const, glyph: false as const }
     : !atLeast(world, "W2")
-      ? { r: 6, pitch: 30, rowH: 34, topPad: 18, cap: 64, labels: true as const, callouts: false as const }
-      : { r: 9, pitch: 46, rowH: 52, topPad: 26, cap: 64, labels: false as const, callouts: true as const };
+      ? { r: 6, pitch: 30, rowH: 34, topPad: 18, cap: 64, labels: true as const, callouts: false as const, glyph: false as const }
+      : { r: 9, pitch: 46, rowH: 52, topPad: 26, cap: 64, labels: false as const, callouts: true as const, glyph: true as const };
 
   const shown = milestones.slice(0, cfg.cap);
   const extra = milestones.length - shown.length;
   const w = Math.max(80, width);
-  const pad = cfg.r + 6;
+  // Callout band: inset by half the callout width so edge beads' centered callouts
+  // stay inside the card (no horizontal overflow). Pitch is unchanged, so same-side
+  // neighbours stay 2·pitch apart — wider than the callout — and never overlap.
+  const calloutW = cfg.pitch * 1.7;
+  const pad = cfg.callouts ? Math.max(cfg.r + 6, calloutW / 2) : cfg.r + 6;
   const { beads, height } = layoutBeads(shown.length, w, pad, cfg.pitch, cfg.rowH, cfg.topPad);
   const path = snakePath(beads, cfg.r);
   const mode = !atLeast(world, "W1") ? "constellation" : !atLeast(world, "W2") ? "thread" : "cards";
@@ -172,13 +176,17 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
               {atLeast(world, "W1") && (
                 <circle cx={b.x} cy={b.y} r={cfg.r + 2.5} fill="none" stroke={color} strokeWidth={1.5} opacity={0.55} />
               )}
-              <circle data-testid="canvas-task-step-dot" data-milestone-id={m.id} className={isFresh ? "ct-canvas-step-live" : undefined} cx={b.x} cy={b.y} r={cfg.r} fill={color} style={{ transformOrigin: `${b.x}px ${b.y}px` }} />
+              <circle data-testid="canvas-task-step-dot" data-milestone-id={m.id} data-milestone-kind={m.kind} className={isFresh ? "ct-canvas-step-live" : undefined} cx={b.x} cy={b.y} r={cfg.r} fill={color} style={{ transformOrigin: `${b.x}px ${b.y}px` }} />
+              {cfg.glyph && (
+                <text x={b.x} y={b.y} textAnchor="middle" dominantBaseline="central" fontSize={cfg.r + 2} fontWeight={800} fill="var(--ct-bg)" style={{ pointerEvents: "none", userSelect: "none", fontFamily: "var(--ct-font-ui)" }}>{m.kind.charAt(0).toUpperCase()}</text>
+              )}
             </Fragment>
           );
         })}
       </svg>
-      {/* W1 labels alternate above/below each bead; W2 callouts sit on the line and
-          carry the stride's author + time so provenance reads without diving to W3. */}
+      {/* W1 names each working point by its KIND (kind-colored) so beads are
+          identifiable at the structure band; W2 callouts add an excerpt + time so a
+          stride reads on the line without diving to W3. */}
       {(cfg.labels || cfg.callouts) && beads.map((b, i) => {
         const m = shown[i];
         // Alternate the callout side by COLUMN parity (not row): adjacent beads in a
@@ -186,7 +194,9 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
         // than the 1.7·pitch callout (no horizontal collision at any density). A
         // column keeps one side across rows, so cross-row spacing stays a full rowH.
         const above = b.col % 2 === 0;
-        const label = digestMarkdown(m.text, cfg.callouts ? 40 : 24) || m.kind.replace(/_/g, " ");
+        const color = colorFor(m.kind, colors);
+        const kindLabel = m.kind.replace(/_/g, " ");
+        const excerpt = cfg.callouts ? digestMarkdown(m.text, 36) : "";
         const who = ownerName(m.from);
         const when = m.ts > 0 ? formatTime(m.ts) : "";
         // Callouts are SINGLE-LINE: a row pitch only buys ~one text line of vertical
@@ -194,13 +204,14 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
         // provenance live in the hover title and the W3 bloom — the line stays a
         // glance. Width 1.7·pitch with the column-parity stagger keeps same-side
         // neighbours 2·pitch apart (no horizontal overlap at any density).
-        const lw = cfg.callouts ? cfg.pitch * 1.7 : cfg.pitch - 4;
+        const lw = cfg.callouts ? calloutW : cfg.pitch - 4;
         const gap = cfg.callouts ? 5 : 2;
-        const title = cfg.callouts ? [m.text.trim(), who, when].filter(Boolean).join(" · ") : undefined;
+        const title = cfg.callouts ? [kindLabel, m.text.trim(), who, when].filter(Boolean).join(" · ") : kindLabel;
         return (
           <div
             key={`l-${m.id}`}
             data-testid="canvas-stride-label"
+            data-milestone-kind={m.kind}
             title={title}
             style={{
               position: "absolute",
@@ -208,18 +219,18 @@ export function StrideSnake({ milestones, colors, world, width, onCopyLink, onFo
               top: b.y + (above ? -cfg.r - gap : cfg.r + gap),
               transform: above ? "translate(-50%, -100%)" : "translateX(-50%)",
               width: lw,
-              fontSize: cfg.callouts ? "0.72em" : "0.62em",
+              fontSize: cfg.callouts ? "0.72em" : "0.64em",
               lineHeight: 1.15,
               textAlign: "center",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
-              color: "var(--ct-fg)",
               pointerEvents: "none",
             }}
           >
-            {label}
-            {cfg.callouts && when && <span data-testid="canvas-stride-meta" style={{ marginLeft: 5, fontFamily: "var(--ct-font-mono)", fontSize: "0.82em", opacity: 0.55 }}>{when}</span>}
+            <span data-testid="canvas-stride-kind" style={{ fontWeight: 700, textTransform: "capitalize", color }}>{kindLabel}</span>
+            {excerpt && <span style={{ marginLeft: 5, color: "var(--ct-fg)", opacity: 0.82 }}>{excerpt}</span>}
+            {cfg.callouts && when && <span data-testid="canvas-stride-meta" style={{ marginLeft: 5, fontFamily: "var(--ct-font-mono)", fontSize: "0.82em", opacity: 0.5 }}>{when}</span>}
           </div>
         );
       })}
