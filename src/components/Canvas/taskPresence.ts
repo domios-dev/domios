@@ -92,6 +92,10 @@ function buildAgents(task: Task, paneId: string, panes: Record<string, Pane>): P
 export function buildTaskPresence(plan: Plan, task: Task, panes: Record<string, Pane>): TaskPresence | null {
   const paneId = clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
   if (!paneId) return null;
+  // Presence is LIVE / in-RAM, never persisted history: show an agent only while its pane is an
+  // actually-running session in THIS daemon. A task's stored assigned_pane_id/lane.pane_id is just
+  // a record — without a live pane there is no agent, so no stale "idle" swarm accretes.
+  if (!panes[paneId]) return null;
   const focus = clean(plan.heartbeat?.current_focus);
   const latest = latestMilestone(task);
   return {
