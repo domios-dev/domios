@@ -73,6 +73,18 @@ fi
 #    trim source caches explicitly for older state).
 run "cargo cache --autoclean >/dev/null 2>&1 || true"
 
+# 5) Node / browser caches. pnpm store prune + npm cache verify are purpose-built and
+#    safe (remove only unreferenced/stale). Playwright auto-GCs unused browser versions
+#    on its next install (PLAYWRIGHT_SKIP_BROWSER_GC must stay unset) — so we trigger that
+#    GC rather than blindly rm version dirs a pinned project might still need.
+if command -v pnpm >/dev/null 2>&1; then echo "[pnpm] store ($(du -sh "$(pnpm store path 2>/dev/null)" 2>/dev/null | cut -f1))"; run "pnpm store prune >/dev/null 2>&1 || true"; fi
+if command -v npm  >/dev/null 2>&1; then echo "[npm] cache ($(sz ~/.npm))"; run "npm cache verify >/dev/null 2>&1 || true"; fi
+# Playwright self-GCs unused browser versions on its next `playwright install` (don't set
+#    PLAYWRIGHT_SKIP_BROWSER_GC). Auto-running install from cron risks pulling a newer version,
+#    so we only report; a dev test run after a version bump reclaims old browsers for free.
+PW="$HOME/Library/Caches/ms-playwright"
+[[ -d "$PW" ]] && echo "[playwright] browsers $(sz "$PW") (self-GC on next 'npx playwright install' in a project)"
+
 echo "free after:  $(avail)"
 [[ $APPLY -eq 0 ]] && echo ">>> DRY-RUN — re-run with --apply to reclaim."
 exit 0
