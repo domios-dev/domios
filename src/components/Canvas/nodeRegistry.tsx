@@ -56,6 +56,8 @@ export type NodeRenderer = (args: NodeRenderArgs) => ReactNode;
 type PlanNodeModel = Plan & {
   driftCount?: number;
   workspaceScope?: PlanWorkspaceScope;
+  /** spec_section_id → title, resolved from the plan's linked spec (bubble labels). */
+  specTitleById?: ReadonlyMap<string, string>;
 };
 
 const renderers: Record<string, NodeRenderer> = {};
@@ -116,6 +118,7 @@ registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive
       onSectionFrame={onSectionFrame}
       suppressRichContent={suppressRichContent}
       richOverlay={richOverlay}
+      specTitleById={(model as PlanNodeModel).specTitleById}
     />
   ) : null;
 });

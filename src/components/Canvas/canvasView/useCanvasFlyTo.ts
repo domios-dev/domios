@@ -15,6 +15,33 @@ interface FlyToDeps {
   setTransform: (next: ViewportTransform) => void;
 }
 
+// After a spec-section bubble flies to the spec node, scroll that node's internal
+// document column to the referenced section and pulse it — so "fly to the spec
+// section" lands ON the section, not merely on the node. Imperative + best-effort
+// (the camera ease + band reveal settle first); guarded so it no-ops headlessly.
+function revealSpecSection(planCtx: string, sectionId: string): void {
+  if (typeof document === "undefined") return;
+  const attempt = (): boolean => {
+    const node = document.querySelector<HTMLElement>(`[data-testid="canvas-spec-node"][data-plan-id="${CSS.escape(planCtx)}"]`);
+    const row = node?.querySelector<HTMLElement>(`[data-section-id="${CSS.escape(sectionId)}"]`);
+    if (!node || !row) return false;
+    const scrollBody = row.closest<HTMLElement>("[data-canvas-scroll-body='1']");
+    if (scrollBody) {
+      const delta = row.getBoundingClientRect().top - scrollBody.getBoundingClientRect().top;
+      scrollBody.scrollTop += delta - 8;
+    }
+    row.classList.add("ct-canvas-pulse");
+    setTimeout(() => row.classList.remove("ct-canvas-pulse"), 3400);
+    return true;
+  };
+  let tries = 0;
+  const tick = () => {
+    if (attempt() || tries++ > 6) return;
+    setTimeout(tick, 220);
+  };
+  setTimeout(tick, 620);
+}
+
 // Fly/focus/section-navigation primitives + transient blink & highlight state.
 // Camera math (the SINGLE transform) lives in useCanvasViewport — this only frames
 // node sets and wires the delegated fly-to click. Behavior-identical to the inline
@@ -161,7 +188,12 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
         const rawId = chip.getAttribute("data-fly-to-id") ?? "";
         const planCtx = chip.closest<HTMLElement>("[data-plan-id]")?.getAttribute("data-plan-id") ?? null;
         const nodeId = resolveFlyToNodeId(kind, rawId, planCtx, (id) => lookups.nodeById.has(id));
-        if (nodeId) focusOnNodes([nodeId], undefined, true);
+        if (nodeId) {
+          focusOnNodes([nodeId], undefined, true);
+          // A spec-section bubble lands on the spec node, then scrolls/pulses the
+          // exact section it derives from (provenance reads on the section itself).
+          if (kind === "spec-section" && planCtx && rawId.trim()) revealSpecSection(planCtx, rawId.trim());
+        }
         return;
       }
       const row = target.closest<HTMLElement>("[data-testid='canvas-plan-swarm-task']");

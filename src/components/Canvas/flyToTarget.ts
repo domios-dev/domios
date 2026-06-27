@@ -12,7 +12,10 @@ export function resolveFlyToNodeId(
   hasNode: (id: string) => boolean,
 ): string | null {
   const id = rawId.trim();
-  if (kind === "spec") {
+  // "spec" = the plan's bound spec node; "spec-section" = a specific spec section a
+  // plan section derives from. Both land on the `${plan}::spec` node (sections live
+  // inside it); the caller scrolls/pulses the target section after arrival.
+  if (kind === "spec" || kind === "spec-section") {
     if (planCtx) {
       const specNode = `${planCtx}::spec`;
       if (hasNode(specNode)) return specNode;
