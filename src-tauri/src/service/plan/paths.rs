@@ -6,23 +6,39 @@ pub fn project_root(cwd: &Path) -> PathBuf {
     if test_project_root_marker(cwd).is_some() {
         return cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     }
+    // A linked worktree that carries its OWN .codeterm (plans committed per-branch and
+    // checked out with the branch) owns its plan store; otherwise worktrees fall back to
+    // sharing the main worktree's store. Without this a feature-branch worktree's committed
+    // plans are invisible because resolution jumps to the main worktree (different branch).
+    if let Some(top) = worktree_top(cwd) {
+        if top.join(".codeterm").is_dir() {
+            return top;
+        }
+    }
     if let Some(root) = main_worktree_root(cwd) {
         return root;
     }
-    if let Ok(out) = Command::new("git")
+    if let Some(top) = worktree_top(cwd) {
+        return top;
+    }
+    cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())
+}
+
+fn worktree_top(cwd: &Path) -> Option<PathBuf> {
+    let out = Command::new("git")
         .current_dir(cwd)
         .args(["rev-parse", "--show-toplevel"])
         .output()
-    {
-        if out.status.success() {
-            let top = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if !top.is_empty() {
-                let top = PathBuf::from(top);
-                return top.canonicalize().unwrap_or(top);
-            }
-        }
+        .ok()?;
+    if !out.status.success() {
+        return None;
     }
-    cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf())
+    let top = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if top.is_empty() {
+        return None;
+    }
+    let top = PathBuf::from(top);
+    Some(top.canonicalize().unwrap_or(top))
 }
 
 #[cfg(test)]
@@ -127,5 +143,25 @@ mod tests {
 
         assert_eq!(main_root, main.canonicalize().unwrap());
         assert_eq!(linked_root, main_root);
+    }
+
+    #[test]
+    fn project_root_prefers_linked_worktree_with_own_codeterm() {
+        let tmp = tempfile::tempdir().unwrap();
+        let main = tmp.path().join("main");
+        let linked = tmp.path().join("linked");
+        std::fs::create_dir(&main).unwrap();
+        run_git(&main, &["init"]);
+        run_git(&main, &["config", "user.email", "test@example.com"]);
+        run_git(&main, &["config", "user.name", "Test User"]);
+        std::fs::write(main.join("README.md"), "root\n").unwrap();
+        run_git(&main, &["add", "README.md"]);
+        run_git(&main, &["commit", "-m", "init"]);
+        run_git(&main, &["worktree", "add", linked.to_str().unwrap(), "-b", "linked-test"]);
+
+        // The linked worktree carries its own committed plans -> it owns its plan store.
+        std::fs::create_dir_all(linked.join(".codeterm").join("plans")).unwrap();
+
+        assert_eq!(project_root(&linked), linked.canonicalize().unwrap());
     }
 }
