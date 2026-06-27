@@ -48,6 +48,27 @@ Before spawning Workers:
 5. Avoid backticks inside shell-quoted `--task` strings; zsh can treat them as
    command substitution.
 
+### Attach workers as reporters (don't rely on `codeterm send`)
+
+Wire the hierarchy once so worker reports flow to you automatically and are durably
+tracked — not as ad-hoc chat messages you might miss:
+
+1. Mark yourself orchestrator (once per run):
+   `codeterm agent set-orchestrator --pane "$CODETERM_PANE_ID"`.
+2. Spawn each worker linked to you with an explicit role:
+   `codeterm agent spawn <provider> --role Worker --parent "$CODETERM_PANE_ID" --task "..."`.
+   `--parent` attaches at spawn; to attach an already-running pane use
+   `codeterm agent link --pane <ID> --parent "$CODETERM_PANE_ID"`.
+3. In the task body, tell the worker to finish with
+   `codeterm agent report "<structured report>"` — NOT `codeterm send`. The report
+   auto-injects into your pane as a `-=-codeterm:report from=NAME pane=ID-=-` line and
+   is recorded in the durable ledger.
+4. Consume reports event-driven (react, don't poll). Batch-read with
+   `codeterm agent reports [--clear]`; see the live worker roster (branch/model/status/
+   last-seen) with `codeterm agent ledger`.
+5. A `-=-codeterm:report-=-` line is INPUT, not chat — never reply to it; act on it
+   (verify → bounce or close) per the post-report action set below.
+
 ## Plan Usage
 
 The plan is the live ledger — keep it current on the daemon that owns the run.
