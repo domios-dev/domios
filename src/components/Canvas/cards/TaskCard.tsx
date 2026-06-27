@@ -488,10 +488,10 @@ export function TaskCard({
   const freshColor = freshKind ? (stepColors?.get(freshKind) ?? "var(--ct-border-focus)") : null;
   const titleText = task.name;
   // The worlds promise: dive in → read everything. Title is the card's identity, so
-  // it shows from the farthest band (W0) and un-clamps entirely at W3 (the deep-read
-  // document scrolls, so a long title is never cut). W1/W2 widen the clamp as the
-  // card earns the pixels.
-  const nameClamp = showFullBody ? null : showStructure ? 4 : 2;
+  // the FULL title reads from W1 up (footprint reserves the height for it) — never
+  // mid-word clipped, wraps to as many lines as it needs. Only the far W0 mass-glance
+  // clamps to a 2-line ellipsis, where the chip is the signal and the title is a cue.
+  const nameClamp = showTitle ? null : 2;
   const resolved = resolveTags(task.tags, tagFacets);
   const tileTags = !showBodySlot && (resolved.primary || resolved.topics.length > 0);
   const topicTile = resolved.topics.slice(0, 2);
