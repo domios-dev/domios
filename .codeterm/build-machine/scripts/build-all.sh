@@ -140,5 +140,20 @@ for bundle in "$ART"/CodeTerm_${VER}_*-setup.exe "$ART"/CodeTerm_${VER}_*.AppIma
 done
 
 echo "### artifacts in $ART"; ls -la "$ART"
+
+# Post-build cache reclaim — artifacts are already collected in $ART, so the build
+# intermediates are pure garbage. Release builds otherwise leave the mac release bundle,
+# the linux $LWORK target and docker buildx cache to grow unbounded on the builder
+# (cargo has no target GC — this is the disk-bloat class). Best-effort; never touches $ART.
+echo "### post-build cleanup (reclaim build caches; artifacts safe in $ART)"
+rm -rf "$LWORK" 2>/dev/null || true
+rm -rf "$REPO/src-tauri/target/release/bundle" \
+       "$REPO/src-tauri/target/x86_64-apple-darwin/release/bundle" 2>/dev/null || true
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  docker buildx prune -af >/dev/null 2>&1 || true
+  docker container prune -f  >/dev/null 2>&1 || true
+fi
+df -h / | awk 'NR==2{print "### builder free after cleanup:", $4}'
+
 [ "$rc" -eq 0 ] || { echo "::error::one or more release build waves failed"; exit "$rc"; }
 echo "BUILD_ALL_DONE $TAG"
