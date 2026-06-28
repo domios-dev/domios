@@ -10,6 +10,8 @@ import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 import { SettingsMenu } from "./SettingsMenu";
 import type { SectionId } from "../Settings/sections";
+import { NotificationToastContainer } from "../Notifications/NotificationToast";
+import type { Notification } from "../../lib/types";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -18,6 +20,9 @@ interface TitlebarProps {
   onOpenSettingsAbout?: () => void;
   onOpenExtensions?: () => void;
   onOpenSettings?: (section?: SectionId) => void;
+  toasts?: Notification[];
+  onDismissToast?: (id: string) => void;
+  onNavigateToast?: (paneId: string) => void;
 }
 
 export function Titlebar({
@@ -26,6 +31,9 @@ export function Titlebar({
   onOpenSettingsAbout,
   onOpenExtensions,
   onOpenSettings,
+  toasts = [],
+  onDismissToast,
+  onNavigateToast,
 }: TitlebarProps) {
   void _theme;
   void _onToggleSidebar;
@@ -73,6 +81,14 @@ export function Titlebar({
       <div className="flex-1" data-tauri-drag-region />
 
       <div className="flex items-center h-full gap-1 pr-1.5">
+        {onDismissToast && (
+          <NotificationToastContainer
+            toasts={toasts}
+            onDismiss={onDismissToast}
+            onNavigate={onNavigateToast}
+            embedded
+          />
+        )}
         {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
         <KeepAwakeTray />
         {onOpenSettings && (
