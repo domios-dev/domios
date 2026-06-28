@@ -202,6 +202,25 @@ fn tag_relay_send_source(
     }
 }
 
+/// Stamp the authenticated originating-peer name onto a relayed `agent spawn` so
+/// the spawned worker gets a durable cross-mesh report target back to the caller.
+/// Mirrors [`tag_relay_send_source`]: the peer name comes from the signed token,
+/// never the (spoofable) payload, and overrides any body-supplied value.
+fn tag_relay_spawn_source(
+    body: &mut serde_json::Value,
+    method: &str,
+    path: &str,
+    sender_name: &str,
+) {
+    let bare = path.split('?').next().unwrap_or(path);
+    if !(bare == "/api/agents/spawn" && method.eq_ignore_ascii_case("POST")) {
+        return;
+    }
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("origin_peer".into(), serde_json::json!(sender_name));
+    }
+}
+
 /// Local-origin relay: the web mirror stays pointed at its own daemon and asks
 /// it to proxy a request to a paired peer. Authenticated as a normal local call
 /// (the auth middleware gates it); the daemon then rides the existing signed
@@ -221,22 +240,71 @@ fn default_relay_method() -> String {
     "GET".to_string()
 }
 
+/// Parse a successful relayed `agent spawn` into a remote-worker registration
+/// `(report_to, remote_pane, title, model)`. None unless this was a POST spawn
+/// that succeeded, carried a `report_to` target, and produced a pane id.
+fn spawn_registration_from_relay(
+    method: &str,
+    path: &str,
+    body: &serde_json::Value,
+    resp: &crate::mesh::types::RelayResponse,
+) -> Option<(String, String, String, Option<String>)> {
+    let bare = path.split('?').next().unwrap_or(path);
+    if !(bare == "/api/agents/spawn" && method.eq_ignore_ascii_case("POST") && resp.ok) {
+        return None;
+    }
+    let report_to = body
+        .get("report_to")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let data = resp.data.as_ref()?;
+    let remote_pane = data
+        .get("pane_id")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let title = data
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(remote_pane);
+    let model = body
+        .get("model")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    Some((
+        report_to.to_string(),
+        remote_pane.to_string(),
+        title.to_string(),
+        model,
+    ))
+}
+
 pub async fn mesh_relay_to_peer(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Json(req): Json<PeerRelayCommand>,
 ) -> Result<Json<crate::mesh::types::RelayResponse>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let client = state
-        .mesh
-        .lock()
-        .client_for(&req.target_peer_id)
-        .ok_or_else(|| {
+    let (client, peer_name) = {
+        let mesh = state.mesh.lock();
+        let client = mesh.client_for(&req.target_peer_id).ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
                 format!("Peer {} not paired", req.target_peer_id),
             )
         })?;
+        let name = mesh
+            .paired_peers
+            .get(&req.target_peer_id)
+            .map(|p| p.instance_name.clone())
+            .unwrap_or_else(|| req.target_peer_id.clone());
+        (client, name)
+    };
     let cmd = crate::mesh::types::RelayCommand {
         method: req.method,
         path: req.path,
@@ -246,6 +314,29 @@ pub async fn mesh_relay_to_peer(
         .send_relay(&cmd)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
+
+    // A remote spawn relayed from the local UI registers its worker so the
+    // sidebar ghosts it under the report target immediately (no report yet).
+    if let Some((report_to, remote_pane, title, model)) =
+        spawn_registration_from_relay(&cmd.method, &cmd.path, &cmd.body, &resp)
+    {
+        if let Ok(orchestrator) = crate::api::routes::resolve_pane(&state, &report_to) {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            state.svc.remote_workers.record_spawn(
+                &orchestrator,
+                &peer_name,
+                &remote_pane,
+                &title,
+                model,
+                now_ms,
+            );
+            state.svc.emit_remote_workers_changed(&orchestrator);
+        }
+    }
+
     Ok(Json(resp))
 }
 
@@ -297,6 +388,7 @@ pub async fn mesh_relay(
     // canonical, agent-guarded Messenger (agents get `label@peer`; shells stay
     let mut body = cmd.body.clone();
     tag_relay_send_source(&mut body, &cmd.method, &cmd.path, &sender_name);
+    tag_relay_spawn_source(&mut body, &cmd.method, &cmd.path, &sender_name);
 
     let local_url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
     let signed_token = state.mesh.lock().sign_request().map_err(|e| {
@@ -375,7 +467,88 @@ pub async fn mesh_relay(
 
 #[cfg(test)]
 mod tests {
-    use super::{path_requires_full_access, tag_relay_send_source, validate_relay_path};
+    use super::{
+        path_requires_full_access, tag_relay_send_source, tag_relay_spawn_source,
+        validate_relay_path,
+    };
+
+    use super::spawn_registration_from_relay;
+    use crate::mesh::types::RelayResponse;
+
+    fn ok_resp(data: serde_json::Value) -> RelayResponse {
+        RelayResponse {
+            ok: true,
+            status: 200,
+            data: Some(data),
+            error: None,
+        }
+    }
+
+    #[test]
+    fn spawn_relay_registration_extracts_worker_fields() {
+        let body = serde_json::json!({"agent":"claude","report_to":"4d479b6c","model":"opus"});
+        let resp = ok_resp(serde_json::json!({"pane_id":"53854ac8","title":"Canvas"}));
+        let (report_to, remote_pane, title, model) =
+            spawn_registration_from_relay("POST", "/api/agents/spawn", &body, &resp)
+                .expect("spawn relay registers");
+        assert_eq!(report_to, "4d479b6c");
+        assert_eq!(remote_pane, "53854ac8");
+        assert_eq!(title, "Canvas");
+        assert_eq!(model.as_deref(), Some("opus"));
+    }
+
+    #[test]
+    fn spawn_relay_registration_skips_non_spawn_and_unregisterable() {
+        let body = serde_json::json!({"report_to":"main"});
+        let resp = ok_resp(serde_json::json!({"pane_id":"p1"}));
+        // Wrong path / method.
+        assert!(spawn_registration_from_relay("POST", "/api/panes/x/send", &body, &resp).is_none());
+        assert!(spawn_registration_from_relay("GET", "/api/agents/spawn", &body, &resp).is_none());
+        // No report target.
+        let no_report = serde_json::json!({"agent":"claude"});
+        assert!(
+            spawn_registration_from_relay("POST", "/api/agents/spawn", &no_report, &resp).is_none()
+        );
+        // Failed relay (ok:false) must not register.
+        let failed = RelayResponse {
+            ok: false,
+            status: 500,
+            data: Some(serde_json::json!({"pane_id":"p1"})),
+            error: Some("boom".into()),
+        };
+        assert!(
+            spawn_registration_from_relay("POST", "/api/agents/spawn", &body, &failed).is_none()
+        );
+    }
+
+    #[test]
+    fn relay_spawn_tags_origin_peer() {
+        let mut body = serde_json::json!({"agent": "claude", "report_to": "main"});
+        tag_relay_spawn_source(&mut body, "POST", "/api/agents/spawn", "Mac-Air");
+        assert_eq!(body["origin_peer"], serde_json::json!("Mac-Air"));
+        assert_eq!(body["report_to"], serde_json::json!("main"));
+    }
+
+    #[test]
+    fn relay_spawn_origin_overrides_spoofed_body() {
+        let mut body = serde_json::json!({"agent": "claude", "origin_peer": "I-AM-ROOT"});
+        tag_relay_spawn_source(&mut body, "post", "/api/agents/spawn", "Mac-Air");
+        assert_eq!(body["origin_peer"], serde_json::json!("Mac-Air"));
+    }
+
+    #[test]
+    fn relay_spawn_tagger_ignores_non_spawn_paths() {
+        let mut body = serde_json::json!({"text": "hi"});
+        tag_relay_spawn_source(&mut body, "POST", "/api/panes/x/send", "Mac-Air");
+        assert_eq!(body.get("origin_peer"), None);
+        let mut body2 = serde_json::json!({});
+        tag_relay_spawn_source(&mut body2, "GET", "/api/agents/spawn", "Mac-Air");
+        assert_eq!(
+            body2.get("origin_peer"),
+            None,
+            "GET spawn must not be tagged"
+        );
+    }
 
     #[test]
     fn relay_send_tags_originating_peer() {

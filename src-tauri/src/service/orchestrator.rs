@@ -163,7 +163,13 @@ pub struct SpawnAgentParams {
     /// Force creation as a new tab instead of split pane (even with parent).
     pub force_tab: Option<bool>,
     /// Report target pane ID — for cron agents to report without joining hierarchy.
+    /// With `report_target_mesh_peer` set, this is a pane id / `main` / `general`
+    /// alias on that remote peer.
     pub report_target_pane_id: Option<String>,
+    /// Paired mesh peer the report target lives on. Set (un-spoofably, from the
+    /// authenticated relay sender) when `agent spawn --mesh PEER` lands here, so
+    /// the spawned worker reports back across the mesh.
+    pub report_target_mesh_peer: Option<String>,
     /// Default true; set false to spawn an agent that asks for permission.
     pub skip_permissions: Option<bool>,
     /// CODETERM_PANE_ID of the caller — recorded for report routing fallback.
@@ -204,7 +210,13 @@ impl SpawnAgentParams {
             task: json_str(params, "task"),
             workspace_id: json_str(params, "workspace_id"),
             force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
-            report_target_pane_id: json_str(params, "report_target_pane_id"),
+            // `report_to` is the user-facing alias; it collapses into the report
+            // target pane (local or, with origin_peer, remote). `origin_peer` is
+            // injected by the mesh relay from the authenticated sender.
+            report_target_pane_id: json_str(params, "report_to")
+                .or_else(|| json_str(params, "report_target_pane_id")),
+            report_target_mesh_peer: json_str(params, "origin_peer")
+                .or_else(|| json_str(params, "report_target_mesh_peer")),
             skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
             spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
             model: json_str(params, "model"),
@@ -444,10 +456,19 @@ impl ServiceContext {
                     pane.chat_view = true;
                 }
             }
-            // Set report target for cron agents
+            // Set report target for cron agents and remote (mesh) workers. When
+            // a mesh peer is present the target pane id is a pane / alias on that
+            // peer, so persist both halves together.
             if let Some(ref rtid) = params.report_target_pane_id {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.report_target_pane_id = Some(rtid.clone());
+                }
+            }
+            if let Some(ref peer) = params.report_target_mesh_peer {
+                if !peer.is_empty() {
+                    if let Some(pane) = mux.get_pane_mut(&result.1) {
+                        pane.report_target_mesh_peer = Some(peer.clone());
+                    }
                 }
             }
             // Record the spawning agent for report routing fallback, independent of explicit --parent / role hierarchy.
@@ -462,17 +483,32 @@ impl ServiceContext {
         };
         self.emit_state_changed();
 
-        // 3. Set role in hierarchy (before async wait — role is metadata)
+        // 3. Set role in hierarchy. A cross-mesh worker has no local parent
+        // (its hierarchy lives on the origin) — skip_local_worker_role avoids a 500.
         if let Some(ref role_str) = params.role {
-            self.set_pane_role(
-                &pane_id,
-                role_str,
+            let role = Self::parse_role(role_str)?;
+            if skip_local_worker_role(
+                &role,
                 params.parent_pane_id.as_deref(),
-                params.can_spawn,
-            )?;
-            if role_str == "Worker" {
-                if let Some(ref parent) = params.parent_pane_id {
-                    self.expect_spawn_parent_link(&pane_id, parent)?;
+                params.report_target_mesh_peer.as_deref(),
+            ) {
+                log::info!(
+                    "[spawn] cross-mesh worker {} → {}@{}: skipping local Worker hierarchy (no local parent)",
+                    pane_id,
+                    params.report_target_pane_id.as_deref().unwrap_or("?"),
+                    params.report_target_mesh_peer.as_deref().unwrap_or("?"),
+                );
+            } else {
+                self.set_pane_role(
+                    &pane_id,
+                    role_str,
+                    params.parent_pane_id.as_deref(),
+                    params.can_spawn,
+                )?;
+                if role_str == "Worker" {
+                    if let Some(ref parent) = params.parent_pane_id {
+                        self.expect_spawn_parent_link(&pane_id, parent)?;
+                    }
                 }
             }
         }
@@ -594,6 +630,21 @@ impl ServiceContext {
             None,
         )
     }
+}
+
+/// A cross-mesh worker (mesh report target set, no local parent) must NOT be
+/// forced into the local Worker hierarchy — it has no local Orchestrator parent,
+/// so `set_pane_role(Worker, None)` errors. Its hierarchy is represented on the
+/// origin via the RemoteWorkerRegistry instead. Returns true to skip the local
+/// role assignment. Orchestrator-role and locally-parented spawns are unaffected.
+pub(crate) fn skip_local_worker_role(
+    role: &crate::multiplexer::types::AgentRole,
+    parent_pane_id: Option<&str>,
+    report_target_mesh_peer: Option<&str>,
+) -> bool {
+    matches!(role, crate::multiplexer::types::AgentRole::Worker)
+        && parent_pane_id.is_none()
+        && report_target_mesh_peer.map_or(false, |p| !p.is_empty())
 }
 
 pub(crate) use crate::agent::provider::{AgentLaunchParams, ReadinessStrategy, TaskDelivery};

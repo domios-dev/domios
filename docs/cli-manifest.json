@@ -466,6 +466,14 @@
               "aliases": []
             },
             {
+              "name": "report_to",
+              "positional": false,
+              "value_name": "REPORT_TO",
+              "default": null,
+              "help": "Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane",
+              "aliases": []
+            },
+            {
               "name": "role",
               "positional": false,
               "value_name": "ROLE",

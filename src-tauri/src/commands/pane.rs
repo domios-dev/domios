@@ -90,6 +90,16 @@ pub async fn list_agent_providers(
     Ok(result.into_json())
 }
 
+/// Orchestrator-side remote (cross-mesh) workers, as `{ pane_id: [...] }`.
+/// Drives the "remote pane" ghost nodes in the sidebar; live updates arrive via
+/// the `remote-workers-changed` event.
+#[tauri::command]
+pub async fn get_remote_workers(
+    svc: tauri::State<'_, ServiceState>,
+) -> Result<serde_json::Value, String> {
+    serde_json::to_value(svc.remote_workers.snapshot()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn wait_shell_ready(
     screen_state: tauri::State<'_, ScreenStateHandle>,

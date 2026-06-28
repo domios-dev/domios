@@ -119,6 +119,7 @@ Spawn a new agent (creates tab in workspace, linked in hierarchy)
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--parent` — Parent pane ID (for Workers)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
+- `--report_to` — Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
 - `--role` — Role: Orchestrator, Worker
 - `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts

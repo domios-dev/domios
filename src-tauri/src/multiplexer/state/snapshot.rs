@@ -100,6 +100,7 @@ impl MultiplexerState {
                 parent_pane_id: pane.and_then(|p| p.parent_pane_id.clone()),
                 spawned_by_pane_id: pane.and_then(|p| p.spawned_by_pane_id.clone()),
                 report_target_pane_id: pane.and_then(|p| p.report_target_pane_id.clone()),
+                report_target_mesh_peer: pane.and_then(|p| p.report_target_mesh_peer.clone()),
                 can_spawn: pane.map(|p| p.can_spawn).unwrap_or(false),
                 depth: pane.map(|p| p.depth).unwrap_or(0),
                 chat_view: pane.map(|p| p.chat_view),
@@ -196,6 +197,7 @@ impl MultiplexerState {
                 parent_pane_id,
                 spawned_by_pane_id,
                 report_target_pane_id,
+                report_target_mesh_peer,
                 can_spawn,
                 depth,
                 chat_view,
@@ -290,6 +292,7 @@ impl MultiplexerState {
                     // P3: hierarchy map survives restart — restore the real
                     // spawner / report target instead of hardcoding None.
                     report_target_pane_id: report_target_pane_id.clone(),
+                    report_target_mesh_peer: report_target_mesh_peer.clone(),
                     spawned_by_pane_id: spawned_by_pane_id.clone(),
                     title_level: restored_level,
                     chat_view: chat_view.unwrap_or(false),
@@ -376,6 +379,7 @@ mod tests {
             parent_pane_id: None,
             spawned_by_pane_id: None,
             report_target_pane_id: None,
+            report_target_mesh_peer: None,
             can_spawn: false,
             depth: 0,
             chat_view: Some(true),
@@ -466,6 +470,7 @@ mod tests {
             parent_pane_id: None,
             spawned_by_pane_id: None,
             report_target_pane_id: None,
+            report_target_mesh_peer: None,
             can_spawn: false,
             depth: 0,
             chat_view: Some(false),
@@ -494,6 +499,7 @@ mod tests {
             parent_pane_id: None,
             spawned_by_pane_id: None,
             report_target_pane_id: None,
+            report_target_mesh_peer: None,
             can_spawn: false,
             depth: 2,
             chat_view: Some(false),
@@ -540,6 +546,7 @@ mod tests {
             parent_pane_id: Some("orch-1".into()),
             spawned_by_pane_id: Some("spawner-1".into()),
             report_target_pane_id: Some("target-1".into()),
+            report_target_mesh_peer: None,
             can_spawn: false,
             depth: 2,
             chat_view: Some(false),
@@ -578,6 +585,7 @@ mod tests {
             parent_pane_id: None,
             spawned_by_pane_id: None,
             report_target_pane_id: None,
+            report_target_mesh_peer: None,
             can_spawn: false,
             depth: 2,
             chat_view: Some(false),
@@ -593,6 +601,28 @@ mod tests {
         let pane = state.panes.get("legacy-worker").expect("pane restored");
         assert_eq!(pane.title, "Euler");
         assert_eq!(pane.title_level, TitleLevel::Default);
+    }
+
+    #[test]
+    fn remote_report_target_round_trips_through_snapshot() {
+        // A remote (mesh) worker's report target must survive save+restore so a
+        // restarted worker still relays its reports back across the mesh.
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = state.list_workspaces()[0].id.clone();
+        let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
+        if let Some(p) = state.get_pane_mut(&pane_id) {
+            p.report_target_pane_id = Some("main".into());
+            p.report_target_mesh_peer = Some("Mac-Air".into());
+        }
+        let snap = state.to_session_snapshot();
+        let restored = MultiplexerState::from_session_snapshot(&snap);
+        let pane = restored.panes.get(&pane_id).expect("pane restored");
+        assert_eq!(pane.report_target_pane_id.as_deref(), Some("main"));
+        assert_eq!(
+            pane.report_target_mesh_peer.as_deref(),
+            Some("Mac-Air"),
+            "remote report peer must survive restore"
+        );
     }
 
     #[test]
@@ -677,6 +707,7 @@ mod tests {
             parent_pane_id: Some("orch".into()),
             spawned_by_pane_id: Some("spawner".into()),
             report_target_pane_id: None,
+            report_target_mesh_peer: None,
             can_spawn: false,
             depth: 2,
             chat_view: Some(false),

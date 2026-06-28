@@ -164,6 +164,7 @@ pub fn run() {
             commands::get_pane_text,
             commands::shell_command_snapshot,
             commands::list_agent_providers,
+            commands::get_remote_workers,
             commands::wait_shell_ready,
             commands::read_session_jsonl,
             commands::resize_pty,
@@ -662,6 +663,11 @@ pub fn run() {
                 prompt_detector,
                 agent_run_pty_map: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
+                remote_workers: Arc::new(
+                    crate::service::remote_workers::RemoteWorkerRegistry::load(
+                        crate::paths::data_dir().join("remote_workers.json"),
+                    ),
+                ),
                 bridge_outbound: bridge_outbound_tx,
                 bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
                 bridge_supervisor: Arc::new(bridge::supervisor::BridgeSupervisor::new()),

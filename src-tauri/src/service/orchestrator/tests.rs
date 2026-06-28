@@ -1,6 +1,38 @@
 use super::*;
 use crate::shell::ShellSyntax;
 
+#[test]
+fn cross_mesh_worker_skips_local_role_assignment() {
+    use crate::multiplexer::types::AgentRole;
+    // Regression: mesh `--role Worker` 500'd via set_pane_role(Worker, None).
+    // A mesh report target + no local parent must skip local role assignment.
+    assert!(skip_local_worker_role(
+        &AgentRole::Worker,
+        None,
+        Some("Mac-Air")
+    ));
+}
+
+#[test]
+fn local_and_orchestrator_roles_keep_local_assignment() {
+    use crate::multiplexer::types::AgentRole;
+    // Locally-parented worker → keep hierarchy.
+    assert!(!skip_local_worker_role(
+        &AgentRole::Worker,
+        Some("parent-pane"),
+        Some("Mac-Air")
+    ));
+    // Worker with no mesh peer (purely local) → keep (and let it error as before).
+    assert!(!skip_local_worker_role(&AgentRole::Worker, None, None));
+    assert!(!skip_local_worker_role(&AgentRole::Worker, None, Some("")));
+    // Orchestrator never needs a parent → never skipped here.
+    assert!(!skip_local_worker_role(
+        &AgentRole::Orchestrator,
+        None,
+        Some("Mac-Air")
+    ));
+}
+
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
         agent: Some(agent.to_string()),
@@ -16,6 +48,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         workspace_id: None,
         force_tab: None,
         report_target_pane_id: None,
+        report_target_mesh_peer: None,
         skip_permissions: None,
         spawned_by_pane_id: None,
         model: None,

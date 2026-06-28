@@ -418,6 +418,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             cwd,
             role,
             parent,
+            report_to,
             can_spawn,
             task,
             task_file,
@@ -458,6 +459,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(p) = parent {
                 body["parent_pane_id"] = serde_json::json!(p);
+            }
+            if let Some(rt) = report_to {
+                body["report_to"] = serde_json::json!(rt);
             }
             if can_spawn {
                 body["can_spawn"] = serde_json::json!(true);

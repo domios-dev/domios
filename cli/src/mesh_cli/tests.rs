@@ -12,6 +12,42 @@ fn update_cmd(action: Option<UpdateAction>, manifest_url: Option<String>) -> Com
 }
 
 #[test]
+fn remote_worker_record_body_builds_from_spawn_request_and_response() {
+    use super::relay::remote_worker_record_body;
+    let spawn_body = serde_json::json!({
+        "agent": "claude",
+        "report_to": "4d479b6c",
+        "role": "Worker",
+        "model": "opus",
+    });
+    let spawn_data = serde_json::json!({
+        "pane_id": "53854ac8",
+        "title": "Canvas Orchestrator",
+    });
+    let reg = remote_worker_record_body("eight", &spawn_body, &spawn_data)
+        .expect("registerable spawn produces a record body");
+    assert_eq!(reg["orchestrator_pane"], "4d479b6c");
+    assert_eq!(reg["peer"], "eight");
+    assert_eq!(reg["remote_pane"], "53854ac8");
+    assert_eq!(reg["title"], "Canvas Orchestrator");
+    assert_eq!(reg["model"], "opus");
+}
+
+#[test]
+fn remote_worker_record_body_skips_without_report_target_or_pane() {
+    use super::relay::remote_worker_record_body;
+    // No report target → nothing to nest under.
+    let no_report = serde_json::json!({"agent": "claude"});
+    let data = serde_json::json!({"pane_id": "p1", "title": "W"});
+    assert!(remote_worker_record_body("eight", &no_report, &data).is_none());
+
+    // Spawn failed (no pane id) → nothing to register.
+    let with_report = serde_json::json!({"report_to": "main"});
+    let no_pane = serde_json::json!({"error": "boom"});
+    assert!(remote_worker_record_body("eight", &with_report, &no_pane).is_none());
+}
+
+#[test]
 fn check_maps_to_get_check() {
     let (m, p, b) = cli_command_to_api(&update_cmd(None, None));
     assert_eq!(m, "GET");

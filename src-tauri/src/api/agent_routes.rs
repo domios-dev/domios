@@ -35,6 +35,13 @@ pub(crate) struct SpawnAgentBody {
     workspace_id: Option<String>,
     force_tab: Option<bool>,
     report_target_pane_id: Option<String>,
+    /// User-facing report target (pane id or `main`/`general` alias). Collapses
+    /// into `report_target_pane_id`; with `origin_peer` it's a pane on that peer.
+    report_to: Option<String>,
+    /// Originating peer, injected by the mesh relay from the authenticated signed
+    /// token (never client-supplied). Present ⇒ this spawn was relayed across the
+    /// mesh and the worker should report back to `report_to` on that peer.
+    origin_peer: Option<String>,
     skip_permissions: Option<bool>,
     /// Pane id of the caller that ran `agent spawn` (CODETERM_PANE_ID).
     /// Recorded on the spawned pane for report routing fallback.
@@ -46,6 +53,75 @@ pub(crate) struct SpawnAgentBody {
     system_prompt: Option<String>,
     preset: Option<String>,
     activate: Option<bool>,
+}
+
+/// Orchestrator-side remote (cross-mesh) workers. `?pane=<id>` filters to one
+/// orchestrator's workers; otherwise returns the full `{ pane_id: [...] }` map.
+pub async fn remote_workers(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let reg = &state.svc.remote_workers;
+    let value = match params.get("pane").filter(|s| !s.is_empty()) {
+        Some(pane) => serde_json::json!(reg.for_orchestrator(pane)),
+        None => serde_json::json!(reg.snapshot()),
+    };
+    Ok(Json(value))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct RecordRemoteWorkerBody {
+    /// Local report-target / orchestrator pane the remote worker reports to
+    /// (pane id or `main`/`general` alias). Resolved the same way as the
+    /// inbound report path so spawn-time and report-time entries share a key.
+    orchestrator_pane: String,
+    /// Paired peer (instance name) the worker runs on.
+    peer: String,
+    /// The worker's pane id on that peer.
+    remote_pane: String,
+    title: Option<String>,
+    model: Option<String>,
+}
+
+/// Register a freshly spawned cross-mesh worker on the origin before its first
+/// report arrives, so the sidebar can ghost it under its orchestrator
+/// immediately. Called by the CLI right after a successful `agent spawn --mesh`.
+pub async fn record_remote_worker(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RecordRemoteWorkerBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if body.peer.trim().is_empty() || body.remote_pane.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "peer and remote_pane required".into(),
+        ));
+    }
+    let orchestrator =
+        resolve_pane(&state, &body.orchestrator_pane).map_err(|(s, m)| (s, m.to_string()))?;
+    let title = body
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(&body.remote_pane);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+    state.svc.remote_workers.record_spawn(
+        &orchestrator,
+        &body.peer,
+        &body.remote_pane,
+        title,
+        body.model.clone(),
+        now_ms,
+    );
+    state.svc.emit_remote_workers_changed(&orchestrator);
+    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 pub async fn spawn_agent(
@@ -71,7 +147,8 @@ pub async fn spawn_agent(
         task: body.task,
         workspace_id: body.workspace_id,
         force_tab: body.force_tab,
-        report_target_pane_id: body.report_target_pane_id,
+        report_target_pane_id: body.report_to.or(body.report_target_pane_id),
+        report_target_mesh_peer: body.origin_peer,
         skip_permissions: body.skip_permissions,
         spawned_by_pane_id: body.spawned_by_pane_id,
         model: body.model,
