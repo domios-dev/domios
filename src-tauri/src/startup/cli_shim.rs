@@ -116,9 +116,10 @@ fn exec_cli(cli_path: PathBuf) -> ! {
 
 #[cfg(windows)]
 fn exec_cli(cli_path: PathBuf) -> ! {
-    let status = std::process::Command::new(&cli_path)
-        .args(std::env::args().skip(1))
-        .status();
+    let mut command = std::process::Command::new(&cli_path);
+    command.args(std::env::args().skip(1));
+    crate::process_util::no_window_std(&mut command);
+    let status = command.status();
     match status {
         Ok(s) => std::process::exit(s.code().unwrap_or(1)),
         Err(e) => {

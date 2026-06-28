@@ -268,10 +268,10 @@ fn terminate_pid(pid: u32) -> Result<(), String> {
 
     #[cfg(windows)]
     {
-        let status = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .status()
-            .map_err(|e| e.to_string())?;
+        let mut command = std::process::Command::new("taskkill");
+        command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        crate::process_util::no_window_std(&mut command);
+        let status = command.status().map_err(|e| e.to_string())?;
         if status.success() {
             Ok(())
         } else {
