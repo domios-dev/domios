@@ -6,7 +6,6 @@ import { isChatDefaultEnabled } from "./lib/chatUiMode";
 import { Titlebar } from "./components/Titlebar/Titlebar";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
-import { NotificationToastContainer } from "./components/Notifications/NotificationToast";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import type { SectionId } from "./components/Settings/sections";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
@@ -496,6 +495,9 @@ function AppInner() {
           onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
           onOpenExtensions={() => { setExtensionsOpen(true); }}
           workspaceCanvasActive={workspaceCanvasVisible}
+          toasts={state.toasts}
+          onDismissToast={dismissToast}
+          onNavigateToast={setFocusedPane}
         />
       )}
       {/* Status-bar scrim: content sliding under the notch fogs into the bg color + a soft blur, fading to clear below. */}
@@ -702,12 +704,6 @@ function AppInner() {
         </div>
       </div>
       </PlansProvider>
-
-      <NotificationToastContainer
-        toasts={state.toasts}
-        onDismiss={dismissToast}
-        onNavigate={setFocusedPane}
-      />
 
       <CommandPalette commands={paletteCommands} />
 
