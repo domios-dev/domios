@@ -61,14 +61,12 @@ pub(super) fn dispatch(
         }
         "plan.heartbeat.set" => {
             let str_list = |key: &str| {
-                body.get(key)
-                    .and_then(|v| v.as_array())
-                    .map(|items| {
-                        items
-                            .iter()
-                            .filter_map(|v| v.as_str().map(str::to_string))
-                            .collect::<Vec<_>>()
-                    })
+                body.get(key).and_then(|v| v.as_array()).map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect::<Vec<_>>()
+                })
             };
             let bool_flag = |key: &str| body.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
             let result = svc

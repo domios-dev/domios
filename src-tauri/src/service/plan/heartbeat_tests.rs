@@ -78,8 +78,14 @@ fn heartbeat_set_writes_focus_lanes_rules_and_reinjects() {
             20,
         )
         .unwrap();
-    assert_eq!(result.heartbeat.current_focus.as_deref(), Some("Land lane fixes"));
-    assert_eq!(result.heartbeat.active_lanes, vec!["lane-a: cli".to_string()]);
+    assert_eq!(
+        result.heartbeat.current_focus.as_deref(),
+        Some("Land lane fixes")
+    );
+    assert_eq!(
+        result.heartbeat.active_lanes,
+        vec!["lane-a: cli".to_string()]
+    );
     assert_eq!(
         result.heartbeat.rules,
         vec!["never merge before gate green".to_string()]
@@ -104,7 +110,10 @@ fn heartbeat_set_writes_focus_lanes_rules_and_reinjects() {
             30,
         )
         .unwrap();
-    assert_eq!(cleared.heartbeat.current_focus.as_deref(), Some("Land lane fixes"));
+    assert_eq!(
+        cleared.heartbeat.current_focus.as_deref(),
+        Some("Land lane fixes")
+    );
     assert!(cleared.heartbeat.active_lanes.is_empty());
     assert_eq!(
         cleared.heartbeat.rules,

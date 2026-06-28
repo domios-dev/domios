@@ -274,7 +274,11 @@ mod tests {
             .get_subcommands()
             .filter(|c| c.get_name() != "help" && !c.is_hide_set())
         {
-            walk(sub, std::slice::from_ref(&root.get_name().to_string()), &mut missing);
+            walk(
+                sub,
+                std::slice::from_ref(&root.get_name().to_string()),
+                &mut missing,
+            );
         }
         assert!(
             missing.is_empty(),

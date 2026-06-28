@@ -242,8 +242,7 @@ impl PlanStore {
         self.with_plan(&plan_id, now_ms, |plan| {
             if let Some(focus) = focus {
                 let focus = focus.trim();
-                plan.heartbeat.current_focus =
-                    (!focus.is_empty()).then(|| focus.to_string());
+                plan.heartbeat.current_focus = (!focus.is_empty()).then(|| focus.to_string());
             }
             if clear_lanes {
                 plan.heartbeat.active_lanes.clear();

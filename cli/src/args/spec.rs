@@ -74,15 +74,9 @@ pub enum SpecSectionAction {
         handle: Option<String>,
     },
     /// Show one spec section's title, body, tags, and subsections
-    Show {
-        spec_id: String,
-        section_id: String,
-    },
+    Show { spec_id: String, section_id: String },
     /// Remove a spec section and its subsections
-    Rm {
-        spec_id: String,
-        section_id: String,
-    },
+    Rm { spec_id: String, section_id: String },
 }
 
 #[derive(Subcommand)]
@@ -108,7 +102,5 @@ pub enum SpecLinkAction {
         plan_section: Option<String>,
     },
     /// List spec-to-plan links for a spec
-    List {
-        spec_id: String,
-    },
+    List { spec_id: String },
 }

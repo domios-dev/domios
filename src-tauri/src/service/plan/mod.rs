@@ -19,8 +19,8 @@ pub mod state;
 pub mod stride_log;
 pub mod tag_model;
 pub mod task_queries;
-pub mod worker_charter;
 pub mod watcher;
+pub mod worker_charter;
 
 #[cfg(test)]
 mod body_file_tests;

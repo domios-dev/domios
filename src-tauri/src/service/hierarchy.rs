@@ -275,7 +275,9 @@ impl ServiceContext {
             return;
         };
         let text = crate::service::plan::reminders::nudge_text(kind);
-        let text = self.plan_store.prepend_worker_charter_for_pane(pane_id, &text);
+        let text = self
+            .plan_store
+            .prepend_worker_charter_for_pane(pane_id, &text);
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
         if crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok() {
             self.plan_turn_counter.mark_nudged(pane_id, turns);
@@ -713,8 +715,7 @@ mod tests {
     #[test]
     fn no_plan_routing_keeps_parent_priority() {
         let (mux, orch, worker) = build_orchestrator_with_worker("Worker-A");
-        let (_from_title, target) =
-            resolve_report_target(&mux, &worker).expect("resolve target");
+        let (_from_title, target) = resolve_report_target(&mux, &worker).expect("resolve target");
         assert_eq!(target, Some(ReportTarget::Local(orch.clone())));
     }
 
