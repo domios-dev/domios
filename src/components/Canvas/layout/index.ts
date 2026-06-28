@@ -23,6 +23,7 @@ export type {
   OwnerGroup,
   WorkspaceLayout,
   IntraPlanLayout,
+  SectionZone,
 } from "./types";
 export { layoutPlanIntra, ownerKeyOf } from "./intraPlan";
 export { packRegions } from "./regionPacking";
@@ -44,9 +45,10 @@ export type { PlanLineageEdge, PlanLineageTarget } from "./lineage";
 export function layoutWorkspace(
   plans: Plan[],
   settings: CanvasLayoutSettings = DEFAULT_CANVAS_SETTINGS,
+  sectionTitles?: ReadonlyMap<string, string>,
 ): WorkspaceLayout {
   const active = plans.filter((p) => p.status === "active");
-  const intra = active.map((p) => layoutPlanIntra(p, settings));
+  const intra = active.map((p) => layoutPlanIntra(p, settings, sectionTitles));
   const packed = packRegions(intra, settings);
   return attachPlanLineage(packed, active, settings);
 }

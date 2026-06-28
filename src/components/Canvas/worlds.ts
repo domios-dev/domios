@@ -73,3 +73,18 @@ export function crispRasterScale(world: World, cameraScale: number): number {
   if (!atLeast(world, "W2") || cameraScale <= CRISP_MIN_SCALE) return 1;
   return Math.max(1, Math.round(cameraScale * 4) / 4);
 }
+
+// §35 reading-size ladder. Under the single camera transform on-screen px =
+// worldFontPx × cameraScale, so a fixed-13px world root balloons text at deep zoom
+// (an H1 hit ~60px at 5×). Instead, at the reading bands (W2/W3) hold the on-screen
+// size near a comfortable target and let overflow SCROLL — never grow the glyphs.
+// The camera is quantized to 0.5 steps so the size is DISCRETE and stable within a
+// band (no continuous reflow); it only re-steps on a real zoom move. Glance bands
+// (W0/W1) keep the world-fixed 13px label layer. Returns the world-px font for the
+// node's em root; the em cascade resizes every child in proportion.
+export const READING_ON_SCREEN_PX = 13;
+export function readingRootFontPx(world: World, cameraScale: number): number {
+  if (!atLeast(world, "W2") || cameraScale <= 1) return READING_ON_SCREEN_PX;
+  const step = Math.max(1, Math.round(cameraScale * 2) / 2);
+  return Math.max(2.5, Math.min(READING_ON_SCREEN_PX, READING_ON_SCREEN_PX / step));
+}

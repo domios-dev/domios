@@ -19,6 +19,8 @@ export interface PresenceSource {
   live: boolean;
   /** Lead label for the W2+ name flag. */
   label: string;
+  /** What it's doing right now (current focus / latest stride) — quiet W2 line. */
+  action?: string | null;
 }
 
 export interface PresenceOverlay {
@@ -26,6 +28,8 @@ export interface PresenceOverlay {
   agents: PresenceAgent[];
   live: boolean;
   label: string;
+  /** What it's doing right now — surfaced as a quiet truncated line at W2. */
+  action: string | null;
   world: World;
   /** Screen-space anchor — the card's top-right corner; the pin straddles it. */
   anchor: { x: number; y: number };
@@ -66,6 +70,7 @@ export function buildPresenceOverlays({
       agents: src.agents,
       live: src.live,
       label: src.label,
+      action: src.action ?? null,
       world: worldByNode.get(taskId) ?? "W0",
       anchor: { x: box.x + box.width, y: box.y },
       apparentWidth: box.width,

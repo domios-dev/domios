@@ -3,6 +3,7 @@
 import type { Plan, Section, Task } from "../types";
 import { DEFAULT_CANVAS_SETTINGS as S } from "../settings";
 import { packCloud, layoutTaskCloud, ACTIVE_CORE_K, GOLDEN_ANGLE, TILE_GAP } from "./taskCloud";
+import { zoneLabelBox } from "./sectionZones";
 import { layoutWorkspace, boxesOverlap } from "./index";
 
 let passed = 0;
@@ -174,6 +175,9 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   const pArea = pn.box.width * pn.box.height;
   const cArea = cn.box.width * cn.box.height;
   ok(`satellite is smaller than its parent (${Math.round(cArea)} < ${Math.round(pArea)})`, cArea < pArea * 0.7);
+  // UX-3: a satellite is smaller, but still LEGIBLE — never below the readable floor
+  // (a 2-line title + glyph row). Old tiny 70×46 dots were the user's complaint.
+  ok(`satellite is legible, not tiny (${cn.box.width}×${cn.box.height} ≥ 140×84)`, cn.box.width >= 140 && cn.box.height >= 84);
 
   // Satellites swarm AROUND the parent: each child center sits close to the parent
   // center (within the local cluster), never flung across the disk.
@@ -241,6 +245,74 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   const w = Math.max(...xs) - Math.min(...xs);
   const h = Math.max(...ys) - Math.min(...ys);
   ok(`task fan is balanced (aspect ${(w / h).toFixed(2)} in [0.5,1.8])`, w / h > 0.5 && w / h < 1.8);
+}
+
+// ── section grouping: same-section tasks cluster + one group per section ──
+{
+  const sections = [section("s0"), section("s1"), section("s2")];
+  const tasks: Task[] = [];
+  for (let s = 0; s < 3; s++)
+    for (let i = 0; i < 6; i++)
+      tasks.push(task(`s${s}_t${i}`, { section_ids: [`s${s}`], created_at: s * 10 + i }));
+  const cloud = layoutTaskCloud(plan(tasks, sections), S, new Map());
+  ok("one group per non-empty section", cloud.groups.length === 3);
+  ok("groups carry all member boxes", cloud.groups.every((g) => g.boxes.length === 6));
+
+  // Sunburst cohesion: each section is a contiguous ANGULAR WEDGE. Sorting every task
+  // by its angle from the fan origin yields exactly one run per section (no two
+  // sections interleave in angle) — the puzzle-wedge guarantee.
+  const centerOf = (id: string) => {
+    const n = cloud.nodes.find((x) => x.id === id)!;
+    return { x: n.box.x + n.box.width / 2, y: n.box.y + n.box.height / 2 };
+  };
+  const groupCentroid = (s: number) => {
+    const cs = Array.from({ length: 6 }, (_, i) => centerOf(`s${s}_t${i}`));
+    return { x: cs.reduce((a, c) => a + c.x, 0) / 6, y: cs.reduce((a, c) => a + c.y, 0) / 6 };
+  };
+  // Cohesive BLOBS: every task sits nearer its OWN section's centroid than any other's.
+  const centroids = [0, 1, 2].map(groupCentroid);
+  let cohesive = true;
+  for (let s = 0; s < 3; s++)
+    for (let i = 0; i < 6; i++) {
+      const c = centerOf(`s${s}_t${i}`);
+      const own = Math.hypot(c.x - centroids[s].x, c.y - centroids[s].y);
+      for (let o = 0; o < 3; o++)
+        if (o !== s && Math.hypot(c.x - centroids[o].x, c.y - centroids[o].y) <= own) cohesive = false;
+    }
+  ok("each task is closest to its own section's centroid (cohesive blobs)", cohesive);
+}
+
+// ── label tile is RESERVED in the pack: no card overlaps the region name box ──
+{
+  const sections = [section("s0"), section("s1")];
+  const tasks: Task[] = [];
+  for (let s = 0; s < 2; s++)
+    for (let i = 0; i < 8; i++)
+      tasks.push(task(`s${s}_t${i}`, { section_ids: [`s${s}`], created_at: s * 10 + i }));
+  const cloud = layoutTaskCloud(plan(tasks, sections), S, new Map());
+  let anchored = 0;
+  let clean = true;
+  for (const g of cloud.groups) {
+    if (!g.labelAnchor) continue;
+    anchored++;
+    const title = sections.find((s) => s.id === g.sectionId)?.title ?? "";
+    const lbox = zoneLabelBox(title);
+    const lb = { x: g.labelAnchor.x - lbox.width / 2, y: g.labelAnchor.y - lbox.height / 2, width: lbox.width, height: lbox.height };
+    for (const b of g.boxes) if (boxesOverlap(b, lb)) clean = false;
+  }
+  ok("every named section reserves a label anchor", anchored === 2);
+  ok("no task overlaps its region's reserved (title-sized) label box", clean);
+
+  // The reserved tile sizes to the TITLE: a long title reserves a wider/taller box.
+  const longTitle = "Worlds & content-LOD plus a deliberately long section title";
+  ok("long title → larger label box than a short one", zoneLabelBox(longTitle).width > zoneLabelBox("Tests").width);
+}
+
+// ── unsectioned tasks form one neutral group ─────────────────────────
+{
+  const cloud = layoutTaskCloud(plan(Array.from({ length: 10 }, (_, i) => task(`u${i}`, { created_at: i }))), S, new Map());
+  ok("no-section tasks → exactly one group", cloud.groups.length === 1);
+  ok("the lone group is the UNSECTIONED group", cloud.groups[0].sectionId === "__unsectioned__");
 }
 
 // ── full layout determinism ──────────────────────────────────────────

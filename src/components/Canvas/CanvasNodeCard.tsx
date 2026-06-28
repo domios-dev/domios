@@ -1,6 +1,6 @@
 import { Fragment, memo } from "react";
 import type { CanvasLod } from "./cards";
-import { getNodeRenderer, type SectionNavArgs } from "./nodeRegistry";
+import { getNodeDetailRenderer, getNodeRenderer, type SectionNavArgs } from "./nodeRegistry";
 import type { LaidOutNode } from "./layout";
 import type { World } from "./worlds";
 
@@ -13,6 +13,7 @@ interface CanvasNodeCardProps {
   elevated?: boolean;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
+  onExpand?: (nodeId: string) => void;
   onArchive?: () => void;
   onFitNode?: (nodeId: string) => void;
   onCopyLink?: (id: string) => void;
@@ -25,6 +26,8 @@ interface CanvasNodeCardProps {
   richOverlay?: boolean;
   lightweightWorld?: boolean;
   fillParent?: boolean;
+  /** Render full READ content (detail surface) rather than the schematic map face. */
+  detail?: boolean;
 }
 
 function nodeStyle(box: { x: number; y: number; width: number; height?: number }) {
@@ -38,7 +41,7 @@ function nodeStyle(box: { x: number; y: number; width: number; height?: number }
 }
 
 export const CanvasNodeCard = memo(
-  function CanvasNodeCard({ node, model, lod, world, crispScale, elevated, onOpenPane, onHoverTask, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay, lightweightWorld, fillParent }: CanvasNodeCardProps) {
+  function CanvasNodeCard({ node, model, lod, world, crispScale, elevated, onOpenPane, onHoverTask, onExpand, onArchive, onFitNode, onCopyLink, onFocusStride, onSectionClick, onSectionFrame, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay, lightweightWorld, fillParent, detail }: CanvasNodeCardProps) {
     const base = fillParent
       ? { position: "absolute" as const, left: 0, top: 0, width: "100%", height: "100%" }
       : nodeStyle(node.box);
@@ -46,7 +49,10 @@ export const CanvasNodeCard = memo(
       elevated
         ? { ...base, zIndex: 20, filter: "drop-shadow(0 18px 40px rgba(0,0,0,0.55))", transition: "filter var(--ct-duration-normal) var(--ct-ease-decel)" }
         : base;
-    const rendered = getNodeRenderer(node.kind)({
+    // In the detail surface a plugin may supply a dedicated READ renderer; else the
+    // map renderer paints at full size (default). Map face always uses getNodeRenderer.
+    const renderer = (detail && getNodeDetailRenderer(node.kind)) || getNodeRenderer(node.kind);
+    const rendered = renderer({
       node,
       model,
       style,
@@ -55,6 +61,7 @@ export const CanvasNodeCard = memo(
       crispScale,
       onOpenPane,
       onHoverTask,
+      onExpand,
       onArchive,
       onFitNode,
       onCopyLink,
@@ -67,6 +74,7 @@ export const CanvasNodeCard = memo(
       suppressRichContent,
       richOverlay,
       lightweightWorld,
+      detail,
     });
     return rendered ? <Fragment key={node.id}>{rendered}</Fragment> : null;
   },
@@ -82,6 +90,7 @@ export const CanvasNodeCard = memo(
     if (prev.richOverlay !== next.richOverlay) return false;
     if (prev.lightweightWorld !== next.lightweightWorld) return false;
     if (prev.fillParent !== next.fillParent) return false;
+    if (prev.detail !== next.detail) return false;
     if (prev.model !== next.model) return false;
     const a = prev.node.box;
     const b = next.node.box;

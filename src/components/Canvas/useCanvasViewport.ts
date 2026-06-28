@@ -60,6 +60,11 @@ const LINE_PX = 16;
 // immediate/Figma-like; the exponential keeps it smooth. Pan path is unchanged.
 export const CANVAS_ZOOM_INTENSITY = 0.004;
 const ZOOM_INTENSITY = CANVAS_ZOOM_INTENSITY;
+// The layer transform paints every rAF (smooth 60fps camera); the React state
+// commit that drives viewport-derived memos (culling/overlays/LOD) is throttled
+// to ~15fps during a continuous gesture, with a trailing commit so culling
+// settles exactly at gesture end. Decouples scene re-render from frame rate.
+const STATE_COMMIT_THROTTLE_MS = 66;
 
 export function formatLayerTransform(t: ViewportTransform): string {
   return `translate(${t.x}px, ${t.y}px) scale(${t.scale})`;
@@ -108,6 +113,14 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
   const frameRef = useRef<number | null>(null);
   const pendingRef = useRef<ViewportTransform | null>(null);
   const animRef = useRef<number | null>(null);
+  // Throttle bookkeeping for the React state commit (see STATE_COMMIT_THROTTLE_MS).
+  const lastStateTsRef = useRef(0);
+  const trailRef = useRef<number | null>(null);
+  // §35 scroll-trap escape state: the scroll-body currently caught at its boundary
+  // and whether it has already broken free to canvas pan, plus the timestamp of the
+  // last wheel tick (to tell a fresh deliberate gesture from a momentum-fling tail).
+  const boundaryArmRef = useRef<{ el: HTMLElement; released: boolean } | null>(null);
+  const lastWheelTsRef = useRef(0);
 
   // Stop any in-flight fly-to. Called whenever the user takes the wheel — a fly
   // must yield to direct manipulation instantly, never fight the pointer.
@@ -123,6 +136,11 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
   const commit = useCallback((next: ViewportTransform) => {
     transformRef.current = next;
     paintLayer(layerRef.current, next);
+    if (trailRef.current != null) {
+      clearTimeout(trailRef.current);
+      trailRef.current = null;
+    }
+    lastStateTsRef.current = performance.now();
     setTransformState(next);
   }, []);
 
@@ -141,7 +159,25 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
       frameRef.current = null;
       const pending = pendingRef.current;
       pendingRef.current = null;
-      if (pending) setTransformState(pending);
+      if (!pending) return;
+      // Camera is already painted to the layer; throttle the React commit that
+      // drives culling/overlays. A trailing timeout guarantees the visible set
+      // settles on the final transform once the gesture stops.
+      const now = performance.now();
+      if (now - lastStateTsRef.current >= STATE_COMMIT_THROTTLE_MS) {
+        if (trailRef.current != null) {
+          clearTimeout(trailRef.current);
+          trailRef.current = null;
+        }
+        lastStateTsRef.current = now;
+        setTransformState(pending);
+      } else if (trailRef.current == null) {
+        trailRef.current = window.setTimeout(() => {
+          trailRef.current = null;
+          lastStateTsRef.current = performance.now();
+          setTransformState(transformRef.current);
+        }, STATE_COMMIT_THROTTLE_MS);
+      }
     });
   }, [cancelAnim]);
 
@@ -238,11 +274,43 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
       }
       const dx = pixelDelta(e.deltaX, e.deltaMode);
       const dy = pixelDelta(e.deltaY, e.deltaMode);
-      // §24.2: a node body owns the wheel while hovered — scroll ONLY that node,
-      // NEVER hand off to canvas pan (no boundary-release). To pan, move OFF the
-      // node. The marker only exists when the body is showing (content-LOD near).
-      const body = (e.target as HTMLElement | null)?.closest?.("[data-canvas-scroll-body]");
-      if (body) return; // native-scroll the node; no preventDefault, no pan
+      const gap = e.timeStamp - lastWheelTsRef.current;
+      lastWheelTsRef.current = e.timeStamp;
+      const newGesture = gap > 220; // a deliberate re-scroll, not a momentum tail
+      // §35 scroll-trap escape: a node body owns the VERTICAL wheel while it can still
+      // scroll that way. When it hits the top/bottom boundary the first ticks are
+      // ABSORBED (a rubber-band beat — content "catches" at the edge); only the NEXT
+      // deliberate scroll in that direction breaks free to canvas pan. A sideways
+      // (horizontal-dominant) wheel always pans — a second exit hatch. Pinch/⌘-zoom
+      // (handled above) is never trapped.
+      const body = (e.target as HTMLElement | null)?.closest?.("[data-canvas-scroll-body]") as HTMLElement | null;
+      const sideways = Math.abs(dx) > Math.abs(dy);
+      if (body && !sideways) {
+        const canScroll = body.scrollHeight - body.clientHeight > 1;
+        const dir = Math.sign(dy);
+        const atBoundary =
+          (dir < 0 && body.scrollTop <= 0) ||
+          (dir > 0 && body.scrollTop + body.clientHeight >= body.scrollHeight - 1);
+        if (canScroll && !atBoundary) {
+          boundaryArmRef.current = null; // scrolling within content → disarm
+          return; // node native-scrolls; no pan
+        }
+        if (canScroll && atBoundary) {
+          const arm = boundaryArmRef.current;
+          if (arm?.el === body && arm.released) {
+            // already broke free → keep panning the canvas (no stutter / re-arm)
+          } else if (arm?.el === body && newGesture) {
+            boundaryArmRef.current = { el: body, released: true }; // fresh scroll → release
+          } else {
+            boundaryArmRef.current = { el: body, released: false }; // rubber-band beat
+            e.preventDefault();
+            return;
+          }
+        }
+        // a non-scrollable body falls through to canvas pan immediately
+      } else {
+        boundaryArmRef.current = null;
+      }
       e.preventDefault();
       const t = transformRef.current;
       schedule({ ...t, x: t.x - dx, y: t.y - dy });
@@ -304,6 +372,10 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
       if (frameRef.current != null) {
         cancelAnimationFrame(frameRef.current);
         frameRef.current = null;
+      }
+      if (trailRef.current != null) {
+        clearTimeout(trailRef.current);
+        trailRef.current = null;
       }
     };
   }, [isDragging, schedule]);

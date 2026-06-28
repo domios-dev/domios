@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import type { CanvasLod } from "./cards";
 import { CanvasNodeCard } from "./CanvasNodeCard";
 import type { LaidOutNode } from "./layout";
@@ -35,7 +35,7 @@ function overlayStyle(rect: OverlayNode["screenRect"]) {
   };
 }
 
-export function CanvasRichOverlayLayer({
+export const CanvasRichOverlayLayer = memo(function CanvasRichOverlayLayer({
   overlays,
   nodeById,
   resolveModel,
@@ -95,4 +95,4 @@ export function CanvasRichOverlayLayer({
       ))}
     </div>
   );
-}
+});

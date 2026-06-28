@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { CanvasNodeCard } from "./CanvasNodeCard";
 import type { CanvasLod } from "./cards";
 import type { LaidOutNode } from "./layout";
@@ -14,6 +15,7 @@ export interface CanvasWorldNodeListProps {
   resolveModel: (node: LaidOutNode) => unknown;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
+  onExpand?: (nodeId: string) => void;
   onArchive?: (planId: string) => void;
   onFitNode?: (nodeId: string) => void;
   onCopyLink?: (id: string) => void;
@@ -24,7 +26,7 @@ export interface CanvasWorldNodeListProps {
   tagFilterMatchIds: Set<string> | null;
 }
 
-export function CanvasWorldNodeList({
+export const CanvasWorldNodeList = memo(function CanvasWorldNodeList({
   nodes,
   lod,
   worldByNode,
@@ -34,6 +36,7 @@ export function CanvasWorldNodeList({
   resolveModel,
   onOpenPane,
   onHoverTask,
+  onExpand,
   onArchive,
   onFitNode,
   onCopyLink,
@@ -60,6 +63,7 @@ export function CanvasWorldNodeList({
             elevated={dominantNodeId != null && n.id === dominantNodeId}
             onOpenPane={onOpenPane}
             onHoverTask={onHoverTask}
+            onExpand={onExpand}
             onArchive={n.kind === "plan" && onArchive ? () => onArchive(n.id) : undefined}
             onFitNode={n.kind === "plan" ? onFitNode : undefined}
             onCopyLink={onCopyLink}
@@ -75,4 +79,4 @@ export function CanvasWorldNodeList({
       })}
     </>
   );
-}
+});

@@ -41,10 +41,6 @@ function isVisible(el: Element | null): boolean {
   return true;
 }
 
-function taskWithStrides() {
-  return { ...FIXTURE_TASK, milestones: [FIXTURE_MILESTONE] };
-}
-
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const window = new Window({ url: "http://localhost/canvas-cards" });
@@ -187,12 +183,12 @@ test("SPEC SectionNode: titles far (index), full body prose on zoom (content-LOD
 test("TaskCard subtasks: parent shows done/total count; child shows parent name", async () => {
   const parent = { ...FIXTURE_TASK, id: "task_parent", name: "Epic parent" };
   const child = { ...FIXTURE_TASK, id: "task_child", name: "Subtask", parent_task_id: "task_parent" };
-  const parentCard = await render(<TaskCard task={parent} childCount={3} childDone={1} style={cardStyle} world="W3" />);
+  const parentCard = await render(<TaskCard task={parent} childCount={3} childDone={1} style={cardStyle} world="W3" detail />);
   const count = parentCard.host.querySelector('[data-testid="canvas-task-subtask-count"]');
   assert(count?.textContent?.includes("1/3"), `expected 1/3 subtask progress, got ${count?.textContent}`);
   await act(async () => parentCard.root.unmount());
 
-  const childCard = await render(<TaskCard task={child} parentTaskName="Epic parent" style={cardStyle} world="W3" />);
+  const childCard = await render(<TaskCard task={child} parentTaskName="Epic parent" style={cardStyle} world="W3" detail />);
   const parentBadge = childCard.host.querySelector('[data-testid="canvas-task-parent"]');
   assert(parentBadge?.textContent?.includes("Epic parent"), `parent badge missing, got ${parentBadge?.textContent}`);
   await act(async () => childCard.root.unmount());
@@ -201,16 +197,18 @@ test("TaskCard subtasks: parent shows done/total count; child shows parent name"
 test("TaskCard freshness: compact relative stamp from status/updated time", async () => {
   const now = Date.now();
   const fresh = { ...FIXTURE_TASK, status_changed_at: now - 5 * 60_000 };
-  const { host, root } = await render(<TaskCard task={fresh} style={cardStyle} world="W3" />);
+  const { host, root } = await render(<TaskCard task={fresh} style={cardStyle} world="W3" detail />);
   const el = host.querySelector('[data-testid="canvas-task-freshness"]');
   assert(el, "freshness counter rendered");
   assert(el.textContent?.includes("5m"), `expected 5m freshness, got ${el.textContent}`);
   assert((el.querySelector("span") as HTMLElement | null)?.title?.length, "absolute time title present");
   await act(async () => root.unmount());
 
+  // UX-1: freshness is a READ-surface (W3) detail — the schematic glance face (W0)
+  // shows identity (title + status), not the timestamp counter.
   const far = await render(<TaskCard task={fresh} style={cardStyle} world="W0" />);
-  const farEl = far.host.querySelector('[data-testid="canvas-task-freshness"]');
-  assert(farEl?.textContent?.includes("5m"), `expected W0 freshness, got ${farEl?.textContent}`);
+  assert(!far.host.querySelector('[data-testid="canvas-task-freshness"]'), "freshness off the schematic glance face");
+  assert(far.host.querySelector('[data-testid="canvas-task-name"]'), "W0 still shows the title");
   await act(async () => far.root.unmount());
 });
 
@@ -221,7 +219,7 @@ test("TaskCard freshness: absent when no timestamp fields", async () => {
 });
 
 test("TaskCard (near/full): name, model chip, status, and markdown body", async () => {
-  const { host, root } = await render(<TaskCard task={FIXTURE_TASK} style={cardStyle} world="W3" />);
+  const { host, root } = await render(<TaskCard task={FIXTURE_TASK} style={cardStyle} world="W3" detail />);
   assert(host.querySelector('[data-testid="canvas-task-name"]')?.textContent === "Dante", "task name");
   assert(host.querySelector('[data-testid="canvas-task-model"]')?.textContent === "claude:opus", "model chip");
   assert(host.querySelector('[data-testid="canvas-task-status"]')?.textContent === "90% done", "status label");
@@ -233,7 +231,7 @@ test("TaskCard pane link chip appears for assigned tasks and fires onOpenPane", 
   let opened: string | null = null;
   const assigned = { ...FIXTURE_TASK, assigned_pane_id: "pane-42" };
   const { host, root } = await render(
-    <TaskCard task={assigned} style={cardStyle} world="W3" onOpenPane={(id) => (opened = id)} />,
+    <TaskCard task={assigned} style={cardStyle} world="W3" detail onOpenPane={(id) => (opened = id)} />,
   );
   const chip = host.querySelector('[data-testid="canvas-task-pane-link"]') as HTMLButtonElement;
   assert(chip, "pane link chip rendered");
@@ -270,6 +268,7 @@ test("TaskCard presence marker shows assignee focus and latest stride", async ()
       }}
       style={cardStyle}
       world="W3"
+      detail
     />,
   );
   const marker = host.querySelector('[data-testid="canvas-task-presence"]') as HTMLElement | null;
@@ -304,79 +303,99 @@ test("TaskCard drift badge renders actionable, muted not_mine, and absent states
   await act(async () => muted.root.unmount());
 });
 
-test("TaskCard content-LOD: compact far (name+status, no body) → full near (body)", async () => {
+test("TaskCard content-LOD: schematic map face (name+status glyphs, no body) → full READ at W3 (body)", async () => {
+  // UX-1: the MAP face (W0-W2) is schematic — title + a tight glyph row (status etc.),
+  // never the body or the tag cloud. Full body + facet chips live in the READ band (W3).
   const far = await render(<TaskCard task={FIXTURE_TASK} tagFacets={[...FIXTURE_TAG_FACETS]} style={cardStyle} world="W0" />);
   assert(far.host.querySelector('[data-testid="canvas-task-name"]'), "name present far");
   assert(far.host.querySelector('[data-testid="canvas-task-status"]'), "status present far");
-  assert(!far.host.querySelector('[data-testid="canvas-task-body"]'), "no full body far (compact)");
-  assert(far.host.querySelector('[data-testid="canvas-task-tile-tags"]'), "tile tag payload far");
-  assert(!far.host.querySelector('[data-testid="canvas-task-digest"]'), "digest hidden when tags substitute body");
-  assert(far.host.querySelector('[data-testid="canvas-task-primary-facet"]')?.textContent?.includes("Navigation"), "primary facet chip far");
+  assert(far.host.querySelector('[data-testid="canvas-task-schematic"]'), "schematic face on the map band");
+  assert(far.host.querySelector('[data-testid="canvas-task-glyphs"]'), "tight glyph row on the map band");
+  assert(!far.host.querySelector('[data-testid="canvas-task-body"]'), "no full body far (schematic)");
+  assert(!far.host.querySelector('[data-testid="canvas-task-tile-tags"]'), "no tag cloud on the schematic face");
   await act(async () => far.root.unmount());
 
-  const near = await render(<TaskCard task={FIXTURE_TASK} tagFacets={[...FIXTURE_TAG_FACETS]} style={cardStyle} world="W3" />);
-  assert(near.host.querySelector('[data-testid="canvas-task-body"]'), "body present near (full)");
+  const near = await render(<TaskCard task={FIXTURE_TASK} tagFacets={[...FIXTURE_TAG_FACETS]} style={cardStyle} world="W3" detail />);
+  assert(near.host.querySelector('[data-testid="canvas-task-body"]'), "body present near (full READ)");
   assert(near.host.querySelectorAll('[data-testid="canvas-task-tag-facet"]').length >= 1, "facet chips in meta band near");
   await act(async () => near.root.unmount());
 });
 
-test("TaskCard §24.4 zoom-drill: W0/W1 stay compact — body slot hidden, no click state", async () => {
-  const task = { ...FIXTURE_TASK, intent: "Ship the login flow safely." };
-  for (const world of ["W0", "W1"] as const) {
+test("TaskCard UX-1: map bands (W0/W1/W2) are schematic — title + glyph row, no body/intent/strides", async () => {
+  const task = { ...FIXTURE_TASK, intent: "Ship the login flow safely.", milestones: [FIXTURE_MILESTONE] };
+  for (const world of ["W0", "W1", "W2"] as const) {
     const { host, root } = await render(<TaskCard task={task} style={cardStyle} world={world} />);
+    assert(host.querySelector('[data-testid="canvas-task-schematic"]'), `${world} renders the schematic face`);
+    assert(host.querySelector('[data-testid="canvas-task-name"]'), `${world} keeps the title`);
     assert(host.querySelector('[data-testid="canvas-task-status"]'), `${world} keeps status visible`);
-    assert(!host.querySelector('[data-testid="canvas-task-body"]'), `${world} has no W2+ body testid`);
-    const bodySlot = host.querySelector('[data-testid="canvas-task-body-slot"]');
-    assert(bodySlot?.getAttribute("data-visible") === "false", `${world} body slot reserved but not revealed`);
-    assert(!isVisible(host.querySelector('[data-testid="canvas-task-intent"]')), `${world} intent not painted yet`);
-    assert(!host.querySelector('[data-testid="canvas-task-full-body"]'), `${world} no unclamped body band`);
+    assert(!host.querySelector('[data-testid="canvas-task-body"]'), `${world} has no body on the map face`);
+    assert(!host.querySelector('[data-testid="canvas-task-full-body"]'), `${world} no full body band`);
+    assert(!host.querySelector('[data-testid="canvas-task-intent"]'), `${world} no intent block on the map face`);
+    assert(!host.querySelector('[data-testid="canvas-task-steps"]'), `${world} no stride snake on the map face`);
     await act(async () => root.unmount());
   }
 });
 
-test("TaskCard §24.4 zoom-drill: W2 reveals clamped body + intent; W3 adds full body and rationale", async () => {
+test("TaskCard UX-1: W1+ shows a one-line description + an expand affordance routing to READ", async () => {
+  const task = { ...FIXTURE_TASK, intent: "Ship the login flow safely." };
+  let expanded: string | null = null;
+  const { host, root } = await render(<TaskCard task={task} style={cardStyle} world="W2" onExpand={(id) => (expanded = id)} />);
+  const desc = host.querySelector('[data-testid="canvas-task-desc"]');
+  assert(desc?.textContent?.includes("Ship the login flow safely."), "one-line description on the schematic face");
+  const expand = host.querySelector('[data-testid="canvas-task-expand"]') as HTMLButtonElement | null;
+  assert(expand, "expand affordance present at W2");
+  expand!.click();
+  assert(expanded === task.id, "expand routes to the READ path with the task id");
+  await act(async () => root.unmount());
+});
+
+test("TaskCard §24.4: W3 is the READ surface — full body, rationale, and bloomed strides", async () => {
   const task = {
     ...FIXTURE_TASK,
     intent: "Ship the login flow safely.",
     body: "Implement the **login** endpoint with OAuth redirect.",
+    milestones: [FIXTURE_MILESTONE],
   };
-  const w2 = await render(<TaskCard task={task} style={cardStyle} world="W2" />);
-  const w2Body = w2.host.querySelector('[data-testid="canvas-task-body"]');
-  assert(w2Body?.getAttribute("data-visible") === "true", "W2 body slot revealed");
-  assert(isVisible(w2Body), "W2 body visible without interaction");
-  assert(isVisible(w2.host.querySelector('[data-testid="canvas-task-intent"]')), "W2 intent visible");
-  assert(w2.host.querySelector('[data-testid="canvas-task-body-preview"]'), "W2 uses clamped preview, not full-body testid");
-  assert(!w2.host.querySelector('[data-testid="canvas-task-why"]'), "model rationale waits for W3");
-  await act(async () => w2.root.unmount());
-
-  const w3 = await render(<TaskCard task={task} style={cardStyle} world="W3" />);
+  const w3 = await render(<TaskCard task={task} style={cardStyle} world="W3" detail />);
   assert(isVisible(w3.host.querySelector('[data-testid="canvas-task-full-body"]')), "W3 full body visible");
   assert(w3.host.textContent?.includes("Ship the login flow safely."), "W3 intent text painted");
   assert(w3.host.textContent?.includes("Complex auth logic needs a strong model."), "W3 model rationale painted");
+  const steps = w3.host.querySelector('[data-testid="canvas-task-steps"]');
+  assert(steps && steps.getAttribute("data-step-mode") === "bloom", `W3 strides bloom, got ${steps?.getAttribute("data-step-mode")}`);
   await act(async () => w3.root.unmount());
 });
 
-test("TaskCard §24.4 zoom-drill: stride snake deepens by world band (no click)", async () => {
-  const task = taskWithStrides();
-  const modes: Record<string, string> = {};
-  for (const world of ["W0", "W1", "W2", "W3"] as const) {
-    const { host, root } = await render(<TaskCard task={task} style={cardStyle} world={world} />);
-    const steps = host.querySelector('[data-testid="canvas-task-steps"]');
-    assert(steps, `${world} renders stride lane`);
-    modes[world] = steps!.getAttribute("data-step-mode") ?? "";
-    assert(isVisible(steps), `${world} stride lane visible without click`);
-    await act(async () => root.unmount());
-  }
-  assert(modes.W0 === "constellation", `W0 constellation, got ${modes.W0}`);
-  assert(modes.W1 === "thread", `W1 thread, got ${modes.W1}`);
-  assert(modes.W2 === "cards", `W2 cards, got ${modes.W2}`);
-  assert(modes.W3 === "bloom", `W3 bloom, got ${modes.W3}`);
+test("TaskCard detail: enriched fields — acceptance, test plan, correctness, links", async () => {
+  const task = {
+    ...FIXTURE_TASK,
+    body: "Body.",
+    acceptance_criteria: ["Cards schematic", "Titles fit"],
+    test_plan: "tsc + canvas tests + screenshots",
+    correctness: "Map and Read surfaces cleanly separated; behavior preserved.",
+    links: ["https://example.com/spec", "PR #42"],
+    milestones: [{ ...FIXTURE_MILESTONE, links: ["https://example.com/stride-link"] }],
+  };
+  const { host, root } = await render(<TaskCard task={task} style={cardStyle} world="W3" detail />);
+  assert(host.querySelector('[data-testid="canvas-task-acceptance"]')?.textContent?.includes("Cards schematic"), "acceptance in detail");
+  assert(host.querySelector('[data-testid="canvas-task-test-plan"]')?.textContent?.includes("tsc + canvas"), "test plan in detail");
+  assert(host.querySelector('[data-testid="canvas-task-correctness"]')?.textContent?.includes("cleanly separated"), "correctness in detail");
+  const links = host.querySelector('[data-testid="canvas-task-links"]');
+  assert(links?.textContent?.includes("example.com/spec"), "task link in detail");
+  assert(links?.textContent?.includes("stride-link"), "milestone link aggregated into detail");
+  // None of these structured fields leak onto the schematic map face.
+  const map = await render(<TaskCard task={task} style={cardStyle} world="W2" />);
+  assert(!map.host.querySelector('[data-testid="canvas-task-correctness"]'), "correctness stays off the map face");
+  assert(!map.host.querySelector('[data-testid="canvas-task-links"]'), "links stay off the map face");
+  await act(async () => { root.unmount(); map.root.unmount(); });
 });
 
-test("TaskCard primary facet tints left border accent", async () => {
+test("TaskCard: no one-sided left rail (section identity is a card-wide tint, not a stray edge)", async () => {
   const { host, root } = await render(<TaskCard task={FIXTURE_TASK} tagFacets={[...FIXTURE_TAG_FACETS]} style={cardStyle} world="W1" />);
   const card = host.querySelector('[data-testid="canvas-task-card"]') as HTMLElement | null;
-  assert(card?.style.borderLeftColor === "rgba(99, 102, 241, 0.95)", `primary facet border accent, got: ${card?.getAttribute("style")}`);
+  // The facet/priority left-border accent is gone — a one-sided border read as broken.
+  // (The faint full-card section tint is a color-mix bg, verified visually, not here —
+  // happy-dom drops color-mix from parsed styles.)
+  assert(card?.style.borderLeftColor !== "rgba(99, 102, 241, 0.95)", `no facet left rail, got: ${card?.getAttribute("style")}`);
   await act(async () => root.unmount());
 });
 

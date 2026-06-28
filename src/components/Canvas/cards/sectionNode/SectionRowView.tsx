@@ -2,6 +2,8 @@ import { Copy, Crosshair } from "lucide-react";
 import { atLeast, type World } from "../../worlds";
 import { type SectionRow } from "../../sectionRows";
 import type { SectionNavArgs } from "../../nodeRegistry";
+import type { PresenceAgent } from "../../presence/identity";
+import { AgentStack } from "../../presence/AgentCircle";
 import { digestMarkdown } from "../digest";
 import { GLYPH, SectionMarkdownBody, copyText, smallBtn } from "./shared";
 import { SpecRefBubbles, type SpecRef } from "./SpecRefBubbles";
@@ -12,9 +14,10 @@ import { SpecRefBubbles, type SpecRef } from "./SpecRefBubbles";
 // section adds spec-reference bubbles naming the spec it derives from. SPEC keeps a
 // 1-line abstract at W1. §32.7: single-click highlights connected tasks; double-
 // click / target frames them; copy-id yanks the id. All camera motion is user-led.
-export function SectionRowView({ row, variant, world, planId, specRefs, onSectionClick, onSectionFrame, suppressRichContent = false, stretchEmpty = true }: {
+export function SectionRowView({ row, variant, world, planId, specRefs, liveAgents, onSectionClick, onSectionFrame, suppressRichContent = false, stretchEmpty = true }: {
   row: SectionRow; variant: "plan" | "spec"; world: World; planId: string;
   specRefs?: SpecRef[];
+  liveAgents?: PresenceAgent[];
   onSectionClick?: (a: SectionNavArgs) => void; onSectionFrame?: (a: SectionNavArgs) => void;
   suppressRichContent?: boolean; stretchEmpty?: boolean;
 }) {
@@ -38,6 +41,10 @@ export function SectionRowView({ row, variant, world, planId, specRefs, onSectio
   const grow = showBody || showAbstract || showTags || showSpecRefs;
   const nav: SectionNavArgs = { planId, sectionId: row.section.id, variant };
   const showActions = atLeast(world, "W2");
+  // §liveness: who is working THIS section right now (live task→section roll-up). Quiet,
+  // plan-only, live-only; click jumps to the section's live work (records a nav hop).
+  const liveCount = liveAgents?.length ?? 0;
+  const showAgents = isPlan && liveCount > 0 && atLeast(world, "W1");
 
   return (
     <div
@@ -68,6 +75,20 @@ export function SectionRowView({ row, variant, world, planId, specRefs, onSectio
         <span data-canvas-selectable className="ct-canvas-title ct-canvas-text" style={{ flex: 1, minWidth: 0, fontSize: heading ? "0.94em" : "0.84em", fontWeight: heading ? 700 : row.glyph === "uncovered" ? 600 : 500, letterSpacing: heading ? "-0.01em" : undefined, ...(wrapTitle ? { whiteSpace: "normal", wordBreak: "break-word" } : { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }) }}>
           {row.section.title}
         </span>
+        {showAgents && (
+          <button
+            type="button"
+            data-testid="canvas-section-agents"
+            data-agent-count={liveCount}
+            title={`Working now: ${liveAgents!.map((a) => a.label).join(", ")} — jump to the work`}
+            onClick={(e) => { e.stopPropagation(); onSectionFrame?.(nav); }}
+            onMouseDown={(e) => e.stopPropagation()}
+            style={{ display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0, border: "none", background: "transparent", padding: 0, cursor: onSectionFrame ? "pointer" : "default" }}
+          >
+            <AgentStack agents={liveAgents!} size={14} max={3} live />
+            {liveCount > 1 && <span style={{ fontSize: "0.62em", fontFamily: "var(--ct-font-mono)", fontWeight: 700, opacity: 0.8 }}>{liveCount}</span>}
+          </button>
+        )}
         {isPlan && <span data-testid="canvas-plan-row-count" style={{ flexShrink: 0, fontSize: "0.68em", fontFamily: "var(--ct-font-mono)", fontWeight: 600, opacity: 0.7, paddingRight: showActions ? 0 : 8 }}>{row.taskCount}</span>}
         {showActions && (
           <span style={{ display: "inline-flex", gap: 4, flexShrink: 0 }}>

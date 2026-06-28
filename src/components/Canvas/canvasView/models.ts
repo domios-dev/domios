@@ -24,6 +24,8 @@ export interface TaskCardModel {
   stepColors: Map<string, string>;
   drift?: DriftItem;
   presence?: TaskPresence | null;
+  /** Card surface tint = the task's region (its main section; subtasks inherit parent's). */
+  regionColor?: string;
 }
 
 export interface CanvasLookups {

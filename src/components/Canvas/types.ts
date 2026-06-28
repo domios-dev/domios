@@ -119,6 +119,10 @@ export interface Task {
   body: string;
   acceptance_criteria?: string[];
   test_plan?: string;
+  /** Correctness vector — what "done right" means (rendered in the READ detail). */
+  correctness?: string;
+  /** Task-level reference links (rendered in the READ detail). */
+  links?: string[];
   intent: string | null;
   parent_task_id: string | null;
   assigned_pane_id: string | null;

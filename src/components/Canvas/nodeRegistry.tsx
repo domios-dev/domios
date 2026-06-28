@@ -12,9 +12,11 @@ import {
 } from "./cards";
 import { type World } from "./worlds";
 import type { LaidOutNode } from "./layout";
+import { registerNodeFootprint, type NodeFootprintFn } from "./layout/nodeFootprints";
 import { registerProvenanceRenderers } from "./registerProvenanceRenderers";
 import type { CanvasElement, DriftItem, Plan, TagFacet, Task } from "./types";
 import type { TaskPresence } from "./taskPresence";
+import type { PresenceAgent } from "./presence/identity";
 import type { PlanWorkspaceScope } from "./planWorkspaceScope";
 
 // kind → renderer dispatch. Adding a node kind = one register call; canvas core,
@@ -33,6 +35,8 @@ export interface NodeRenderArgs {
   onArchive?: () => void;
   onOpenPane?: (paneId: string) => void;
   onHoverTask?: (taskId: string | null) => void;
+  /** Expand a card → open its full READ detail (routed to focus/read for now). */
+  onExpand?: (nodeId: string) => void;
   onFitNode?: (nodeId: string) => void;
   /** §32.7 navigation/affordances (all user-initiated). */
   onCopyLink?: (id: string) => void;
@@ -45,6 +49,8 @@ export interface NodeRenderArgs {
   suppressRichContent?: boolean;
   richOverlay?: boolean;
   lightweightWorld?: boolean;
+  /** Render the FULL read content (fullscreen detail surface), not the schematic map face. */
+  detail?: boolean;
   /** §26 worlds: this node's appW-driven content band (W0 mass → W3 deep). */
   world: World;
   /** §34 crisp text: re-rasterize factor for this node (1 = none, else camera scale). */
@@ -58,12 +64,40 @@ type PlanNodeModel = Plan & {
   workspaceScope?: PlanWorkspaceScope;
   /** spec_section_id → title, resolved from the plan's linked spec (bubble labels). */
   specTitleById?: ReadonlyMap<string, string>;
+  /** sectionId → LIVE agents working it (per-section presence roll-up). */
+  sectionAgentsById?: ReadonlyMap<string, PresenceAgent[]>;
 };
 
 const renderers: Record<string, NodeRenderer> = {};
+const detailRenderers: Record<string, NodeRenderer> = {};
 
 export function registerNodeRenderer(kind: string, renderer: NodeRenderer): void {
   renderers[kind] = renderer;
+}
+
+// Plugin-extensible canvas node: ONE capability descriptor adds a node kind with no
+// core surgery — the map renderer (required), an optional layout footprint (else the
+// default element box), an optional fullscreen-detail renderer (else the map renderer
+// at detail size), and capability flags. Dispatch is by capability presence, never a
+// hardcoded kind list. Mirrors the provider/plugin discipline (architecture.md).
+export interface CanvasNodePlugin {
+  kind: string;
+  render: NodeRenderer;
+  footprint?: NodeFootprintFn;
+  detail?: NodeRenderer;
+  capabilities?: { expandable?: boolean };
+}
+
+export function registerCanvasNode(plugin: CanvasNodePlugin): void {
+  registerNodeRenderer(plugin.kind, plugin.render);
+  if (plugin.footprint) registerNodeFootprint(plugin.kind, plugin.footprint);
+  if (plugin.detail) detailRenderers[plugin.kind] = plugin.detail;
+}
+
+// The READ-detail renderer for a kind, if the plugin declared one (else null → the
+// detail surface uses the map renderer at full size).
+export function getNodeDetailRenderer(kind: string): NodeRenderer | null {
+  return detailRenderers[kind] ?? null;
 }
 
 const fallbackStyle: CSSProperties = {
@@ -99,7 +133,7 @@ export function getNodeRenderer(kind: string): NodeRenderer {
   return renderers[kind] ?? fallbackRenderer;
 }
 
-registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive, onFitNode, onSectionClick, onSectionFrame, suppressRichContent, richOverlay, lightweightWorld }) => {
+registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive, onFitNode, onExpand, onSectionClick, onSectionFrame, suppressRichContent, richOverlay, lightweightWorld }) => {
   if (lightweightWorld) {
     return model ? <LightweightWorldCard kind="plan" node={node} model={model} style={style} world={world} /> : null;
   }
@@ -114,25 +148,27 @@ registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive
       crispScale={crispScale}
       onArchive={onArchive}
       onFitNode={onFitNode ? () => onFitNode(node.id) : undefined}
+      onExpand={onExpand}
       onSectionClick={onSectionClick}
       onSectionFrame={onSectionFrame}
       suppressRichContent={suppressRichContent}
       richOverlay={richOverlay}
       specTitleById={(model as PlanNodeModel).specTitleById}
+      sectionAgentsById={(model as PlanNodeModel).sectionAgentsById}
     />
   ) : null;
 });
 registerNodeRenderer("plan-ghost", ({ model, style, world }) =>
   model ? <PlanGhostCard model={model as PlanGhostModel} style={style} world={world} /> : null,
 );
-registerNodeRenderer("spec", ({ node, model, style, world, crispScale, onSectionClick, onSectionFrame, suppressRichContent, richOverlay, lightweightWorld }) => {
+registerNodeRenderer("spec", ({ node, model, style, world, crispScale, onExpand, onSectionClick, onSectionFrame, suppressRichContent, richOverlay, lightweightWorld }) => {
   if (lightweightWorld) {
     return model ? <LightweightWorldCard kind="spec" node={node} model={model} style={style} world={world} /> : null;
   }
-  return model ? <SectionNode variant="spec" plan={model as PlanNodeModel} workspaceScope={(model as PlanNodeModel).workspaceScope} style={style} world={world} crispScale={crispScale} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={suppressRichContent} richOverlay={richOverlay} /> : null;
+  return model ? <SectionNode variant="spec" plan={model as PlanNodeModel} workspaceScope={(model as PlanNodeModel).workspaceScope} style={style} world={world} crispScale={crispScale} onExpand={onExpand} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={suppressRichContent} richOverlay={richOverlay} /> : null;
 });
-registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onHoverTask, onCopyLink, onCopyStrideLink, onFocusStride, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay, lightweightWorld, node }) => {
-  const m = model as { task: Task; tagFacets?: TagFacet[]; childCount?: number; childDone?: number; parentTaskName?: string | null; stepColors?: Map<string, string>; drift?: DriftItem; presence?: TaskPresence | null } | undefined;
+registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onHoverTask, onExpand, onCopyLink, onCopyStrideLink, onFocusStride, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay, lightweightWorld, detail, node }) => {
+  const m = model as { task: Task; tagFacets?: TagFacet[]; childCount?: number; childDone?: number; parentTaskName?: string | null; stepColors?: Map<string, string>; drift?: DriftItem; presence?: TaskPresence | null; regionColor?: string } | undefined;
   if (!m) return null;
   if (lightweightWorld) {
     return <LightweightWorldCard kind="task" node={node} model={m} style={style} world={world} onHover={onHoverTask} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} />;
@@ -140,7 +176,7 @@ registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onH
   // §32.3: subtasks are SOLID satellite tiles swarming around their parent (packed
   // by the same cloud logic, smaller footprint) — never gated, never faded. Opacity
   // is NEVER a hierarchy/zoom signal; a subtask reads at every zoom, just smaller.
-  return <TaskCard task={m.task} tagFacets={m.tagFacets} childCount={m.childCount} childDone={m.childDone} parentTaskName={m.parentTaskName} stepColors={m.stepColors} drift={m.drift} presence={m.presence} style={style} world={world} crispScale={crispScale} onOpenPane={onOpenPane} onHover={onHoverTask} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} suppressRichContent={suppressRichContent} richOverlay={richOverlay} />;
+  return <TaskCard task={m.task} tagFacets={m.tagFacets} childCount={m.childCount} childDone={m.childDone} parentTaskName={m.parentTaskName} stepColors={m.stepColors} drift={m.drift} presence={m.presence} regionColor={m.regionColor} style={style} world={world} crispScale={crispScale} onOpenPane={onOpenPane} onHover={onHoverTask} onExpand={onExpand} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} suppressRichContent={suppressRichContent} richOverlay={richOverlay} detail={detail} />;
 });
 registerNodeRenderer("milestone", ({ model, style, lod, world }) =>
   model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} world={world} /> : null,

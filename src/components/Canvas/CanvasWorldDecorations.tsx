@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { LaidOutNode } from "./layout";
 
 interface CanvasWorldDecorationsProps {
@@ -14,7 +15,7 @@ function boxStyle(box: { x: number; y: number; width: number; height: number }, 
   return { left: box.x, top: box.y, width: box.width, height: box.height, borderRadius: radius };
 }
 
-export function CanvasWorldDecorations({
+export const CanvasWorldDecorations = memo(function CanvasWorldDecorations({
   nodeById,
   nodeIds,
   hoveredTask,
@@ -58,4 +59,4 @@ export function CanvasWorldDecorations({
       })}
     </>
   );
-}
+});

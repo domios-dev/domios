@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { bezierPath, resolveEdgeEnds } from "./edges";
 import type { LaidOutEdge, LaidOutNode } from "./layout";
@@ -30,7 +31,9 @@ function paintEdge(edge: LaidOutEdge, nodeById: Map<string, LaidOutNode>, ctx: E
   if (!ends) return null;
   const chain = edge.kind === "milestone-chain";
   const lineage = edge.kind === "plan-plan";
-  const rowEdge = edge.kind === "section-task" || edge.kind === "spec-row";
+  const rowEdge = edge.kind === "section-task";
+  // Spec ⊥ Plan: ONE quiet provenance link, never a focal wire — no end dots.
+  const provenance = edge.kind === "spec-plan";
   const inHighlight =
     ctx.highlight != null &&
     (edge.id.startsWith(`${ctx.highlight.sectionId}~`) ||
@@ -42,19 +45,19 @@ function paintEdge(edge: LaidOutEdge, nodeById: Map<string, LaidOutNode>, ctx: E
     tagRelated;
   const dimmed = (ctx.hoveredTask != null || ctx.highlight != null || ctx.tagFilterActive) && !related;
   const j = rowEdge ? edgeJitter(edge.id) : 0.5;
-  const curve = DEFAULT_CANVAS_SETTINGS.edgeCurve * (lineage ? 0.55 : 0.65 + 0.8 * j);
-  const baseW = lineage ? 1.8 : rowEdge ? 1.6 : chain ? 1.2 : 1.4;
-  const baseO = lineage ? 0.5 : (rowEdge ? 0.42 : chain ? 0.3 : 0.36) * (rowEdge ? 0.82 + 0.36 * j : 1);
+  const curve = DEFAULT_CANVAS_SETTINGS.edgeCurve * (lineage ? 0.55 : provenance ? 0.5 : 0.65 + 0.8 * j);
+  const baseW = lineage ? 1.8 : rowEdge ? 1.6 : provenance ? 1.1 : chain ? 1.2 : 1.4;
+  const baseO = provenance ? 0.3 : lineage ? 0.5 : (rowEdge ? 0.42 : chain ? 0.3 : 0.36) * (rowEdge ? 0.82 + 0.36 * j : 1);
   const showDots = rowEdge || edge.kind === "task-cluster";
   return (
     <g key={edge.id} data-edge-kind={edge.kind}>
       <path
         d={bezierPath(ends.a, ends.b, curve)}
         fill="none"
-        stroke="var(--ct-border-focus)"
+        stroke={provenance ? "var(--ct-border-default)" : "var(--ct-border-focus)"}
         strokeWidth={related ? 2.6 : baseW}
         strokeLinecap="round"
-        strokeDasharray={lineage ? "6 4" : undefined}
+        strokeDasharray={lineage ? "6 4" : provenance ? "5 6" : undefined}
         markerEnd={lineage ? "url(#ct-plan-lineage-arrow)" : undefined}
         opacity={related ? 0.95 : dimmed ? 0.12 : baseO}
       />
@@ -80,7 +83,7 @@ function paintEdge(edge: LaidOutEdge, nodeById: Map<string, LaidOutNode>, ctx: E
   );
 }
 
-export function CanvasEdges({ edges, nodeById, visibleIds, hoveredTask, highlight, tagFilterActive, tagFilterMatchIds }: CanvasEdgesProps) {
+export const CanvasEdges = memo(function CanvasEdges({ edges, nodeById, visibleIds, hoveredTask, highlight, tagFilterActive, tagFilterMatchIds }: CanvasEdgesProps) {
   return (
     <>
       {edges.map((edge) => {
@@ -92,4 +95,4 @@ export function CanvasEdges({ edges, nodeById, visibleIds, hoveredTask, highligh
       })}
     </>
   );
-}
+});

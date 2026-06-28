@@ -8,10 +8,8 @@ import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocu
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
-import { CanvasEdges } from "./CanvasEdges";
 import { CanvasTagLegend } from "./CanvasTagLegend";
 import { CanvasUnownedTray } from "./CanvasUnownedTray";
-import { OrchestratorGroup } from "./cards";
 import {
   layoutWorkspace,
   layoutInputRevision,
@@ -23,7 +21,7 @@ import {
 } from "./layout";
 import { archivePlan, fetchSpecSections } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
-import { crispRasterScale, nextWorld, worldThresholds, type World } from "./worlds";
+import { nextWorld, worldThresholds, type World } from "./worlds";
 import { assignedTaskIdsForPane } from "./planOpenFocus";
 import { filterPlansForCanvas } from "./planPaneMatch";
 import { useCanvasPlans } from "./PlansProvider";
@@ -33,26 +31,30 @@ import type { PlanGhostModel } from "./cards";
 import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
-import { useCanvasViewport, formatLayerTransform } from "./useCanvasViewport";
+import { useCanvasViewport } from "./useCanvasViewport";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
 import { CanvasFocusBreadcrumb } from "./CanvasFocusBreadcrumb";
-import { CanvasPassiveRenderLayer } from "./CanvasPassiveRenderLayer";
 import { CanvasRichOverlayLayer } from "./CanvasRichOverlayLayer";
 import { CanvasPresenceLayer } from "./CanvasPresenceLayer";
+import { CanvasDetailOverlay } from "./CanvasDetailOverlay";
+import { CanvasWorldLayer } from "./CanvasWorldLayer";
 import { CanvasSwarmCluster } from "./CanvasSwarmCluster";
-import { CanvasWorldNodeList } from "./CanvasWorldNodeList";
-import { CanvasWorldDecorations } from "./CanvasWorldDecorations";
 import { overlayBudgetEnabled } from "./overlayBudgetFlag";
 import { buildCanvasScene, pickCanvasSceneNodeAtScreenPoint } from "./scene";
 import { substrateV2Enabled } from "./substrateFlag";
-import { perfFixtureCount, buildPerfFixturePlans, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
+import { perfFixtureCount, buildPerfFixturePlans, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
 import { flattenSections } from "./sectionRows";
 import { lodForScale } from "./canvasView/models";
 import { useCanvasLookups } from "./canvasView/useCanvasLookups";
 import { useCanvasFlyTo } from "./canvasView/useCanvasFlyTo";
+import { useCanvasNavHistory, type NavEntry } from "./canvasView/useCanvasNavHistory";
+import { rollUpSectionAgents, type SectionAgentSource } from "./sectionAgents";
+import type { PresenceAgent } from "./presence/identity";
 import { useCanvasOverlays } from "./canvasView/useCanvasOverlays";
 import { useCanvasChangeSignal } from "./canvasView/useCanvasChangeSignal";
+import { useStableSet } from "./canvasView/useStableSet";
+import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
 
 export type { ClusterCaptionModel, SpecSectionModel, TaskCardModel } from "./canvasView/models";
 
@@ -80,6 +82,12 @@ export interface CanvasViewInnerProps {
 
 const EMPTY_WORKSPACES: Workspace[] = [];
 
+function sameWorldMap(a: Map<string, World>, b: Map<string, World>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [k, v] of b) if (a.get(k) !== v) return false;
+  return true;
+}
+
 export function CanvasViewInner({
   mode,
   plans,
@@ -101,6 +109,10 @@ export function CanvasViewInner({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
 
+  // Computed every render (value-based change detector) so an in-place plan-body
+  // mutation is still caught — downstream memos key on the STRING value, so they
+  // only recompute when content actually changes. (The heavier layout fingerprint is
+  // memoized below; it chains off this via filteredPlans, so in-place still propagates.)
   const plansRevision = layoutInputRevision(plans);
   const planFilterRevision = plans
     .map((p) => [p.id, p.status, p.owner.pane_id ?? "", p.owner.session_id ?? ""].join(":"))
@@ -148,6 +160,20 @@ export function CanvasViewInner({
     for (const [k, v] of fixtureSpecSections) merged.set(k, v);
     return merged;
   }, [fetchedSpecSections, fixtureSpecSections]);
+  // Region labels resolve from the plan's OWN sections (sec_… ids + titles). The layout
+  // plan gets its sections OVERLAID with spec sections (plansForLayout), so its ids no
+  // longer match the tasks' section_ids — resolve titles from the original plans here.
+  const sectionTitleById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of filteredPlans) {
+      for (const s of flattenSections(p.sections)) {
+        const t = s.title?.trim();
+        if (t) m.set(s.id, t);
+      }
+    }
+    return m;
+  }, [filteredPlans]);
+
   // Per plan: spec_section_id → title, for the plan node's spec-reference bubbles.
   const specTitleByPlan = useMemo(() => {
     const m = new Map<string, Map<string, string>>();
@@ -170,53 +196,114 @@ export function CanvasViewInner({
   // adapts to camera zoom (content-LOD). The toolbar is camera-only.
   const [minimapOn, setMinimapOn] = useState(true);
 
-  const layoutSourcePlans = plansForLayout(filteredPlans, specSectionsByPlan);
-  const layoutRevision = layoutInputRevision(layoutSourcePlans, specSectionsByPlan);
+  // Memoize the layout source + its fingerprint: plansForLayout maps a NEW array when
+  // spec sections are present, so an unmemoized call minted a fresh ref every render →
+  // the scene memo (dep: layoutSourcePlans) rebuilt every render. Stable now.
+  const layoutSourcePlans = useMemo(() => plansForLayout(filteredPlans, specSectionsByPlan), [filteredPlans, specSectionsByPlan]);
+  const layoutRevision = useMemo(() => layoutInputRevision(layoutSourcePlans, specSectionsByPlan), [layoutSourcePlans, specSectionsByPlan]);
   const lineageCatalog = useMemo(() => buildLineageCatalog(plans), [plansRevision]);
-  const layout = useMemo(() => layoutWorkspace(layoutSourcePlans), [layoutRevision]);
+  const layout = useMemo(() => layoutWorkspace(layoutSourcePlans, undefined, sectionTitleById), [layoutRevision, sectionTitleById]);
   // Scale-independent: scene structure does not depend on camera zoom, so it
   // rebuilds only when the layout changes — not on every pan/zoom frame.
   const scene = useMemo(() => buildCanvasScene({ layout, plans: layoutSourcePlans }), [layout, layoutSourcePlans]);
 
-  const lookups = useCanvasLookups(layout, filteredPlans, driftByPlan, panes);
+  // #8: a pane heartbeat mutates the whole `panes` map ref, but buildTaskPresence
+  // reads only EXISTENCE + title of the panes referenced by tasks (assigned/lane +
+  // milestone authors). Key on exactly that so a heartbeat that changes nothing
+  // presence-relevant does NOT rebuild all ~N task models.
+  const panesContentKey = useMemo(() => {
+    const ids = new Set<string>();
+    const add = (v?: string | null) => {
+      const s = v?.trim();
+      if (s) ids.add(s);
+    };
+    for (const p of filteredPlans) {
+      for (const t of p.tasks) {
+        add(t.assigned_pane_id);
+        add(t.lane?.pane_id);
+        for (const m of t.milestones) add(m.from?.pane_id);
+      }
+    }
+    const parts: string[] = [];
+    for (const id of [...ids].sort()) {
+      const pane = panes[id];
+      parts.push(id, pane ? pane.title ?? "" : "\x00");
+    }
+    return parts.join("\x1f");
+  }, [filteredPlans, panes]);
+  const lookups = useCanvasLookups(layout, filteredPlans, driftByPlan, panes, panesContentKey);
+
+  // Per plan: sectionId → LIVE agents working it (task→section roll-up). Live-only,
+  // deduped — a section shows who's on it RIGHT NOW. Camera-decoupled (presence + data).
+  const sectionAgentsByPlan = useMemo(() => {
+    const out = new Map<string, Map<string, PresenceAgent[]>>();
+    for (const plan of filteredPlans) {
+      const src = new Map<string, SectionAgentSource>();
+      for (const t of plan.tasks) {
+        const p = lookups.taskModelById.get(t.id)?.presence;
+        if (p) src.set(t.id, { agents: p.agents, live: t.status === "in_progress" });
+      }
+      const bySection = rollUpSectionAgents(plan.tasks, src);
+      if (bySection.size) out.set(plan.id, bySection);
+    }
+    return out;
+  }, [filteredPlans, lookups.taskModelById]);
+
+  // #4: pre-mint ONE stable model object per plan/spec/ghost, rebuilt only on a data
+  // change — resolveModel returns the cached identity so CanvasNodeCard's memo holds
+  // across pan/zoom (the old per-call spread minted a fresh object every render).
+  const planModelById = useMemo(() => {
+    const m = new Map<string, unknown>();
+    for (const p of filteredPlans) {
+      m.set(p.id, {
+        ...p,
+        driftCount: driftByPlan.get(p.id)?.length ?? 0,
+        workspaceScope: workspaceScopeByPlan.get(p.id),
+        specTitleById: specTitleByPlan.get(p.id),
+        sectionAgentsById: sectionAgentsByPlan.get(p.id),
+      });
+    }
+    return m;
+  }, [filteredPlans, driftByPlan, workspaceScopeByPlan, specTitleByPlan, sectionAgentsByPlan]);
+  const specModelById = useMemo(() => {
+    const m = new Map<string, unknown>();
+    for (const p of filteredPlans) {
+      const specSections = specSectionsByPlan.get(p.id);
+      m.set(
+        p.id,
+        specSections
+          ? { ...p, sections: specSections, tasks: [], workspaceScope: workspaceScopeByPlan.get(p.id) }
+          : { ...p, workspaceScope: workspaceScopeByPlan.get(p.id) },
+      );
+    }
+    return m;
+  }, [filteredPlans, specSectionsByPlan, workspaceScopeByPlan]);
+  const ghostModelById = useMemo(() => {
+    const m = new Map<string, PlanGhostModel>();
+    for (const [planId, meta] of lineageCatalog) {
+      m.set(planId, { planId: meta.id, title: meta.title, status: meta.status, sectionCount: meta.sectionCount, taskCount: meta.taskCount });
+    }
+    return m;
+  }, [lineageCatalog]);
 
   const resolveModel = useCallback(
     (node: LaidOutNode): unknown => {
       switch (node.kind) {
         case "plan":
-          return planById.has(node.id)
-            ? {
-              ...planById.get(node.id)!,
-              driftCount: driftByPlan.get(node.id)?.length ?? 0,
-              workspaceScope: workspaceScopeByPlan.get(node.id),
-              specTitleById: specTitleByPlan.get(node.id),
-            }
-            : undefined;
-        case "spec": {
-          const plan = planById.get(node.planId);
-          const specSections = specSectionsByPlan.get(node.planId);
-          // Render the REAL spec's sections (no tasks → coverage is a plan concept).
-          return plan && specSections
-            ? { ...plan, sections: specSections, tasks: [], workspaceScope: workspaceScopeByPlan.get(node.planId) }
-            : plan
-              ? { ...plan, workspaceScope: workspaceScopeByPlan.get(node.planId) }
-              : undefined;
-        }
+          return planModelById.get(node.id);
+        case "spec":
+          return specModelById.get(node.planId);
         case "task":
           return lookups.taskModelById.get(node.id);
         case "plan-ghost": {
           const planId = node.id.startsWith("ghost:") ? node.id.slice(6) : node.id;
-          const meta = lineageCatalog.get(planId);
-          const ghost: PlanGhostModel = meta
-            ? { planId: meta.id, title: meta.title, status: meta.status, sectionCount: meta.sectionCount, taskCount: meta.taskCount }
-            : { planId, title: planId, status: "archived" };
-          return ghost;
+          return ghostModelById.get(planId) ?? { planId, title: planId, status: "archived" };
         }
         default:
           return lookups.elementById.get(node.id);
       }
     },
-    [planById, lookups, specSectionsByPlan, specTitleByPlan, lineageCatalog, workspaceScopeByPlan],
+    [planModelById, specModelById, ghostModelById, lookups],
   );
 
   const handleArchive = useCallback(
@@ -255,39 +342,61 @@ export function CanvasViewInner({
     return ids;
   }, [tagFilter, tagFilterActive, lookups.taskModelById]);
 
+  useCanvasFrameProbe(transform);
+
   const lod = lodForScale(transform.scale);
-  // §26 worlds: each node's content band is driven by its OWN appW (footprint ×
-  // camera scale), not the global scale — a wide SPEC and a small TASK cross bands
-  // at the right physical size. Hysteresis (prev band, ±10%) kills threshold flicker.
-  const bandRef = useRef<Map<string, World>>(new Map());
-  const worldByNode = useMemo(() => {
-    const prev = bandRef.current;
-    const next = new Map<string, World>();
-    for (const frame of layout.frames) {
-      for (const n of frame.nodes) {
-        const t = worldThresholds(n.kind);
-        next.set(n.id, nextWorld(prev.get(n.id), n.box.width * transform.scale, t));
-      }
-    }
-    bandRef.current = next;
-    return next;
-  }, [layout, transform.scale]);
   const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
   const canvasSize = useMemo(() => ({ width: size.width, height: size.height }), [size.width, size.height]);
-  const frameIds = useMemo(
-    () => new Set(visibleFrameIds(layout, transform, canvasSize, padding)),
-    [layout, transform, canvasSize, padding],
+  // Build the visible-id sets, then collapse identity when membership is unchanged
+  // (#2 cascade root): a pan that reveals no new node keeps the SAME Set reference,
+  // so every memo'd child below skips its re-render instead of cascading.
+  const frameIds = useStableSet(
+    useMemo(
+      () => new Set(visibleFrameIds(layout, transform, canvasSize, padding)),
+      [layout, transform, canvasSize, padding],
+    ),
   );
-  const nodeIds = useMemo(
-    () => new Set(visibleNodeIds(layout, transform, canvasSize, padding)),
-    [layout, transform, canvasSize, padding],
+  const nodeIds = useStableSet(
+    useMemo(
+      () => new Set(visibleNodeIds(layout, transform, canvasSize, padding)),
+      [layout, transform, canvasSize, padding],
+    ),
   );
   const visibleNodes = useMemo(
     () => layout.frames.flatMap((frame) => frame.nodes.filter((n) => nodeIds.has(n.id))),
     [layout, nodeIds],
   );
 
+  // §26 worlds: each node's content band is driven by its OWN appW (footprint ×
+  // camera scale), not the global scale. Hysteresis (prev band, ±10%) kills flicker.
+  // #1: only VISIBLE nodes (+ every plan node — the zone-label site needs plan-level
+  // bands even when the plan node is off-screen) are banded; and the returned Map keeps
+  // its identity across scale ticks while no band actually crosses, so memo'd consumers
+  // skip re-render during a zoom that doesn't change any node's band.
+  const bandRef = useRef<Map<string, World>>(new Map());
+  const worldByNodeRef = useRef<Map<string, World>>(new Map());
+  const worldByNode = useMemo(() => {
+    const prev = bandRef.current;
+    const next = new Map<string, World>();
+    for (const frame of layout.frames) {
+      for (const n of frame.nodes) {
+        if (!nodeIds.has(n.id) && n.kind !== "plan") continue;
+        const t = worldThresholds(n.kind);
+        next.set(n.id, nextWorld(prev.get(n.id), n.box.width * transform.scale, t));
+      }
+    }
+    bandRef.current = next;
+    const prevOut = worldByNodeRef.current;
+    if (sameWorldMap(prevOut, next)) return prevOut;
+    worldByNodeRef.current = next;
+    return next;
+  }, [layout, transform.scale, nodeIds]);
+
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  // UX-2 READ surface: the node whose fullscreen detail is open (null = none). It
+  // OVERLAYS the map without moving the camera, so closing returns to the exact spot.
+  const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
+  const nav = useCanvasNavHistory();
 
   const {
     blinkIds,
@@ -300,7 +409,7 @@ export function CanvasViewInner({
     onCanvasFlyClick,
     onCopyLink,
     onFocusStride,
-  } = useCanvasFlyTo({ lookups, planById, size, fitToView, animateToView, animateTo, setTransform });
+  } = useCanvasFlyTo({ lookups, planById, size, fitToView, animateToView, animateTo, setTransform, recordNav: nav.push });
 
   const { richOverlays, presenceOverlays, swarmRoster } = useCanvasOverlays({
     scene,
@@ -450,30 +559,66 @@ export function CanvasViewInner({
   // Content reveals itself by zoom: Overview = zoom out (compact), Read = zoom in.
   const overviewPreset = useCallback(() => {
     setFocusedNodeId(null);
+    nav.clear();
     fitToView(layout.bounds);
-  }, [fitToView, layout.bounds]);
+  }, [fitToView, layout.bounds, nav]);
   const readPreset = useCallback(() => {
     if (activePlanId) {
       setFocusedNodeId(activePlanId);
+      nav.clear();
       fitCameraToNodes([activePlanId]);
     }
-  }, [activePlanId, fitCameraToNodes]);
+  }, [activePlanId, fitCameraToNodes, nav]);
   const focusNodeCamera = useCallback(
     (id: string) => {
       setFocusedNodeId(id);
       fitCameraToNodes([id]);
+      if (id !== activePlanId) nav.push({ id, kind: planById.has(id) ? "plan" : "task", label: planById.get(id)?.title ?? lookups.taskById.get(id)?.name ?? id, flyIds: [id] });
     },
-    [fitCameraToNodes],
+    [fitCameraToNodes, activePlanId, nav, planById, lookups],
+  );
+
+  // RETURN-TO-PLAN: the plan is home base. Home frames the plan + clears the path;
+  // Back pops one hop and flies to the new top; a crumb flies straight to that hop.
+  const navPlanLabel = (activePlanId ? planById.get(activePlanId)?.title : null) ?? "Plan";
+  const flyToEntry = useCallback(
+    (entry: NavEntry) => {
+      const ids = entry.flyIds.filter((id) => lookups.nodeById.has(id));
+      if (ids.length) focusOnNodes(ids, undefined, true);
+    },
+    [lookups, focusOnNodes],
+  );
+  const goHome = useCallback(() => {
+    nav.clear();
+    setFocusedNodeId(null);
+    if (activePlanId && lookups.nodeById.has(activePlanId)) focusOnNodes([activePlanId], undefined, true);
+    else fitToView(layout.bounds);
+  }, [nav, activePlanId, lookups, focusOnNodes, fitToView, layout.bounds]);
+  const goBack = useCallback(() => {
+    const next = nav.path[nav.path.length - 2];
+    nav.back();
+    if (next) flyToEntry(next);
+    else goHome();
+  }, [nav, flyToEntry, goHome]);
+  const goCrumb = useCallback(
+    (index: number) => {
+      const entry = nav.path[index];
+      nav.truncate(index);
+      if (entry) flyToEntry(entry);
+    },
+    [nav, flyToEntry],
   );
 
   useEffect(() => {
-    if (!focusedNodeId) return;
+    if (!nav.path.length && !focusedNodeId) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setFocusedNodeId(null);
+      if (e.key !== "Escape") return;
+      if (nav.path.length) goBack();
+      else setFocusedNodeId(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusedNodeId]);
+  }, [nav.path.length, focusedNodeId, goBack]);
 
   const onWorldDoubleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -488,9 +633,6 @@ export function CanvasViewInner({
     [containerRef, focusNodeCamera, scene, transform],
   );
 
-  const focusedTitle = focusedNodeId
-    ? planById.get(focusedNodeId)?.title ?? lookups.taskById.get(focusedNodeId)?.name ?? null
-    : null;
 
   return (
     <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view" data-overlay-budget={overlayBudgetEnabled() ? "true" : "false"}>
@@ -539,11 +681,6 @@ export function CanvasViewInner({
           </div>
         )}
         {!loading && filteredPlans.length > 0 && (
-          <CanvasPassiveRenderLayer scene={scene} transform={transform} width={size.width} height={size.height} hostRef={containerRef}
-            focusedNodeId={focusedNodeId} dominantNodeId={dominantNodeId} hoveredTask={hoveredTask} highlight={highlight}
-            tagFilterMatchIds={tagFilterMatchIds} blinkIds={blinkIds} pulsePlanIds={pulsePlanIds} tagFilterActive={tagFilterActive} />
-        )}
-        {!loading && filteredPlans.length > 0 && (
           <CanvasRichOverlayLayer
             overlays={richOverlays}
             nodeById={lookups.nodeById}
@@ -565,95 +702,39 @@ export function CanvasViewInner({
           <CanvasSwarmCluster roster={swarmRoster} onFlyToTask={onFlyToTask} reserveTopRight={!!onClose} />
         )}
         {!loading && filteredPlans.length > 0 && (
-          <div
-            ref={layerRef}
-            data-testid="canvas-world-layer"
-            data-layout-revision={layoutRevision}
-            onDoubleClick={onWorldDoubleClick}
-            style={{
-              transform: formatLayerTransform(transform),
-              transformOrigin: "0 0",
-              width: worldW,
-              height: worldH,
-              position: "relative",
-              zIndex: 2,
-            }}
-          >
-            {layout.groups.map((group) => (
-              <OrchestratorGroup
-                key={group.ownerKey}
-                group={group}
-                style={{ left: group.box.x, top: group.box.y, width: group.box.width, height: group.box.height }}
-                scale={transform.scale}
-                onOpen={onOpenPane}
-              />
-            ))}
-            <svg className="pointer-events-none absolute inset-0" width={worldW} height={worldH} style={{ overflow: "visible" }}>
-              <defs>
-                <marker
-                  id="ct-plan-lineage-arrow"
-                  markerWidth="8"
-                  markerHeight="8"
-                  refX="7"
-                  refY="4"
-                  orient="auto"
-                >
-                  <polygon points="0,0 8,4 0,8" fill="var(--ct-border-focus)" />
-                </marker>
-              </defs>
-              {layout.frames.map((frame) =>
-                frameIds.has(frame.planId) ? (
-                  <CanvasEdges
-                    key={frame.planId}
-                    edges={frame.edges}
-                    nodeById={lookups.nodeById}
-                    visibleIds={nodeIds}
-                    hoveredTask={hoveredTask}
-                    highlight={highlight}
-                    tagFilterActive={tagFilterActive}
-                    tagFilterMatchIds={tagFilterMatchIds}
-                  />
-                ) : null,
-              )}
-              <CanvasEdges
-                edges={layout.crossEdges ?? []}
-                nodeById={lookups.nodeById}
-                visibleIds={nodeIds}
-                hoveredTask={hoveredTask}
-                highlight={highlight}
-                tagFilterActive={tagFilterActive}
-                tagFilterMatchIds={tagFilterMatchIds}
-              />
-            </svg>
-            <CanvasWorldNodeList
-              nodes={visibleNodes}
-              lod={lod}
-              worldByNode={worldByNode}
-              crispRasterScale={crispRasterScale}
-              transformScale={transform.scale}
-              dominantNodeId={dominantNodeId}
-              resolveModel={resolveModel}
-              onOpenPane={onOpenPane}
-              onHoverTask={onHoverTask}
-              onArchive={api ? handleArchive : undefined}
-              onFitNode={fitNode}
-              onCopyLink={onCopyLink}
-              onFocusStride={onFocusStride}
-              onSectionClick={onSectionClick}
-              onSectionFrame={onSectionFrame}
-              tagFilterActive={tagFilterActive}
-              tagFilterMatchIds={tagFilterMatchIds}
-            />
-            <CanvasWorldDecorations
-              nodeById={lookups.nodeById}
-              nodeIds={nodeIds}
-              hoveredTask={hoveredTask}
-              highlight={highlight}
-              tagFilterMatchIds={tagFilterMatchIds}
-              blinkIds={blinkIds}
-              pulsePlanIds={pulsePlanIds}
-            />
-          </div>
+          <CanvasWorldLayer
+            layerRef={layerRef}
+            layout={layout}
+            layoutRevision={layoutRevision}
+            transform={transform}
+            worldW={worldW}
+            worldH={worldH}
+            onWorldDoubleClick={onWorldDoubleClick}
+            frameIds={frameIds}
+            nodeIds={nodeIds}
+            visibleNodes={visibleNodes}
+            worldByNode={worldByNode}
+            lod={lod}
+            dominantNodeId={dominantNodeId}
+            lookups={lookups}
+            hoveredTask={hoveredTask}
+            highlight={highlight}
+            tagFilterActive={tagFilterActive}
+            tagFilterMatchIds={tagFilterMatchIds}
+            blinkIds={blinkIds}
+            pulsePlanIds={pulsePlanIds}
+            sectionTitleById={sectionTitleById}
+            resolveModel={resolveModel}
+            onOpenPane={onOpenPane}
+            onHoverTask={onHoverTask}
+            onExpand={setDetailNodeId}
+            onArchive={api ? handleArchive : undefined}
+            onFitNode={fitNode}
+            onCopyLink={onCopyLink}
+            onFocusStride={onFocusStride}
+            onSectionClick={onSectionClick}
+            onSectionFrame={onSectionFrame}
+          />
         )}
         {/* §31 off-screen change marker: a directional dot at the viewport edge
             toward an off-screen live change. Click = USER-initiated fly-there. */}
@@ -682,7 +763,7 @@ export function CanvasViewInner({
           minimapOn={minimapOn}
         />
       )}
-      {focusedNodeId && <CanvasFocusBreadcrumb title={focusedTitle} onBack={() => setFocusedNodeId(null)} />}
+      <CanvasFocusBreadcrumb planLabel={navPlanLabel} path={nav.path} onHome={goHome} onCrumb={goCrumb} onBack={goBack} />
       {legendFacets.length > 0 && !loading && !error && filteredPlans.length > 0 && (
         <CanvasTagLegend facets={legendFacets} filter={tagFilter} onToggleTag={onToggleTagFilter} />
       )}
@@ -700,6 +781,17 @@ export function CanvasViewInner({
         />
       )}
       {api && mode === "workspace" && <CanvasUnownedTray api={api} claimOwner={claimOwner} />}
+      <CanvasDetailOverlay
+        nodeId={detailNodeId}
+        nodeById={lookups.nodeById}
+        resolveModel={resolveModel}
+        onClose={() => setDetailNodeId(null)}
+        onOpenPane={onOpenPane}
+        onCopyLink={onCopyLink}
+        onFocusStride={onFocusStride}
+        onSectionClick={onSectionClick}
+        onSectionFrame={onSectionFrame}
+      />
     </div>
   );
 }
@@ -727,6 +819,12 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
     () => (useReal ? realFixturePlans() : perfN > 0 ? buildPerfFixturePlans(perfN) : livePlans),
     [useReal, perfN, livePlans],
   );
+  // Fixture-only: synthesize live panes for the synthetic swarm so presence renders
+  // (the live-pane gate filters real plans correctly; this only feeds the demo plan).
+  const panes = useMemo(
+    () => (perfN > 0 && !useReal ? { ...state.panes, ...buildPerfFixturePanes(plans) } : state.panes),
+    [perfN, useReal, plans, state.panes],
+  );
   return (
     <CanvasViewInner
       mode={mode}
@@ -736,7 +834,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
       planId={planId}
       orchestratorPaneId={orchestratorPaneId}
       focusPaneId={focusPaneId}
-      panes={state.panes}
+      panes={panes}
       workspaces={state.workspaces}
       focusedPaneId={state.focused_pane_id}
       projectPath={projectPath}
