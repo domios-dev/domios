@@ -17,5 +17,3 @@ cli/src/cmd/plugin.rs	1743
 src-tauri/src/agent/provider.rs	1231
 # Mem hybrid search — no split task yet; baselined to unblock CI.
 src-tauri/src/mem/search.rs	1137
-# Mem store test module — test file, baselined.
-src-tauri/src/mem/store/tests.rs	1215
