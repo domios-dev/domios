@@ -377,7 +377,9 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route(
             "/api/remote-workers",
-            get(agent_routes::remote_workers).post(agent_routes::record_remote_worker),
+            get(agent_routes::remote_workers)
+                .post(agent_routes::record_remote_worker)
+                .delete(agent_routes::forget_remote_worker),
         )
         .route("/api/debug/clock", get(debug_routes::clock_status))
         .route(

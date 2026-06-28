@@ -207,6 +207,50 @@ impl RemoteWorkerRegistry {
         self.persist();
     }
 
+    /// Drop a remote-worker ghost by its foreign pane id. Optional `peer` and
+    /// `orchestrator_pane` narrow the match. Returns orchestrator pane ids whose
+    /// buckets changed (for `remote-workers-changed` emits). Empty ⇒ no match.
+    pub fn forget_by_remote_pane(
+        &self,
+        remote_pane: &str,
+        peer: Option<&str>,
+        orchestrator_pane: Option<&str>,
+    ) -> Vec<String> {
+        let mut touched = Vec::new();
+        {
+            let mut map = self.by_orchestrator.lock();
+            let keys: Vec<String> = match orchestrator_pane {
+                Some(orch) => vec![orch.to_string()],
+                None => map.keys().cloned().collect(),
+            };
+            for key in keys {
+                let Some(list) = map.get_mut(&key) else {
+                    continue;
+                };
+                let before = list.len();
+                list.retain(|w| {
+                    if w.remote_pane != remote_pane {
+                        return true;
+                    }
+                    if let Some(p) = peer {
+                        return w.peer != p;
+                    }
+                    false
+                });
+                if list.len() != before {
+                    touched.push(key.clone());
+                }
+                if list.is_empty() {
+                    map.remove(&key);
+                }
+            }
+        }
+        if !touched.is_empty() {
+            self.persist();
+        }
+        touched
+    }
+
     /// Remote workers reporting to one orchestrator pane, newest activity first.
     pub fn for_orchestrator(&self, orchestrator_pane: &str) -> Vec<RemoteWorker> {
         let mut list = self
@@ -390,6 +434,52 @@ mod tests {
         reg.record_report("orch", "eight", "w1", "W", None, "working", 1);
         reg.forget_orchestrator("orch");
         assert!(reg.for_orchestrator("orch").is_empty());
+    }
+
+    #[test]
+    fn forget_by_remote_pane_removes_ghost_and_empty_bucket() {
+        let reg = RemoteWorkerRegistry::new();
+        reg.record_spawn("orch", "rollacode-bot", "6d2e36b4", "Main", None, 100);
+        reg.record_spawn("orch", "rollacode-bot", "aaaa1111", "Other", None, 101);
+
+        let touched = reg.forget_by_remote_pane("6d2e36b4", None, None);
+        assert_eq!(touched, vec!["orch".to_string()]);
+        let list = reg.for_orchestrator("orch");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].remote_pane, "aaaa1111");
+    }
+
+    #[test]
+    fn forget_by_remote_pane_respects_peer_filter() {
+        let reg = RemoteWorkerRegistry::new();
+        reg.record_spawn("orch", "peer-a", "w1", "A", None, 1);
+        reg.record_spawn("orch", "peer-b", "w1", "B", None, 2);
+
+        let touched = reg.forget_by_remote_pane("w1", Some("peer-a"), None);
+        assert_eq!(touched, vec!["orch".to_string()]);
+        let list = reg.for_orchestrator("orch");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].peer, "peer-b");
+    }
+
+    #[test]
+    fn forget_by_remote_pane_scopes_to_one_orchestrator() {
+        let reg = RemoteWorkerRegistry::new();
+        reg.record_spawn("orch-a", "peer", "w1", "W", None, 1);
+        reg.record_spawn("orch-b", "peer", "w1", "W", None, 2);
+
+        let touched = reg.forget_by_remote_pane("w1", None, Some("orch-a"));
+        assert_eq!(touched, vec!["orch-a".to_string()]);
+        assert!(reg.for_orchestrator("orch-a").is_empty());
+        assert_eq!(reg.for_orchestrator("orch-b").len(), 1);
+    }
+
+    #[test]
+    fn forget_by_remote_pane_no_match_returns_empty() {
+        let reg = RemoteWorkerRegistry::new();
+        reg.record_spawn("orch", "peer", "w1", "W", None, 1);
+        assert!(reg.forget_by_remote_pane("missing", None, None).is_empty());
+        assert_eq!(reg.for_orchestrator("orch").len(), 1);
     }
 
     #[test]
