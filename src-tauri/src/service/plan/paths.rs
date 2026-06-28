@@ -157,7 +157,16 @@ mod tests {
         std::fs::write(main.join("README.md"), "root\n").unwrap();
         run_git(&main, &["add", "README.md"]);
         run_git(&main, &["commit", "-m", "init"]);
-        run_git(&main, &["worktree", "add", linked.to_str().unwrap(), "-b", "linked-test"]);
+        run_git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                linked.to_str().unwrap(),
+                "-b",
+                "linked-test",
+            ],
+        );
 
         // The linked worktree carries its own committed plans -> it owns its plan store.
         std::fs::create_dir_all(linked.join(".codeterm").join("plans")).unwrap();

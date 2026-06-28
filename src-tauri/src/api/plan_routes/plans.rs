@@ -158,6 +158,35 @@ pub async fn get(
     Ok(Json(serde_json::to_value(plan).unwrap_or_default()))
 }
 
+pub async fn state(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let snapshot = state
+        .svc
+        .build_plan_state(&id, epoch_ms())
+        .map_err(plan_err)?;
+    Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
+}
+
+pub async fn next(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let snapshot = state
+        .svc
+        .build_plan_state(&id, epoch_ms())
+        .map_err(plan_err)?;
+    Ok(Json(serde_json::json!({
+        "plan_id": id,
+        "next_actions": snapshot.next_actions,
+    })))
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct ReconcileQuery {
     #[serde(default, deserialize_with = "de_truthy")]
