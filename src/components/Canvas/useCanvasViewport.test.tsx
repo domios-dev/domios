@@ -74,9 +74,12 @@ function wheel(el: Element, init: { deltaX?: number; deltaY?: number; ctrlKey?: 
   el.dispatchEvent(ev as unknown as Event);
 }
 
+// The camera paints to the layer every event but commits to React state only once
+// the gesture settles (GESTURE_SETTLE_MS, ~130ms). Wait past that so `last` (React
+// state) reflects the settled transform these specs assert on.
 async function flush() {
   await act(async () => {
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 180));
   });
 }
 

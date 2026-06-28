@@ -1,147 +1,39 @@
 // Run: npx tsx src/components/Canvas/nodeRegistry.test.tsx
+//
+// The plugin seam: registerCanvasNode({kind, painter, footprint}) registers a CANVAS
+// painter (drawn + hit-tested by drawScene — see painterRegistry.test) and a layout
+// footprint. Confirms the extensibility path compiles + forwards both halves.
 
-import { act, type ReactElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { Window } from "happy-dom";
-import {
-  fallbackRenderer,
-  getNodeRenderer,
-  registerNodeRenderer,
-  type NodeRenderer,
-} from "./nodeRegistry";
-import type { LaidOutNode } from "./layout";
+import { registerCanvasNode } from "./nodeRegistry";
+import { __unregisterCanvasPainterForTest, getCanvasPainter, isCanvasNodeExpandable } from "./canvasRender/painterRegistry";
+import { __resetNodeFootprintsForTest, footprintFor } from "./layout/nodeFootprints";
+import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 
-type TestFn = () => void | Promise<void>;
-const tests: Array<[string, TestFn]> = [];
-function test(name: string, fn: TestFn) {
-  tests.push([name, fn]);
-}
-function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(message);
+let passed = 0;
+let failed = 0;
+function ok(label: string, cond: unknown) {
+  if (cond) { console.log(`  ✓ ${label}`); passed++; }
+  else { console.error(`  ✗ ${label}`); failed++; }
 }
 
-function setupDom() {
-  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const window = new Window({ url: "http://localhost/node-registry" });
-  (window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }).__TAURI_INTERNALS__ = {};
-  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
-  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
-  Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
-  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
-  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
+const painter = { signature: () => "burndown:1", paint: () => [] };
+registerCanvasNode({ kind: "burndown", painter, footprint: () => ({ width: 333, height: 144 }) });
+
+ok("registerCanvasNode forwards the painter to the canvas registry", getCanvasPainter("burndown") === painter);
+{
+  const fp = footprintFor("burndown", { id: "b", kind: "burndown", canvas: { x: 0, y: 0, collapsed: false }, content: "", links: [] }, DEFAULT_CANVAS_SETTINGS);
+  ok(`registerCanvasNode forwards the footprint (${fp.width}×${fp.height})`, fp.width === 333 && fp.height === 144);
 }
+ok("a kind with no painter is undefined (plugins opt in)", getCanvasPainter("never-registered") === undefined);
 
-async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const root = createRoot(host);
-  await act(async () => {
-    root.render(ui);
-  });
-  return { host, root };
-}
+// capabilities.expandable flows to the registry so drawCard can honor an opt-out.
+ok("a node is expandable by default (Open pill shows)", isCanvasNodeExpandable("burndown") === true);
+registerCanvasNode({ kind: "static-widget", painter, capabilities: { expandable: false } });
+ok("a plugin can opt out of expand (no Open pill)", isCanvasNodeExpandable("static-widget") === false);
 
-const node = (kind: string): LaidOutNode => ({
-  id: `n-${kind}`,
-  kind,
-  planId: "p",
-  box: { x: 0, y: 0, width: 200, height: 64 },
-  iteration: null,
-  manual: false,
-});
+__unregisterCanvasPainterForTest("burndown");
+__unregisterCanvasPainterForTest("static-widget");
+__resetNodeFootprintsForTest();
 
-test("built-in kinds resolve to a registered renderer (not the fallback)", () => {
-  for (const kind of ["spec", "plan", "task"]) {
-    assert(getNodeRenderer(kind) !== fallbackRenderer, `${kind} should be registered`);
-  }
-});
-
-test("unknown kind resolves to the fallback renderer", () => {
-  assert(getNodeRenderer("totally-unknown-kind") === fallbackRenderer, "unknown → fallback");
-});
-
-test("provenance kinds note and decision resolve to registered renderers (not fallback)", () => {
-  for (const kind of ["note", "decision"]) {
-    assert(getNodeRenderer(kind) !== fallbackRenderer, `${kind} should be registered`);
-  }
-});
-
-test("registerNodeRenderer adds a new kind without touching core", () => {
-  const custom: NodeRenderer = () => null;
-  registerNodeRenderer("prototype", custom);
-  assert(getNodeRenderer("prototype") === custom, "custom renderer retrievable");
-});
-
-test("note renderer mounts NoteCard; unknown kind falls back without crashing", async () => {
-  const noteOut = getNodeRenderer("note")({
-    node: node("note"),
-    model: {
-      id: "n-note",
-      kind: "note",
-      canvas: { x: 0, y: 0, collapsed: false },
-      content: "**hello note**",
-      links: [],
-    },
-    style: { position: "absolute" },
-    lod: "near",
-      world: "W3",
-      crispScale: 1,
-  });
-  const decisionOut = getNodeRenderer("decision")({
-    node: node("decision"),
-    model: {
-      id: "n-decision",
-      kind: "decision",
-      canvas: { x: 0, y: 0, collapsed: false },
-      content: "Ship v1",
-      links: [],
-    },
-    style: { position: "absolute" },
-    lod: "near",
-      world: "W3",
-      crispScale: 1,
-  });
-  const fbOut = getNodeRenderer("mystery")({
-    node: node("mystery"),
-    model: { id: "n-mystery", kind: "mystery", canvas: { x: 0, y: 0, collapsed: false }, content: "**md**", links: [] },
-    style: { position: "absolute" },
-    lod: "near",
-      world: "W3",
-      crispScale: 1,
-  });
-
-  const { host, root } = await render(
-    <>
-      {noteOut}
-      {decisionOut}
-      {fbOut}
-    </>,
-  );
-  assert(host.querySelector('[data-testid="canvas-note-card"]'), "NoteCard mounted");
-  assert(host.querySelector('[data-testid="canvas-decision-card"]'), "DecisionCard mounted");
-  assert(host.querySelector('[data-testid="canvas-fallback-node"]'), "fallback node mounted");
-  assert(
-    host.querySelector('[data-testid="canvas-fallback-node"]')?.getAttribute("data-node-kind") === "mystery",
-    "fallback carries the unknown kind",
-  );
-  await act(async () => root.unmount());
-});
-
-async function main() {
-  setupDom();
-  let failed = 0;
-  for (const [name, fn] of tests) {
-    try {
-      await fn();
-      console.log(`  ✓ ${name}`);
-    } catch (e) {
-      failed++;
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${e instanceof Error ? e.message : e}`);
-    }
-  }
-  console.log(`\n${tests.length - failed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
-}
-
-void main();
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed > 0) process.exit(1);

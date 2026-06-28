@@ -1,18 +1,9 @@
 import { resolveEdgeEnds } from "./edges";
 import type { Box, LaidOutEdge, Point, WorkspaceLayout } from "./layout";
-import type { OverlayNode } from "./richOverlays";
 import type { ViewportTransform } from "./useCanvasViewport";
 import type { Plan, TaskStatus } from "./types";
-import { rawWorld, worldThresholds, type World } from "./worlds";
 
 export type SceneRecordKind = "node" | "edge" | "group";
-
-export interface SceneLodInputs {
-  worldWidth: number;
-  apparentWidth: number;
-  thresholds: readonly [number, number, number];
-  world: World;
-}
 
 export interface SceneNodeRecord {
   recordKind: "node";
@@ -23,7 +14,6 @@ export interface SceneNodeRecord {
   anchors: Record<string, Point>;
   semanticText: string;
   status: TaskStatus | Plan["status"] | null;
-  lod: SceneLodInputs;
 }
 
 export interface SceneEdgeRecord {
@@ -37,7 +27,6 @@ export interface SceneEdgeRecord {
   anchors: { from: Point; to: Point };
   semanticText: string;
   status: null;
-  lod: SceneLodInputs;
 }
 
 export interface SceneGroupRecord {
@@ -48,7 +37,6 @@ export interface SceneGroupRecord {
   anchors: Record<string, Point>;
   semanticText: string;
   status: null;
-  lod: SceneLodInputs;
   planIds: string[];
 }
 
@@ -62,7 +50,6 @@ export interface CanvasScene {
 export interface CanvasSceneInput {
   layout: WorkspaceLayout;
   plans: readonly Plan[];
-  cameraScale?: number;
 }
 
 export interface ProjectedSceneBox {
@@ -78,9 +65,6 @@ export interface CanvasSceneReadback {
   nodeWorldBox: (id: string) => Box | null;
   nodeScreenBox: (id: string) => Box | null;
   projectedBoxes: () => ProjectedSceneBox[];
-  pickNodeAt: (screenPoint: Point) => SceneNodeRecord | null;
-  activeOverlays: () => OverlayNode[];
-  maxActiveOverlays: number;
 }
 
 export interface CanvasSceneDebugRegistry {
@@ -117,17 +101,6 @@ function boxAnchors(box: Box): Record<string, Point> {
   };
 }
 
-function lodInputs(kind: string, worldWidth: number, cameraScale: number): SceneLodInputs {
-  const thresholds = worldThresholds(kind);
-  const apparentWidth = worldWidth * cameraScale;
-  return {
-    worldWidth,
-    apparentWidth,
-    thresholds,
-    world: rawWorld(apparentWidth, thresholds),
-  };
-}
-
 function edgeBox(a: Point, b: Point): Box {
   const x = Math.min(a.x, b.x);
   const y = Math.min(a.y, b.y);
@@ -156,20 +129,6 @@ function edgePlanId(edge: LaidOutEdge, nodePlanById: Map<string, string>, frameP
   return framePlanId || null;
 }
 
-export function projectWorldPoint(point: Point, transform: ViewportTransform): Point {
-  return {
-    x: point.x * transform.scale + transform.x,
-    y: point.y * transform.scale + transform.y,
-  };
-}
-
-export function unprojectScreenPoint(point: Point, transform: ViewportTransform): Point {
-  return {
-    x: (point.x - transform.x) / transform.scale,
-    y: (point.y - transform.y) / transform.scale,
-  };
-}
-
 export function projectWorldBox(box: Box, transform: ViewportTransform): Box {
   return {
     x: box.x * transform.scale + transform.x,
@@ -179,28 +138,7 @@ export function projectWorldBox(box: Box, transform: ViewportTransform): Box {
   };
 }
 
-function containsPoint(box: Box, point: Point): boolean {
-  return point.x >= box.x && point.x <= box.x + box.width && point.y >= box.y && point.y <= box.y + box.height;
-}
-
-function pickPriority(node: SceneNodeRecord): number {
-  if (node.kind === "task") return 0;
-  if (node.kind === "spec") return 1;
-  if (node.kind === "plan") return 2;
-  return 3;
-}
-
-export function pickCanvasSceneNodeAtWorldPoint(scene: CanvasScene, worldPoint: Point): SceneNodeRecord | null {
-  const hits = scene.nodes.filter((node) => (node.kind === "plan" || node.kind === "task" || node.kind === "spec") && containsPoint(node.worldBox, worldPoint));
-  hits.sort((a, b) => pickPriority(a) - pickPriority(b) || (a.worldBox.width * a.worldBox.height) - (b.worldBox.width * b.worldBox.height) || a.id.localeCompare(b.id));
-  return hits[0] ?? null;
-}
-
-export function pickCanvasSceneNodeAtScreenPoint(scene: CanvasScene, screenPoint: Point, transform: ViewportTransform): SceneNodeRecord | null {
-  return pickCanvasSceneNodeAtWorldPoint(scene, unprojectScreenPoint(screenPoint, transform));
-}
-
-export function buildCanvasScene({ layout, plans, cameraScale = 1 }: CanvasSceneInput): CanvasScene {
+export function buildCanvasScene({ layout, plans }: CanvasSceneInput): CanvasScene {
   const plansById = new Map(plans.map((plan) => [plan.id, plan]));
   const statusesByTask = taskStatusById(plans);
   const nodePlanById = new Map<string, string>();
@@ -217,7 +155,6 @@ export function buildCanvasScene({ layout, plans, cameraScale = 1 }: CanvasScene
       anchors: boxAnchors(node.box),
       semanticText: semanticTextForNode(node.kind, node.id, plan, plansById),
       status: node.kind === "plan" ? plan?.status ?? null : node.kind === "task" ? statusesByTask.get(node.id) ?? null : null,
-      lod: lodInputs(node.kind, node.box.width, cameraScale),
     }));
   }).sort((a, b) => a.id.localeCompare(b.id));
 
@@ -240,7 +177,6 @@ export function buildCanvasScene({ layout, plans, cameraScale = 1 }: CanvasScene
       anchors: { from: clonePoint(ends.a), to: clonePoint(ends.b) },
       semanticText: `${edge.kind} ${edge.from ?? "point"} to ${edge.to ?? "point"}`,
       status: null,
-      lod: lodInputs(edge.kind, Math.abs(ends.b.x - ends.a.x), cameraScale),
     }];
   }).sort((a, b) => a.id.localeCompare(b.id));
 
@@ -252,7 +188,6 @@ export function buildCanvasScene({ layout, plans, cameraScale = 1 }: CanvasScene
     anchors: boxAnchors(group.box),
     semanticText: group.title,
     status: null,
-    lod: lodInputs("group", group.box.width, cameraScale),
     planIds: [...group.planIds].sort(),
   })).sort((a, b) => a.id.localeCompare(b.id));
 
@@ -280,8 +215,6 @@ export function projectSceneBoxes(scene: CanvasScene, transform: ViewportTransfo
 export function createCanvasSceneReadback(
   scene: CanvasScene,
   transform: ViewportTransform,
-  overlays: readonly OverlayNode[] = [],
-  maxActiveOverlays = overlays.length,
 ): CanvasSceneReadback {
   // Lazy: the O(N) id→box index only materializes when a debug/test consumer reads
   // it — publish itself stays O(1), off the per-frame gesture path.
@@ -298,14 +231,6 @@ export function createCanvasSceneReadback(
       return box ? projectWorldBox(box, transform) : null;
     },
     projectedBoxes: () => projectSceneBoxes(scene, transform),
-    pickNodeAt: (screenPoint) => pickCanvasSceneNodeAtScreenPoint(scene, screenPoint, transform),
-    activeOverlays: () => overlays.map((overlay) => ({
-      ...overlay,
-      worldBox: cloneBox(overlay.worldBox),
-      screenRect: cloneBox(overlay.screenRect),
-      capabilities: { ...overlay.capabilities },
-    })),
-    maxActiveOverlays,
   };
 }
 
@@ -313,11 +238,9 @@ export function publishCanvasSceneReadback(
   scene: CanvasScene,
   transform: ViewportTransform,
   slot = DEFAULT_SCENE_SLOT,
-  overlays: readonly OverlayNode[] = [],
-  maxActiveOverlays = overlays.length,
 ): () => void {
   if (typeof window === "undefined") return () => {};
-  const readback = createCanvasSceneReadback(scene, transform, overlays, maxActiveOverlays);
+  const readback = createCanvasSceneReadback(scene, transform);
   debugEntries.set(slot, readback);
   window.__codetermCanvasScene = {
     get: (id = DEFAULT_SCENE_SLOT) => debugEntries.get(id) ?? null,

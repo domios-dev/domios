@@ -25,6 +25,9 @@ export interface UseCanvasViewportOptions {
   ignoreSelector?: string;
   /** Plain (no modifier) wheel: "pan" both axes (canvas) or "zoom" (mesh graph). */
   wheelBehavior?: "pan" | "zoom";
+  /** Fired on every camera paint (gesture + fly) with the live transform — drives a
+   *  <canvas> blit in lockstep with the layer paint, without a React commit. */
+  onPaint?: (t: ViewportTransform) => void;
 }
 
 export interface CanvasViewportHandlers {
@@ -45,6 +48,8 @@ export interface UseCanvasViewportResult {
   containerRef: React.MutableRefObject<HTMLDivElement | null>;
   /** Attach to the transformed world layer for immediate pinch/pan paint. */
   layerRef: React.MutableRefObject<HTMLDivElement | null>;
+  /** Live camera, mutated every paint — read by the <canvas> blit loop. */
+  transformRef: React.MutableRefObject<ViewportTransform>;
 }
 
 const DEF_MIN_SCALE = 0.08;
@@ -64,7 +69,10 @@ const ZOOM_INTENSITY = CANVAS_ZOOM_INTENSITY;
 // commit that drives viewport-derived memos (culling/overlays/LOD) is throttled
 // to ~15fps during a continuous gesture, with a trailing commit so culling
 // settles exactly at gesture end. Decouples scene re-render from frame rate.
-const STATE_COMMIT_THROTTLE_MS = 66;
+// Commit the React state (culling/overlays/LOD) only this long after the last
+// pan/zoom event — i.e. once the gesture settles. During the gesture only the layer
+// transform paints. Keeps WebKit/WKWebView from repainting the DOM/SVG mid-gesture.
+const GESTURE_SETTLE_MS = 130;
 
 export function formatLayerTransform(t: ViewportTransform): string {
   return `translate(${t.x}px, ${t.y}px) scale(${t.scale})`;
@@ -100,7 +108,10 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     panButton = "any",
     ignoreSelector,
     wheelBehavior = "pan",
+    onPaint,
   } = opts;
+  const onPaintRef = useRef(onPaint);
+  onPaintRef.current = onPaint;
 
   const [transform, setTransformState] = useState<ViewportTransform>({ x: 0, y: 0, scale: 1 });
   const [isDragging, setIsDragging] = useState(false);
@@ -136,6 +147,7 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
   const commit = useCallback((next: ViewportTransform) => {
     transformRef.current = next;
     paintLayer(layerRef.current, next);
+    onPaintRef.current?.(next);
     if (trailRef.current != null) {
       clearTimeout(trailRef.current);
       trailRef.current = null;
@@ -153,32 +165,18 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     cancelAnim();
     transformRef.current = next;
     pendingRef.current = next;
+    // Paint the camera to the layer EVERY event (cheap GPU transform — smooth pan/zoom).
     paintLayer(layerRef.current, next);
-    if (frameRef.current != null) return;
-    frameRef.current = requestAnimationFrame(() => {
-      frameRef.current = null;
-      const pending = pendingRef.current;
-      pendingRef.current = null;
-      if (!pending) return;
-      // Camera is already painted to the layer; throttle the React commit that
-      // drives culling/overlays. A trailing timeout guarantees the visible set
-      // settles on the final transform once the gesture stops.
-      const now = performance.now();
-      if (now - lastStateTsRef.current >= STATE_COMMIT_THROTTLE_MS) {
-        if (trailRef.current != null) {
-          clearTimeout(trailRef.current);
-          trailRef.current = null;
-        }
-        lastStateTsRef.current = now;
-        setTransformState(pending);
-      } else if (trailRef.current == null) {
-        trailRef.current = window.setTimeout(() => {
-          trailRef.current = null;
-          lastStateTsRef.current = performance.now();
-          setTransformState(transformRef.current);
-        }, STATE_COMMIT_THROTTLE_MS);
-      }
-    });
+    onPaintRef.current?.(next);
+    // Defer the React commit (culling/overlays/LOD) to gesture-END only: re-arm a
+    // debounce on each event so we commit ONCE when the gesture settles. WebKit
+    // repaints the visible DOM/SVG ~hundreds of ms per commit; committing mid-gesture
+    // is the pan/zoom jank. During the gesture the layer transform alone moves the scene.
+    if (trailRef.current != null) clearTimeout(trailRef.current);
+    trailRef.current = window.setTimeout(() => {
+      trailRef.current = null;
+      setTransformState(transformRef.current);
+    }, GESTURE_SETTLE_MS);
   }, [cancelAnim]);
 
   const fitTransform = useCallback(
@@ -391,5 +389,6 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
     isDragging,
     containerRef,
     layerRef,
+    transformRef,
   };
 }

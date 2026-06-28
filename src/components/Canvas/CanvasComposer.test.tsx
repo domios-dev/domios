@@ -86,13 +86,17 @@ test("targets the focused plan's owner and POSTs the message + in-view context",
   }) as unknown as typeof fetch;
 
   const { host, root } = await render(
-    <CanvasComposer api={API} plans={[FIXTURE_PLAN]} layout={layout} viewportCenter={center} mode="workspace" />,
+    <CanvasComposer api={API} plans={[FIXTURE_PLAN]} layout={layout} viewportCenter={center} />,
   );
 
-  const chip = host.querySelector('[data-testid="canvas-composer-target"]');
-  assert(chip, "target chip rendered");
-  assert(chip.textContent?.includes("Orchestrator"), `chip shows owner, got: ${chip.textContent}`);
-  assert(chip.textContent?.includes("Auth rollout"), `chip shows plan title, got: ${chip.textContent}`);
+  const target = host.querySelector('[data-testid="canvas-composer-target"]');
+  assert(target, "target line rendered");
+  assert(target.textContent?.includes("Orchestrator"), `target shows owner, got: ${target.textContent}`);
+
+  const chip = host.querySelector('[data-testid="canvas-context-chip"]');
+  assert(chip, "context chip rendered");
+  assert(chip.getAttribute("data-context-kind") === "task", `chip referent is the centered task, got: ${chip.getAttribute("data-context-kind")}`);
+  assert(chip.textContent?.includes("Dante"), `chip names the referent, got: ${chip.textContent}`);
 
   const ta = host.querySelector('[data-testid="canvas-composer-input"]') as HTMLTextAreaElement;
   assert(ta, "input rendered");
@@ -111,10 +115,11 @@ test("targets the focused plan's owner and POSTs the message + in-view context",
 
   assert(captured.url === "http://127.0.0.1:7686/api/panes/orch-1/send", `POST to owner pane, got: ${captured.url}`);
   const text = captured.body?.text ?? "";
+  assert(text.startsWith("-=-codeterm:pane"), "rides the pane marker envelope");
   assert(text.includes("please review the login endpoint"), "message text sent");
-  assert(text.includes("Canvas context"), "auto-attached context present");
-  assert(text.includes('plan "Auth rollout"'), "context names the plan");
-  assert(text.includes("Dante"), "in-view task attached as context");
+  assert(text.includes("Canvas context"), "context reference present");
+  assert(text.includes("plan plan-alpha"), "context carries the plan id");
+  assert(text.includes("task task-dante"), "context carries the centered task id");
 
   await act(async () => root.unmount());
 });
@@ -130,7 +135,7 @@ test("disables send and hints when the focused plan has no owner pane", async ()
   assert(node, "node laid out");
 
   const { host, root } = await render(
-    <CanvasComposer api={API} plans={[ownerless]} layout={layout} viewportCenter={boxCenter(node.box)} mode="workspace" />,
+    <CanvasComposer api={API} plans={[ownerless]} layout={layout} viewportCenter={boxCenter(node.box)} />,
   );
 
   const sendBtn = host.querySelector('[data-testid="canvas-composer-send"]') as HTMLButtonElement;
@@ -147,7 +152,7 @@ test("clears the input after a successful send (clear-on-send bug fix)", async (
     ({ ok: true, status: 200, text: async () => "" }) as Response) as unknown as typeof fetch;
 
   const { host, root } = await render(
-    <CanvasComposer api={API} plans={[FIXTURE_PLAN]} layout={layout} viewportCenter={boxCenter(node.box)} mode="workspace" />,
+    <CanvasComposer api={API} plans={[FIXTURE_PLAN]} layout={layout} viewportCenter={boxCenter(node.box)} />,
   );
 
   const ta = host.querySelector('[data-testid="canvas-composer-input"]') as HTMLTextAreaElement;
@@ -166,6 +171,38 @@ test("clears the input after a successful send (clear-on-send bug fix)", async (
 
   const after = host.querySelector('[data-testid="canvas-composer-input"]') as HTMLTextAreaElement;
   assert(after.value === "", `input cleared after send, got: "${after.value}"`);
+  await act(async () => root.unmount());
+});
+
+test("surfaces the owner's latest reply (last_turn_summary) in the activity bubble", async () => {
+  const layout = layoutWorkspace([FIXTURE_PLAN]);
+  const node = layout.nodeIndex.get("task-dante");
+  assert(node, "node laid out");
+  const panes = {
+    "orch-1": { id: "orch-1", agent_state: { state: "idle", last_turn_summary: "Split the login task into 3 subtasks." } },
+  } as unknown as Record<string, import("../../lib/types").Pane>;
+
+  const { host, root } = await render(
+    <CanvasComposer api={API} plans={[FIXTURE_PLAN]} layout={layout} viewportCenter={boxCenter(node.box)} panes={panes} />,
+  );
+  const bubble = host.querySelector('[data-testid="canvas-activity-bubble"]');
+  assert(bubble, "reply bubble rendered when the owner has a last_turn_summary");
+  assert(bubble.getAttribute("data-activity-working") === "false", "shown as a reply, not a working spinner");
+  assert(bubble.textContent?.includes("Split the login task"), `bubble shows the reply, got: ${bubble.textContent}`);
+  await act(async () => root.unmount());
+});
+
+test("open overlay node WINS as the referent (single floating composer, context-switched)", async () => {
+  const layout = layoutWorkspace([FIXTURE_PLAN]);
+  // Centre points nowhere; the open overlay node must still be the referent.
+  const { host, root } = await render(
+    <CanvasComposer api={API} plans={[FIXTURE_PLAN]} layout={layout} viewportCenter={{ x: -99999, y: -99999 }}
+      overlay={{ id: "task-dante", kind: "task", planId: "plan-alpha" }} />,
+  );
+  const chip = host.querySelector('[data-testid="canvas-context-chip"]');
+  assert(chip?.getAttribute("data-context-id") === "task-dante", "referent switched to the open overlay node");
+  const target = host.querySelector('[data-testid="canvas-composer-target"]');
+  assert(target?.getAttribute("data-owner-pane") === "orch-1", "routes to that plan's owner orchestrator");
   await act(async () => root.unmount());
 });
 

@@ -14,7 +14,6 @@ import { atLeast } from "./worlds";
 export interface CanvasPresenceLayerProps {
   overlays: readonly PresenceOverlay[];
   onFlyToTask: (taskId: string) => void;
-  onHoverTask?: (taskId: string | null) => void;
 }
 
 // Avatar floats well OFF the task corner (screen px) so the connector reads as a real
@@ -26,7 +25,7 @@ function rosterTitle(overlay: PresenceOverlay): string {
   return `Working: ${overlay.agents.map((a) => a.label + (a.role ? ` (${a.role})` : "")).join(", ")}`;
 }
 
-export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: CanvasPresenceLayerProps) {
+export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({ overlays, onFlyToTask }: CanvasPresenceLayerProps) {
   // Stable identity: memo the render list so unchanged pins don't reconcile churn.
   const items = useMemo(() => overlays, [overlays]);
   // EMERGENCE: pins GLIDE between tasks (Figma multiplayer) — the glide wrapper's
@@ -86,8 +85,6 @@ export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({ overlays,
               e.stopPropagation();
               onFlyToTask(overlay.taskId);
             }}
-            onMouseEnter={() => onHoverTask?.(overlay.taskId)}
-            onMouseLeave={() => onHoverTask?.(null)}
             style={{
               position: "absolute",
               left: overlay.anchor.x,
