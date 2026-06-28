@@ -1,11 +1,12 @@
 use std::io::Read;
 
 use crate::args::task::{CanvasAction, TaskAction};
-use crate::client::{SocketCallError, SocketClient};
+use crate::client::SocketClient;
 use crate::cmd::hints::{
     maybe_orchestration_reminder, print_hints, push_hints, task_model_hint,
     task_quality_guard_hint, task_sections_hint,
 };
+use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::print_object;
 use serde_json::{json, Value};
 
@@ -33,15 +34,8 @@ fn resolve_text(value: Option<String>, file: Option<String>) -> Result<Option<St
 
 fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value, String> {
     client
-        .call_detailed(method, Some(params))
-        .map_err(render_call_error)
-}
-
-fn render_call_error(err: SocketCallError) -> String {
-    match err {
-        SocketCallError::Rpc(rpc) => format!("RPC error {}: {}", rpc.code, rpc.message),
-        SocketCallError::Transport(message) => message,
-    }
+        .call_detailed(method, Some(params.clone()))
+        .map_err(|err| render_plan_call_error(err, &params))
 }
 
 fn caller_pane() -> Option<String> {

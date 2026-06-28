@@ -62,6 +62,57 @@ fn heartbeat_learning_persists_reloads_and_dedups() {
 }
 
 #[test]
+fn heartbeat_set_writes_focus_lanes_rules_and_reinjects() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+
+    let result = store
+        .set_heartbeat(
+            Some(&plan_id),
+            None,
+            None,
+            Some("Land lane fixes"),
+            Some(vec!["lane-a: cli".into(), "  ".into()]),
+            Some(vec!["never merge before gate green".into()]),
+            false,
+            false,
+            20,
+        )
+        .unwrap();
+    assert_eq!(result.heartbeat.current_focus.as_deref(), Some("Land lane fixes"));
+    assert_eq!(result.heartbeat.active_lanes, vec!["lane-a: cli".to_string()]);
+    assert_eq!(
+        result.heartbeat.rules,
+        vec!["never merge before gate green".to_string()]
+    );
+
+    // Auto-reinjection now carries the focus + lanes set above.
+    let reinjected = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    assert!(reinjected.contains("Current focus: Land lane fixes"));
+    assert!(reinjected.contains("lane-a: cli"));
+
+    // Partial set leaves unspecified fields intact; --clear-lanes empties lanes.
+    let cleared = store
+        .set_heartbeat(
+            Some(&plan_id),
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+            false,
+            30,
+        )
+        .unwrap();
+    assert_eq!(cleared.heartbeat.current_focus.as_deref(), Some("Land lane fixes"));
+    assert!(cleared.heartbeat.active_lanes.is_empty());
+    assert_eq!(
+        cleared.heartbeat.rules,
+        vec!["never merge before gate green".to_string()]
+    );
+}
+
+#[test]
 fn heartbeat_resolves_for_owner_pane_at_send_time() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let before = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");

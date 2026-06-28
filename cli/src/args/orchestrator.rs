@@ -48,4 +48,19 @@ pub enum OrchestratorHeartbeatAction {
         #[arg(long, env = "CODETERM_PLAN_ID")]
         plan: Option<String>,
     },
+    /// Set the heartbeat focus, active lanes, and rules carried into auto-reinjection
+    Set {
+        #[arg(long, env = "CODETERM_PLAN_ID")]
+        plan: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        focus: Option<String>,
+        #[arg(long = "lane", allow_hyphen_values = true)]
+        lanes: Vec<String>,
+        #[arg(long = "rule", allow_hyphen_values = true)]
+        rules: Vec<String>,
+        #[arg(long)]
+        clear_lanes: bool,
+        #[arg(long)]
+        clear_rules: bool,
+    },
 }

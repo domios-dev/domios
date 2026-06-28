@@ -199,6 +199,21 @@ fn run_spec(
                 }
                 call(client, "spec.section.update", params)
             }
+            SpecSectionAction::Show {
+                spec_id,
+                section_id,
+            } => {
+                let val = call(
+                    client,
+                    "spec.section.show",
+                    json!({ "spec_id": spec_id, "section_id": section_id }),
+                )?;
+                if json_output {
+                    return Ok(Some(val));
+                }
+                print!("{}", crate::cmd::plan_sections::render_section_show(&val));
+                return Ok(None);
+            }
             SpecSectionAction::Rm {
                 spec_id,
                 section_id,

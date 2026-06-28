@@ -874,7 +874,10 @@ mod tests {
             .observe_handoff_session_start("pane-a", "new-session", 50)
             .unwrap()
             .unwrap();
-        assert_eq!(resume.text, "resume seed");
+        // The resume send is heartbeat-prepended (state-reconciliation block is
+        // always injected); the authored seed remains the trailing payload.
+        assert!(resume.text.contains("codeterm-state-reconciliation"));
+        assert!(resume.text.trim_end().ends_with("resume seed"));
         assert_eq!(resume.handoff_id, created.handoff_id);
         assert!(store
             .observe_handoff_session_start("pane-a", "new-session-2", 60)

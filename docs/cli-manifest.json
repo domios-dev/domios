@@ -1488,7 +1488,7 @@
         },
         {
           "name": "show",
-          "about": "Show the Spec(s)+Plan+tasks bundle for one effort",
+          "about": "Show the full effort bundle (linked spec(s) + plan + tasks) for one plan_id",
           "aliases": [],
           "args": [
             {
@@ -4122,6 +4122,62 @@
           "args": [],
           "subcommands": [
             {
+              "name": "set",
+              "about": "Set the heartbeat focus, active lanes, and rules carried into auto-reinjection",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "clear_lanes",
+                  "positional": false,
+                  "value_name": "CLEAR_LANES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "clear_rules",
+                  "positional": false,
+                  "value_name": "CLEAR_RULES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "focus",
+                  "positional": false,
+                  "value_name": "FOCUS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "lanes",
+                  "positional": false,
+                  "value_name": "LANES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "rules",
+                  "positional": false,
+                  "value_name": "RULES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "show",
               "about": "Show the current heartbeat and learnings",
               "aliases": [],
@@ -4826,7 +4882,7 @@
           "subcommands": [
             {
               "name": "add",
-              "about": null,
+              "about": "Add a generic canvas element of an arbitrary kind, optionally linked",
               "aliases": [],
               "args": [
                 {
@@ -4930,7 +4986,7 @@
           "subcommands": [
             {
               "name": "set",
-              "about": null,
+              "about": "Set the declared tag facets (CSV)",
               "aliases": [],
               "args": [
                 {
@@ -4988,7 +5044,7 @@
         },
         {
           "name": "get",
-          "about": "Get a plan (markdown by default)",
+          "about": "Render the whole plan as markdown (goal + sections + tasks); --sections for the tree only",
           "aliases": [],
           "args": [
             {
@@ -5018,7 +5074,7 @@
           "subcommands": [
             {
               "name": "get",
-              "about": null,
+              "about": "Show the plan's north-star goal (alias of show)",
               "aliases": [],
               "args": [
                 {
@@ -5034,7 +5090,7 @@
             },
             {
               "name": "set",
-              "about": null,
+              "about": "Set the plan's goal vector, vision, constraints, and postulates",
               "aliases": [],
               "args": [
                 {
@@ -5090,7 +5146,7 @@
             },
             {
               "name": "show",
-              "about": null,
+              "about": "Show the plan's north-star goal (vector, vision, constraints, postulates)",
               "aliases": [],
               "args": [
                 {
@@ -5114,7 +5170,7 @@
           "subcommands": [
             {
               "name": "set",
-              "about": null,
+              "about": "Set the task groups / phases (CSV)",
               "aliases": [],
               "args": [
                 {
@@ -5146,7 +5202,7 @@
           "subcommands": [
             {
               "name": "create",
-              "about": null,
+              "about": "Create a durable, goal-anchored handoff attached to the plan",
               "aliases": [],
               "args": [
                 {
@@ -5226,7 +5282,7 @@
             },
             {
               "name": "list",
-              "about": null,
+              "about": "List the handoffs attached to a plan",
               "aliases": [],
               "args": [
                 {
@@ -5242,7 +5298,7 @@
             },
             {
               "name": "show",
-              "about": null,
+              "about": "Show a handoff (--latest or --seq N), optionally as markdown",
               "aliases": [],
               "args": [
                 {
@@ -5346,7 +5402,7 @@
           "subcommands": [
             {
               "name": "set",
-              "about": null,
+              "about": "Set the declared milestone kind columns (CSV)",
               "aliases": [],
               "args": [
                 {
@@ -5378,7 +5434,7 @@
           "subcommands": [
             {
               "name": "set",
-              "about": null,
+              "about": "Set a canvas element's x/y layout override",
               "aliases": [],
               "args": [
                 {
@@ -5513,8 +5569,32 @@
           "args": [],
           "subcommands": [
             {
+              "name": "advance",
+              "about": "Advance a loop one iteration, recording whether it made progress",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "loop_id",
+                  "positional": true,
+                  "value_name": "LOOP_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "progress",
+                  "positional": false,
+                  "value_name": "PROGRESS",
+                  "default": "false",
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "create",
-              "about": null,
+              "about": "Declare a self-improving loop with a target and iteration budget",
               "aliases": [],
               "args": [
                 {
@@ -5554,7 +5634,7 @@
             },
             {
               "name": "set",
-              "about": null,
+              "about": "Update a loop's budget or stop condition",
               "aliases": [],
               "args": [
                 {
@@ -5586,7 +5666,7 @@
             },
             {
               "name": "status",
-              "about": null,
+              "about": "Show a loop's iteration count, budget, and status",
               "aliases": [],
               "args": [
                 {
@@ -5602,7 +5682,7 @@
             },
             {
               "name": "stop",
-              "about": null,
+              "about": "Stop a loop (marks it complete)",
               "aliases": [],
               "args": [
                 {
@@ -5626,7 +5706,7 @@
           "subcommands": [
             {
               "name": "add",
-              "about": null,
+              "about": "Add a milestone (stride) to a task; --add-kind declares a new kind inline",
               "aliases": [],
               "args": [
                 {
@@ -5690,7 +5770,7 @@
             },
             {
               "name": "rm",
-              "about": null,
+              "about": "Remove a milestone from a task",
               "aliases": [],
               "args": [
                 {
@@ -5722,7 +5802,7 @@
             },
             {
               "name": "update",
-              "about": null,
+              "about": "Update a milestone's kind or text",
               "aliases": [],
               "args": [
                 {
@@ -5779,6 +5859,22 @@
           ]
         },
         {
+          "name": "next",
+          "about": "Prioritized, advisory next-action guidance computed from plan state",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "note",
           "about": "Free-form notes on the canvas",
           "aliases": [],
@@ -5786,7 +5882,7 @@
           "subcommands": [
             {
               "name": "add",
-              "about": null,
+              "about": "Add a free-form canvas note, optionally linked to a task or section",
               "aliases": [],
               "args": [
                 {
@@ -6011,30 +6107,6 @@
           "subcommands": []
         },
         {
-          "name": "relink",
-          "about": "Preview or apply automatic section links for unlinked tasks",
-          "aliases": [],
-          "args": [
-            {
-              "name": "apply",
-              "positional": false,
-              "value_name": "APPLY",
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "plan_id",
-              "positional": true,
-              "value_name": "PLAN_ID",
-              "default": null,
-              "help": null,
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "section",
           "about": "Plan sections",
           "aliases": [],
@@ -6042,7 +6114,7 @@
           "subcommands": [
             {
               "name": "add",
-              "about": null,
+              "about": "Add a plan section (execution phase), optionally nested under --parent",
               "aliases": [],
               "args": [
                 {
@@ -6114,7 +6186,7 @@
             },
             {
               "name": "rm",
-              "about": null,
+              "about": "Remove a plan section and its subsections",
               "aliases": [],
               "args": [
                 {
@@ -6137,34 +6209,10 @@
               "subcommands": []
             },
             {
-              "name": "set",
-              "about": null,
+              "name": "show",
+              "about": "Show one plan section's title, body, tags, and subsections",
               "aliases": [],
               "args": [
-                {
-                  "name": "body",
-                  "positional": false,
-                  "value_name": "BODY",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "body_file",
-                  "positional": false,
-                  "value_name": "PATH",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "name",
-                  "positional": false,
-                  "value_name": "NAME",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
                 {
                   "name": "plan_id",
                   "positional": true,
@@ -6186,7 +6234,7 @@
             },
             {
               "name": "update",
-              "about": null,
+              "about": "Update a plan section's title, body, tags, or handle",
               "aliases": [],
               "args": [
                 {
@@ -6260,7 +6308,23 @@
         },
         {
           "name": "spec",
-          "about": "Print only the hydrated section prose",
+          "about": "Print only the plan's hydrated section prose (no goal, tasks, or metadata)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "state",
+          "about": "One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)",
           "aliases": [],
           "args": [
             {
@@ -6298,7 +6362,7 @@
           "subcommands": [
             {
               "name": "add",
-              "about": null,
+              "about": "Add a task to a plan (carries model/why routing + quality fields)",
               "aliases": [],
               "args": [
                 {
@@ -6546,7 +6610,7 @@
             },
             {
               "name": "assign",
-              "about": null,
+              "about": "Assign a task to a pane (exports CODETERM_TASK_ID to that pane)",
               "aliases": [],
               "args": [
                 {
@@ -6586,7 +6650,7 @@
             },
             {
               "name": "close",
-              "about": null,
+              "about": "Close a task (records a result; rejects if subtasks are open)",
               "aliases": [],
               "args": [
                 {
@@ -6634,7 +6698,7 @@
             },
             {
               "name": "link",
-              "about": null,
+              "about": "Link a task to one or more plan sections (CSV)",
               "aliases": [],
               "args": [
                 {
@@ -6666,7 +6730,7 @@
             },
             {
               "name": "list",
-              "about": null,
+              "about": "List a plan's tasks, optionally filtered by status",
               "aliases": [],
               "args": [
                 {
@@ -6690,7 +6754,7 @@
             },
             {
               "name": "relink",
-              "about": null,
+              "about": "Preview or apply automatic section links for unlinked tasks (--apply)",
               "aliases": [],
               "args": [
                 {
@@ -6754,7 +6818,7 @@
             },
             {
               "name": "rm",
-              "about": null,
+              "about": "Remove a task from the plan",
               "aliases": [],
               "args": [
                 {
@@ -6778,7 +6842,7 @@
             },
             {
               "name": "update",
-              "about": null,
+              "about": "Update task metadata, status, quality fields, or lane assignment",
               "aliases": [],
               "args": [
                 {
@@ -7977,7 +8041,7 @@
           "subcommands": [
             {
               "name": "add",
-              "about": null,
+              "about": "Link a spec section to a plan section (M:N coverage edge)",
               "aliases": [],
               "args": [
                 {
@@ -8017,7 +8081,7 @@
             },
             {
               "name": "list",
-              "about": null,
+              "about": "List spec-to-plan links for a spec",
               "aliases": [],
               "args": [
                 {
@@ -8033,7 +8097,7 @@
             },
             {
               "name": "rm",
-              "about": null,
+              "about": "Remove spec-to-plan link(s); narrow with --spec-section / --plan-section",
               "aliases": [],
               "args": [
                 {
@@ -8121,7 +8185,7 @@
           "subcommands": [
             {
               "name": "add",
-              "about": null,
+              "about": "Add a spec section (requirement), optionally nested under --parent",
               "aliases": [],
               "args": [
                 {
@@ -8193,7 +8257,31 @@
             },
             {
               "name": "rm",
-              "about": null,
+              "about": "Remove a spec section and its subsections",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_id",
+                  "positional": true,
+                  "value_name": "SPEC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "Show one spec section's title, body, tags, and subsections",
               "aliases": [],
               "args": [
                 {
@@ -8217,7 +8305,7 @@
             },
             {
               "name": "update",
-              "about": null,
+              "about": "Update a spec section's title, body, tags, or handle",
               "aliases": [],
               "args": [
                 {

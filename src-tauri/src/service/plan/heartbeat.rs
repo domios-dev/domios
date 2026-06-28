@@ -45,6 +45,14 @@ fn normalized_learning(text: &str) -> String {
     out.trim().to_string()
 }
 
+fn clean_list(items: Vec<String>) -> Vec<String> {
+    items
+        .into_iter()
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect()
+}
+
 fn render_list(items: &[String], out: &mut String) {
     for item in items.iter().filter(|item| !item.trim().is_empty()) {
         out.push_str("- ");
@@ -215,6 +223,41 @@ impl PlanStore {
             Ok(())
         })?;
         out.ok_or_else(|| PlanError::Io("heartbeat learn produced no result".into()))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_heartbeat(
+        &self,
+        plan_id: Option<&str>,
+        pane_id: Option<&str>,
+        session_id: Option<&str>,
+        focus: Option<&str>,
+        lanes: Option<Vec<String>>,
+        rules: Option<Vec<String>>,
+        clear_lanes: bool,
+        clear_rules: bool,
+        now_ms: u64,
+    ) -> Result<HeartbeatShowResult, PlanError> {
+        let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, pane_id, session_id)?;
+        self.with_plan(&plan_id, now_ms, |plan| {
+            if let Some(focus) = focus {
+                let focus = focus.trim();
+                plan.heartbeat.current_focus =
+                    (!focus.is_empty()).then(|| focus.to_string());
+            }
+            if clear_lanes {
+                plan.heartbeat.active_lanes.clear();
+            } else if let Some(lanes) = lanes {
+                plan.heartbeat.active_lanes = clean_list(lanes);
+            }
+            if clear_rules {
+                plan.heartbeat.rules.clear();
+            } else if let Some(rules) = rules {
+                plan.heartbeat.rules = clean_list(rules);
+            }
+            Ok(())
+        })?;
+        self.show_heartbeat(Some(&plan_id), None, None)
     }
 
     pub fn show_heartbeat(

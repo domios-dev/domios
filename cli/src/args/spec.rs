@@ -38,6 +38,7 @@ pub enum SpecAction {
 
 #[derive(Subcommand)]
 pub enum SpecSectionAction {
+    /// Add a spec section (requirement), optionally nested under --parent
     Add {
         spec_id: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -55,6 +56,7 @@ pub enum SpecSectionAction {
         #[arg(long)]
         handle: Option<String>,
     },
+    /// Update a spec section's title, body, tags, or handle
     Update {
         spec_id: String,
         section_id: String,
@@ -71,6 +73,12 @@ pub enum SpecSectionAction {
         #[arg(long)]
         handle: Option<String>,
     },
+    /// Show one spec section's title, body, tags, and subsections
+    Show {
+        spec_id: String,
+        section_id: String,
+    },
+    /// Remove a spec section and its subsections
     Rm {
         spec_id: String,
         section_id: String,
@@ -79,6 +87,7 @@ pub enum SpecSectionAction {
 
 #[derive(Subcommand)]
 pub enum SpecLinkAction {
+    /// Link a spec section to a plan section (M:N coverage edge)
     Add {
         plan_id: String,
         #[arg(long)]
@@ -88,6 +97,7 @@ pub enum SpecLinkAction {
         #[arg(long)]
         plan_section: String,
     },
+    /// Remove spec-to-plan link(s); narrow with --spec-section / --plan-section
     Rm {
         plan_id: String,
         #[arg(long)]
@@ -97,6 +107,7 @@ pub enum SpecLinkAction {
         #[arg(long)]
         plan_section: Option<String>,
     },
+    /// List spec-to-plan links for a spec
     List {
         spec_id: String,
     },

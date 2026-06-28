@@ -254,6 +254,7 @@ impl ServiceContext {
             return;
         };
         let text = crate::service::plan::reminders::nudge_text(kind);
+        let text = self.plan_store.prepend_worker_charter_for_pane(pane_id, &text);
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
         if crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok() {
             self.plan_turn_counter.mark_nudged(pane_id, turns);

@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -78,8 +78,24 @@ When YOU sense you are ready to compact, do **not** rely on the provider's gener
 2. **Read back** — `codeterm plan handoff show <plan_id> --latest --markdown`.
 3. **Verify x3** — three independent passes: completeness, accuracy, executability. Check the handoff markdown against `plan get`, `spec show <SPEC_ID>`, `plan in-progress <plan_id>`, and `codeterm agent reports`. Any gap means amend, read back, and restart the 3-pass cycle. `plan handoff verify` is not implemented yet; this is manual.
 4. **Compact / reseed** — `codeterm orchestrator handoff --plan <plan_id> --reseed --mode new` (preferred; fresh zero-context session) or `--mode compact` (handoff seed then provider `/compact`). Preview sends with `--dry_run` first.
-5. **Pair with a delayed self-message** (`codeterm delayed create --pane <you> --delay 30m --from-file heartbeat.md`) carrying current state + focus + `codeterm mem get skill_codeterm_orchestrator`.
-6. Resume from the handoff's `next_actions` — never a generic recap.
+5. Resume from the handoff's `next_actions` — never a generic recap.
+6. **(Optional, belt-and-suspenders)** A delayed self-message (`codeterm delayed create --pane <you> --delay 30m --from-file heartbeat.md`) can carry extra state, but it is no longer the primary persistence mechanism — the heartbeat below is auto-reinjected on every delayed delivery and nudge, so set it instead.
+
+## Heartbeat — auto-reinjected orchestrator state
+
+The orchestrator **heartbeat** is durable state attached to the plan (`current_focus`, `active_lanes`, `rules`, plus appended `learnings`). The daemon **auto-prepends** it to every delayed message delivered to your pane and to every plan nudge — so your focus and lane map survive compaction and idle drift without a manual self-ping.
+
+```bash
+codeterm orchestrator heartbeat set \
+  --focus "Integrate lane fixes, then cut release" \
+  --lane "lane-a: CLI hardening (worker p1)" --lane "lane-b: canvas perf (worker p2)" \
+  --rule "Never merge a lane before its gate is green"
+codeterm orchestrator heartbeat set --clear-lanes        # wipe lanes when a phase ends
+codeterm orchestrator heartbeat show                     # inspect current heartbeat
+codeterm orchestrator learn "QuickJS lacks console — guard host calls"   # append a learning
+```
+
+`set` writes only the fields you pass (omitted fields are left intact); `--clear-lanes` / `--clear-rules` empty those lists. Plan is resolved from `--plan`/`CODETERM_PLAN_ID`, else the active plan owned by this pane/session. Re-arm one heartbeat after each state-reconciliation pass — the focus + lanes are what get reinjected.
 
 ## Command Reference
 
@@ -129,8 +145,11 @@ codeterm plan section add PLAN_ID --title "..." \
 codeterm plan section update PLAN_ID SECTION_ID \
   [--title "..."] [--body "..." | --body-file PATH]
 
+codeterm plan section show PLAN_ID SECTION_ID    # title + body + tags + subsections
 codeterm plan section rm PLAN_ID SECTION_ID
 ```
+
+(`codeterm spec section show SPEC_ID SECTION_ID` is the spec-side equivalent.)
 
 ### Tasks
 
