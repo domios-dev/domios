@@ -11,6 +11,8 @@ import { ExtensionsTray } from "./ExtensionsTray";
 import { SettingsMenu } from "./SettingsMenu";
 import { CanvasButton } from "../Canvas/CanvasButton";
 import type { SectionId } from "../Settings/sections";
+import { NotificationToastContainer } from "../Notifications/NotificationToast";
+import type { Notification } from "../../lib/types";
 
 interface TitlebarProps {
   onToggleSidebar?: () => void;
@@ -20,6 +22,9 @@ interface TitlebarProps {
   onOpenExtensions?: () => void;
   onOpenSettings?: (section?: SectionId) => void;
   workspaceCanvasActive?: boolean;
+  toasts?: Notification[];
+  onDismissToast?: (id: string) => void;
+  onNavigateToast?: (paneId: string) => void;
 }
 
 export function Titlebar({
@@ -29,6 +34,9 @@ export function Titlebar({
   onOpenExtensions,
   onOpenSettings,
   workspaceCanvasActive = false,
+  toasts = [],
+  onDismissToast,
+  onNavigateToast,
 }: TitlebarProps) {
   void _theme;
   void _onToggleSidebar;
@@ -77,6 +85,14 @@ export function Titlebar({
 
       <div className="flex items-center h-full gap-1 pr-1.5">
         <CanvasButton active={workspaceCanvasActive} />
+        {onDismissToast && (
+          <NotificationToastContainer
+            toasts={toasts}
+            onDismiss={onDismissToast}
+            onNavigate={onNavigateToast}
+            embedded
+          />
+        )}
         {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
         <KeepAwakeTray />
         {onOpenSettings && (
