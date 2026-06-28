@@ -138,6 +138,7 @@ impl MultiplexerState {
             can_spawn: true,
             depth: 1,
             report_target_pane_id: None,
+            report_target_mesh_peer: None,
             spawned_by_pane_id: None,
             title_level: TitleLevel::Default,
             chat_view: false,

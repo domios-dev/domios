@@ -56,6 +56,12 @@ pub(crate) struct SendTextBody {
     pub(crate) source_label: Option<String>,
     #[serde(default)]
     pub(crate) source_model: Option<String>,
+    /// Delivery framing for a mesh-relayed message. `"report"` renders as
+    /// `[Report from <label>@<peer>]` (a remote worker's `agent report`); any
+    /// other / absent value is a plain pane message. Only honoured alongside
+    /// `source_peer` so a local send can't forge report framing.
+    #[serde(default)]
+    pub(crate) kind: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -142,6 +148,37 @@ pub async fn send_text(
     // The return-address marker is meaningful only to an AGENT reading its input.
     // A bare shell PTY must run the injected bytes verbatim — never prefix it.
     let target_has_agent = state.svc.pane_has_agent(&pane_id);
+
+    // A mesh-relayed report makes its remote worker visible to this orchestrator.
+    // Record it (peer + foreign pane + label/model from the authenticated relay)
+    // so the UI can render a "remote pane" ghost node under the target.
+    if body.kind.as_deref() == Some("report") {
+        if let (Some(peer), Some(src)) = (
+            body.source_peer.as_deref().filter(|s| !s.is_empty()),
+            body.source_pane.as_deref().filter(|s| !s.is_empty()),
+        ) {
+            let label = body
+                .source_label
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(peer);
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            state.svc.remote_workers.record_report(
+                &pane_id,
+                peer,
+                src,
+                label,
+                body.source_model.clone(),
+                body.text.as_deref().unwrap_or(""),
+                now_ms,
+            );
+            state.svc.emit_remote_workers_changed(&pane_id);
+        }
+    }
+
     if !target_is_chat {
         state
             .svc
@@ -167,8 +204,16 @@ pub async fn send_text(
                         .as_deref()
                         .filter(|s| !s.trim().is_empty())
                         .unwrap_or(peer);
-                    Some(
+                    // A remote worker's `agent report` rides this same relay; the
+                    // `report` kind renders `[Report from <label>@<peer>]` instead
+                    // of a plain pane message.
+                    let envelope = if body.kind.as_deref() == Some("report") {
+                        crate::service::messenger::MessageEnvelope::report(label, src)
+                    } else {
                         crate::service::messenger::MessageEnvelope::pane(label, src)
+                    };
+                    Some(
+                        envelope
                             .model(body.source_model.clone())
                             .peer(Some(peer.to_string()))
                             .mesh(Some(peer.to_string())),

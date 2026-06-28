@@ -205,6 +205,12 @@ pub enum AgentAction {
         /// Parent pane ID (for Workers)
         #[arg(long)]
         parent: Option<String>,
+        /// Where this worker's `agent report` should land. A pane id or
+        /// `main`/`general` alias. With `--mesh PEER` it resolves on that peer,
+        /// so a remote worker reports back to the spawning orchestrator. Defaults
+        /// to the caller's own pane.
+        #[arg(long)]
+        report_to: Option<String>,
         /// Allow spawning children
         #[arg(long)]
         can_spawn: bool,

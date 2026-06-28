@@ -1,7 +1,5 @@
 //! Install bundled CLI binary to ~/.codeterm/bin/ + PATH integration.
 
-use tauri::Manager;
-
 /// Compute hex-encoded sha256 of a file. Returns `None` on I/O error.
 pub(crate) fn file_sha256(path: &std::path::Path) -> Option<String> {
     use sha2::{Digest, Sha256};
@@ -12,130 +10,156 @@ pub(crate) fn file_sha256(path: &std::path::Path) -> Option<String> {
     Some(bytes.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
-/// Install bundled CLI binary to ~/.codeterm/bin/ on startup (runs in background).
-pub(crate) fn install_bundled_cli(app: &tauri::App) {
-    let bin_name = if cfg!(windows) {
+fn cli_bin_name() -> &'static str {
+    if cfg!(windows) {
         "codeterm.exe"
     } else {
         "codeterm"
-    };
+    }
+}
 
-    let resource_path = app.path().resolve(
-        format!("cli/{}", bin_name),
-        tauri::path::BaseDirectory::Resource,
+/// Resolve the bundled CLI inside the app's Resources. None in dev (no bundle).
+fn resolve_bundled_cli_src(app: &impl tauri::Manager<tauri::Wry>) -> Option<std::path::PathBuf> {
+    app.path()
+        .resolve(
+            format!("cli/{}", cli_bin_name()),
+            tauri::path::BaseDirectory::Resource,
+        )
+        .ok()
+        .filter(|p| p.exists())
+}
+
+/// Copy the bundled CLI (`src`) to `~/.codeterm/bin/` iff it differs by content
+/// (sha256, not size — same-size builds can differ, e.g. the v1.1.5→1.1.6
+/// incident that broke mesh signing). Repairs the `~/.local/bin` symlink on
+/// unix. Returns `Ok(true)` when it (re)installed, `Ok(false)` when already
+/// up-to-date. Pure filesystem logic so it is unit-testable without Tauri.
+pub(crate) fn refresh_installed_cli(
+    src: &std::path::Path,
+    home: &std::path::Path,
+) -> std::io::Result<bool> {
+    let bin_name = cli_bin_name();
+    let dest_dir = home.join(".codeterm").join("bin");
+    let dest = dest_dir.join(bin_name);
+
+    if dest.exists() {
+        match (file_sha256(src), file_sha256(&dest)) {
+            (Some(src_hash), Some(dest_hash)) if src_hash == dest_hash => {
+                log::debug!(
+                    "[cli-install] CLI already up-to-date (sha256={}), skipping",
+                    &src_hash[..12.min(src_hash.len())]
+                );
+                return Ok(false);
+            }
+            (Some(src_hash), Some(dest_hash)) => {
+                log::info!(
+                    "[cli-install] CLI hash mismatch — overwriting (src={}, dest={})",
+                    &src_hash[..12.min(src_hash.len())],
+                    &dest_hash[..12.min(dest_hash.len())]
+                );
+            }
+            _ => {
+                log::warn!("[cli-install] Could not hash existing CLI — proceeding with copy");
+            }
+        }
+    }
+
+    std::fs::create_dir_all(&dest_dir)?;
+    let bytes = std::fs::copy(src, &dest)?;
+    let hash_short = file_sha256(&dest)
+        .map(|h| h[..12.min(h.len())].to_string())
+        .unwrap_or_else(|| "?".into());
+    log::info!(
+        "[cli-install] Installed CLI ({} bytes, sha256={}) to {}",
+        bytes,
+        hash_short,
+        dest.display()
     );
 
-    let src = match resource_path {
-        Ok(p) if p.exists() => p,
-        _ => {
-            log::debug!("[cli-install] No bundled CLI found (dev mode?), skipping");
-            return;
-        }
-    };
-
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => {
-            log::error!("[cli-install] Cannot determine home directory");
-            return;
-        }
-    };
-
-    // Run in background to not block app startup
-    std::thread::spawn(move || {
-        let dest_dir = home.join(".codeterm").join("bin");
-        let dest = dest_dir.join(bin_name);
-
-        // Skip iff destination already matches the bundle by content (sha256), not size. Two different release builds can produce same-sized binaries
-        // with different content; size-only check silently leaves a stale CLI in PATH (the v1.1.5→1.1.6 incident: same 7334912 bytes, different hashes, mesh signing broke).
-        if dest.exists() {
-            match (file_sha256(&src), file_sha256(&dest)) {
-                (Some(src_hash), Some(dest_hash)) if src_hash == dest_hash => {
-                    log::debug!(
-                        "[cli-install] CLI already up-to-date (sha256={}), skipping",
-                        &src_hash[..12]
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
+        // Repair stale ~/.local/bin symlinks (e.g. old launcher) so PATH calls hit this install.
+        // Otherwise PATH dispatch can no-op by re-entering the daemon launcher.
+        let local_bin = home.join(".local").join("bin");
+        let _ = std::fs::create_dir_all(&local_bin);
+        let link = local_bin.join("codeterm");
+        let needs_create = match std::fs::symlink_metadata(&link) {
+            Ok(meta) if meta.file_type().is_symlink() => match std::fs::read_link(&link) {
+                Ok(target) if target == dest => false,
+                Ok(stale) => {
+                    log::warn!(
+                        "[cli-install] Replacing stale symlink {} -> {}",
+                        link.display(),
+                        stale.display()
                     );
-                    return;
+                    let _ = std::fs::remove_file(&link);
+                    true
                 }
-                (Some(src_hash), Some(dest_hash)) => {
-                    log::info!(
-                        "[cli-install] CLI hash mismatch — overwriting (src={}, dest={})",
-                        &src_hash[..12],
-                        &dest_hash[..12]
-                    );
+                Err(_) => {
+                    let _ = std::fs::remove_file(&link);
+                    true
                 }
-                _ => {
-                    log::warn!("[cli-install] Could not hash existing CLI — proceeding with copy");
-                }
-            }
-        }
-
-        if let Err(e) = std::fs::create_dir_all(&dest_dir) {
-            log::error!("[cli-install] Failed to create dir: {}", e);
-            return;
-        }
-
-        match std::fs::copy(&src, &dest) {
-            Ok(bytes) => {
-                let hash_short = file_sha256(&dest)
-                    .map(|h| h[..12].to_string())
-                    .unwrap_or_else(|| "?".into());
-                log::info!(
-                    "[cli-install] Installed CLI ({} bytes, sha256={}) to {}",
-                    bytes,
-                    hash_short,
-                    dest.display()
+            },
+            Ok(_) => {
+                // Regular file or directory — user/installer placed a real binary here. Don't clobber; log and skip.
+                log::warn!(
+                    "[cli-install] {} exists and is not a symlink; refusing to replace",
+                    link.display()
                 );
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
-                    // Repair stale ~/.local/bin symlinks (e.g. old launcher) so PATH calls hit this install.
-                    // Otherwise PATH dispatch can no-op by re-entering the daemon launcher.
-                    let local_bin = home.join(".local").join("bin");
-                    let _ = std::fs::create_dir_all(&local_bin);
-                    let link = local_bin.join("codeterm");
-                    let needs_create = match std::fs::symlink_metadata(&link) {
-                        Ok(meta) if meta.file_type().is_symlink() => {
-                            match std::fs::read_link(&link) {
-                                Ok(target) if target == dest => false,
-                                Ok(stale) => {
-                                    log::warn!(
-                                        "[cli-install] Replacing stale symlink {} -> {}",
-                                        link.display(),
-                                        stale.display()
-                                    );
-                                    let _ = std::fs::remove_file(&link);
-                                    true
-                                }
-                                Err(_) => {
-                                    let _ = std::fs::remove_file(&link);
-                                    true
-                                }
-                            }
-                        }
-                        Ok(_) => {
-                            // Regular file or directory — user/installer placed a real binary here. Don't clobber; log and skip.
-                            log::warn!(
-                                "[cli-install] {} exists and is not a symlink; refusing to replace",
-                                link.display()
-                            );
-                            false
-                        }
-                        Err(_) => true,
-                    };
-                    if needs_create {
-                        if let Err(e) = std::os::unix::fs::symlink(&dest, &link) {
-                            log::debug!("[cli-install] Symlink to ~/.local/bin failed: {}", e);
-                        }
-                    }
-                }
-                #[cfg(windows)]
-                add_to_user_path(&dest_dir);
+                false
             }
-            Err(e) => log::error!("[cli-install] Failed to copy CLI: {}", e),
+            Err(_) => true,
+        };
+        if needs_create {
+            if let Err(e) = std::os::unix::fs::symlink(&dest, &link) {
+                log::debug!("[cli-install] Symlink to ~/.local/bin failed: {}", e);
+            }
+        }
+    }
+    #[cfg(windows)]
+    add_to_user_path(&dest_dir);
+
+    Ok(true)
+}
+
+/// Install bundled CLI binary to ~/.codeterm/bin/ on startup (runs in background).
+pub(crate) fn install_bundled_cli(app: &tauri::App) {
+    let Some(src) = resolve_bundled_cli_src(app) else {
+        log::debug!("[cli-install] No bundled CLI found (dev mode?), skipping");
+        return;
+    };
+    let Some(home) = dirs::home_dir() else {
+        log::error!("[cli-install] Cannot determine home directory");
+        return;
+    };
+    // Run in background to not block app startup.
+    std::thread::spawn(move || {
+        if let Err(e) = refresh_installed_cli(&src, &home) {
+            log::error!("[cli-install] Failed to copy CLI: {}", e);
         }
     });
+}
+
+/// Refresh the installed CLI right after an in-app update applies the new
+/// bundle, so `~/.codeterm/bin/codeterm` matches the freshly-installed app's
+/// resource CLI without waiting for (or depending on) the next cold startup.
+/// Synchronous: the caller is already off the UI hot path (update apply).
+pub(crate) fn refresh_bundled_cli(app: &impl tauri::Manager<tauri::Wry>) {
+    let Some(src) = resolve_bundled_cli_src(app) else {
+        log::debug!("[cli-install] post-update: no bundled CLI in resources, skipping");
+        return;
+    };
+    let Some(home) = dirs::home_dir() else {
+        log::error!("[cli-install] post-update: cannot determine home directory");
+        return;
+    };
+    match refresh_installed_cli(&src, &home) {
+        Ok(true) => log::info!("[cli-install] post-update CLI refresh complete"),
+        Ok(false) => log::debug!("[cli-install] post-update: CLI already current"),
+        Err(e) => log::error!("[cli-install] post-update CLI refresh failed: {}", e),
+    }
 }
 
 /// Add a directory to the Windows User PATH (persistent, no admin needed).
@@ -229,6 +253,38 @@ mod tests {
             .write_all(b"codeterm-cli-fixture")
             .unwrap();
         assert_eq!(file_sha256(&p).unwrap(), file_sha256(&p).unwrap());
+    }
+
+    #[test]
+    fn refresh_installs_then_skips_then_reinstalls_on_change() {
+        use std::io::Write;
+        let home = tempfile::tempdir().unwrap();
+        let srcdir = tempfile::tempdir().unwrap();
+        let src = srcdir.path().join("codeterm");
+        std::fs::File::create(&src)
+            .unwrap()
+            .write_all(b"v1.5.6-binary")
+            .unwrap();
+
+        // First refresh installs the CLI.
+        assert!(super::refresh_installed_cli(&src, home.path()).unwrap());
+        let dest = home.path().join(".codeterm").join("bin").join("codeterm");
+        assert!(dest.exists());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"v1.5.6-binary");
+
+        // Same content → up-to-date, no reinstall.
+        assert!(!super::refresh_installed_cli(&src, home.path()).unwrap());
+
+        // New release with same name but different content → reinstall.
+        std::fs::File::create(&src)
+            .unwrap()
+            .write_all(b"v1.5.7-binary-with-report-to")
+            .unwrap();
+        assert!(super::refresh_installed_cli(&src, home.path()).unwrap());
+        assert_eq!(
+            std::fs::read(&dest).unwrap(),
+            b"v1.5.7-binary-with-report-to"
+        );
     }
 
     #[test]

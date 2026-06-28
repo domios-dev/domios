@@ -47,6 +47,8 @@ impl ServiceContext {
         self.flag_bound_tasks_for_gone_pane(pane_id, epoch_ms());
         self.prompt_detector.lock().remove_pane(pane_id);
         crate::service::structured_prompt::clear_pane(pane_id);
+        // Drop any remote-worker ghosts that reported to this (now-closed) pane.
+        self.remote_workers.forget_orchestrator(pane_id);
         self.emit_state_changed();
         if pre_focus != post_focus {
             if let Some(new) = post_focus {

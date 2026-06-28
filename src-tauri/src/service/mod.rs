@@ -34,6 +34,7 @@ mod plan_reconcile;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
+pub mod remote_workers;
 pub mod smart_add;
 pub mod spawn;
 mod spawn_chatbackend;
@@ -102,6 +103,9 @@ pub struct ServiceContext {
     // Auto-completes hidden agent runs from claude stream-json result events, idle silence, or hard timeout — replaces relying on claude calling
     // codeterm cron complete / mem worker report itself.
     pub run_watcher: Arc<crate::agent::run_watcher::RunWatcherRegistry>,
+    /// Orchestrator-side view of remote (cross-mesh) workers, populated from
+    /// inbound mesh reports. Drives the "remote pane" ghost nodes in the UI.
+    pub remote_workers: crate::service::remote_workers::RemoteWorkerRegistryHandle,
     /// Channel for outbound Telegram messages (CLI bridge.send command).
     pub bridge_outbound: crate::bridge::manager::OutboundSender,
     /// Receiver half — taken when bridge starts. Replaced on restart with a new channel.
@@ -181,6 +185,22 @@ pub type ServiceState = Arc<ServiceContext>;
 
 impl ServiceContext {
     // ── Event helpers (used by all sub-modules) ─────────────────────
+
+    /// Notify the UI that an orchestrator's remote (cross-mesh) workers changed.
+    /// One payload shape for every mutation site (spawn registration, UI relay
+    /// hook, inbound report) so the sidebar refreshes consistently.
+    pub(crate) fn emit_remote_workers_changed(&self, orchestrator_pane: &str) {
+        // emit_everywhere (not raw app.emit): reaches the native webview AND the
+        // SSE bus, so the web mirror updates live too — not only on next remount.
+        crate::api::events::emit_everywhere(
+            &self.app_handle,
+            "remote-workers-changed",
+            serde_json::json!({
+                "orchestrator_pane_id": orchestrator_pane,
+                "workers": self.remote_workers.snapshot(),
+            }),
+        );
+    }
 
     pub(crate) fn emit_state_changed(&self) {
         self.events
