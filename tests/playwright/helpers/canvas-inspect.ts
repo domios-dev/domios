@@ -98,6 +98,27 @@ export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {
   await page.waitForTimeout(450);
 }
 
+// Robust board-open for unattended gates (perf/ux). The WORKSPACE/inline canvas
+// self-mounts with no pane, so we use ONLY that path: if a canvas-view isn't already
+// up, toggle it on via the always-present titlebar workspace-canvas button. We never
+// touch the pane-plan-overlay path (openPanePlanCanvas needs an existing plan pane and
+// times out from a cold/no-pane dev — the failure this fixes).
+export async function ensureCanvasBoard(page: Page): Promise<void> {
+  const view = page.locator('[data-testid="canvas-view"]').first();
+  if (!(await view.isVisible().catch(() => false))) {
+    const btn = page.locator('[data-testid="canvas-toolbar-button"]');
+    if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) !== "true") {
+      await btn.click().catch(() => {});
+    }
+  }
+  await view.waitFor({ state: "visible", timeout: 30_000 });
+  await page
+    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 });
+  await page.waitForTimeout(450);
+}
+
 export async function openCanvas(page: Page): Promise<void> {
   const overlayView = page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]');
   const inlineView = page.locator('[data-testid="canvas-view"]').first();
@@ -546,8 +567,9 @@ export async function findEdgeEndpointIssues(page: Page, tolerancePx = 3): Promi
       const anchors = Array.from(
         document.querySelectorAll<HTMLElement>(
           // §23.1: section→task edges run from a rail OUTPUT dot (inside the plan
-          // node) to a task card; both ends must land inside one of these.
-          '[data-testid="canvas-plan-node"], [data-testid="canvas-task-card"], [data-testid="canvas-milestone-bubble"]',
+          // node) to a task card; the spec→plan link runs node-center to node-center.
+          // Both ends of every edge must land inside one of these nodes.
+          '[data-testid="canvas-plan-node"], [data-testid="canvas-spec-node"], [data-testid="canvas-task-card"], [data-testid="canvas-milestone-bubble"]',
         ),
       ).map((el) => {
         const r = el.getBoundingClientRect();
@@ -571,6 +593,9 @@ export async function findEdgeEndpointIssues(page: Page, tolerancePx = 3): Promi
       const inside = (x: number, y: number) => boxes.some((b) => x >= b.left && x <= b.right && y >= b.top && y <= b.bottom);
       const hits: EdgeEndpointHit[] = [];
       for (const path of paths as SVGPathElement[]) {
+        // Orchestrator→plan connectors start at the FLOATING orchestrator avatar (not a
+        // node anchor) by design — they aren't node-to-node edges, so skip them.
+        if (path.getAttribute("data-testid") === "canvas-orchestrator-link") continue;
         const length = path.getTotalLength();
         if (!Number.isFinite(length) || length <= 0) continue;
         const start = path.getPointAtLength(0);

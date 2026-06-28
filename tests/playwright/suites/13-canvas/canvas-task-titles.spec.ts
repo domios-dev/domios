@@ -20,11 +20,11 @@ import type { Page } from "@playwright/test";
 import {
   collectBoxes,
   findVisibleOverflows,
+  focusTaskById,
   isEmpty,
   openCanvas,
   panBy,
   panToMountTaskCards,
-  setCanvasScaleOnTask,
 } from "../../helpers/canvas-inspect";
 
 const PERF_KEY = "canvas.perfFixtureN";
@@ -120,7 +120,10 @@ test("@golden @canvas-task-titles task cards show full titles, zero overflow, ac
 
   const seenBands = new Set<string>();
   for (const scale of [1.0, 1.8, 2.6, 3.6, 5.0]) {
-    await setCanvasScaleOnTask(page, probe!, scale);
+    // Deterministic framing: center the probe task at the exact zoom via the product
+    // focus nav, so the reading-band cards are always on-screen for the title probe
+    // (the pan-then-anchor heuristic could cull the probe before the scale loop).
+    await focusTaskById(page, probe!, scale);
     await page.waitForTimeout(220);
 
     const report = (await titleClipReport(page)).filter((r) => r.world);
