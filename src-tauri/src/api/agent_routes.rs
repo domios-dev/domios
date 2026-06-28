@@ -164,7 +164,9 @@ pub async fn forget_remote_worker(
     for orch in &touched {
         state.svc.emit_remote_workers_changed(orch);
     }
-    Ok(Json(serde_json::json!({"ok": true, "orchestrators": touched})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "orchestrators": touched}),
+    ))
 }
 
 pub async fn spawn_agent(
