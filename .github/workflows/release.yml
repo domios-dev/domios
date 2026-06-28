@@ -79,8 +79,10 @@ jobs:
 
       - name: Build all platforms (3 engines × 2 waves)
         env:
-          WIN_SSH: test@127.0.0.1
-          WIN_PORT: '2222'
+          WIN_SSH: amigo@100.125.250.76
+          WIN_PORT: '22'
+          WIN_CARGO_BIN: 'C:\Users\amigo\.cargo\bin'
+          WIN_LLVM_BIN: 'C:\Users\amigo\scoop\apps\llvm\current\bin'
         run: |
           .codeterm/build-machine/scripts/build-all.sh "${{ steps.ver.outputs.tag }}"
 

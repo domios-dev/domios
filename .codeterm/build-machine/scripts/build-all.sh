@@ -7,7 +7,7 @@
 #   ENGINE        WHERE                 arm64 wave            x86_64 wave
 #   mac host      native macOS          macOS aarch64 dmg     macOS x86_64 dmg
 #   docker        baked linux images    linux arm64 .deb      linux x86_64 .deb (cross)
-#   windows VM    ssh into QEMU/peer     windows arm64 .exe    windows x86_64 .exe
+#   windows host  ssh into remote (ROG)  windows arm64 .exe    windows x86_64 .exe
 #
 # Builds are CLEAN (fresh git clone of the tag inside each engine; no cargo target cache).
 # The heavy toolchain/deps are pre-baked into the Docker images and the VM, so per-build
@@ -18,7 +18,7 @@
 #       (build once:  docker build -t codeterm-build-linux-arm64 -f docker/Dockerfile.linux-arm64 .
 #                     docker build -t codeterm-build-linux-x64   -f docker/Dockerfile.linux-x64   . )
 #   - macOS signing: ~/.claude/.secrets/apple-notary.env + Developer ID in keychain + notary profile
-#   - windows VM:    WIN_SSH / WIN_PORT / WIN_SSH_KEY env (see build-windows.sh)
+#   - windows host:  WIN_SSH / WIN_PORT / WIN_SSH_KEY / WIN_CARGO_BIN / WIN_LLVM_BIN (see build-windows.sh)
 #   - minisign updater key on the Mac: ~/.tauri/codeterm.key (updater .sig signed on the Mac)
 #
 # Usage:  build-all.sh vX.Y.Z
@@ -52,14 +52,8 @@ echo "### creating auth-free source bundle for $TAG"
 git -C "$REPO" bundle create "/tmp/codeterm-${TAG}.bundle" "$TAG"
 cp "/tmp/codeterm-${TAG}.bundle" "$LWORK/${TAG}.bundle"
 
-# Pre-warm the Windows VM so it cold-boots in parallel with wave-1's mac/linux compiles instead of
-# starting from cold under full CPU contention when the windows engine first reaches it (that
-# starves the boot and the stability gate times out). build-windows.sh's gate waits for it.
-VM_DIR="$HOME/VMs/codeterm-win11-arm"
-if [ -x "$VM_DIR/vm.sh" ] && ! pgrep -f qemu-system-aarch64 >/dev/null 2>&1; then
-  echo "### pre-warming Windows VM (background) so it is ready by the time the windows engine needs it"
-  ( cd "$VM_DIR" && nohup ./vm.sh run >/tmp/win-vm-boot.log 2>&1 & ) 2>/dev/null || true
-fi
+# The windows engine SSHes into a always-on remote builder (the ROG), so there is no local VM to
+# pre-warm. build-windows.sh's stability gate confirms the host answers SSH before building.
 
 # Short engine name from its command, so per-engine logs are attributable.
 engine_name() {

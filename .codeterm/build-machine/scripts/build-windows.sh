@@ -8,6 +8,9 @@
 #   WIN_SSH        ssh target, e.g. "test@127.0.0.1"   (default: test@127.0.0.1)
 #   WIN_PORT       ssh port (default: 2222)
 #   WIN_SSH_KEY    path to private key (default: ~/.ssh/codeterm-win-build)
+#   WIN_REPO_DIR   build checkout on the host (default: $env:USERPROFILE\codeterm)
+#   WIN_CARGO_BIN  cargo bin dir on the host  (default: C:\Users\test\.cargo\bin)
+#   WIN_LLVM_BIN   libclang/LLVM bin dir      (default: C:\Program Files\LLVM\bin)
 # Usage:  build-windows.sh <tag> <arch>   arch: x86_64 | aarch64
 set -euo pipefail
 TAG="${1:?usage: build-windows.sh <tag> <arch>}"
@@ -16,9 +19,13 @@ ARCH="${2:?arch: x86_64|aarch64}"
 WIN_SSH="${WIN_SSH:-test@127.0.0.1}"
 WIN_PORT="${WIN_PORT:-2222}"
 WIN_SSH_KEY="${WIN_SSH_KEY:-$HOME/.ssh/codeterm-win-build}"
+WIN_REPO_DIR="${WIN_REPO_DIR:-\$env:USERPROFILE\\codeterm}"
+WIN_CARGO_BIN="${WIN_CARGO_BIN:-C:\\Users\\test\\.cargo\\bin}"
+WIN_LLVM_BIN="${WIN_LLVM_BIN:-C:\\Program Files\\LLVM\\bin}"
+# VSARCH: vcvarsall arch arg. The build host is x64, so aarch64 is a cross build (x64_arm64).
 case "$ARCH" in
-  x86_64|x64)     TRIPLE=x86_64-pc-windows-msvc; LABEL=x64 ;;
-  aarch64|arm64)  TRIPLE=aarch64-pc-windows-msvc; LABEL=arm64 ;;
+  x86_64|x64)     TRIPLE=x86_64-pc-windows-msvc; LABEL=x64; VSARCH=x64 ;;
+  aarch64|arm64)  TRIPLE=aarch64-pc-windows-msvc; LABEL=arm64; VSARCH=x64_arm64 ;;
   *) echo "bad arch $ARCH" >&2; exit 2 ;;
 esac
 if [ ! -f "$WIN_SSH_KEY" ]; then
@@ -77,10 +84,20 @@ $SCP "/tmp/codeterm-${TAG}.bundle" "${WIN_SSH}:codeterm-${TAG}.bundle"
 run_win_build() {
   $SSH "powershell -NoProfile -Command -" <<PS
 \$ErrorActionPreference="Continue"
-\$env:PATH = "C:\Program Files\nodejs;C:\Users\test\.cargo\bin;C:\Program Files\Git\cmd;C:\Program Files\LLVM\bin;" + \$env:PATH
-\$env:LIBCLANG_PATH = "C:\Program Files\LLVM\bin"
+\$env:PATH = "C:\Program Files\nodejs;${WIN_CARGO_BIN};C:\Program Files\Git\cmd;${WIN_LLVM_BIN};" + \$env:PATH
+\$env:LIBCLANG_PATH = "${WIN_LLVM_BIN}"
+# Load the MSVC + Windows SDK dev environment (INCLUDE/LIB/PATH) so clang-driven C builds (ring on
+# aarch64) find CRT/SDK headers. vswhere -requires the C++ toolset to skip a VC-less VS instance.
+\$vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+\$vcvars = & \$vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find "VC\Auxiliary\Build\vcvarsall.bat" | Select-Object -First 1
+if (-not \$vcvars) { Write-Output "::error::vcvarsall.bat not found via vswhere" }
+cmd /c " ""\$vcvars"" ${VSARCH} && set " | ForEach-Object { if (\$_ -match '^([^=]+)=(.*)\$') { Set-Item -Path ("Env:" + \$matches[1]) -Value \$matches[2] } }
 \$git = "C:\Program Files\Git\cmd\git.exe"
-Set-Location "\$env:USERPROFILE\codeterm"
+\$repo = "${WIN_REPO_DIR}"
+# Init an empty repo on a fresh host: the tag bundle is self-contained (full history, no
+# prerequisites), so init + fetch + checkout bootstraps a brand-new builder with no prior clone.
+if (-not (Test-Path \$repo)) { New-Item -ItemType Directory -Force \$repo | Out-Null; & \$git init \$repo 2>&1 | Out-String }
+Set-Location \$repo
 & \$git fetch "\$env:USERPROFILE\codeterm-${TAG}.bundle" "refs/tags/${TAG}:refs/tags/${TAG}" 2>&1 | Out-String
 & \$git checkout -f "${TAG}" 2>&1 | Out-String
 & "C:\Program Files\nodejs\pnpm.cmd" install 2>&1 | Out-String
