@@ -222,9 +222,15 @@ fn unique_handle(seed: String, used: &mut HashSet<String>) -> String {
 }
 
 fn slug(raw: &str) -> String {
+    // Cap length: handles feed filenames (tasks/<handle>.md, milestones/<handle>-<id>.md);
+    // an uncapped slug of a long title blows past the OS 255-byte name limit (os error 63).
+    const MAX: usize = 72;
     let mut out = String::new();
     let mut dash = false;
     for ch in raw.chars().flat_map(|ch| ch.to_lowercase()) {
+        if out.len() >= MAX {
+            break;
+        }
         if ch.is_ascii_alphanumeric() {
             out.push(ch);
             dash = false;
@@ -285,6 +291,16 @@ mod tests {
     fn preview_handle_matches_normalized_seed() {
         let tags = vec!["area:nav".into(), "pan-zoom".into()];
         assert_eq!(preview_handle(&tags, "Pan Zoom"), "nav-pan-zoom");
+    }
+
+    #[test]
+    fn slug_is_capped_so_filenames_stay_under_os_limit() {
+        let long = "PERF backend profiling found plugin manager snapshot IPC takes seconds and freezes the whole UI during pan and zoom which is terrible".repeat(2);
+        let s = slug(&long);
+        assert!(s.len() <= 72, "slug must cap length, got {}", s.len());
+        assert!(!s.ends_with('-'), "no trailing dash");
+        // short titles unaffected
+        assert_eq!(slug("Pan Zoom"), "pan-zoom");
     }
 
     #[test]
