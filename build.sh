@@ -17,6 +17,8 @@
 
 set -e
 
+CMD="${1:-dev}"
+
 # --- Load .env (build secrets like UPDATER_TOKEN) ---
 if [ -f ".env" ]; then
   set -a
@@ -88,6 +90,19 @@ setup_env
 # (.codeterm-dev / 7686 / 1420). See AGENTS.md "Process safety".
 CT_INSTANCE="${CODETERM_INSTANCE:-}"
 CT_PORT="${CODETERM_API_PORT:-7686}"
+case "$CMD" in
+  dev|kill|e2e|e2e:llm)
+    if [ "$CT_PORT" = "7685" ]; then
+      if [ -n "$CT_INSTANCE" ]; then
+        echo "ERROR: refusing to run $CMD against prod port 7685 (CODETERM_INSTANCE=$CT_INSTANCE)." >&2
+        echo "Pick a non-prod CODETERM_API_PORT for this dev instance." >&2
+        exit 2
+      fi
+      echo "WARNING: ignoring inherited CODETERM_API_PORT=7685 for $CMD; using dev port 7686." >&2
+      CT_PORT=7686
+    fi
+    ;;
+esac
 if [ -n "$CT_INSTANCE" ]; then
   CT_SLUG=$(printf '%s' "$CT_INSTANCE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
   CT_SUFFIX="-$CT_SLUG"
@@ -238,8 +253,6 @@ ensure_deps() {
     pnpm install --frozen-lockfile 2>/dev/null || pnpm install
   fi
 }
-
-CMD="${1:-dev}"
 
 case "$CMD" in
   env)
