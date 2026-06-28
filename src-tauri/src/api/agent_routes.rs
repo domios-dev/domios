@@ -124,6 +124,49 @@ pub async fn record_remote_worker(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct ForgetRemoteWorkerBody {
+    /// Foreign pane id on the remote peer.
+    remote_pane: String,
+    peer: Option<String>,
+    orchestrator_pane: Option<String>,
+}
+
+/// Dismiss a remote-worker ghost from the origin sidebar (e.g. after the remote
+/// pane was closed). Also reached implicitly via `DELETE /api/panes/{id}/role`
+/// when `{id}` is not a local pane.
+pub async fn forget_remote_worker(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ForgetRemoteWorkerBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if body.remote_pane.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "remote_pane required".into()));
+    }
+    let orchestrator = body
+        .orchestrator_pane
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(|p| resolve_pane(&state, p).map_err(|(s, m)| (s, m.to_string())))
+        .transpose()?;
+    let touched = state.svc.remote_workers.forget_by_remote_pane(
+        body.remote_pane.trim(),
+        body.peer.as_deref().filter(|s| !s.is_empty()),
+        orchestrator.as_deref(),
+    );
+    if touched.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("no remote worker matching {}", body.remote_pane.trim()),
+        ));
+    }
+    for orch in &touched {
+        state.svc.emit_remote_workers_changed(orch);
+    }
+    Ok(Json(serde_json::json!({"ok": true, "orchestrators": touched})))
+}
+
 pub async fn spawn_agent(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
