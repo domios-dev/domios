@@ -878,7 +878,8 @@ button,
   .ct-toast-inline-panel,
   .ct-toast-inline-content,
   .ct-toast-inline-seed {
-  transition: none;
+    transition: none;
+  }
 }
 
 .ct-toast-inline-progress {
@@ -888,7 +889,6 @@ button,
   height: 1px;
   background: color-mix(in srgb, var(--toast-accent) 58%, transparent);
   border-radius: 999px;
-}
 }
 
 /* Top-right anchored menu pop — scales out of the trigger corner */
