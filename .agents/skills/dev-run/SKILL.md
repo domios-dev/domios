@@ -41,6 +41,12 @@ Run it in the **background** so you can keep working:
 
 `build.sh kill` guarantees the old dev is dead before `build.sh dev` starts the new one — so any `/api/health` response after restart is from the fresh build.
 
+When running from inside a production CodeTerm pane, the shell may inherit
+`CODETERM_API_PORT=7685`. `build.sh dev`, `build.sh kill`, and e2e commands
+guard against that and switch the canonical dev instance back to 7686; do not
+override that guard unless you are intentionally running a named non-prod
+instance on another port.
+
 ```bash
 curl -s http://127.0.0.1:7686/api/health | jq '.status'
 # → "ok"

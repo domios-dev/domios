@@ -181,10 +181,10 @@ fn enumerate_webview2() -> Vec<ProcInfo> {
          Select-Object Name,ProcessId,ParentProcessId | ConvertTo-Csv -NoTypeInformation",
         WEBVIEW2_IMAGE
     );
-    let output = match std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .output()
-    {
+    let mut command = std::process::Command::new("powershell");
+    command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    crate::process_util::no_window_std(&mut command);
+    let output = match command.output() {
         Ok(o) if o.status.success() => o,
         Ok(o) => {
             log::warn!(
@@ -209,10 +209,10 @@ fn process_exists(pid: u32) -> bool {
          Select-Object ProcessId | ConvertTo-Csv -NoTypeInformation",
         pid
     );
-    let output = match std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-        .output()
-    {
+    let mut command = std::process::Command::new("powershell");
+    command.args(["-NoProfile", "-NonInteractive", "-Command", &script]);
+    crate::process_util::no_window_std(&mut command);
+    let output = match command.output() {
         Ok(o) if o.status.success() => o,
         // On any error, assume alive — never reap on an ambiguous liveness check.
         _ => return true,
@@ -252,10 +252,10 @@ fn unquote_csv(field: &str) -> String {
 
 #[cfg(windows)]
 fn terminate_pid(pid: u32) -> Result<(), String> {
-    let status = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .status()
-        .map_err(|e| e.to_string())?;
+    let mut command = std::process::Command::new("taskkill");
+    command.args(["/PID", &pid.to_string(), "/T", "/F"]);
+    crate::process_util::no_window_std(&mut command);
+    let status = command.status().map_err(|e| e.to_string())?;
     if status.success() {
         Ok(())
     } else {
