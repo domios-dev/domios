@@ -167,7 +167,10 @@ fn capture_process_snapshots(pid: u32) -> Vec<(String, String)> {
 }
 
 fn run_capture(cmd: &str, args: &[&str]) -> String {
-    match std::process::Command::new(cmd).args(args).output() {
+    let mut command = std::process::Command::new(cmd);
+    command.args(args);
+    crate::process_util::no_window_std(&mut command);
+    match command.output() {
         Ok(output) => {
             let mut s = String::new();
             if !output.stdout.is_empty() {

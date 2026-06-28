@@ -565,19 +565,20 @@ fn try_bridge_ping(path: &Path, n_clusters: u32, warnings: &[String]) -> Result<
     let cli = std::env::var("CODETERM_CLI_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("codeterm"));
-    let _ = std::process::Command::new(cli)
+    let mut command = std::process::Command::new(cli);
+    command
         .args(["bridge", "send", "-"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .and_then(|mut child| {
-            use std::io::Write;
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            child.wait()
-        });
+        .stderr(std::process::Stdio::null());
+    crate::process_util::no_window_std(&mut command);
+    let _ = command.spawn().and_then(|mut child| {
+        use std::io::Write;
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        child.wait()
+    });
     Ok(())
 }
 
