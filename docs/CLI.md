@@ -388,7 +388,7 @@ Link two efforts by lineage
 
 #### `codeterm effort show`
 
-Show the Spec(s)+Plan+tasks bundle for one effort
+Show the full effort bundle (linked spec(s) + plan + tasks) for one plan_id
 
 - `<plan_id>`
 
@@ -1138,6 +1138,17 @@ Create an orchestrator handoff and optionally reseed this pane
 
 Orchestrator heartbeat helpers
 
+#### `codeterm orchestrator heartbeat set`
+
+Set the heartbeat focus, active lanes, and rules carried into auto-reinjection
+
+- `--clear_lanes`
+- `--clear_rules`
+- `--focus`
+- `--lanes`
+- `--plan`
+- `--rules`
+
 #### `codeterm orchestrator heartbeat show`
 
 Show the current heartbeat and learnings
@@ -1354,6 +1365,8 @@ Generic canvas elements
 
 #### `codeterm plan element add`
 
+Add a generic canvas element of an arbitrary kind, optionally linked
+
 - `--content`
 - `--content_file`
 - `--kind`
@@ -1380,6 +1393,8 @@ Set declared tag facets
 
 #### `codeterm plan facets set`
 
+Set the declared tag facets (CSV)
+
 - `--facets`
 - `<plan_id>`
 
@@ -1397,7 +1412,7 @@ Show sections with zero tasks
 
 #### `codeterm plan get`
 
-Get a plan (markdown by default)
+Render the whole plan as markdown (goal + sections + tasks); --sections for the tree only
 
 - `<plan_id>`
 - `--sections`
@@ -1408,9 +1423,13 @@ Plan north-star goal
 
 #### `codeterm plan goal get`
 
+Show the plan's north-star goal (alias of show)
+
 - `<plan_id>`
 
 #### `codeterm plan goal set`
+
+Set the plan's goal vector, vision, constraints, and postulates
 
 - `--constraint`
 - `<plan_id>`
@@ -1421,6 +1440,8 @@ Plan north-star goal
 
 #### `codeterm plan goal show`
 
+Show the plan's north-star goal (vector, vision, constraints, postulates)
+
 - `<plan_id>`
 
 #### `codeterm plan groups`
@@ -1428,6 +1449,8 @@ Plan north-star goal
 Set task groups (phases)
 
 #### `codeterm plan groups set`
+
+Set the task groups / phases (CSV)
 
 - `--groups`
 - `<plan_id>`
@@ -1437,6 +1460,8 @@ Set task groups (phases)
 Orchestrator handoffs attached to the plan
 
 #### `codeterm plan handoff create`
+
+Create a durable, goal-anchored handoff attached to the plan
 
 - `--foundational_rules`
 - `--from_file`
@@ -1450,9 +1475,13 @@ Orchestrator handoffs attached to the plan
 
 #### `codeterm plan handoff list`
 
+List the handoffs attached to a plan
+
 - `<plan_id>`
 
 #### `codeterm plan handoff show`
+
+Show a handoff (--latest or --seq N), optionally as markdown
 
 - `--latest`
 - `--markdown`
@@ -1480,6 +1509,8 @@ Set milestone kind columns
 
 #### `codeterm plan kinds set`
 
+Set the declared milestone kind columns (CSV)
+
 - `--kinds`
 - `<plan_id>`
 
@@ -1488,6 +1519,8 @@ Set milestone kind columns
 Canvas layout overrides
 
 #### `codeterm plan layout set`
+
+Set a canvas element's x/y layout override
 
 - `--element`
 - `<plan_id>`
@@ -1517,7 +1550,16 @@ List plans
 
 Self-improving loops
 
+#### `codeterm plan loop advance`
+
+Advance a loop one iteration, recording whether it made progress
+
+- `<loop_id>`
+- `--progress`
+
 #### `codeterm plan loop create`
+
+Declare a self-improving loop with a target and iteration budget
 
 - `--budget`
 - `<plan_id>`
@@ -1526,15 +1568,21 @@ Self-improving loops
 
 #### `codeterm plan loop set`
 
+Update a loop's budget or stop condition
+
 - `--budget`
 - `<loop_id>`
 - `--stop_when`
 
 #### `codeterm plan loop status`
 
+Show a loop's iteration count, budget, and status
+
 - `<loop_id>`
 
 #### `codeterm plan loop stop`
+
+Stop a loop (marks it complete)
 
 - `<loop_id>`
 
@@ -1543,6 +1591,8 @@ Self-improving loops
 Task milestones
 
 #### `codeterm plan milestone add`
+
+Add a milestone (stride) to a task; --add-kind declares a new kind inline
 
 - `--add_kind`
 - `--from`
@@ -1554,11 +1604,15 @@ Task milestones
 
 #### `codeterm plan milestone rm`
 
+Remove a milestone from a task
+
 - `<milestone_id>`
 - `<plan_id>`
 - `<task_id>`
 
 #### `codeterm plan milestone update`
+
+Update a milestone's kind or text
 
 - `--kind`
 - `<milestone_id>`
@@ -1567,11 +1621,19 @@ Task milestones
 - `--text`
 - `--text_file`
 
+#### `codeterm plan next`
+
+Prioritized, advisory next-action guidance computed from plan state
+
+- `<plan_id>`
+
 #### `codeterm plan note`
 
 Free-form notes on the canvas
 
 #### `codeterm plan note add`
+
+Add a free-form canvas note, optionally linked to a task or section
 
 - `--link_section`
 - `--link_task`
@@ -1621,18 +1683,13 @@ Show structural neighbors for a plan/spec/task/section unit
 - `--depth`
 - `--id`
 
-#### `codeterm plan relink`
-
-Preview or apply automatic section links for unlinked tasks
-
-- `--apply`
-- `<plan_id>`
-
 #### `codeterm plan section`
 
 Plan sections
 
 #### `codeterm plan section add`
+
+Add a plan section (execution phase), optionally nested under --parent
 
 - `--body`
 - `--body_file`
@@ -1645,18 +1702,21 @@ Plan sections
 
 #### `codeterm plan section rm`
 
+Remove a plan section and its subsections
+
 - `<plan_id>`
 - `<section_id>`
 
-#### `codeterm plan section set`
+#### `codeterm plan section show`
 
-- `--body`
-- `--body_file`
-- `--name`
+Show one plan section's title, body, tags, and subsections
+
 - `<plan_id>`
 - `<section_id>`
 
 #### `codeterm plan section update`
+
+Update a plan section's title, body, tags, or handle
 
 - `--body`
 - `--body_file`
@@ -1669,7 +1729,13 @@ Plan sections
 
 #### `codeterm plan spec`
 
-Print only the hydrated section prose
+Print only the plan's hydrated section prose (no goal, tasks, or metadata)
+
+- `<plan_id>`
+
+#### `codeterm plan state`
+
+One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)
 
 - `<plan_id>`
 
@@ -1684,6 +1750,8 @@ Show tag facets, counts, topics, and duplicate warnings
 Plan tasks
 
 #### `codeterm plan task add`
+
+Add a task to a plan (carries model/why routing + quality fields)
 
 - `--assign_pane`
 - `--base`
@@ -1718,12 +1786,16 @@ Plan tasks
 
 #### `codeterm plan task assign`
 
+Assign a task to a pane (exports CODETERM_TASK_ID to that pane)
+
 - `--mesh`
 - `--pane`
 - `<plan_id>`
 - `<task_id>`
 
 #### `codeterm plan task close`
+
+Close a task (records a result; rejects if subtasks are open)
 
 - `--mesh`
 - `<plan_id>`
@@ -1733,16 +1805,22 @@ Plan tasks
 
 #### `codeterm plan task link`
 
+Link a task to one or more plan sections (CSV)
+
 - `<plan_id>`
 - `--sections`
 - `<task_id>`
 
 #### `codeterm plan task list`
 
+List a plan's tasks, optionally filtered by status
+
 - `<plan_id>`
 - `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 
 #### `codeterm plan task relink`
+
+Preview or apply automatic section links for unlinked tasks (--apply)
 
 - `--apply`
 - `<plan_id>`
@@ -1758,10 +1836,14 @@ Replace facet/topic tags and regenerate the task handle
 
 #### `codeterm plan task rm`
 
+Remove a task from the plan
+
 - `<plan_id>`
 - `<task_id>`
 
 #### `codeterm plan task update`
+
+Update task metadata, status, quality fields, or lane assignment
 
 - `--base`
 - `--body`
@@ -2046,6 +2128,8 @@ Spec-to-plan links
 
 #### `codeterm spec link add`
 
+Link a spec section to a plan section (M:N coverage edge)
+
 - `<plan_id>`
 - `--plan_section`
 - `--spec`
@@ -2053,9 +2137,13 @@ Spec-to-plan links
 
 #### `codeterm spec link list`
 
+List spec-to-plan links for a spec
+
 - `<spec_id>`
 
 #### `codeterm spec link rm`
+
+Remove spec-to-plan link(s); narrow with --spec-section / --plan-section
 
 - `<plan_id>`
 - `--plan_section`
@@ -2077,6 +2165,8 @@ Spec sections
 
 #### `codeterm spec section add`
 
+Add a spec section (requirement), optionally nested under --parent
+
 - `--body`
 - `--body_file`
 - `--handle`
@@ -2088,10 +2178,21 @@ Spec sections
 
 #### `codeterm spec section rm`
 
+Remove a spec section and its subsections
+
+- `<section_id>`
+- `<spec_id>`
+
+#### `codeterm spec section show`
+
+Show one spec section's title, body, tags, and subsections
+
 - `<section_id>`
 - `<spec_id>`
 
 #### `codeterm spec section update`
+
+Update a spec section's title, body, tags, or handle
 
 - `--body`
 - `--body_file`

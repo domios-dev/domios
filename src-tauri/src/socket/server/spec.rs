@@ -163,6 +163,16 @@ pub(super) fn dispatch(
             emit_spec_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
+        "spec.section.show" => {
+            let id = get_string_param(params, "spec_id")?;
+            let sid = get_string_param(params, "section_id")?;
+            let result = store.show_spec_section(&id, &sid).map_err(plan_rpc_err)?;
+            serde_json::to_value(result).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+                data: None,
+            })
+        }
         "spec.link.add" => {
             let plan_id = get_string_param(params, "plan_id")?;
             let spec_id = get_string_param(params, "spec_id")?;

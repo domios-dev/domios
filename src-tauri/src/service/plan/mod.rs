@@ -12,12 +12,14 @@ pub mod paths;
 pub mod reminders;
 pub mod search_index;
 pub mod section_links;
+pub mod section_queries;
 pub mod spec;
 pub mod spec_files;
 pub mod state;
 pub mod stride_log;
 pub mod tag_model;
 pub mod task_queries;
+pub mod worker_charter;
 pub mod watcher;
 
 #[cfg(test)]

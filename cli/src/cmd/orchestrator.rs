@@ -16,6 +16,23 @@ pub fn handle(
         }
         OrchestratorAction::Heartbeat { action } => match action {
             OrchestratorHeartbeatAction::Show { plan } => heartbeat_show(client, json_output, plan),
+            OrchestratorHeartbeatAction::Set {
+                plan,
+                focus,
+                lanes,
+                rules,
+                clear_lanes,
+                clear_rules,
+            } => heartbeat_set(
+                client,
+                json_output,
+                plan,
+                focus,
+                lanes,
+                rules,
+                clear_lanes,
+                clear_rules,
+            ),
         },
         OrchestratorAction::Handoff {
             plan,
@@ -95,6 +112,41 @@ fn heartbeat_show(
     Ok(None)
 }
 
+#[allow(clippy::too_many_arguments)]
+fn heartbeat_set(
+    client: &mut SocketClient,
+    json_output: bool,
+    plan: Option<String>,
+    focus: Option<String>,
+    lanes: Vec<String>,
+    rules: Vec<String>,
+    clear_lanes: bool,
+    clear_rules: bool,
+) -> Result<Option<Value>, String> {
+    let mut params = heartbeat_params(plan);
+    if let Some(focus) = focus {
+        params["focus"] = json!(focus);
+    }
+    if !lanes.is_empty() {
+        params["lanes"] = json!(lanes);
+    }
+    if !rules.is_empty() {
+        params["rules"] = json!(rules);
+    }
+    if clear_lanes {
+        params["clear_lanes"] = json!(true);
+    }
+    if clear_rules {
+        params["clear_rules"] = json!(true);
+    }
+    let result = call_plan_rpc(client, "plan.heartbeat.set", params)?;
+    if json_output {
+        return Ok(Some(result));
+    }
+    print_heartbeat(&result);
+    Ok(None)
+}
+
 fn print_heartbeat(value: &Value) {
     let plan_id = value.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
     println!("Heartbeat for {plan_id}");
@@ -102,35 +154,37 @@ fn print_heartbeat(value: &Value) {
         println!("(empty)");
         return;
     };
+    let mut printed = false;
     if let Some(focus) = heartbeat.get("current_focus").and_then(|v| v.as_str()) {
         if !focus.trim().is_empty() {
             println!("focus: {}", focus.trim());
+            printed = true;
         }
     }
-    print_string_array(heartbeat, "active_lanes", "lanes");
-    print_string_array(heartbeat, "rules", "rules");
+    printed |= print_string_array(heartbeat, "active_lanes", "lanes");
+    printed |= print_string_array(heartbeat, "rules", "rules");
     if let Some(learnings) = heartbeat.get("learnings").and_then(|v| v.as_array()) {
-        if !learnings.is_empty() {
+        let texts: Vec<&str> = learnings
+            .iter()
+            .filter_map(|learning| learning.get("text").and_then(|v| v.as_str()))
+            .filter(|text| !text.trim().is_empty())
+            .collect();
+        if !texts.is_empty() {
             println!("learnings:");
-            for learning in learnings {
-                if let Some(text) = learning.get("text").and_then(|v| v.as_str()) {
-                    println!("- {}", text.trim());
-                }
+            for text in texts {
+                println!("- {}", text.trim());
             }
+            printed = true;
         }
     }
-    if value
-        .get("reinjection")
-        .and_then(|v| v.as_str())
-        .is_none_or(|text| text.trim().is_empty())
-    {
+    if !printed {
         println!("(empty)");
     }
 }
 
-fn print_string_array(value: &Value, key: &str, label: &str) {
+fn print_string_array(value: &Value, key: &str, label: &str) -> bool {
     let Some(items) = value.get(key).and_then(|v| v.as_array()) else {
-        return;
+        return false;
     };
     let items: Vec<&str> = items
         .iter()
@@ -138,12 +192,13 @@ fn print_string_array(value: &Value, key: &str, label: &str) {
         .filter(|s| !s.trim().is_empty())
         .collect();
     if items.is_empty() {
-        return;
+        return false;
     }
     println!("{label}:");
     for item in items {
         println!("- {}", item.trim());
     }
+    true
 }
 
 #[allow(clippy::too_many_arguments)]

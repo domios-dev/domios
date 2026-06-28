@@ -357,14 +357,20 @@ fn plan_task_link_and_relink_parse() {
         _ => panic!("expected plan task link"),
     }
 
-    let parsed = Cli::try_parse_from(["codeterm", "plan", "relink", "pl_1", "--apply"])
-        .expect("plan relink parses");
+    let parsed = Cli::try_parse_from(["codeterm", "plan", "task", "relink", "pl_1", "--apply"])
+        .expect("plan task relink parses");
     match parsed.command {
         Commands::Plan {
-            action: PlanAction::Relink { apply, .. },
+            action:
+                PlanAction::Task {
+                    action: crate::args::plan::PlanTaskAction::Relink { apply, .. },
+                },
         } => assert!(apply),
-        _ => panic!("expected plan relink"),
+        _ => panic!("expected plan task relink"),
     }
+
+    // The top-level `plan relink` alias was removed in favour of `plan task relink`.
+    assert!(Cli::try_parse_from(["codeterm", "plan", "relink", "pl_1", "--apply"]).is_err());
 }
 
 #[test]

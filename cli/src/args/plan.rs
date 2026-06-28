@@ -44,13 +44,13 @@ pub enum PlanAction {
         #[arg(long, conflicts_with = "plan_id")]
         all: bool,
     },
-    /// Get a plan (markdown by default)
+    /// Render the whole plan as markdown (goal + sections + tasks); --sections for the tree only
     Get {
         plan_id: String,
         #[arg(long)]
         sections: bool,
     },
-    /// Print only the hydrated section prose
+    /// Print only the plan's hydrated section prose (no goal, tasks, or metadata)
     Spec { plan_id: String },
     /// List generated section/task body files
     Files { plan_id: String },
@@ -82,12 +82,6 @@ pub enum PlanAction {
     Prune {
         #[arg(long)]
         project: Option<String>,
-        #[arg(long)]
-        apply: bool,
-    },
-    /// Preview or apply automatic section links for unlinked tasks
-    Relink {
-        plan_id: String,
         #[arg(long)]
         apply: bool,
     },
@@ -240,9 +234,11 @@ pub enum PlanAction {
 
 #[derive(Subcommand)]
 pub enum PlanGoalAction {
+    /// Show the plan's north-star goal (alias of show)
     Get {
         plan_id: String,
     },
+    /// Set the plan's goal vector, vision, constraints, and postulates
     Set {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -256,6 +252,7 @@ pub enum PlanGoalAction {
         #[arg(long, allow_hyphen_values = true)]
         postulate: Vec<String>,
     },
+    /// Show the plan's north-star goal (vector, vision, constraints, postulates)
     Show {
         plan_id: String,
     },
@@ -263,6 +260,7 @@ pub enum PlanGoalAction {
 
 #[derive(Subcommand)]
 pub enum PlanSectionAction {
+    /// Add a plan section (execution phase), optionally nested under --parent
     Add {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -280,6 +278,7 @@ pub enum PlanSectionAction {
         #[arg(long)]
         handle: Option<String>,
     },
+    /// Update a plan section's title, body, tags, or handle
     Update {
         plan_id: String,
         section_id: String,
@@ -296,16 +295,12 @@ pub enum PlanSectionAction {
         #[arg(long)]
         handle: Option<String>,
     },
-    Set {
+    /// Show one plan section's title, body, tags, and subsections
+    Show {
         plan_id: String,
         section_id: String,
-        #[arg(long, allow_hyphen_values = true)]
-        name: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        body: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        body_file: Option<String>,
     },
+    /// Remove a plan section and its subsections
     Rm {
         plan_id: String,
         section_id: String,
@@ -314,6 +309,7 @@ pub enum PlanSectionAction {
 
 #[derive(Subcommand)]
 pub enum PlanKindsAction {
+    /// Set the declared milestone kind columns (CSV)
     Set {
         plan_id: String,
         #[arg(long)]
@@ -323,6 +319,7 @@ pub enum PlanKindsAction {
 
 #[derive(Subcommand)]
 pub enum PlanGroupsAction {
+    /// Set the task groups / phases (CSV)
     Set {
         plan_id: String,
         #[arg(long)]
@@ -332,6 +329,7 @@ pub enum PlanGroupsAction {
 
 #[derive(Subcommand)]
 pub enum PlanFacetsAction {
+    /// Set the declared tag facets (CSV)
     Set {
         plan_id: String,
         #[arg(long)]
@@ -341,6 +339,7 @@ pub enum PlanFacetsAction {
 
 #[derive(Subcommand)]
 pub enum PlanLoopAction {
+    /// Declare a self-improving loop with a target and iteration budget
     Create {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -350,6 +349,7 @@ pub enum PlanLoopAction {
         #[arg(long, allow_hyphen_values = true)]
         stop_when: Option<String>,
     },
+    /// Update a loop's budget or stop condition
     Set {
         loop_id: String,
         #[arg(long)]
@@ -357,9 +357,11 @@ pub enum PlanLoopAction {
         #[arg(long, allow_hyphen_values = true)]
         stop_when: Option<String>,
     },
+    /// Show a loop's iteration count, budget, and status
     Status {
         loop_id: String,
     },
+    /// Stop a loop (marks it complete)
     Stop {
         loop_id: String,
     },
@@ -373,6 +375,7 @@ pub enum PlanLoopAction {
 
 #[derive(Subcommand)]
 pub enum PlanTaskAction {
+    /// List a plan's tasks, optionally filtered by status
     List {
         plan_id: String,
         #[arg(
@@ -381,6 +384,7 @@ pub enum PlanTaskAction {
         )]
         status: Option<String>,
     },
+    /// Add a task to a plan (carries model/why routing + quality fields)
     Add {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -442,6 +446,7 @@ pub enum PlanTaskAction {
         #[arg(long)]
         loop_from: Option<String>,
     },
+    /// Update task metadata, status, quality fields, or lane assignment
     Update {
         plan_id: String,
         task_id: String,
@@ -518,6 +523,7 @@ pub enum PlanTaskAction {
         #[arg(long)]
         primary: Option<String>,
     },
+    /// Close a task (records a result; rejects if subtasks are open)
     Close {
         plan_id: String,
         task_id: String,
@@ -528,6 +534,7 @@ pub enum PlanTaskAction {
         #[arg(long)]
         mesh: Option<String>,
     },
+    /// Assign a task to a pane (exports CODETERM_TASK_ID to that pane)
     Assign {
         plan_id: String,
         task_id: String,
@@ -536,17 +543,20 @@ pub enum PlanTaskAction {
         #[arg(long, alias = "peer")]
         mesh: Option<String>,
     },
+    /// Link a task to one or more plan sections (CSV)
     Link {
         plan_id: String,
         task_id: String,
         #[arg(long)]
         sections: String,
     },
+    /// Preview or apply automatic section links for unlinked tasks (--apply)
     Relink {
         plan_id: String,
         #[arg(long)]
         apply: bool,
     },
+    /// Remove a task from the plan
     Rm {
         plan_id: String,
         task_id: String,
@@ -555,6 +565,7 @@ pub enum PlanTaskAction {
 
 #[derive(Subcommand)]
 pub enum PlanMilestoneAction {
+    /// Add a milestone (stride) to a task; --add-kind declares a new kind inline
     Add {
         plan_id: String,
         task_id: String,
@@ -569,6 +580,7 @@ pub enum PlanMilestoneAction {
         #[arg(long)]
         from: Option<String>,
     },
+    /// Update a milestone's kind or text
     Update {
         plan_id: String,
         task_id: String,
@@ -580,6 +592,7 @@ pub enum PlanMilestoneAction {
         #[arg(long, value_name = "PATH")]
         text_file: Option<String>,
     },
+    /// Remove a milestone from a task
     Rm {
         plan_id: String,
         task_id: String,
@@ -589,6 +602,7 @@ pub enum PlanMilestoneAction {
 
 #[derive(Subcommand)]
 pub enum PlanLayoutAction {
+    /// Set a canvas element's x/y layout override
     Set {
         plan_id: String,
         #[arg(long)]
@@ -602,6 +616,7 @@ pub enum PlanLayoutAction {
 
 #[derive(Subcommand)]
 pub enum PlanNoteAction {
+    /// Add a free-form canvas note, optionally linked to a task or section
     Add {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -625,6 +640,7 @@ pub enum PlanElementAction {
     },
     /// Show one generic canvas element
     Show { plan_id: String, element_id: String },
+    /// Add a generic canvas element of an arbitrary kind, optionally linked
     Add {
         plan_id: String,
         #[arg(long)]
@@ -640,6 +656,7 @@ pub enum PlanElementAction {
 
 #[derive(Subcommand)]
 pub enum PlanHandoffAction {
+    /// Create a durable, goal-anchored handoff attached to the plan
     Create {
         plan_id: String,
         #[arg(long, default_value = "record")]
@@ -659,6 +676,7 @@ pub enum PlanHandoffAction {
         #[arg(long)]
         stdin: bool,
     },
+    /// Show a handoff (--latest or --seq N), optionally as markdown
     Show {
         plan_id: String,
         selector: Option<String>,
@@ -669,6 +687,7 @@ pub enum PlanHandoffAction {
         #[arg(long)]
         markdown: bool,
     },
+    /// List the handoffs attached to a plan
     List {
         plan_id: String,
     },

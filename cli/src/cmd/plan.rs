@@ -11,7 +11,6 @@ use crate::cmd::plan_errors::render_plan_call_error;
 mod task_cmd;
 #[cfg(test)]
 use crate::cmd::plan_errors::render_plan_error;
-use crate::cmd::plan_linking::render_relink_report;
 use crate::cmd::plan_markdown::{render_goal_block, render_plan_markdown};
 use crate::cmd::plan_render::{print_plan_result, render_coverage, render_plan_sections};
 use serde_json::{json, Value};
@@ -322,19 +321,6 @@ fn run_plan(
             return crate::cmd::plan_prune::run(json, apply, project);
         }
 
-        PlanAction::Relink { plan_id, apply } => {
-            let val = call(
-                client,
-                "plan.task.relink",
-                json!({ "plan_id": plan_id, "apply": apply }),
-            )?;
-            if json {
-                return Ok(Some(val));
-            }
-            print!("{}", render_relink_report(&val));
-            return Ok(None);
-        }
-
         PlanAction::Goal { action } => match action {
             PlanGoalAction::Get { plan_id } | PlanGoalAction::Show { plan_id } => {
                 let val = call(client, "plan.goal.show", json!({ "plan_id": plan_id }))?;
@@ -506,7 +492,9 @@ fn run_plan(
             return crate::cmd::plan_handoff::handle(client, json, action);
         }
 
-        PlanAction::Section { action } => crate::cmd::plan_sections::handle(client, action),
+        PlanAction::Section { action } => {
+            return crate::cmd::plan_sections::handle(client, json, action);
+        }
 
         PlanAction::Kinds { action } => match action {
             PlanKindsAction::Set { plan_id, kinds } => call(

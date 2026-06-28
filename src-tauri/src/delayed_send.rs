@@ -417,6 +417,9 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     let body = svc
         .plan_store
         .prepend_heartbeat_for_orchestrator_pane(&pane_id, &msg.text);
+    let body = svc
+        .plan_store
+        .prepend_worker_charter_for_pane(&pane_id, &body);
     let result = tokio::task::spawn_blocking(move || {
         crate::service::messenger::Messenger::deliver(&svc_for_deliver, &pane_id, envelope, &body)
     })

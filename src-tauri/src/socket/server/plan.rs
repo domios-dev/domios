@@ -546,6 +546,17 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
 
+        "plan.section.show" => {
+            let id = get_string_param(params, "plan_id")?;
+            let sid = get_string_param(params, "section_id")?;
+            let result = store.show_section(&id, &sid).map_err(plan_rpc_err)?;
+            serde_json::to_value(result).map_err(|e| JsonRpcError {
+                code: -32603,
+                message: e.to_string(),
+                data: None,
+            })
+        }
+
         "plan.kinds.set" => {
             let id = get_string_param(params, "plan_id")?;
             let kinds = get_string_param(params, "kinds")?;

@@ -3,8 +3,74 @@ use crate::client::SocketClient;
 use crate::cmd::plan::{call_plan_rpc, resolve_text};
 use serde_json::{json, Value};
 
-pub fn handle(client: &mut SocketClient, action: PlanSectionAction) -> Result<Value, String> {
+pub fn handle(
+    client: &mut SocketClient,
+    json_output: bool,
+    action: PlanSectionAction,
+) -> Result<Option<Value>, String> {
+    if let PlanSectionAction::Show {
+        plan_id,
+        section_id,
+    } = &action
+    {
+        let val = call_plan_rpc(
+            client,
+            "plan.section.show",
+            json!({ "plan_id": plan_id, "section_id": section_id }),
+        )?;
+        if json_output {
+            return Ok(Some(val));
+        }
+        print!("{}", render_section_show(&val));
+        return Ok(None);
+    }
+    section_mutation(client, action).map(Some)
+}
+
+pub(crate) fn render_section_show(val: &Value) -> String {
+    let section = val.get("section").unwrap_or(&Value::Null);
+    let id = section.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+    let title = val
+        .get("title")
+        .and_then(|v| v.as_str())
+        .or_else(|| section.get("title").and_then(|v| v.as_str()))
+        .unwrap_or(id);
+    let handle = section.get("handle").and_then(|v| v.as_str());
+    let tags = section
+        .get("tags")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    let markdown = val
+        .get("markdown")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+
+    let mut out = format!("# {title}\n\n");
+    out.push_str(&format!("id: {id}\n"));
+    if let Some(handle) = handle.filter(|h| !h.is_empty()) {
+        out.push_str(&format!("handle: {handle}\n"));
+    }
+    if !tags.is_empty() {
+        out.push_str(&format!("tags: {tags}\n"));
+    }
+    if !markdown.trim().is_empty() {
+        out.push('\n');
+        out.push_str(markdown.trim_end());
+        out.push('\n');
+    }
+    out
+}
+
+fn section_mutation(client: &mut SocketClient, action: PlanSectionAction) -> Result<Value, String> {
     match action {
+        PlanSectionAction::Show { .. } => unreachable!("Show handled before mutation dispatch"),
         PlanSectionAction::Add {
             plan_id,
             title,
@@ -61,23 +127,6 @@ pub fn handle(client: &mut SocketClient, action: PlanSectionAction) -> Result<Va
             }
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
-            }
-            call_plan_rpc(client, "plan.section.update", params)
-        }
-        PlanSectionAction::Set {
-            plan_id,
-            section_id,
-            name,
-            body,
-            body_file,
-        } => {
-            let body_text = resolve_text(body, body_file)?;
-            let mut params = json!({ "plan_id": plan_id, "section_id": section_id });
-            if let Some(name) = name {
-                params["name"] = json!(name);
-            }
-            if let Some(body) = body_text {
-                params["body"] = json!(body);
             }
             call_plan_rpc(client, "plan.section.update", params)
         }
