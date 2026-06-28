@@ -8,7 +8,60 @@
       "handle": "foundation",
       "tags": [],
       "body": "",
-      "subsections": [],
+      "subsections": [
+        {
+          "id": "sec_d2d466e4c7eb474db55aa3ee102bc08f",
+          "title": "Concept Vision",
+          "handle": "concept-vision",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_0ce6df642c6342be9b843f3e2df2442b",
+          "title": "Data Model",
+          "handle": "data-model",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_e17e2b4a70234455846d80dff550c48f",
+          "title": "Core Chat Render Codeterm Injected Info Delimiters",
+          "handle": "core-chat-render-codeterm-injected-info-delimiters",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_c3f08b6fd6c84dbca6377ad94cbef58e",
+          "title": "Display Methodology Brainstorm",
+          "handle": "display-methodology-brainstorm",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ],
       "canvas": {
         "x": null,
         "y": null,
@@ -34,7 +87,112 @@
       "handle": "spec-plan-goal",
       "tags": [],
       "body": "",
-      "subsections": [],
+      "subsections": [
+        {
+          "id": "sec_9d63ab9e390845e9b790d65048d07222",
+          "title": "Coverage Model",
+          "handle": "coverage-model",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_e0c03503c0554b2ea1f65297f99326eb",
+          "title": "Plan Spec Are One Node Type Markdown Mermaid Code",
+          "handle": "plan-spec-are-one-node-type-markdown-mermaid-code",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_41b4af31a16c4615a3bb21e7c9fb5a16",
+          "title": "Provenance Discussions Captured In The Plan",
+          "handle": "provenance-discussions-captured-in-the-plan",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_305e1ad40dd743a0a000ea2a7ea92788",
+          "title": "Plan As Mode Composer Activity Bubble",
+          "handle": "plan-as-mode-composer-activity-bubble",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_7155a91ca99b4c54bebe6e98992d8aee",
+          "title": "Standalone Tasks Inbox",
+          "handle": "standalone-tasks-inbox",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_4933d7ca183c4254a9bc8cb30f0ca066",
+          "title": "Graph Task CLI Canvas Focus",
+          "handle": "graph-task-cli-canvas-focus",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_8a4774e4ba784041aefb1ca930a22e84",
+          "title": "Test For Andrey",
+          "handle": "test-for-andrey",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_09cd53e09f98415286a1a427c700840d",
+          "title": "Tag System Facets Topics",
+          "handle": "tag-system-facets-topics",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ],
       "canvas": {
         "x": null,
         "y": null,
@@ -47,7 +205,112 @@
       "handle": "substrate-render",
       "tags": [],
       "body": "",
-      "subsections": [],
+      "subsections": [
+        {
+          "id": "sec_89a5698ab7784f8d962f685d2e0fe760",
+          "title": "Layout Model The Big V1 Fix",
+          "handle": "layout-model-the-big-v1-fix",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_ca7bfa6425984a0caa876252f3b75de1",
+          "title": "Navigation Figma Grade",
+          "handle": "navigation-figma-grade",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_e5816db82f834231a7090a8c11df67c4",
+          "title": "Worlds Banded Multi Column Layout",
+          "handle": "worlds-banded-multi-column-layout",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_ee21532ebcc148978c749043def8a52e",
+          "title": "Semantic Zoom Never Hide Info",
+          "handle": "semantic-zoom-never-hide-info",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_f99952aa55844bc981f1f4048d3b7c8a",
+          "title": "View Modes Manual Controls",
+          "handle": "view-modes-manual-controls",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_6dfcb061be614191bcc55e085a1793f7",
+          "title": "Current Visual Bugs Fix To 22",
+          "handle": "current-visual-bugs-fix-to-22",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_78fb9dacb6c34ea0bcd5ff45afbe0c1d",
+          "title": "Layout Integrity Auto Bounds",
+          "handle": "layout-integrity-auto-bounds",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_f85f2c72f6fd41c881ca8ebde6eb45af",
+          "title": "The Overnight Iteration Loop",
+          "handle": "the-overnight-iteration-loop",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ],
       "canvas": {
         "x": null,
         "y": null,
@@ -60,7 +323,73 @@
       "handle": "infra-orchestration",
       "tags": [],
       "body": "",
-      "subsections": [],
+      "subsections": [
+        {
+          "id": "sec_76766cc849574dbd90441cc63c6da003",
+          "title": "Persistence Rescan On Restart",
+          "handle": "persistence-rescan-on-restart",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_745d2e92855743b78059b3b4f9028857",
+          "title": "Workspace Isolation",
+          "handle": "workspace-isolation",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_625369de313945869ea064c0bda18a5d",
+          "title": "Infra Lessons Learned The Hard Way",
+          "handle": "infra-lessons-learned-the-hard-way",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_88f5ddb0905e4f53b4b5b5bb1b0aaa3e",
+          "title": "Externalized Bodies Editable MD Files",
+          "handle": "externalized-bodies-editable-md-files",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "sec_91b5e9007b6b40148fc5cd649d465208",
+          "title": "Project Plan Memory MEM Sidecar Deferred",
+          "handle": "project-plan-memory-mem-sidecar-deferred",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ],
       "canvas": {
         "x": null,
         "y": null,
@@ -72,6 +401,52 @@
       "title": "Tests & verification",
       "handle": "tests-verification",
       "tags": [],
+      "body": "",
+      "subsections": [
+        {
+          "id": "sec_c4c46e9ad0574c28808d3272aa416915",
+          "title": "Test Coverage Per Feature",
+          "handle": "test-coverage-per-feature",
+          "tags": [],
+          "body": "",
+          "subsections": [],
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_362f8d882dc74bfa95823dac27bdbc82",
+      "title": "Context-aware composer",
+      "handle": "context-aware-composer",
+      "tags": [
+        "canvas",
+        "composer"
+      ],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_00c951f115424682968590d75a620a1b",
+      "title": "Orchestration CLI hardening",
+      "handle": "orchestration-cli-hardening",
+      "tags": [
+        "cli",
+        "orchestration"
+      ],
       "body": "",
       "subsections": [],
       "canvas": {
@@ -87,9 +462,9 @@
     "session_id": null,
     "title": null
   },
-  "project_path": "/Users/rollacode/Developer/codeterm",
+  "project_path": "/Users/dev/Developer/codeterm-canvas",
   "created_at": 1782278331738,
-  "updated_at": 1782486472189,
+  "updated_at": 1782665910155,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -170,9 +545,79 @@
       "key": "Implemented locally in hot checkout",
       "label": "Implemented locally in hot checkout",
       "color": null
+    },
+    {
+      "key": "spike",
+      "label": "spike",
+      "color": null
+    },
+    {
+      "key": "implement",
+      "label": "implement",
+      "color": null
+    },
+    {
+      "key": "blocker",
+      "label": "blocker",
+      "color": null
+    },
+    {
+      "key": "Deep-read band (W3) DONE",
+      "label": "Deep-read band (W3) DONE",
+      "color": null
+    },
+    {
+      "key": "Composer v2 DONE",
+      "label": "Composer v2 DONE",
+      "color": null
     }
   ],
-  "loops": [],
+  "loops": [
+    {
+      "id": "loop_ad7a093b2d7d4a09967f42215a8229c1",
+      "target": "Canvas refined to GOAL: plan-as-document + readability-every-distance + liveness/nav + clean-arch + perf@20k — up to 20 UI/UX + 20 perf passes",
+      "stages": [],
+      "budget": 40,
+      "count": 0,
+      "stop_when": "GOAL met across all north-stars: plan reads as a scrollable HOW-document with spec-ref bubbles; every node readable+beautiful at every distance (full titles, sized tasks, working-points deep-read); live presence + per-section agent + fly/RETURN nav + header progress; 0 overflow all bands; ~46fps@20k; no legacy. Orchestrator (checker) accepts each pass; stop when a full sweep finds nothing to improve toward GOAL.",
+      "status": "running",
+      "stagnation": 0,
+      "deviation": null
+    },
+    {
+      "id": "loop_e424ce0b443d4d53b4d7210e8890648e",
+      "target": "Canvas pan/zoom/load perfectly smooth — ZERO lag, profile-driven (60fps camera, viewport/scene work decoupled from frame rate, no O(N)-per-frame)",
+      "stages": [],
+      "budget": 10,
+      "count": 2,
+      "stop_when": "pan + zoom + load all smooth at plan scale with no visible jank, proven by frame-time profiling before/after",
+      "status": "done",
+      "stagnation": 0,
+      "deviation": null
+    },
+    {
+      "id": "loop_8c2a62313e624b698a5e0ad869b300be",
+      "target": "Canvas code: very clean architecture + abstractions, crisp FE/BE separation, easy in-canvas PLUGIN extensibility, overall review + fixes",
+      "stages": [],
+      "budget": 10,
+      "count": 1,
+      "stop_when": "canvas code cleanly layered (FE/BE separation, clear abstractions), plugin-extensible inside canvas without hassle, reviewed with findings fixed",
+      "status": "running",
+      "stagnation": 0,
+      "deviation": null
+    },
+    {
+      "id": "loop_086cd17fafe74af5933148c04fbc907e",
+      "target": "Canvas render rewrite: <canvas> blit renderer (cached node bitmaps) + simple 2-level card model — pan/zoom smooth in WebKit/WKWebView, titles+tags+sections+buttons readable, all fields fit no-scroll at 11-14px",
+      "stages": [],
+      "budget": 12,
+      "count": 0,
+      "stop_when": "WebKit probe pan+zoom p95<=22ms dropped<5%; far=big title+tags; near spec=section titles+buttons / plan=tags+section titles+tags / task=fields, all fit no-scroll 11-14px; expand=everything; user confirms real app smooth",
+      "status": "running",
+      "stagnation": 0,
+      "deviation": null
+    }
+  ],
   "elements": [
     {
       "id": "el_e8ab8c970b444f4a8bf130df3f9f5cd3",
@@ -1642,7 +2087,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782448839866,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782448839866,
       "handle": "plan-spec-node-markdown-mermaid-code",
       "tags": [],
@@ -1652,7 +2097,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_79f968733c364bdaa6516216a0d64d58",
-      "assigned_pane_id": "6abff2d0",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "6abff2d0",
         "workspace_id": null,
@@ -1689,7 +2134,7 @@
       "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782426386948,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782426386948,
       "handle": "pinch-zoom-responsiveness",
       "tags": [],
@@ -1699,7 +2144,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_79f968733c364bdaa6516216a0d64d58",
-      "assigned_pane_id": "856901dc",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "856901dc",
         "workspace_id": null,
@@ -1736,7 +2181,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782429443411,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782429443411,
       "handle": "auto-bounds-recompute-on-change",
       "tags": [],
@@ -1746,7 +2191,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_79f968733c364bdaa6516216a0d64d58",
-      "assigned_pane_id": "1d60d20b",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "1d60d20b",
         "workspace_id": null,
@@ -1783,7 +2228,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782427465176,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782427465176,
       "handle": "subtasks-methodology-parent-task-id-render",
       "tags": [],
@@ -1793,7 +2238,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_2b3494025ad6452d86c5722057cb2c84",
-      "assigned_pane_id": "190d9d40",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "190d9d40",
         "workspace_id": null,
@@ -2055,7 +2500,7 @@
       "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782425977782,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782425977782,
       "handle": "playwright-multi-view-overflow-tests",
       "tags": [],
@@ -2065,7 +2510,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_79f968733c364bdaa6516216a0d64d58",
-      "assigned_pane_id": "0297fcb9",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "0297fcb9",
         "workspace_id": null,
@@ -2237,7 +2682,7 @@
       "status_label": "verified partial; filter/highlight child remains",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782423559358,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782423559358,
       "handle": "tag-frontend-tile-payload-facet-color-hud-legend",
       "tags": [],
@@ -2247,7 +2692,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "fcb00202",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -2282,7 +2727,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782449702855,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782449702855,
       "handle": "dogfood-the-tags-facets-retag-rename-to-handles",
       "tags": [],
@@ -2292,7 +2737,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "733b13ae",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "733b13ae",
         "workspace_id": null,
@@ -2464,7 +2909,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782451517391,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782451517391,
       "handle": "externalize-milestone-note-discussion-md-bodies",
       "tags": [],
@@ -2474,7 +2919,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_2b3494025ad6452d86c5722057cb2c84",
-      "assigned_pane_id": "deb74187",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "deb74187",
         "workspace_id": null,
@@ -2646,7 +3091,7 @@
       "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782425241766,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782425241766,
       "handle": "banded-layout-determinism-no-overlap-tests",
       "tags": [],
@@ -2656,7 +3101,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_6c318b94c61f40cb8050b66789117750",
-      "assigned_pane_id": "4198bd3a",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "4198bd3a",
         "workspace_id": null,
@@ -2693,7 +3138,7 @@
       "status_label": "worker 944df587 lane/tag-filter-highlight",
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782423277319,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782423277319,
       "handle": "tag-visual-facet-filter-tile-substitute-playwright",
       "tags": [],
@@ -2703,7 +3148,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_e8d77fdefeac463483a01d4af0d87bcc",
-      "assigned_pane_id": "944df587",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "944df587",
         "workspace_id": null,
@@ -2787,7 +3232,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 0,
-      "updated_at": 1782410521193,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782410521193,
       "handle": "render-task-freshness-relative-time-on-the-card",
       "tags": [],
@@ -2797,7 +3242,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_79f968733c364bdaa6516216a0d64d58",
-      "assigned_pane_id": "be4814ad",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -3372,7 +3817,7 @@
       "status_label": "defer until R3 canvas architecture",
       "priority": "p2",
       "created_at": 1782290890640,
-      "updated_at": 1782426755152,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782426755152,
       "handle": "zoom-drill-into-tasks-content-lod-no-click-24-4",
       "tags": [],
@@ -3382,7 +3827,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "4cee5e67",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "4cee5e67",
         "workspace_id": null,
@@ -3869,7 +4314,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782296119667,
-      "updated_at": 1782450530409,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782450530409,
       "handle": "plan-lineage-and-ghost-links",
       "tags": [],
@@ -3879,7 +4324,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "c92ae263",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "c92ae263",
         "workspace_id": null,
@@ -3961,7 +4406,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782297064519,
-      "updated_at": 1782453370231,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782453370231,
       "handle": "plugin-extensible-canvas-nodes",
       "tags": [],
@@ -3971,7 +4416,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "34b5b45b",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "34b5b45b",
         "workspace_id": null,
@@ -4233,7 +4678,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782299252758,
-      "updated_at": 1782454053651,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782453997031,
       "handle": "cross-workspace-plans",
       "tags": [],
@@ -4243,7 +4688,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "183fb079",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "183fb079",
         "workspace_id": "ef145fd1",
@@ -4991,24 +5436,31 @@
       "id": "task_7fa639276eb345af8363c30a031adfd5",
       "name": "IMPLEMENT §33 mergeable storage (explode + append-log + compaction) — proactive, before data grows",
       "type": "implement",
-      "model": null,
-      "model_rationale": null,
-      "acceptance_criteria": [],
-      "test_plan": null,
-      "correctness": null,
+      "model": "claude:opus",
+      "model_rationale": "Storage rewrite is cheap now and risky later; mergeability removes cross-worktree clobbering at the source.",
+      "acceptance_criteria": [
+        "Two worktrees writing the same plan never produce a merge conflict on a clean rebase",
+        "Compaction is reversible: full pre-image written to purge_log before fold",
+        "Append-log bounded — compaction caps journal size on a quiet tick"
+      ],
+      "test_plan": "1) Two clones append concurrently -> git merge clean. 2) Kill mid-compaction -> snapshot intact. 3) 10k strides -> log stays bounded after tick.",
+      "correctness": "No write path may lose a mutation: every append is fsync-ordered before ack; compaction only deletes journal lines it has folded.",
       "status": "pending",
       "status_label": null,
-      "priority": "p2",
+      "priority": "p1",
       "created_at": 1782309791334,
-      "updated_at": 1782375617392,
+      "updated_at": 1782551175844,
       "status_changed_at": 1782309791334,
-      "handle": "mergeable-storage-implementation",
-      "tags": [],
+      "handle": "implement-33-mergeable-storage-explode-append-log-compaction-proactive-before-data-grows",
+      "tags": [
+        "Storage-Infra",
+        "mergeability"
+      ],
       "section_ids": [
         "sec_37cc9f9b03c940a1a9f14f56b9d19810"
       ],
       "body": "",
-      "intent": null,
+      "intent": "Make plan/memory storage git-mergeable before the data grows — explode + append-log + compaction.",
       "parent_task_id": null,
       "assigned_pane_id": null,
       "lane": {
@@ -5016,8 +5468,8 @@
         "workspace_id": null,
         "workspace_name": null,
         "worktree_path": null,
-        "branch": null,
-        "base": null,
+        "branch": "feat/mergeable-storage",
+        "base": "feat/canvas",
         "destination": null,
         "cleanup_status": null,
         "cleanup_hints": []
@@ -5090,7 +5542,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782317522475,
-      "updated_at": 1782412398575,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782412398575,
       "handle": "handoff-verify-loop",
       "tags": [],
@@ -5100,7 +5552,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "f60515ed",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -5135,7 +5587,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782317522475,
-      "updated_at": 1782411407523,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782411407523,
       "handle": "orchestration-skill-postulates",
       "tags": [],
@@ -5145,7 +5597,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "1eb5d996",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -5277,7 +5729,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782323553915,
-      "updated_at": 1782452220481,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782452220481,
       "handle": "agent-presence",
       "tags": [
@@ -5289,7 +5741,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "430a0528",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "430a0528",
         "workspace_id": null,
@@ -6242,7 +6694,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782377280239,
-      "updated_at": 1782411233618,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782411233618,
       "handle": "bug-agent-ledger-empty-after-agent-spawn-parent-though-child-panes-alive-linked",
       "tags": [
@@ -6254,7 +6706,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "6cad7593",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -6383,7 +6835,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782377340377,
-      "updated_at": 1782412148536,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782412148536,
       "handle": "bug-concurrent-plan-task-add-returns-rpc-32603-database-is-locked-but-the-write-still-commits-misleading-error",
       "tags": [
@@ -6395,7 +6847,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "e9ec3764",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -6481,7 +6933,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782377893547,
-      "updated_at": 1782410735914,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782410735914,
       "handle": "bug-agent-spawn-parent-race-early-children-lose-parent-link",
       "tags": [],
@@ -6491,7 +6943,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "e322d20a",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -6968,7 +7420,7 @@
       "status_label": "partial: datadir helper integrated; layout spec-node failure still open",
       "priority": "p2",
       "created_at": 1782393893625,
-      "updated_at": 1782412987621,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782412987621,
       "handle": "test-infra-worlds-canvas-specs-hard-fail-no-self-seed-skip-guard-after-opencanvas-harness-token-datadir-for-worktree-gates-classify-canvas-layout-integrity-content-lod",
       "tags": [
@@ -6980,7 +7432,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "0918c681",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -7017,7 +7469,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782395664028,
-      "updated_at": 1782428181512,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782428181512,
       "handle": "state-integrity-39-5-the-built-in-reminder-heartbeat-notifier-injectors-must-surface-the-state-reconciliation-prompt-at-the-right-moments-tool-enforced-every-orchestrator",
       "tags": [
@@ -7029,7 +7481,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "767bb1b8",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "767bb1b8",
         "workspace_id": null,
@@ -7069,7 +7521,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782395805093,
-      "updated_at": 1782411949582,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782411949582,
       "handle": "state-integrity-39-6-easy-situational-cli-codeterm-plan-in-progress-status-view-showing-full-picture-incl-subtask-nesting-parent-task-id-assignee-and-traversing-subtasks",
       "tags": [
@@ -7081,7 +7533,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "d0907ebd",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -7270,7 +7722,7 @@
       "status_label": "worker 7f03bcdd lane/plan-camera-focus",
       "priority": "p2",
       "created_at": 1782413573853,
-      "updated_at": 1782423476954,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782423476954,
       "handle": "plan-button-task-focus",
       "tags": [],
@@ -7278,7 +7730,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_53240db6d2644dccad6fcf48228296ab",
-      "assigned_pane_id": "7f03bcdd",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "7f03bcdd",
         "workspace_id": null,
@@ -7321,7 +7773,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782413669232,
-      "updated_at": 1782419574645,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782419574645,
       "handle": "cli-task-update-quality-fields",
       "tags": [],
@@ -7329,7 +7781,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "fcb00202",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -7507,7 +7959,7 @@
       "status_label": "worker b040d78e lane/task-lane-metadata",
       "priority": "p1",
       "created_at": 1782419613751,
-      "updated_at": 1782421507093,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782421507093,
       "handle": "task-lane-metadata-cleanup-hints",
       "tags": [],
@@ -7515,7 +7967,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "b040d78e",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -7553,7 +8005,7 @@
       "status_label": "worker 6c0648dd lane/usage-reset-detector",
       "priority": "p1",
       "created_at": 1782419624558,
-      "updated_at": 1782420373475,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782420373475,
       "handle": "usage-limit-reset-delay-detector",
       "tags": [],
@@ -7561,7 +8013,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "6c0648dd",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": null,
         "workspace_id": null,
@@ -7600,7 +8052,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782423510916,
-      "updated_at": 1782424800858,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782424800858,
       "handle": "plan-tag-facets-update-surface-and-non-skipping-canvas-filter-e2e",
       "tags": [
@@ -7612,7 +8064,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "2522c1f8",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "2522c1f8",
         "workspace_id": null,
@@ -7652,7 +8104,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782454167418,
-      "updated_at": 1782454489522,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782454437686,
       "handle": "33-1-spike-git-merge-union-for-append-only-stride-logs",
       "tags": [],
@@ -7662,7 +8114,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
-      "assigned_pane_id": "6b50d21d",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "6b50d21d",
         "workspace_id": "ef145fd1",
@@ -7702,7 +8154,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782454576253,
-      "updated_at": 1782455272779,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782455196691,
       "handle": "33-2-stride-jsonl-codec-and-deterministic-fold-tests",
       "tags": [],
@@ -7712,7 +8164,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
-      "assigned_pane_id": "e2e3458c",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "e2e3458c",
         "workspace_id": "ef145fd1",
@@ -7752,7 +8204,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782455368013,
-      "updated_at": 1782456017232,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782455962123,
       "handle": "33-3-task-stride-log-sidecars-dual-write-and-hydrate",
       "tags": [],
@@ -7762,7 +8214,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
-      "assigned_pane_id": "6d1fd567",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "6d1fd567",
         "workspace_id": "ef145fd1",
@@ -7802,7 +8254,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782456098179,
-      "updated_at": 1782456722435,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782456642157,
       "handle": "33-4-strip-task-milestones-from-monolithic-plan-json",
       "tags": [],
@@ -7812,7 +8264,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
-      "assigned_pane_id": "df9111f8",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "df9111f8",
         "workspace_id": "ef145fd1",
@@ -7852,7 +8304,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782456853411,
-      "updated_at": 1782457794437,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782457728888,
       "handle": "33-5-preserve-merged-stride-log-entries-on-save",
       "tags": [],
@@ -7862,7 +8314,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
-      "assigned_pane_id": "58b78505",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "58b78505",
         "workspace_id": "ef145fd1",
@@ -7902,7 +8354,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782456973643,
-      "updated_at": 1782458025639,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782457972414,
       "handle": "bug-sidebar-expanded-child-panes-hidden",
       "tags": [],
@@ -7912,7 +8364,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "61db34d6",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "61db34d6",
         "workspace_id": "ef145fd1",
@@ -7952,7 +8404,7 @@
       "status_label": null,
       "priority": "p1",
       "created_at": 1782458145538,
-      "updated_at": 1782458770876,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782458709490,
       "handle": "33-6-watcher-reloads-task-stride-log-sidecar-changes",
       "tags": [],
@@ -7962,7 +8414,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
-      "assigned_pane_id": "dec58517",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "dec58517",
         "workspace_id": "ef145fd1",
@@ -8001,7 +8453,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782459248213,
-      "updated_at": 1782459766696,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782459766696,
       "handle": "integrate-web-root-browser-ui-migration",
       "tags": [
@@ -8012,7 +8464,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "4d479b6c",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "4d479b6c",
         "workspace_id": null,
@@ -8051,7 +8503,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782462559251,
-      "updated_at": 1782463997981,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782463335333,
       "handle": "plan-doctor-foundation-storage-structure-errors-and-smoke-prune",
       "tags": [
@@ -8064,7 +8516,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "44322b76",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "44322b76",
         "workspace_id": "ef145fd1",
@@ -8103,7 +8555,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782463384277,
-      "updated_at": 1782464028701,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782463958158,
       "handle": "workspace-plan-entry-and-focus-to-item-navigation",
       "tags": [
@@ -8115,7 +8567,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "a57ac42d",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "a57ac42d",
         "workspace_id": "ef145fd1",
@@ -8154,7 +8606,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782465058489,
-      "updated_at": 1782480449637,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782480449637,
       "handle": "workspace-plan-entry-visual-treatment-and-empty-state-policy",
       "tags": [
@@ -8166,7 +8618,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "df2e6b06",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "df2e6b06",
         "workspace_id": "ef145fd1",
@@ -8206,7 +8658,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782468757577,
-      "updated_at": 1782480299457,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782480299457,
       "handle": "remote-mesh-workers-report-to-spawning-orchestrator",
       "tags": [
@@ -8218,7 +8670,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "46c3bf2c",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "46c3bf2c",
         "workspace_id": null,
@@ -8307,7 +8759,7 @@
       "status_label": null,
       "priority": "p2",
       "created_at": 1782474739130,
-      "updated_at": 1782480299055,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782480299055,
       "handle": "p0-safety-build-sh-kill-must-never-target-prod-from-inherited-env",
       "tags": [
@@ -8321,7 +8773,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "7985efe8",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "7985efe8",
         "workspace_id": "local",
@@ -8360,10 +8812,10 @@
       "test_plan": "Run focused remote-worker registry/routing tests, verify live mesh spawn/report against origin 4d479b6c, inspect sidebar/API, then run release gates.",
       "correctness": null,
       "status": "in_review",
-      "status_label": null,
+      "status_label": "stale-review",
       "priority": "p2",
       "created_at": 1782480348801,
-      "updated_at": 1782486472189,
+      "updated_at": 1782566000780,
       "status_changed_at": 1782486472189,
       "handle": "remote-worker-nesting-and-registry-release-v1-5-7",
       "tags": [],
@@ -8371,7 +8823,7 @@
       "body": "",
       "intent": null,
       "parent_task_id": null,
-      "assigned_pane_id": "ae3665db",
+      "assigned_pane_id": null,
       "lane": {
         "pane_id": "ae3665db",
         "workspace_id": null,
@@ -8384,6 +8836,1778 @@
         "cleanup_hints": [
           "Verify /api/remote-workers on origin, sidebar ghost nesting, --role remote spawn, --report-to auto-report, then release v1.5.7 and clean remote lane."
         ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_23493e2ce31446f9a208acd3a84617b2",
+      "name": "UI/UX pass1 DONE — plan-as-document (readable HOW bodies + spec-ref bubbles)",
+      "type": "implement",
+      "model": null,
+      "model_rationale": "design-loop dogfood",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782546405292,
+      "updated_at": 1782566000999,
+      "status_changed_at": 1782566000999,
+      "handle": "ui-ux-pass1-done-plan-as-document-readable-how-bodies-spec-ref-bubbles",
+      "tags": [],
+      "section_ids": [
+        "sec_7f17ba5016294c42bafdf74db3832bdd"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_6f43d262cc6f4daa92a021c3db859281",
+      "name": "UI/UX pass2 DONE — full task titles + footprint sizing",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782547621648,
+      "updated_at": 1782566001199,
+      "status_changed_at": 1782566001199,
+      "handle": "ui-ux-pass2-done-full-task-titles-footprint-sizing",
+      "tags": [],
+      "section_ids": [
+        "sec_7f17ba5016294c42bafdf74db3832bdd"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_8d64571f057c4cc889fc09a1dd3df5d7",
+      "name": "DEBT: pre-existing worlds-v3 summary.y (§37 W2->W3 boxiness) + mem/store/tests.rs over file-size baseline (1261/+46)",
+      "type": "fix",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782547621818,
+      "updated_at": 1782578657524,
+      "status_changed_at": 1782578657524,
+      "handle": "debt-pre-existing-worlds-v3-summary-y-37-w2-w3-boxiness-mem-store-tests-rs-over-file-size-baseline-1261-46",
+      "tags": [],
+      "section_ids": [
+        "sec_7f17ba5016294c42bafdf74db3832bdd"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_d505a5ea4ace4093b29a0e8187339e7c",
+      "name": "FEATURE: loop iteration deviation/mutation (anti-stagnation, goal-convergent)",
+      "type": "implement",
+      "model": null,
+      "model_rationale": "Refine loops can churn in place (same strides, no movement toward stop-when) without converging on the goal; the loop must detect stagnation and deviate while keeping the goal vector.",
+      "acceptance_criteria": [
+        "LoopSpec tracks per-iteration progress signal + a stagnation counter (consecutive no-progress iters). On stagnation >= K, the loop emits a DEVIATION directive (a varied angle/mutation hint) for the next iteration, GOAL-anchored (must still serve the loop goal/stop-when). Surfaced in the state snapshot + heartbeat. Convergence = stop-when met; stagnation guard = max iters/budget."
+      ],
+      "test_plan": "Unit: a loop with repeated no-progress iters trips the stagnation counter and yields a deviation directive after K; a loop making progress never deviates; deviation directive references the goal. Behaviour bench under evals/ for stagnation->deviation->convergence.",
+      "correctness": "Deviation increases exploration ONLY under detected stagnation and never abandons the goal vector; bounded by iter/budget stop-guard.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782548365989,
+      "updated_at": 1782570886157,
+      "status_changed_at": 1782570886157,
+      "handle": "feature-loop-iteration-deviation-mutation-anti-stagnation-goal-convergent",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_7ec3ea3b692849af99ea33081126346a",
+      "name": "FEATURE: heartbeat/CLI next-action guidance (system tells orchestrator what to do next)",
+      "type": "implement",
+      "model": null,
+      "model_rationale": "The orchestrator parks/forgets lanes; the system should tell it the next action from current state, not rely on memory.",
+      "acceptance_criteria": [
+        "codeterm plan next <id> (or a next_actions[] field on the state snapshot) computes a PRIORITIZED next-action list from state: in_review awaiting gate -> gate task_X; blocked lane -> advance task_Z; drift>0 -> reconcile; loop budget near limit -> consider stop; pending unassigned -> dispatch. Advisory/read-only."
+      ],
+      "test_plan": "Unit: each rule fires on a fixture state that should trigger it and is silent otherwise; ordering is by priority. No mutation.",
+      "correctness": "Deterministic rules over the §cf89458c snapshot; advisory output, never auto-acts.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782548366140,
+      "updated_at": 1782570254138,
+      "status_changed_at": 1782570254138,
+      "handle": "feature-heartbeat-cli-next-action-guidance-system-tells-orchestrator-what-to-do-next",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_cf89458c03964b17be16b075cd3337bf",
+      "name": "FEATURE: unified simple plan STATE/summary pull (one snapshot, not piecing it together)",
+      "type": "implement",
+      "model": null,
+      "model_rationale": "Orchestrating means assembling state piecemeal (reconcile + plan get + presence + strides) every cycle — slow and error-prone. One snapshot fixes the loop's read path.",
+      "acceptance_criteria": [
+        "codeterm plan state <id> (+ GET /api/plans/{id}/state) returns ONE read-only snapshot: goal vector, status/owner, task counts by status + %done, section coverage %, drift summary, active loops (target/budget/spent/stop-when), heartbeat (focus/lanes), open lanes (pending+in_review ids+names), live agents bound to tasks, last N strides."
+      ],
+      "test_plan": "Unit: aggregator over a fixture plan yields correct counts/coverage/open-lanes. CLI returns valid JSON (--json) + human view. Read-only: no plan mutation (assert bytes unchanged after call).",
+      "correctness": "A single call replaces the reconcile+get+presence+strides fan-out with one consistent snapshot; read-only, O(plan).",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782548366293,
+      "updated_at": 1782569181707,
+      "status_changed_at": 1782569181707,
+      "handle": "feature-unified-simple-plan-state-summary-pull-one-snapshot-not-piecing-it-together",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_6bb46bbe7a454a988a1a49a8411bc24b",
+      "name": "UI/UX pass3 DONE — working-points distinguishable + W3 deep-read",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782548743512,
+      "updated_at": 1782566001401,
+      "status_changed_at": 1782566001401,
+      "handle": "ui-ux-pass3-done-working-points-distinguishable-w3-deep-read",
+      "tags": [],
+      "section_ids": [
+        "sec_7f17ba5016294c42bafdf74db3832bdd"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_591aeee2c87d4b91b3bb24c8ab8458da",
+      "name": "UI/UX pass4 BRIEF — TaskCard responsive typography (FIX one-word-per-line regression)",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782548743682,
+      "updated_at": 1782566001578,
+      "status_changed_at": 1782566001578,
+      "handle": "ui-ux-pass4-brief-taskcard-responsive-typography-fix-one-word-per-line-regression",
+      "tags": [],
+      "section_ids": [
+        "sec_7f17ba5016294c42bafdf74db3832bdd"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_700adca752124d9781aa8999cbf0cc2b",
+      "name": "Section zones: cluster tasks by section + labeled organic zone outlines",
+      "type": "frontend",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782551033468,
+      "updated_at": 1782566001759,
+      "status_changed_at": 1782566001759,
+      "handle": "section-zones-cluster-tasks-by-section-labeled-organic-zone-outlines",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_3172d056478f49c8bbc3029b861f042f",
+      "name": "Explode writer — one file per task/section/milestone",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "in_progress",
+      "status_label": "needs-reassign",
+      "priority": "p1",
+      "created_at": 1782551188784,
+      "updated_at": 1782566000780,
+      "status_changed_at": 1782551228733,
+      "handle": "explode-writer-one-file-per-task-section-milestone",
+      "tags": [
+        "Storage-Infra"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": "feat/explode-writer",
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_78733e2125224acf8e736f9fbbd63961",
+      "name": "Append-log + actor id (log/<actor>.ndjson)",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "in_review",
+      "status_label": "stale-review",
+      "priority": "p1",
+      "created_at": 1782551189020,
+      "updated_at": 1782566000780,
+      "status_changed_at": 1782551229118,
+      "handle": "append-log-actor-id-log-actor-ndjson",
+      "tags": [
+        "mergeability"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_d786fc03274e40a1b4bc894fe9b8b658",
+      "name": "Compaction tick + size bound",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782551189279,
+      "updated_at": 1782551189279,
+      "status_changed_at": 1782551189279,
+      "handle": "compaction-tick-size-bound",
+      "tags": [
+        "Storage-Infra"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_e2b73bb4d07a428c9588eb5ea612dc0d",
+      "name": "Migration: backfill existing sqlite plans",
+      "type": "research",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "blocked",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782551189504,
+      "updated_at": 1782551229378,
+      "status_changed_at": 1782551229378,
+      "handle": "migration-backfill-existing-sqlite-plans",
+      "tags": [
+        "migration"
+      ],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_7fa639276eb345af8363c30a031adfd5",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_49503b57f0af481c8cc87b0aa5efb38a",
+      "name": "BUG: build.sh:133 cli-copy hardcodes cli/target/release/codeterm — ignores CARGO_TARGET_DIR (blocks build.sh dev in a linked worktree; 4th unhonored spot after task_5480af9)",
+      "type": "bug",
+      "model": null,
+      "model_rationale": "Isolated per-lane dev instance for backend smoke fails: daemon compiles but CLI-copy step aborts because it reads cli/target/release/codeterm instead of $CARGO_TARGET_DIR/release/codeterm.",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782569202406,
+      "updated_at": 1782569224438,
+      "status_changed_at": 1782569202406,
+      "handle": "bug-build-sh-133-cli-copy-hardcodes-cli-target-release-codeterm-ignores-cargo-target-dir-blocks-build-sh-dev-in-a-linked-worktree-4th-unhonored-spot-after-task-5480af9",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_9e1c951444ce489aab51d931f677262f",
+      "name": "PERF: canvas lags on load/scroll/zoom — decouple per-frame React commit (+20k hardening)",
+      "type": "fix",
+      "model": null,
+      "model_rationale": "User reports lag on load/scroll/zoom; static investigation found per-frame setTransformState driving O(N) memos at 60fps",
+      "acceptance_criteria": [
+        "Zoom/pan smooth — camera painted 60fps via layer; React/cull commit throttled (~15fps) with trailing settle at gesture end"
+      ],
+      "test_plan": "tsc clean; user feels smooth zoom/pan on dogfood plan via vite HMR; live frame-time probe on rebuilt /web at integration; canvas zoom-drift/visual-sweep specs green",
+      "correctness": "Viewport-derived React state recomputes at a bounded cadence + trailing commit, never per sub-pixel frame; camera smoothness decoupled from scene re-render",
+      "status": "in_progress",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782570541423,
+      "updated_at": 1782588202302,
+      "status_changed_at": 1782570564576,
+      "handle": "perf-canvas-lags-on-load-scroll-zoom-decouple-per-frame-react-commit-20k-hardening",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_04582a9bbd5140e6815fab7f9b3e7c69",
+      "name": "CI-RED: feat/canvas has 7 pre-existing >1000-line files NOT in allowlist — check-file-sizes.sh --fail is red on base",
+      "type": "fix",
+      "model": null,
+      "model_rationale": "Discovered during mem/store/tests.rs split: base branch already fails file-size CI on plugins/provider-codex(1085)+provider-claude(1044) plugin.ts, cli/subcommand_contract_tests.rs(1033), plugin/js_runtime/provider.rs(1013), agent/attributed_screen.rs(1015), service/plan/mutations.rs(1051, +38 from loop-features advance_loop), service/plan/tests.rs(1159). Each must shrink or be allowlisted.",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782578618791,
+      "updated_at": 1782578618791,
+      "status_changed_at": 1782578618791,
+      "handle": "ci-red-feat-canvas-has-7-pre-existing-1000-line-files-not-in-allowlist-check-file-sizes-sh-fail-is-red-on-base",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_52b8bd34697144198378bec3af37e32c",
+      "name": "CANVAS VISUAL: section-clustered common cloud WITHOUT zone outlines + muted (still multicolor) card tint",
+      "type": "fix",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Tasks stay grouped/clustered by section but in one common cloud — NO drawn zone outlines/territories (CanvasSectionZones not rendered)",
+        "Card surface tint muted (lower saturation) but still distinctly multicolor per section (hues preserved)"
+      ],
+      "test_plan": "tsc clean; user confirms via HMR — clusters read as grouped without outlines, colors subtle but distinct",
+      "correctness": "Layout clustering by section preserved; only zone-outline rendering removed; zoneColor saturation reduced, hue spacing kept",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782581356470,
+      "updated_at": 1782581356470,
+      "status_changed_at": 1782581356470,
+      "handle": "canvas-visual-section-clustered-common-cloud-without-zone-outlines-muted-still-multicolor-card-tint",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_829dccf63060425a9c641e96cffffe96",
+      "name": "PRE-EXISTING test fails (independent of perf): CanvasView nav double-click (in-flight nav refactor: focusNodeCamera skips nav.push when id==activePlanId + breadcrumb hidden at home) + taskPresence.test (fails on clean HEAD)",
+      "type": "fix",
+      "model": null,
+      "model_rationale": "Surfaced during perf-loop gate; nav-refactor files (CanvasFocusBreadcrumb, useCanvasFlyTo) pre-dirty +97L; taskPresence byte-identical to HEAD yet red. Belongs to whoever owns the in-flight nav lane.",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782583970471,
+      "updated_at": 1782583970471,
+      "status_changed_at": 1782583970471,
+      "handle": "pre-existing-test-fails-independent-of-perf-canvasview-nav-double-click-in-flight-nav-refactor-focusnodecamera-skips-nav-push-when-id-activeplanid-breadcrumb-hidden-at-home-taskpresence-test-fails-on-clean-head",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_9de99376b0f54303b430519bf1c64f44",
+      "name": "PERF (backend, profiling-found): plugin_manager_snapshot IPC takes 2.3→4.7→7.0s (increasing) — slow git/FS work, likely polled; spawn_blocking so off-runtime but CPU-contends → load hitches",
+      "type": "fix",
+      "model": null,
+      "model_rationale": "Seen in window.__ctPerf during canvas session: plugin_manager_snapshot 2327/4718/7003ms. CLAUDE.md flags this exact cmd as a past full-UI-freeze cause; cache the snapshot / avoid per-call git channel diff.",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782586001077,
+      "updated_at": 1782588375149,
+      "status_changed_at": 1782586001077,
+      "handle": "perf-backend-profiling-found-plugin-manager-snapshot-ipc-takes-2-3-4-7-7-0s-increasing-slow-git-fs-work-likely-polled-spawn-blocking-so-off-runtime-but-cpu-contends-load-hitches",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_6262ddf2351b44f9a0a18b463012fa8a",
+      "name": "CANVAS VISUAL: pull section sub-clusters into ONE cohesive cloud (grouped-but-together), not scattered far-apart islands",
+      "type": "fix",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "All section sub-clusters form one visually-cohesive cloud (no large empty gaps between islands) while each section stays a recognizable internal sub-cluster (grouped)",
+        "Intra-section grouping preserved; overall reads as one cloud divided into groups, per user screenshot feedback"
+      ],
+      "test_plan": "Fit-all screenshot before/after via canvas-inspect/visual-sweep; orchestrator reviews; tsc + layout tests green",
+      "correctness": "Layout packing change only (taskCloud section-blob packing); behavior-preserving for node identities; no render/CanvasView changes (perf worker owns those)",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782587199424,
+      "updated_at": 1782588202057,
+      "status_changed_at": 1782588202057,
+      "handle": "canvas-visual-pull-section-sub-clusters-into-one-cohesive-cloud-grouped-but-together-not-scattered-far-apart-islands",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_79e13e3ee34547eebbd4943d06e73da2",
+      "name": "PHASE D — Canvas UX redesign: schematic cards + expand-to-fullscreen detail (task/spec/plan) + card-sizing across scales",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Cards are schematic: fitting title (<=2 lines, never clipped) + optional desc first line + minimal glyph row + quiet section tint + expand affordance",
+        "Expand opens a fullscreen scrollable detail (READ) surface with FULL info for task, spec, AND plan; close returns to map position",
+        "Card sizing audited at W0-W3 for plan/spec/task/subtask; subtasks legible (not tiny); titles always fit — screenshot-verified"
+      ],
+      "test_plan": "Per iteration: MCP screenshots at multiple camera scales (root URL) + tsc + canvas unit/layout tests; orchestrator gates visually",
+      "correctness": "Map (schematic) and Read (detail) surfaces cleanly separated; unify with existing Read/W3, no duplicate; behavior-preserving node identity",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782587491057,
+      "updated_at": 1782587491057,
+      "status_changed_at": 1782587491057,
+      "handle": "phase-d-canvas-ux-redesign-schematic-cards-expand-to-fullscreen-detail-task-spec-plan-card-sizing-across-scales",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_888bc5bb41dc4ab785af954b88d0930a",
+      "name": "UX-1 schematic task card — minimal face (fitting title <=2 lines + optional desc first-line + glyph row + quiet tint + expand affordance); cut bodies/criteria/links from card face",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Card face shows only title+optional-desc-line+glyphs+tint+expand; no clipped titles"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782587510860,
+      "updated_at": 1782587510860,
+      "status_changed_at": 1782587510860,
+      "handle": "ux-1-schematic-task-card-minimal-face-fitting-title-2-lines-optional-desc-first-line-glyph-row-quiet-tint-expand-affordance-cut-bodies-criteria-links-from-card-face",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_79e13e3ee34547eebbd4943d06e73da2",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_ba9c8d9bd0e94d3bbcebda9225e1d64e",
+      "name": "UX-2 expand to fullscreen detail (READ) surface — scrollable full info for task/spec/plan; unify with existing Read/W3; close returns to map position",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Expand opens full scrollable detail for all 3 node types; full fields present; returns to exact map pos"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782587511090,
+      "updated_at": 1782587511090,
+      "status_changed_at": 1782587511090,
+      "handle": "ux-2-expand-to-fullscreen-detail-read-surface-scrollable-full-info-for-task-spec-plan-unify-with-existing-read-w3-close-returns-to-map-position",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_79e13e3ee34547eebbd4943d06e73da2",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_5d30ebc2a9e94d6eaa57bbf49a72f434",
+      "name": "UX-3 card-sizing audit across scales — plan/spec/task/subtask footprints at W0-W3; fix too-tiny subtasks; titles always fit; screenshot-verified",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "All node types legible+titles fit at W0-W3; subtasks readable not tiny; verified by multi-scale screenshots"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782587511345,
+      "updated_at": 1782587511345,
+      "status_changed_at": 1782587511345,
+      "handle": "ux-3-card-sizing-audit-across-scales-plan-spec-task-subtask-footprints-at-w0-w3-fix-too-tiny-subtasks-titles-always-fit-screenshot-verified",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_79e13e3ee34547eebbd4943d06e73da2",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_2111a0be2cb946f2955b88603af867a5",
+      "name": "fix: cap plan handle slug at 72 (os error 63 filename-too-long)",
+      "type": "fix",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "long task titles no longer break plan record / task file writes; slug<=72; short titles unaffected"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "in_review",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782593910160,
+      "updated_at": 1782593910548,
+      "status_changed_at": 1782593910548,
+      "handle": "fix-cap-plan-handle-slug-at-72-os-error-63-filename-too-long",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_1d2380caa2db4e63b44e71c7b6d41f0a",
+      "name": "PERF backend profiling found plugin manager snapshot IPC takes several seconds and freezes the whole UI during pan and zoom",
+      "type": "fix",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "cancelled",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782597129129,
+      "updated_at": 1782597129744,
+      "status_changed_at": 1782597129744,
+      "handle": "perf-backend-profiling-found-plugin-manager-snapshot-ipc-takes-several-s",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_028a231d388844e0a90107da32d0a91e",
+      "name": "test: handoff reseed expects bare seed but §39.5 added reconciliation prompt — update expectation or confirm intended",
+      "type": "fix",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "reseed_records_pending_row test green: expected seed reconciled with the reconciliation-prompt injection (intended per §39.5 done) OR code fixed if unintended"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782601043081,
+      "updated_at": 1782601043081,
+      "status_changed_at": 1782601043081,
+      "handle": "test-handoff-reseed-expects-bare-seed-but-39-5-added-reconciliation-prom",
+      "tags": [],
+      "section_ids": [
+        "sec_01e8608d75e14c65bb8fea48dc3521ae"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_44c986f2f1864a8d83de93a129a8854c",
+      "name": "CANVAS RENDER REWRITE: canvas blit renderer + 2-level card model (WebKit-smooth)",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Nodes render via a <canvas> blitting cached bitmaps at the camera transform; pan/zoom smooth in WebKit (probe pan+zoom p95<=22ms, dropped<5%)",
+        "ONE card model, 2 zoom levels: far=big readable title+tags; near=spec section-titles+buttons / plan tags+section-titles+section-tags / task fields — all FIT, NO scroll, 11-14px fonts, nothing clipped",
+        "Expand opens the full DOM detail (everything); hit-testing maps clicks to node/section-button/expand; user confirms real desktop app smooth"
+      ],
+      "test_plan": "WebKit probe (pan+zoom) + Chromium canvas-perf + MCP screenshots far/near for plan/spec/task + tsc + unit tests + user real-app feel",
+      "correctness": "Layout/scene unchanged; render layer swaps DOM->canvas; detail overlay stays DOM; crisp text at devicePixelRatio; re-render bitmap only on content/zoom-bucket change",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782624636231,
+      "updated_at": 1782624636231,
+      "status_changed_at": 1782624636231,
+      "handle": "canvas-render-rewrite-canvas-blit-renderer-2-level-card-model-webkit-smo",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_5c7d832097f14e69a37ef8abfe787e60",
+      "name": "CR-1 formalize WebKit perf gate (commit wk-perf probe as a runnable tool; pan+zoom+idle frame-time)",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "WebKit probe runnable + documented; reports pan/zoom/idle p50/p95/dropped"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782624653054,
+      "updated_at": 1782624653054,
+      "status_changed_at": 1782624653054,
+      "handle": "cr-1-formalize-webkit-perf-gate-commit-wk-perf-probe-as-a-runnable-tool",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_44c986f2f1864a8d83de93a129a8854c",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_b09d071eeef84debbf2b01348c82f24c",
+      "name": "CR-2 canvas render foundation: <canvas> world renderer blitting cached node bitmaps at camera transform; replace DOM world layer; pan/zoom redraw",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "pan/zoom smooth in WebKit (probe pan+zoom p95<=22ms dropped<5%); nodes render via canvas blit; layout unchanged"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782624653277,
+      "updated_at": 1782626851568,
+      "status_changed_at": 1782626851568,
+      "handle": "cr-2-canvas-render-foundation-canvas-world-renderer-blitting-cached-node",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_44c986f2f1864a8d83de93a129a8854c",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_f6e2c381539b4472890e00f22bf30c76",
+      "name": "CR-3 node bitmap card model: far=big title+tags; near spec=section-titles+buttons / plan=tags+section-titles+section-tags / task=fields; 11-14px; footprint fits no-scroll; crisp at DPR",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "all fields visible, fit, no scroll, 11-14px; far title readable; verified by screenshots far/near plan/spec/task"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782624653544,
+      "updated_at": 1782624653544,
+      "status_changed_at": 1782624653544,
+      "handle": "cr-3-node-bitmap-card-model-far-big-title-tags-near-spec-section-titles",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_44c986f2f1864a8d83de93a129a8854c",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_dcaa16c1ad27437b982db3178c098440",
+      "name": "CR-4 hit-testing + interaction: click->node/section-button/expand; hover state; wire expand to CanvasDetailOverlay",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "clicks map to correct node/region (unit-tested); expand opens full detail; section buttons navigate"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782624653790,
+      "updated_at": 1782627767777,
+      "status_changed_at": 1782627767777,
+      "handle": "cr-4-hit-testing-interaction-click-node-section-button-expand-hover-stat",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_44c986f2f1864a8d83de93a129a8854c",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_86138d3bd937400f83cdb341fe9f929c",
+      "name": "CR-5 edges/zone-labels/presence on canvas (or minimal DOM overlay), culled",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "edges+labels+presence render correctly on canvas; no perf regression in WebKit probe"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782624654052,
+      "updated_at": 1782627767993,
+      "status_changed_at": 1782627767993,
+      "handle": "cr-5-edges-zone-labels-presence-on-canvas-or-minimal-dom-overlay-culled",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_44c986f2f1864a8d83de93a129a8854c",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_a25a043c56a54a98a0822754c90b2df6",
+      "name": "CR-6 verify end-to-end: WebKit probe green + screenshots (content+fonts) + user real-app confirm",
+      "type": "feat",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "WebKit pan+zoom green; screenshots pass content rules; user confirms smooth"
+      ],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782624654294,
+      "updated_at": 1782631997659,
+      "status_changed_at": 1782624654294,
+      "handle": "cr-6-verify-end-to-end-webkit-probe-green-screenshots-content-fonts-user",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": "task_44c986f2f1864a8d83de93a129a8854c",
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_a0ce9ec8b3354f3bb74d82dd9a33ff6b",
+      "name": "DETAILIZE the dogfood plan: rich HOW markdown per plan section (plan=HOW, not spec; no spec-section duplication; code chunks + approach)",
+      "type": "chore",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Each plan section body = detailed HOW markdown (approach + code snippets + decisions) for building what the linked spec requires; plan does NOT repeat spec sections; reads as a real implementation document"
+      ],
+      "test_plan": "Orchestrator reviews 2-3 detailed sections as a pattern, then the rest; renders as markdown in the plan detail overlay",
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782628381426,
+      "updated_at": 1782629758925,
+      "status_changed_at": 1782628381426,
+      "handle": "detailize-the-dogfood-plan-rich-how-markdown-per-plan-section-plan-how-n",
+      "tags": [],
+      "section_ids": [
+        "sec_81bd893081b04915b053dd4ba53c6d0e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_b34a83a6c18940bfb03c97958ddccfa6",
+      "name": "FEATURE: context-aware canvas composer (ids + chip + in-overlay + reply surfacing)",
+      "type": "implement",
+      "model": "claude/opus",
+      "model_rationale": "Make canvas chat address the exact unit (spec/plan/section/task) you're looking at, routed to that plan's orchestrator — user-requested",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782657685612,
+      "updated_at": 1782657739775,
+      "status_changed_at": 1782657685612,
+      "handle": "feature-context-aware-canvas-composer-ids-chip-in-overlay-reply-surfacin",
+      "tags": [
+        "canvas",
+        "composer"
+      ],
+      "section_ids": [
+        "sec_362f8d882dc74bfa95823dac27bdbc82"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_97bf901c5eb34ce7a7ad55ca51083c05",
+      "name": "FEATURE: composer v2 — spatial raycast context + fullscreen overlay + single reused input + multi-orchestrator switching",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Context = node whose box CONTAINS screen-center (smallest if nested), via spatial index (quadtree/grid), accurate not fuzzy",
+        "Chip above input always reflects the actual center node (or open overlay node)",
+        "Detail overlay = consistent near-fullscreen size, NOT shrink-to-content; content scrolls within",
+        "ONE reused floating input — same instance in canvas and over the open overlay",
+        "Multi-orchestrator: target switches to owner of plan under center; chip/target shows which orchestrator"
+      ],
+      "test_plan": "tsc + unit (point-containment, center-node, overlay-wins, target switch across plans) + WebKit probe no-regress + screenshots",
+      "correctness": "Chip/target name the node under screen-center and its owning orchestrator; containment-based, cheap",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782663714733,
+      "updated_at": 1782665076556,
+      "status_changed_at": 1782663714733,
+      "handle": "feature-composer-v2-spatial-raycast-context-fullscreen-overlay-single-re",
+      "tags": [],
+      "section_ids": [
+        "sec_362f8d882dc74bfa95823dac27bdbc82"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_6ab96bac0c5c47e7975238b2f0e56c1e",
+      "name": "BUILD: orchestration CLI hardening (heartbeat set + worker charter + dedup + section-show + descriptions/CI + hint hygiene)",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "orchestrator heartbeat set --focus/--lane/--rule + plan.heartbeat.set RPC; reconciliation prompt now satisfiable",
+        "worker charter auto-reinjected on agent report; worker_suffix.md restates the 3 rules",
+        "plan section set + top-level plan relink deleted (dups gone)",
+        "plan section show + spec section show added",
+        "every command variant has a non-empty about + CI test every_leaf_command_has_about",
+        "hint/error tone standardized; top-level task errors route through render_plan_call_error"
+      ],
+      "test_plan": "./build.sh check + cargo test (narrow: heartbeat, plan_sections, manifest contract) + new every_leaf_command_has_about test green; live RPC verify after a coordinated dev restart",
+      "correctness": "Orchestrator can SET heartbeat focus/lanes/rules and it auto-reinjects; workers get a charter reminder; no duplicate commands; no empty descriptions",
+      "status": "in_review",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782664333552,
+      "updated_at": 1782665910155,
+      "status_changed_at": 1782665887007,
+      "handle": "build-orchestration-cli-hardening-heartbeat-set-worker-charter-dedup-sec",
+      "tags": [],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
       },
       "taken_by_role": null,
       "peer": null,
@@ -8434,7 +10658,7 @@
   "primary_spec_id": "sp_e8c7b831bd75427bb7c733fc04359994",
   "lineage": [],
   "goal": {
-    "vector": "Canvas is the spatial, persistent counterpart to orchestration: Spec(WHAT) ⊥ Plan(HOW) → Tasks → Strides; zoom IS navigation (worlds); iterate to 'красиво'.",
+    "vector": "Canvas = Figma-grade spatial orchestration where zoom IS navigation (W0 glance→W3 full): read the PLAN as a living HOW-document, SEE the live swarm working, FLY anywhere and RETURN. PRIMARY: ZERO LAG — pan, zoom, and load must be perfectly smooth (60fps camera; all viewport/scene work decoupled from frame rate; no O(N)-per-frame), profiled and proven, scaling to 20k. Every node readable + beautiful at every distance; clean architecture.",
     "vision": "",
     "constraints": [],
     "postulates": []
@@ -8504,6 +10728,48 @@
       },
       "ts": 1782395957107,
       "reason": "handoff #3"
+    },
+    {
+      "from": {
+        "pane_id": "769365ba",
+        "session_id": null,
+        "title": null
+      },
+      "to": {
+        "pane_id": "",
+        "session_id": null,
+        "title": null
+      },
+      "ts": 1782659210732,
+      "reason": ""
+    },
+    {
+      "from": {
+        "pane_id": "",
+        "session_id": null,
+        "title": null
+      },
+      "to": {
+        "pane_id": "1198ccb1",
+        "session_id": null,
+        "title": null
+      },
+      "ts": 1782659328771,
+      "reason": ""
+    },
+    {
+      "from": {
+        "pane_id": "1198ccb1",
+        "session_id": null,
+        "title": null
+      },
+      "to": {
+        "pane_id": "769365ba",
+        "session_id": null,
+        "title": null
+      },
+      "ts": 1782659562630,
+      "reason": ""
     }
   ]
 }
