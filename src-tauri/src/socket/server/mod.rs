@@ -19,6 +19,7 @@ mod plan_goal;
 mod plan_handoff;
 mod plan_heartbeat;
 mod plan_linking;
+mod plan_loops;
 mod plan_read;
 mod services;
 mod spec;
@@ -373,7 +374,7 @@ fn dispatch(
                     "plan.task.add", "plan.task.update", "plan.task.close", "plan.task.assign",
                     "plan.task.rm",
                     "plan.milestone.add", "plan.milestone.update", "plan.milestone.rm",
-                    "plan.loop.create", "plan.loop.set", "plan.loop.status", "plan.loop.stop",
+                    "plan.loop.create", "plan.loop.set", "plan.loop.status", "plan.loop.stop", "plan.loop.advance",
                     "plan.layout.set", "plan.note.add", "plan.element.add",
                     "plan.element.list", "plan.element.show",
                     "spec.create", "spec.list", "spec.show", "spec.files",

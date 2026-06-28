@@ -95,6 +95,28 @@ pub async fn loop_status(
     Ok(Json(serde_json::to_value(spec).unwrap_or_default()))
 }
 
+#[derive(Deserialize, Default)]
+pub(crate) struct LoopAdvanceBody {
+    #[serde(default)]
+    made_progress: bool,
+}
+
+pub async fn loop_advance(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, lid)): Path<(String, String)>,
+    Json(body): Json<LoopAdvanceBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let spec = state
+        .svc
+        .plan_store
+        .advance_loop(&lid, body.made_progress, epoch_ms())
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::to_value(spec).unwrap_or_default()))
+}
+
 pub async fn loop_stop(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

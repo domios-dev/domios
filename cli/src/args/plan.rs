@@ -56,6 +56,10 @@ pub enum PlanAction {
     Files { plan_id: String },
     /// Show tag facets, counts, topics, and duplicate warnings
     Tags { plan_id: String },
+    /// One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)
+    State { plan_id: String },
+    /// Prioritized, advisory next-action guidance computed from plan state
+    Next { plan_id: String },
     /// Show section coverage (% + gaps)
     Coverage { plan_id: String },
     /// Show sections with zero tasks
@@ -358,6 +362,12 @@ pub enum PlanLoopAction {
     },
     Stop {
         loop_id: String,
+    },
+    /// Advance a loop one iteration, recording whether it made progress
+    Advance {
+        loop_id: String,
+        #[arg(long, action = clap::ArgAction::Set, default_value_t = false)]
+        progress: bool,
     },
 }
 

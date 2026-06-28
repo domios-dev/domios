@@ -84,7 +84,7 @@ impl ServiceContext {
         }
     }
 
-    fn pane_probe(&self, pane_id: &str) -> PaneProbe {
+    pub(crate) fn pane_probe(&self, pane_id: &str) -> PaneProbe {
         let (exists, role, parent_pane_id, agent_type, pty_id) = {
             let mux = self.mux.read();
             match mux.get_pane(pane_id) {

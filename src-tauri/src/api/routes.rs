@@ -136,6 +136,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/plans/{id}/archive", post(plan_routes::archive))
         .route("/api/plans/{id}/unarchive", post(plan_routes::unarchive))
         .route("/api/plans/{id}/reconcile", get(plan_routes::reconcile))
+        .route("/api/plans/{id}/state", get(plan_routes::state))
+        .route("/api/plans/{id}/next", get(plan_routes::next))
         .route("/api/plans/{id}/transfer", post(plan_routes::transfer))
         .route("/api/plans/{id}/disown", post(plan_routes::disown))
         .route("/api/plans/{id}/claim", post(plan_routes::claim))
@@ -205,6 +207,10 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/plans/{id}/loops/{lid}/stop",
             post(plan_routes::loop_stop),
+        )
+        .route(
+            "/api/plans/{id}/loops/{lid}/advance",
+            post(plan_routes::loop_advance),
         )
         .route("/api/plans/{id}/layout", patch(plan_routes::layout_set))
         .route("/api/plans/{id}/notes", post(plan_routes::note_add))

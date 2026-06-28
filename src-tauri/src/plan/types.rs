@@ -344,6 +344,10 @@ pub struct LoopSpec {
     pub count: u32,
     pub stop_when: Option<String>,
     pub status: LoopStatus,
+    #[serde(default)]
+    pub stagnation: u32,
+    #[serde(default)]
+    pub deviation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
