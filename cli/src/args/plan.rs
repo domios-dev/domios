@@ -235,9 +235,7 @@ pub enum PlanAction {
 #[derive(Subcommand)]
 pub enum PlanGoalAction {
     /// Show the plan's north-star goal (alias of show)
-    Get {
-        plan_id: String,
-    },
+    Get { plan_id: String },
     /// Set the plan's goal vector, vision, constraints, and postulates
     Set {
         plan_id: String,
@@ -253,9 +251,7 @@ pub enum PlanGoalAction {
         postulate: Vec<String>,
     },
     /// Show the plan's north-star goal (vector, vision, constraints, postulates)
-    Show {
-        plan_id: String,
-    },
+    Show { plan_id: String },
 }
 
 #[derive(Subcommand)]
@@ -296,15 +292,9 @@ pub enum PlanSectionAction {
         handle: Option<String>,
     },
     /// Show one plan section's title, body, tags, and subsections
-    Show {
-        plan_id: String,
-        section_id: String,
-    },
+    Show { plan_id: String, section_id: String },
     /// Remove a plan section and its subsections
-    Rm {
-        plan_id: String,
-        section_id: String,
-    },
+    Rm { plan_id: String, section_id: String },
 }
 
 #[derive(Subcommand)]
@@ -358,13 +348,9 @@ pub enum PlanLoopAction {
         stop_when: Option<String>,
     },
     /// Show a loop's iteration count, budget, and status
-    Status {
-        loop_id: String,
-    },
+    Status { loop_id: String },
     /// Stop a loop (marks it complete)
-    Stop {
-        loop_id: String,
-    },
+    Stop { loop_id: String },
     /// Advance a loop one iteration, recording whether it made progress
     Advance {
         loop_id: String,
@@ -557,10 +543,7 @@ pub enum PlanTaskAction {
         apply: bool,
     },
     /// Remove a task from the plan
-    Rm {
-        plan_id: String,
-        task_id: String,
-    },
+    Rm { plan_id: String, task_id: String },
 }
 
 #[derive(Subcommand)]
@@ -688,7 +671,5 @@ pub enum PlanHandoffAction {
         markdown: bool,
     },
     /// List the handoffs attached to a plan
-    List {
-        plan_id: String,
-    },
+    List { plan_id: String },
 }
