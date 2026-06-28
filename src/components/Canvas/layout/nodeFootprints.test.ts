@@ -47,7 +47,7 @@ __resetNodeFootprintsForTest();
 
 // 3. registerCanvasNode forwards the descriptor's footprint into the registry.
 {
-  registerCanvasNode({ kind: "burndown", render: () => null, footprint: () => ({ width: 333, height: 144 }) });
+  registerCanvasNode({ kind: "burndown", painter: { signature: () => "x", paint: () => [] }, footprint: () => ({ width: 333, height: 144 }) });
   const fp = footprintFor("burndown", ghEl, S);
   ok(`registerCanvasNode forwards footprint (${fp.width}×${fp.height})`, fp.width === 333 && fp.height === 144);
 }

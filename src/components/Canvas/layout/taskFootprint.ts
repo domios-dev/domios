@@ -1,9 +1,16 @@
 import type { Task } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
+import { lineCount, measureFor } from "../canvasRender/textMetrics";
+import { nearContentHeight } from "../canvasRender/cardContent";
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
+
+// Same font drawCard renders the near title with — sizing and rendering share metrics
+// so the card height fits the wrapped title (no overflow, no mismatch).
+const TITLE_FONT = "600 14px Inter, -apple-system, BlinkMacSystemFont, system-ui, sans-serif";
+const measureTitle = measureFor(TITLE_FONT);
 
 export interface TaskFootprint {
   volume: number;
@@ -11,19 +18,11 @@ export interface TaskFootprint {
   height: number;
 }
 
-// Title metrics for the width/height fit below. The card title renders at ~13.4px
-// world (1.03em of the 13px node root); ~7.4px/glyph is a conservative average so the
-// estimated line count never UNDER-counts (a short estimate would clip the title).
+// Title width heuristic for the column-snap below; ~7.4px/glyph never under-counts so
+// a longer title earns a wider card. The HEIGHT uses real measured wrapping (above).
 const TITLE_GLYPH_W = 7.4;
-const TITLE_LINE_H = 17; // 1.03em × 1.25 line-height ≈ 16.75, rounded up
 const TITLE_INNER_PAD = 30; // card horizontal padding + border
-// UX-2 schematic face clamps the title to 2 lines, so the footprint targets a 2-line
-// fit: WIDTH grows with the title (fewer ellipses on common titles), HEIGHT reserves
-// 2 title lines + the one-line description + the glyph row.
 const SCHEMATIC_TITLE_LINES = 2;
-const DESC_LINE_H = 16; // optional one-line description (0.82em)
-const GLYPH_ROW_H = 26; // status · priority · presence · subtasks
-const FACE_PAD_H = 36; // top/bottom padding + gaps on the schematic face
 
 // §32.4 two-axis bounded, content-driven size: a task cell grows in BOTH width and
 // height with its WORK VOLUME (body+intent+rationale chars, strides, subtasks,
@@ -59,16 +58,16 @@ export function taskFootprint(task: Task, children: Task[], s: CanvasLayoutSetti
   const titleWidth = (titleChars * TITLE_GLYPH_W) / SCHEMATIC_TITLE_LINES + TITLE_INNER_PAD;
   const width = clamp(Math.max(volumeWidth, titleWidth), s.taskW, s.taskMaxW);
 
-  // Height floor that fits the SCHEMATIC face — up to 2 title lines + the one-line
-  // description + the glyph row — so the title never clips and the card is not a tall
-  // letterbox reserving lines the 2-line clamp will never show.
-  const charsPerLine = Math.max(8, Math.floor((width - TITLE_INNER_PAD) / TITLE_GLYPH_W));
-  const titleLines = clamp(Math.ceil(titleChars / charsPerLine), 1, SCHEMATIC_TITLE_LINES);
-  const faceFloorH = titleLines * TITLE_LINE_H + DESC_LINE_H + GLYPH_ROW_H + FACE_PAD_H;
+  // Height fits the NEAR card EXACTLY as drawCard renders it: header + wrapped title
+  // (≤2 lines, measured with the SAME font) + a tags row + the one-line fields. Routed
+  // through the shared FIT metrics (nearContentHeight) = no footprint/render drift.
+  const titleLines = Math.min(2, lineCount(measureTitle, task.name.trim(), width - 24, 2));
+  const fields = 3 + (subtaskCount > 0 ? 1 : 0); // status · priority · assignee (· subtasks)
+  const contentH = nearContentHeight({ titleLines, hasTags: !!task.tags?.length, sections: 0, fields });
 
-  const rawHeight = s.taskBaseH + 24 * volume + 12 * Math.min(strideCount, 8) + 16 * Math.min(subtaskCount, 5);
+  const rawHeight = s.taskBaseH + 18 * volume + 12 * Math.min(strideCount, 8) + 16 * Math.min(subtaskCount, 5);
   const height = Math.max(
-    clamp(Math.max(rawHeight, faceFloorH), s.taskMinH, s.taskMaxH),
+    clamp(Math.max(rawHeight, contentH), s.taskMinH, s.taskMaxH),
     Math.round(s.aspectFloorRatio * width),
   );
 

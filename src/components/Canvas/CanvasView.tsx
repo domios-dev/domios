@@ -4,6 +4,7 @@ import { listen } from "../../lib/bridge";
 import type { ApiConfig, Pane, Workspace } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { CanvasComposer } from "./CanvasComposer";
+import type { OverlayRef } from "./canvasContext";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
@@ -15,11 +16,10 @@ import {
   layoutInputRevision,
   plansForLayout,
   buildLineageCatalog,
-  visibleFrameIds,
   visibleNodeIds,
   type LaidOutNode,
 } from "./layout";
-import { archivePlan, fetchSpecSections } from "./plansApi";
+import { fetchSpecSections } from "./plansApi";
 import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { nextWorld, worldThresholds, type World } from "./worlds";
 import { assignedTaskIdsForPane } from "./planOpenFocus";
@@ -27,25 +27,21 @@ import { filterPlansForCanvas } from "./planPaneMatch";
 import { useCanvasPlans } from "./PlansProvider";
 import { useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
-import type { PlanGhostModel } from "./cards";
+import type { PlanGhostModel } from "./canvasView/models";
 import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
 import { useCanvasViewport } from "./useCanvasViewport";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
-import { CanvasFocusBreadcrumb } from "./CanvasFocusBreadcrumb";
-import { CanvasRichOverlayLayer } from "./CanvasRichOverlayLayer";
 import { CanvasPresenceLayer } from "./CanvasPresenceLayer";
 import { CanvasDetailOverlay } from "./CanvasDetailOverlay";
-import { CanvasWorldLayer } from "./CanvasWorldLayer";
+import { CanvasWorldCanvas, type CanvasRenderApi } from "./canvasRender/CanvasWorldCanvas";
+import type { GroupGlyph } from "./canvasRender/drawScene";
 import { CanvasSwarmCluster } from "./CanvasSwarmCluster";
-import { overlayBudgetEnabled } from "./overlayBudgetFlag";
-import { buildCanvasScene, pickCanvasSceneNodeAtScreenPoint } from "./scene";
-import { substrateV2Enabled } from "./substrateFlag";
+import { buildCanvasScene } from "./scene";
 import { perfFixtureCount, buildPerfFixturePlans, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
 import { flattenSections } from "./sectionRows";
-import { lodForScale } from "./canvasView/models";
 import { useCanvasLookups } from "./canvasView/useCanvasLookups";
 import { useCanvasFlyTo } from "./canvasView/useCanvasFlyTo";
 import { useCanvasNavHistory, type NavEntry } from "./canvasView/useCanvasNavHistory";
@@ -56,7 +52,7 @@ import { useCanvasChangeSignal } from "./canvasView/useCanvasChangeSignal";
 import { useStableSet } from "./canvasView/useStableSet";
 import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
 
-export type { ClusterCaptionModel, SpecSectionModel, TaskCardModel } from "./canvasView/models";
+export type { TaskCardModel } from "./canvasView/models";
 
 export interface CanvasViewInnerProps {
   mode: "workspace" | "focus";
@@ -184,12 +180,19 @@ export function CanvasViewInner({
     return m;
   }, [specSectionsByPlan]);
 
-  const { transform, handlers, fitToView, animateTo, animateToView, zoomBy, setTransform, isDragging, containerRef, layerRef } = useCanvasViewport({
+  // The <canvas> renderer publishes its blit-scheduler here; the viewport calls it
+  // on every camera paint so the canvas re-blits in lockstep with the gesture.
+  const drawRequestRef = useRef<(() => void) | null>(null);
+  const canvasApiRef = useRef<CanvasRenderApi | null>(null);
+  const hoverRafRef = useRef<number | null>(null);
+  const onCanvasPaint = useCallback(() => drawRequestRef.current?.(), []);
+  const { transform, handlers, fitToView, animateTo, animateToView, zoomBy, setTransform, isDragging, containerRef, transformRef } = useCanvasViewport({
     width: size.width,
     height: size.height,
     panButton: "middle",
     // §32.10 / worlds-dive: tasks/strides are tiny → deep zoom-drill needs wide range (to 1000%).
     maxScale: 10,
+    onPaint: onCanvasPaint,
   });
 
   // §24.1: ONE behavior — no manual view modes. Node frames are fixed; content
@@ -306,13 +309,6 @@ export function CanvasViewInner({
     [planModelById, specModelById, ghostModelById, lookups],
   );
 
-  const handleArchive = useCallback(
-    (id: string) => {
-      if (!api) return;
-      void archivePlan(api, id).catch(() => {});
-    },
-    [api],
-  );
 
   const claimOwner = useMemo((): OrchestratorRef | undefined => {
     if (orchestratorPaneId) return { pane_id: orchestratorPaneId, session_id: null, title: null };
@@ -325,14 +321,12 @@ export function CanvasViewInner({
     return undefined;
   }, [orchestratorPaneId, filteredPlans, focusedPaneId, panes]);
 
-  const [hoveredTask, setHoveredTask] = useState<string | null>(null);
-  const onHoverTask = useCallback((id: string | null) => setHoveredTask(id), []);
-
   const [tagFilter, setTagFilter] = useState<TagFilterSelection>(() => new Map());
   const onToggleTagFilter = useCallback((tag: string) => {
     setTagFilter((prev) => toggleTagFilter(prev, tag));
   }, []);
   const tagFilterActive = isTagFilterActive(tagFilter);
+  // When a tag filter is active, MATCHING task ids are kept lit; the canvas dims the rest.
   const tagFilterMatchIds = useMemo(() => {
     if (!tagFilterActive) return null;
     const ids = new Set<string>();
@@ -344,27 +338,16 @@ export function CanvasViewInner({
 
   useCanvasFrameProbe(transform);
 
-  const lod = lodForScale(transform.scale);
   const padding = viewportPadding ?? DEFAULT_CANVAS_SETTINGS.cullPadding;
   const canvasSize = useMemo(() => ({ width: size.width, height: size.height }), [size.width, size.height]);
-  // Build the visible-id sets, then collapse identity when membership is unchanged
+  // Build the visible-id set, then collapse identity when membership is unchanged
   // (#2 cascade root): a pan that reveals no new node keeps the SAME Set reference,
   // so every memo'd child below skips its re-render instead of cascading.
-  const frameIds = useStableSet(
-    useMemo(
-      () => new Set(visibleFrameIds(layout, transform, canvasSize, padding)),
-      [layout, transform, canvasSize, padding],
-    ),
-  );
   const nodeIds = useStableSet(
     useMemo(
       () => new Set(visibleNodeIds(layout, transform, canvasSize, padding)),
       [layout, transform, canvasSize, padding],
     ),
-  );
-  const visibleNodes = useMemo(
-    () => layout.frames.flatMap((frame) => frame.nodes.filter((n) => nodeIds.has(n.id))),
-    [layout, nodeIds],
   );
 
   // §26 worlds: each node's content band is driven by its OWN appW (footprint ×
@@ -396,6 +379,12 @@ export function CanvasViewInner({
   // UX-2 READ surface: the node whose fullscreen detail is open (null = none). It
   // OVERLAYS the map without moving the camera, so closing returns to the exact spot.
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
+  // The open overlay node, as the floating composer's primary referent (overlay wins).
+  const composerOverlayRef = useMemo<OverlayRef | null>(() => {
+    if (!detailNodeId) return null;
+    const n = lookups.nodeById.get(detailNodeId);
+    return n ? { id: n.id, kind: n.kind, planId: n.planId } : null;
+  }, [detailNodeId, lookups.nodeById]);
   const nav = useCanvasNavHistory();
 
   const {
@@ -411,7 +400,7 @@ export function CanvasViewInner({
     onFocusStride,
   } = useCanvasFlyTo({ lookups, planById, size, fitToView, animateToView, animateTo, setTransform, recordNav: nav.push });
 
-  const { richOverlays, presenceOverlays, swarmRoster } = useCanvasOverlays({
+  const { presenceOverlays, swarmRoster } = useCanvasOverlays({
     scene,
     transform,
     focusedNodeId,
@@ -422,9 +411,7 @@ export function CanvasViewInner({
     worldByNode,
   });
 
-  // §25.3 DOMINANCE (focus-assist for the task you "fell into"): when one task fills
-  // ≳60% of the viewport it ELEVATES (paint above + shadow, NO footprint change).
-  // Siblings stay SOLID (§32.3 — depth, not fade). Viewport-relative, transient.
+  // §25.3 dominance: a task filling ≳60% of the viewport elevates (emphasis ring).
   const dominantNodeId = useMemo(() => {
     if (focusedNodeId) return null;
     let best: string | null = null;
@@ -530,8 +517,49 @@ export function CanvasViewInner({
     return [...byKey.values()];
   }, [filteredPlans]);
 
-  const worldW = Math.max(layout.bounds.width + layout.bounds.x + 400, size.width);
-  const worldH = Math.max(layout.bounds.height + layout.bounds.y + 400, size.height);
+  // Canvas-renderer inputs: ALL laid-out nodes/edges (the draw loop culls live to the
+  // camera), and the zone name labels. Camera-decoupled — rebuilt only on layout change.
+  const allNodes = useMemo(() => layout.frames.flatMap((f) => f.nodes), [layout]);
+  const allEdges = useMemo(() => [...layout.frames.flatMap((f) => f.edges), ...(layout.crossEdges ?? [])], [layout]);
+  const zoneLabels = useMemo(() => {
+    const out: { text: string; anchor: { x: number; y: number } }[] = [];
+    for (const frame of layout.frames) {
+      for (const z of frame.zones) {
+        const text = sectionTitleById.get(z.sectionId) ?? z.label;
+        if (text) out.push({ text, anchor: z.labelAnchor });
+      }
+    }
+    return out;
+  }, [layout, sectionTitleById]);
+
+  // Orchestrator avatars + their plan connectors (drawn on the canvas, §32.5).
+  const groupGlyphs = useMemo<GroupGlyph[]>(() => {
+    const out: GroupGlyph[] = [];
+    for (const group of layout.groups) {
+      const planAnchors: { x: number; y: number }[] = [];
+      for (const f of layout.frames) {
+        if (!group.planIds.includes(f.planId)) continue;
+        const pn = f.nodes.find((n) => n.kind === "plan");
+        if (pn) planAnchors.push({ x: pn.box.x + pn.box.width / 2, y: pn.box.y });
+      }
+      out.push({ ownerKey: group.ownerKey, label: group.title, live: !!group.ownerPaneId, anchor: { x: group.box.x + 24, y: group.box.y + 34 }, planAnchors });
+    }
+    return out;
+  }, [layout]);
+
+  // taskId → live agents (on-card presence swarm), camera-decoupled.
+  const presenceByNode = useMemo(() => {
+    const m = new Map<string, PresenceAgent[]>();
+    for (const [id, model] of lookups.taskModelById) {
+      const agents = model.presence?.agents;
+      if (agents && agents.length) m.set(id, agents);
+    }
+    return m;
+  }, [lookups.taskModelById]);
+
+  // Fly-arrival blink + off-screen-change plan pulse → one emphasis-ring set on the canvas.
+  const blinkSet = useMemo(() => new Set<string>([...blinkIds, ...pulsePlanIds]), [blinkIds, pulsePlanIds]);
+  const highlightIds = highlight?.taskIds ?? null;
 
   const viewportCenter = useMemo(
     () => ({
@@ -547,13 +575,6 @@ export function CanvasViewInner({
     const cy = layout.bounds.y + layout.bounds.height / 2;
     setTransform({ scale: 1, x: size.width / 2 - cx, y: size.height / 2 - cy });
   }, [layout.bounds, size.width, size.height, setTransform]);
-  const fitNode = useCallback(
-    (nodeId: string) => {
-      const box = lookups.nodeById.get(nodeId)?.box;
-      if (box) fitToView(box);
-    },
-    [lookups, fitToView],
-  );
 
   // §23.4 camera presets + focus gesture — camera-only (no node modes, §24.1).
   // Content reveals itself by zoom: Overview = zoom out (compact), Read = zoom in.
@@ -579,8 +600,7 @@ export function CanvasViewInner({
   );
 
   // RETURN-TO-PLAN: the plan is home base. Home frames the plan + clears the path;
-  // Back pops one hop and flies to the new top; a crumb flies straight to that hop.
-  const navPlanLabel = (activePlanId ? planById.get(activePlanId)?.title : null) ?? "Plan";
+  // Back pops one hop and flies to the new top. Drives Esc-to-return (no breadcrumb UI).
   const flyToEntry = useCallback(
     (entry: NavEntry) => {
       const ids = entry.flyIds.filter((id) => lookups.nodeById.has(id));
@@ -600,14 +620,6 @@ export function CanvasViewInner({
     if (next) flyToEntry(next);
     else goHome();
   }, [nav, flyToEntry, goHome]);
-  const goCrumb = useCallback(
-    (index: number) => {
-      const entry = nav.path[index];
-      nav.truncate(index);
-      if (entry) flyToEntry(entry);
-    },
-    [nav, flyToEntry],
-  );
 
   useEffect(() => {
     if (!nav.path.length && !focusedNodeId) return;
@@ -620,22 +632,60 @@ export function CanvasViewInner({
     return () => window.removeEventListener("keydown", onKey);
   }, [nav.path.length, focusedNodeId, goBack]);
 
+  // The world is a <canvas> now — no per-node DOM to hit-test. Double-click uses the
+  // SAME smallest-area hit-test as single-click (canvasApiRef.hitTest), so a click and a
+  // double-click at one point always resolve to the same node — then focuses it.
   const onWorldDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       const rect = containerRef.current?.getBoundingClientRect();
-      const hit = substrateV2Enabled() && rect
-        ? pickCanvasSceneNodeAtScreenPoint(scene, { x: e.clientX - rect.left, y: e.clientY - rect.top }, transform)
-        : null;
-      const el = hit ? null : (e.target as HTMLElement).closest("[data-plan-id],[data-task-id]") as HTMLElement | null;
-      const id = hit?.id ?? el?.getAttribute("data-plan-id") ?? el?.getAttribute("data-task-id");
-      if (id) focusNodeCamera(id);
+      const hit = canvasApiRef.current?.hitTest({ x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) });
+      if (hit) focusNodeCamera(hit.node.id);
     },
-    [containerRef, focusNodeCamera, scene, transform],
+    [containerRef, focusNodeCamera],
+  );
+
+  // Single-click → canvas hit-test → action: ⤢ opens the full detail overlay; a
+  // section / "→ tasks" button navigates to that section's tasks; node body focuses.
+  // Falls through to the delegated fly-click (rich-overlay chips, swarm rows).
+  const onCanvasClick = useCallback(
+    (e: React.MouseEvent) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      const point = { x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) };
+      const hit = canvasApiRef.current?.hitTest(point);
+      if (hit) {
+        const { node, action } = hit;
+        if (action.type === "expand") { setDetailNodeId(node.id); return; }
+        if (action.type === "section-button" || action.type === "section") {
+          onSectionFrame({ planId: node.planId, sectionId: action.sectionId, variant: node.kind === "spec" ? "spec" : "plan" });
+          return;
+        }
+        if (action.type === "node") { focusNodeCamera(node.id); return; }
+      }
+      onCanvasFlyClick(e);
+    },
+    [containerRef, onSectionFrame, focusNodeCamera, onCanvasFlyClick],
+  );
+
+  // Hover → highlight the node/region under the pointer (rAF-throttled hit-test; the
+  // canvas paints the ring as a primitive — no per-frame DOM). Skipped while panning.
+  const onCanvasPointerMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (isDragging || hoverRafRef.current != null) return;
+      const cx = e.clientX;
+      const cy = e.clientY;
+      hoverRafRef.current = requestAnimationFrame(() => {
+        hoverRafRef.current = null;
+        const rect = containerRef.current?.getBoundingClientRect();
+        const hit = canvasApiRef.current?.hitTest({ x: cx - (rect?.left ?? 0), y: cy - (rect?.top ?? 0) });
+        canvasApiRef.current?.setHover(hit?.node.id ?? null);
+      });
+    },
+    [isDragging, containerRef],
   );
 
 
   return (
-    <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view" data-overlay-budget={overlayBudgetEnabled() ? "true" : "false"}>
+    <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view">
       {onClose && (
         <button
           type="button"
@@ -652,7 +702,9 @@ export function CanvasViewInner({
         ref={containerRef}
         className="relative h-full w-full overflow-hidden"
         onMouseDown={handlers.onMouseDown}
-        onClick={onCanvasFlyClick}
+        onClick={onCanvasClick}
+        onMouseMove={onCanvasPointerMove}
+        onDoubleClick={onWorldDoubleClick}
         style={{
           cursor: isDragging ? "grabbing" : "default",
           userSelect: "none",
@@ -681,59 +733,31 @@ export function CanvasViewInner({
           </div>
         )}
         {!loading && filteredPlans.length > 0 && (
-          <CanvasRichOverlayLayer
-            overlays={richOverlays}
-            nodeById={lookups.nodeById}
-            resolveModel={resolveModel}
-            onOpenPane={onOpenPane}
-            onHoverTask={onHoverTask}
-            onArchive={api ? handleArchive : undefined}
-            onFitNode={fitNode}
-            onCopyLink={onCopyLink}
-            onFocusStride={onFocusStride}
-            onSectionClick={onSectionClick}
-            onSectionFrame={onSectionFrame}
-          />
-        )}
-        {!loading && filteredPlans.length > 0 && (
-          <CanvasPresenceLayer overlays={presenceOverlays} onFlyToTask={onFlyToTask} onHoverTask={onHoverTask} />
+          <CanvasPresenceLayer overlays={presenceOverlays} onFlyToTask={onFlyToTask} />
         )}
         {!loading && !error && filteredPlans.length > 0 && (
           <CanvasSwarmCluster roster={swarmRoster} onFlyToTask={onFlyToTask} reserveTopRight={!!onClose} />
         )}
         {!loading && filteredPlans.length > 0 && (
-          <CanvasWorldLayer
-            layerRef={layerRef}
-            layout={layout}
-            layoutRevision={layoutRevision}
+          <CanvasWorldCanvas
+            width={size.width}
+            height={size.height}
             transform={transform}
-            worldW={worldW}
-            worldH={worldH}
-            onWorldDoubleClick={onWorldDoubleClick}
-            frameIds={frameIds}
-            nodeIds={nodeIds}
-            visibleNodes={visibleNodes}
-            worldByNode={worldByNode}
-            lod={lod}
-            dominantNodeId={dominantNodeId}
-            lookups={lookups}
-            hoveredTask={hoveredTask}
-            highlight={highlight}
-            tagFilterActive={tagFilterActive}
-            tagFilterMatchIds={tagFilterMatchIds}
-            blinkIds={blinkIds}
-            pulsePlanIds={pulsePlanIds}
-            sectionTitleById={sectionTitleById}
+            transformRef={transformRef}
+            drawRequestRef={drawRequestRef}
+            apiRef={canvasApiRef}
+            nodes={allNodes}
+            nodeById={lookups.nodeById}
+            edges={allEdges}
+            zoneLabels={zoneLabels}
+            groups={groupGlyphs}
+            presenceByNode={presenceByNode}
             resolveModel={resolveModel}
-            onOpenPane={onOpenPane}
-            onHoverTask={onHoverTask}
-            onExpand={setDetailNodeId}
-            onArchive={api ? handleArchive : undefined}
-            onFitNode={fitNode}
-            onCopyLink={onCopyLink}
-            onFocusStride={onFocusStride}
-            onSectionClick={onSectionClick}
-            onSectionFrame={onSectionFrame}
+            revision={`${layoutRevision}\0${plansRevision}`}
+            dimIds={tagFilterMatchIds}
+            highlightIds={highlightIds}
+            blinkIds={blinkSet}
+            dominantId={dominantNodeId}
           />
         )}
         {/* §31 off-screen change marker: a directional dot at the viewport edge
@@ -763,7 +787,6 @@ export function CanvasViewInner({
           minimapOn={minimapOn}
         />
       )}
-      <CanvasFocusBreadcrumb planLabel={navPlanLabel} path={nav.path} onHome={goHome} onCrumb={goCrumb} onBack={goBack} />
       {legendFacets.length > 0 && !loading && !error && filteredPlans.length > 0 && (
         <CanvasTagLegend facets={legendFacets} filter={tagFilter} onToggleTag={onToggleTagFilter} />
       )}
@@ -776,7 +799,7 @@ export function CanvasViewInner({
           plans={filteredPlans}
           layout={layout}
           viewportCenter={viewportCenter}
-          mode={mode}
+          overlay={composerOverlayRef}
           panes={panes}
         />
       )}

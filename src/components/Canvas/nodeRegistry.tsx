@@ -1,231 +1,27 @@
-import type { CSSProperties, ReactNode } from "react";
-import { RichMarkdown } from "@codeterm/chat-ui";
-import {
-  LightweightWorldCard,
-  MilestoneBubble,
-  PlanGhostCard,
-  SectionNode,
-  TaskCard,
-  type CanvasLod,
-  type MilestoneBubbleModel,
-  type PlanGhostModel,
-} from "./cards";
-import { type World } from "./worlds";
-import type { LaidOutNode } from "./layout";
 import { registerNodeFootprint, type NodeFootprintFn } from "./layout/nodeFootprints";
-import { registerProvenanceRenderers } from "./registerProvenanceRenderers";
-import type { CanvasElement, DriftItem, Plan, TagFacet, Task } from "./types";
-import type { TaskPresence } from "./taskPresence";
-import type { PresenceAgent } from "./presence/identity";
-import type { PlanWorkspaceScope } from "./planWorkspaceScope";
+import { registerCanvasPainter, setCanvasNodeExpandable, type CanvasPainter } from "./canvasRender/painterRegistry";
 
-// kind → renderer dispatch. Adding a node kind = one register call; canvas core,
-// layout, pan/zoom and focus detection stay untouched. Open-kind fallback kept.
+// Section navigation payload — a click on a plan/spec section flies to its tasks.
 export interface SectionNavArgs {
   planId: string;
   sectionId: string;
   variant: "plan" | "spec";
 }
 
-export interface NodeRenderArgs {
-  node: LaidOutNode;
-  model: unknown;
-  style: CSSProperties;
-  lod: CanvasLod;
-  onArchive?: () => void;
-  onOpenPane?: (paneId: string) => void;
-  onHoverTask?: (taskId: string | null) => void;
-  /** Expand a card → open its full READ detail (routed to focus/read for now). */
-  onExpand?: (nodeId: string) => void;
-  onFitNode?: (nodeId: string) => void;
-  /** §32.7 navigation/affordances (all user-initiated). */
-  onCopyLink?: (id: string) => void;
-  onCopyStrideLink?: (milestoneId: string) => void;
-  onFocusStride?: (milestoneId: string) => void;
-  onSectionClick?: (a: SectionNavArgs) => void;
-  onSectionFrame?: (a: SectionNavArgs) => void;
-  tagFilterDimmed?: boolean;
-  tagFilterHighlighted?: boolean;
-  suppressRichContent?: boolean;
-  richOverlay?: boolean;
-  lightweightWorld?: boolean;
-  /** Render the FULL read content (fullscreen detail surface), not the schematic map face. */
-  detail?: boolean;
-  /** §26 worlds: this node's appW-driven content band (W0 mass → W3 deep). */
-  world: World;
-  /** §34 crisp text: re-rasterize factor for this node (1 = none, else camera scale). */
-  crispScale: number;
-}
-
-export type NodeRenderer = (args: NodeRenderArgs) => ReactNode;
-
-type PlanNodeModel = Plan & {
-  driftCount?: number;
-  workspaceScope?: PlanWorkspaceScope;
-  /** spec_section_id → title, resolved from the plan's linked spec (bubble labels). */
-  specTitleById?: ReadonlyMap<string, string>;
-  /** sectionId → LIVE agents working it (per-section presence roll-up). */
-  sectionAgentsById?: ReadonlyMap<string, PresenceAgent[]>;
-};
-
-const renderers: Record<string, NodeRenderer> = {};
-const detailRenderers: Record<string, NodeRenderer> = {};
-
-export function registerNodeRenderer(kind: string, renderer: NodeRenderer): void {
-  renderers[kind] = renderer;
-}
-
 // Plugin-extensible canvas node: ONE capability descriptor adds a node kind with no
-// core surgery — the map renderer (required), an optional layout footprint (else the
-// default element box), an optional fullscreen-detail renderer (else the map renderer
-// at detail size), and capability flags. Dispatch is by capability presence, never a
-// hardcoded kind list. Mirrors the provider/plugin discipline (architecture.md).
+// core surgery — a CANVAS PAINTER (draws the node ON the canvas + returns hit regions,
+// dispatched by drawScene) and an optional layout footprint (else the default element
+// box). The fullscreen read surface is rendered by canvasRender/DetailContent. Built-in
+// painters for plan/spec/task/handoff/plan-ghost live in canvasRender/builtinPainters.
 export interface CanvasNodePlugin {
   kind: string;
-  render: NodeRenderer;
+  painter?: CanvasPainter;
   footprint?: NodeFootprintFn;
-  detail?: NodeRenderer;
   capabilities?: { expandable?: boolean };
 }
 
 export function registerCanvasNode(plugin: CanvasNodePlugin): void {
-  registerNodeRenderer(plugin.kind, plugin.render);
+  if (plugin.painter) registerCanvasPainter(plugin.kind, plugin.painter);
   if (plugin.footprint) registerNodeFootprint(plugin.kind, plugin.footprint);
-  if (plugin.detail) detailRenderers[plugin.kind] = plugin.detail;
+  if (plugin.capabilities?.expandable != null) setCanvasNodeExpandable(plugin.kind, plugin.capabilities.expandable);
 }
-
-// The READ-detail renderer for a kind, if the plugin declared one (else null → the
-// detail surface uses the map renderer at full size).
-export function getNodeDetailRenderer(kind: string): NodeRenderer | null {
-  return detailRenderers[kind] ?? null;
-}
-
-const fallbackStyle: CSSProperties = {
-  position: "absolute",
-  boxSizing: "border-box",
-  border: "1px dashed var(--ct-border-default)",
-  borderRadius: "var(--ct-radius-md)",
-  background: "var(--ct-bg)",
-  color: "var(--ct-fg)",
-  fontFamily: "var(--ct-font-ui)",
-  padding: "10px 12px",
-  boxShadow: "var(--ct-shadow-sm)",
-};
-
-export const fallbackRenderer: NodeRenderer = ({ node, model, style }) => {
-  const el = model as CanvasElement | undefined;
-  const content = typeof el?.content === "string" ? el.content : null;
-  return (
-    <div data-testid="canvas-fallback-node" data-node-kind={node.kind} style={{ ...fallbackStyle, ...style }}>
-      <div style={{ fontWeight: 600, fontSize: "var(--ct-font-size-sm)", textTransform: "capitalize" }}>
-        {node.kind.replace(/_/g, " ")}
-      </div>
-      {content && (
-        <div style={{ fontSize: "var(--ct-font-size-sm)", marginTop: 4 }}>
-          <RichMarkdown text={content} />
-        </div>
-      )}
-    </div>
-  );
-};
-
-export function getNodeRenderer(kind: string): NodeRenderer {
-  return renderers[kind] ?? fallbackRenderer;
-}
-
-registerNodeRenderer("plan", ({ node, model, style, world, crispScale, onArchive, onFitNode, onExpand, onSectionClick, onSectionFrame, suppressRichContent, richOverlay, lightweightWorld }) => {
-  if (lightweightWorld) {
-    return model ? <LightweightWorldCard kind="plan" node={node} model={model} style={style} world={world} /> : null;
-  }
-  return model ? (
-    <SectionNode
-      variant="plan"
-      plan={model as PlanNodeModel}
-      style={style}
-      world={world}
-      driftCount={(model as PlanNodeModel).driftCount ?? 0}
-      workspaceScope={(model as PlanNodeModel).workspaceScope}
-      crispScale={crispScale}
-      onArchive={onArchive}
-      onFitNode={onFitNode ? () => onFitNode(node.id) : undefined}
-      onExpand={onExpand}
-      onSectionClick={onSectionClick}
-      onSectionFrame={onSectionFrame}
-      suppressRichContent={suppressRichContent}
-      richOverlay={richOverlay}
-      specTitleById={(model as PlanNodeModel).specTitleById}
-      sectionAgentsById={(model as PlanNodeModel).sectionAgentsById}
-    />
-  ) : null;
-});
-registerNodeRenderer("plan-ghost", ({ model, style, world }) =>
-  model ? <PlanGhostCard model={model as PlanGhostModel} style={style} world={world} /> : null,
-);
-registerNodeRenderer("spec", ({ node, model, style, world, crispScale, onExpand, onSectionClick, onSectionFrame, suppressRichContent, richOverlay, lightweightWorld }) => {
-  if (lightweightWorld) {
-    return model ? <LightweightWorldCard kind="spec" node={node} model={model} style={style} world={world} /> : null;
-  }
-  return model ? <SectionNode variant="spec" plan={model as PlanNodeModel} workspaceScope={(model as PlanNodeModel).workspaceScope} style={style} world={world} crispScale={crispScale} onExpand={onExpand} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={suppressRichContent} richOverlay={richOverlay} /> : null;
-});
-registerNodeRenderer("task", ({ model, style, world, crispScale, onOpenPane, onHoverTask, onExpand, onCopyLink, onCopyStrideLink, onFocusStride, tagFilterDimmed, tagFilterHighlighted, suppressRichContent, richOverlay, lightweightWorld, detail, node }) => {
-  const m = model as { task: Task; tagFacets?: TagFacet[]; childCount?: number; childDone?: number; parentTaskName?: string | null; stepColors?: Map<string, string>; drift?: DriftItem; presence?: TaskPresence | null; regionColor?: string } | undefined;
-  if (!m) return null;
-  if (lightweightWorld) {
-    return <LightweightWorldCard kind="task" node={node} model={m} style={style} world={world} onHover={onHoverTask} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} />;
-  }
-  // §32.3: subtasks are SOLID satellite tiles swarming around their parent (packed
-  // by the same cloud logic, smaller footprint) — never gated, never faded. Opacity
-  // is NEVER a hierarchy/zoom signal; a subtask reads at every zoom, just smaller.
-  return <TaskCard task={m.task} tagFacets={m.tagFacets} childCount={m.childCount} childDone={m.childDone} parentTaskName={m.parentTaskName} stepColors={m.stepColors} drift={m.drift} presence={m.presence} regionColor={m.regionColor} style={style} world={world} crispScale={crispScale} onOpenPane={onOpenPane} onHover={onHoverTask} onExpand={onExpand} onCopyLink={onCopyLink} onCopyStrideLink={onCopyStrideLink} onFocusStride={onFocusStride} tagFilterDimmed={tagFilterDimmed} tagFilterHighlighted={tagFilterHighlighted} suppressRichContent={suppressRichContent} richOverlay={richOverlay} detail={detail} />;
-});
-registerNodeRenderer("milestone", ({ model, style, lod, world }) =>
-  model ? <MilestoneBubble model={model as MilestoneBubbleModel} style={style} lod={lod} world={world} /> : null,
-);
-// Faint enclosure behind a task's step-bubble cluster + a kind caption row.
-registerNodeRenderer("cluster", ({ model, style }) => {
-  const kinds = (model as { kinds?: { label: string; color: string }[] } | undefined)?.kinds ?? [];
-  return (
-    <div
-      data-testid="canvas-cluster-bg"
-      style={{
-        ...style,
-        position: "absolute",
-        borderRadius: "var(--ct-radius-md)",
-        background: "color-mix(in srgb, var(--ct-fg) 3.5%, transparent)",
-        border: "1px solid var(--ct-border-subtle)",
-        pointerEvents: "none",
-        fontFamily: "var(--ct-font-ui)",
-      }}
-    >
-      {kinds.length > 0 && (
-        <div
-          data-testid="canvas-cluster-caption"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 5,
-            padding: "2px 7px 0",
-            height: 17,
-            fontSize: "0.6rem",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.03em",
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            color: "var(--ct-fg)",
-            opacity: 0.7,
-          }}
-        >
-          {kinds.slice(0, 3).map((k) => (
-            <span key={k.label} style={{ display: "inline-flex", alignItems: "center", gap: 3, minWidth: 0 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: k.color, flexShrink: 0 }} />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{k.label}</span>
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-});
-
-registerProvenanceRenderers(registerNodeRenderer);

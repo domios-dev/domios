@@ -1,13 +1,11 @@
 import { useMemo } from "react";
 import type { Pane } from "../../../lib/types";
 import type { LaidOutNode, WorkspaceLayout } from "../layout";
-import type { MilestoneBubbleModel } from "../cards";
 import { milestoneColorMap } from "../milestoneColors";
 import { zoneColor } from "../layout/sectionZones";
-import { sectionRows } from "../sectionRows";
 import { buildTaskPresence } from "../taskPresence";
 import type { CanvasElement, DriftItem, Plan, Section, Task } from "../types";
-import { collectSections, type CanvasLookups, type ClusterCaptionModel, type SpecSectionModel, type TaskCardModel } from "./models";
+import { collectSections, type CanvasLookups, type TaskCardModel } from "./models";
 
 // Per-data lookups: id→node/task/model/section/milestone/cluster/element maps. Built
 // once per layout / plan / drift / panes change — NOT per pan/zoom frame (camera-
@@ -27,20 +25,10 @@ export function useCanvasLookups(
     const taskById = new Map<string, Task>();
     const taskModelById = new Map<string, TaskCardModel>();
     const sectionById = new Map<string, Section>();
-    const specSectionById = new Map<string, SpecSectionModel>();
-    const milestoneModelById = new Map<string, MilestoneBubbleModel>();
     const milestoneTaskById = new Map<string, string>();
-    const clusterModelById = new Map<string, ClusterCaptionModel>();
     const elementById = new Map<string, CanvasElement>();
     for (const plan of filteredPlans) {
       collectSections(plan.sections, sectionById);
-      for (const row of sectionRows(plan)) {
-        specSectionById.set(`${plan.id}::spec::${row.section.id}`, {
-          section: row.section,
-          glyph: row.glyph,
-          taskCount: row.taskCount,
-        });
-      }
       const childCounts = new Map<string, number>();
       const childDone = new Map<string, number>();
       const taskNameById = new Map(plan.tasks.map((t) => [t.id, t.name]));
@@ -81,22 +69,11 @@ export function useCanvasLookups(
           presence: buildTaskPresence(plan, task, panes),
           regionColor: (() => { const sid = regionSectionOf(task); return sid ? zoneColor(sid) : undefined; })(),
         });
-        const seen = new Map<string, string>();
-        for (const m of task.milestones) {
-          const color = colors.get(m.kind) ?? "var(--ct-border-focus)";
-          milestoneModelById.set(m.id, { milestone: m, color });
-          milestoneTaskById.set(m.id, task.id);
-          if (!seen.has(m.kind)) seen.set(m.kind, color);
-        }
-        if (seen.size) {
-          clusterModelById.set(`${task.id}::cluster`, {
-            kinds: [...seen.entries()].map(([label, color]) => ({ label: label.replace(/_/g, " "), color })),
-          });
-        }
+        for (const m of task.milestones) milestoneTaskById.set(m.id, task.id);
       }
       for (const el of plan.elements) elementById.set(el.id, el);
     }
-    return { nodeById, taskById, taskModelById, sectionById, specSectionById, milestoneModelById, milestoneTaskById, clusterModelById, elementById };
+    return { nodeById, taskById, taskModelById, sectionById, milestoneTaskById, elementById };
     // `panes` is read inside but intentionally NOT a dep — panesContentKey is its
     // presence-relevant projection, so heartbeats that don't change it are skipped.
     // eslint-disable-next-line react-hooks/exhaustive-deps

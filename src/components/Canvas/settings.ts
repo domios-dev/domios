@@ -121,11 +121,11 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
 
   // §32.10 tasks are SMALL by default (≈½ the section-node size) — detail comes
   // from zoom-drill (worlds), not a big default card. Bounded growth still applies.
-  taskW: 156,
+  taskW: 176,
   taskColStep: 40,
   taskMaxW: 300,
   taskBaseH: 84,
-  taskMinH: 88,
+  taskMinH: 104,
   taskMaxH: 300,
   aspectFloorRatio: 0.6,
 

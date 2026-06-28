@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { X } from "lucide-react";
-import { CanvasNodeCard } from "./CanvasNodeCard";
+import { DetailContent } from "./canvasRender/DetailContent";
 import type { LaidOutNode } from "./layout";
 import type { SectionNavArgs } from "./nodeRegistry";
 
@@ -38,8 +38,6 @@ export function CanvasDetailOverlay({
   resolveModel,
   onClose,
   onOpenPane,
-  onCopyLink,
-  onFocusStride,
   onSectionClick,
   onSectionFrame,
 }: CanvasDetailOverlayProps) {
@@ -100,7 +98,7 @@ export function CanvasDetailOverlay({
         inset: 0,
         zIndex: 40,
         display: "flex",
-        alignItems: "stretch",
+        alignItems: "center",
         justifyContent: "center",
         padding: "clamp(12px, 4vh, 56px) clamp(12px, 4vw, 64px)",
         background: "color-mix(in srgb, var(--ct-bg) 62%, transparent)",
@@ -112,10 +110,14 @@ export function CanvasDetailOverlay({
         tabIndex={-1}
         data-testid="canvas-detail-panel"
         style={{
+          // Consistent near-fullscreen size: a FIXED large panel (fills the padded overlay)
+          // regardless of how much content it holds — short content = same big panel with
+          // empty space, never a shrunken box. Content scrolls within (body overflow-y).
           position: "relative",
           width: "100%",
-          maxWidth: node.kind === "task" ? 820 : 1040,
-          maxHeight: "100%",
+          maxWidth: node.kind === "task" ? 900 : 1180,
+          height: "100%",
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           borderRadius: "var(--ct-radius-lg)",
@@ -144,20 +146,13 @@ export function CanvasDetailOverlay({
             <X size={15} />
           </button>
         </div>
-        <div data-testid="canvas-detail-body" style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden" }}>
-          <CanvasNodeCard
+        <div data-testid="canvas-detail-body" style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
+          <DetailContent
             node={node}
             model={model}
-            lod="near"
-            world="W3"
-            crispScale={1}
-            detail
-            fillParent
             onOpenPane={onOpenPane}
-            onCopyLink={onCopyLink}
-            onFocusStride={onFocusStride}
             onSectionClick={onSectionClick}
-            onSectionFrame={onSectionFrame}
+            onSectionFrame={(a) => { onClose(); onSectionFrame?.(a); }}
           />
         </div>
       </div>

@@ -4,7 +4,6 @@ import type { World } from "../worlds";
 import { MAX_ACTIVE_PRESENCE_OVERLAYS, buildPresenceOverlays, type PresenceSource } from "../presenceOverlays";
 import { presenceAnimateDemoEnabled, rotatePresenceForDemo } from "../presenceDemo";
 import { buildSwarmRoster } from "../swarmRoster";
-import { MAX_ACTIVE_RICH_OVERLAYS, buildOverlayNodes } from "../richOverlays";
 import { buildCanvasScene, publishCanvasSceneReadback } from "../scene";
 import type { CanvasLookups } from "./models";
 
@@ -22,11 +21,10 @@ interface OverlaysDeps {
 // Camera-coupled overlay layers (rich content, presence pins, swarm roster) + the
 // scene readback publish. Each memo keeps its original dep array so it recomputes
 // only on the same triggers as before — swarmRoster stays transform-DECOUPLED.
-export function useCanvasOverlays({ scene, transform, focusedNodeId, mode, planId, lookups, nodeIds, worldByNode }: OverlaysDeps) {
-  const richOverlays = useMemo(() => buildOverlayNodes({ scene, transform, focusedId: focusedNodeId }), [scene, transform, focusedNodeId]);
+export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nodeIds, worldByNode }: OverlaysDeps) {
   useEffect(
-    () => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`, richOverlays, MAX_ACTIVE_RICH_OVERLAYS),
-    [scene, transform, mode, planId, richOverlays],
+    () => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`),
+    [scene, transform, mode, planId],
   );
 
   // EMERGENCE: the swarm (only tasks with executing agents). Built off the existing
@@ -65,5 +63,5 @@ export function useCanvasOverlays({ scene, transform, focusedNodeId, mode, planI
     [presenceByTask, lookups.taskById],
   );
 
-  return { richOverlays, presenceOverlays, swarmRoster };
+  return { presenceOverlays, swarmRoster };
 }
