@@ -32,9 +32,28 @@ impl ServiceContext {
     }
 
     pub fn clear_pane_role(&self, pane_id: &str) -> Result<(), String> {
-        self.mux.write().clear_pane_role(pane_id)?;
-        self.emit_state_changed();
-        Ok(())
+        match self.mux.write().clear_pane_role(pane_id) {
+            Ok(()) => {
+                self.emit_state_changed();
+                Ok(())
+            }
+            Err(e) if e.contains("not found") => {
+                // Cross-mesh workers live only in RemoteWorkerRegistry — their
+                // foreign pane id is what `agent unlink --pane` passes.
+                let touched = self
+                    .remote_workers
+                    .forget_by_remote_pane(pane_id, None, None);
+                if touched.is_empty() {
+                    Err(e)
+                } else {
+                    for orch in touched {
+                        self.emit_remote_workers_changed(&orch);
+                    }
+                    Ok(())
+                }
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn set_can_spawn(&self, pane_id: &str, can_spawn: bool) -> Result<(), String> {
