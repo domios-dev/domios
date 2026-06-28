@@ -283,15 +283,18 @@ export function createCanvasSceneReadback(
   overlays: readonly OverlayNode[] = [],
   maxActiveOverlays = overlays.length,
 ): CanvasSceneReadback {
-  const worldBoxes = new Map(scene.nodes.map((node) => [node.id, node.worldBox]));
+  // Lazy: the O(N) id→box index only materializes when a debug/test consumer reads
+  // it — publish itself stays O(1), off the per-frame gesture path.
+  let worldBoxes: Map<string, Box> | null = null;
+  const boxes = () => (worldBoxes ??= new Map(scene.nodes.map((node) => [node.id, node.worldBox])));
   return {
     scene,
     nodeWorldBox: (id) => {
-      const box = worldBoxes.get(id);
+      const box = boxes().get(id);
       return box ? cloneBox(box) : null;
     },
     nodeScreenBox: (id) => {
-      const box = worldBoxes.get(id);
+      const box = boxes().get(id);
       return box ? projectWorldBox(box, transform) : null;
     },
     projectedBoxes: () => projectSceneBoxes(scene, transform),

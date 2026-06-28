@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { AgentStack } from "./presence/AgentCircle";
 import type { PresenceOverlay } from "./presenceOverlays";
 import { usePresenceGlide } from "./presenceGlide";
@@ -17,11 +17,16 @@ export interface CanvasPresenceLayerProps {
   onHoverTask?: (taskId: string | null) => void;
 }
 
+// Avatar floats well OFF the task corner (screen px) so the connector reads as a real
+// link (avatar → its task), not a dot stuck on the corner.
+const FLOAT_X = 32;
+const FLOAT_Y = -28;
+
 function rosterTitle(overlay: PresenceOverlay): string {
   return `Working: ${overlay.agents.map((a) => a.label + (a.role ? ` (${a.role})` : "")).join(", ")}`;
 }
 
-export function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: CanvasPresenceLayerProps) {
+export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: CanvasPresenceLayerProps) {
   // Stable identity: memo the render list so unchanged pins don't reconcile churn.
   const items = useMemo(() => overlays, [overlays]);
   // EMERGENCE: pins GLIDE between tasks (Figma multiplayer) — the glide wrapper's
@@ -37,10 +42,36 @@ export function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: Canv
       className="pointer-events-none absolute inset-0"
       style={{ zIndex: 26, overflow: "hidden" }}
     >
+      {/* Connectors: each worker avatar → the task it works on (drawn behind the pins).
+          Same avatar+connector language as the orchestrator, one tier down: a thin
+          identity-coloured dashed line vs the orchestrator's cyan link. */}
+      <svg className="pointer-events-none absolute inset-0" width="100%" height="100%" style={{ overflow: "visible" }}>
+        {items.map((overlay) => {
+          const c = overlay.agents[0]?.color ?? "var(--ct-border-focus)";
+          return (
+            <g key={`presence-link-${overlay.taskId}`} data-testid="canvas-presence-link" data-task-id={overlay.taskId}>
+              <line
+                x1={overlay.anchor.x + FLOAT_X}
+                y1={overlay.anchor.y + FLOAT_Y}
+                x2={overlay.anchor.x}
+                y2={overlay.anchor.y}
+                stroke={c}
+                strokeWidth={1.25}
+                strokeDasharray="3 4"
+                strokeLinecap="round"
+                opacity={overlay.live ? 0.7 : 0.38}
+              />
+              {/* attach dot on the task end so the link clearly lands ON the task */}
+              <circle cx={overlay.anchor.x} cy={overlay.anchor.y} r={2.5} fill={c} opacity={overlay.live ? 0.85 : 0.5} />
+            </g>
+          );
+        })}
+      </svg>
       {items.map((overlay) => {
         const lead = overlay.agents[0];
         const showAvatar = atLeast(overlay.world, "W1");
-        const showFlag = atLeast(overlay.world, "W2");
+        const showFlag = atLeast(overlay.world, "W1");
+        const showAction = atLeast(overlay.world, "W2") && !!overlay.action;
         const size = atLeast(overlay.world, "W2") ? 20 : 16;
         return (
           <button
@@ -61,9 +92,9 @@ export function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: Canv
               position: "absolute",
               left: overlay.anchor.x,
               top: overlay.anchor.y,
-              // Float just OUTSIDE the top-right corner (up + right) so the pin never
-              // covers the card's title/action chrome — the card stays fully readable.
-              transform: "translate(calc(-50% + 8px), calc(-50% - 8px))",
+              // Float OFF the top-right corner (up + right) so the avatar clears the
+              // card chrome and the connector back to the task reads as a real link.
+              transform: `translate(calc(-50% + ${FLOAT_X}px), calc(-50% + ${FLOAT_Y}px))`,
               pointerEvents: "auto",
               display: "flex",
               alignItems: "center",
@@ -91,14 +122,13 @@ export function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: Canv
                       top: "50%",
                       transform: "translateY(-50%)",
                       marginLeft: 5,
-                      maxWidth: 168,
-                      padding: "1px 7px",
+                      maxWidth: 184,
+                      padding: "2px 8px",
                       borderRadius: "var(--ct-radius-sm)",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      fontSize: 11,
-                      fontWeight: 700,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-start",
+                      gap: 1,
                       fontFamily: "var(--ct-font-ui)",
                       color: "var(--ct-fg)",
                       background: "color-mix(in srgb, var(--ct-bg) 90%, transparent)",
@@ -106,7 +136,17 @@ export function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: Canv
                       boxShadow: "0 1px 4px color-mix(in srgb, var(--ct-shadow, #000) 22%, transparent)",
                     }}
                   >
-                    {overlay.label}
+                    <span style={{ maxWidth: 168, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 11, fontWeight: 700, lineHeight: 1.2 }}>
+                      {overlay.label}
+                    </span>
+                    {showAction && (
+                      <span
+                        data-testid="canvas-presence-action"
+                        style={{ maxWidth: 168, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 9.5, fontWeight: 600, lineHeight: 1.2, opacity: 0.66 }}
+                      >
+                        now: {overlay.action}
+                      </span>
+                    )}
                   </span>
                 )}
               </span>
@@ -131,4 +171,4 @@ export function CanvasPresenceLayer({ overlays, onFlyToTask, onHoverTask }: Canv
       })}
     </div>
   );
-}
+});

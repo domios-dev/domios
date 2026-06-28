@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { Plus } from "lucide-react";
 import type { ApiConfig } from "../../lib/types";
-import { baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
+import { spawnOrchestrator } from "./canvasApi";
 import { createPlan } from "./plansApi";
 
 export interface CanvasEmptyActionsProps {
@@ -13,28 +13,12 @@ export function CanvasEmptyActions({ api, projectPath }: CanvasEmptyActionsProps
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const spawnOrchestrator = useCallback(async (): Promise<string | null> => {
-    const res = await fetch(`${baseUrl(api)}/api/agents/spawn`, {
-      method: "POST",
-      headers: jsonHeaders(api),
-      body: JSON.stringify({
-        agent: "claude",
-        title: "Canvas Orchestrator",
-        task: "You are the orchestrator for a new plan on the workspace canvas.",
-        activate: true,
-      }),
-    });
-    if (!res.ok) throw new Error(`spawn failed: ${res.status}`);
-    const body = (await res.json()) as { id?: string; pane_id?: string };
-    return body.id ?? body.pane_id ?? null;
-  }, [api]);
-
   const onCreate = useCallback(async () => {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      const paneId = await spawnOrchestrator();
+      const paneId = await spawnOrchestrator(api);
       await createPlan(api, {
         title: "New plan",
         project_path: projectPath ?? undefined,
@@ -47,7 +31,7 @@ export function CanvasEmptyActions({ api, projectPath }: CanvasEmptyActionsProps
     } finally {
       setBusy(false);
     }
-  }, [api, busy, projectPath, spawnOrchestrator]);
+  }, [api, busy, projectPath]);
 
   return (
     <div className="flex flex-col items-center gap-3">

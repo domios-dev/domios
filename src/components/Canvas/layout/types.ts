@@ -23,7 +23,7 @@ export interface LaidOutNode {
 
 export type CanvasEdgeKind =
   | "section-task"
-  | "spec-row"
+  | "spec-plan"
   | "task-cluster"
   | "milestone-chain"
   | "subtask"
@@ -42,6 +42,17 @@ export interface LaidOutEdge {
   toPoint?: Point;
 }
 
+// A section TERRITORY: the organic enclosing region around one section's task
+// cluster. `hull` is the inflated boundary polygon (world coords) the overlay
+// smooths into a blob; `label` names it (null = the neutral unsectioned group).
+export interface SectionZone {
+  sectionId: string;
+  label: string | null;
+  color: string;
+  hull: Point[];
+  labelAnchor: Point;
+}
+
 export interface PlanFrame {
   planId: string;
   title: string;
@@ -52,6 +63,8 @@ export interface PlanFrame {
   edges: LaidOutEdge[];
   // Per-section-row right-edge anchors in WORLD coords; edge source for tasks.
   anchors: Map<string, Point>;
+  // Section territories (organic hulls around each section's task cluster).
+  zones: SectionZone[];
 }
 
 // Soft labeled wrapper around all plans owned by one orchestrator (§2.5).
@@ -84,4 +97,5 @@ export interface IntraPlanLayout {
   nodes: LaidOutNode[];
   edges: LaidOutEdge[];
   anchors: Map<string, Point>;
+  zones: SectionZone[];
 }

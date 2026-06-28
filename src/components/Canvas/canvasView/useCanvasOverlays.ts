@@ -44,7 +44,10 @@ export function useCanvasOverlays({ scene, transform, focusedNodeId, mode, planI
     for (const [id, model] of lookups.taskModelById) {
       const p = model.presence;
       if (!p || p.agents.length === 0) continue;
-      m.set(id, { agents: p.agents, live: model.task.status === "in_progress", label: p.agents[0]?.label ?? p.label });
+      // What it's doing now: the orchestrator's current focus if it applies, else the
+      // latest stride kind (e.g. "review", "testing") — a quiet truthful one-liner.
+      const action = p.focus ?? (p.latest ? p.latest.kindLabel : null);
+      m.set(id, { agents: p.agents, live: model.task.status === "in_progress", label: p.agents[0]?.label ?? p.label, action });
     }
     return demoOn ? rotatePresenceForDemo(m, demoTick) : m;
   }, [lookups.taskModelById, demoOn, demoTick]);

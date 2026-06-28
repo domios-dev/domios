@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Loader, Send } from "lucide-react";
 import type { ApiConfig, Pane } from "../../lib/types";
-import { baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
+import { sendToPane } from "./canvasApi";
 import { useCanvasFocusTarget } from "./canvasFocusStore";
 import { ownerName } from "./owner";
 import { focusAt, type FocusResult, type Point, type WorkspaceLayout } from "./layout";
@@ -98,15 +98,6 @@ function buildContext(plan: Plan, focus: FocusResult): string {
   }
 
   return lines.join("\n");
-}
-
-async function sendToPane(api: ApiConfig, paneId: string, text: string): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/panes/${encodeURIComponent(paneId)}/send`, {
-    method: "POST",
-    headers: jsonHeaders(api),
-    body: JSON.stringify({ text, enter: true }),
-  });
-  if (!res.ok) throw new Error(`send failed: ${res.status} ${await res.text()}`);
 }
 
 // Floating, context-addressed composer (§6): type on the canvas and the message

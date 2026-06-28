@@ -146,10 +146,13 @@ test("CanvasViewInner derives task presence from panes heartbeat and latest stri
   await act(async () => {
     await new Promise((r) => setTimeout(r, 10));
   });
+  // UX-1: presence on the schematic map face is an ICON (agent circle) with the
+  // detail one hover away — the lead label, heartbeat focus, and latest stride ride
+  // the tooltip (visible prose moves to the READ surface).
   const marker = host.querySelector('[data-testid="canvas-task-presence"]') as HTMLElement | null;
   assert(marker, "presence marker rendered on task card");
-  assert(marker.textContent?.includes("Puccini"), `pane title used as lead label, got ${marker?.textContent}`);
   assert(host.querySelector('[data-testid="canvas-agent-circle"]'), "agent presence circle rendered");
+  assert(marker.getAttribute("title")?.includes("Puccini"), `pane title used as lead label in tooltip, got ${marker?.getAttribute("title")}`);
   assert(marker.getAttribute("title")?.includes("Implement presence chip"), `heartbeat focus in tooltip, got ${marker?.getAttribute("title")}`);
   assert(marker.getAttribute("title")?.includes("status update"), `latest stride kind in tooltip, got ${marker?.getAttribute("title")}`);
   await act(async () => root.unmount());

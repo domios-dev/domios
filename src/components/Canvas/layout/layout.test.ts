@@ -192,8 +192,9 @@ console.log("\nspec + plan nodes:");
   const planNodes = frame.nodes.filter((n) => n.kind === "plan");
   const specNodes = frame.nodes.filter((n) => n.kind === "spec");
   ok("exactly one plan node + one spec node", planNodes.length === 1 && specNodes.length === 1);
-  // 1:1 spec↔plan edges (§24.3), one per flattened section.
-  ok("one spec↔plan edge per section", frame.edges.filter((e) => e.kind === "spec-row").length === 3);
+  // Spec ⊥ Plan: exactly ONE calm spec→plan link (per-section provenance is inline
+  // "From spec" chips, not a wire fan).
+  ok("exactly one spec→plan link", frame.edges.filter((e) => e.kind === "spec-plan").length === 1);
   // worlds-v3 §1 size hierarchy: plan is the focal mass (biggest in both axes),
   // spec a smaller doc node; heights now differ.
   ok("plan node fixed height (planHeight)", planNodes[0].box.height === DEFAULT_CANVAS_SETTINGS.planHeight);

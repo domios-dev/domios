@@ -4,6 +4,7 @@ import { resolveFlyToNodeId } from "../flyToTarget";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { Plan } from "../types";
 import type { CanvasLookups } from "./models";
+import type { NavEntry, NavKind } from "./useCanvasNavHistory";
 
 interface FlyToDeps {
   lookups: CanvasLookups;
@@ -13,6 +14,8 @@ interface FlyToDeps {
   animateToView: (bounds: ViewportBox, durationMs?: number) => void;
   animateTo: (next: ViewportTransform, durationMs?: number) => void;
   setTransform: (next: ViewportTransform) => void;
+  /** Record a navigation hop so Home/Back return through the real fly path. */
+  recordNav?: (entry: NavEntry) => void;
 }
 
 // After a spec-section bubble flies to the spec node, scroll that node's internal
@@ -46,8 +49,19 @@ function revealSpecSection(planCtx: string, sectionId: string): void {
 // Camera math (the SINGLE transform) lives in useCanvasViewport — this only frames
 // node sets and wires the delegated fly-to click. Behavior-identical to the inline
 // CanvasViewInner callbacks it replaces.
-export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToView, animateTo, setTransform }: FlyToDeps) {
+export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToView, animateTo, setTransform, recordNav }: FlyToDeps) {
   const [blinkIds, setBlinkIds] = useState<Set<string>>(() => new Set());
+
+  // A readable crumb label for a flown-to node (task name → plan title → section title).
+  const labelFor = useCallback(
+    (id: string): string =>
+      lookups.taskById.get(id)?.name ?? planById.get(id)?.title ?? lookups.sectionById.get(id)?.title ?? id,
+    [lookups, planById],
+  );
+  const record = useCallback(
+    (id: string, kind: NavKind, flyIds: string[], label?: string) => recordNav?.({ id, kind, label: label ?? labelFor(id), flyIds }),
+    [recordNav, labelFor],
+  );
   // The arrival blink is transient: the ring pulses then fades so it never leaves a
   // permanent halo, and a later fly to the same node re-mounts → re-triggers it.
   useEffect(() => {
@@ -119,9 +133,12 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
   // the shared fly primitive. The literal "click an agent, go to its work" gesture.
   const onFlyToTask = useCallback(
     (taskId: string) => {
-      if (lookups.nodeById.has(taskId)) focusOnNodes([taskId], undefined, true);
+      if (lookups.nodeById.has(taskId)) {
+        focusOnNodes([taskId], undefined, true);
+        record(taskId, "task", [taskId]);
+      }
     },
-    [lookups, focusOnNodes],
+    [lookups, focusOnNodes, record],
   );
 
   // Task ids covering a given plan section — the section→tasks mapping for nav.
@@ -158,8 +175,9 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
       if (ids.length) focusOnNodes(ids);
       else fitCameraToNodes([a.planId]);
       setHighlight({ sectionId: a.sectionId, taskIds: new Set(ids) });
+      record(a.sectionId, "section", ids.length ? ids : [a.planId], lookups.sectionById.get(a.sectionId)?.title);
     },
-    [sectionTaskIds, focusOnNodes, fitCameraToNodes],
+    [sectionTaskIds, focusOnNodes, fitCameraToNodes, record, lookups],
   );
 
   // Fly-to navigation (north-star liveness): ONE delegated click across BOTH the
@@ -190,6 +208,7 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
         const nodeId = resolveFlyToNodeId(kind, rawId, planCtx, (id) => lookups.nodeById.has(id));
         if (nodeId) {
           focusOnNodes([nodeId], undefined, true);
+          record(nodeId, kind.startsWith("spec") ? "spec" : "node", [nodeId]);
           // A spec-section bubble lands on the spec node, then scrolls/pulses the
           // exact section it derives from (provenance reads on the section itself).
           if (kind === "spec-section" && planCtx && rawId.trim()) revealSpecSection(planCtx, rawId.trim());
@@ -199,10 +218,13 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
       const row = target.closest<HTMLElement>("[data-testid='canvas-plan-swarm-task']");
       if (row) {
         const id = row.getAttribute("data-task-id");
-        if (id && lookups.nodeById.has(id)) focusOnNodes([id], undefined, true);
+        if (id && lookups.nodeById.has(id)) {
+          focusOnNodes([id], undefined, true);
+          record(id, "task", [id]);
+        }
       }
     },
-    [lookups, focusOnNodes],
+    [lookups, focusOnNodes, record],
   );
 
   // Copy a stable id/link to the clipboard (task, section, stride). User-initiated.
@@ -214,9 +236,12 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
   const onFocusStride = useCallback(
     (milestoneId: string) => {
       const taskId = lookups.milestoneTaskById.get(milestoneId);
-      if (taskId) focusOnNodes([taskId]);
+      if (taskId) {
+        focusOnNodes([taskId]);
+        record(taskId, "task", [taskId]);
+      }
     },
-    [lookups, focusOnNodes],
+    [lookups, focusOnNodes, record],
   );
 
   return {

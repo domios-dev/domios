@@ -2,7 +2,7 @@ import type { CanvasLayoutSettings } from "../settings";
 import { ownerName } from "../owner";
 import { translateBox, unionBox } from "./geometry";
 import type { Box, Point } from "./geometry";
-import type { IntraPlanLayout, LaidOutEdge, LaidOutNode, OwnerGroup, PlanFrame, WorkspaceLayout } from "./types";
+import type { IntraPlanLayout, LaidOutEdge, LaidOutNode, OwnerGroup, PlanFrame, SectionZone, WorkspaceLayout } from "./types";
 
 function groupByOwner(layouts: IntraPlanLayout[]): Map<string, IntraPlanLayout[]> {
   const groups = new Map<string, IntraPlanLayout[]>();
@@ -24,6 +24,10 @@ function shiftEdge(e: LaidOutEdge, dx: number, dy: number): LaidOutEdge {
     fromPoint: e.fromPoint ? shiftPoint(e.fromPoint, dx, dy) : undefined,
     toPoint: e.toPoint ? shiftPoint(e.toPoint, dx, dy) : undefined,
   };
+}
+
+function shiftZone(z: SectionZone, dx: number, dy: number): SectionZone {
+  return { ...z, hull: z.hull.map((p) => shiftPoint(p, dx, dy)), labelAnchor: shiftPoint(z.labelAnchor, dx, dy) };
 }
 
 function ownerTitle(owner: IntraPlanLayout["owner"]): string {
@@ -71,6 +75,7 @@ export function packRegions(layouts: IntraPlanLayout[], s: CanvasLayoutSettings)
         nodes,
         edges: l.edges.map((e) => shiftEdge(e, ox, oy)),
         anchors,
+        zones: l.zones.map((z) => shiftZone(z, ox, oy)),
       };
       frames.push(frame);
       clusterFrames.push(frame);

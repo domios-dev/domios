@@ -123,7 +123,7 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   // from zoom-drill (worlds), not a big default card. Bounded growth still applies.
   taskW: 156,
   taskColStep: 40,
-  taskMaxW: 240,
+  taskMaxW: 300,
   taskBaseH: 84,
   taskMinH: 88,
   taskMaxH: 300,

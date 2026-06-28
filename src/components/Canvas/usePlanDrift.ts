@@ -54,8 +54,19 @@ export function usePlanDrift(api: ApiConfig | undefined, planIds: string[]): Map
   );
 
   useEffect(() => {
-    refresh();
-    return () => ctrlRef.current?.abort();
+    // Drift is a non-critical badge — defer the initial fetch to idle so it never
+    // competes with first paint / the load-time layout passes.
+    const w = window as unknown as {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const ric = w.requestIdleCallback;
+    const handle = ric ? ric(() => refresh(), { timeout: 1500 }) : window.setTimeout(() => refresh(), 200);
+    return () => {
+      if (ric && w.cancelIdleCallback) w.cancelIdleCallback(handle);
+      else clearTimeout(handle);
+      ctrlRef.current?.abort();
+    };
   }, [refresh]);
 
   useEffect(() => {

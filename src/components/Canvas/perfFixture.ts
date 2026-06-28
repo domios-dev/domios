@@ -1,4 +1,5 @@
 import { TaskPriority, TaskStatus, type Plan, type Section } from "./types";
+import type { Pane } from "../../lib/types";
 import { milestone, plan, task } from "./layout/fixtures";
 import {
   PERF_PLAN_SECTIONS,
@@ -97,11 +98,32 @@ export function buildPerfFixturePlans(n: number): Plan[] {
         : undefined,
       name: `Synthetic task ${i}: implement feature module ${i} with a deliberately long title to exercise wrapping and overflow`,
       body: `Description for task ${i}. Multi-line body to exercise text layout, wrapping, ellipsis and overflow within the card bounds. Acceptance: renders cleanly with title, body and milestone bubbles, no text spilling past the node frame.`,
+      acceptance_criteria: [`Module ${i} renders schematic on the map`, `Full detail opens on expand`],
+      test_plan: "tsc + canvas unit tests + multi-scale screenshots",
+      correctness: `Map (schematic) and Read (detail) stay cleanly separated for module ${i}; behavior preserved.`,
+      links: [`https://example.com/specs/module-${i}`, `PR #${100 + i}`],
       status_label: i % 3 === 0 ? "in review" : null,
       milestones,
     });
   });
-  return [plan("perf_plan", "perf_orch", 1, PERF_PLAN_SECTIONS, tasks, {
+  // A few parents carry subtasks so the satellite sizing (UX-3) is exercised: each
+  // gets 2-3 children with realistic short titles, swarming their parent tile.
+  const SUBTASK_TITLES = ["wire the data layer", "add the failing test first", "render + a11y pass", "handle the empty + error states"];
+  const subtaskParents = tasks.filter((_, i) => i % 5 === 0); // spread satellites across the cloud
+  const subtasks = subtaskParents.flatMap((parent, pi) =>
+    Array.from({ length: 2 + (pi % 2) }, (_, ci) =>
+      task(`${parent.id}_sub${ci}`, parent.section_ids, {
+        parent_task_id: parent.id,
+        status: ci === 0 ? TaskStatus.InProgress : ci === 1 ? TaskStatus.Pending : TaskStatus.Done,
+        created_at: 1000 + pi * 10 + ci,
+        priority: PRIORITIES[(pi + ci) % PRIORITIES.length],
+        name: `Subtask ${ci + 1}: ${SUBTASK_TITLES[(pi + ci) % SUBTASK_TITLES.length]}`,
+        body: `Subtask ${ci + 1} of ${parent.id}.`,
+        milestones: [],
+      }),
+    ),
+  );
+  return [plan("perf_plan", "perf_orch", 1, PERF_PLAN_SECTIONS, [...tasks, ...subtasks], {
     primary_spec_id: PERF_SPEC_ID,
     spec_links: PERF_SPEC_LINKS,
     goal: {
@@ -123,6 +145,24 @@ export function buildPerfFixturePlans(n: number): Plan[] {
       { id: "lp3", target: "spec drift reconcile", stages: [], budget: 3, count: 3, stop_when: null, status: "exhausted" },
     ],
   })];
+}
+
+// Fixture-only live panes for the synthetic swarm: a Pane per task's assigned/lane
+// pane id so taskPresence's live-pane gate passes and the worker avatars render. Real
+// plans never use this — their presence comes from the actual daemon pane registry.
+export function buildPerfFixturePanes(plans: Plan[]): Record<string, Pane> {
+  const panes: Record<string, Pane> = {};
+  const add = (id: string | null | undefined, title: string) => {
+    const pid = id?.trim();
+    if (pid && !panes[pid]) panes[pid] = { id: pid, pty_id: null, pane_type: "Terminal", title, cwd: null };
+  };
+  for (const p of plans) {
+    for (const t of p.tasks) {
+      add(t.assigned_pane_id, t.taken_by_role ?? t.name ?? "agent");
+      add(t.lane?.pane_id, t.lane?.workspace_name ?? t.taken_by_role ?? "agent");
+    }
+  }
+  return panes;
 }
 
 // The synthetic SPEC sections a fixture plan derives from. The daemon's spec-fetch

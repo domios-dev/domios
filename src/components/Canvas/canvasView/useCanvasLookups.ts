@@ -3,6 +3,7 @@ import type { Pane } from "../../../lib/types";
 import type { LaidOutNode, WorkspaceLayout } from "../layout";
 import type { MilestoneBubbleModel } from "../cards";
 import { milestoneColorMap } from "../milestoneColors";
+import { zoneColor } from "../layout/sectionZones";
 import { sectionRows } from "../sectionRows";
 import { buildTaskPresence } from "../taskPresence";
 import type { CanvasElement, DriftItem, Plan, Section, Task } from "../types";
@@ -16,6 +17,9 @@ export function useCanvasLookups(
   filteredPlans: Plan[],
   driftByPlan: Map<string, DriftItem[]>,
   panes: Record<string, Pane>,
+  // Presence-relevant fingerprint of `panes` (existence + title of task-referenced
+  // panes). Used as the rebuild trigger so a non-presence heartbeat is a no-op.
+  panesContentKey: string,
 ): CanvasLookups {
   return useMemo<CanvasLookups>(() => {
     const nodeById = new Map<string, LaidOutNode>();
@@ -47,6 +51,16 @@ export function useCanvasLookups(
         }
       }
       const colors = milestoneColorMap(plan);
+      // A task's REGION = its main (first) section. A subtask has no sections of its
+      // own — it inherits the region of the top-level task that spawned it (walk up).
+      const taskByIdLocal = new Map(plan.tasks.map((t) => [t.id, t]));
+      const regionSectionOf = (t: Task): string | undefined => {
+        let cur: Task = t;
+        for (let guard = 0; cur.parent_task_id && taskByIdLocal.has(cur.parent_task_id) && guard < 32; guard++) {
+          cur = taskByIdLocal.get(cur.parent_task_id)!;
+        }
+        return cur.section_ids[0];
+      };
       const driftForPlan = driftByPlan.get(plan.id) ?? [];
       const driftByTask = new Map<string, DriftItem>();
       for (const item of driftForPlan) {
@@ -65,6 +79,7 @@ export function useCanvasLookups(
           stepColors: colors,
           drift: driftByTask.get(task.id),
           presence: buildTaskPresence(plan, task, panes),
+          regionColor: (() => { const sid = regionSectionOf(task); return sid ? zoneColor(sid) : undefined; })(),
         });
         const seen = new Map<string, string>();
         for (const m of task.milestones) {
@@ -82,5 +97,8 @@ export function useCanvasLookups(
       for (const el of plan.elements) elementById.set(el.id, el);
     }
     return { nodeById, taskById, taskModelById, sectionById, specSectionById, milestoneModelById, milestoneTaskById, clusterModelById, elementById };
-  }, [layout, filteredPlans, driftByPlan, panes]);
+    // `panes` is read inside but intentionally NOT a dep — panesContentKey is its
+    // presence-relevant projection, so heartbeats that don't change it are skipped.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, filteredPlans, driftByPlan, panesContentKey]);
 }

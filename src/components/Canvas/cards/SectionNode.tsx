@@ -1,12 +1,13 @@
-import { useRef, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { Archive, FileText, Maximize2 } from "lucide-react";
 import type { Plan, TaskStatus } from "../types";
 import type { PlanWorkspaceScope } from "../planWorkspaceScope";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
-import { atLeast, type World } from "../worlds";
+import { atLeast, readingRootFontPx, type World } from "../worlds";
 import { sectionRows } from "../sectionRows";
 import { ownerName } from "../owner";
 import type { SectionNavArgs } from "../nodeRegistry";
+import type { PresenceAgent } from "../presence/identity";
 import { planCoverageFraction } from "./coverage";
 import type { CanvasCardStyleProps } from "./types";
 import {
@@ -39,15 +40,20 @@ export interface SectionNodeProps extends CanvasCardStyleProps {
   crispScale?: number;
   onArchive?: () => void;
   onFitNode?: () => void;
+  onExpand?: (nodeId: string) => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
   suppressRichContent?: boolean;
   richOverlay?: boolean;
   /** spec_section_id → title, for resolving per-section spec-reference bubble labels. */
   specTitleById?: ReadonlyMap<string, string>;
+  /** sectionId → LIVE agents working it (per-section presence indicator). */
+  sectionAgentsById?: ReadonlyMap<string, PresenceAgent[]>;
 }
 
-export function SectionNode({ variant, plan, style, world, driftCount = 0, workspaceScope, onArchive, onFitNode, onSectionClick, onSectionFrame, suppressRichContent = false, richOverlay = false, specTitleById }: SectionNodeProps) {
+export function SectionNode({ variant, plan, style, world, crispScale = 1, driftCount = 0, workspaceScope, onArchive, onFitNode, onExpand, onSectionClick, onSectionFrame, suppressRichContent = false, richOverlay = false, specTitleById, sectionAgentsById }: SectionNodeProps) {
+  const [hovered, setHovered] = useState(false);
+  const expandNodeId = variant === "spec" ? `${plan.id}::spec` : plan.id;
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const rows = sectionRows(plan);
   const pct = Math.round(planCoverageFraction(plan) * 100);
@@ -124,7 +130,22 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
   })();
 
   const card = (boxStyle: CSSProperties) => (
-    <div data-testid={testid} data-plan-id={plan.id} data-plan-status={plan.status} data-world={world} className="ct-canvas-node" style={{ ...frameStyle(variant), ...boxStyle }}>
+    <div data-testid={testid} data-plan-id={plan.id} data-plan-status={plan.status} data-world={world} className="ct-canvas-node" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)} style={{ ...frameStyle(variant), fontSize: readingRootFontPx(world, crispScale), ...boxStyle }}>
+      {onExpand && !richOverlay && atLeast(world, "W1") && (
+        <button
+          type="button"
+          data-testid="canvas-node-expand"
+          title="Expand — open full detail"
+          aria-label="Expand detail"
+          onClick={(e) => { e.stopPropagation(); onExpand(expandNodeId); }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onFocus={() => setHovered(true)}
+          onBlur={() => setHovered(false)}
+          style={{ position: "absolute", top: 6, right: 6, zIndex: 3, display: "flex", alignItems: "center", justifyContent: "center", width: 20, height: 20, borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-fg)", cursor: "pointer", opacity: hovered ? 0.95 : 0, transition: "opacity 0.12s ease" }}
+        >
+          <Maximize2 size="0.82em" />
+        </button>
+      )}
       {isPlan && <div style={{ height: 3, flexShrink: 0, background: "linear-gradient(90deg, var(--ct-border-focus), rgba(52,211,153,0.85))" }} />}
 
       <div style={{ height: S.planHeaderHeight - (isPlan ? 3 : 0), boxSizing: "border-box", padding: "8px 12px", borderBottom: "1px solid var(--ct-border-subtle)", display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
@@ -132,8 +153,8 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
             for width); drift + node actions drop to the coverage meta row below —
             same "title is the identity" principle the task cards follow. */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          {!isPlan && <FileText size={13} style={{ flexShrink: 0, opacity: 0.7 }} />}
-          <span title={plan.title} data-canvas-selectable className="ct-canvas-title ct-canvas-text" style={{ fontWeight: 700, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "-0.01em" }}>
+          {!isPlan && <FileText size="1em" style={{ flexShrink: 0, opacity: 0.7 }} />}
+          <span title={plan.title} data-canvas-selectable className="ct-canvas-title ct-canvas-text" style={{ fontSize: "1.08em", fontWeight: 700, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "-0.01em" }}>
             {isPlan ? plan.title : "Specification"}
           </span>
         </div>
@@ -179,12 +200,12 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
             </span>
             {onFitNode && (
               <button type="button" data-testid="canvas-plan-fit" title="Focus this plan" onClick={(e) => { e.stopPropagation(); onFitNode(); }} onMouseDown={(e) => e.stopPropagation()} style={iconBtn()}>
-                <Maximize2 size={12} />
+                <Maximize2 size="0.92em" />
               </button>
             )}
             {onArchive && (
               <button type="button" data-testid="canvas-plan-archive" title="Archive plan" onClick={(e) => { e.stopPropagation(); onArchive(); }} onMouseDown={(e) => e.stopPropagation()} style={iconBtn()}>
-                <Archive size={12} />
+                <Archive size="0.92em" />
               </button>
             )}
           </div>
@@ -233,7 +254,7 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
           <>
             {showVocab && <VocabularyLegend plan={plan} world={world} />}
             {rows.map((row) => (
-              <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} specRefs={specRefsBySection?.get(row.section.id)} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={budgetRich} stretchEmpty={!showSwarm} />
+              <SectionRowView key={row.section.id} row={row} variant={variant} world={world} planId={plan.id} specRefs={specRefsBySection?.get(row.section.id)} liveAgents={sectionAgentsById?.get(row.section.id)} onSectionClick={onSectionClick} onSectionFrame={onSectionFrame} suppressRichContent={budgetRich} stretchEmpty={!showSwarm} />
             ))}
             {showSwarm && <SwarmPanel tasks={tasks} world={world} />}
           </>
@@ -245,7 +266,7 @@ export function SectionNode({ variant, plan, style, world, driftCount = 0, works
               const g = GLYPH[row.glyph];
               return (
                 <div key={row.section.id} style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                  <g.Icon size={11} color={g.color} style={{ flexShrink: 0 }} strokeWidth={2.2} />
+                  <g.Icon size="0.85em" color={g.color} style={{ flexShrink: 0 }} strokeWidth={2.2} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: "0.8em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{row.section.title}</span>
                   {isPlan && <span style={{ fontSize: "0.66em", fontFamily: "var(--ct-font-mono)", opacity: 0.65 }}>{row.taskCount}</span>}
                 </div>
