@@ -147,7 +147,9 @@ jobs:
           Write-Host "Using $vcvars ${{ matrix.vsarch }}"
           $before = @{}
           foreach ($l in (Get-ChildItem Env:)) { $before[$l.Name] = $l.Value }
-          cmd /c "`"$vcvars`" ${{ matrix.vsarch }} && set" | ForEach-Object {
+          # cmd is not on PATH in the runner's scoop pwsh session — call it by absolute path.
+          $cmdExe = if ($env:ComSpec) { $env:ComSpec } else { "$env:SystemRoot\System32\cmd.exe" }
+          & $cmdExe /c "`"$vcvars`" ${{ matrix.vsarch }} && set" | ForEach-Object {
             if ($_ -match '^([^=]+)=(.*)$') {
               $name = $matches[1]; $value = $matches[2]
               if (-not $before.ContainsKey($name) -or $before[$name] -ne $value) {
