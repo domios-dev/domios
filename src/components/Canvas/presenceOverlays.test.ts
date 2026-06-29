@@ -44,7 +44,12 @@ console.log("presence overlay budget:");
   const overlays = buildPresenceOverlays({ presenceByTask, nodeById, visibleIds, worldByNode, transform });
   ok("every task active → pin count capped at the budget", overlays.length === MAX_ACTIVE_PRESENCE_OVERLAYS);
   ok("budget is a hard ceiling, never exceeded", overlays.length <= MAX_ACTIVE_PRESENCE_OVERLAYS);
-  ok("anchors are screen-space (camera-projected)", overlays.every((o) => Number.isFinite(o.anchor.x) && Number.isFinite(o.anchor.y)));
+  ok("anchors are world-space (camera layer projects them)", overlays.every((o) => Number.isFinite(o.anchor.x) && Number.isFinite(o.anchor.y)));
+  const node = nodeById.get(overlays[0]?.taskId ?? "");
+  if (node) {
+    const expectedX = node.box.x + node.box.width;
+    ok("anchor x is task top-right in world coords", overlays[0].anchor.x === expectedX);
+  }
   ok("each pin carries its agents + world band", overlays.every((o) => o.agents.length > 0 && !!o.world));
 }
 

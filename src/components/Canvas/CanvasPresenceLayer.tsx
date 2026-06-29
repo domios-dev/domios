@@ -4,20 +4,17 @@ import type { PresenceOverlay } from "./presenceOverlays";
 import { usePresenceGlide } from "./presenceGlide";
 import { atLeast } from "./worlds";
 
-// EMERGENCE presence layer (north-star #2): floats the swarm ON the board. Screen-
-// space (NOT inside the zoom transform) so avatars stay crisp at any zoom — like
-// Figma multiplayer cursors. Each pin sits on the top-right corner of the task its
-// agent executes (card body stays readable), flies to that task on click, and reads
-// at its own LOD: W0 a quiet swarm-glow dot, W1 the avatar(s), W2+ avatars + a name
-// flag. The container is pointer-events:none; only the pins capture clicks.
+// EMERGENCE presence layer: pins live in WORLD space inside the camera-transformed
+// layer (layerRef) so connectors + avatars pan/zoom in lockstep with task nodes —
+// never a screen overlay that trails behind a rAF canvas blit. Avatars scale with
+// zoom like the board; the container is pointer-events:none; only pins capture clicks.
 
 export interface CanvasPresenceLayerProps {
   overlays: readonly PresenceOverlay[];
   onFlyToTask: (taskId: string) => void;
 }
 
-// Avatar floats well OFF the task corner (screen px) so the connector reads as a real
-// link (avatar → its task), not a dot stuck on the corner.
+// Offset from the task corner in world units (scales with zoom like the card).
 const FLOAT_X = 32;
 const FLOAT_Y = -28;
 
@@ -26,11 +23,7 @@ function rosterTitle(overlay: PresenceOverlay): string {
 }
 
 export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({ overlays, onFlyToTask }: CanvasPresenceLayerProps) {
-  // Stable identity: memo the render list so unchanged pins don't reconcile churn.
   const items = useMemo(() => overlays, [overlays]);
-  // EMERGENCE: pins GLIDE between tasks (Figma multiplayer) — the glide wrapper's
-  // transform is written by this controller ONLY, never by React, so it can't fight
-  // the camera-coupled base position or re-run any scene/layout memo.
   const { pinRef } = usePresenceGlide(items);
   if (items.length === 0) return null;
 
@@ -39,33 +32,36 @@ export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({ overlays,
       data-testid="canvas-presence-layer"
       data-presence-count={items.length}
       className="pointer-events-none absolute inset-0"
-      style={{ zIndex: 26, overflow: "hidden" }}
+      style={{ overflow: "visible" }}
     >
-      {/* Connectors: each worker avatar → the task it works on (drawn behind the pins).
-          Same avatar+connector language as the orchestrator, one tier down: a thin
-          identity-coloured dashed line vs the orchestrator's cyan link. */}
-      <svg className="pointer-events-none absolute inset-0" width="100%" height="100%" style={{ overflow: "visible" }}>
-        {items.map((overlay) => {
-          const c = overlay.agents[0]?.color ?? "var(--ct-border-focus)";
-          return (
-            <g key={`presence-link-${overlay.taskId}`} data-testid="canvas-presence-link" data-task-id={overlay.taskId}>
-              <line
-                x1={overlay.anchor.x + FLOAT_X}
-                y1={overlay.anchor.y + FLOAT_Y}
-                x2={overlay.anchor.x}
-                y2={overlay.anchor.y}
-                stroke={c}
-                strokeWidth={1.25}
-                strokeDasharray="3 4"
-                strokeLinecap="round"
-                opacity={overlay.live ? 0.7 : 0.38}
-              />
-              {/* attach dot on the task end so the link clearly lands ON the task */}
-              <circle cx={overlay.anchor.x} cy={overlay.anchor.y} r={2.5} fill={c} opacity={overlay.live ? 0.85 : 0.5} />
-            </g>
-          );
-        })}
-      </svg>
+      {items.map((overlay) => {
+        const c = overlay.agents[0]?.color ?? "var(--ct-border-focus)";
+        return (
+          <svg
+            key={`presence-link-${overlay.taskId}`}
+            data-testid="canvas-presence-link"
+            data-task-id={overlay.taskId}
+            className="pointer-events-none absolute overflow-visible"
+            style={{ left: overlay.anchor.x, top: overlay.anchor.y, overflow: "visible" }}
+            width={1}
+            height={1}
+          >
+            <line
+              x1={FLOAT_X}
+              y1={FLOAT_Y}
+              x2={0}
+              y2={0}
+              stroke={c}
+              strokeWidth={1.25}
+              strokeDasharray="3 4"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+              opacity={overlay.live ? 0.7 : 0.38}
+            />
+            <circle cx={0} cy={0} r={2.5} fill={c} vectorEffect="non-scaling-stroke" opacity={overlay.live ? 0.85 : 0.5} />
+          </svg>
+        );
+      })}
       {items.map((overlay) => {
         const lead = overlay.agents[0];
         const showAvatar = atLeast(overlay.world, "W1");
@@ -89,8 +85,6 @@ export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({ overlays,
               position: "absolute",
               left: overlay.anchor.x,
               top: overlay.anchor.y,
-              // Float OFF the top-right corner (up + right) so the avatar clears the
-              // card chrome and the connector back to the task reads as a real link.
               transform: `translate(calc(-50% + ${FLOAT_X}px), calc(-50% + ${FLOAT_Y}px))`,
               pointerEvents: "auto",
               display: "flex",
@@ -141,14 +135,13 @@ export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({ overlays,
                         data-testid="canvas-presence-action"
                         style={{ maxWidth: 168, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 9.5, fontWeight: 600, lineHeight: 1.2, opacity: 0.66 }}
                       >
-                        now: {overlay.action}
+                        {overlay.action}
                       </span>
                     )}
                   </span>
                 )}
               </span>
             ) : (
-              // W0: a quiet swarm-glow dot — meaningful at a glance, never clutter.
               <span
                 data-testid="canvas-presence-dot"
                 className={overlay.live ? "ct-presence-live" : undefined}

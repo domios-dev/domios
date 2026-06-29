@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { PresenceOverlay } from "./presenceOverlays";
 
-// EMERGENCE (north-star #2): when an agent's task assignment changes, its presence
-// pin EASES from the old task corner to the new one — Figma-multiplayer motion —
-// instead of teleporting. The glide is SCREEN-SPACE: a transform offset written on
-// the pin's glide wrapper ONLY (never the React-owned base position), so it never
-// re-runs layout/scene memos. Bounded by the caller's pin budget (visible + active),
-// so a 20k-task board glides at most a constant number of pins per frame.
+// EMERGENCE: when an agent's task assignment changes, its presence pin eases from
+// the old task corner to the new one. Offsets are WORLD-space inside the camera
+// layer; the glide wrapper transform is written imperatively only.
 
 const GLIDE_DURATION_MS = 520;
 
@@ -23,10 +20,10 @@ function easeOutCubic(t: number): number {
 }
 
 interface AgentGlideState {
-  /** Task the agent currently rests on — its base (camera-coupled) screen anchor. */
+  /** Task the agent currently rests on — its base (world) anchor. */
   taskId: string;
   anchor: { x: number; y: number };
-  /** Active glide offset (screen px) decaying to 0; null = resting at the anchor. */
+  /** Active glide offset (world px) decaying to 0; null = resting at the anchor. */
   glide: { startTs: number | null; ox: number; oy: number } | null;
 }
 

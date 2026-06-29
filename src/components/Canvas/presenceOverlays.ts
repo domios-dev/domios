@@ -31,7 +31,7 @@ export interface PresenceOverlay {
   /** What it's doing right now — surfaced as a quiet truncated line at W2. */
   action: string | null;
   world: World;
-  /** Screen-space anchor — the card's top-right corner; the pin straddles it. */
+  /** World-space anchor — the card's top-right corner; parent layer carries the camera. */
   anchor: { x: number; y: number };
   /** Apparent on-screen card width — drives budget priority + LOD band fallback. */
   apparentWidth: number;
@@ -64,7 +64,7 @@ export function buildPresenceOverlays({
     if (!src.agents.length || !visibleIds.has(taskId)) continue;
     const node = nodeById.get(taskId);
     if (!node) continue;
-    const box = projectWorldBox(node.box, transform);
+    const screenBox = projectWorldBox(node.box, transform);
     overlays.push({
       taskId,
       agents: src.agents,
@@ -72,8 +72,8 @@ export function buildPresenceOverlays({
       label: src.label,
       action: src.action ?? null,
       world: worldByNode.get(taskId) ?? "W0",
-      anchor: { x: box.x + box.width, y: box.y },
-      apparentWidth: box.width,
+      anchor: { x: node.box.x + node.box.width, y: node.box.y },
+      apparentWidth: screenBox.width,
     });
   }
   // Budget: keep the most prominent (largest on-screen) pins first; live wins ties so
