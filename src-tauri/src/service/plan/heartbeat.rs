@@ -3,14 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::{PlanError, PlanStore};
 use crate::plan::{HeartbeatLearning, OrchestratorHeartbeat, Plan, PlanStatus};
 
-pub const STATE_RECONCILIATION_PROMPT: &str = concat!(
-    "STATE-RECONCILIATION:\n",
-    "- First run `codeterm agent reports` and process queued reports before inspecting panes.\n",
-    "- Reconcile live panes against the plan: active tasks, pane status, branches, and worktrees.\n",
-    "- Close verified tasks, bounce incomplete ones with the next concrete instruction, and record the plan milestone.\n",
-    "- Clean finished lane worktrees/branches/dev daemons or record why cleanup is deferred.\n",
-    "- Re-arm exactly one heartbeat carrying current focus and active lanes."
-);
+pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HeartbeatLearnResult {
@@ -112,10 +105,37 @@ fn render_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat) -> String 
     out
 }
 
-fn prepend_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat, text: &str) -> String {
+pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> String {
+    let reports = pane_id.map_or_else(
+        || "codeterm agent reports".to_string(),
+        |pane| format!("codeterm agent reports --pane {pane}"),
+    );
+    let status = pane_id.map_or_else(
+        || format!("codeterm --json orchestrator status --plan {plan_id}"),
+        |pane| format!("codeterm --json orchestrator status --plan {plan_id} --pane {pane}"),
+    );
+    format!(
+        "STATE-RECONCILIATION:\n\
+         - First run `{reports}` and process queued reports before inspecting panes.\n\
+         - Pull the full plan-owned snapshot with `{status}`.\n\
+         - Reconcile live panes against the plan with `codeterm plan reconcile {plan_id}`.\n\
+         - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\
+         - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
+         - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
+         - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`."
+    )
+}
+
+fn prepend_heartbeat(
+    plan_id: &str,
+    heartbeat: &OrchestratorHeartbeat,
+    text: &str,
+    pane_id: Option<&str>,
+) -> String {
     let block = render_heartbeat(plan_id, heartbeat);
+    let prompt = reconciliation_prompt(plan_id, pane_id);
     let reconciliation = format!(
-        "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{STATE_RECONCILIATION_PROMPT}\n</codeterm-state-reconciliation>"
+        "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{prompt}\n</codeterm-state-reconciliation>"
     );
     let prelude = if block.is_empty() {
         reconciliation
@@ -130,7 +150,12 @@ fn prepend_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat, text: &st
 }
 
 pub(super) fn prepend_plan_heartbeat(plan: &Plan, text: &str) -> String {
-    prepend_heartbeat(&plan.id, &plan.heartbeat, text)
+    prepend_heartbeat(
+        &plan.id,
+        &plan.heartbeat,
+        text,
+        plan.owner.pane_id.as_deref(),
+    )
 }
 
 pub(super) fn prepend_heartbeat_snapshot(
@@ -138,7 +163,7 @@ pub(super) fn prepend_heartbeat_snapshot(
     heartbeat: &OrchestratorHeartbeat,
     text: &str,
 ) -> String {
-    prepend_heartbeat(plan_id, heartbeat, text)
+    prepend_heartbeat(plan_id, heartbeat, text, None)
 }
 
 impl PlanStore {

@@ -42,7 +42,7 @@ pub fn nudge_text(kind: NudgeKind) -> String {
         NudgeKind::Orchestrator => {
             format!(
                 "Plan reminder: this pane owns active plan work. Run `codeterm plan ...` or send a task-tagged report so the canvas stays current.\n\n{}",
-                super::heartbeat::STATE_RECONCILIATION_PROMPT
+                super::heartbeat::reconciliation_prompt("$CODETERM_PLAN_ID", Some("$CODETERM_PANE_ID"))
             )
         }
         NudgeKind::Escalated => "UNREPORTED task; your parent is blind until you report.".to_string(),
@@ -133,8 +133,9 @@ mod tests {
     fn orchestrator_nudge_includes_state_reconciliation_prompt() {
         let text = nudge_text(NudgeKind::Orchestrator);
         assert!(text.contains("STATE-RECONCILIATION"));
-        assert!(text.contains("First run `codeterm agent reports`"));
-        assert!(text.contains("Re-arm exactly one heartbeat"));
+        assert!(text.contains("First run `codeterm agent reports --pane $CODETERM_PANE_ID`"));
+        assert!(text.contains("codeterm --json orchestrator status --plan $CODETERM_PLAN_ID"));
+        assert!(text.contains("Keep the plan-owned heartbeat current"));
 
         let worker_text = nudge_text(NudgeKind::Worker);
         assert!(!worker_text.contains("STATE-RECONCILIATION"));

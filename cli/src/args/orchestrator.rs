@@ -2,6 +2,13 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum OrchestratorAction {
+    /// Show orchestration status as reports, live lanes, drift, and next actions
+    Status {
+        #[arg(long, env = "CODETERM_PLAN_ID")]
+        plan: Option<String>,
+        #[arg(long, env = "CODETERM_PANE_ID")]
+        pane: Option<String>,
+    },
     /// Append a persistent learning to this orchestrator's heartbeat
     Learn {
         #[arg(allow_hyphen_values = true)]
@@ -63,4 +70,71 @@ pub enum OrchestratorHeartbeatAction {
         #[arg(long)]
         clear_rules: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use crate::args::cli::{Cli, Commands};
+
+    use super::{OrchestratorAction, OrchestratorHeartbeatAction};
+
+    #[test]
+    fn status_parses_plan_and_pane() {
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "orchestrator",
+            "status",
+            "--plan",
+            "pl_1",
+            "--pane",
+            "pane1",
+        ])
+        .expect("orchestrator status parses");
+        match parsed.command {
+            Commands::Orchestrator {
+                action: OrchestratorAction::Status { plan, pane },
+            } => {
+                assert_eq!(plan.as_deref(), Some("pl_1"));
+                assert_eq!(pane.as_deref(), Some("pane1"));
+            }
+            _ => panic!("expected orchestrator status"),
+        }
+    }
+
+    #[test]
+    fn heartbeat_set_parses_clear_lanes_with_lane_for_cli_validation() {
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "orchestrator",
+            "heartbeat",
+            "set",
+            "--plan",
+            "pl_1",
+            "--clear-lanes",
+            "--lane",
+            "L2",
+        ])
+        .expect("heartbeat set parses");
+        match parsed.command {
+            Commands::Orchestrator {
+                action:
+                    OrchestratorAction::Heartbeat {
+                        action:
+                            OrchestratorHeartbeatAction::Set {
+                                plan,
+                                lanes,
+                                clear_lanes,
+                                ..
+                            },
+                    },
+            } => {
+                assert_eq!(plan.as_deref(), Some("pl_1"));
+                assert_eq!(lanes, vec!["L2"]);
+                assert!(clear_lanes);
+            }
+            _ => panic!("expected heartbeat set"),
+        }
+    }
 }

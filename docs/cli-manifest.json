@@ -4234,6 +4234,30 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "status",
+          "about": "Show orchestration status as reports, live lanes, drift, and next actions",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         }
       ]
     },

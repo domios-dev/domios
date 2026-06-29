@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -79,8 +79,6 @@ When YOU sense you are ready to compact, do **not** rely on the provider's gener
 3. **Verify x3** — three independent passes: completeness, accuracy, executability. Check the handoff markdown against `plan get`, `spec show <SPEC_ID>`, `plan in-progress <plan_id>`, and `codeterm agent reports`. Any gap means amend, read back, and restart the 3-pass cycle. `plan handoff verify` is not implemented yet; this is manual.
 4. **Compact / reseed** — `codeterm orchestrator handoff --plan <plan_id> --reseed --mode new` (preferred; fresh zero-context session) or `--mode compact` (handoff seed then provider `/compact`). Preview sends with `--dry_run` first.
 5. Resume from the handoff's `next_actions` — never a generic recap.
-6. **(Optional, belt-and-suspenders)** A delayed self-message (`codeterm delayed create --pane <you> --delay 30m --from-file heartbeat.md`) can carry extra state, but it is no longer the primary persistence mechanism — the heartbeat below is auto-reinjected on every delayed delivery and nudge, so set it instead.
-
 ## Heartbeat — auto-reinjected orchestrator state
 
 The orchestrator **heartbeat** is durable state attached to the plan (`current_focus`, `active_lanes`, `rules`, plus appended `learnings`). The daemon **auto-prepends** it to every delayed message delivered to your pane and to every plan nudge — so your focus and lane map survive compaction and idle drift without a manual self-ping.
@@ -93,9 +91,10 @@ codeterm orchestrator heartbeat set \
 codeterm orchestrator heartbeat set --clear-lanes        # wipe lanes when a phase ends
 codeterm orchestrator heartbeat show                     # inspect current heartbeat
 codeterm orchestrator learn "QuickJS lacks console — guard host calls"   # append a learning
+codeterm --json orchestrator status --plan PLAN_ID       # reports + live_lanes + drift + next_actions
 ```
 
-`set` writes only the fields you pass (omitted fields are left intact); `--clear-lanes` / `--clear-rules` empty those lists. Plan is resolved from `--plan`/`CODETERM_PLAN_ID`, else the active plan owned by this pane/session. Re-arm one heartbeat after each state-reconciliation pass — the focus + lanes are what get reinjected.
+`set` writes only the fields you pass (omitted fields are left intact); `--clear-lanes` / `--clear-rules` empty those lists and cannot be combined with `--lane` / `--rule` in the same command. Plan is resolved from `--plan`/`CODETERM_PLAN_ID`, else the active plan owned by this pane/session. Keep the plan-owned heartbeat current after each state-reconciliation pass — the focus + lanes are what get reinjected.
 
 ## Command Reference
 
