@@ -5,6 +5,7 @@ pub mod handoff;
 pub mod heartbeat;
 pub mod hints;
 pub mod ingest;
+mod lane_metadata;
 pub mod loop_mutations;
 pub mod mutations;
 pub mod next_actions;
@@ -75,6 +76,7 @@ pub enum PlanError {
     WritePending {
         operation: String,
         committed: bool,
+        committed_id: Option<String>,
         message: String,
     },
     ReadbackMismatch {
@@ -134,11 +136,13 @@ impl fmt::Display for PlanError {
             PlanError::WritePending {
                 operation,
                 committed,
+                committed_id,
                 message,
             } => {
+                let id = committed_id.as_deref().unwrap_or("unknown");
                 write!(
                     f,
-                    "{operation} pending after write (committed={committed}): {message}"
+                    "{operation} pending after write (committed={committed}, id={id}): {message}"
                 )
             }
             PlanError::ReadbackMismatch { operation, message } => {
@@ -156,6 +160,7 @@ fn plan_index_write_error(message: String) -> PlanError {
         PlanError::WritePending {
             operation: "plan_index_mirror".into(),
             committed: true,
+            committed_id: None,
             message,
         }
     } else {
@@ -186,12 +191,14 @@ impl PlanError {
             PlanError::WritePending {
                 operation,
                 committed,
+                committed_id,
                 message,
             } => {
                 serde_json::json!({
                     "type": "write_pending",
                     "operation": operation,
                     "committed": committed,
+                    "committed_id": committed_id,
                     "message": message
                 })
             }
@@ -228,7 +235,7 @@ pub struct NewTask {
     pub tags: Vec<String>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct TaskLaneUpdate {
     pub pane_id: Option<Option<String>>,
     pub workspace_id: Option<Option<String>>,

@@ -1,66 +1,13 @@
+use super::lane_metadata::{apply_lane_update, normalize_lane_metadata};
 use super::readback::pending_after_verified;
 use super::{NewTask, OpenSubtask, PlanError, PlanStore};
 use crate::plan::{
     AgentRef, CanvasElement, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanStatus,
-    Section, TagFacet, Task, TaskGroup, TaskLaneMetadata, TaskPriority, TaskStatus, TransferRecord,
+    Section, TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
 };
 
 fn gen_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
-}
-
-fn normalize_lane_metadata(mut lane: TaskLaneMetadata) -> TaskLaneMetadata {
-    lane.pane_id = non_empty(lane.pane_id);
-    lane.workspace_id = non_empty(lane.workspace_id);
-    lane.workspace_name = non_empty(lane.workspace_name);
-    lane.worktree_path = non_empty(lane.worktree_path);
-    lane.branch = non_empty(lane.branch);
-    lane.base = non_empty(lane.base);
-    lane.destination = non_empty(lane.destination);
-    lane.cleanup_status = non_empty(lane.cleanup_status);
-    lane.cleanup_hints.retain(|hint| !hint.trim().is_empty());
-    lane
-}
-
-fn non_empty(value: Option<String>) -> Option<String> {
-    value.and_then(|s| {
-        let trimmed = s.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    })
-}
-
-fn apply_lane_update(lane: &mut TaskLaneMetadata, update: super::TaskLaneUpdate) {
-    if let Some(value) = update.pane_id {
-        lane.pane_id = value;
-    }
-    if let Some(value) = update.workspace_id {
-        lane.workspace_id = value;
-    }
-    if let Some(value) = update.workspace_name {
-        lane.workspace_name = value;
-    }
-    if let Some(value) = update.worktree_path {
-        lane.worktree_path = value;
-    }
-    if let Some(value) = update.branch {
-        lane.branch = value;
-    }
-    if let Some(value) = update.base {
-        lane.base = value;
-    }
-    if let Some(value) = update.destination {
-        lane.destination = value;
-    }
-    if let Some(value) = update.cleanup_status {
-        lane.cleanup_status = value;
-    }
-    if let Some(value) = update.cleanup_hints {
-        lane.cleanup_hints = value;
-    }
 }
 
 pub(super) fn push_subsection(
@@ -429,6 +376,8 @@ impl PlanStore {
             canvas: Default::default(),
             milestones: vec![],
         };
+        let verify_sections = !task.section_ids.is_empty();
+        let expected = Self::task_add_expectation(&task, verify_sections);
         let write = self.with_plan(plan_id, now_ms, |p| {
             if task.section_ids.is_empty() {
                 task.section_ids = super::section_links::auto_section_ids_for_task(p, &task);
@@ -436,7 +385,11 @@ impl PlanStore {
             p.tasks.push(task);
             Ok(())
         });
-        pending_after_verified(write, self.verify_task_added(plan_id, &tid))?;
+        pending_after_verified(
+            write,
+            self.verify_task_added(plan_id, &tid, &expected),
+            Some(tid.clone()),
+        )?;
         Ok(tid)
     }
 
@@ -478,7 +431,11 @@ impl PlanStore {
             }
             Ok(())
         });
-        pending_after_verified(write, self.verify_task_closed(plan_id, task_id, result))
+        pending_after_verified(
+            write,
+            self.verify_task_closed(plan_id, task_id, result),
+            Some(task_id.to_string()),
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -735,6 +692,7 @@ impl PlanStore {
                 group,
                 handle,
             ),
+            Some(task_id.to_string()),
         )
     }
 
@@ -745,7 +703,8 @@ impl PlanStore {
         lane: super::TaskLaneUpdate,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        let expected = lane.clone();
+        let write = self.with_plan(plan_id, now_ms, |p| {
             let task = p
                 .tasks
                 .iter_mut()
@@ -760,7 +719,12 @@ impl PlanStore {
             }
             task.updated_at = now_ms;
             Ok(())
-        })
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_lane_updated(plan_id, task_id, &expected),
+            Some(task_id.to_string()),
+        )
     }
 
     pub fn update_task_quality(
@@ -800,7 +764,7 @@ impl PlanStore {
         peer: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        let write = self.with_plan(plan_id, now_ms, |p| {
             let task = p
                 .tasks
                 .iter_mut()
@@ -812,7 +776,12 @@ impl PlanStore {
             task.peer = peer.map(|s| s.into());
             task.updated_at = now_ms;
             Ok(())
-        })
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_assigned(plan_id, task_id, pane, peer),
+            Some(task_id.to_string()),
+        )
     }
 
     pub fn rm_task(&self, plan_id: &str, task_id: &str, now_ms: u64) -> Result<(), PlanError> {
