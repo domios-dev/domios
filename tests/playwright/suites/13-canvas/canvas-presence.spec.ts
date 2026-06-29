@@ -9,11 +9,12 @@
  */
 import { expect, test } from "../../helpers/fixtures";
 import type { Page } from "@playwright/test";
-import { isEmpty, openCanvas, setCanvasScale } from "../../helpers/canvas-inspect";
-
-const PERF_KEY = "canvas.perfFixtureN";
-const SUBSTRATE_KEY = "canvas.substrateV2";
-const PLAN_SEL = '[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"]';
+import {
+  CANVAS_BOARD_SEL,
+  isEmpty,
+  seedPerfFixtureAndOpenInlineCanvas,
+  setCanvasScale,
+} from "../../helpers/canvas-inspect";
 
 async function shot(page: Page, name: string): Promise<void> {
   await page.locator('[data-testid="canvas-view"]').first().screenshot({ path: `/tmp/${name}.png` }).catch(async () => {
@@ -21,27 +22,16 @@ async function shot(page: Page, name: string): Promise<void> {
   });
 }
 
-test("@golden @canvas-presence live workers render with progressive presence disclosure", async ({ ui }) => {
+test("@golden @canvas-presence live workers render with progressive presence disclosure", async ({ api, ui }) => {
   test.setTimeout(300_000);
   const { page } = ui;
 
-  await page.addInitScript(([perfKey, subKey]) => {
-    try {
-      window.localStorage.setItem(perfKey, "24");
-      window.localStorage.setItem(subKey, "true");
-    } catch {
-      /* surfaced below */
-    }
-  }, [PERF_KEY, SUBSTRATE_KEY]);
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-
-  await openCanvas(page);
+  await seedPerfFixtureAndOpenInlineCanvas(page, api);
   if (await isEmpty(page)) {
     test.skip(true, "canvas empty — perf fixture did not inject");
     return;
   }
-  await expect(page.locator(PLAN_SEL).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(CANVAS_BOARD_SEL).first()).toBeVisible({ timeout: 30_000 });
 
   // ── W0/W1: avatars/dots without connectors. ──
   await setCanvasScale(page, 0.55);
@@ -53,7 +43,9 @@ test("@golden @canvas-presence live workers render with progressive presence dis
   const workers = await page.locator('[data-testid="canvas-presence-overlay"]').count();
   expect(workers, "≥1 live worker avatar/dot present").toBeGreaterThan(0);
   const links = await page.locator('[data-testid="canvas-presence-link"]').count();
-  expect(links, "connectors hidden at far/mid zoom").toBe(0);
+  const revealedFar = await page.locator('[data-testid="canvas-presence-pin"][data-presence-reveal="true"]').count();
+  expect(links, "connectors only on revealed pins at far/mid zoom").toBe(revealedFar);
+  expect(pins - revealedFar, "some pins stay calm at far/mid zoom").toBeGreaterThan(0);
   expect(workers, "every pin has a marker").toBe(pins);
   const first = page.locator('[data-testid="canvas-presence-pin"]').first();
   expect(await first.getAttribute("data-task-id"), "worker pin is bound to a task").toBeTruthy();

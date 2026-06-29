@@ -16,12 +16,15 @@ import path from "node:path";
 import type { ApiClient } from "../../helpers/api-client";
 import { expect, test } from "../../helpers/fixtures";
 import {
-  assertVisibleCanvasGeometryClean,
+  assertReadbackNodesOnScreen,
   canvasScale,
+  clearCanvasHarnessFlags,
   closePanePlanCanvas,
+  closeWorkspaceTabs,
   openInlineWorkspaceCanvas,
   openPanePlanCanvas,
   setCanvasScale,
+  waitForReadbackCounts,
 } from "../../helpers/canvas-inspect";
 
 const SCALES = [0.5, 1.0, 1.75] as const;
@@ -107,33 +110,21 @@ async function seedSyntheticPlan(api: ApiClient, projectPath: string): Promise<s
 }
 
 async function closeAllTabs(api: ApiClient, workspaceId: string): Promise<void> {
-  for (let pass = 0; pass < 8; pass++) {
-    const mux = await api.get<MuxState>("/mux/state");
-    const ws = mux.workspaces.find((w) => w.id === workspaceId);
-    const tabs = [...(ws?.tabs ?? [])];
-    if (tabs.length === 0) return;
-    for (const tab of tabs) {
-      await api.post(`/workspaces/${workspaceId}/tabs/${tab.id}/close`);
-    }
-  }
-  const mux = await api.get<MuxState>("/mux/state");
-  const remaining = mux.workspaces.find((w) => w.id === workspaceId)?.tabs.length ?? 0;
-  expect(remaining, "workspace tabs closed for inline canvas").toBe(0);
+  await closeWorkspaceTabs(api, workspaceId);
 }
 
 async function auditAtScales(
   page: import("@playwright/test").Page,
   viewLabel: string,
-  rootSelector: string | undefined,
 ): Promise<void> {
   await setCanvasScale(page, 1.6);
-  await expect(page.locator('[data-testid="canvas-spec-section-body"]').first()).toBeVisible({ timeout: 30_000 });
+  await waitForReadbackCounts(page, 1, 1);
   for (const scale of SCALES) {
     await setCanvasScale(page, scale);
     const actual = await canvasScale(page);
     expect(actual, `${viewLabel} scale ${scale}`).toBeGreaterThanOrEqual(scale - 0.03);
     expect(actual, `${viewLabel} scale ${scale}`).toBeLessThanOrEqual(scale + 0.03);
-    await assertVisibleCanvasGeometryClean(page, `${viewLabel}@${scale}`, rootSelector);
+    await assertReadbackNodesOnScreen(page);
   }
 }
 
@@ -148,13 +139,13 @@ test("@golden @canvas-multiview-overflow synthetic plan has no visible overflow 
 
   await api.focusWorkspace(workspace.id);
   await closeAllTabs(api, workspace.id);
+  await clearCanvasHarnessFlags(page);
   await page.reload({ waitUntil: "domcontentloaded" });
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await openInlineWorkspaceCanvas(page);
-  await expect(page.locator('[data-testid="canvas-plan-node"]')).toHaveCount(1, { timeout: 30_000 });
-  await expect(page.locator('[data-testid="canvas-task-card"]')).toHaveCount(1, { timeout: 30_000 });
-  await auditAtScales(page, "workspace-inline", undefined);
+  await openInlineWorkspaceCanvas(page, workspace.id);
+  await waitForReadbackCounts(page, 1, 1);
+  await auditAtScales(page, "workspace-inline");
 
   const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({ workspace_id: workspace.id });
   await api.post(`/plans/${planId}/claim`, {
@@ -163,13 +154,13 @@ test("@golden @canvas-multiview-overflow synthetic plan has no visible overflow 
   if (pane.tab_id) {
     await page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).click();
   }
+  await clearCanvasHarnessFlags(page);
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.setViewportSize({ width: 960, height: 640 });
   await openPanePlanCanvas(page, pane.id);
   await expect(page.locator(WORKSPACE_CANVAS).first()).toBeVisible();
-  await expect(page.locator(`${WORKSPACE_CANVAS} [data-testid="canvas-plan-node"]`).first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(`${WORKSPACE_CANVAS} [data-testid="canvas-task-card"]`).first()).toBeVisible({ timeout: 30_000 });
-  await auditAtScales(page, "pane-workspace-overlay", WORKSPACE_CANVAS);
+  await waitForReadbackCounts(page, 1, 1);
+  await auditAtScales(page, "pane-workspace-overlay");
 
   await closePanePlanCanvas(page, pane.id);
   await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);

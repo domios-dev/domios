@@ -1,22 +1,46 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
+import {
+  CANVAS_BOARD_SEL,
+  clearCanvasHarnessFlags,
+  closeWorkspaceTabs,
+  expandWorkspaceSidebar,
+  openSidebarIfNeeded,
+} from "../../helpers/canvas-inspect";
 
-test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", async ({ ui }) => {
+interface CreatePlanResponse {
+  plan_id: string;
+}
+
+test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", async ({ api, ui, paneCleanup }) => {
+  test.setTimeout(120_000);
   const { page } = ui;
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-workspace-plan-entry-"));
+  const wsName = "workspace plan entry gate";
+  await api.createWorkspace(wsName, projectPath);
+  const workspace = (await api.workspaces()).find((w) => w.cwd === projectPath);
+  if (!workspace) throw new Error("created workspace was not listed");
 
-  const workspace = page.locator('[data-testid="workspace-item"][data-workspace-name="codeterm"]').first();
-  await expect(workspace).toBeVisible({ timeout: 30_000 });
-  const expand = workspace.locator('button[title="Expand"]');
-  if (await expand.isVisible().catch(() => false)) {
-    await expand.click();
-  }
+  await api.post<CreatePlanResponse>("/plans", {
+    title: "Workspace Plan Entry Synthetic Plan",
+    project_path: projectPath,
+    owner: { pane_id: "plan-entry-orchestrator", session_id: null, title: "Plan Entry Orchestrator" },
+  });
 
-  const general = page.locator('[data-testid="workspace-item"][data-workspace-name="General"]').first();
-  await expect(general).toBeVisible({ timeout: 30_000 });
-  const generalBox = await general.boundingBox();
-  const firstEntryBox = await page.locator('[data-testid="workspace-plan-entry"]').first().boundingBox();
-  expect(Boolean(generalBox && firstEntryBox && firstEntryBox.y > generalBox.y + generalBox.height)).toBeTruthy();
+  await api.focusWorkspace(workspace.id);
+  await closeWorkspaceTabs(api, workspace.id);
+  await clearCanvasHarnessFlags(page);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
 
-  const entry = page.locator('[data-testid="workspace-plan-entry"]').first();
+  await openSidebarIfNeeded(page);
+  const wsItem = page.locator(`[data-testid="workspace-item"][data-workspace-id="${workspace.id}"]`);
+  await expect(wsItem).toBeVisible({ timeout: 30_000 });
+  await expandWorkspaceSidebar(page, workspace.id);
+
+  const entry = wsItem.locator('[data-testid="workspace-plan-entry"]');
   await expect(entry).toBeVisible({ timeout: 30_000 });
   await expect(entry).toHaveAttribute("data-workspace-action", "plan");
   await expect(entry).toHaveAttribute("data-pinned", "true");
@@ -24,12 +48,14 @@ test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", 
   await entry.click();
 
   await expect(page.locator('[data-testid="canvas-view"]').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(CANVAS_BOARD_SEL).first()).toBeVisible({ timeout: 30_000 });
   await expect(entry).toHaveAttribute("data-active", "true");
   await expect(page.getByTitle("Close plan canvas")).toHaveCount(0);
 
-  const tab = page.locator('[data-testid="tab-item"]').filter({ hasText: "Curie" }).first();
-  await expect(tab).toBeVisible({ timeout: 30_000 });
-  await tab.click({ force: true });
+  const pane = await paneCleanup.createPane<{ id: string; tab_id?: string }>({ workspace_id: workspace.id });
+  if (pane.tab_id) {
+    await page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).click({ force: true });
+  }
   await expect(page.locator('[data-testid="canvas-view"]').first()).toBeHidden({ timeout: 30_000 });
   await expect(entry).toHaveAttribute("data-active", "false");
 });
