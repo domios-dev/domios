@@ -101,6 +101,24 @@ jobs:
           "manifest=$manifest"     | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "prerelease=$prerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
+      # The runner service session PATH can drop ~\.cargo\bin (observed 2026-06-29:
+      # `rustup` not recognized, failing every build before MSVC env). Self-heal by
+      # locating rustup across CARGO_HOME / user profiles and prepending its dir.
+      - name: Ensure Rust toolchain on PATH
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Get-Command rustup -ErrorAction SilentlyContinue) { Write-Host "rustup already on PATH"; exit 0 }
+          $candidates = @()
+          if ($env:CARGO_HOME)  { $candidates += (Join-Path $env:CARGO_HOME 'bin') }
+          if ($env:USERPROFILE) { $candidates += (Join-Path $env:USERPROFILE '.cargo\bin') }
+          $candidates += (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue |
+                          ForEach-Object { Join-Path $_.FullName '.cargo\bin' })
+          $hit = $candidates | Where-Object { Test-Path (Join-Path $_ 'rustup.exe') } | Select-Object -First 1
+          if (-not $hit) { Write-Error "rustup.exe not found in: $($candidates -join '; '). Restore Rust on the runner."; exit 1 }
+          $hit | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Prepended Rust bin to PATH: $hit"
+
       # Repo-pinned toolchain (rust-toolchain.toml = 1.95.0) drives rustc; the
       # ROG already has both windows-msvc targets installed on 1.95.0. We do NOT
       # install dtolnay@stable — that would float off the pin and miss the targets.
