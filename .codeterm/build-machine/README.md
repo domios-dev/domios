@@ -32,10 +32,9 @@ docker/Dockerfile.linux-x64     ORPHANED — x86_64 Linux now builds natively on
                                 (release-linux.yml), not cross-compiled here. Kept for ad-hoc use.
 scripts/build-linux.sh          thin in-container step: clone tag → pnpm install → tauri build → collect
 scripts/build-all.sh            orchestrator: 2 waves × 2 engines (mac + arm64-Linux Docker), signs
-scripts/build-windows.sh        ORPHANED manual tool — NOT called by build-all.sh anymore. ssh-driven
-                                remote build per arch; kept only for ad-hoc manual Windows builds.
-                                Release Windows builds go through release-windows.yml on the ROG runner.
 ```
+Windows + x86_64-Linux release builds run on the ROG self-hosted runners
+(`release-windows.yml` / `release-linux.yml`); there is no Mac-driven SSH/QEMU path anymore.
 macOS build/notarize/pack is reused from `../skills/github-release/scripts/` (`mac-bundle.sh`).
 
 ## One-time setup
@@ -53,7 +52,8 @@ rustup on the repo-pinned channel (1.95.0) with targets `x86_64-pc-windows-msvc`
 `aarch64-pc-windows-msvc` installed, VS2022 C++ build tools (x64 **and** ARM64 — the aarch64 build
 loads `vcvarsall x64_arm64`), node 22 + pnpm 10.32.1, git, LLVM. Windows signing uses the
 `TAURI_SIGNING_PRIVATE_KEY` / optional `TAURI_KEY_PASSWORD` repo secrets directly on the runner;
-publishing to the mirror uses `PACKAGE_REPOS_TOKEN`. No SSH key, no `WIN_SSH`/`WIN_*` env.
+publishing to the mirror uses `PACKAGE_REPOS_TOKEN`. No SSH, no remote-build env — the old
+Mac→Windows SSH/QEMU path is gone.
 
 **x86_64 Linux runner (the ROG's WSL2), one-time:** install WSL2 with **Ubuntu 24.04** (glibc 2.39 —
 required by the onnxruntime static lib), register a **self-hosted GitHub Actions runner** with label

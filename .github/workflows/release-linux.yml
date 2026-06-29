@@ -170,10 +170,12 @@ jobs:
           echo "::endgroup::"
           # Prefer the v1-compatible .AppImage.tar.gz updater bundle if Tauri
           # produced one; otherwise fall back to the direct .AppImage that
-          # Tauri 2 uses by default.
-          UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.tar.gz.sig' 2>/dev/null | head -n1)
+          # Tauri 2 uses by default. `|| true` keeps set -e/pipefail from aborting
+          # the step when the appimage dir is absent (deb-only build) — the skip
+          # branch below must be reached.
+          UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.tar.gz.sig' 2>/dev/null | head -n1 || true)
           if [ -z "$UPDATER_SIG" ]; then
-            UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.sig' 2>/dev/null | head -n1)
+            UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.sig' 2>/dev/null | head -n1 || true)
           fi
           if [ -z "$UPDATER_SIG" ]; then
             echo "::notice::No AppImage signature (deb-only build) — no updater fragment for $PLATFORM_KEY this release; skipping."
