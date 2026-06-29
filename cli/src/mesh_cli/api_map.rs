@@ -726,6 +726,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             Some(crate::KeepAwakeAction::Start {
                 duration_secs,
                 display,
+                gnome_policy,
+                system_block,
             }) => (
                 "POST".into(),
                 "/api/keepawake/start".into(),
@@ -733,6 +735,8 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                     serde_json::json!({
                         "duration_secs": duration_secs,
                         "display": display,
+                        "gnome_policy": gnome_policy,
+                        "system_block": system_block,
                     })
                     .to_string(),
                 ),
