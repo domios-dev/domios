@@ -1,7 +1,7 @@
 import type { Plan, Task, TaskStatus } from "../types";
 import type { CanvasLayoutSettings } from "../settings";
 import { flatSections } from "../sectionRows";
-import { zoneLabelBox, convexHull } from "./sectionZones";
+import { zoneLabelBox } from "./sectionZones";
 import { taskFootprint } from "./taskFootprint";
 import type { Box, Point } from "./geometry";
 import type { LaidOutEdge, LaidOutNode } from "./types";
@@ -12,11 +12,6 @@ export const UNSECTIONED = "__unsectioned__";
 // Min breathing space between cards of DIFFERENT sections after compaction — tight
 // enough that adjacent blobs nestle into one cohesive cloud, not scattered islands.
 export const SECTION_GROUP_GAP = 14;
-
-// Gravity-compaction: after a safe circle placement, pull each blob toward the cloud
-// centroid until its real card hull is about to touch a neighbour's. This nestles the
-// actual masses (corners included) instead of leaving the air a circle pack wastes.
-const COMPACT_ITERS = 28;
 
 // worlds-v3 §2: golden-angle phyllotaxis pack. The irrational that gives maximal
 // angular spacing (137.5°) so successive tiles never align into spokes.
@@ -217,43 +212,6 @@ export interface TaskCloudGroup {
   labelAnchor?: Point;
 }
 
-// Greedy tight circle pack: largest first at the origin; each next circle placed
-// tangent to a placed one at the candidate angle NEAREST the origin that overlaps
-// nothing → a compact, mutually-tangent cluster. Deterministic, O(n²·angles), small n.
-function packTangentCompact(circles: { id: string; r: number }[], gap: number): Map<string, Point> {
-  const ordered = [...circles].sort((a, b) => b.r - a.r || a.id.localeCompare(b.id));
-  const placed: { x: number; y: number; r: number }[] = [];
-  const out = new Map<string, Point>();
-  const ANG = 64;
-  for (const c of ordered) {
-    if (!placed.length) {
-      placed.push({ x: 0, y: 0, r: c.r });
-      out.set(c.id, { x: 0, y: 0 });
-      continue;
-    }
-    let best: { x: number; y: number; d: number } | null = null;
-    for (const p of placed) {
-      const ring = p.r + c.r + gap;
-      for (let k = 0; k < ANG; k++) {
-        const a = (k / ANG) * Math.PI * 2;
-        const x = p.x + Math.cos(a) * ring;
-        const y = p.y + Math.sin(a) * ring;
-        let okPos = true;
-        for (const q of placed) {
-          if (Math.hypot(x - q.x, y - q.y) < q.r + c.r + gap - 1e-6) { okPos = false; break; }
-        }
-        if (!okPos) continue;
-        const d = Math.hypot(x, y);
-        if (!best || d < best.d) best = { x, y, d };
-      }
-    }
-    const pos = best ?? { x: 0, y: 0 };
-    placed.push({ x: pos.x, y: pos.y, r: c.r });
-    out.set(c.id, { x: pos.x, y: pos.y });
-  }
-  return out;
-}
-
 // A blob's MASS center + the radius of its content measured from THAT center. The
 // blob-local origin (0,0) is the plan-side tip, not the mass center (right-opening
 // fold), so packing on the origin-extent flung dense cores apart. Packing on the
@@ -268,28 +226,6 @@ function blobMetrics(pack: CloudPack): { cx: number; cy: number; r: number } {
   let r = 1;
   for (const it of pack.items) r = Math.max(r, Math.hypot(it.cx - cx, it.cy - cy) + 0.5 * Math.hypot(it.w, it.h));
   return { cx, cy, r };
-}
-
-// Convex SAT: do two convex polygons overlap? Used to keep blobs from nestling so far
-// that their (gap-padded) card hulls touch. Returns true on any overlap.
-function polysOverlap(a: Point[], b: Point[]): boolean {
-  for (const poly of [a, b]) {
-    for (let i = 0; i < poly.length; i++) {
-      const p = poly[i];
-      const q = poly[(i + 1) % poly.length];
-      const ax = -(q.y - p.y);
-      const ay = q.x - p.x;
-      let aMin = Infinity, aMax = -Infinity, bMin = Infinity, bMax = -Infinity;
-      for (const v of a) { const d = v.x * ax + v.y * ay; aMin = Math.min(aMin, d); aMax = Math.max(aMax, d); }
-      for (const v of b) { const d = v.x * ax + v.y * ay; bMin = Math.min(bMin, d); bMax = Math.max(bMax, d); }
-      if (aMax < bMin || bMax < aMin) return false; // separating axis found
-    }
-  }
-  return true;
-}
-
-function translatePoly(poly: Point[], dx: number, dy: number): Point[] {
-  return poly.map((p) => ({ x: p.x + dx, y: p.y + dy }));
 }
 
 export interface TaskCloudLayout {
@@ -443,70 +379,22 @@ export function layoutTaskCloud(
     return { sectionId, clusters, pack: packCloud(items, TILE_GAP) };
   });
 
-  // Nestle the blobs into ONE cohesive mass. A circle pack alone leaves the air in
-  // every blob's corners → separated islands; instead we place blobs on safe centroid
-  // circles, then GRAVITY-COMPACT: pull each toward the cloud centroid until its real
-  // (gap-padded) card hull is about to touch a neighbour's. The masses interlock; cards
-  // never collide. A single blob sits at the origin so a no-section plan reproduces the
-  // original one-fan pack byte-for-byte (§35 + stability).
+  // Nestle section blobs with the same append-stable phyllotaxis pack used for tasks.
+  // Gravity-compaction re-ran on every mutation and shuffled unrelated sections; slot-
+  // keyed packCloud only places the new/changed outer member outward (§31 stability).
   const blobCenters = new Map<string, Point>();
   if (blobs.length === 1) blobCenters.set(blobs[0].sectionId, { x: 0, y: 0 });
   else if (blobs.length > 1) {
-    const PAD = SECTION_GROUP_GAP / 2; // each blob's hull inflated by this → cards stay ≥SECTION_GROUP_GAP apart
-    const metrics = new Map(blobs.map((b) => [b.sectionId, blobMetrics(b.pack)]));
-    // Per-blob card hull, centred on the blob's centroid and inflated by PAD.
-    const hullCentered = new Map<string, Point[]>();
-    for (const blob of blobs) {
-      const m = metrics.get(blob.sectionId)!;
-      const byId = new Map(blob.pack.items.map((it) => [it.id, it]));
-      const corners: Point[] = [];
-      for (const cl of blob.clusters) {
-        const cp = byId.get(cl.task.id)!;
-        for (const loc of cl.locals) {
-          const x0 = cp.cx + loc.cx - loc.w / 2 - PAD - m.cx;
-          const y0 = cp.cy + loc.cy - loc.h / 2 - PAD - m.cy;
-          const x1 = cp.cx + loc.cx + loc.w / 2 + PAD - m.cx;
-          const y1 = cp.cy + loc.cy + loc.h / 2 + PAD - m.cy;
-          corners.push({ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 });
-        }
-      }
-      hullCentered.set(blob.sectionId, convexHull(corners));
-    }
-    // Safe start: tangent circles enclosing each inflated hull (r ⊇ hull) — no overlap.
-    const placed = packTangentCompact(
-      blobs.map((b) => ({ id: b.sectionId, r: Math.max(1, metrics.get(b.sectionId)!.r + PAD) })),
-      SECTION_GROUP_GAP,
-    );
-    const order = blobs.map((b) => b.sectionId);
-    const P = new Map(order.map((id) => [id, placed.get(id) ?? { x: 0, y: 0 }]));
-    const worldHull = (id: string) => translatePoly(hullCentered.get(id)!, P.get(id)!.x, P.get(id)!.y);
-    for (let iter = 0; iter < COMPACT_ITERS; iter++) {
-      let gx = 0, gy = 0;
-      for (const id of order) { gx += P.get(id)!.x; gy += P.get(id)!.y; }
-      gx /= order.length; gy /= order.length;
-      for (const id of order) {
-        const p = P.get(id)!;
-        const dx = gx - p.x, dy = gy - p.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist < 1e-3) continue;
-        const ux = dx / dist, uy = dy / dist;
-        const others = order.filter((o) => o !== id).map((o) => worldHull(o));
-        const hl = hullCentered.get(id)!;
-        const collides = (t: number) => {
-          const moved = translatePoly(hl, p.x + ux * t, p.y + uy * t);
-          return others.some((o) => polysOverlap(moved, o));
-        };
-        let lo = 0, hi = dist;
-        if (!collides(hi)) lo = hi;
-        else for (let k = 0; k < 18; k++) { const mid = (lo + hi) / 2; if (collides(mid)) hi = mid; else lo = mid; }
-        P.set(id, { x: p.x + ux * lo, y: p.y + uy * lo });
-      }
-    }
-    // gc = world-centroid − local-centroid, so each blob's centroid lands at P.
-    for (const b of blobs) {
-      const m = metrics.get(b.sectionId)!;
-      const p = P.get(b.sectionId)!;
-      blobCenters.set(b.sectionId, { x: p.x - m.cx, y: p.y - m.cy });
+    const metricsById = new Map(blobs.map((b) => [b.sectionId, blobMetrics(b.pack)]));
+    const blobItems: CloudItem[] = blobs.map((blob, slot) => {
+      const m = metricsById.get(blob.sectionId)!;
+      const side = Math.max(m.r * Math.SQRT2, 2);
+      return { id: blob.sectionId, w: side, h: side, slot, theta: foldedTheta(slot) };
+    });
+    const blobPack = packCloud(blobItems, SECTION_GROUP_GAP);
+    for (const it of blobPack.items) {
+      const m = metricsById.get(it.id)!;
+      blobCenters.set(it.id, { x: it.cx - m.cx, y: it.cy - m.cy });
     }
   }
 

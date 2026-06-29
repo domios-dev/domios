@@ -483,7 +483,7 @@ export function CanvasViewInner({
     else if (paneTaskIds.length) focusOnNodes(paneTaskIds);
     else if (activePlanId) fitCameraToNodes([activePlanId]);
     else fitToView(layout.bounds);
-  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, paneTaskIds, activePlanId, layout.bounds, size.width, size.height]);
+  }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, paneTaskIds, activePlanId, size.width, size.height]);
 
   // canvas-focus event (camera + blink). Backends emit {task_id, plan_id, pane_id}
   // (a task/plan node id == its id; a pane resolves to its assigned tasks). Optional
