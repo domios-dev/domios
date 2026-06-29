@@ -1,16 +1,14 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState } from "react";
 import { AgentStack } from "./presence/AgentCircle";
 import type { PresenceOverlay } from "./presenceOverlays";
 import { livePresencePins } from "./presencePinUnit";
 import { usePresenceGlide } from "./presenceGlide";
+import { shouldRevealPresenceDetails } from "./presenceReveal";
 import { atLeast } from "./worlds";
-
-// Presence pins live in WORLD space inside layerRef (camera transform applied every
-// canvas blit). Each pin is ONE unit: dashed connector + corner dot + avatar/flag —
-// never a connector without an agent marker.
 
 export interface CanvasPresenceLayerProps {
   overlays: readonly PresenceOverlay[];
+  emphasisTaskIds?: ReadonlySet<string>;
   onFlyToTask: (taskId: string) => void;
 }
 
@@ -24,58 +22,66 @@ function rosterTitle(overlay: PresenceOverlay): string {
 function PresencePin({
   overlay,
   pinRef,
+  emphasisTaskIds,
   onFlyToTask,
 }: {
   overlay: PresenceOverlay;
   pinRef: (taskId: string) => (el: HTMLElement | null) => void;
+  emphasisTaskIds: ReadonlySet<string>;
   onFlyToTask: (taskId: string) => void;
 }) {
+  const [pinHovered, setPinHovered] = useState(false);
   const lead = overlay.agents[0];
   if (!lead) return null;
 
+  const reveal = shouldRevealPresenceDetails(overlay.world, overlay.taskId, emphasisTaskIds, pinHovered);
   const showAvatar = atLeast(overlay.world, "W1");
-  const showFlag = atLeast(overlay.world, "W1");
-  const showAction = atLeast(overlay.world, "W2") && !!overlay.action;
   const size = atLeast(overlay.world, "W2") ? 20 : 16;
   const color = lead.color;
+  const liveRing = overlay.live && reveal;
 
   return (
     <div
       style={{ position: "absolute", left: overlay.anchor.x, top: overlay.anchor.y, pointerEvents: "none" }}
       data-testid="canvas-presence-pin"
       data-task-id={overlay.taskId}
+      data-presence-reveal={reveal ? "true" : "false"}
     >
       <span
         ref={pinRef(overlay.taskId)}
         style={{ display: "block", position: "relative", lineHeight: 0, willChange: "transform" }}
       >
-        <svg
-          data-testid="canvas-presence-link"
-          className="pointer-events-none absolute overflow-visible"
-          style={{ left: 0, top: 0, overflow: "visible" }}
-          width={1}
-          height={1}
-          aria-hidden
-        >
-          <line
-            x1={FLOAT_X}
-            y1={FLOAT_Y}
-            x2={0}
-            y2={0}
-            stroke={color}
-            strokeWidth={1.25}
-            strokeDasharray="3 4"
-            strokeLinecap="round"
-            opacity={overlay.live ? 0.7 : 0.38}
-          />
-          <circle cx={0} cy={0} r={2.5} fill={color} opacity={overlay.live ? 0.85 : 0.5} />
-        </svg>
+        {reveal && (
+          <svg
+            data-testid="canvas-presence-link"
+            className="pointer-events-none absolute overflow-visible"
+            style={{ left: 0, top: 0, overflow: "visible" }}
+            width={1}
+            height={1}
+            aria-hidden
+          >
+            <line
+              x1={FLOAT_X}
+              y1={FLOAT_Y}
+              x2={0}
+              y2={0}
+              stroke={color}
+              strokeWidth={1.25}
+              strokeDasharray="3 4"
+              strokeLinecap="round"
+              opacity={overlay.live ? 0.7 : 0.38}
+            />
+            <circle cx={0} cy={0} r={2.5} fill={color} opacity={overlay.live ? 0.85 : 0.5} />
+          </svg>
+        )}
         <button
           type="button"
           data-testid="canvas-presence-overlay"
           data-presence-world={overlay.world}
           data-presence-live={overlay.live ? "true" : "false"}
           title={rosterTitle(overlay)}
+          onMouseEnter={() => setPinHovered(true)}
+          onMouseLeave={() => setPinHovered(false)}
           onClick={(e) => {
             e.stopPropagation();
             onFlyToTask(overlay.taskId);
@@ -97,8 +103,8 @@ function PresencePin({
         >
           {showAvatar ? (
             <span style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
-              <AgentStack agents={overlay.agents} size={size} live={overlay.live} />
-              {showFlag && (
+              <AgentStack agents={overlay.agents} size={size} live={liveRing} />
+              {reveal && (
                 <span
                   data-testid="canvas-presence-flag"
                   style={{
@@ -124,7 +130,7 @@ function PresencePin({
                   <span style={{ maxWidth: 168, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 11, fontWeight: 700, lineHeight: 1.2 }}>
                     {overlay.label}
                   </span>
-                  {showAction && (
+                  {overlay.action && (
                     <span
                       data-testid="canvas-presence-action"
                       style={{ maxWidth: 168, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontSize: 9.5, fontWeight: 600, lineHeight: 1.2, opacity: 0.66 }}
@@ -138,7 +144,7 @@ function PresencePin({
           ) : (
             <span
               data-testid="canvas-presence-dot"
-              className={overlay.live ? "ct-presence-live" : undefined}
+              className={liveRing ? "ct-presence-live" : undefined}
               style={{
                 width: 8,
                 height: 8,
@@ -155,7 +161,11 @@ function PresencePin({
   );
 }
 
-export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({ overlays, onFlyToTask }: CanvasPresenceLayerProps) {
+export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({
+  overlays,
+  emphasisTaskIds = new Set(),
+  onFlyToTask,
+}: CanvasPresenceLayerProps) {
   const items = useMemo(() => livePresencePins(overlays), [overlays]);
   const { pinRef } = usePresenceGlide(items);
   if (items.length === 0) return null;
@@ -168,7 +178,13 @@ export const CanvasPresenceLayer = memo(function CanvasPresenceLayer({ overlays,
       style={{ overflow: "visible" }}
     >
       {items.map((overlay) => (
-        <PresencePin key={overlay.taskId} overlay={overlay} pinRef={pinRef} onFlyToTask={onFlyToTask} />
+        <PresencePin
+          key={overlay.taskId}
+          overlay={overlay}
+          pinRef={pinRef}
+          emphasisTaskIds={emphasisTaskIds}
+          onFlyToTask={onFlyToTask}
+        />
       ))}
     </div>
   );

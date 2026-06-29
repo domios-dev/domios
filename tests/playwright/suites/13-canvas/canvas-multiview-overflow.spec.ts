@@ -3,7 +3,7 @@
  *
  * Exercises two real UI surfaces where clipped canvas content has regressed:
  *   1. Inline workspace board (no active tab, mode=workspace) @ desktop viewport
- *   2. Pane plan overlay (Plan segment, mode=focus inside the pane) @ narrow viewport
+ *   2. Pane task strip opens workspace canvas overlay @ narrow viewport
  *
  * Deterministic synthetic long-content plan; assertions use visible DOM geometry only.
  *
@@ -25,7 +25,7 @@ import {
 } from "../../helpers/canvas-inspect";
 
 const SCALES = [0.5, 1.0, 1.75] as const;
-const PANE_ROOT = '[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]';
+const WORKSPACE_CANVAS = '[data-testid="canvas-view"]';
 
 interface MuxState {
   workspaces: Array<{ id: string; tabs: Array<{ id: string }> }>;
@@ -166,10 +166,10 @@ test("@golden @canvas-multiview-overflow synthetic plan has no visible overflow 
   await page.reload({ waitUntil: "domcontentloaded" });
   await page.setViewportSize({ width: 960, height: 640 });
   await openPanePlanCanvas(page, pane.id);
-  await expect(page.locator(PANE_ROOT)).toBeVisible();
-  await expect(page.locator(`${PANE_ROOT} [data-testid="canvas-plan-node"]`)).toHaveCount(1, { timeout: 30_000 });
-  await expect(page.locator(`${PANE_ROOT} [data-testid="canvas-task-card"]`)).toHaveCount(1, { timeout: 30_000 });
-  await auditAtScales(page, "pane-plan-overlay", PANE_ROOT);
+  await expect(page.locator(WORKSPACE_CANVAS).first()).toBeVisible();
+  await expect(page.locator(`${WORKSPACE_CANVAS} [data-testid="canvas-plan-node"]`).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator(`${WORKSPACE_CANVAS} [data-testid="canvas-task-card"]`).first()).toBeVisible({ timeout: 30_000 });
+  await auditAtScales(page, "pane-workspace-overlay", WORKSPACE_CANVAS);
 
   await closePanePlanCanvas(page, pane.id);
   await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);

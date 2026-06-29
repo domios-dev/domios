@@ -1,10 +1,8 @@
 /**
  * 13-canvas — WORKERS AS USERS (live presence).
  *
- * Every live worker (agent) renders as a USER entity: a floating avatar linked by a
- * thin connector to the task it works on — the same avatar+connector language as the
- * orchestrator (which floats as a chip linked to its plans), one tier down. Presence
- * is LIVE-ONLY (a worker with a live pane), budget-capped and viewport-culled.
+ * Progressive disclosure: far zoom shows dot/avatar only; connector/action/flag
+ * appear on hover, deep zoom (W2+), or selected emphasis.
  *
  *   npx playwright test --config=tests/playwright/playwright.config.ts \
  *     --project=golden -g @canvas-presence --retries=0 --workers=1
@@ -23,7 +21,7 @@ async function shot(page: Page, name: string): Promise<void> {
   });
 }
 
-test("@golden @canvas-presence live workers render as avatars + connectors, alongside the orchestrator", async ({ ui }) => {
+test("@golden @canvas-presence live workers render with progressive presence disclosure", async ({ ui }) => {
   test.setTimeout(300_000);
   const { page } = ui;
 
@@ -45,29 +43,35 @@ test("@golden @canvas-presence live workers render as avatars + connectors, alon
   }
   await expect(page.locator(PLAN_SEL).first()).toBeVisible({ timeout: 30_000 });
 
-  // ── W1: worker avatars + connectors to tasks. ──
+  // ── W0/W1: avatars/dots without connectors. ──
   await setCanvasScale(page, 0.55);
   await page.waitForTimeout(300);
   await shot(page, "presence2-W1");
 
-  // Live worker entities (avatar pins) + their connectors to the task they work on.
   const pins = await page.locator('[data-testid="canvas-presence-pin"]').count();
   expect(pins, "≥1 live worker pin present").toBeGreaterThan(0);
   const workers = await page.locator('[data-testid="canvas-presence-overlay"]').count();
-  expect(workers, "≥1 live worker avatar present").toBeGreaterThan(0);
+  expect(workers, "≥1 live worker avatar/dot present").toBeGreaterThan(0);
   const links = await page.locator('[data-testid="canvas-presence-link"]').count();
-  expect(links, "≥1 worker→task connector present").toBeGreaterThan(0);
-  expect(links, "no connector-only orphan dashes").toBe(pins);
-  expect(workers, "every pin has an avatar overlay").toBe(pins);
+  expect(links, "connectors hidden at far/mid zoom").toBe(0);
+  expect(workers, "every pin has a marker").toBe(pins);
   const first = page.locator('[data-testid="canvas-presence-pin"]').first();
   expect(await first.getAttribute("data-task-id"), "worker pin is bound to a task").toBeTruthy();
 
-  // ── W2: the worker shows WHAT IT'S DOING (a quiet current-action line). ──
+  // Hover reveals connector + flag for the hovered pin.
+  await page.locator('[data-testid="canvas-presence-overlay"]').first().hover();
+  await page.waitForTimeout(150);
+  const linksHover = await page.locator('[data-testid="canvas-presence-link"]').count();
+  expect(linksHover, "hover reveals ≥1 connector").toBeGreaterThan(0);
+
+  // ── W2: deep zoom reveals action lines on emphasized pins. ──
   await setCanvasScale(page, 2.0);
   await page.waitForTimeout(300);
   await shot(page, "presence2-W2");
+  const revealed = await page.locator('[data-testid="canvas-presence-pin"][data-presence-reveal="true"]').count();
+  expect(revealed, "≥1 pin at reveal LOD at W2").toBeGreaterThan(0);
   const actions = await page.locator('[data-testid="canvas-presence-action"]').count();
   expect(actions, "≥1 worker shows a current-action line at W2").toBeGreaterThan(0);
 
-  console.log(`presence: workers=${workers} links=${links} actions=${actions} — /tmp/presence2-*.png`);
+  console.log(`presence: workers=${workers} revealed=${revealed} actions=${actions} — /tmp/presence2-*.png`);
 });

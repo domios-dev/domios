@@ -3,10 +3,6 @@ import { PaneSessionChat } from "./PaneSessionChat";
 import { PaneTopBar } from "./PaneTopBar";
 import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
-import { useMultiplexer } from "../../store/multiplexer";
-import { CanvasView } from "../Canvas/CanvasView";
-import { setPanePlanMode, usePanePlanMode } from "../Canvas/panePlanMode";
-import { resolveOrchestratorPaneId } from "../Canvas/planPaneMatch";
 import type {
   ApiConfig,
   Pane,
@@ -51,8 +47,6 @@ export function TabContent({
   api,
 }: TabContentProps) {
   const descriptor = useAgentDescriptor(pane?.agent_type);
-  const { state } = useMultiplexer();
-  const planActive = usePanePlanMode(pane?.id ?? "");
 
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
@@ -99,17 +93,6 @@ export function TabContent({
         />
         <div className="relative min-h-0 flex-1" style={{ background: theme.background }}>
           {body}
-          {planActive && api && (
-            <div className="absolute inset-0 z-20" data-testid="pane-plan-overlay">
-              <CanvasView
-                mode="focus"
-                orchestratorPaneId={resolveOrchestratorPaneId(pane.id, state.panes)}
-                focusPaneId={pane.id}
-                api={api}
-                onClose={() => setPanePlanMode(pane.id, false)}
-              />
-            </div>
-          )}
         </div>
       </div>
     </PaneWrapper>
