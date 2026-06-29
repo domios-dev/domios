@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::path::Path;
 
+use super::readback::pending_after_verified;
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::{
     OrchestratorRef, Plan, PlanStatus, Section, Task, TaskStatus, INBOX_PLAN_ID, INBOX_PLAN_TITLE,
@@ -239,22 +240,22 @@ impl PlanStore {
         taken_by_role: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        let Some(plan_id) = self.list_full().into_iter().find_map(|plan| {
+        let Some((plan_id, canonical_task_id)) = self.list_full().into_iter().find_map(|plan| {
             if plan.status == PlanStatus::Archived {
                 return None;
             }
             plan.tasks
                 .iter()
-                .any(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
-                .then_some(plan.id)
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .map(|task| (plan.id, task.id.clone()))
         }) else {
             return Err(PlanError::TaskNotFound);
         };
-        self.with_plan(&plan_id, now_ms, |p| {
+        let write = self.with_plan(&plan_id, now_ms, |p| {
             let task = p
                 .tasks
                 .iter_mut()
-                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .find(|task| task.id == canonical_task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             task.assigned_pane_id = pane_id.map(str::to_string);
             task.taken_by_role = taken_by_role.map(str::to_string);
@@ -263,7 +264,12 @@ impl PlanStore {
             }
             task.updated_at = now_ms;
             Ok(())
-        })?;
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_assignment(&plan_id, &canonical_task_id, pane_id, taken_by_role),
+            Some(canonical_task_id),
+        )?;
         Ok(plan_id)
     }
 }

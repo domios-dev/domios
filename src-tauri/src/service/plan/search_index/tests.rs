@@ -398,6 +398,106 @@ fn assign_task_readback_sets_pane_lane_and_peer() {
 }
 
 #[test]
+fn locked_task_take_reports_committed_id_and_readback_assignment() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Take lock".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Take me".into(),
+                kind: "fix".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let project = super::super::paths::project_root(root.path());
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let locker = std::thread::spawn({
+        let project = project.clone();
+        move || {
+            let conn = open_index(&project).unwrap();
+            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+            ready_tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(225));
+        }
+    });
+    ready_rx.recv().unwrap();
+
+    let err = store
+        .set_task_assignment(&task_id, Some("pane_take"), Some("worker"), 3)
+        .unwrap_err();
+    match err {
+        PlanError::WritePending {
+            committed_id: Some(id),
+            ..
+        } => assert_eq!(id, task_id),
+        other => panic!("expected pending write with committed id, got {other:?}"),
+    }
+    let task = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.assigned_pane_id.as_deref(), Some("pane_take"));
+    assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
+    locker.join().unwrap();
+}
+
+#[test]
+fn task_drop_readback_clears_assignment_role_and_peer() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Drop assignment".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Drop me".into(),
+                kind: "fix".into(),
+                assigned_pane_id: Some("pane_drop".into()),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task(&plan.id, &task_id, "pane_drop", Some("mac"), 3)
+        .unwrap();
+
+    store.set_task_assignment(&task_id, None, None, 4).unwrap();
+
+    let task = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.assigned_pane_id, None);
+    assert_eq!(task.taken_by_role, None);
+    assert_eq!(task.peer, None);
+}
+
+#[test]
 fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
     let (_tmp, main, linked) = git_worktree_pair();
     let store = PlanStore::new_for_test(Path::new("/unused"));
