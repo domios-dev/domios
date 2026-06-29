@@ -158,10 +158,13 @@ fn add_task_reports_pending_when_plan_index_is_locked_after_commit() {
         PlanError::WritePending {
             operation,
             committed,
+            committed_id,
             message,
         } => {
             assert_eq!(operation, "plan_index_mirror");
             assert!(committed);
+            let committed_id = committed_id.expect("committed task id");
+            assert!(committed_id.starts_with("task_"));
             assert!(is_busy_or_locked(&message), "{message}");
         }
         other => panic!("expected pending plan-index write, got {other:?}"),
@@ -252,7 +255,7 @@ fn locked_plan_index_does_not_duplicate_task_by_retrying_unsafely() {
     });
     ready_rx.recv().unwrap();
 
-    let err = store
+    let committed_id = match store
         .add_task(
             &plan.id,
             NewTask {
@@ -262,18 +265,136 @@ fn locked_plan_index_does_not_duplicate_task_by_retrying_unsafely() {
             },
             2,
         )
-        .unwrap_err();
-    assert!(matches!(err, PlanError::WritePending { .. }));
+        .unwrap_err()
+    {
+        PlanError::WritePending {
+            committed_id: Some(id),
+            ..
+        } => id,
+        other => panic!("expected pending write with committed id, got {other:?}"),
+    };
     locker.join().unwrap();
 
-    let matching = store
+    let tasks = store.get(&plan.id).unwrap().tasks;
+    let committed = tasks
+        .iter()
+        .find(|task| task.id == committed_id)
+        .expect("committed task is readable by diagnostic id");
+    assert_eq!(committed.name, "Exactly once");
+    let matching = tasks
+        .iter()
+        .filter(|task| task.name == "Exactly once")
+        .count();
+    assert_eq!(matching, 1);
+}
+
+#[test]
+fn locked_task_lane_update_reports_committed_id_and_readback_state() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Lane lock".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Lane task".into(),
+                kind: "fix".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let project = super::super::paths::project_root(root.path());
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let locker = std::thread::spawn({
+        let project = project.clone();
+        move || {
+            let conn = open_index(&project).unwrap();
+            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+            ready_tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(225));
+        }
+    });
+    ready_rx.recv().unwrap();
+
+    let err = store
+        .update_task_lane(
+            &plan.id,
+            &task_id,
+            crate::service::plan::TaskLaneUpdate {
+                pane_id: Some(Some("pane_1".into())),
+                workspace_id: Some(Some("ws_1".into())),
+                worktree_path: Some(Some("/tmp/worktree".into())),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap_err();
+    match err {
+        PlanError::WritePending {
+            committed_id: Some(id),
+            ..
+        } => assert_eq!(id, task_id),
+        other => panic!("expected pending write with committed id, got {other:?}"),
+    }
+    let task = store
         .get(&plan.id)
         .unwrap()
         .tasks
         .into_iter()
-        .filter(|task| task.name == "Exactly once")
-        .count();
-    assert_eq!(matching, 1);
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.lane.pane_id.as_deref(), Some("pane_1"));
+    assert_eq!(task.lane.workspace_id.as_deref(), Some("ws_1"));
+    assert_eq!(task.lane.worktree_path.as_deref(), Some("/tmp/worktree"));
+    locker.join().unwrap();
+}
+
+#[test]
+fn assign_task_readback_sets_pane_lane_and_peer() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Assign readback".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Assign me".into(),
+                kind: "fix".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    store
+        .assign_task(&plan.id, &task_id, "pane_2", Some("mac"), 3)
+        .unwrap();
+
+    let task = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.assigned_pane_id.as_deref(), Some("pane_2"));
+    assert_eq!(task.lane.pane_id.as_deref(), Some("pane_2"));
+    assert_eq!(task.peer.as_deref(), Some("mac"));
 }
 
 #[test]

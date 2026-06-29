@@ -60,6 +60,8 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
                 "✗ loop budget {count}/{budget} reached for loop '{loop_id}'; extend with codeterm plan loop set {loop_id} --budget N, or close the plan."
             ))
         }
+        "write_pending" => render_write_pending(data, plan_id, task_id),
+        "readback_mismatch" => render_readback_mismatch(data, plan_id, task_id),
         _ => None,
     }
 }
@@ -142,4 +144,33 @@ fn render_open_subtask(item: &Value) -> Option<String> {
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
     Some(format!("- {name} ({id}) [{status}]"))
+}
+
+fn render_write_pending(data: &Value, plan_id: &str, task_id: Option<&str>) -> Option<String> {
+    let operation = data
+        .get("operation")
+        .and_then(|v| v.as_str())
+        .unwrap_or("plan write");
+    let committed_id = data
+        .get("committed_id")
+        .and_then(|v| v.as_str())
+        .or(task_id)
+        .unwrap_or("<task_id>");
+    Some(format!(
+        "✗ {operation} is pending after a committed write.\n\
+do not retry blindly: the write may already exist as task '{committed_id}'.\n\
+safe next step: read it back with `codeterm task show {committed_id}` or `codeterm plan get {plan_id} --json`."
+    ))
+}
+
+fn render_readback_mismatch(data: &Value, plan_id: &str, task_id: Option<&str>) -> Option<String> {
+    let operation = data
+        .get("operation")
+        .and_then(|v| v.as_str())
+        .unwrap_or("plan write");
+    let target = task_id.unwrap_or("<task_id>");
+    Some(format!(
+        "✗ {operation} did not read back the requested state for task '{target}'.\n\
+do not retry blindly: inspect current state first with `codeterm task show {target}` or `codeterm plan get {plan_id} --json`."
+    ))
 }

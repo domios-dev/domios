@@ -85,6 +85,41 @@ fn renders_loop_budget_fix() {
 }
 
 #[test]
+fn renders_write_pending_without_blind_retry() {
+    let msg = render_plan_error(
+        &json!({
+            "type": "write_pending",
+            "operation": "plan_index_mirror",
+            "committed": true,
+            "committed_id": "task_committed",
+            "message": "database is locked"
+        }),
+        &json!({ "plan_id": "plan_1" }),
+    )
+    .unwrap();
+    assert!(msg.contains("pending after a committed write"));
+    assert!(msg.contains("do not retry blindly"));
+    assert!(msg.contains("task_committed"));
+    assert!(msg.contains("codeterm task show task_committed"));
+}
+
+#[test]
+fn renders_readback_mismatch_without_blind_retry() {
+    let msg = render_plan_error(
+        &json!({
+            "type": "readback_mismatch",
+            "operation": "task_update",
+            "message": "status did not match"
+        }),
+        &json!({ "plan_id": "plan_1", "task_id": "task_1" }),
+    )
+    .unwrap();
+    assert!(msg.contains("did not read back"));
+    assert!(msg.contains("do not retry blindly"));
+    assert!(msg.contains("codeterm task show task_1"));
+}
+
+#[test]
 fn render_plan_markdown_prepends_goal_block() {
     let rendered = render_plan_markdown(&json!({
         "id": "pl_1",

@@ -1,18 +1,48 @@
-use super::{PlanError, PlanStore};
-use crate::plan::{Task, TaskPriority, TaskStatus};
+use super::{PlanError, PlanStore, TaskLaneUpdate};
+use crate::plan::{Task, TaskLaneMetadata, TaskPriority, TaskStatus};
 
 pub(in crate::service::plan) fn pending_after_verified(
     result: Result<(), PlanError>,
     verified: Result<(), PlanError>,
+    committed_id: Option<String>,
 ) -> Result<(), PlanError> {
     match result {
         Ok(()) => verified,
-        Err(err @ PlanError::WritePending { .. }) => match verified {
-            Ok(()) => Err(err),
+        Err(PlanError::WritePending {
+            operation,
+            committed,
+            message,
+            ..
+        }) => match verified {
+            Ok(()) => Err(PlanError::WritePending {
+                operation,
+                committed,
+                committed_id,
+                message,
+            }),
             Err(readback) => Err(readback),
         },
         Err(err) => Err(err),
     }
+}
+
+pub(in crate::service::plan) struct TaskAddExpectation {
+    name: String,
+    kind: String,
+    model: Option<String>,
+    model_rationale: Option<String>,
+    acceptance_criteria: Vec<String>,
+    test_plan: Option<String>,
+    correctness: Option<String>,
+    body: String,
+    intent: Option<String>,
+    parent_task_id: Option<String>,
+    assigned_pane_id: Option<String>,
+    lane: TaskLaneMetadata,
+    group: Option<String>,
+    priority: TaskPriority,
+    handle: Option<String>,
+    section_ids: Option<Vec<String>>,
 }
 
 fn parse_task_status(raw: &str) -> Result<TaskStatus, PlanError> {
@@ -24,7 +54,38 @@ fn parse_task_priority(raw: &str) -> Result<TaskPriority, PlanError> {
         .map_err(|_| PlanError::BadPriority)
 }
 
+fn normalized_lane_value(value: &Option<String>) -> Option<String> {
+    value.as_deref().and_then(|raw| {
+        let trimmed = raw.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_string())
+    })
+}
+
 impl PlanStore {
+    pub(in crate::service::plan) fn task_add_expectation(
+        task: &Task,
+        verify_sections: bool,
+    ) -> TaskAddExpectation {
+        TaskAddExpectation {
+            name: task.name.clone(),
+            kind: task.kind.clone(),
+            model: task.model.clone(),
+            model_rationale: task.model_rationale.clone(),
+            acceptance_criteria: task.acceptance_criteria.clone(),
+            test_plan: task.test_plan.clone(),
+            correctness: task.correctness.clone(),
+            body: task.body.clone(),
+            intent: task.intent.clone(),
+            parent_task_id: task.parent_task_id.clone(),
+            assigned_pane_id: task.assigned_pane_id.clone(),
+            lane: task.lane.clone(),
+            group: task.group.clone(),
+            priority: task.priority.clone(),
+            handle: task.handle.clone(),
+            section_ids: verify_sections.then(|| task.section_ids.clone()),
+        }
+    }
+
     fn task_readback_error(operation: &str, message: impl Into<String>) -> PlanError {
         PlanError::ReadbackMismatch {
             operation: operation.into(),
@@ -44,16 +105,71 @@ impl PlanStore {
         &self,
         plan_id: &str,
         task_id: &str,
+        expected: &TaskAddExpectation,
     ) -> Result<(), PlanError> {
         let task = self.read_task_for_verification(plan_id, task_id)?;
-        if task.id == task_id {
-            Ok(())
-        } else {
-            Err(Self::task_readback_error(
+        let fail = |field: &str| {
+            Self::task_readback_error("task_add", format!("{field} did not match for {}", task.id))
+        };
+        if task.id != task_id {
+            return Err(Self::task_readback_error(
                 "task_add",
                 format!("expected task id {task_id}, got {}", task.id),
-            ))
+            ));
         }
+        if task.name != expected.name {
+            return Err(fail("name"));
+        }
+        if task.kind != expected.kind {
+            return Err(fail("type"));
+        }
+        if task.model != expected.model {
+            return Err(fail("model"));
+        }
+        if task.model_rationale != expected.model_rationale {
+            return Err(fail("why"));
+        }
+        if task.acceptance_criteria != expected.acceptance_criteria {
+            return Err(fail("acceptance_criteria"));
+        }
+        if task.test_plan != expected.test_plan {
+            return Err(fail("test_plan"));
+        }
+        if task.correctness != expected.correctness {
+            return Err(fail("correctness"));
+        }
+        if task.body != expected.body {
+            return Err(fail("body"));
+        }
+        if task.intent != expected.intent {
+            return Err(fail("intent"));
+        }
+        if task.parent_task_id != expected.parent_task_id {
+            return Err(fail("parent_task_id"));
+        }
+        if task.assigned_pane_id != expected.assigned_pane_id {
+            return Err(fail("assigned_pane_id"));
+        }
+        if task.lane != expected.lane {
+            return Err(fail("lane"));
+        }
+        if task.group != expected.group {
+            return Err(fail("group"));
+        }
+        if task.priority != expected.priority {
+            return Err(fail("priority"));
+        }
+        if expected.handle.is_some() && task.handle != expected.handle {
+            return Err(fail("handle"));
+        }
+        if expected
+            .section_ids
+            .as_ref()
+            .is_some_and(|sections| task.section_ids != *sections)
+        {
+            return Err(fail("sections"));
+        }
+        Ok(())
     }
 
     pub(in crate::service::plan) fn verify_task_closed(
@@ -157,6 +273,112 @@ impl PlanStore {
         }
         if handle.is_some_and(|expected| task.handle.as_deref() != Some(expected)) {
             return Err(fail("handle"));
+        }
+        Ok(())
+    }
+
+    pub(in crate::service::plan) fn verify_task_lane_updated(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        expected: &TaskLaneUpdate,
+    ) -> Result<(), PlanError> {
+        let task = self.read_task_for_verification(plan_id, task_id)?;
+        let fail = |field: &str| {
+            Self::task_readback_error(
+                "task_lane_update",
+                format!("{field} did not match for {}", task.id),
+            )
+        };
+        if let Some(value) = &expected.pane_id {
+            let expected = normalized_lane_value(value);
+            if task.lane.pane_id != expected {
+                return Err(fail("lane.pane_id"));
+            }
+        }
+        if let Some(value) = &expected.workspace_id {
+            let expected = normalized_lane_value(value);
+            if task.lane.workspace_id != expected {
+                return Err(fail("lane.workspace_id"));
+            }
+        }
+        if let Some(value) = &expected.workspace_name {
+            let expected = normalized_lane_value(value);
+            if task.lane.workspace_name != expected {
+                return Err(fail("lane.workspace_name"));
+            }
+        }
+        if let Some(value) = &expected.worktree_path {
+            let expected = normalized_lane_value(value);
+            if task.lane.worktree_path != expected {
+                return Err(fail("lane.worktree_path"));
+            }
+        }
+        if let Some(value) = &expected.branch {
+            let expected = normalized_lane_value(value);
+            if task.lane.branch != expected {
+                return Err(fail("lane.branch"));
+            }
+        }
+        if let Some(value) = &expected.base {
+            let expected = normalized_lane_value(value);
+            if task.lane.base != expected {
+                return Err(fail("lane.base"));
+            }
+        }
+        if let Some(value) = &expected.destination {
+            let expected = normalized_lane_value(value);
+            if task.lane.destination != expected {
+                return Err(fail("lane.destination"));
+            }
+        }
+        if let Some(value) = &expected.cleanup_status {
+            let expected = normalized_lane_value(value);
+            if task.lane.cleanup_status != expected {
+                return Err(fail("lane.cleanup_status"));
+            }
+        }
+        if let Some(value) = &expected.cleanup_hints {
+            let mut expected = value.clone();
+            expected.retain(|hint| !hint.trim().is_empty());
+            if task.lane.cleanup_hints != expected {
+                return Err(fail("lane.cleanup_hints"));
+            }
+        }
+        if let Some(value) = &expected.pane_id {
+            let expected = normalized_lane_value(value);
+            if task.assigned_pane_id.is_none() && expected.is_some() {
+                return Err(fail("assigned_pane_id"));
+            }
+        }
+        Ok(())
+    }
+
+    pub(in crate::service::plan) fn verify_task_assigned(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        pane: &str,
+        peer: Option<&str>,
+    ) -> Result<(), PlanError> {
+        let task = self.read_task_for_verification(plan_id, task_id)?;
+        if task.assigned_pane_id.as_deref() != Some(pane) {
+            return Err(Self::task_readback_error(
+                "task_assign",
+                format!("assigned_pane_id did not match for {}", task.id),
+            ));
+        }
+        if task.lane.pane_id.as_deref() != Some(pane) {
+            return Err(Self::task_readback_error(
+                "task_assign",
+                format!("lane.pane_id did not match for {}", task.id),
+            ));
+        }
+        if task.peer.as_deref() != peer {
+            return Err(Self::task_readback_error(
+                "task_assign",
+                format!("peer did not match for {}", task.id),
+            ));
         }
         Ok(())
     }
