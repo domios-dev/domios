@@ -19,6 +19,19 @@ export interface FrameWindowStats {
   longtaskCount: number;
   longtaskTotalMs: number;
   longtaskMaxMs: number;
+  churn: CanvasChurnSnapshot;
+}
+
+export interface CanvasChurnSnapshot {
+  canvasCommits: number;
+  sceneBuilds: number;
+  sceneReadbackPublishes: number;
+  renderReadbackBuilds: number;
+  presenceSourceBuilds: number;
+  presenceOverlayBuilds: number;
+  swarmRosterBuilds: number;
+  canvasBlits: number;
+  canvasResharpens: number;
 }
 
 export interface CanvasBaselineSample {
@@ -79,7 +92,11 @@ export async function loadPerfCanvas(page: Page, fixtureNodes: number): Promise<
 
 async function startSampler(page: Page): Promise<void> {
   await page.evaluate(() => {
-    const w = window as unknown as { __canvasPerf?: PerfWin };
+    const w = window as unknown as {
+      __canvasPerf?: PerfWin;
+      __codetermCanvasChurn?: { reset: () => void };
+    };
+    w.__codetermCanvasChurn?.reset();
     w.__canvasPerf = { frames: [], raf: 0, last: 0, on: true, longtasks: [], po: null };
     const p = w.__canvasPerf;
     const loop = (ts: number) => {
@@ -100,7 +117,10 @@ async function startSampler(page: Page): Promise<void> {
 
 async function stopSampler(page: Page): Promise<FrameWindowStats> {
   return page.evaluate(() => {
-    const w = window as unknown as { __canvasPerf: PerfWin };
+    const w = window as unknown as {
+      __canvasPerf: PerfWin;
+      __codetermCanvasChurn?: { snapshot: () => CanvasChurnSnapshot };
+    };
     const p = w.__canvasPerf;
     p.on = false;
     cancelAnimationFrame(p.raf);
@@ -118,6 +138,17 @@ async function stopSampler(page: Page): Promise<FrameWindowStats> {
       longtaskCount: longtasks.length,
       longtaskTotalMs: Math.round(longtasks.reduce((a, b) => a + b, 0) * 10) / 10,
       longtaskMaxMs: Math.round((longtasks.length ? Math.max(...longtasks) : 0) * 10) / 10,
+      churn: w.__codetermCanvasChurn?.snapshot() ?? {
+        canvasCommits: 0,
+        sceneBuilds: 0,
+        sceneReadbackPublishes: 0,
+        renderReadbackBuilds: 0,
+        presenceSourceBuilds: 0,
+        presenceOverlayBuilds: 0,
+        swarmRosterBuilds: 0,
+        canvasBlits: 0,
+        canvasResharpens: 0,
+      },
     };
   });
 }
@@ -216,8 +247,8 @@ export function l5Thresholds(samples: CanvasBaselineSample[]): CanvasBaselineThr
 
 export function formatBaselineTable(samples: CanvasBaselineSample[]): string {
   const rows = [
-    "nodes | cards | pins | swarm | live text | idle p95 | pan p95 | zoom p95 | pan longtasks | zoom longtasks | pan dropped | zoom dropped",
-    "---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:",
+    "nodes | cards | pins | swarm | live text | idle p95 | pan p95 | zoom p95 | pan overlay builds | zoom overlay builds | pan commits | zoom commits | pan blits | zoom blits | pan longtasks | zoom longtasks",
+    "---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:",
     ...samples.map((s) =>
       [
         s.fixtureNodes,
@@ -228,10 +259,14 @@ export function formatBaselineTable(samples: CanvasBaselineSample[]): string {
         `${s.idle.p95}ms`,
         `${s.pan.p95}ms`,
         `${s.zoom.p95}ms`,
+        s.pan.churn.presenceOverlayBuilds,
+        s.zoom.churn.presenceOverlayBuilds,
+        s.pan.churn.canvasCommits,
+        s.zoom.churn.canvasCommits,
+        s.pan.churn.canvasBlits,
+        s.zoom.churn.canvasBlits,
         s.pan.longtaskCount,
         s.zoom.longtaskCount,
-        `${s.pan.droppedPct}%`,
-        `${s.zoom.droppedPct}%`,
       ].join(" | "),
     ),
   ];

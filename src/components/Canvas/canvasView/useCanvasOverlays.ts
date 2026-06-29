@@ -6,6 +6,7 @@ import { presenceAnimateDemoEnabled, rotatePresenceForDemo } from "../presenceDe
 import { buildSwarmRoster } from "../swarmRoster";
 import { buildCanvasScene, publishCanvasSceneReadback } from "../scene";
 import type { CanvasLookups } from "./models";
+import { bumpCanvasChurn } from "../canvasChurn";
 
 interface OverlaysDeps {
   scene: ReturnType<typeof buildCanvasScene>;
@@ -38,6 +39,7 @@ export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nod
     return () => window.clearInterval(id);
   }, [demoOn]);
   const presenceByTask = useMemo(() => {
+    bumpCanvasChurn("presenceSourceBuilds");
     const m = new Map<string, PresenceSource>();
     for (const [id, model] of lookups.taskModelById) {
       const p = model.presence;
@@ -56,14 +58,20 @@ export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nod
   // Floating presence pins: budget-bounded + viewport-culled → constant pin count on
   // a 20k board, recomputed only when camera/visibility/swarm change (no per-frame O(N)).
   const presenceOverlays = useMemo(
-    () => buildPresenceOverlays({ presenceByTask, nodeById: lookups.nodeById, visibleIds: nodeIds, worldByNode, transform, maxActive: MAX_ACTIVE_PRESENCE_OVERLAYS }),
-    [presenceByTask, lookups.nodeById, nodeIds, worldByNode, transform],
+    () => {
+      bumpCanvasChurn("presenceOverlayBuilds");
+      return buildPresenceOverlays({ presenceByTask, nodeById: lookups.nodeById, visibleIds: nodeIds, worldByNode, cameraScale: transform.scale, maxActive: MAX_ACTIVE_PRESENCE_OVERLAYS });
+    },
+    [presenceByTask, lookups.nodeById, nodeIds, worldByNode, transform.scale],
   );
   // EMERGENCE top-right cluster: the WHOLE swarm deduped to one circle per distinct
   // agent. Camera-DECOUPLED (no transform dep) so the screen-space faces stay put
   // while you fly; recomputed only when the swarm/task data changes.
   const swarmRoster = useMemo(
-    () => buildSwarmRoster({ presenceByTask, taskById: lookups.taskById }),
+    () => {
+      bumpCanvasChurn("swarmRosterBuilds");
+      return buildSwarmRoster({ presenceByTask, taskById: lookups.taskById });
+    },
     [presenceByTask, lookups.taskById],
   );
 

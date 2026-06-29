@@ -2,6 +2,7 @@ import { resolveEdgeEnds } from "./edges";
 import type { Box, LaidOutEdge, Point, WorkspaceLayout } from "./layout";
 import type { ViewportTransform } from "./useCanvasViewport";
 import type { Plan, TaskStatus } from "./types";
+import { bumpCanvasChurn } from "./canvasChurn";
 
 export type SceneRecordKind = "node" | "edge" | "group";
 
@@ -240,6 +241,7 @@ export function publishCanvasSceneReadback(
   slot = DEFAULT_SCENE_SLOT,
 ): () => void {
   if (typeof window === "undefined") return () => {};
+  bumpCanvasChurn("sceneReadbackPublishes");
   const readback = createCanvasSceneReadback(scene, transform);
   debugEntries.set(slot, readback);
   window.__codetermCanvasScene = {

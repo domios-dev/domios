@@ -51,6 +51,7 @@ import { useCanvasOverlays } from "./canvasView/useCanvasOverlays";
 import { useCanvasChangeSignal } from "./canvasView/useCanvasChangeSignal";
 import { useStableSet } from "./canvasView/useStableSet";
 import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
+import { bumpCanvasChurn } from "./canvasChurn";
 
 export type { TaskCardModel } from "./canvasView/models";
 
@@ -104,6 +105,9 @@ export function CanvasViewInner({
 }: CanvasViewInnerProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
+  useEffect(() => {
+    bumpCanvasChurn("canvasCommits");
+  });
 
   // Computed every render (value-based change detector) so an in-place plan-body
   // mutation is still caught — downstream memos key on the STRING value, so they
@@ -219,7 +223,10 @@ export function CanvasViewInner({
   const layout = useMemo(() => layoutWorkspace(layoutSourcePlans, undefined, sectionTitleById), [layoutRevision, sectionTitleById]);
   // Scale-independent: scene structure does not depend on camera zoom, so it
   // rebuilds only when the layout changes — not on every pan/zoom frame.
-  const scene = useMemo(() => buildCanvasScene({ layout, plans: layoutSourcePlans }), [layout, layoutSourcePlans]);
+  const scene = useMemo(() => {
+    bumpCanvasChurn("sceneBuilds");
+    return buildCanvasScene({ layout, plans: layoutSourcePlans });
+  }, [layout, layoutSourcePlans]);
 
   // #8: a pane heartbeat mutates the whole `panes` map ref, but buildTaskPresence
   // reads only EXISTENCE + title of the panes referenced by tasks (assigned/lane +

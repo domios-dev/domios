@@ -1,7 +1,5 @@
 import type { LaidOutNode } from "./layout";
 import type { PresenceAgent } from "./presence/identity";
-import { projectWorldBox } from "./scene";
-import type { ViewportTransform } from "./useCanvasViewport";
 import type { World } from "./worlds";
 
 // EMERGENCE (north-star #2): the swarm floats ON the canvas — each active agent is
@@ -44,7 +42,7 @@ export interface BuildPresenceOverlaysInput {
   /** Viewport-culled visible node ids — off-screen tasks emit nothing. */
   visibleIds: ReadonlySet<string>;
   worldByNode: ReadonlyMap<string, World>;
-  transform: ViewportTransform;
+  cameraScale: number;
   maxActive?: number;
 }
 
@@ -56,7 +54,7 @@ export function buildPresenceOverlays({
   nodeById,
   visibleIds,
   worldByNode,
-  transform,
+  cameraScale,
   maxActive = MAX_ACTIVE_PRESENCE_OVERLAYS,
 }: BuildPresenceOverlaysInput): PresenceOverlay[] {
   const overlays: PresenceOverlay[] = [];
@@ -64,7 +62,6 @@ export function buildPresenceOverlays({
     if (!src.agents.length || !src.agents[0] || !visibleIds.has(taskId)) continue;
     const node = nodeById.get(taskId);
     if (!node) continue;
-    const screenBox = projectWorldBox(node.box, transform);
     overlays.push({
       taskId,
       agents: src.agents,
@@ -73,7 +70,7 @@ export function buildPresenceOverlays({
       action: src.action ?? null,
       world: worldByNode.get(taskId) ?? "W0",
       anchor: { x: node.box.x + node.box.width, y: node.box.y },
-      apparentWidth: screenBox.width,
+      apparentWidth: node.box.width * cameraScale,
     });
   }
   // Budget: keep the most prominent (largest on-screen) pins first; live wins ties so
