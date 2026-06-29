@@ -817,6 +817,7 @@ pub fn run() {
                 poller.spawn();
             }
 
+            startup::setup_conpty_host(app);
             startup::install_bundled_cli(app);
             startup::start_servers(app, &states, &service_state);
             if states.config.lock().api.enabled {

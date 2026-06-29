@@ -44,18 +44,41 @@ shared_library!(ConPtyFuncs,
     pub fn ClosePseudoConsole(hpc: HPCON),
 );
 
+// Sideload conpty.dll (+ its sibling OpenConsole.exe) by ABSOLUTE path so
+// CreatePseudoConsole uses the windowless host, not the flashing in-box conhost.
+fn sideloaded_conpty() -> Option<ConPtyFuncs> {
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(d) = std::env::var_os("CODETERM_CONPTY_DIR") {
+        dirs.push(std::path::PathBuf::from(d));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            dirs.push(parent.to_path_buf());
+        }
+    }
+    for dir in dirs {
+        let dll = dir.join("conpty.dll");
+        if dll.exists() {
+            if let Ok(funcs) = ConPtyFuncs::open(&dll) {
+                eprintln!("[conpty] sideloaded host: {}", dll.display());
+                return Some(funcs);
+            }
+        }
+    }
+    None
+}
+
 fn load_conpty() -> ConPtyFuncs {
     // If the kernel doesn't export these functions then their system is too old and we cannot run.
     let kernel = ConPtyFuncs::open(Path::new("kernel32.dll")).expect(
         "this system does not support conpty.  Windows 10 October 2018 or newer is required",
     );
-
-    // We prefer to use a sideloaded conpty.dll and openconsole.exe host deployed alongside the application. We check for this after checking for
-    // kernel support so that we don't try to proceed and do something crazy.
-    if let Ok(sideloaded) = ConPtyFuncs::open(Path::new("conpty.dll")) {
-        sideloaded
-    } else {
-        kernel
+    match sideloaded_conpty() {
+        Some(funcs) => funcs,
+        None => {
+            eprintln!("[conpty] in-box conhost (no sideloaded conpty.dll found)");
+            kernel
+        }
     }
 }
 

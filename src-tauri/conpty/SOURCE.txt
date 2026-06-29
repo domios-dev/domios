@@ -1,0 +1,1 @@
+Microsoft.Windows.Console.ConPTY 1.24.260512001 (nuget.org) — conpty.dll + OpenConsole.exe pair, sideloaded so CreatePseudoConsole uses the windowless OpenConsole host instead of the flashing in-box conhost.
