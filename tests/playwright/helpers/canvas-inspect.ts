@@ -8,10 +8,12 @@
  * from real DOM bounding boxes. No app-internal hooks — pure UI driving.
  */
 import { expect, type Page } from "@playwright/test";
+import type { Browser } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ApiClient } from "./api-client";
+import { closeCanvasWebSession, openCanvasWebPage } from "./canvas-web-page";
 import { CANVAS_ZOOM_INTENSITY } from "../../../src/components/Canvas/useCanvasViewport";
 
 export const CANVAS_ART_DIR = path.resolve(__dirname, "..", "artifacts", "canvas");
@@ -25,6 +27,11 @@ export const CANVAS_BOARD_SEL =
 
 export const CANVAS_BOARD_OR_EMPTY_SEL =
   `${CANVAS_BOARD_SEL}, [data-testid="canvas-empty"]`;
+
+/** Scope queries to the visible board — hidden workspace mounts can duplicate presence nodes. */
+export function visibleCanvasScope(page: Page) {
+  return page.locator('[data-testid="canvas-view"]:visible').first();
+}
 
 // Must match useCanvasViewport.ts CANVAS_ZOOM_INTENSITY; scale = exp(-deltaY * INTENSITY).
 const ZOOM_INTENSITY = CANVAS_ZOOM_INTENSITY;
@@ -124,18 +131,24 @@ export async function seedPerfFixture(page: Page, taskCount = 24): Promise<void>
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
 }
 
-export async function seedPerfFixtureAndOpenInlineCanvas(page: Page, api: ApiClient, taskCount = 24): Promise<string> {
+export async function seedPerfFixtureAndOpenInlineCanvas(
+  browser: Browser,
+  api: ApiClient,
+  taskCount = 24,
+): Promise<{ page: Page; workspaceId: string; close: () => Promise<void> }> {
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-canvas-perf-"));
   await api.createWorkspace("canvas perf gate", projectPath);
   const workspace = (await api.workspaces()).find((w) => w.cwd === projectPath);
   if (!workspace) throw new Error("perf workspace was not listed");
   await api.focusWorkspace(workspace.id);
   await closeWorkspaceTabs(api, workspace.id);
-  await seedPerfFixture(page, taskCount);
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
-  await openInlineWorkspaceCanvas(page, workspace.id);
-  return workspace.id;
+  const session = await openCanvasWebPage(browser, { perfFixtureN: taskCount });
+  await openInlineWorkspaceCanvas(session.page, workspace.id);
+  return {
+    page: session.page,
+    workspaceId: workspace.id,
+    close: () => closeCanvasWebSession(session),
+  };
 }
 
 async function waitForBoardSurface(page: Page): Promise<void> {
@@ -234,7 +247,7 @@ export async function openInlineWorkspaceCanvas(page: Page, workspaceId?: string
   if (!(await view.isVisible().catch(() => false))) {
     if (workspaceId) await expandWorkspaceSidebar(page, workspaceId);
     const entry = workspaceId
-      ? page.locator(`[data-testid="workspace-item"][data-workspace-id="${workspaceId}"] [data-testid="workspace-plan-entry"]`)
+      ? page.locator(`div:has([data-workspace-id="${workspaceId}"]) [data-testid="workspace-plan-entry"]`)
       : page.locator('[data-testid="workspace-plan-entry"]').first();
     if (await entry.isVisible().catch(() => false)) {
       await entry.click().catch(async () => {
