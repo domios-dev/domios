@@ -258,10 +258,9 @@ pub async fn hook_session_start(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let pane_id = resolve_pane(&state, &raw_pane_id).map_err(|(s, m)| (s, m.to_string()))?;
     let body = body.map(|Json(v)| v).unwrap_or(serde_json::Value::Null);
-    let session_id = body
-        .get("session_id")
-        .and_then(|v| v.as_str())
-        .map(String::from);
+    let session_id = session_start_string(&body, &["session_id"])
+        .or_else(|| session_start_string(&body, &["payload", "session_id"]))
+        .or_else(|| session_start_string(&body, &["payload", "id"]));
     let source = body
         .get("source")
         .and_then(|v| v.as_str())
@@ -369,6 +368,17 @@ pub async fn hook_session_start(
 
 fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
+}
+
+fn session_start_string(body: &serde_json::Value, path: &[&str]) -> Option<String> {
+    let mut cur = body;
+    for key in path {
+        cur = cur.get(*key)?;
+    }
+    cur.as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
 }
 
 /// Push the just-bound session id (+cwd) onto whatever hidden run owns this pane
@@ -803,6 +813,31 @@ mod tests {
         assert_eq!(
             pane.agent_session_id.as_deref(),
             Some("fresh-unpersisted-sid")
+        );
+    }
+
+    #[test]
+    fn session_start_string_reads_codex_session_meta_payload() {
+        let body = serde_json::json!({
+            "type": "session_meta",
+            "payload": {
+                "session_id": "sid-from-payload",
+                "id": "sid-from-id"
+            }
+        });
+
+        assert_eq!(
+            session_start_string(&body, &["payload", "session_id"]).as_deref(),
+            Some("sid-from-payload")
+        );
+
+        let fallback = serde_json::json!({
+            "type": "session_meta",
+            "payload": { "id": "sid-from-id" }
+        });
+        assert_eq!(
+            session_start_string(&fallback, &["payload", "id"]).as_deref(),
+            Some("sid-from-id")
         );
     }
 
