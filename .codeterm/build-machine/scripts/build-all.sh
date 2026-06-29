@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# CodeTerm local build machine — orchestrator.
+# CodeTerm local build machine — orchestrator (macOS + Linux only).
 #
-# Topology: 3 independent build engines, each builds ONE arch per wave, so 3 artifacts
-# build concurrently per wave; two waves cover all 6 targets.
+# Topology: 2 build engines on THIS Mac, each builds ONE arch per wave, so 2 artifacts
+# build concurrently per wave; two waves cover all 4 mac+linux targets.
 #
 #   ENGINE        WHERE                 arm64 wave            x86_64 wave
 #   mac host      native macOS          macOS aarch64 dmg     macOS x86_64 dmg
 #   docker        baked linux images    linux arm64 .deb      linux x86_64 .deb (cross)
-#   windows host  ssh into remote (ROG)  windows arm64 .exe    windows x86_64 .exe
+#
+# Windows is NOT built here — it runs on the ROG self-hosted GitHub Actions runner
+# (label windows-build) via .github/workflows/release-windows.yml, tag-triggered.
 #
 # Builds are CLEAN (fresh git clone of the tag inside each engine; no cargo target cache).
-# The heavy toolchain/deps are pre-baked into the Docker images and the VM, so per-build
-# startup is fast.
+# The heavy toolchain/deps are pre-baked into the Docker images, so per-build startup is fast.
 #
 # Prereqs:
 #   - docker images:  codeterm-build-linux-arm64 / codeterm-build-linux-x64
 #       (build once:  docker build -t codeterm-build-linux-arm64 -f docker/Dockerfile.linux-arm64 .
 #                     docker build -t codeterm-build-linux-x64   -f docker/Dockerfile.linux-x64   . )
 #   - macOS signing: ~/.claude/.secrets/apple-notary.env + Developer ID in keychain + notary profile
-#   - windows host:  WIN_SSH / WIN_PORT / WIN_SSH_KEY / WIN_CARGO_BIN / WIN_LLVM_BIN (see build-windows.sh)
 #   - minisign updater key on the Mac: ~/.tauri/codeterm.key (updater .sig signed on the Mac)
 #
 # Usage:  build-all.sh vX.Y.Z
@@ -52,15 +52,11 @@ echo "### creating auth-free source bundle for $TAG"
 git -C "$REPO" bundle create "/tmp/codeterm-${TAG}.bundle" "$TAG"
 cp "/tmp/codeterm-${TAG}.bundle" "$LWORK/${TAG}.bundle"
 
-# The windows engine SSHes into a always-on remote builder (the ROG), so there is no local VM to
-# pre-warm. build-windows.sh's stability gate confirms the host answers SSH before building.
-
 # Short engine name from its command, so per-engine logs are attributable.
 engine_name() {
   case "$1" in
     *mac-bundle*)    echo "macos" ;;
     *build-linux*)   echo "linux" ;;
-    *build-windows*) echo "windows" ;;
     *)               echo "engine" ;;
   esac
 }
@@ -115,21 +111,20 @@ rc=0
 # arm64 wave
 run_wave arm64 \
   "$HELPERS/mac-bundle.sh $VER arm64 $ART" \
-  "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null; cp $LWORK/out/*aarch64.AppImage $ART/ 2>/dev/null" \
-  "OUT=$ART bash $BM/scripts/build-windows.sh $TAG aarch64" || rc=1
+  "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null; cp $LWORK/out/*aarch64.AppImage $ART/ 2>/dev/null" || rc=1
 
 # x86_64 wave
 run_wave x86_64 \
   "$HELPERS/mac-bundle.sh $VER x86_64 $ART" \
-  "$DOCKER codeterm-build-linux-x64 bash /build-linux.sh $TAG deb; cp $LWORK/out/*amd64.deb $ART/ 2>/dev/null" \
-  "OUT=$ART bash $BM/scripts/build-windows.sh $TAG x86_64" || rc=1
+  "$DOCKER codeterm-build-linux-x64 bash /build-linux.sh $TAG deb; cp $LWORK/out/*amd64.deb $ART/ 2>/dev/null" || rc=1
 
 # Collect mac DMGs into the artifacts dir (mac-bundle leaves them in target/).
 cp -f "$REPO/src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg" "$ART/" 2>/dev/null || true
 cp -f "$REPO/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_${VER}_x64.dmg" "$ART/" 2>/dev/null || true
 
 # Sign updater-capable bundles with the minisign updater key (key stays on the Mac).
-for bundle in "$ART"/CodeTerm_${VER}_*-setup.exe "$ART"/CodeTerm_${VER}_*.AppImage; do
+# Windows installers are signed on the ROG runner (release-windows.yml), not here.
+for bundle in "$ART"/CodeTerm_${VER}_*.AppImage; do
   [ -f "$bundle" ] && ( cd "$REPO" && set -a; . ~/.claude/.secrets/apple-notary.env; set +a; pnpm tauri signer sign "$bundle" )
 done
 
