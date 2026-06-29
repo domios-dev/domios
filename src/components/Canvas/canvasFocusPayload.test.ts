@@ -2,7 +2,7 @@
 
 import { FIXTURE_PLAN, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import { resolveCanvasFocusNodeIds } from "./canvasFocusPayload";
-import type { Plan } from "./types";
+import { TaskStatus, type Plan } from "./types";
 
 type TestFn = () => void;
 const tests: Array<[string, TestFn]> = [];
@@ -54,8 +54,8 @@ test("pane_id ignores terminal stale bindings", () => {
   const plan = {
     ...FIXTURE_PLAN,
     tasks: [
-      { ...FIXTURE_TASK, id: "done", status: "done", assigned_pane_id: "pane-worker" },
-      { ...FIXTURE_TASK, id: "cancelled", status: "cancelled", assigned_pane_id: "pane-worker" },
+      { ...FIXTURE_TASK, id: "done", status: TaskStatus.Done, assigned_pane_id: "pane-worker" },
+      { ...FIXTURE_TASK, id: "cancelled", status: TaskStatus.Cancelled, assigned_pane_id: "pane-worker" },
     ],
   };
   const ids = resolveCanvasFocusNodeIds({ pane_id: "pane-worker" }, [plan]);
