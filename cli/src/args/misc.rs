@@ -258,6 +258,14 @@ pub enum KeepAwakeAction {
         /// Also prevent display sleep
         #[arg(long)]
         display: bool,
+        /// On Linux/GNOME, explicitly apply current-user power policy overrides
+        /// (disable inactive sleep, idle blanking, lid-close and power-button suspend).
+        #[arg(long)]
+        gnome_policy: bool,
+        /// Print system-level sudo mask commands in the status response.
+        /// CodeTerm never runs these commands silently.
+        #[arg(long)]
+        system_block: bool,
     },
     /// Stop the current keep-awake session
     Stop,
