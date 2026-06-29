@@ -308,6 +308,7 @@ pub fn run() {
             commands_mesh::mesh_exit,
             commands_mesh::mesh_add_manual,
             commands_mesh::mesh_start_discovery,
+            commands_mesh::mesh_set_enabled,
             commands_mesh::mesh_start_broadcast,
             commands_mesh::mesh_stop_broadcast,
             commands_mesh::mesh_scan_peers,

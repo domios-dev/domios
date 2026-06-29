@@ -12,7 +12,7 @@ import { getAgentProvider } from "../../lib/agentProviders";
 import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { Tab, PaneStatus, AppConfig } from "../../lib/types";
-import { Check, ChevronDown, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
@@ -32,11 +32,7 @@ import {
 } from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
-import {
-  getMeshPresenceMenuItems,
-  getMeshPresenceSummary,
-  type MeshPresence,
-} from "./meshPresenceHeader";
+import { getMeshPresenceSummary, type MeshPresence } from "./meshPresenceHeader";
 import {
   childTabsForParent,
   collectPaneIds,
@@ -248,38 +244,15 @@ export function Sidebar({
 
   const meshPresence: MeshPresence = (meshEnabledOverride ?? config?.mesh.enabled ?? false) ? "online" : "offline";
   const meshPresenceSummary = getMeshPresenceSummary(meshPresence);
-  const setMeshPresence = useCallback(async (next: MeshPresence) => {
-    if (next === meshPresence) return;
-    const nextEnabled = next === "online";
+  const toggleMeshPresence = useCallback(async () => {
+    const nextEnabled = meshPresence !== "online";
     setMeshEnabledOverride(nextEnabled);
     try {
-      const current = config ?? await invoke<AppConfig>("get_config");
-      await invoke("update_config", {
-        config: { ...current, mesh: { ...current.mesh, enabled: nextEnabled } },
-      });
+      await invoke("mesh_set_enabled", { enabled: nextEnabled });
     } catch {
       setMeshEnabledOverride(null);
     }
-  }, [config, meshPresence]);
-  const meshPresenceItems = useMemo<DropdownMenuItem[]>(
-    () => getMeshPresenceMenuItems(meshPresence).map((item) => ({
-      label: item.label,
-      icon: item.active
-        ? <Check size={12} className="text-[var(--ct-accent)]" />
-        : (
-            <span
-              className="inline-block w-2 h-2 rounded-full"
-              style={
-                item.value === "online"
-                  ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
-                  : { background: "transparent", border: "1.5px solid var(--ct-muted)" }
-              }
-            />
-          ),
-      onClick: () => setMeshPresence(item.value),
-    })),
-    [meshPresence, setMeshPresence],
-  );
+  }, [meshPresence]);
 
   const toggleExpanded = useCallback((wsId: string) => {
     setExpandedWorkspaces((prev) => {
@@ -462,34 +435,8 @@ export function Sidebar({
                   </div>
                 </div>
               )}
-              {/* Presence header — live online/offline signal (was the static "Panes" label). */}
-              <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
-                {!isCompact && (
-                  <DropdownMenu
-                    items={meshPresenceItems}
-                    className="min-w-0"
-                    trigger={
-                      <button
-                        type="button"
-                        className="flex min-w-0 items-center gap-1.5 truncate rounded-md px-1.5 py-1 -ml-1.5 text-left transition-colors hover:bg-[var(--ct-hover)]"
-                        title={meshPresenceSummary.title}
-                      >
-                      <span
-                        className="inline-block w-2 h-2 rounded-full shrink-0"
-                        style={
-                          meshPresence === "online"
-                            ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
-                            : { background: "transparent", border: "1.5px solid var(--ct-muted)" }
-                        }
-                      />
-                      <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
-                        {meshPresenceSummary.label}
-                      </span>
-                        <ChevronDown size={11} className="shrink-0 text-[var(--ct-muted)]" />
-                      </button>
-                    }
-                  />
-                )}
+              {/* Header row — new-workspace action. Presence moved to the bottom nav. */}
+              <div className={`flex items-center ${isCompact ? "justify-center" : "justify-end"} px-3 py-2`}>
                 <div className="flex items-center gap-1">
                   {/* New workspace */}
                   <button
@@ -889,6 +836,38 @@ export function Sidebar({
                   <line x1="18" y1="18" x2="13.5" y2="13" />
                 </svg>
                 {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Mesh</span>}
+              </button>
+              {/* Mesh presence — grey dot + lowercase status; toggle to go offline/online. */}
+              <button
+                type="button"
+                data-testid="mesh-presence-toggle"
+                onClick={toggleMeshPresence}
+                aria-pressed={meshPresence === "online"}
+                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]`}
+                title={meshPresenceSummary.title}
+              >
+                <span
+                  className="inline-block w-2 h-2 rounded-full shrink-0"
+                  style={
+                    meshPresence === "online"
+                      ? { background: "var(--ct-muted)" }
+                      : { background: "transparent", border: "1.5px solid var(--ct-muted)" }
+                  }
+                />
+                {!isCompact && (
+                  <>
+                    <span className={`lowercase ${touchMode ? sidebarNavTouchText : sidebarNavText}`}>
+                      {meshPresence === "online" ? "online" : "offline"}
+                    </span>
+                    <span
+                      className={`ml-auto rounded border px-1.5 py-0.5 text-[10px] font-medium border-[var(--ct-border)] ${
+                        meshPresence === "online" ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted)]"
+                      }`}
+                    >
+                      {meshPresence === "online" ? "On" : "Off"}
+                    </span>
+                  </>
+                )}
               </button>
               {/* Desktop surfaces Settings in the titlebar tray; web mirror has no
                   titlebar, so the sidebar keeps the entry point there. */}

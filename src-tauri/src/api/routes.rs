@@ -536,6 +536,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/pair/reject", post(mesh_routes::mesh_pair_reject))
         .route("/api/mesh/introduce", post(mesh_routes::mesh_introduce))
         .route("/api/mesh/sync", post(mesh_routes::mesh_sync))
+        .route("/api/mesh/enabled", post(mesh_routes::mesh_set_enabled))
         .route(
             "/api/mesh/broadcast/start",
             post(mesh_routes::mesh_start_broadcast),
