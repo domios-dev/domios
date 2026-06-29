@@ -41,7 +41,7 @@ export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nod
     const m = new Map<string, PresenceSource>();
     for (const [id, model] of lookups.taskModelById) {
       const p = model.presence;
-      if (!p || p.agents.length === 0) continue;
+      if (!p || !p.agents.length || !p.agents[0]) continue;
       // What it's doing now: orchestrator focus or latest stride — prefixed so it
       // never reads like plan progress (e.g. subtasks 0/8) or an ambiguous fraction.
       const action = p.focus

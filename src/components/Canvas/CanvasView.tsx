@@ -31,7 +31,7 @@ import type { PlanGhostModel } from "./canvasView/models";
 import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
-import { useCanvasViewport, paintLayer } from "./useCanvasViewport";
+import { useCanvasViewport, paintLayer, type ViewportTransform } from "./useCanvasViewport";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
 import { CanvasPresenceLayer } from "./CanvasPresenceLayer";
@@ -185,18 +185,23 @@ export function CanvasViewInner({
   const drawRequestRef = useRef<(() => void) | null>(null);
   const canvasApiRef = useRef<CanvasRenderApi | null>(null);
   const hoverRafRef = useRef<number | null>(null);
-  const onCanvasPaint = useCallback(() => drawRequestRef.current?.(), []);
+  const onPaintImpl = useRef<(t: ViewportTransform) => void>(() => {});
   const { transform, handlers, fitToView, animateTo, animateToView, zoomBy, setTransform, isDragging, containerRef, layerRef, transformRef } = useCanvasViewport({
     width: size.width,
     height: size.height,
     panButton: "middle",
     // §32.10 / worlds-dive: tasks/strides are tiny → deep zoom-drill needs wide range (to 1000%).
     maxScale: 10,
-    onPaint: onCanvasPaint,
+    onPaint: (t) => onPaintImpl.current(t),
   });
+  onPaintImpl.current = (t) => {
+    paintLayer(layerRef.current, t);
+    drawRequestRef.current?.();
+  };
+  const paintWorldLayer = useCallback((t: ViewportTransform) => {
+    paintLayer(layerRef.current, t);
+  }, [layerRef]);
 
-  // Keep the world layer transform aligned when React commits the settled camera
-  // (gesture pan/zoom paints layerRef imperatively every event via paintLayer).
   useLayoutEffect(() => {
     paintLayer(layerRef.current, transformRef.current);
   }, [transform, layerRef, transformRef]);
@@ -779,6 +784,7 @@ export function CanvasViewInner({
             highlightIds={highlightIds}
             blinkIds={blinkSet}
             dominantId={dominantNodeId}
+            onCameraPaint={paintWorldLayer}
           />
         )}
         {/* §31 off-screen change marker: a directional dot at the viewport edge
