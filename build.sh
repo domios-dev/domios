@@ -136,16 +136,32 @@ git config core.hooksPath .githooks 2>/dev/null || true
 # and dev (~/.codeterm-dev/bin) need the same binary so the dev daemon's
 # resolve_cli_path (which prefers data_dir/bin first) doesn't shell into a
 # stale CLI that's missing recent subcommands.
+cli_release_dir() {
+  local target_root="${CARGO_TARGET_DIR:-cli/target}"
+  if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+    echo "$target_root/$CARGO_BUILD_TARGET/release"
+  else
+    echo "$target_root/release"
+  fi
+}
+
 install_cli_to() {
   local bin_dir="$1"
+  local release_dir
+  release_dir="$(cli_release_dir)"
   mkdir -p "$bin_dir"
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    cp cli/target/release/codeterm "$bin_dir/codeterm"
+    cp "$release_dir/codeterm" "$bin_dir/codeterm"
   else
-    cp cli/target/release/codeterm.exe "$bin_dir/codeterm.exe"
+    cp "$release_dir/codeterm.exe" "$bin_dir/codeterm.exe"
   fi
   echo "CLI installed to $bin_dir"
 }
+
+if [ "${CODETERM_TEST_PRINT_CLI_RELEASE_DIR:-}" = "1" ]; then
+  cli_release_dir
+  exit 0
+fi
 
 prepare_bundle_stubs() {
   node scripts/prepare-cli-stub.js
