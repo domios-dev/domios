@@ -54,10 +54,11 @@ jobs:
             vsarch: x64
             sdkarch: x64
             label: x64
-          # TODO(1.6.1): restore aarch64-pc-windows-msvc. Cross-compiling it on the
-          # x64 ROG fails to link bundled-sqlite (the cc crate doesn't emit aarch64
-          # objects under x64_arm64 vcvars); the deleted QEMU VM built it natively.
-          # Needs per-target CC env or a vcpkg arm64 sqlite — or a native arm64 runner.
+          - target: aarch64-pc-windows-msvc
+            platform_key: windows-aarch64
+            vsarch: x64_arm64
+            sdkarch: arm64
+            label: arm64
     env:
       TARGET: ${{ matrix.target }}
       # Drive every cargo invocation in tauri's beforeBuildCommand at the matrix
@@ -99,6 +100,24 @@ jobs:
           else { $manifest = 'latest.json'; $prerelease = 'false' }
           "manifest=$manifest"     | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "prerelease=$prerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      # The runner service session PATH can drop ~\.cargo\bin (observed 2026-06-29:
+      # `rustup` not recognized, failing every build before MSVC env). Self-heal by
+      # locating rustup across CARGO_HOME / user profiles and prepending its dir.
+      - name: Ensure Rust toolchain on PATH
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Get-Command rustup -ErrorAction SilentlyContinue) { Write-Host "rustup already on PATH"; exit 0 }
+          $candidates = @()
+          if ($env:CARGO_HOME)  { $candidates += (Join-Path $env:CARGO_HOME 'bin') }
+          if ($env:USERPROFILE) { $candidates += (Join-Path $env:USERPROFILE '.cargo\bin') }
+          $candidates += (Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue |
+                          ForEach-Object { Join-Path $_.FullName '.cargo\bin' })
+          $hit = $candidates | Where-Object { Test-Path (Join-Path $_ 'rustup.exe') } | Select-Object -First 1
+          if (-not $hit) { Write-Error "rustup.exe not found in: $($candidates -join '; '). Restore Rust on the runner."; exit 1 }
+          $hit | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "Prepended Rust bin to PATH: $hit"
 
       # Repo-pinned toolchain (rust-toolchain.toml = 1.95.0) drives rustc; the
       # ROG already has both windows-msvc targets installed on 1.95.0. We do NOT
@@ -192,6 +211,21 @@ jobs:
             Write-Host "Using machine-wide clang: $clang"
           } else {
             Write-Host "::warning::No machine-wide clang found (checked VS LLVM + C:\Program Files\LLVM). The aarch64 ring build will fail with 'permission denied' on the per-user scoop clang — install LLVM to Program Files or run the runner as the toolchain-owning user."
+          }
+          # Cross-compile (vsarch like x64_arm64): force the cc crate to use the
+          # arm64-targeting cl.exe. Without this its windows_registry detection
+          # returns the host x64 cl, so bundled sqlite3.c compiles to x64 objects
+          # and the arm64 link drops them (LNK4272 -> LNK2019 sqlite3_* / LNK1120).
+          if ("${{ matrix.vsarch }}" -match '_') {
+            $ccKey = "${{ matrix.target }}".Replace('-', '_')
+            $crossBin = Join-Path $vc['VCToolsInstallDir'] "bin\Hostx64\${{ matrix.sdkarch }}"
+            $crossCl  = Join-Path $crossBin 'cl.exe'
+            $crossLib = Join-Path $crossBin 'lib.exe'
+            if (-not (Test-Path $crossCl)) { Write-Error "cross cl.exe not found at $crossCl (VC.Tools.ARM64 missing?)"; exit 1 }
+            "CC_$ccKey=$crossCl"  | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "CXX_$ccKey=$crossCl" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            "AR_$ccKey=$crossLib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "Forcing cc cross compiler: CC_$ccKey=$crossCl"
           }
           # INCLUDE/LIB/etc -> GITHUB_ENV (skip Path; that goes to GITHUB_PATH).
           $before = @{}
