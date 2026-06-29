@@ -134,10 +134,10 @@ jobs:
         shell: pwsh
         run: pnpm install --frozen-lockfile
 
-      # Load the MSVC + Windows SDK dev environment (INCLUDE/LIB/PATH) for the
-      # matrix arch into $GITHUB_ENV so the tauri build below inherits it. ring's
-      # clang (compiled for aarch64) needs the ARM64 CRT/SDK headers — without the
-      # x64_arm64 dev env the cross build fails. x64 needs the x64 dev env.
+      # Load the MSVC + Windows SDK dev environment for the matrix arch. INCLUDE/
+      # LIB go to $GITHUB_ENV; new PATH dirs go to $GITHUB_PATH (PREPEND, so the
+      # runner's existing PATH — gh, git, node — is preserved). ring's aarch64
+      # build needs a clang the runner account can execute (see clang note below).
       - name: Load MSVC dev environment (${{ matrix.vsarch }})
         shell: pwsh
         run: |
@@ -154,6 +154,12 @@ jobs:
           & $cmdExe /c "`"$vcvars`" ${{ matrix.vsarch }} && set" | ForEach-Object {
             if ($_ -match '^([^=]+)=(.*)$') { $vc[$matches[1]] = $matches[2] }
           }
+          $newPathDirs = New-Object System.Collections.Generic.List[string]
+          $orig = @($env:PATH -split ';' | Where-Object { $_ })
+          # vcvars-added PATH dirs (MSVC bin etc.), minus the literal %PATH% token.
+          foreach ($d in (($vc['Path'] -replace ';?%PATH%;?', ';') -split ';')) {
+            if ($d -and ($orig -notcontains $d) -and ($newPathDirs -notcontains $d)) { $newPathDirs.Add($d) }
+          }
           # vcvarsall under the runner service account does NOT auto-detect the Windows
           # SDK, so INCLUDE lacks the UCRT headers (stdio.h/assert.h -> C1083). Inject
           # the SDK include/lib/bin for the matrix arch explicitly.
@@ -163,26 +169,42 @@ jobs:
                     Where-Object { $_.Name -match '^10\.' } |
                     Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1).Name
             $arch = "${{ matrix.sdkarch }}"
-            # Drop the literal %PATH% token vcvars leaves in PATH — GitHub Actions
-            # won't expand it, and it'd break tool lookup for cargo subprocesses.
-            $cleanPath = ($vc['Path'] -replace ';?%PATH%;?', ';').Trim(';')
             $vc['INCLUDE'] = "$($vc['INCLUDE'].TrimEnd(';'));$kits\Include\$sdk\ucrt;$kits\Include\$sdk\shared;$kits\Include\$sdk\um;$kits\Include\$sdk\winrt;$kits\Include\$sdk\cppwinrt"
             $vc['LIB']     = "$($vc['LIB'].TrimEnd(';'));$kits\Lib\$sdk\ucrt\$arch;$kits\Lib\$sdk\um\$arch"
-            $vc['PATH']    = "$cleanPath;$kits\bin\$sdk\x64;$kits\bin\$sdk\x64\ucrt"
             $vc['WindowsSdkDir'] = "$kits\"
             $vc['WindowsSDKVersion'] = "$sdk\"
-            Write-Host "Injected Windows SDK $sdk (lib arch $arch) into INCLUDE/LIB/PATH"
+            $newPathDirs.Add("$kits\bin\$sdk\x64"); $newPathDirs.Add("$kits\bin\$sdk\x64\ucrt")
+            Write-Host "Injected Windows SDK $sdk (lib arch $arch)"
           } elseif ($vc['INCLUDE'] -notmatch 'Windows Kits') {
             Write-Error "Windows SDK not found under $kits — runner is missing the SDK component"; exit 1
           }
-          # Write only NEW or CHANGED vars to GITHUB_ENV so the build step inherits them.
+          # ring's aarch64 build invokes bare `clang`. The scoop clang lives under a
+          # per-user profile that the runner service account can't execute ('permission
+          # denied'). Prefer a machine-wide clang (VS-bundled LLVM / Program Files LLVM).
+          $clang = @(
+            (Join-Path $vc['VCINSTALLDIR'] 'Tools\Llvm\x64\bin\clang.exe'),
+            (Join-Path $vc['VCINSTALLDIR'] 'Tools\Llvm\bin\clang.exe'),
+            'C:\Program Files\LLVM\bin\clang.exe'
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($clang) {
+            $clangDir = Split-Path $clang -Parent
+            $newPathDirs.Insert(0, $clangDir)
+            "LIBCLANG_PATH=$clangDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "Using machine-wide clang: $clang"
+          } else {
+            Write-Host "::warning::No machine-wide clang found (checked VS LLVM + C:\Program Files\LLVM). The aarch64 ring build will fail with 'permission denied' on the per-user scoop clang — install LLVM to Program Files or run the runner as the toolchain-owning user."
+          }
+          # INCLUDE/LIB/etc -> GITHUB_ENV (skip Path; that goes to GITHUB_PATH).
           $before = @{}
           foreach ($l in (Get-ChildItem Env:)) { $before[$l.Name] = $l.Value }
           foreach ($k in $vc.Keys) {
+            if ($k -ieq 'Path') { continue }
             if (-not $before.ContainsKey($k) -or $before[$k] -ne $vc[$k]) {
               "$k=$($vc[$k])" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
             }
           }
+          # Prepend new dirs to PATH for later steps (preserves gh/git/node).
+          foreach ($d in $newPathDirs) { $d | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append }
 
       # Pre-create the target-triple sidecar stubs so tauri_build's externalBin/
       # resource glob validation passes on the FIRST cargo build of a cross target
