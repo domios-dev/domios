@@ -9,6 +9,7 @@ pub mod loop_mutations;
 pub mod mutations;
 pub mod next_actions;
 pub mod paths;
+mod readback;
 pub mod reminders;
 pub mod search_index;
 pub mod section_links;
@@ -55,12 +56,31 @@ pub enum PlanError {
     NotFound,
     ElementNotFound,
     TaskNotFound,
-    OpenSubtasks { subtasks: Vec<OpenSubtask> },
-    TransitionDenied { from: TaskStatus, to: TaskStatus },
-    UndeclaredKind { declared: Vec<String> },
-    BudgetExhausted { count: u32, budget: u32 },
+    OpenSubtasks {
+        subtasks: Vec<OpenSubtask>,
+    },
+    TransitionDenied {
+        from: TaskStatus,
+        to: TaskStatus,
+    },
+    UndeclaredKind {
+        declared: Vec<String>,
+    },
+    BudgetExhausted {
+        count: u32,
+        budget: u32,
+    },
     BadStatus,
     BadPriority,
+    WritePending {
+        operation: String,
+        committed: bool,
+        message: String,
+    },
+    ReadbackMismatch {
+        operation: String,
+        message: String,
+    },
     Io(String),
 }
 
@@ -111,12 +131,37 @@ impl fmt::Display for PlanError {
             }
             PlanError::BadStatus => write!(f, "invalid status"),
             PlanError::BadPriority => write!(f, "invalid priority"),
+            PlanError::WritePending {
+                operation,
+                committed,
+                message,
+            } => {
+                write!(
+                    f,
+                    "{operation} pending after write (committed={committed}): {message}"
+                )
+            }
+            PlanError::ReadbackMismatch { operation, message } => {
+                write!(f, "{operation} readback mismatch: {message}")
+            }
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
 }
 
 impl std::error::Error for PlanError {}
+
+fn plan_index_write_error(message: String) -> PlanError {
+    if search_index::is_busy_or_locked(&message) {
+        PlanError::WritePending {
+            operation: "plan_index_mirror".into(),
+            committed: true,
+            message,
+        }
+    } else {
+        PlanError::Io(message)
+    }
+}
 
 impl PlanError {
     pub fn to_json(&self) -> serde_json::Value {
@@ -138,6 +183,25 @@ impl PlanError {
             }
             PlanError::BadStatus => serde_json::json!({ "type": "bad_status" }),
             PlanError::BadPriority => serde_json::json!({ "type": "bad_priority" }),
+            PlanError::WritePending {
+                operation,
+                committed,
+                message,
+            } => {
+                serde_json::json!({
+                    "type": "write_pending",
+                    "operation": operation,
+                    "committed": committed,
+                    "message": message
+                })
+            }
+            PlanError::ReadbackMismatch { operation, message } => {
+                serde_json::json!({
+                    "type": "readback_mismatch",
+                    "operation": operation,
+                    "message": message
+                })
+            }
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
     }

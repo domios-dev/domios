@@ -8,8 +8,6 @@ use crate::mem::{embeddings, search, store};
 use crate::plan::{Milestone, Plan, PlanStatus, Section, Spec, Task};
 
 const INDEX_FILE: &str = "plan-index.sqlite";
-const PLAN_INDEX_BUSY_RETRY_MS: &[u64] = &[25, 50, 100, 200, 400];
-
 #[cfg(not(test))]
 const PLAN_INDEX_BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 #[cfg(test)]
@@ -193,7 +191,7 @@ fn replace_units(
     units: Vec<Unit>,
     sync_embed: bool,
 ) -> Result<(), String> {
-    retry_index_write(|| replace_units_once(project_root, prefix_like, &units, sync_embed))
+    replace_units_once(project_root, prefix_like, &units, sync_embed)
 }
 
 fn replace_units_once(
@@ -214,23 +212,7 @@ fn replace_units_once(
     tx.commit().map_err(|e| e.to_string())
 }
 
-fn retry_index_write<T, F>(mut f: F) -> Result<T, String>
-where
-    F: FnMut() -> Result<T, String>,
-{
-    for delay_ms in PLAN_INDEX_BUSY_RETRY_MS {
-        match f() {
-            Ok(value) => return Ok(value),
-            Err(err) if is_busy_or_locked(&err) => {
-                std::thread::sleep(std::time::Duration::from_millis(*delay_ms));
-            }
-            Err(err) => return Err(err),
-        }
-    }
-    f()
-}
-
-fn is_busy_or_locked(message: &str) -> bool {
+pub(crate) fn is_busy_or_locked(message: &str) -> bool {
     message.contains("DatabaseBusy")
         || message.contains("DatabaseLocked")
         || message.contains("database is locked")
