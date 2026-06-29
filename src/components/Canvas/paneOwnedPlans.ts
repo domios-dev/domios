@@ -1,5 +1,6 @@
 import type { Pane } from "../../lib/types";
 import { ownerIsPaneSelf } from "./planPaneMatch";
+import { resolvePlanExclusivePaneTasks } from "./paneCurrentTask";
 import { buildTaskPresence } from "./taskPresence";
 import type { PresenceAgent } from "./presence/identity";
 import { TaskStatus, type Plan } from "./types";
@@ -29,12 +30,13 @@ function summarize(plan: Plan, panes: Record<string, Pane>): OrchestratorPlanSum
   let total = 0;
   let live = false;
   const byAgent = new Map<string, PresenceAgent>();
+  const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
   for (const task of plan.tasks) {
     if (task.status === TaskStatus.Cancelled) continue;
     total += 1;
     if (task.status === TaskStatus.Done) done += 1;
     if (task.status === TaskStatus.InProgress) live = true;
-    const presence = buildTaskPresence(plan, task, panes);
+    const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
     for (const agent of presence?.agents ?? []) if (!byAgent.has(agent.id)) byAgent.set(agent.id, agent);
   }
   const hbLanes = (plan.heartbeat?.active_lanes ?? []).filter((l) => l.trim()).length;

@@ -1,6 +1,6 @@
 // Run: npx tsx src/components/Canvas/paneCurrentTask.test.ts
 
-import { resolvePaneCurrentTask } from "./paneCurrentTask";
+import { resolvePaneCurrentTask, resolvePlanExclusivePaneTasks } from "./paneCurrentTask";
 import type { Plan, Task } from "./types";
 
 let passed = 0;
@@ -97,6 +97,14 @@ const archived = resolvePaneCurrentTask(
   "p1",
 );
 ok("archived plan ignored", archived === null);
+
+const exclusive = resolvePlanExclusivePaneTasks(
+  plan([
+    task({ id: "wip", assigned_pane_id: "p1", status: "in_progress", updated_at: 20 }),
+    task({ id: "stale", assigned_pane_id: "p1", status: "pending", updated_at: 10 }),
+  ]),
+);
+ok("exclusive map picks in_progress task", exclusive.get("p1") === "wip");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

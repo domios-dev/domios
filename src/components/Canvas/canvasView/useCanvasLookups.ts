@@ -3,6 +3,7 @@ import type { Pane } from "../../../lib/types";
 import type { LaidOutNode, WorkspaceLayout } from "../layout";
 import { milestoneColorMap } from "../milestoneColors";
 import { zoneColor } from "../layout/sectionZones";
+import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
 import type { CanvasElement, DriftItem, Plan, Section, Task } from "../types";
 import { collectSections, type CanvasLookups, type TaskCardModel } from "./models";
@@ -55,6 +56,7 @@ export function useCanvasLookups(
         const existing = driftByTask.get(item.task_id);
         if (!existing || (existing.not_mine && !item.not_mine)) driftByTask.set(item.task_id, item);
       }
+      const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
       for (const task of plan.tasks) {
         taskById.set(task.id, task);
         const parentTaskName = task.parent_task_id ? taskNameById.get(task.parent_task_id) ?? null : null;
@@ -66,7 +68,7 @@ export function useCanvasLookups(
           parentTaskName,
           stepColors: colors,
           drift: driftByTask.get(task.id),
-          presence: buildTaskPresence(plan, task, panes),
+          presence: buildTaskPresence(plan, task, panes, exclusivePaneTasks),
           regionColor: (() => { const sid = regionSectionOf(task); return sid ? zoneColor(sid) : undefined; })(),
         });
         for (const m of task.milestones) milestoneTaskById.set(m.id, task.id);
