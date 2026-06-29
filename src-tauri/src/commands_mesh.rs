@@ -375,6 +375,23 @@ pub fn mesh_start_discovery(
     crate::mesh::discovery::start_listeners(mesh.inner().clone())
 }
 
+/// Manual mesh on/off switch (sidebar toggle). Persists `config.mesh.enabled`
+/// and drives the offline/resume side-effects. Returns the new enabled state.
+#[tauri::command]
+pub fn mesh_set_enabled(
+    enabled: bool,
+    mesh: tauri::State<'_, crate::MeshStateHandle>,
+    config: tauri::State<'_, crate::config::ConfigState>,
+    svc: tauri::State<'_, crate::service::ServiceState>,
+) -> Result<bool, String> {
+    Ok(crate::mesh::set_mesh_enabled(
+        mesh.inner(),
+        config.inner(),
+        &svc.app_handle,
+        enabled,
+    ))
+}
+
 /// Start broadcasting for the configured duration.
 #[tauri::command]
 pub fn mesh_start_broadcast(

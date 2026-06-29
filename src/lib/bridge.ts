@@ -262,6 +262,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   mesh_reject_pairing: (a) =>
     webJson("POST", "/api/mesh/reject", { request_id: a.requestId }),
   mesh_add_manual: (a) => webJson("POST", "/api/mesh/peers/add-manual", a),
+  mesh_set_enabled: (a) => webJson("POST", "/api/mesh/enabled", { enabled: a.enabled }),
   mesh_start_broadcast: () => webJson("POST", "/api/mesh/broadcast/start"),
   mesh_stop_broadcast: () => webJson("POST", "/api/mesh/broadcast/stop"),
 

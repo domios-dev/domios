@@ -199,9 +199,9 @@ pub async fn auth_middleware(
     let path = req.uri().path().to_string();
     let method = req.method().clone();
 
-    // Mesh-disabled gate: blocks /api/mesh/* except /api/mesh/ping (so paired peers detect us as down without retrying forever). Also blocks
-    // /api/mesh/pair/* by design — re-enabling mesh requires a local config change, not a remote pair request.
-    if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" {
+    // Mesh-disabled gate: blocks /api/mesh/* except /api/mesh/ping (so paired peers detect us as down without retrying forever) and
+    // /api/mesh/enabled (the local on/off switch — it MUST stay reachable to turn mesh back on; still token-gated, peers rejected below).
+    if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" && path != "/api/mesh/enabled" {
         let mesh_enabled = state.config.lock().mesh.enabled;
         if !mesh_enabled {
             log::warn!(

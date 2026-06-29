@@ -13,7 +13,7 @@
 
 use std::time::Duration;
 
-use super::discovery::{run_tailscale_json, run_with_timeout, tailscale_binary};
+use super::discovery::{run_with_timeout, tailscale_binary};
 
 /// Hard cap on a single serve mutation (`serve`/`cert`). Generous vs. the read
 /// probes because `tailscale cert` provisioning can take a few seconds.
@@ -45,7 +45,7 @@ pub struct ServeStatus {
 
 /// Probe current Tailscale Serve state for `api_port`. Pure read — no mutation.
 pub fn probe_serve_status(api_port: u16) -> ServeStatus {
-    let installed = tailscale_binary().is_some();
+    let installed = tailscale_installed();
     let cfg = serve_status_json();
     let https_url = cfg
         .as_ref()
@@ -92,31 +92,58 @@ fn format_serve_url(host: &str, port: u16) -> String {
 }
 
 fn serve_status_json() -> Option<serde_json::Value> {
-    // macOS: the App Store / GUI Tailscale exposes its LocalAPI over loopback TCP
-    // with a `sameuserproof-<port>-<proof>` file in its Group Container (the CLI's
+    // macOS: read passively via the LocalAPI. The only CLI candidate here is the
+    // app-bundle shim, which LAUNCHES the GUI app — we must never spawn it.
     #[cfg(target_os = "macos")]
     {
-        if let Some(val) = serve_config_via_localapi() {
-            return Some(val);
-        }
-        if let Some(val) = serve_config_via_disclaimed_helper() {
-            return Some(val);
-        }
+        macos_localapi("/localapi/v0/serve-config")
     }
-    run_tailscale_json(&["serve", "status", "--json"], PROBE_TIMEOUT)
+    #[cfg(not(target_os = "macos"))]
+    {
+        super::discovery::run_tailscale_json(&["serve", "status", "--json"], PROBE_TIMEOUT)
+    }
 }
 
-/// Read serve-config from a responsibility-disclaimed `/bin/sh` helper: the
+/// Read any Tailscale LocalAPI JSON endpoint passively: in-process first (works
+/// in dev), then a responsibility-disclaimed helper (signed prod). Returns None
+/// when Tailscale isn't running — the loopback read simply fails, so this NEVER
+/// wakes/launches the GUI app the way spawning the bundled CLI would.
+#[cfg(target_os = "macos")]
+pub(crate) fn macos_localapi(path: &str) -> Option<serde_json::Value> {
+    localapi_via_proof_file(path).or_else(|| localapi_via_disclaimed_helper(path))
+}
+
+/// Full `status --json`-equivalent read passively via the macOS LocalAPI.
+#[cfg(target_os = "macos")]
+pub(crate) fn macos_status_json() -> Option<serde_json::Value> {
+    macos_localapi("/localapi/v0/status")
+}
+
+/// This node's Tailnet IPv4 (CGNAT 100.64/10) read passively from the LocalAPI
+/// `status` — the macOS replacement for spawning `tailscale ip -4`.
+#[cfg(target_os = "macos")]
+pub(crate) fn macos_self_tailscale_ip() -> Option<String> {
+    macos_status_json()?
+        .get("Self")?
+        .get("TailscaleIPs")?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str())
+        .find(|ip| super::discovery::is_tailscale_ip(ip))
+        .map(String::from)
+}
+
+/// Fetch a LocalAPI path from a responsibility-disclaimed `/bin/sh` helper: the
 /// signed `.app` cannot read Tailscale's Group Container in-process (App-Data
 /// protection → silent EPERM), but a disclaimed child runs with CLI-tool
 /// authority and can. The helper locates the `sameuserproof-<port>-<proof>`
 /// token, then curls the LocalAPI — both the protected read and the loopback
 /// fetch happen in the allowed context; we only parse the JSON it prints.
 #[cfg(target_os = "macos")]
-fn serve_config_via_disclaimed_helper() -> Option<serde_json::Value> {
+fn localapi_via_disclaimed_helper(path: &str) -> Option<serde_json::Value> {
     let gc = dirs::home_dir()?.join("Library/Group Containers");
     let gc = gc.to_str()?;
-    if gc.contains('\'') {
+    if gc.contains('\'') || !path.starts_with("/localapi/") {
         return None;
     }
     let script = format!(
@@ -126,7 +153,7 @@ fn serve_config_via_disclaimed_helper() -> Option<serde_json::Value> {
          [ -n \"$f\" ] || exit 1; \
          b=$(basename \"$f\"); rest=${{b#sameuserproof-}}; \
          port=${{rest%%-*}}; proof=${{rest#*-}}; \
-         exec curl -s -u \":$proof\" \"http://127.0.0.1:$port/localapi/v0/serve-config\""
+         exec curl -s -u \":$proof\" \"http://127.0.0.1:$port{path}\""
     );
     let out = crate::process_util::disclaimed_capture("/bin/sh", &["-c", &script])?;
     let start = out.find('{')?;
@@ -134,11 +161,11 @@ fn serve_config_via_disclaimed_helper() -> Option<serde_json::Value> {
     serde_json::from_str(out.get(start..=end)?).ok()
 }
 
-/// Read `serve-config` from the macOS sandboxed Tailscale LocalAPI: discover the
-/// `sameuserproof-<port>-<proof>` token file, then a Basic-auth GET (blank user,
-/// proof as password) to `http://127.0.0.1:<port>/localapi/v0/serve-config`.
+/// Fetch a LocalAPI path from the macOS sandboxed Tailscale LocalAPI: discover
+/// the `sameuserproof-<port>-<proof>` token file, then a Basic-auth GET (blank
+/// user, proof as password) to `http://127.0.0.1:<port><path>`.
 #[cfg(target_os = "macos")]
-fn serve_config_via_localapi() -> Option<serde_json::Value> {
+fn localapi_via_proof_file(path: &str) -> Option<serde_json::Value> {
     let gc = dirs::home_dir()?.join("Library/Group Containers");
     for dir in std::fs::read_dir(&gc).ok()?.flatten() {
         if !dir
@@ -160,7 +187,7 @@ fn serve_config_via_localapi() -> Option<serde_json::Value> {
             let Ok(port) = port.parse::<u16>() else {
                 continue;
             };
-            if let Some(val) = localapi_serve_config(port, proof) {
+            if let Some(val) = localapi_get(port, proof, path) {
                 return Some(val);
             }
         }
@@ -171,7 +198,7 @@ fn serve_config_via_localapi() -> Option<serde_json::Value> {
 /// Minimal raw-HTTP GET against the loopback LocalAPI (avoids a reqwest blocking
 /// client panicking when called from inside the async mesh loop).
 #[cfg(target_os = "macos")]
-fn localapi_serve_config(port: u16, proof: &str) -> Option<serde_json::Value> {
+fn localapi_get(port: u16, proof: &str, path: &str) -> Option<serde_json::Value> {
     use base64::Engine;
     use std::io::{Read, Write};
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
@@ -180,7 +207,7 @@ fn localapi_serve_config(port: u16, proof: &str) -> Option<serde_json::Value> {
     stream.set_write_timeout(Some(PROBE_TIMEOUT)).ok()?;
     let cred = base64::engine::general_purpose::STANDARD.encode(format!(":{proof}"));
     let req = format!(
-        "GET /localapi/v0/serve-config HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Basic {cred}\r\nConnection: close\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Basic {cred}\r\nConnection: close\r\n\r\n"
     );
     stream.write_all(req.as_bytes()).ok()?;
     let mut buf = Vec::new();
@@ -238,6 +265,38 @@ fn proxy_targets_local_port(proxy: &str, port: u16) -> bool {
     };
     let host_local = matches!(host, "127.0.0.1" | "localhost" | "[::1]" | "::1");
     host_local && p.parse::<u16>().map(|n| n == port).unwrap_or(false)
+}
+
+/// Passive "is Tailscale present" check for the read-side status panel. On
+/// macOS this MUST NOT spawn the bundled CLI (that launches the GUI app) — stat
+/// the install locations instead. Elsewhere, probing the CLI is safe.
+pub(crate) fn tailscale_installed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        use std::path::Path;
+        if Path::new("/Applications/Tailscale.app").exists() {
+            return true;
+        }
+        let group_container = dirs::home_dir().is_some_and(|home| {
+            std::fs::read_dir(home.join("Library/Group Containers"))
+                .map(|rd| {
+                    rd.flatten().any(|d| {
+                        d.file_name()
+                            .to_string_lossy()
+                            .ends_with("group.io.tailscale.ipn.macos")
+                    })
+                })
+                .unwrap_or(false)
+        });
+        group_container
+            || ["/opt/homebrew/bin/tailscale", "/usr/local/bin/tailscale"]
+                .iter()
+                .any(|p| Path::new(p).exists())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        tailscale_binary().is_some()
+    }
 }
 
 // ── Enable / Disable (write side, consent-gated) ────────────────────────
