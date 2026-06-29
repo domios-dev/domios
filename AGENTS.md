@@ -324,7 +324,7 @@ Branch as you like, then:
 
 Before tagging, a fast `cargo check` precheck (linux+macOS) gates the long build; failures surface per-engine in the Actions log.
 
-**Build farm + full release runbook:** **`.codeterm/build-machine/README.md`**. The tag-driven `release.yml` runs on the self-hosted `codeterm-builder` runner (the Mac), which builds **macOS (native) + Linux (Docker) on the Mac, and Windows on the ROG over SSH** (no local Windows VM). That doc has the 3-engine×2-wave model, the ROG Windows-host setup, env vars (`WIN_SSH`/`WIN_CARGO_BIN`/`WIN_LLVM_BIN`), and the PR-based release steps.
+**Build farm + full release runbook:** **`.codeterm/build-machine/README.md`**. A single `release-X.Y.Z` tag fires two workflows in parallel, each on its own self-hosted runner: `release.yml` on the **Mac** (`codeterm-builder`) builds **macOS (native) + Linux (Docker)** via `build-all.sh`, and `release-windows.yml` on the **ROG** (`ROG-windows-build`, label `windows-build`) builds + signs **Windows x64 + arm64** directly on the runner (NOT over SSH — the old SSH path is gone). That doc has the Mac 2-engine×2-wave model, the ROG runner setup, and the PR-based release steps.
 
 ## Documentation
 
