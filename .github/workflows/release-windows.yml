@@ -63,6 +63,12 @@ jobs:
       # target so the bundled CLI/embed sidecars match the installer arch (this is
       # what makes the aarch64 cross-build on the x64 ROG produce arm64 sidecars).
       CARGO_BUILD_TARGET: ${{ matrix.target }}
+      # Some repo paths exceed Windows' 260-char limit (.codeterm/plans/**). git's
+      # core.longpaths must be on for checkout to write them. Set it via GIT_CONFIG_*
+      # env (not --global) because actions/checkout swaps HOME and ignores ~/.gitconfig.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
