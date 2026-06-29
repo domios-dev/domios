@@ -5,8 +5,8 @@ use std::time::Duration;
 use rusqlite::params;
 
 use super::*;
-use crate::plan::{OrchestratorRef, TaskStatus};
-use crate::service::plan::{task_queries::TaskListFilter, NewTask, PlanStore};
+use crate::plan::{AgentRef, OrchestratorRef, TaskStatus};
+use crate::service::plan::{task_queries::TaskListFilter, NewTask, PlanError, PlanStore};
 
 fn store_and_root() -> (tempfile::TempDir, PlanStore) {
     let root = tempfile::tempdir().unwrap();
@@ -117,7 +117,7 @@ fn mirrors_plan_units_into_project_local_mem_db() {
 }
 
 #[test]
-fn add_task_survives_transient_plan_index_write_lock() {
+fn add_task_reports_pending_when_plan_index_is_locked_after_commit() {
     let (root, store) = store_and_root();
     let plan = store
         .create_plan(
@@ -141,7 +141,7 @@ fn add_task_survives_transient_plan_index_write_lock() {
     });
     ready_rx.recv().unwrap();
 
-    let task_id = store
+    let err = store
         .add_task(
             &plan.id,
             NewTask {
@@ -152,21 +152,128 @@ fn add_task_survives_transient_plan_index_write_lock() {
             },
             2,
         )
-        .unwrap();
-    locker.join().unwrap();
+        .unwrap_err();
 
-    let hits = store
-        .search_plan_index(
-            root.path(),
-            &search::SearchQuery {
-                query: "task added while plan index is locked".into(),
-                kind: Some("task".into()),
-                limit: Some(5),
-                ..Default::default()
-            },
+    match err {
+        PlanError::WritePending {
+            operation,
+            committed,
+            message,
+        } => {
+            assert_eq!(operation, "plan_index_mirror");
+            assert!(committed);
+            assert!(is_busy_or_locked(&message), "{message}");
+        }
+        other => panic!("expected pending plan-index write, got {other:?}"),
+    }
+
+    let visible = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .filter(|task| task.name == "Add under contention")
+        .collect::<Vec<_>>();
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].body, "task added while plan index is locked");
+    locker.join().unwrap();
+}
+
+#[test]
+fn close_task_immediate_readback_is_consistent() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Close readback".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
         )
         .unwrap();
-    assert!(hits.iter().any(|hit| hit.unit_id == task_id));
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Close me".into(),
+                kind: "fix".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+
+    store
+        .close_task(
+            &plan.id,
+            &task_id,
+            Some("verified close"),
+            AgentRef::from_pane("worker"),
+            3,
+        )
+        .unwrap();
+
+    let task = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.status, TaskStatus::Done);
+    assert!(task
+        .milestones
+        .iter()
+        .any(|milestone| milestone.text == "verified close"));
+}
+
+#[test]
+fn locked_plan_index_does_not_duplicate_task_by_retrying_unsafely() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "No duplicate retry".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let project = super::super::paths::project_root(root.path());
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let locker = std::thread::spawn({
+        let project = project.clone();
+        move || {
+            let conn = open_index(&project).unwrap();
+            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+            ready_tx.send(()).unwrap();
+            std::thread::sleep(Duration::from_millis(225));
+        }
+    });
+    ready_rx.recv().unwrap();
+
+    let err = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Exactly once".into(),
+                kind: "fix".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap_err();
+    assert!(matches!(err, PlanError::WritePending { .. }));
+    locker.join().unwrap();
+
+    let matching = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .filter(|task| task.name == "Exactly once")
+        .count();
+    assert_eq!(matching, 1);
 }
 
 #[test]

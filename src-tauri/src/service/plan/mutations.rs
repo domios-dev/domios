@@ -1,3 +1,4 @@
+use super::readback::pending_after_verified;
 use super::{NewTask, OpenSubtask, PlanError, PlanStore};
 use crate::plan::{
     AgentRef, CanvasElement, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanStatus,
@@ -342,7 +343,7 @@ impl PlanStore {
         let path = Self::write_atomic(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&guard, &path);
         self.mirror_plan_index(&guard)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
+            .map_err(super::plan_index_write_error)?;
         let entry = Self::index_entry(&guard, path);
         self.index.write().insert(guard.id.clone(), entry);
         self.reset_bound_panes(&guard);
@@ -428,13 +429,14 @@ impl PlanStore {
             canvas: Default::default(),
             milestones: vec![],
         };
-        self.with_plan(plan_id, now_ms, |p| {
+        let write = self.with_plan(plan_id, now_ms, |p| {
             if task.section_ids.is_empty() {
                 task.section_ids = super::section_links::auto_section_ids_for_task(p, &task);
             }
             p.tasks.push(task);
             Ok(())
-        })?;
+        });
+        pending_after_verified(write, self.verify_task_added(plan_id, &tid))?;
         Ok(tid)
     }
 
@@ -446,7 +448,7 @@ impl PlanStore {
         from: AgentRef,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        let write = self.with_plan(plan_id, now_ms, |p| {
             let task_index = p
                 .tasks
                 .iter()
@@ -475,7 +477,8 @@ impl PlanStore {
                 });
             }
             Ok(())
-        })
+        });
+        pending_after_verified(write, self.verify_task_closed(plan_id, task_id, result))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -647,7 +650,8 @@ impl PlanStore {
         handle: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        let expected_sections = section_ids.clone();
+        let write = self.with_plan(plan_id, now_ms, |p| {
             let task_index = p
                 .tasks
                 .iter()
@@ -711,7 +715,27 @@ impl PlanStore {
             }
             task.updated_at = now_ms;
             Ok(())
-        })
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_updated(
+                plan_id,
+                task_id,
+                name,
+                kind,
+                model,
+                model_rationale,
+                status,
+                status_label,
+                priority,
+                body,
+                intent,
+                expected_sections.as_deref(),
+                parent_task_id,
+                group,
+                handle,
+            ),
+        )
     }
 
     pub fn update_task_lane(
