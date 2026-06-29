@@ -199,6 +199,7 @@ export function CanvasViewInner({
     onPaint: (t) => onPaintImpl.current(t),
   });
   onPaintImpl.current = (t) => {
+    bumpCanvasChurn("cameraPaints");
     paintLayer(layerRef.current, t);
     drawRequestRef.current?.();
   };

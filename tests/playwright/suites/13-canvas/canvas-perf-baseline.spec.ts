@@ -45,8 +45,8 @@ test("@golden @canvas-perf-baseline records deterministic synthetic canvas basel
     ).toBeGreaterThan(0);
     expect(sample.pan.frames, `${nodes} pan frame sampler`).toBeGreaterThan(20);
     expect(sample.zoom.frames, `${nodes} zoom frame sampler`).toBeGreaterThan(20);
-    expect(sample.pan.churn.canvasBlits, `${nodes} pan churn counter should observe canvas blits`).toBeGreaterThan(0);
-    expect(sample.zoom.churn.canvasBlits, `${nodes} zoom churn counter should observe canvas blits`).toBeGreaterThan(0);
+    expect(sample.pan.churn.cameraPaints, `${nodes} pan churn counter should observe camera paints`).toBeGreaterThan(0);
+    expect(sample.zoom.churn.cameraPaints, `${nodes} zoom churn counter should observe camera paints`).toBeGreaterThan(0);
     expect(sample.zoom.churn.presenceOverlayBuilds, `${nodes} zoom should rebuild presence overlays on settled scale changes`).toBeGreaterThan(0);
   }
 

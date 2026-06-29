@@ -1,5 +1,6 @@
 export interface CanvasChurnSnapshot {
   canvasCommits: number;
+  cameraPaints: number;
   sceneBuilds: number;
   sceneReadbackPublishes: number;
   renderReadbackBuilds: number;
@@ -14,6 +15,7 @@ type CanvasChurnKey = keyof CanvasChurnSnapshot;
 
 const EMPTY_CHURN: CanvasChurnSnapshot = {
   canvasCommits: 0,
+  cameraPaints: 0,
   sceneBuilds: 0,
   sceneReadbackPublishes: 0,
   renderReadbackBuilds: 0,
