@@ -24,6 +24,7 @@ export interface FrameWindowStats {
 
 export interface CanvasChurnSnapshot {
   canvasCommits: number;
+  cameraPaints: number;
   sceneBuilds: number;
   sceneReadbackPublishes: number;
   renderReadbackBuilds: number;
@@ -140,6 +141,7 @@ async function stopSampler(page: Page): Promise<FrameWindowStats> {
       longtaskMaxMs: Math.round((longtasks.length ? Math.max(...longtasks) : 0) * 10) / 10,
       churn: w.__codetermCanvasChurn?.snapshot() ?? {
         canvasCommits: 0,
+        cameraPaints: 0,
         sceneBuilds: 0,
         sceneReadbackPublishes: 0,
         renderReadbackBuilds: 0,
@@ -249,8 +251,8 @@ export function l5Thresholds(samples: CanvasBaselineSample[]): CanvasBaselineThr
 
 export function formatBaselineTable(samples: CanvasBaselineSample[]): string {
   const rows = [
-    "nodes | cards | pins | swarm | live text | idle p95 | pan p95 | zoom p95 | pan overlay builds | zoom overlay builds | pan commits | zoom commits | pan blits | zoom blits | pan longtasks | zoom longtasks",
-    "---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:",
+    "nodes | cards | pins | swarm | live text | idle p95 | pan p95 | zoom p95 | pan paints | zoom paints | pan overlay builds | zoom overlay builds | pan commits | zoom commits | pan blits | zoom blits | pan longtasks | zoom longtasks",
+    "---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---:",
     ...samples.map((s) =>
       [
         s.fixtureNodes,
@@ -261,6 +263,8 @@ export function formatBaselineTable(samples: CanvasBaselineSample[]): string {
         `${s.idle.p95}ms`,
         `${s.pan.p95}ms`,
         `${s.zoom.p95}ms`,
+        s.pan.churn.cameraPaints,
+        s.zoom.churn.cameraPaints,
         s.pan.churn.presenceOverlayBuilds,
         s.zoom.churn.presenceOverlayBuilds,
         s.pan.churn.canvasCommits,
