@@ -416,6 +416,56 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
 }
 
 {
+  const hooksPath = "/tmp/home/.codex/hooks.json";
+  const configPath = "/tmp/home/.codex/config.toml";
+  const hookJson = {
+    hooks: {
+      SessionStart: [{
+        hooks: [{
+          command:
+            "curl -s -X POST http://localhost:7686/api/panes/$CODETERM_PANE_ID/hook/session_start " +
+            "-H 'X-CodeTerm-Agent-Provider: codex' " +
+            '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @-',
+        }],
+      }],
+    },
+  };
+  let config = [
+    "[hooks.state]",
+    "",
+    `[hooks.state."${hooksPath}:session_start:0:0"]`,
+    'trusted_hash = "sha256:test"',
+    "enabled = false",
+    "",
+  ].join("\n");
+  const p = loadCodexWithHost(
+    baseHost({
+      fs: {
+        fileExists: (p: string) => p === hooksPath || p === configPath,
+        readJson: (p: string) => (p === hooksPath ? hookJson : null),
+        readFile: (p: string) => (p === configPath ? config : ""),
+        writeJson: () => true,
+        writeFile: (p: string, body: string) => {
+          if (p === configPath) {
+            config = body;
+          }
+          return true;
+        },
+      },
+    }),
+  );
+
+  const status = p.checkIntegration();
+  assert(status.session_start_hook === false, "disabled Codex hook trust makes integration unhealthy");
+  assert(status.hook_trust_enabled === false, "disabled Codex hook trust is surfaced explicitly");
+
+  const repaired = p.ensureIntegrationOnStartup(7686);
+  assert(repaired.ok === true, "ensureIntegrationOnStartup repairs disabled hook trust");
+  assert(config.indexOf("enabled = true") !== -1, "disabled hook trust is re-enabled in config.toml");
+  assert(p.checkIntegration().session_start_hook === true, "re-enabled hook trust makes integration healthy");
+}
+
+{
   const p = loadCodexWithHost(
     baseHost({
       platform: () => "windows",

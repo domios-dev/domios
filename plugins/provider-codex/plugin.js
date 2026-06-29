@@ -451,11 +451,11 @@ var plugin = {
   checkIntegration() {
     const path = codexHooksPath();
     if (!path || !host.fs.fileExists(path)) {
-      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false };
+      return { hooks_file_exists: false, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null };
     }
     const json = host.fs.readJson(path);
     if (!json) {
-      return { hooks_file_exists: true, hooks_installed: false, session_start_hook: false };
+      return { hooks_file_exists: true, hooks_installed: false, session_start_hook: false, hook_trust_state: "missing", hook_trust_enabled: null };
     }
     const arr = json.hooks && json.hooks.SessionStart;
     const installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
@@ -467,10 +467,15 @@ var plugin = {
         return !!h && String(h.command || "").indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1;
       });
     });
+    const current = installed && windowsReady && nonceOk;
+    const trustState = codexHookTrustState(path);
+    const trustOk = trustState !== "disabled";
     return {
       hooks_file_exists: true,
-      hooks_installed: installed && windowsReady && nonceOk,
-      session_start_hook: installed && windowsReady && nonceOk
+      hooks_installed: current && trustOk,
+      session_start_hook: current && trustOk,
+      hook_trust_state: trustState,
+      hook_trust_enabled: trustState === "enabled" ? true : trustState === "disabled" ? false : null
     };
   },
   installIntegration(apiPort) {
@@ -503,8 +508,9 @@ var plugin = {
     });
     const ok = host.fs.writeJson(path, json);
     if (ok) {
+      const trust = enableExistingCodexHookTrust(path);
       host.log("info", "[codex-plugin] SessionStart hook installed at " + path);
-      return { ok: true };
+      return { ok: true, hook_trust_state: trust };
     }
     return { ok: false, error: "writeJson failed for " + path };
   },
@@ -758,6 +764,12 @@ function codexHooksPath() {
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "hooks.json";
 }
+function codexConfigPath() {
+  const home = host.homeDir();
+  if (!home) return null;
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  return home + sep + ".codex" + sep + "config.toml";
+}
 function codexModelsCachePath() {
   const home = host.homeDir();
   if (!home) return null;
@@ -861,6 +873,62 @@ function isCodetermCodexHook(entry) {
     }
   }
   return false;
+}
+function codexHookTrustState(hooksPath) {
+  const cfg = codexConfigPath();
+  if (!cfg || !host.fs.fileExists(cfg)) return "missing";
+  const text = String(host.fs.readFile(cfg) || "");
+  if (!text) return "missing";
+  const block = findCodexHookTrustBlock(text, hooksPath);
+  if (block == null) return "missing";
+  const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
+  if (!m) return "unknown";
+  return m[1] === "true" ? "enabled" : "disabled";
+}
+function enableExistingCodexHookTrust(hooksPath) {
+  const cfg = codexConfigPath();
+  if (!cfg || !host.fs.fileExists(cfg)) return "missing";
+  const text = String(host.fs.readFile(cfg) || "");
+  if (!text) return "missing";
+  const span = findCodexHookTrustBlockSpan(text, hooksPath);
+  if (!span) return "missing";
+  const block = text.substring(span.start, span.end);
+  if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
+    return codexHookTrustState(hooksPath) === "enabled" ? "enabled" : "unknown";
+  }
+  const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
+  const next = text.substring(0, span.start) + nextBlock + text.substring(span.end);
+  return host.fs.writeFile(cfg, next) ? "enabled" : "unknown";
+}
+function findCodexHookTrustBlock(text, hooksPath) {
+  const span = findCodexHookTrustBlockSpan(text, hooksPath);
+  return span ? text.substring(span.start, span.end) : null;
+}
+function findCodexHookTrustBlockSpan(text, hooksPath) {
+  const marker = hooksPath + ":session_start:";
+  const lines = text.split("\n");
+  let offset = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    const isHeader = trimmed.charAt(0) === "[" && trimmed.charAt(trimmed.length - 1) === "]";
+    if (isHeader && trimmed.indexOf("hooks.state.") !== -1 && trimmed.indexOf(marker) !== -1) {
+      const start = offset;
+      let end = text.length;
+      let scanOffset = offset + line.length + 1;
+      for (let j = i + 1; j < lines.length; j++) {
+        const t = lines[j].trim();
+        if (t.charAt(0) === "[" && t.charAt(t.length - 1) === "]") {
+          end = scanOffset;
+          break;
+        }
+        scanOffset += lines[j].length + 1;
+      }
+      return { start, end };
+    }
+    offset += line.length + 1;
+  }
+  return null;
 }
 function hasCodetermCodexWindowsCommand(entry) {
   const hooks = entry && entry.hooks;
