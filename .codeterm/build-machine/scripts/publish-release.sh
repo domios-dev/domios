@@ -60,8 +60,11 @@ PRIV_ASSETS=( "CodeTerm_${VER}_aarch64.dmg" "CodeTerm_${VER}_x64.dmg"
   CodeTerm_aarch64.app.tar.gz CodeTerm_aarch64.app.tar.gz.sig
   CodeTerm_x64.app.tar.gz CodeTerm_x64.app.tar.gz.sig
   "CodeTerm_${VER}_aarch64.AppImage" "CodeTerm_${VER}_aarch64.AppImage.sig"
-  "CodeTerm_${VER}_arm64.deb" "CodeTerm_${VER}_amd64.deb" )
-for w in "CodeTerm_${VER}_x64-setup.exe" "CodeTerm_${VER}_x64-setup.exe.sig" \
+  "CodeTerm_${VER}_arm64.deb" )
+# Windows (release-windows.yml) and x86_64 Linux (release-linux.yml) are built +
+# published on their own ROG runners — fold them in here only if present in $ART.
+for w in "CodeTerm_${VER}_amd64.deb" \
+         "CodeTerm_${VER}_x64-setup.exe" "CodeTerm_${VER}_x64-setup.exe.sig" \
          "CodeTerm_${VER}_arm64-setup.exe" "CodeTerm_${VER}_arm64-setup.exe.sig"; do
   [ -f "$w" ] && PRIV_ASSETS+=("$w")
 done

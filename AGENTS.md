@@ -324,7 +324,7 @@ Branch as you like, then:
 
 Before tagging, a fast `cargo check` precheck (linux+macOS) gates the long build; failures surface per-engine in the Actions log.
 
-**Build farm + full release runbook:** **`.codeterm/build-machine/README.md`**. A single `release-X.Y.Z` tag fires two workflows in parallel, each on its own self-hosted runner: `release.yml` on the **Mac** (`codeterm-builder`) builds **macOS (native) + Linux (Docker)** via `build-all.sh`, and `release-windows.yml` on the **ROG** (`ROG-windows-build`, label `windows-build`) builds + signs **Windows x64 + arm64** directly on the runner (NOT over SSH — the old SSH path is gone). That doc has the Mac 2-engine×2-wave model, the ROG runner setup, and the PR-based release steps.
+**Build farm + full release runbook:** **`.codeterm/build-machine/README.md`**. A single `release-X.Y.Z` tag fires **three** workflows in parallel, each on its own self-hosted runner: `release.yml` on the **Mac** (`codeterm-builder`) builds **macOS (native) + arm64 Linux (Docker)** via `build-all.sh`; `release-windows.yml` on the **ROG** (`ROG-windows-build`, label `windows-build`) builds + signs **Windows x64 + arm64** on the runner; `release-linux.yml` on the **ROG's WSL2 Ubuntu** (label `linux-build`) builds **x86_64 Linux .deb+.AppImage** natively. No SSH between machines (the old Mac→ROG SSH path is gone); each runner signs via `TAURI_SIGNING_PRIVATE_KEY` and publishes/mirrors itself. That doc has the three-runner table, per-runner provisioning, and the PR-based release steps.
 
 ## Documentation
 

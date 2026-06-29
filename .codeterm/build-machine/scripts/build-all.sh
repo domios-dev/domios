@@ -6,10 +6,12 @@
 #
 #   ENGINE        WHERE                 arm64 wave            x86_64 wave
 #   mac host      native macOS          macOS aarch64 dmg     macOS x86_64 dmg
-#   docker        baked linux images    linux arm64 .deb      linux x86_64 .deb (cross)
+#   docker        baked linux images    linux arm64 .deb+.AppImage   (x86_64 -> ROG/WSL)
 #
-# Windows is NOT built here — it runs on the ROG self-hosted GitHub Actions runner
-# (label windows-build) via .github/workflows/release-windows.yml, tag-triggered.
+# NOT built here, each on its own ROG self-hosted GitHub Actions runner (tag-triggered):
+#   - Windows x64+arm64 -> release-windows.yml   (label windows-build)
+#   - x86_64 Linux .deb+.AppImage -> release-linux.yml (label linux-build, native in WSL2)
+# x86_64 Linux moved off this Mac because the AppImage can't be cross-built on ARM.
 #
 # Builds are CLEAN (fresh git clone of the tag inside each engine; no cargo target cache).
 # The heavy toolchain/deps are pre-baked into the Docker images, so per-build startup is fast.
@@ -113,10 +115,10 @@ run_wave arm64 \
   "$HELPERS/mac-bundle.sh $VER arm64 $ART" \
   "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null; cp $LWORK/out/*aarch64.AppImage $ART/ 2>/dev/null" || rc=1
 
-# x86_64 wave
+# x86_64 wave — macOS only; x86_64 Linux is built natively on the ROG/WSL runner
+# (release-linux.yml), not cross-compiled here.
 run_wave x86_64 \
-  "$HELPERS/mac-bundle.sh $VER x86_64 $ART" \
-  "$DOCKER codeterm-build-linux-x64 bash /build-linux.sh $TAG deb; cp $LWORK/out/*amd64.deb $ART/ 2>/dev/null" || rc=1
+  "$HELPERS/mac-bundle.sh $VER x86_64 $ART" || rc=1
 
 # Collect mac DMGs into the artifacts dir (mac-bundle leaves them in target/).
 cp -f "$REPO/src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg" "$ART/" 2>/dev/null || true

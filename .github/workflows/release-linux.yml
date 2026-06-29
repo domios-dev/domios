@@ -1,18 +1,25 @@
 name: release-linux
 
-# Builds the Linux bundles (AppImage + .deb) on ubuntu-24.04, uploads to
-# the GitHub release, then refreshes the channel updater manifest.
+# Builds the x86_64 Linux bundles (AppImage + .deb) NATIVELY on the ROG's WSL2
+# Ubuntu self-hosted runner (label `linux-build`), uploads to the GitHub release,
+# then refreshes the channel updater manifest. Native x86_64 also produces the
+# x86_64 AppImage, which the ARM Mac (Docker cross) cannot build.
 #
-# Runner choice: ubuntu-24.04 ships glibc 2.39, which is required by the
-# pyke/ort prebuilt onnxruntime static library — it references symbols
-# such as __isoc23_strtoll that only exist in glibc >= 2.38. Building on
-# ubuntu-22.04 (glibc 2.35) fails the link step.
+# The Mac (release.yml / build-all.sh) builds macOS + arm64 Linux only; this
+# workflow owns x86_64 Linux. The same release-* tag fires both.
+#
+# WSL distro requirement: Ubuntu 24.04 (glibc 2.39). The pyke/ort prebuilt
+# onnxruntime static lib references symbols (e.g. __isoc23_strtoll) that only
+# exist in glibc >= 2.38; Ubuntu 22.04 (glibc 2.35) fails the link step.
 #
 # Triggers:
-#   - workflow_dispatch with explicit `tag` input (manual fallback re-run)
+#   - push of a `release-*` tag (mapped to the vX.Y.Z release, matches release.yml)
+#   - workflow_dispatch with explicit `tag` input (manual re-run / verification)
 #
-# Normal releases use release.yml on the self-hosted codeterm-builder runner.
-# Do not trigger this hosted workflow from v* tags; GitHub-hosted runners burn billing minutes.
+# Runner provisioning (one-time, on the ROG's WSL2 Ubuntu 24.04): register a
+# self-hosted runner with label `linux-build`; install rustup on the repo-pinned
+# channel (1.95.0), node 22 / pnpm 10.32.1, gh, and the apt deps below (or bake
+# them into the distro so the per-run apt-get is a fast no-op).
 #
 # Disable: set repo Variable RELEASE_LINUX_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
@@ -23,6 +30,9 @@ name: release-linux
 # encrypted — it evaluates to empty when unset).
 
 "on":
+  push:
+    tags:
+      - 'release-*'
   workflow_dispatch:
     inputs:
       tag:
@@ -37,7 +47,7 @@ jobs:
   build:
     name: build (x86_64-unknown-linux-gnu)
     if: ${{ vars.RELEASE_LINUX_ENABLED != 'false' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux-build]
     env:
       TARGET: x86_64-unknown-linux-gnu
     steps:
@@ -51,7 +61,8 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           else
-            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            # push of release-X.Y.Z -> publish under the vX.Y.Z release (matches release.yml).
+            echo "name=v${GITHUB_REF_NAME#release-}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Detect channel and prerelease flag
@@ -82,10 +93,15 @@ jobs:
             libssl-dev \
             patchelf
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ env.TARGET }}
+      # Repo-pinned toolchain (rust-toolchain.toml = 1.95.0) drives rustc; do NOT
+      # use dtolnay@stable, which would float off the pin. x86_64-unknown-linux-gnu
+      # is the host target on the x86_64 WSL runner, so no cross target is needed.
+      - name: Show pinned Rust toolchain
+        shell: bash
+        run: |
+          rustup show
+          rustc -vV
+          rustup target list --installed | grep -E 'x86_64-unknown-linux-gnu' || rustup target add "$TARGET"
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
