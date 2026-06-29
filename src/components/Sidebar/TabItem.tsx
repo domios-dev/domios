@@ -249,7 +249,7 @@ function TabItemInner({
         )}
         {/* Plan-membership glance — worker dot / orchestrator glyph (EMERGENCE) */}
         {activity && pane && !editing && (
-          <TabActivityIndicator activity={activity} paneId={pane.id} status={status} />
+          <TabActivityIndicator activity={activity} paneId={pane.id} />
         )}
         {/* Connected services */}
         {pane?.connected_services?.includes("telegram") && (

@@ -39,6 +39,13 @@ test("plansForLayout overlays fetched spec sections for layout", () => {
   assert(merged[0].sections[0].id === "spec-a", "spec tree");
 });
 
+test("layoutInputRevision ignores task status churn (layout stays stable)", () => {
+  const sections = [section("s")];
+  const pending = plan("p", "o", 1, sections, [task("t1", ["s"], { status: "pending", body: "small" })]);
+  const live = plan("p", "o", 1, sections, [task("t1", ["s"], { status: "in_progress", body: "small" })]);
+  assert(layoutInputRevision([pending]) === layoutInputRevision([live]), "status-only diff does not affect layout revision");
+});
+
 test("layout bounds grow when tasks are added to the same plan id", () => {
   const sections = [section("s")];
   const small = plan("p", "o", 1, sections, [task("t1", ["s"])]);

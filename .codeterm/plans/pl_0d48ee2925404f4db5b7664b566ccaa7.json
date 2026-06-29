@@ -29,15 +29,15 @@
       }
     }
   ],
-  "status": "active",
+  "status": "archived",
   "owner": {
     "pane_id": "unknown",
     "session_id": null,
     "title": null
   },
-  "project_path": "/Users/dev/Developer/codeterm-canvas",
+  "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782304328402,
-  "updated_at": 1782375978895,
+  "updated_at": 1782761884371,
   "milestone_kinds": [
     {
       "key": "decision",
@@ -252,12 +252,12 @@
       "acceptance_criteria": [],
       "test_plan": null,
       "correctness": null,
-      "status": "pending",
-      "status_label": null,
+      "status": "cancelled",
+      "status_label": "superseded by main canvas dogfood plan",
       "priority": "p2",
       "created_at": 1782316696545,
-      "updated_at": 1782317109220,
-      "status_changed_at": 1782316696545,
+      "updated_at": 1782761883464,
+      "status_changed_at": 1782761883464,
       "handle": "cursor-usage-remaining-reset",
       "tags": [],
       "section_ids": [

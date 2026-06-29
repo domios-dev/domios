@@ -118,8 +118,8 @@ test("multi-plan owner counts plans and leads with the freshest", () => {
 test("orchestrator renders the plan glyph; worker renders the identity dot", async () => {
   const { host, root } = await render(
     <div>
-      <TabActivityIndicator activity={{ kind: "orchestrator", planId: "p1", planTitle: "Plan A", taskCount: 4, planCount: 1 }} paneId="orch-1" status="Idle" />
-      <TabActivityIndicator activity={{ kind: "worker", planId: "p1", planTitle: "Plan A", taskCount: 4, planCount: 1 }} paneId="w1" status="Idle" />
+      <TabActivityIndicator activity={{ kind: "orchestrator", planId: "p1", planTitle: "Plan A", taskCount: 4, planCount: 1 }} paneId="orch-1" />
+      <TabActivityIndicator activity={{ kind: "worker", planId: "p1", planTitle: "Plan A", taskCount: 4, planCount: 1 }} paneId="w1" />
     </div>,
   );
   const orch = host.querySelector('[data-activity-kind="orchestrator"]');
@@ -131,12 +131,12 @@ test("orchestrator renders the plan glyph; worker renders the identity dot", asy
   await act(async () => root.unmount());
 });
 
-test("working status adds the live pulse; idle does not", async () => {
+test("working status stays static; liveness is shown on the canvas/composer", async () => {
   const activity = { kind: "worker" as const, planId: "p1", planTitle: "Plan A", taskCount: 1, planCount: 1 };
-  const liveR = await render(<TabActivityIndicator activity={activity} paneId="w1" status="Working" />);
-  assert(liveR.host.querySelector('[data-activity-kind="worker"]')?.className.includes("ct-presence-live"), "Working → pulse");
+  const liveR = await render(<TabActivityIndicator activity={activity} paneId="w1" />);
+  assert(!liveR.host.querySelector('[data-activity-kind="worker"]')?.className.includes("ct-presence-live"), "Working → no tab pulse");
   await act(async () => liveR.root.unmount());
-  const idleR = await render(<TabActivityIndicator activity={activity} paneId="w1" status="Idle" />);
+  const idleR = await render(<TabActivityIndicator activity={activity} paneId="w1" />);
   assert(!idleR.host.querySelector('[data-activity-kind="worker"]')?.className.includes("ct-presence-live"), "Idle → no pulse");
   await act(async () => idleR.root.unmount());
 });

@@ -16,7 +16,7 @@
       }
     }
   ],
-  "status": "active",
+  "status": "archived",
   "owner": {
     "pane_id": "unknown",
     "session_id": null,
@@ -24,7 +24,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782370589310,
-  "updated_at": 1782392410911,
+  "updated_at": 1782761887486,
   "milestone_kinds": [
     {
       "key": "implement",
@@ -81,6 +81,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -89,71 +100,7 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": [
-        {
-          "id": "ms_a3e6ea5611a44dae8e41a7d20b41df1b",
-          "from": {
-            "pane_id": "6d436312",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": " using full task id from plan get; implementing from-spec + hints + spec trap fix",
-          "ts": 1782375554036,
-          "links": [
-            "key:98f7baefe8f04c30"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_547c33fcfce744c3957d3daf1e5fbd11",
-          "from": {
-            "pane_id": "6d436312",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "decision",
-          "text": " implemented CLI flag --from-spec and removed --spec text trap path",
-          "ts": 1782375705768,
-          "links": [
-            "key:f0fc950b1aeba9db"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        },
-        {
-          "id": "ms_541d2c9ff043468b9737f8edeb4373c4",
-          "from": {
-            "pane_id": "6d436312",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "testing",
-          "text": " codeterm-cli check passed; codeterm check failed in build script (missing bundled-embed resource); hints + --spec trap validated via local target/debug/codeterm",
-          "ts": 1782375937569,
-          "links": [
-            "key:f4ad70e8841f3872"
-          ],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        }
-      ]
+      "milestones": []
     },
     {
       "id": "task_13b3072db79049d2836a2282005878e6",
@@ -181,6 +128,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -216,6 +174,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -224,27 +193,7 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": [
-        {
-          "id": "ms_eb1f6515a2ea4d6fa641faa6fa4e1e7f",
-          "from": {
-            "pane_id": "unknown",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "status_update",
-          "text": "ACCEPTED: Planning-workflow section present in docs/ORCHESTRATION.md (Spec=WHAT ⊥ Plan=HOW, spec-first, M:N links). Ships on commit.",
-          "ts": 1782392408404,
-          "links": [],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        }
-      ]
+      "milestones": []
     },
     {
       "id": "task_b01fecea86814a7ab794607153cc12f5",
@@ -271,6 +220,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -294,12 +254,12 @@
       ],
       "test_plan": "CLI: set goal, amend with reason, GET shows history; malformed POST -> 4xx.",
       "correctness": "Goal is current-state + an append-only change log; no silent writes.",
-      "status": "pending",
-      "status_label": null,
+      "status": "cancelled",
+      "status_label": "superseded by main canvas dogfood plan",
       "priority": "p2",
       "created_at": 1782370915358,
-      "updated_at": 1782370915358,
-      "status_changed_at": 1782370915358,
+      "updated_at": 1782761885461,
+      "status_changed_at": 1782761885461,
       "handle": "goal-validation-goal-change-history",
       "tags": [],
       "section_ids": [],
@@ -307,6 +267,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -343,6 +314,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -351,27 +333,7 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": [
-        {
-          "id": "ms_9ecd0b24f2444d5697ac502f79103db9",
-          "from": {
-            "pane_id": "unknown",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "status_update",
-          "text": "ACCEPTED: EFFORT model section present (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides) + CLI flow.",
-          "ts": 1782392409671,
-          "links": [],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        }
-      ]
+      "milestones": []
     },
     {
       "id": "task_b8f723f8e649428a9db32495b43b47ae",
@@ -398,6 +360,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
@@ -406,27 +379,7 @@
         "y": null,
         "collapsed": false
       },
-      "milestones": [
-        {
-          "id": "ms_8ddf9ee5ee75417a9194a21dd316837a",
-          "from": {
-            "pane_id": "unknown",
-            "session_id": null,
-            "title": null
-          },
-          "kind": "status_update",
-          "text": "ACCEPTED: handoff-before-compaction in ORCHESTRATION.md (## Handoffs + create/show/list CLI). Mirror to skill mem if not already.",
-          "ts": 1782392410911,
-          "links": [],
-          "loop_id": null,
-          "iteration": null,
-          "canvas": {
-            "x": null,
-            "y": null,
-            "collapsed": false
-          }
-        }
-      ]
+      "milestones": []
     },
     {
       "id": "task_35181929d2f34e5da21d67469bfa4742",
@@ -441,12 +394,12 @@
       ],
       "test_plan": "Playwright web-mode focus-by-id on a plan with >1 spec_link; assert edge endpoints land on linked rows.",
       "correctness": "Edges derive from plan.spec_links, never same-id assumption.",
-      "status": "pending",
-      "status_label": null,
+      "status": "cancelled",
+      "status_label": "superseded by main canvas dogfood plan",
       "priority": "p2",
       "created_at": 1782374271804,
-      "updated_at": 1782374271804,
-      "status_changed_at": 1782374271804,
+      "updated_at": 1782761886486,
+      "status_changed_at": 1782761886486,
       "handle": "canvas-spec-plan-m-n-edges-from-spec-links-spec-node-sizing",
       "tags": [],
       "section_ids": [],
@@ -454,6 +407,17 @@
       "intent": null,
       "parent_task_id": null,
       "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
       "taken_by_role": null,
       "peer": null,
       "group": null,
