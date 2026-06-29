@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expect, test } from "../../helpers/fixtures";
+import { API_BASE, expect, readDevToken, test } from "../../helpers/fixtures";
 import {
   formatBaselineTable,
   formatThresholdTable,
@@ -13,7 +13,7 @@ import {
 
 const FIXTURE_NODE_COUNTS = [100, 500, 1000] as const;
 
-test("@golden @canvas-perf-baseline records deterministic synthetic canvas baseline", async ({ api, ui }) => {
+test("@golden @canvas-perf-baseline records deterministic synthetic canvas baseline", async ({ api, webBrowser }) => {
   test.setTimeout(300_000);
   const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-canvas-perf-"));
   const workspaceName = `canvas perf baseline ${Date.now()}`;
@@ -22,8 +22,16 @@ test("@golden @canvas-perf-baseline records deterministic synthetic canvas basel
   expect(workspace, `workspace ${workspaceName} missing after create`).toBeDefined();
   await api.focusWorkspace(workspace!.id);
 
-  const { page } = ui;
+  const token = readDevToken();
+  const context = await webBrowser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await context.newPage();
+  await page.addInitScript((devToken) => {
+    localStorage.setItem(`codeterm-web-token:${window.location.origin}`, devToken);
+    localStorage.removeItem("codeterm-chat-ui-default-enabled");
+  }, token);
   await installPerfFixture(page, FIXTURE_NODE_COUNTS[0]);
+  await page.goto(`${API_BASE}/#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
 
   const samples: CanvasBaselineSample[] = [];
   for (const nodes of FIXTURE_NODE_COUNTS) {
