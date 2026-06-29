@@ -34,6 +34,7 @@ import {
   useMultiplexer,
 } from "./store/multiplexer";
 import { matchesBinding } from "./lib/keybindings";
+import { terminalFallbackData } from "./lib/terminalFallbackInput";
 import { cacheThemeSnapshot, isLightColor, themeToCSS } from "./lib/themeCss";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { fontSizeToUiFontScale } from "./lib/uiFontScale";
@@ -411,24 +412,7 @@ function AppInner() {
         if (paneUiMode === "chat") return;
         const pane = stateRef.current.panes[focusedPaneId];
         if (pane?.pty_id) {
-          let data = "";
-          if (e.ctrlKey && !e.shiftKey && e.key.length === 1) {
-            const code = e.key.toUpperCase().charCodeAt(0) - 64;
-            if (code > 0 && code < 32) data = String.fromCharCode(code);
-          } else if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-            if (e.key === "Enter") data = "\r";
-            else if (e.key === "Backspace") data = "\x7f";
-            else if (e.key === "Tab") { data = "\t"; e.preventDefault(); }
-            else if (e.key === "Escape") data = "\x1b";
-            else if (e.key === "ArrowUp") data = "\x1b[A";
-            else if (e.key === "ArrowDown") data = "\x1b[B";
-            else if (e.key === "ArrowRight") data = "\x1b[C";
-            else if (e.key === "ArrowLeft") data = "\x1b[D";
-            else if (e.key === "Home") data = "\x1b[H";
-            else if (e.key === "End") data = "\x1b[F";
-            else if (e.key === "Delete") data = "\x1b[3~";
-            else if (e.key.length === 1) data = e.key;
-          }
+          const data = terminalFallbackData(e);
           if (data) {
             e.preventDefault();
             invoke("write_pty_string", { ptyId: pane.pty_id, data });
