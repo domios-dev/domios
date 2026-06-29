@@ -143,6 +143,12 @@ rm -rf "$REPO/src-tauri/target/release/bundle" \
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   docker buildx prune -af >/dev/null 2>&1 || true
   docker container prune -f  >/dev/null 2>&1 || true
+  docker image prune -f      >/dev/null 2>&1 || true
+  # Drop stale codeterm-build-linux-* images; KEEP the baked arm64 env this
+  # builder still uses (codeterm-build-linux-arm64). x86_64 moved to ubunta.
+  docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+    | grep '^codeterm-build-linux-' | grep -v '^codeterm-build-linux-arm64:' \
+    | xargs -r docker rmi -f >/dev/null 2>&1 || true
 fi
 df -h / | awk 'NR==2{print "### builder free after cleanup:", $4}'
 
