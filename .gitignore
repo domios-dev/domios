@@ -6,6 +6,7 @@ references/
 !skills/codeterm/references/
 !docs/plans/references/
 *.exe
+!src-tauri/conpty/**/OpenConsole.exe
 /tmp/
 .cargo/
 !src-tauri/.cargo/

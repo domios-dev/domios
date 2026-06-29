@@ -39,7 +39,9 @@
     "resources": {
       "../dist": "dist",
       "../skills": "skills",
-      "bundled-cli/*": "cli/"
+      "bundled-cli/*": "cli/",
+      "conpty/x64/*": "conpty/x64/",
+      "conpty/arm64/*": "conpty/arm64/"
     },
     "externalBin": [
       "bundled-embed/codeterm-embed"
