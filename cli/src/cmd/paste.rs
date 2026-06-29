@@ -96,8 +96,8 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                     return;
                 }
                 println!(
-                    "{:<14}  {:>8}  {:>9}  {}",
-                    "id", "size", "ttl_left", "content_type"
+                    "{:<14}  {:>8}  {:>9}  content_type",
+                    "id", "size", "ttl_left"
                 );
                 for entry in arr {
                     let id = entry.get("id").and_then(|v| v.as_str()).unwrap_or("?");

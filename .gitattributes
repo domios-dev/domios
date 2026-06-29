@@ -2,6 +2,8 @@
 docs/CLI.md text eol=lf
 docs/cli-manifest.json text eol=lf
 
+.codeterm/plans/**/strides.jsonl merge=union
+
 # Pane-state classifier fixtures match structural patterns on \n boundaries.
 # Force LF so checkouts are deterministic across OS (a stray CRLF would skew
 # the golden expectations on Windows). CRLF-robustness itself is covered by the

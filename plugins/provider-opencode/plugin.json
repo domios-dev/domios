@@ -1,6 +1,6 @@
 {
   "id": "opencode",
-  "version": "1.5.8",
+  "version": "1.6.0",
   "minCodeterm": "1.0.0",
   "hostApi": 2,
   "displayName": "OpenCode",
@@ -70,6 +70,7 @@
   },
   "commands": {
     "compact": "/compact",
+    "freshContext": "/new",
     "exit": "/exit",
     "stopKey": "\u001b",
     "autoApproveFlags": [

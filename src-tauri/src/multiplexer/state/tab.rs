@@ -9,19 +9,21 @@ impl MultiplexerState {
             .iter()
             .position(|w| w.id == workspace_id)
             .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
-        let title = names::generate_unique_tab_name(
-            self.workspaces[workspace_idx]
-                .tabs
-                .iter()
-                .map(|tab| tab.title.as_str()),
-        );
+        let existing_titles = self.workspaces[workspace_idx]
+            .tabs
+            .iter()
+            .filter_map(|tab| self.panes.get(&tab.pane_id).map(|pane| pane.title.as_str()));
+        let title = names::generate_unique_tab_name(existing_titles);
         let pane_id = self.create_pane();
+        if let Some(pane) = self.panes.get_mut(&pane_id) {
+            pane.title = title;
+            pane.title_level = crate::multiplexer::types::TitleLevel::Default;
+        }
         let tab_id = short_id();
         let sort_order = self.next_tab_sort_order(workspace_id);
 
         let tab = Tab {
             id: tab_id.clone(),
-            title,
             description: None,
             pane_id: pane_id.clone(),
             sort_order,
@@ -122,18 +124,19 @@ impl MultiplexerState {
         tab_id: &str,
         title: &str,
     ) -> Result<(), String> {
-        let ws = self
-            .workspaces
-            .iter_mut()
-            .find(|w| w.id == workspace_id)
-            .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
-        let tab = ws
-            .tabs
-            .iter_mut()
-            .find(|t| t.id == tab_id)
-            .ok_or_else(|| format!("Tab not found: {}", tab_id))?;
-        tab.title = title.to_string();
-        Ok(())
+        let pane_id = {
+            let ws = self
+                .workspaces
+                .iter()
+                .find(|w| w.id == workspace_id)
+                .ok_or_else(|| format!("Workspace not found: {}", workspace_id))?;
+            ws.tabs
+                .iter()
+                .find(|t| t.id == tab_id)
+                .map(|tab| tab.pane_id.clone())
+                .ok_or_else(|| format!("Tab not found: {}", tab_id))?
+        };
+        self.rename_pane(&pane_id, title)
     }
 
     pub fn set_active_tab(&mut self, workspace_id: &str, tab_id: &str) -> Result<(), String> {

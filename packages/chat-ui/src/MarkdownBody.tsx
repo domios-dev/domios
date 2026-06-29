@@ -10,6 +10,9 @@ import { looksLikeMermaidSource } from "./MermaidBlock";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
 import { inferCodeLanguage } from "./codeLanguage";
 import { pickUiFontScaleValue } from "./uiFontScale";
+import { parseCodexPatch, patchTextFromToolInput } from "./parseCodexPatch";
+import { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
+import { parseAttachedDiscussionDoc } from "./discussionDoc";
 
 export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
 
@@ -145,6 +148,14 @@ export function RichMarkdown({ text, fontScale }: { text: string; fontScale?: nu
 }
 
 export function extractFilePath(message: ChatMessage): string | null {
+  const patch = patchTextFromToolInput(
+    (message.toolInput as Record<string, unknown> | undefined) ?? null,
+    message.toolArgs,
+  );
+  if (patch) {
+    const files = parseCodexPatch(patch);
+    if (files.length > 0) return files[0].path;
+  }
   if (message.toolInput) {
     const input = message.toolInput;
     const fp = (input.file_path ?? input.filePath ?? input.path) as string | undefined;
@@ -183,6 +194,10 @@ export function extractEdits(message: ChatMessage): EditPair[] {
     } catch {
       input = null;
     }
+  }
+  const patch = patchTextFromToolInput(input, message.toolArgs);
+  if (patch) {
+    return parseCodexPatch(patch).flatMap((file) => file.edits);
   }
   if (!input) return [];
   const toPair = (e: Record<string, unknown>): EditPair | null => {
@@ -553,6 +568,8 @@ export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
 }
 
 export function renderUserContent(content: string): React.ReactNode {
+  const discussion = parseAttachedDiscussionDoc(content);
+  if (discussion) return <AttachedDiscussionDocView doc={discussion} />;
   const voice = parseVoiceMessage(content);
   if (voice) return <VoiceCard v={voice} />;
   const pluginConfig = parsePluginConfigMessage(content);

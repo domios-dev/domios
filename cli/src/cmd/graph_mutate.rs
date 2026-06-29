@@ -452,6 +452,10 @@ pub fn run_orphans(limit: usize, db_path: Option<&str>) -> ! {
     print_or_exit(result);
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI command maps positional graph repair inputs."
+)]
 pub fn run_introduce_topic(
     topic_id: &str,
     entity_type: &str,

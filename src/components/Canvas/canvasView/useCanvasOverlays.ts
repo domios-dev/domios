@@ -1,0 +1,67 @@
+import { useEffect, useMemo, useState } from "react";
+import type { ViewportTransform } from "../useCanvasViewport";
+import type { World } from "../worlds";
+import { MAX_ACTIVE_PRESENCE_OVERLAYS, buildPresenceOverlays, type PresenceSource } from "../presenceOverlays";
+import { presenceAnimateDemoEnabled, rotatePresenceForDemo } from "../presenceDemo";
+import { buildSwarmRoster } from "../swarmRoster";
+import { buildCanvasScene, publishCanvasSceneReadback } from "../scene";
+import type { CanvasLookups } from "./models";
+
+interface OverlaysDeps {
+  scene: ReturnType<typeof buildCanvasScene>;
+  transform: ViewportTransform;
+  focusedNodeId: string | null;
+  mode: "workspace" | "focus";
+  planId?: string;
+  lookups: CanvasLookups;
+  nodeIds: Set<string>;
+  worldByNode: Map<string, World>;
+}
+
+// Camera-coupled overlay layers (rich content, presence pins, swarm roster) + the
+// scene readback publish. Each memo keeps its original dep array so it recomputes
+// only on the same triggers as before — swarmRoster stays transform-DECOUPLED.
+export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nodeIds, worldByNode }: OverlaysDeps) {
+  useEffect(
+    () => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`),
+    [scene, transform, mode, planId],
+  );
+
+  // EMERGENCE: the swarm (only tasks with executing agents). Built off the existing
+  // per-task presence — O(tasks) once per data change, NOT per pan/zoom.
+  const demoOn = presenceAnimateDemoEnabled();
+  const [demoTick, setDemoTick] = useState(0);
+  useEffect(() => {
+    if (!demoOn) return;
+    // Slower than a glide (presenceGlide GLIDE_DURATION_MS) so each hop settles.
+    const id = window.setInterval(() => setDemoTick((t) => t + 1), 1600);
+    return () => window.clearInterval(id);
+  }, [demoOn]);
+  const presenceByTask = useMemo(() => {
+    const m = new Map<string, PresenceSource>();
+    for (const [id, model] of lookups.taskModelById) {
+      const p = model.presence;
+      if (!p || p.agents.length === 0) continue;
+      // What it's doing now: the orchestrator's current focus if it applies, else the
+      // latest stride kind (e.g. "review", "testing") — a quiet truthful one-liner.
+      const action = p.focus ?? (p.latest ? p.latest.kindLabel : null);
+      m.set(id, { agents: p.agents, live: model.task.status === "in_progress", label: p.agents[0]?.label ?? p.label, action });
+    }
+    return demoOn ? rotatePresenceForDemo(m, demoTick) : m;
+  }, [lookups.taskModelById, demoOn, demoTick]);
+  // Floating presence pins: budget-bounded + viewport-culled → constant pin count on
+  // a 20k board, recomputed only when camera/visibility/swarm change (no per-frame O(N)).
+  const presenceOverlays = useMemo(
+    () => buildPresenceOverlays({ presenceByTask, nodeById: lookups.nodeById, visibleIds: nodeIds, worldByNode, transform, maxActive: MAX_ACTIVE_PRESENCE_OVERLAYS }),
+    [presenceByTask, lookups.nodeById, nodeIds, worldByNode, transform],
+  );
+  // EMERGENCE top-right cluster: the WHOLE swarm deduped to one circle per distinct
+  // agent. Camera-DECOUPLED (no transform dep) so the screen-space faces stay put
+  // while you fly; recomputed only when the swarm/task data changes.
+  const swarmRoster = useMemo(
+    () => buildSwarmRoster({ presenceByTask, taskById: lookups.taskById }),
+    [presenceByTask, lookups.taskById],
+  );
+
+  return { presenceOverlays, swarmRoster };
+}

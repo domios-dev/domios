@@ -12,7 +12,7 @@
  *   3. LAN IP + port        (http://192.168.x.y:PORT)
  *   4. Loopback             (http://127.0.0.1:PORT)
  *
- * URLs are bare (end in /web/). Append the API token as a fragment with
+ * URLs are bare daemon roots. Append the API token as a fragment with
  * webLinkWithToken() when building a one-tap link or QR.
  */
 
@@ -37,12 +37,12 @@ export function buildWebAccessUrls(
   fallbackPort: number,
 ): WebAccessUrls {
   const port = net?.api_port ?? fallbackPort;
-  const https = net?.tailscale_https_url ? `${net.tailscale_https_url}/web/` : null;
+  const https = net?.tailscale_https_url ? `${net.tailscale_https_url}/` : null;
   const list = [
     https,
-    net?.tailscale_ip ? `http://${net.tailscale_ip}:${port}/web/` : null,
-    net?.local_ip ? `http://${net.local_ip}:${port}/web/` : null,
-    `http://127.0.0.1:${port}/web/`,
+    net?.tailscale_ip ? `http://${net.tailscale_ip}:${port}/` : null,
+    net?.local_ip ? `http://${net.local_ip}:${port}/` : null,
+    `http://127.0.0.1:${port}/`,
   ].filter((v): v is string => Boolean(v));
   const urls = [...new Set(list)];
   return { primary: urls[0], urls, usingFallback: !https };
@@ -135,7 +135,7 @@ export function planServeSetup(
   const commands =
     isMac && status.self_dns ? [`tailscale cert ${status.self_dns}`, serveCmd] : [serveCmd];
   const suffix = httpsPort === DEFAULT_HTTPS_PORT ? "" : `:${httpsPort}`;
-  const resultUrl = status.self_dns ? `https://${status.self_dns}${suffix}/web/` : null;
+  const resultUrl = status.self_dns ? `https://${status.self_dns}${suffix}/` : null;
 
   let state: ServeSetupState;
   if (!status.installed) state = "not-installed";

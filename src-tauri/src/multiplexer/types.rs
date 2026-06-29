@@ -84,7 +84,6 @@ impl From<&Pane> for ClosedPane {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
     pub id: String,
-    pub title: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
     pub pane_id: String,

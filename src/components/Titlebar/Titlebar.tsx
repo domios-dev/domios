@@ -9,6 +9,7 @@ import { UI_BUTTON, UI_TRAY_DIVIDER } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 import { SettingsMenu } from "./SettingsMenu";
+import { CanvasButton } from "../Canvas/CanvasButton";
 import type { SectionId } from "../Settings/sections";
 
 interface TitlebarProps {
@@ -18,6 +19,7 @@ interface TitlebarProps {
   onOpenSettingsAbout?: () => void;
   onOpenExtensions?: () => void;
   onOpenSettings?: (section?: SectionId) => void;
+  workspaceCanvasActive?: boolean;
 }
 
 export function Titlebar({
@@ -26,6 +28,7 @@ export function Titlebar({
   onOpenSettingsAbout,
   onOpenExtensions,
   onOpenSettings,
+  workspaceCanvasActive = false,
 }: TitlebarProps) {
   void _theme;
   void _onToggleSidebar;
@@ -73,6 +76,7 @@ export function Titlebar({
       <div className="flex-1" data-tauri-drag-region />
 
       <div className="flex items-center h-full gap-1 pr-1.5">
+        <CanvasButton active={workspaceCanvasActive} />
         {onOpenExtensions && <ExtensionsTray onOpen={onOpenExtensions} />}
         <KeepAwakeTray />
         {onOpenSettings && (

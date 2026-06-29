@@ -8,7 +8,7 @@ const HINT_DISMISSED_KEY = "codeterm-pwa-hint-dismissed";
  *  Returns true if the cookie was set successfully. */
 async function bootstrapManifestCookie(token: string): Promise<boolean> {
   try {
-    const resp = await fetch("/web/manifest-bootstrap", {
+    const resp = await fetch("/manifest-bootstrap", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       credentials: "same-origin",
@@ -63,7 +63,7 @@ export function PwaSetup() {
   const [showHint, setShowHint] = useState(false);
 
   useEffect(() => {
-    if (!IS_WEB || !window.location.pathname.startsWith("/web")) return;
+    if (!IS_WEB) return;
     const token = tokenFor(selfHost());
     if (token && !document.querySelector('link[rel="manifest"]')) {
       // Bootstrap an HttpOnly cookie so the manifest endpoint authenticates
@@ -75,7 +75,7 @@ export function PwaSetup() {
         link.rel = "manifest";
         // No query param — the token is in the cookie (or we fall through to
         // the unauthenticated manifest, which just shows the plain mirror).
-        link.href = "/web/manifest.webmanifest";
+        link.href = "/manifest.webmanifest";
         document.head.appendChild(link);
       });
     }

@@ -15,6 +15,9 @@ pub enum MemAction {
         /// Restrict to global / workspace / workspace:<id>
         #[arg(long)]
         scope: Option<String>,
+        /// Project path whose in-project plan index should be searched too
+        #[arg(long)]
+        project: Option<String>,
         /// Max results (default 5)
         #[arg(long, default_value = "5")]
         limit: usize,

@@ -5,7 +5,7 @@ Tailscale network, with no cloud middleman in the path.
 
 ## 1. What it is, and why Tailscale
 
-CodeTerm serves its complete web UI at `/web`. "Web access" is the act of
+CodeTerm serves its complete web UI at the daemon root. "Web access" is the act of
 opening that UI from another device: your phone on the couch, a laptop in
 another room, a paired machine across the world.
 
@@ -14,10 +14,10 @@ The transport is **Tailscale**, and that choice is deliberate:
 - **No cloud middleman.** Traffic goes device → device across your private
   Tailnet (WireGuard). Anthropic, CodeTerm, and any SaaS relay see *nothing* —
   there is no server in the middle to log, inspect, or break.
-- **Tailnet-only by default.** The `/web` URL is reachable only by machines
+- **Tailnet-only by default.** The browser UI URL is reachable only by machines
   signed into *your* Tailnet. It is not exposed to the public internet.
 - **Free HTTPS with a real FQDN.** Tailscale Serve terminates TLS and gives you
-  a clean `https://<machine>.<tailnet>.ts.net/web/` URL. No mixed-content
+  a clean `https://<machine>.<tailnet>.ts.net/` URL. No mixed-content
   warnings, no self-signed cert nags — phones treat it as a first-class HTTPS
   site (required for installable web-app / PWA behaviour).
 - **Mesh-symmetric.** The same mechanism that lets *you* reach a machine lets a
@@ -39,12 +39,12 @@ tailscale serve --bg --https=443 http://127.0.0.1:<port>
 ```
 
 - **`<port>` is CodeTerm's own API port:** `7685` for prod, `7686` for dev.
-  Check it in **Settings → Network** (it's shown in every `/web` URL there).
+  Check it in **Settings → Network** (it's shown in every browser UI URL there).
 - `--bg` keeps the proxy running in the background across reboots.
 - `--https=443` gives you the clean URL with no port suffix
-  (`https://host.ts.net/web/`). If 443 is already taken, use another port
+  (`https://host.ts.net/`). If 443 is already taken, use another port
   (e.g. `--https=8443`); the URL then carries that suffix
-  (`https://host.ts.net:8443/web/`).
+  (`https://host.ts.net:8443/`).
 
 CodeTerm only advertises the HTTPS URL once Serve actually proxies to *this*
 daemon's port — so the link it shows is never a dead 502.
@@ -54,7 +54,7 @@ daemon's port — so the link it shows is never a dead 502.
 To get a ready-to-open URL with the token already embedded:
 
 ```bash
-codeterm web link            # prints https://host.ts.net/web/#token=…  (or IP fallback)
+codeterm web link            # prints https://host.ts.net/#token=…  (or IP fallback)
 codeterm web link --query    # ?token=… form — easier to type, but lands in logs
 codeterm web link --peer mbp # link for a paired peer (its FQDN, its token)
 ```
@@ -74,7 +74,7 @@ enabling serve:
 tailscale cert <your-machine>.<tailnet>.ts.net
 ```
 
-Without it, `https://…/web/` returns **000** (connection made, no TLS handshake)
+Without it, `https://…/` returns **000** (connection made, no TLS handshake)
 and looks like serve is misconfigured even when it isn't. The cert is cached
 after the first run. Linux and Windows provision certs automatically — this step
 is macOS-only.
@@ -98,7 +98,7 @@ proxy to `http://127.0.0.1:<api-port>`** — two distinct ports.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `/web` returns **404** | Your build shipped without the `dist/` bundle (the route is registered only when the bundle is present). Hit stable v1.4.0 installs. | Update to **1.4.1+**. |
+| `/` returns **404** | Your build shipped without the `dist/` bundle (the route is registered only when the bundle is present). Hit stable v1.4.0 installs. | Update to **1.4.1+**. |
 | HTTPS URL returns **000** | macOS: no TLS cert in the sandboxed container. | Run `tailscale cert <fqdn>` once (see §3). |
 | HTTPS URL is a **502** | Serve points at a different port than this daemon. | Re-run serve targeting the correct `127.0.0.1:<api-port>`. |
 | Mesh peers went offline after setup | Serve bound to CodeTerm's own / sibling API port. | See §4 — use 443/8443, proxy to the API port. |
@@ -112,6 +112,6 @@ proxy to `http://127.0.0.1:<api-port>`** — two distinct ports.
 2. **Serve** (use your real API port, 7685 prod / 7686 dev):
    `tailscale serve --bg --https=443 http://127.0.0.1:7685`
 3. **Open** the link from your phone:
-   `codeterm web link` → tap the `https://…ts.net/web/#token=…` URL.
+   `codeterm web link` → tap the `https://…ts.net/#token=…` URL.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

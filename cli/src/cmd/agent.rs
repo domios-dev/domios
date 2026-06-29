@@ -1,4 +1,6 @@
 use crate::client::SocketClient;
+use crate::cmd::hints::maybe_orchestration_reminder;
+use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::{handle_result, print_object};
 use crate::{build_http, read_api_config, resolve_pane, AgentAction};
 use std::io::Read;
@@ -263,7 +265,12 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::Report {
             message,
+            text,
+            kind,
+            doc,
             pane,
+            plan,
+            task,
             status,
             branch,
             sha,
@@ -272,11 +279,58 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             test_result,
             skipped,
         } => {
+            // Footgun guard: `--pane X` sets the SENDER (you report AS X), NOT the
+            // destination. Reports route to your parent automatically. An agent passing
+            // another pane's id here (the "report TO" misconception) silently mis-routes
+            // to that pane's parent — refuse it. Drivers without an own pane are unaffected.
+            if let Some(ref explicit) = pane {
+                if let Ok(own) = std::env::var("CODETERM_PANE_ID") {
+                    let differs = !own.is_empty()
+                        && own != *explicit
+                        && !own.starts_with(explicit.as_str())
+                        && !explicit.starts_with(own.as_str());
+                    if differs {
+                        eprintln!(
+                            "Error: `agent report --pane {explicit}` reports AS that pane, not TO it.\n\
+                             Reports route to your parent automatically — drop --pane to report up the hierarchy.\n\
+                             To send a message to a specific pane, use `codeterm send --pane {explicit}`."
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
             let pane_id = resolve_pane(client, pane);
+            let mut message = text.or(message).unwrap_or_default();
+            if let Some(path) = doc {
+                let doc_text = match std::fs::read_to_string(&path) {
+                    Ok(text) => text,
+                    Err(e) => {
+                        eprintln!("Error: failed to read --doc {}: {}", path, e);
+                        std::process::exit(1);
+                    }
+                };
+                if !message.is_empty() {
+                    message.push_str("\n\n");
+                }
+                message.push_str(&format!("doc: {path}\n\n{doc_text}"));
+            }
+            if message.is_empty() {
+                eprintln!("Error: report message, --text, or --doc is required");
+                std::process::exit(1);
+            }
             let mut body = serde_json::json!({
                 "pane_id": pane_id,
                 "message": message,
             });
+            if let Some(k) = kind {
+                body["kind"] = serde_json::json!(k);
+            }
+            if let Some(p) = plan {
+                body["plan_id"] = serde_json::json!(p);
+            }
+            if let Some(t) = task {
+                body["task_id"] = serde_json::json!(t);
+            }
             if let Some(s) = status {
                 body["status"] = serde_json::json!(s.as_str());
             }
@@ -298,8 +352,34 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(sk) = skipped {
                 body["skipped"] = serde_json::json!(sk);
             }
-            let result = client.call("agent.report", Some(body));
+            let result = client
+                .call_detailed("agent.report", Some(body.clone()))
+                .map_err(|err| {
+                    if body.get("plan_id").and_then(|v| v.as_str()).is_some() {
+                        render_plan_call_error(err, &body)
+                    } else {
+                        err.to_string()
+                    }
+                });
             handle_result(json, result);
+        }
+        AgentAction::Message {
+            text,
+            pane,
+            from_file,
+            stdin,
+        } => {
+            crate::cmd::send_text::handle_send_text(
+                client,
+                json,
+                Some(pane),
+                text,
+                from_file,
+                stdin,
+                None,
+                None,
+                None,
+            );
         }
         AgentAction::Reports { pane, clear, limit } => {
             let pane_id = resolve_pane(client, pane);
@@ -418,9 +498,16 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                     let pid = val.get("pane_id").and_then(|v| v.as_str());
                     let title_str = val.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+                    let agent_str = val.get("agent").and_then(|v| v.as_str()).unwrap_or("?");
+                    let resolved = val
+                        .get("model")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.trim().is_empty())
+                        .map(|model| format!("{agent_str}/{model}"))
+                        .unwrap_or_else(|| agent_str.to_string());
                     let warning = val.get("warning").and_then(|v| v.as_str());
                     if let Some(pid) = pid {
-                        println!("Spawned: {} (pane {})", title_str, pid);
+                        println!("Spawned {resolved}: {title_str} (pane {pid})");
                     } else if let Some(err) = val.get("error").or_else(|| val.get("message")) {
                         eprintln!("Error: {}", err);
                     } else {
@@ -428,6 +515,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     }
                     if let Some(warning) = warning {
                         eprintln!("Warning: {}", warning);
+                    }
+                    if let Some(hint) = maybe_orchestration_reminder() {
+                        println!("{hint}");
                     }
                 }
                 Err(e) => {
@@ -541,17 +631,15 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 .ok()
                 .and_then(|r| r.json::<serde_json::Value>().ok())
                 .and_then(|v| {
-                    v.as_array()
-                        .map(|arr| {
-                            arr.iter()
-                                .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(&pane_id))
-                                .and_then(|p| {
-                                    p.get("agent_type")
-                                        .and_then(|t| t.as_str())
-                                        .map(String::from)
-                                })
-                        })
-                        .flatten()
+                    v.as_array().and_then(|arr| {
+                        arr.iter()
+                            .find(|p| p.get("id").and_then(|i| i.as_str()) == Some(&pane_id))
+                            .and_then(|p| {
+                                p.get("agent_type")
+                                    .and_then(|t| t.as_str())
+                                    .map(String::from)
+                            })
+                    })
                 });
             if matches!(agent_type.as_deref(), Some("codex")) {
                 eprintln!("Error: Codex /model is an interactive picker, not scriptable.");

@@ -1,18 +1,27 @@
 name: release-linux
 
-# Builds the Linux bundles (AppImage + .deb) on ubuntu-24.04, uploads to
-# the GitHub release, then refreshes the channel updater manifest.
+# Builds the x86_64 Linux bundle (.deb only for 1.6.0; AppImage deferred to 1.6.1
+# — linuxdeploy/FUSE on WSL) NATIVELY on the ROG's WSL2 Ubuntu self-hosted runner
+# (label `linux-build`), uploads it to the GitHub release, and mirrors the .deb to
+# the public release repo. x86_64 Linux contributes NO updater fragment this
+# release (a .deb is not a tauri-updater format), so the merged channel manifest
+# is owned entirely by the Windows + Mac (release.yml) workflows.
 #
-# Runner choice: ubuntu-24.04 ships glibc 2.39, which is required by the
-# pyke/ort prebuilt onnxruntime static library — it references symbols
-# such as __isoc23_strtoll that only exist in glibc >= 2.38. Building on
-# ubuntu-22.04 (glibc 2.35) fails the link step.
+# The Mac (release.yml / build-all.sh) builds macOS + arm64 Linux only; this
+# workflow owns x86_64 Linux. The same release-* tag fires both.
+#
+# WSL distro requirement: Ubuntu 24.04 (glibc 2.39). The pyke/ort prebuilt
+# onnxruntime static lib references symbols (e.g. __isoc23_strtoll) that only
+# exist in glibc >= 2.38; Ubuntu 22.04 (glibc 2.35) fails the link step.
 #
 # Triggers:
-#   - workflow_dispatch with explicit `tag` input (manual fallback re-run)
+#   - push of a `release-*` tag (mapped to the vX.Y.Z release, matches release.yml)
+#   - workflow_dispatch with explicit `tag` input (manual re-run / verification)
 #
-# Normal releases use release.yml on the self-hosted codeterm-builder runner.
-# Do not trigger this hosted workflow from v* tags; GitHub-hosted runners burn billing minutes.
+# Runner provisioning (one-time, on the ROG's WSL2 Ubuntu 24.04): register a
+# self-hosted runner with label `linux-build`; install rustup on the repo-pinned
+# channel (1.95.0), node 22 / pnpm 10.32.1, gh, and the apt deps below (or bake
+# them into the distro so the per-run apt-get is a fast no-op).
 #
 # Disable: set repo Variable RELEASE_LINUX_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
@@ -23,6 +32,9 @@ name: release-linux
 # encrypted — it evaluates to empty when unset).
 
 "on":
+  push:
+    tags:
+      - 'release-*'
   workflow_dispatch:
     inputs:
       tag:
@@ -37,9 +49,12 @@ jobs:
   build:
     name: build (x86_64-unknown-linux-gnu)
     if: ${{ vars.RELEASE_LINUX_ENABLED != 'false' }}
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, linux-build]
     env:
       TARGET: x86_64-unknown-linux-gnu
+      # linuxdeploy is itself an AppImage; on the WSL2 self-hosted runner FUSE
+      # mounting fails ("failed to run linuxdeploy"). Extract-and-run avoids FUSE.
+      APPIMAGE_EXTRACT_AND_RUN: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,7 +66,8 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           else
-            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            # push of release-X.Y.Z -> publish under the vX.Y.Z release (matches release.yml).
+            echo "name=v${GITHUB_REF_NAME#release-}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Detect channel and prerelease flag
@@ -82,10 +98,15 @@ jobs:
             libssl-dev \
             patchelf
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ env.TARGET }}
+      # Repo-pinned toolchain (rust-toolchain.toml = 1.95.0) drives rustc; do NOT
+      # use dtolnay@stable, which would float off the pin. x86_64-unknown-linux-gnu
+      # is the host target on the x86_64 WSL runner, so no cross target is needed.
+      - name: Show pinned Rust toolchain
+        shell: bash
+        run: |
+          rustup show
+          rustc -vV
+          rustup target list --installed | grep -E 'x86_64-unknown-linux-gnu' || rustup target add "$TARGET"
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
@@ -127,8 +148,12 @@ jobs:
           # internal sig matcher cannot pair an artifact with a signature.
           # We build the fragment ourselves below.
           includeUpdaterJson: false
-          args: --target ${{ env.TARGET }} --bundles appimage,deb
+          args: --target ${{ env.TARGET }} --bundles deb
 
+      # x86_64 Linux ships a .deb only for 1.6.0 (AppImage deferred to 1.6.1), and a
+      # .deb is not a tauri-updater format — so there is NO updater fragment to
+      # publish this release. If an AppImage ever reappears, publish its fragment;
+      # otherwise SKIP cleanly (no fragment, exit 0) so the run stays green.
       - name: Publish per-platform updater fragment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -145,12 +170,17 @@ jobs:
           echo "::endgroup::"
           # Prefer the v1-compatible .AppImage.tar.gz updater bundle if Tauri
           # produced one; otherwise fall back to the direct .AppImage that
-          # Tauri 2 uses by default.
-          UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.tar.gz.sig' 2>/dev/null | head -n1)
+          # Tauri 2 uses by default. `|| true` keeps set -e/pipefail from aborting
+          # the step when the appimage dir is absent (deb-only build) — the skip
+          # branch below must be reached.
+          UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.tar.gz.sig' 2>/dev/null | head -n1 || true)
           if [ -z "$UPDATER_SIG" ]; then
-            UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.sig' 2>/dev/null | head -n1)
+            UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.sig' 2>/dev/null | head -n1 || true)
           fi
-          [ -n "$UPDATER_SIG" ] || { echo "::error::No AppImage signature under $BUNDLE_ROOT/appimage"; exit 1; }
+          if [ -z "$UPDATER_SIG" ]; then
+            echo "::notice::No AppImage signature (deb-only build) — no updater fragment for $PLATFORM_KEY this release; skipping."
+            exit 0
+          fi
           UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
           [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
 
@@ -164,52 +194,32 @@ jobs:
             python3 .github/workflows/build-updater-fragment.py
           gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
 
-      - name: Refresh merged channel manifest
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          mkdir -p _frags manifest-fragments
-          gh release download "${{ steps.tag.outputs.name }}" \
-            --pattern 'updater-*.json' \
-            --dir _frags \
-            --repo "${{ github.repository }}"
-          for f in _frags/updater-*.json; do
-            base=$(basename "$f" .json)
-            mkdir -p "manifest-fragments/$base"
-            cp "$f" "manifest-fragments/$base/latest.json"
-          done
-          node scripts/merge-latest-json.js \
-            --in manifest-fragments \
-            --out "${{ steps.channel.outputs.manifest }}"
-          gh release upload "${{ steps.tag.outputs.name }}" \
-            "${{ steps.channel.outputs.manifest }}" \
-            --clobber --repo "${{ github.repository }}"
+      # The merged channel manifest (latest*.json) is owned exclusively by the
+      # Windows + Mac (release.yml) workflows. x86_64 Linux contributes no updater
+      # fragment (.deb only), so this workflow must NOT download+merge+clobber the
+      # manifest — a deb-only run could otherwise overwrite latest.json with a
+      # partial/empty manifest before the win/mac fragments are published. SKIPPED
+      # intentionally; restore the merge step here only when Linux ships an
+      # updater-capable AppImage again (1.6.1+).
 
-      # Mirror updater bundle, signature, and merged manifest to the public
-      # release repo so the auto-updater endpoint
-      # (rollacode/codeterm-releases/releases/latest/download/latest.json) can
-      # serve them anonymously. Skip on workflow_dispatch — only mirror on the
-      # actual tag push that produces the canonical release.
+      # Mirror the x86_64 Linux .deb to the public release repo so users can
+      # download it anonymously. .deb only for 1.6.0 — no updater bundle/sig and
+      # no manifest from Linux (the manifest is owned by win/mac). Skip on
+      # workflow_dispatch — only mirror on the actual tag push that produces the
+      # canonical release.
       - name: Mirror to public release repo
         if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           TAG: ${{ steps.tag.outputs.name }}
-          MANIFEST: ${{ steps.channel.outputs.manifest }}
           PRERELEASE: ${{ steps.channel.outputs.prerelease }}
           MIRROR_REPO: rollacode/codeterm-releases
         shell: bash
         run: |
           set -euo pipefail
           BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
-          UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.tar.gz.sig' 2>/dev/null | head -n1)
-          if [ -z "$UPDATER_SIG" ]; then
-            UPDATER_SIG=$(find "$BUNDLE_ROOT/appimage" -name '*.AppImage.sig' 2>/dev/null | head -n1)
-          fi
-          [ -n "$UPDATER_SIG" ] || { echo "::error::No AppImage signature under $BUNDLE_ROOT/appimage"; exit 1; }
-          UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
-          [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+          DEB=$(find "$BUNDLE_ROOT/deb" -name '*.deb' 2>/dev/null | head -n1)
+          [ -n "$DEB" ] || { echo "::error::No .deb under $BUNDLE_ROOT/deb"; exit 1; }
 
           # Idempotent: create the release in the mirror only if missing.
           # Each platform workflow may run this step in any order; first one
@@ -229,5 +239,4 @@ jobs:
             fi
           fi
 
-          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" "$MANIFEST" \
-            --clobber --repo "$MIRROR_REPO"
+          gh release upload "$TAG" "$DEB" --clobber --repo "$MIRROR_REPO"

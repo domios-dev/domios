@@ -272,14 +272,7 @@ pub async fn create_tab(
     } else {
         None
     };
-    let title = state
-        .svc
-        .mux
-        .write()
-        .get_workspace(&workspace_id)
-        .and_then(|ws| ws.tabs.iter().find(|tab| tab.id == tab_id))
-        .map(|tab| tab.title.clone())
-        .unwrap_or_else(|| "Tab".to_string());
+    let title = state.svc.mux.read().display_label_for_pane(&pane_id);
     Ok(Json(serde_json::json!({
         "id": tab_id.clone(),
         "title": title,

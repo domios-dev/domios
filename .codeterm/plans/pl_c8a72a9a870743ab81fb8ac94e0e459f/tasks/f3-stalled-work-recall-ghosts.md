@@ -1,0 +1,1 @@
+Surface abandoned (cancelled/blocked, old) tasks semantically near active work as dismissible HUD cards — dead plans become a memory asset.

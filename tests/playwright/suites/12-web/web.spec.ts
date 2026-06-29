@@ -2,13 +2,13 @@
  * 12-web — the web mirror in a REAL BROWSER (launched msedge, not the
  * Tauri WebView). Token gate, peer switching against a scripted stub
  * peer, mobile viewport, and a fully live LLM round-trip read from the
- * rendered terminal DOM (/web/?a11y=1 runtime opt-in).
+ * rendered terminal DOM (/?a11y=1 runtime opt-in).
  */
 import { expect, test, type Browser, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 import { MeshStub } from "../../helpers/mesh-stub";
 import { pollUntil } from "../../helpers/poll";
 
-const WEB_URL = `${API_BASE}/web/`;
+const WEB_URL = `${API_BASE}/`;
 
 async function newWebPage(browser: Browser, viewport?: { width: number; height: number }): Promise<Page> {
   const ctx = await browser.newContext({ viewport: viewport ?? { width: 1280, height: 800 } });
@@ -27,7 +27,7 @@ async function passTokenGate(page: Page): Promise<void> {
     .waitFor({ timeout: 20_000 });
 }
 
-test("@smoke /web serves the SPA; token gate authenticates; self is the default host", async ({ webBrowser }) => {
+test("@smoke / serves the SPA; token gate authenticates; self is the default host", async ({ webBrowser }) => {
   const page = await newWebPage(webBrowser);
   await page.goto(WEB_URL, { waitUntil: "domcontentloaded" });
   await passTokenGate(page);

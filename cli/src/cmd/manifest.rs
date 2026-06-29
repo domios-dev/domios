@@ -84,7 +84,7 @@ pub fn to_markdown() -> String {
     let root = build();
     let mut out = String::new();
     for cmd in &root.subcommands {
-        render_md(cmd, &[root.name.clone()], &mut out);
+        render_md(cmd, std::slice::from_ref(&root.name), &mut out);
     }
     out
 }
@@ -105,8 +105,11 @@ fn render_md(cmd: &ManifestCommand, path: &[String], out: &mut String) {
         } else {
             format!("`--{}`", a.name)
         };
-        let help = a.help.as_deref().unwrap_or("");
-        out.push_str(&format!("- {flag} — {help}\n"));
+        if let Some(help) = a.help.as_deref().filter(|help| !help.is_empty()) {
+            out.push_str(&format!("- {flag} — {help}\n"));
+        } else {
+            out.push_str(&format!("- {flag}\n"));
+        }
     }
     if !cmd.args.is_empty() {
         out.push('\n');
@@ -236,6 +239,51 @@ mod tests {
             bad.is_empty(),
             "prompt references unknown CLI commands:\n{}",
             bad.join("\n")
+        );
+    }
+
+    // Every non-hidden leaf command (one with no subcommands) must carry an
+    // `about` string so docs/CLI.md and chat cards never render a blank line.
+    #[test]
+    fn every_leaf_command_has_about() {
+        fn walk(cmd: &Command, path: &[String], missing: &mut Vec<String>) {
+            let mut full = path.to_vec();
+            full.push(cmd.get_name().to_string());
+            let subs: Vec<&Command> = cmd
+                .get_subcommands()
+                .filter(|c| c.get_name() != "help" && !c.is_hide_set())
+                .collect();
+            if subs.is_empty() {
+                let about_empty = cmd
+                    .get_about()
+                    .map(|a| a.to_string().trim().is_empty())
+                    .unwrap_or(true);
+                if about_empty && !path.is_empty() {
+                    missing.push(full.join(" "));
+                }
+            } else {
+                for sub in subs {
+                    walk(sub, &full, missing);
+                }
+            }
+        }
+
+        let root = Cli::command();
+        let mut missing = Vec::new();
+        for sub in root
+            .get_subcommands()
+            .filter(|c| c.get_name() != "help" && !c.is_hide_set())
+        {
+            walk(
+                sub,
+                std::slice::from_ref(&root.get_name().to_string()),
+                &mut missing,
+            );
+        }
+        assert!(
+            missing.is_empty(),
+            "leaf commands missing an `about` description (add a /// doc comment):\n{}",
+            missing.join("\n")
         );
     }
 

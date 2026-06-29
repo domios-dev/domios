@@ -16,7 +16,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                     list.retain(|p| {
                         p.get("agent_type")
                             .and_then(|v| v.as_str())
-                            .map_or(false, |s| !s.is_empty())
+                            .is_some_and(|s| !s.is_empty())
                     });
                 }
                 if json {

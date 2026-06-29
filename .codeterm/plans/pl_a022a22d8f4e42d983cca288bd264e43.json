@@ -1,0 +1,504 @@
+{
+  "id": "pl_a022a22d8f4e42d983cca288bd264e43",
+  "title": "Spec-first planning ergonomics",
+  "sections": [
+    {
+      "id": "sec_6265bbdcb1214b24abada80768ab01fe",
+      "title": "CLI guidance",
+      "handle": "cli-guidance",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    }
+  ],
+  "status": "active",
+  "owner": {
+    "pane_id": "unknown",
+    "session_id": null,
+    "title": null
+  },
+  "project_path": "/Users/rollacode/Developer/codeterm",
+  "created_at": 1782370589310,
+  "updated_at": 1782392410911,
+  "milestone_kinds": [
+    {
+      "key": "implement",
+      "label": "implement",
+      "color": null
+    },
+    {
+      "key": "decision",
+      "label": "decision",
+      "color": null
+    },
+    {
+      "key": "testing",
+      "label": "testing",
+      "color": null
+    },
+    {
+      "key": "docs",
+      "label": "docs",
+      "color": null
+    },
+    {
+      "key": "review",
+      "label": "review",
+      "color": null
+    }
+  ],
+  "loops": [],
+  "elements": [],
+  "tasks": [
+    {
+      "id": "task_f1f5d9ff72ee44c4889caf2f58c431ff",
+      "name": "plan create --from-spec <id> + store create_plan_from_spec",
+      "type": "implement",
+      "model": null,
+      "model_rationale": "The guided path errors today; only the --spec trap exists.",
+      "acceptance_criteria": [
+        "plan create --from-spec <id> creates a plan bound to the spec (primary_spec_id set) with mirrored sections + spec_links",
+        "the --spec text trap is gone or creates a real Spec, never a plan section",
+        "gated: cargo + cli contract + manifest regen, under timeout"
+      ],
+      "test_plan": "CLI: spec create -> plan create --from-spec -> assert primary_spec_id + spec_links>0 via GET /api/plans/{id}. Contract/manifest tests green.",
+      "correctness": "Binding goes through the typed spec_links/primary_spec_id, not a faked Spec section.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782370628295,
+      "updated_at": 1782376414039,
+      "status_changed_at": 1782376414039,
+      "handle": "plan-create-from-spec-id-store-create-plan-from-spec",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [
+        {
+          "id": "ms_a3e6ea5611a44dae8e41a7d20b41df1b",
+          "from": {
+            "pane_id": "6d436312",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "decision",
+          "text": " using full task id from plan get; implementing from-spec + hints + spec trap fix",
+          "ts": 1782375554036,
+          "links": [
+            "key:98f7baefe8f04c30"
+          ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_547c33fcfce744c3957d3daf1e5fbd11",
+          "from": {
+            "pane_id": "6d436312",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "decision",
+          "text": " implemented CLI flag --from-spec and removed --spec text trap path",
+          "ts": 1782375705768,
+          "links": [
+            "key:f0fc950b1aeba9db"
+          ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        },
+        {
+          "id": "ms_541d2c9ff043468b9737f8edeb4373c4",
+          "from": {
+            "pane_id": "6d436312",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "testing",
+          "text": " codeterm-cli check passed; codeterm check failed in build script (missing bundled-embed resource); hints + --spec trap validated via local target/debug/codeterm",
+          "ts": 1782375937569,
+          "links": [
+            "key:f4ad70e8841f3872"
+          ],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "task_13b3072db79049d2836a2282005878e6",
+      "name": "Spec-first CLI hints (next-step nudges)",
+      "type": "implement",
+      "model": null,
+      "model_rationale": "No step hints the next; agents do it wrong.",
+      "acceptance_criteria": [
+        "spec create / spec section add / plan create emit a correct next-step hint",
+        "plan create without a spec warns/hints spec-first",
+        "gated: cli builds, hints render"
+      ],
+      "test_plan": "CLI snapshot of hint output per command; contract test if applicable.",
+      "correctness": "Hints reflect the real model (M:N, spec-first), not invented commands.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782370628365,
+      "updated_at": 1782376414163,
+      "status_changed_at": 1782376414163,
+      "handle": "spec-first-cli-hints-next-step-nudges",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_a7562da81298440a81092346016cb6fa",
+      "name": "Docs: Planning workflow (spec-first)",
+      "type": "docs",
+      "model": null,
+      "model_rationale": "CLI.md/ORCHESTRATION.md never describe the workflow.",
+      "acceptance_criteria": [
+        "CLI.md + ORCHESTRATION.md have a spec-first workflow section with the command sequence + M:N",
+        "revision tags bumped"
+      ],
+      "test_plan": "Manual read; doc-lint if any.",
+      "correctness": "Matches the shipped model + commands exactly.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782370628445,
+      "updated_at": 1782392408404,
+      "status_changed_at": 1782392408404,
+      "handle": "docs-planning-workflow-spec-first",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [
+        {
+          "id": "ms_eb1f6515a2ea4d6fa641faa6fa4e1e7f",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "ACCEPTED: Planning-workflow section present in docs/ORCHESTRATION.md (Spec=WHAT ⊥ Plan=HOW, spec-first, M:N links). Ships on commit.",
+          "ts": 1782392408404,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "task_b01fecea86814a7ab794607153cc12f5",
+      "name": "Re-author dogfood + substrate epics into Spec+Plan",
+      "type": "implement",
+      "model": null,
+      "model_rationale": "Existing plans mix WHAT+HOW in plan.sections.",
+      "acceptance_criteria": [
+        "both efforts have a distinct Spec + Plan, sections linked M:N",
+        "canvas renders spec ⊥ plan correctly for them"
+      ],
+      "test_plan": "Playwright: open each board, assert a real spec node distinct from plan + linked rows.",
+      "correctness": "No plan whose only spec is a faked plan.sections entry.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782370628517,
+      "updated_at": 1782375979003,
+      "status_changed_at": 1782375979003,
+      "handle": "re-author-dogfood-substrate-epics-into-spec-plan",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_a7af60bc22764f9f937f1b391ef9a3e1",
+      "name": "Goal validation + goal-change history",
+      "type": "implement",
+      "model": null,
+      "model_rationale": "Goal stored null silently; no change log.",
+      "acceptance_criteria": [
+        "wrong-shape/empty goal body returns an error, never stores null",
+        "plan goal amend records a change entry with reason; history is queryable",
+        "gated: cargo+cli+contract+manifest under timeout"
+      ],
+      "test_plan": "CLI: set goal, amend with reason, GET shows history; malformed POST -> 4xx.",
+      "correctness": "Goal is current-state + an append-only change log; no silent writes.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782370915358,
+      "updated_at": 1782370915358,
+      "status_changed_at": 1782370915358,
+      "handle": "goal-validation-goal-change-history",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_b25ef4449e6e483b8daef00ded63ba0e",
+      "name": "Docs: EFFORT model workflow (GOAL→Spec→Plan→Tasks→Strides)",
+      "type": "docs",
+      "model": null,
+      "model_rationale": "Docs do not teach goal-first/spec-first.",
+      "acceptance_criteria": [
+        "ORCHESTRATION.md + CLI.md describe the full GOAL-first EFFORT workflow + command sequence + M:N",
+        "matches shipped model/commands exactly",
+        "revision tags bumped"
+      ],
+      "test_plan": "Manual read against the live CLI.",
+      "correctness": "No invented commands; reflects reality.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782370915430,
+      "updated_at": 1782392409671,
+      "status_changed_at": 1782392409671,
+      "handle": "docs-effort-model-workflow-goal-spec-plan-tasks-strides",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [
+        {
+          "id": "ms_9ecd0b24f2444d5697ac502f79103db9",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "ACCEPTED: EFFORT model section present (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides) + CLI flow.",
+          "ts": 1782392409671,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "task_b8f723f8e649428a9db32495b43b47ae",
+      "name": "Docs+skill: handoff-before-compaction discipline",
+      "type": "docs",
+      "model": null,
+      "model_rationale": "Discipline undocumented; skill contradicts it.",
+      "acceptance_criteria": [
+        "ORCHESTRATION.md + orchestrator skill describe author-own-handoff-before-compaction + delayed pairing + continue-from-it",
+        "skill self-contradiction removed"
+      ],
+      "test_plan": "Read back skill via codeterm mem get; doc read.",
+      "correctness": "Matches the handoff CLI (--mode new|compact, reseed).",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782370915525,
+      "updated_at": 1782392410911,
+      "status_changed_at": 1782392410911,
+      "handle": "docs-skill-handoff-before-compaction-discipline",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [
+        {
+          "id": "ms_8ddf9ee5ee75417a9194a21dd316837a",
+          "from": {
+            "pane_id": "unknown",
+            "session_id": null,
+            "title": null
+          },
+          "kind": "status_update",
+          "text": "ACCEPTED: handoff-before-compaction in ORCHESTRATION.md (## Handoffs + create/show/list CLI). Mirror to skill mem if not already.",
+          "ts": 1782392410911,
+          "links": [],
+          "loop_id": null,
+          "iteration": null,
+          "canvas": {
+            "x": null,
+            "y": null,
+            "collapsed": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "task_35181929d2f34e5da21d67469bfa4742",
+      "name": "Canvas spec⊥plan: M:N edges from spec_links + spec-node sizing",
+      "type": "implement",
+      "model": null,
+      "model_rationale": "Box CONTENT fixed; edges still 1:1.",
+      "acceptance_criteria": [
+        "edges connect spec sections to plan sections per spec_links (M:N), not 1:1",
+        "spec node sized by spec.sections; no clip when counts differ",
+        "Playwright: focus the plan, assert N spec rows + correct edge endpoints"
+      ],
+      "test_plan": "Playwright web-mode focus-by-id on a plan with >1 spec_link; assert edge endpoints land on linked rows.",
+      "correctness": "Edges derive from plan.spec_links, never same-id assumption.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782374271804,
+      "updated_at": 1782374271804,
+      "status_changed_at": 1782374271804,
+      "handle": "canvas-spec-plan-m-n-edges-from-spec-links-spec-node-sizing",
+      "tags": [],
+      "section_ids": [],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    }
+  ],
+  "task_groups": [],
+  "tag_facets": [],
+  "links": [],
+  "spec_refs": [
+    "sp_b85d4ed673d04e2980ae23d367893499"
+  ],
+  "spec_links": [
+    {
+      "spec_id": "sp_b85d4ed673d04e2980ae23d367893499",
+      "spec_section_id": "sec_203be398d8c04d0181f0776d1df4f077",
+      "plan_section_id": "sec_6265bbdcb1214b24abada80768ab01fe"
+    }
+  ],
+  "primary_spec_id": "sp_b85d4ed673d04e2980ae23d367893499",
+  "lineage": [],
+  "goal": {
+    "vector": "Dogfooding the planner produces structurally-correct efforts BY CONSTRUCTION: an agent is guided GOAL→Spec→Plan→Tasks and never conflates WHAT with HOW, because the CLI hints and docs make the spec-first (goal-first) path the path of least resistance.",
+    "vision": "",
+    "constraints": [
+      "No CLI path may silently produce a malformed/empty entity (goal POST stored null on a wrong-shape body — must validate)"
+    ],
+    "postulates": [
+      "Goal defined first, then Spec, then Plan",
+      "Goal is mutable and its changes are recorded (working-points), not silently overwritten"
+    ]
+  },
+  "heartbeat": {
+    "current_focus": null,
+    "active_lanes": [],
+    "rules": [],
+    "learnings": []
+  },
+  "canvas": {
+    "viewport": null
+  },
+  "owner_history": []
+}

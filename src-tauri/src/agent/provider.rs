@@ -529,6 +529,9 @@ pub struct ProviderDescriptor {
     /// support an arg-based live session switch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_switch_format: Option<String>,
+    /// Provider-declared command that starts a fresh context in the same pane.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fresh_context_command: Option<String>,
     /// `true` when this provider declares a stop_keystroke — UI shows
     /// a Stop button on the pane that POSTs to `/api/panes/:id/stop`.
     #[serde(default)]
@@ -577,7 +580,7 @@ pub enum ProviderTrust {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 7;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 8;
 
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
@@ -678,6 +681,22 @@ pub trait AgentProvider: Send + Sync {
 
     fn usage_probe_command(&self) -> Option<&str> {
         None
+    }
+
+    /// Non-TUI usage fetch: providers whose usage lives behind a CLI/API rather
+    /// than a `/usage` TUI screen (e.g. cursor) return the raw payload here. The
+    /// poller feeds it to `usage_parser()` exactly like TUI-captured text but
+    /// skips spawning a hidden agent pane. `Some(Err)` is an honest fetch
+    /// failure; `None` (default) means "use the TUI probe path".
+    fn fetch_usage(&self) -> Option<Result<String, String>> {
+        None
+    }
+
+    /// Cheap predicate (no I/O) for "usage comes from a CLI/API fetch, not a
+    /// `/usage` TUI screen". The poller probes these without a visible pane —
+    /// there's no terminal to gate on. Default `false` (TUI-probe providers).
+    fn usage_is_fetch_based(&self) -> bool {
+        false
     }
 
     /// What kind of session-id control this provider supports.
@@ -869,6 +888,11 @@ pub trait AgentProvider: Send + Sync {
 
     /// In-agent command that triggers context compaction, if supported.
     fn compact_command(&self) -> Option<&str> {
+        None
+    }
+
+    /// In-agent command that starts a fresh context in the same pane, if supported.
+    fn fresh_context_command(&self) -> Option<&str> {
         None
     }
 
@@ -1067,6 +1091,7 @@ pub trait AgentProvider: Send + Sync {
             cli_binary: self.cli_binary().map(|s| s.to_string()),
             install_command: self.install_command(platform),
             model_switch_format: self.model_switch_format().map(|s| s.to_string()),
+            fresh_context_command: self.fresh_context_command().map(|s| s.to_string()),
             supports_stop: self.stop_keystroke().is_some(),
             supports_chat_ui: self.supports_chat_ui(),
             supports_structured_prompts: self.supports_structured_prompts(),

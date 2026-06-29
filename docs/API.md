@@ -684,7 +684,7 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 #### Web Mirror
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/web/` | — | The CodeTerm web mirror: the same React bundle as the desktop app, served static (public route; every API call it makes stays token-gated). Exact `/web` 308s to `/web/`. `?a11y=1` enables the screen-reader terminal DOM. |
+| GET | `/` | — | The CodeTerm web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
 | GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs/panes + focus) — the browser bundle's `mux_get_state`. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |

@@ -21,6 +21,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
+                data: None,
             }),
 
         "pane.create" | "pane.new" => {
@@ -57,6 +58,7 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             Ok(serde_json::json!({
                 "id": handle.pane_id,
@@ -77,6 +79,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -90,6 +93,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -99,6 +103,7 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })
         }
 
@@ -142,6 +147,7 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             } else {
                 svc.as_ref()
@@ -149,6 +155,7 @@ pub(super) fn dispatch(
                     .map_err(|e| JsonRpcError {
                         code: -32603,
                         message: e,
+                        data: None,
                     })?;
             }
             Ok(serde_json::json!({"ok": true}))
@@ -181,6 +188,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -195,6 +203,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -212,6 +221,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })
         }
 
@@ -224,6 +234,7 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32602,
                     message: "missing cols".into(),
+                    data: None,
                 })? as u16;
             let rows = params
                 .as_ref()
@@ -232,6 +243,7 @@ pub(super) fn dispatch(
                 .ok_or_else(|| JsonRpcError {
                     code: -32602,
                     message: "missing rows".into(),
+                    data: None,
                 })? as u16;
             crate::dispatch::dispatch(
                 &crate::dispatch::Command::PtyResize {
@@ -245,6 +257,7 @@ pub(super) fn dispatch(
             .map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e,
+                data: None,
             })
         }
 
@@ -255,12 +268,14 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })
         }
 
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }

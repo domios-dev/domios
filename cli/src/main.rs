@@ -20,13 +20,17 @@ pub fn resolve_pane(client: &mut SocketClient, id: Option<String>) -> String {
 ///   2. CODETERM_API_PORT == 7686 (dev's port — useful when calling CLI from
 ///      outside a dev pane, e.g. tests)
 ///   3. Default: prod
+///
 /// When a dev context is detected and CODETERM_INSTANCE is set, the slug is
 /// appended (`~/.codeterm-dev-<slug>`) so per-worktree instances stay isolated.
 pub fn data_dir_name() -> String {
     let is_dev = std::env::var("CODETERM_SOCKET_PATH")
         .map(|sp| sp.contains("codeterm-dev"))
         .unwrap_or(false)
-        || std::env::var("CODETERM_API_PORT").as_deref() == Ok("7686");
+        || std::env::var("CODETERM_API_PORT").as_deref() == Ok("7686")
+        || std::env::var("CODETERM_INSTANCE")
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
     if is_dev {
         return format!(".codeterm-dev{}", instance_suffix());
     }
@@ -106,28 +110,34 @@ pub fn read_api_config() -> (String, Option<String>) {
         }
     }
 
+    let config_token = || {
+        std::fs::read_to_string(&config_path)
+            .ok()
+            .and_then(|content| content.parse::<toml::Table>().ok())
+            .and_then(|val| {
+                val.get("api")?
+                    .as_table()?
+                    .get("token")?
+                    .as_str()
+                    .map(String::from)
+            })
+    };
+
     // Try Ed25519 signed token first, fall back to simple API token from config
     let signed_token = read_mesh_signed_token();
 
-    // Highest priority: explicit CODETERM_API_TOKEN env override. Useful for hitting dev (port 7686) from outside its PTY without the matching
-    // mesh identity, or for tests with a manually scoped token.
-    let token = std::env::var("CODETERM_API_TOKEN")
+    let env_token = std::env::var("CODETERM_API_TOKEN")
         .ok()
-        .filter(|s| !s.is_empty())
-        .or(signed_token)
-        .or_else(|| {
-            let config_path = config_dir.join("config.toml");
-            std::fs::read_to_string(&config_path)
-                .ok()
-                .and_then(|content| content.parse::<toml::Table>().ok())
-                .and_then(|val| {
-                    val.get("api")?
-                        .as_table()?
-                        .get("token")?
-                        .as_str()
-                        .map(String::from)
-                })
-        });
+        .filter(|s| !s.is_empty());
+
+    let token = if std::env::var("CODETERM_INSTANCE")
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+    {
+        config_token().or(signed_token).or(env_token)
+    } else {
+        env_token.or(signed_token).or_else(config_token)
+    };
 
     (format!("http://{}:{}", host, port), token)
 }
@@ -180,6 +190,7 @@ pub use args::agent::AgentAction;
 pub use args::cli::{Cli, Commands};
 pub use args::cron::CronAction;
 pub use args::delayed::DelayedAction;
+pub use args::effort::EffortAction;
 pub use args::mem::{
     MemAction, MemCalibrationAction, MemDreamAction, MemGraphAction, MemSecretAction,
     MemSkillAction, MemWorkerAction,
@@ -188,10 +199,13 @@ pub use args::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
     ThemeAction, WebAction, WorkspaceAction,
 };
+pub use args::plan::PlanAction;
 pub use args::plugin::{PluginAction, PluginChannelAction};
 pub use args::service::ServiceAction;
 pub use args::sessions::SessionsAction;
+pub use args::spec::SpecAction;
 pub use args::system::SystemAction;
+pub use args::task::{CanvasAction, TaskAction};
 pub use args::update::UpdateAction;
 pub use args::usage::UsageAction;
 
@@ -201,7 +215,16 @@ pub use args::usage::UsageAction;
 /// This ensures commands like `pane split` always target the caller's pane,
 /// not whatever pane the user happens to have focused.
 fn main() {
-    let cli = Cli::try_parse_from(std::env::args()).unwrap_or_else(|e| e.exit());
+    let args: Vec<String> = std::env::args().collect();
+    let cli = Cli::try_parse_from(&args).unwrap_or_else(|e| {
+        if is_plan_dash_leading_text_error(&args, &e) {
+            println!(
+                "✗ dash-leading free text was parsed as a flag.\nfix: use --field=value or --field-file PATH, for example --body='- note' or --body-file notes.md."
+            );
+            std::process::exit(2);
+        }
+        e.exit()
+    });
 
     // `plugin` is filesystem-local (no daemon) — handle before socket/mesh.
     if matches!(cli.command, Commands::Plugin { .. }) {
@@ -277,7 +300,7 @@ fn main() {
                     .unwrap_or_else(|_| serde_json::Value::String(value.clone()));
                 let body = serde_json::json!({ "key": key, "value": json_value });
                 match http
-                    .patch(&format!("{}/api/config", base_url))
+                    .patch(format!("{}/api/config", base_url))
                     .json(&body)
                     .send()
                 {
@@ -370,10 +393,11 @@ fn main() {
         return;
     }
 
-    // `docs` reads embedded markdown bundled at compile time — no daemon dependency. Short-circuit so agents can read references even when the daemon is wedged or restarting.
-    if matches!(cli.command, Commands::Docs { .. }) {
+    // `docs` / `doc` read embedded markdown — no daemon dependency.
+    if matches!(cli.command, Commands::Docs { .. } | Commands::Doc { .. }) {
         match cli.command {
             Commands::Docs { name, full, head } => cmd::docs::handle(name, full, head),
+            Commands::Doc { name } => cmd::docs::handle_doc(name),
             _ => unreachable!(),
         }
         return;
@@ -407,6 +431,14 @@ fn main() {
             }
         }
 
+        Commands::Orchestrator { action } => {
+            match cmd::orchestrator::handle(&mut client, cli.json, action) {
+                Ok(Some(value)) => Ok(value),
+                Ok(None) => return,
+                Err(e) => Err(e),
+            }
+        }
+
         Commands::Pane { action } => {
             cmd::pane::handle_pane(&mut client, cli.json, action);
             return;
@@ -419,11 +451,6 @@ fn main() {
 
         Commands::Paste { action } => {
             cmd::paste::handle_paste(cli.json, action);
-            return;
-        }
-
-        Commands::GetOutput { pane, lines } => {
-            cmd::local_io::handle_get_output(&mut client, pane, lines, cli.json);
             return;
         }
 
@@ -528,6 +555,31 @@ fn main() {
 
         Commands::Agent { action } => {
             cmd::agent::handle_agent(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Plan { action } => {
+            cmd::plan::handle_plan(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Spec { action } => {
+            cmd::spec::handle_spec(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Effort { action } => {
+            cmd::effort::handle_effort(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Task { action } => {
+            cmd::task::handle_task(&mut client, cli.json, action);
+            return;
+        }
+
+        Commands::Canvas { action } => {
+            cmd::task::handle_canvas(&mut client, cli.json, action);
             return;
         }
 
@@ -646,8 +698,9 @@ fn main() {
             return;
         }
 
-        // Docs is handled before socket connect (embedded markdown)
+        // Docs are handled before socket connect (embedded markdown)
         Commands::Docs { .. } => unreachable!(),
+        Commands::Doc { .. } => unreachable!(),
 
         // Config is handled before socket connect (uses HTTP API)
         Commands::Config { .. } => unreachable!(),
@@ -728,10 +781,43 @@ fn main() {
     handle_result(cli.json, result);
 }
 
+fn is_plan_dash_leading_text_error(args: &[String], _err: &clap::Error) -> bool {
+    args.iter().any(|arg| arg == "plan")
+        && args.iter().skip(1).any(|arg| {
+            arg.starts_with('-')
+                && !arg.starts_with("--")
+                && arg.len() > 1
+                && arg.chars().nth(1).is_some_and(|ch| !ch.is_ascii_digit())
+        })
+}
+
 #[cfg(test)]
 fn test_env_lock() -> &'static std::sync::Mutex<()> {
     static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
     LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+#[cfg(test)]
+mod plan_cli_error_tests {
+    use super::*;
+
+    #[test]
+    fn detects_dash_leading_plan_text_parse_error() {
+        let args = vec![
+            "codeterm".to_string(),
+            "plan".to_string(),
+            "task".to_string(),
+            "add".to_string(),
+            "plan_1".to_string(),
+            "--body".to_string(),
+            "- starts with a dash".to_string(),
+        ];
+        let err = match Cli::try_parse_from(&args) {
+            Ok(_) => panic!("dash-leading text should fail clap parsing"),
+            Err(err) => err,
+        };
+        assert!(is_plan_dash_leading_text_error(&args, &err));
+    }
 }
 
 #[cfg(test)]

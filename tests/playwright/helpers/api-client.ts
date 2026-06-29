@@ -2,7 +2,7 @@
  * Typed wrapper over the dev console's REST API (port 7686).
  * Token comes from ~/.codeterm-dev/config.toml — same source the CLI uses.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { API_BASE } from "./dev-console";
@@ -33,8 +33,34 @@ export interface Provider {
   available_models?: { id: string; display_name: string }[];
 }
 
+function configPort(configPath: string): string | null {
+  const m = readFileSync(configPath, "utf8").match(/^port\s*=\s*(\d+)/m);
+  return m?.[1] ?? null;
+}
+
+function datadirForPort(port: string): string | null {
+  const home = os.homedir();
+  for (const entry of readdirSync(home)) {
+    if (entry !== ".codeterm-dev" && !entry.startsWith(".codeterm-dev-")) continue;
+    const configPath = path.join(home, entry, "config.toml");
+    if (!existsSync(configPath)) continue;
+    if (configPort(configPath) === port) return entry;
+  }
+  return null;
+}
+
+export function devDataDirName(): string {
+  if (process.env.CT_E2E_DATADIR) return process.env.CT_E2E_DATADIR;
+  const port = process.env.CT_E2E_PORT;
+  if (port && port !== "7686") return datadirForPort(port) ?? ".codeterm-dev";
+  return ".codeterm-dev";
+}
+
+// Default data dir is ~/.codeterm-dev. An isolated instance can override via
+// CT_E2E_DATADIR, or CT_E2E_PORT when its config.toml records that port.
 export function readDevToken(): string {
-  const p = path.join(os.homedir(), ".codeterm-dev", "config.toml");
+  const dir = devDataDirName();
+  const p = path.join(os.homedir(), dir, "config.toml");
   const m = readFileSync(p, "utf8").match(/^token\s*=\s*"([^"]+)"/m);
   if (!m) throw new Error(`no api token in ${p}`);
   return m[1];

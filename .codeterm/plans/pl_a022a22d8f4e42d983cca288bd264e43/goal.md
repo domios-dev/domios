@@ -1,0 +1,1 @@
+You define the GOAL vector first; the Spec (WHAT) hangs off it; the Plan (HOW) is built FROM the spec with M:N section links. No shortcut can cram everything into plan.sections.

@@ -42,6 +42,27 @@ pub async fn mesh_debug_sign(
     }
 }
 
+#[derive(serde::Deserialize)]
+pub struct SetEnabledBody {
+    pub enabled: bool,
+}
+
+/// Manual mesh on/off switch (sidebar toggle, web mirror).
+pub async fn mesh_set_enabled(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SetEnabledBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let enabled = crate::mesh::set_mesh_enabled(
+        &state.mesh,
+        &state.config,
+        &state.svc.app_handle,
+        body.enabled,
+    );
+    Ok(Json(serde_json::json!({ "ok": true, "enabled": enabled })))
+}
+
 pub async fn mesh_start_broadcast(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,

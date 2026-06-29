@@ -3,43 +3,6 @@ use std::io::Write;
 use crate::args::misc::WorkspaceAction;
 use crate::client::SocketClient;
 
-pub(crate) fn strip_ansi(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Skip ESC sequences: ESC [ ... final_byte
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc.is_ascii_alphabetic() || nc == '~' || nc == 'h' || nc == 'l' {
-                        break;
-                    }
-                }
-            } else if chars.peek() == Some(&']') {
-                // OSC sequence: ESC ] ... BEL or ST
-                chars.next();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc == '\x07' {
-                        break;
-                    }
-                    if nc == '\x1b' {
-                        chars.next();
-                        break;
-                    }
-                }
-            }
-        } else if c == '\r' {
-            // Skip carriage return
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
 pub(crate) fn workspace_reuse_notice(
     value: &serde_json::Value,
     requested_name: &str,
@@ -178,35 +141,10 @@ pub(crate) fn handle_workspace_action(
     }
 }
 
-pub(crate) fn handle_get_output(
-    client: &mut SocketClient,
-    pane: Option<String>,
-    lines: u32,
-    json: bool,
-) {
-    let pane_id = resolve_pane(client, pane);
-    let max_bytes = (lines as u64) * 80;
-    let result = client.call(
-        "pane.get_output",
-        Some(serde_json::json!({ "pane_id": pane_id, "max_bytes": max_bytes })),
-    );
-    match result {
-        Ok(value) => {
-            if let Some(output) = value.get("output").and_then(|v| v.as_str()) {
-                if json {
-                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
-                } else {
-                    print!("{}", strip_ansi(output));
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    }
-}
-
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI wrapper preserves send text argument surface."
+)]
 pub(crate) fn handle_send_text(
     client: &mut SocketClient,
     json: bool,

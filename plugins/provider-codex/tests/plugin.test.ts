@@ -117,6 +117,27 @@ assert(!plugin.detect({ bytes: "claude code", title: "claude" }), "claude title 
 console.log("\n--- statusOf ---\n");
 eq(plugin.statusOf({ kind: "anything" }), null, "statusOf always returns null (PTY-driven status)");
 
+console.log("\n--- parseUsage (/status screen) ---\n");
+{
+  const evp = loadHostPlugin();
+  const nowMs = new Date(2026, 5, 14, 12, 0, 0, 0).getTime();
+  const statusScreen = [
+    "OpenAI Codex",
+    "",
+    "5h limit",
+    "████████░░░░░░░░░░░░  58% left (resets 19:59)",
+    "",
+    "Weekly limit",
+    "██████░░░░░░░░░░░░░░  72% left (resets 19:59 on 14 Jun)",
+  ].join("\n");
+  const snap = evp.parseUsage(statusScreen, nowMs) as Record<string, unknown>;
+  eq(snap.session_pct, 42, "session gauge stores % used from % left");
+  eq(snap.weekly_pct, 28, "weekly gauge stores % used from % left");
+  assert(snap.session_resets_at_ms != null, "session reset timestamp parsed");
+  assert(snap.weekly_resets_at_ms != null, "weekly reset timestamp parsed");
+  eq(evp.parseUsage("OpenAI Codex\nloading…", nowMs), null, "parseUsage null without gauges");
+}
+
 console.log("\n--- actions ---\n");
 eq(plugin.actions, [], "no actions defined yet");
 
@@ -307,6 +328,60 @@ assert(warned === 1, "parseSessionDelta emits one warning for a session with inv
     [["system", true, "agent_instructions"], ["system", true, "turn_aborted"]],
     "parseSessionMessages marks Codex injected rows as system meta",
   );
+}
+
+{
+  const patchBody = [
+    "*** Begin Patch",
+    "*** Update File: cli/src/cmd/mem/mod.rs",
+    "@@",
+    "-old",
+    "+new",
+    "*** End Patch",
+  ].join("\n");
+  const structuredChunk = [
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-06-23T18:05:59.394Z",
+      payload: {
+        type: "custom_tool_call",
+        name: "apply_patch",
+        call_id: "call_patch_1",
+        input: patchBody,
+      },
+    }),
+    JSON.stringify({
+      type: "event_msg",
+      timestamp: "2026-06-23T18:05:59.398Z",
+      payload: {
+        type: "patch_apply_end",
+        call_id: "call_patch_1",
+        stdout: "Success. Updated the following files:\nM cli/src/cmd/mem/mod.rs\n",
+        success: true,
+      },
+    }),
+    JSON.stringify({
+      type: "response_item",
+      timestamp: "2026-06-23T18:06:00.000Z",
+      payload: {
+        type: "function_call",
+        name: "exec_command",
+        arguments: JSON.stringify({ cmd: 'rg -n "needle" src' }),
+      },
+    }),
+  ].join("\n");
+  const structuredParsed = hostPlugin.parseSessionDelta(structuredChunk) as { messages: any[] };
+  eq(structuredParsed.messages.length, 3, "apply_patch + patch_apply_end + exec_command survive parseSessionDelta");
+  eq(structuredParsed.messages[0].blocks[0].kind, "tool_use", "custom_tool_call maps to tool_use");
+  eq(structuredParsed.messages[0].blocks[0].data.name, "apply_patch", "apply_patch name preserved");
+  assert(
+    String(structuredParsed.messages[0].blocks[0].data.input.patch).includes("*** Begin Patch"),
+    "apply_patch input stored as patch text",
+  );
+  eq(structuredParsed.messages[0].blocks[0].data.id, "call_patch_1", "call_id forwarded as tool id");
+  eq(structuredParsed.messages[1].blocks[0].kind, "tool_result", "patch_apply_end maps to tool_result");
+  eq(structuredParsed.messages[1].blocks[0].data.tool_use_id, "call_patch_1", "patch result links to call_id");
+  eq(structuredParsed.messages[2].blocks[0].data.input.command, 'rg -n "needle" src', "exec_command still parses");
 }
 
 console.log("\n--- discoverModels ---\n");

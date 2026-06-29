@@ -18,6 +18,10 @@ const DOCS: &[(&str, &str)] = &[
     ("SECRETS", include_str!("../../../docs/SECRETS.md")),
     ("TEXT-HOOKS", include_str!("../../../docs/TEXT-HOOKS.md")),
     ("TRANSCRIBE", include_str!("../../../docs/TRANSCRIBE.md")),
+    (
+        "ORCHESTRATION",
+        include_str!("../../../docs/ORCHESTRATION.md"),
+    ),
 ];
 
 const CODETERM_PANE_PREVIEW_LINES: usize = 120;
@@ -35,6 +39,24 @@ pub fn handle(name: Option<String>, full: bool, head: Option<usize>) {
                 std::process::exit(1);
             }
         },
+    }
+}
+
+pub fn handle_doc(name: String) {
+    let resolved = if name.eq_ignore_ascii_case("orchestration") {
+        "ORCHESTRATION"
+    } else {
+        name.as_str()
+    };
+    match render_doc(resolved, true, None, false) {
+        Ok(rendered) => print!("{}", rendered),
+        Err(available) => {
+            eprintln!("No doc named '{}'. Available:", name);
+            for name in available {
+                eprintln!("  {}", name);
+            }
+            std::process::exit(1);
+        }
     }
 }
 
@@ -152,5 +174,13 @@ mod tests {
 
         assert!(rendered.contains("showing 12/"));
         assert!(rendered.lines().count() < 30);
+    }
+
+    #[test]
+    fn orchestration_doc_alias_is_non_empty() {
+        let rendered = render_doc("orchestration", true, None, false).expect("doc exists");
+
+        assert!(rendered.contains("# Orchestration"));
+        assert!(rendered.len() > 100);
     }
 }

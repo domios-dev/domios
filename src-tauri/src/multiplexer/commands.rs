@@ -121,14 +121,7 @@ pub fn mux_create_tab(
     if eager.unwrap_or(false) {
         svc.ensure_pane_pty_for_send(&pane_id)?;
     }
-    // Read tab title from state
-    let title = svc
-        .mux
-        .write()
-        .get_workspace(&workspace_id)
-        .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
-        .map(|t| t.title.clone())
-        .unwrap_or_else(|| "Tab".to_string());
+    let title = svc.mux.read().display_label_for_pane(&pane_id);
     Ok(TabInfo {
         id: tab_id,
         title,
@@ -167,7 +160,7 @@ pub fn mux_set_active_tab_and_workspace(
     svc.set_active_tab_and_workspace(&workspace_id, &tab_id)
 }
 
-/// Rename a tab. Only path that changes a tab's title — pane renames don't propagate.
+/// Rename the pane owned by a tab.
 #[tauri::command]
 pub fn mux_rename_tab(
     svc: State<'_, ServiceState>,
@@ -193,13 +186,7 @@ pub fn mux_reopen_closed_pane(
     index: Option<usize>,
 ) -> Result<TabInfo, String> {
     let (tab_id, pane_id) = svc.reopen_closed_pane(&workspace_id, index)?;
-    let title = svc
-        .mux
-        .read()
-        .get_workspace(&workspace_id)
-        .and_then(|ws| ws.tabs.iter().find(|t| t.id == tab_id))
-        .map(|t| t.title.clone())
-        .unwrap_or_default();
+    let title = svc.mux.read().display_label_for_pane(&pane_id);
     Ok(TabInfo {
         id: tab_id,
         title,

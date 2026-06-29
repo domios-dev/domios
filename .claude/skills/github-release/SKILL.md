@@ -56,8 +56,9 @@ End-to-end ≈ 25–30 min, hands-off. Watch it: `gh run watch --repo rollacode/
 
 **Prereqs for the automated path** (one-time, see `docs/build_machine_setup.md`):
 - self-hosted runner registered + running (`~/actions-runner`; `./svc.sh install` for always-on);
-- Docker images baked: `codeterm-build-linux-arm64`, `codeterm-build-linux-x64`;
-- repo secret `WIN_VM_SSHPASS` (Windows VM password) for the Windows engine;
+- Docker image baked for arm64 Linux: `codeterm-build-linux-arm64`;
+- ROG self-hosted runners provisioned (Windows `windows-build`, x86_64 Linux `linux-build`) — they
+  build + sign themselves via `TAURI_SIGNING_PRIVATE_KEY` / `PACKAGE_REPOS_TOKEN`, no SSH/QEMU;
 - macOS signing/notary + `~/.tauri/codeterm.key` on the build machine (secrets table below).
 
 If a stage fails: `gh run view <id> --log-failed`, fix, re-push the trigger tag (`git tag -f
@@ -66,8 +67,8 @@ release with `--clobber`) and bails before touching any release if an artifact i
 failed run never half-publishes.
 
 > **Everything below this line is the MANUAL FALLBACK** — only for when the runner/CI is down or
-> you're debugging a single platform. The full from-scratch build-machine setup (QEMU Windows VM,
-> Docker cross-compile, signing) lives in **`docs/build_machine_setup.md`**.
+> you're debugging a single platform. The full from-scratch build-machine setup (Docker arm64
+> Linux, the ROG Windows + x86_64-Linux runners, signing) lives in **`docs/build_machine_setup.md`**.
 
 ---
 

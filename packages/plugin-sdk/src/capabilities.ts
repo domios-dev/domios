@@ -101,6 +101,10 @@ export interface AgentProvider {
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   enumerateSessions?(): unknown[];
   parseUsage?(rawText: string, nowMs: number): unknown;
+  // Non-TUI usage source: providers whose usage lives behind a CLI/API (e.g.
+  // cursor) fetch the raw payload here. The host feeds it to parseUsage,
+  // skipping any /usage-screen probe. Return null on fetch failure.
+  fetchUsage?(nowMs: number): unknown;
   discoverModels?(): ModelInfo[];
   parseSessionMessages?(text: string): unknown[];
   usesStructuredChat?(): boolean;

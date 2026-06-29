@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Plus } from "lucide-react";
 import { PeerTerminal } from "./PeerTerminal";
 import { ConnectionLine } from "./ConnectionLine";
 import type { Service } from "./types";
 import type { PeerStatus } from "./useMeshData";
+import { useCanvasViewport, formatLayerTransform } from "../Canvas/useCanvasViewport";
 
 export interface RecentPush {
   source_id: string;
@@ -169,141 +170,49 @@ export function MeshCanvas({
     [remoteLayout],
   );
 
-  const [transform, setTransform] = useState({ x: 0, y: 0, scale: 1 });
-  const transformRef = useRef(transform);
-  const dragFrameRef = useRef<number | null>(null);
-  const pendingTransformRef = useRef<typeof transform | null>(null);
-  const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null);
+  const { transform, handlers, fitToView, zoomBy, isDragging, containerRef, layerRef } = useCanvasViewport({
+    width,
+    height,
+    minScale: MIN_SCALE,
+    maxScale: MAX_SCALE,
+    fitPadding: FIT_PADDING,
+    ignoreSelector: "[data-peer-card]",
+    wheelBehavior: "zoom",
+  });
   const lastAutoFitKeyRef = useRef<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
 
-  const commitTransform = useCallback((next: typeof transform) => {
-    transformRef.current = next;
-    setTransform(next);
-  }, []);
-
-  const scheduleTransform = useCallback(
-    (next: typeof transform) => {
-      transformRef.current = next;
-      pendingTransformRef.current = next;
-      if (dragFrameRef.current != null) return;
-      dragFrameRef.current = requestAnimationFrame(() => {
-        dragFrameRef.current = null;
-        const pending = pendingTransformRef.current;
-        pendingTransformRef.current = null;
-        if (pending) setTransform(pending);
-      });
-    },
-    [],
-  );
-
-  const fitToView = useCallback(() => {
-    if (!layout.length || width <= 0 || height <= 0) return;
+  const contentBounds = useMemo(() => {
+    if (!layout.length) return null;
     const minX = Math.min(...layout.map((p) => p.x - CARD_HALF_WIDTH));
     const maxX = Math.max(...layout.map((p) => p.x + CARD_HALF_WIDTH));
     const minY = Math.min(...layout.map((p) => p.y - CARD_HALF_HEIGHT));
     const maxY = Math.max(...layout.map((p) => p.y + CARD_HALF_HEIGHT));
-    const w = maxX - minX;
-    const h = maxY - minY;
-    const scaleX = (width - FIT_PADDING * 2) / w;
-    const scaleY = (height - FIT_PADDING * 2) / h;
-    const scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, Math.min(scaleX, scaleY, 1)));
-    const cxView = width / 2;
-    const cyView = height / 2;
-    const cxModel = (minX + maxX) / 2;
-    const cyModel = (minY + maxY) / 2;
-    commitTransform({
-      x: cxView - cxModel * scale,
-      y: cyView - cyModel * scale,
-      scale,
-    });
-  }, [layout, width, height, commitTransform]);
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }, [layout]);
 
   useEffect(() => {
-    if (layout.length === 0 || width <= 0 || height <= 0) return;
+    if (!contentBounds || width <= 0 || height <= 0) return;
     if (lastAutoFitKeyRef.current === layoutFitKey) return;
     lastAutoFitKeyRef.current = layoutFitKey;
-    fitToView();
-  }, [fitToView, layout.length, layoutFitKey, width, height]);
+    fitToView(contentBounds);
+  }, [fitToView, contentBounds, layoutFitKey, width, height]);
 
-  const onMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest("[data-peer-card]")) return;
-    dragRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      baseX: transformRef.current.x,
-      baseY: transformRef.current.y,
-    };
-    setIsDragging(true);
+  const reset = () => {
+    if (contentBounds) fitToView(contentBounds);
   };
-
-  useEffect(() => {
-    if (!isDragging) return;
-    const onMove = (e: MouseEvent) => {
-      const d = dragRef.current;
-      if (!d) return;
-      scheduleTransform({
-        ...transformRef.current,
-        x: d.baseX + (e.clientX - d.startX),
-        y: d.baseY + (e.clientY - d.startY),
-      });
-    };
-    const onUp = () => {
-      dragRef.current = null;
-      setIsDragging(false);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      if (dragFrameRef.current != null) {
-        cancelAnimationFrame(dragFrameRef.current);
-        dragFrameRef.current = null;
-      }
-    };
-  }, [isDragging, scheduleTransform]);
-
-  const onWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP;
-    setTransform((t) => {
-      const nextScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, t.scale + delta));
-      if (nextScale === t.scale) return t;
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) {
-        const next = { ...t, scale: nextScale };
-        transformRef.current = next;
-        return next;
-      }
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      const ratio = nextScale / t.scale;
-      const next = {
-        scale: nextScale,
-        x: cx - (cx - t.x) * ratio,
-        y: cy - (cy - t.y) * ratio,
-      };
-      transformRef.current = next;
-      return next;
-    });
-  }, []);
-
-  const reset = () => fitToView();
 
   return (
     <div
       ref={containerRef}
       className="relative w-full h-full overflow-hidden"
-      onMouseDown={onMouseDown}
-      onWheel={onWheel}
+      onMouseDown={handlers.onMouseDown}
       style={{
         minHeight: height,
         background:
           "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)",
         cursor: isDragging ? "grabbing" : "grab",
         userSelect: "none",
+        touchAction: "none",
       }}
     >
       {onOpenWebUi && (
@@ -320,26 +229,14 @@ export function MeshCanvas({
       )}
       <div className="absolute top-2 right-2 z-10 flex gap-1 text-[10px]">
         <button
-          onClick={() =>
-            setTransform((t) => {
-              const next = { ...t, scale: Math.min(MAX_SCALE, t.scale + ZOOM_STEP) };
-              transformRef.current = next;
-              return next;
-            })
-          }
+          onClick={() => zoomBy(ZOOM_STEP)}
           className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded w-6 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)]"
           title="Zoom in"
         >
           +
         </button>
         <button
-          onClick={() =>
-            setTransform((t) => {
-              const next = { ...t, scale: Math.max(MIN_SCALE, t.scale - ZOOM_STEP) };
-              transformRef.current = next;
-              return next;
-            })
-          }
+          onClick={() => zoomBy(-ZOOM_STEP)}
           className="bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded w-6 h-6 cursor-pointer text-[var(--ct-fg)] hover:border-[var(--ct-accent)]"
           title="Zoom out"
         >
@@ -354,8 +251,9 @@ export function MeshCanvas({
         </button>
       </div>
       <div
+        ref={layerRef}
         style={{
-          transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+          transform: formatLayerTransform(transform),
           transformOrigin: "0 0",
           width: width,
           height: height,

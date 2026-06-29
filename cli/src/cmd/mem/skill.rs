@@ -119,8 +119,7 @@ pub(crate) fn handle_mem_skill(
             let body_after_fm = strip_skill_frontmatter(&body);
             let summary: String = body_after_fm
                 .lines()
-                .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
-                .next()
+                .find(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
                 .unwrap_or("")
                 .to_string();
             let source = format!("file:{}", skill_md.display());

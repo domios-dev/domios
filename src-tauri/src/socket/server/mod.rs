@@ -8,10 +8,21 @@
 mod agent;
 mod agent_commands;
 mod bridge;
+mod canvas;
 mod cron;
 mod notification;
 mod pane;
+mod plan;
+mod plan_elements;
+mod plan_fields;
+mod plan_goal;
+mod plan_handoff;
+mod plan_heartbeat;
+mod plan_linking;
+mod plan_loops;
+mod plan_read;
 mod services;
+mod spec;
 mod workspace;
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -51,6 +62,8 @@ struct JsonRpcResponse {
 pub(super) struct JsonRpcError {
     pub(super) code: i32,
     pub(super) message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) data: Option<serde_json::Value>,
 }
 
 impl JsonRpcResponse {
@@ -68,7 +81,11 @@ impl JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
             id,
             result: None,
-            error: Some(JsonRpcError { code, message }),
+            error: Some(JsonRpcError {
+                code,
+                message,
+                data: None,
+            }),
         }
     }
 }
@@ -267,7 +284,12 @@ fn handle_connection(
                             }));
                         match dispatched {
                             Ok(Ok(result)) => JsonRpcResponse::success(id, result),
-                            Ok(Err(err)) => JsonRpcResponse::error(id, err.code, err.message),
+                            Ok(Err(err)) => JsonRpcResponse {
+                                jsonrpc: "2.0".to_string(),
+                                id,
+                                result: None,
+                                error: Some(err),
+                            },
                             Err(panic) => {
                                 let panic_msg = if let Some(s) = panic.downcast_ref::<&str>() {
                                     (*s).to_string()
@@ -345,6 +367,22 @@ fn dispatch(
                     "agent.list", "agent.hierarchy", "agent.spawn", "agent.set_role",
                     "agent.clear_role", "agent.status", "agent.children", "agent.link",
                     "agent.report", "agent.reports",
+                    "plan.create", "plan.batch", "plan.handoff.create", "plan.handoff.list", "plan.handoff.show", "plan.handoff.reseed", "plan.list", "plan.get", "plan.goal.set", "plan.goal.show", "plan.spec", "plan.files", "plan.tags", "plan.update", "plan.archive",
+                    "plan.delete", "plan.transfer", "plan.disown", "plan.claim",
+                    "plan.ingest", "plan.section.add", "plan.section.update", "plan.section.rm",
+                    "plan.kinds.set", "plan.tag_facets.set",
+                    "plan.task.add", "plan.task.update", "plan.task.close", "plan.task.assign",
+                    "plan.task.rm",
+                    "plan.milestone.add", "plan.milestone.update", "plan.milestone.rm",
+                    "plan.loop.create", "plan.loop.set", "plan.loop.status", "plan.loop.stop", "plan.loop.advance",
+                    "plan.layout.set", "plan.note.add", "plan.element.add",
+                    "plan.element.list", "plan.element.show",
+                    "spec.create", "spec.list", "spec.show", "spec.files",
+                    "spec.section.add", "spec.section.update", "spec.section.rm",
+                    "spec.link.add", "spec.link.rm", "spec.link.list",
+                    "effort.show", "effort.link",
+                    "task.list", "task.show", "task.take", "task.drop", "task.add",
+                    "canvas.focus", "canvas.filter",
                     "cron.list", "cron.get", "cron.create", "cron.update", "cron.delete",
                     "cron.enable", "cron.disable", "cron.trigger", "cron.cancel",
                     "cron.history", "cron.complete",
@@ -361,6 +399,7 @@ fn dispatch(
             crate::crash::trigger_test_crash(&kind).map_err(|e| JsonRpcError {
                 code: -32602,
                 message: e,
+                data: None,
             })?;
             return Ok(serde_json::json!({"ok": true, "kind": kind}));
         }
@@ -375,6 +414,9 @@ fn dispatch(
         "pane" | "agents" | "browser" => pane::dispatch(method, &params, mux, app, svc),
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
+        "plan" | "task" => plan::dispatch(method, &params, app, svc),
+        "canvas" => canvas::dispatch(method, &params, app),
+        "spec" | "effort" => spec::dispatch(method, &params, app, svc),
         "plugin" => agent_commands::dispatch(method, &params, svc),
         "cron" => cron::dispatch(method, &params, app, svc),
         "services" | "activity" => services::dispatch(method, &params, app, svc),
@@ -382,6 +424,7 @@ fn dispatch(
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }
@@ -399,5 +442,6 @@ pub(super) fn get_string_param(
         .ok_or_else(|| JsonRpcError {
             code: -32602,
             message: format!("Missing required parameter: {}", key),
+            data: None,
         })
 }

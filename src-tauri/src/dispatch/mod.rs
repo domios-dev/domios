@@ -221,14 +221,14 @@ pub(crate) fn build_pane_list_json(
         std::collections::HashMap::new();
     for ws in &snapshot.workspaces {
         for tab in &ws.tabs {
+            let tab_title = snapshot
+                .panes
+                .get(&tab.pane_id)
+                .map(|pane| pane.title.clone())
+                .unwrap_or_else(|| tab.pane_id.chars().take(8).collect());
             tab_index.insert(
                 tab.pane_id.clone(),
-                (
-                    tab.id.clone(),
-                    tab.title.clone(),
-                    ws.id.clone(),
-                    ws.name.clone(),
-                ),
+                (tab.id.clone(), tab_title, ws.id.clone(), ws.name.clone()),
             );
         }
     }

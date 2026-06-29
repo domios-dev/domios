@@ -169,16 +169,26 @@ const plugin: PluginModule = {
         }
         continue;
       }
-      if (!v || v.type !== "response_item" || !v.payload) continue;
-      const p = v.payload;
       let ts: number | null = null;
-      // Forward the raw ISO string too (parity with claude): RichMessage.timestamp is what
-      // flows to ChatMsg.timestamp and the optimistic-echo matcher — `ts` (seconds) alone
       const tsIso: string | null = (typeof v.timestamp === "string") ? v.timestamp : null;
       if (typeof v.timestamp === "string") {
         const d = Date.parse(v.timestamp);
         if (!isNaN(d)) ts = Math.floor(d / 1000);
       }
+      if (v.type === "event_msg" && v.payload && v.payload.type === "patch_apply_end") {
+        const p = v.payload;
+        const content = typeof p.stdout === "string" ? p.stdout : "";
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_result", data: { content: content, tool_use_id: callId } }],
+          ts: ts,
+          timestamp: tsIso,
+        });
+        continue;
+      }
+      if (!v || v.type !== "response_item" || !v.payload) continue;
+      const p = v.payload;
       if (p.type === "message") {
         const role = p.role === "assistant" ? "assistant" : (p.role === "user" ? "user" : null);
         if (!role) continue; // skip developer/system noise
@@ -223,6 +233,24 @@ const plugin: PluginModule = {
         out.push({
           role: "assistant",
           blocks: [{ kind: "tool_result", data: { content: String(content == null ? "" : content) } }],
+          ts: ts,
+          timestamp: tsIso,
+        });
+      } else if (p.type === "custom_tool_call") {
+        const name = typeof p.name === "string" ? p.name.trim() : "";
+        if (!name) continue;
+        let input: Record<string, unknown> = {};
+        if (name === "apply_patch" && typeof p.input === "string") {
+          input = { patch: p.input };
+        } else if (typeof p.input === "string") {
+          try { input = JSON.parse(p.input); } catch (_) { input = { raw: p.input }; }
+        } else if (p.input && typeof p.input === "object" && !Array.isArray(p.input)) {
+          input = p.input as Record<string, unknown>;
+        }
+        const callId = typeof p.call_id === "string" ? p.call_id : "";
+        out.push({
+          role: "assistant",
+          blocks: [{ kind: "tool_use", data: { name: name, id: callId, input: input } }],
           ts: ts,
           timestamp: tsIso,
         });
@@ -485,6 +513,12 @@ const plugin: PluginModule = {
       };
     }
 
+    // Busy veto: a streaming pane is never parked at a limit screen.
+    if (looksBusy(screen)) return { state: "working", confidence: 0 };
+
+    // Model/effort picker veto: numbered menus without a limit notice must not schedule a resume.
+    if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
+
     // Ensemble vote for the codex self-update prompt.
     const upd = scoreUpdatePrompt(screen);
     if (upd.confidence >= CLASSIFY_THRESHOLD && upd.skipKeys && upd.skipKeys.length > 0) {
@@ -495,10 +529,32 @@ const plugin: PluginModule = {
       };
     }
 
-    // Some signal but not a confident verdict → no action, so the reactor never fires on a partial read.
-    if (upd.confidence > 0) {
-      return { state: "unknown", confidence: upd.confidence };
+    // Usage-limit notice → schedule resume at the parsed reset (no menu to confirm).
+    const rl = scoreRateLimit(screen, host.unixNowMs());
+    if (rl.confidence >= CLASSIFY_THRESHOLD) {
+      const action: PaneStateAction = {};
+      const data: { resetAt?: string } = {};
+      if (rl.resetAtMs !== null) {
+        data.resetAt = new Date(rl.resetAtMs).toISOString();
+        action.delayedResume = {
+          at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
+          text: "continue your work",
+          thenKeys: ["enter"],
+        };
+      } else {
+        action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
+      }
+      return {
+        state: "rate_limited",
+        confidence: rl.confidence,
+        data: rl.resetAtMs !== null ? data : undefined,
+        action: action,
+      };
     }
+
+    // Some signal but not a confident verdict → no action, so the reactor never fires on a partial read.
+    const partial = rl.confidence > upd.confidence ? rl.confidence : upd.confidence;
+    if (partial > 0) return { state: "unknown", confidence: partial };
 
     return { state: "working", confidence: 0 };
   },
@@ -539,6 +595,9 @@ interface PaneStateClassification {
 
 // Must match the core reactor's GLOBAL_THRESHOLD (state_reactor.rs) — below it the reactor would reject the verdict.
 const CLASSIFY_THRESHOLD = 0.8;
+
+// Buffer past the parsed reset so `continue your work` lands after the limit actually clears.
+const RESUME_BUFFER_MS = 60 * 1000;
 
 // Keys to navigate from the highlighted option to "Skip", then confirm. Null when
 // there's no distinct Skip option, so we never blindly Enter on the default "Update now".
@@ -594,6 +653,80 @@ function scoreUpdatePrompt(screen: string): UpdateScore {
   return { confidence: confidence, skipKeys: skipKeys };
 }
 
+function looksBusy(screen: string): boolean {
+  const s = String(screen || "");
+  return (
+    /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) ||
+    /\bWorking[….]/.test(s) ||
+    /\((?:esc|ctrl\+c) to interrupt\)/i.test(s)
+  );
+}
+
+function looksLikeModelPicker(screen: string): boolean {
+  const s = String(screen || "");
+  if (!/\bselect\s+(?:model|reasoning)\b/i.test(s)) return false;
+  return /\bpress\s+enter\s+to\s+confirm\b/i.test(s) && /\besc\s+to\s+go\s+back\b/i.test(s);
+}
+
+interface RateLimitScore { confidence: number; resetAtMs: number | null }
+
+// Structural signals for codex's plain-text usage-limit notice (weights sum to 1.0).
+function scoreRateLimit(screen: string, nowMs: number): RateLimitScore {
+  const s = String(screen || "");
+  const sigHitLimit = /\bhit your usage limit\b/i.test(s) || /\breached your usage limit\b/i.test(s); // 0.50
+  const sigTryAgain = /\btry again at\b/i.test(s);                                                   // 0.30
+  const sigSettingsLink = /chatgpt\.com\/codex\/settings/i.test(s);                                   // 0.10
+  const sigResetClock = /\btry again at\b[^\n]{0,48}?\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(s);    // 0.10
+
+  let confidence = 0;
+  if (sigHitLimit) confidence += 0.5;
+  if (sigTryAgain) confidence += 0.3;
+  if (sigSettingsLink) confidence += 0.1;
+  if (sigResetClock) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+
+  const resetAtMs = parseTryAgainClock(s, nowMs);
+  return { confidence: confidence, resetAtMs: resetAtMs };
+}
+
+function parseTryAgainClock(screen: string, nowMs: number): number | null {
+  const m = /\btry again at\b[^\n]{0,48}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
+  if (!m) return null;
+  return codexParseTodayClock(m[1], nowMs);
+}
+
+interface HMmAmPm { hh: number; mm: number; pm: boolean }
+
+function codexParseHMmAmPm(s: string): HMmAmPm | null {
+  s = String(s || "").trim().toLowerCase();
+  let pm: boolean;
+  if (s.slice(-2) === "pm") pm = true;
+  else if (s.slice(-2) === "am") pm = false;
+  else return null;
+  const stripped = s.slice(0, -2).trim();
+  let hh: number, mm: number;
+  const idx = stripped.indexOf(":");
+  if (idx !== -1) {
+    hh = parseInt(stripped.slice(0, idx).trim(), 10);
+    mm = parseInt(stripped.slice(idx + 1).trim(), 10);
+  } else {
+    hh = parseInt(stripped, 10);
+    mm = 0;
+  }
+  if (isNaN(hh) || isNaN(mm) || hh === 0 || hh > 12 || mm > 59) return null;
+  return { hh: hh, mm: mm, pm: pm };
+}
+
+function codexParseTodayClock(s: string, nowMs: number): number | null {
+  const t = codexParseHMmAmPm(s);
+  if (!t) return null;
+  const hour24 = (t.hh % 12) + (t.pm ? 12 : 0);
+  const now = new Date(nowMs);
+  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hour24, t.mm, 0, 0);
+  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1000);
+  return cand.getTime();
+}
+
 // Auth ensemble, weighted so no lone casual mention fires. Leans inclusive: a false positive only surfaces, never auto-acts.
 function scoreAuthPrompt(screen: string): number {
   const s = String(screen || "");
@@ -620,6 +753,10 @@ interface CodexPayload {
   name?: string;
   output?: unknown;
   model?: string;
+  input?: string | Record<string, unknown>;
+  call_id?: string;
+  stdout?: string;
+  success?: boolean;
 }
 interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string }
 interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
@@ -841,7 +978,8 @@ interface CodexGauge { pct: number | null; resetsMs: number | null }
 
 function codexParseGauge(text: string, marker: string, isWeekly: boolean, nowMs: number): CodexGauge {
   const re = new RegExp(
-    marker + "[\\s\\S]{0,200}?(\\d+(?:\\.\\d+)?)\\s*%\\s*left[\\s\\S]*?\\(resets?\\s+([^)]+?)\\)",
+    marker + "[\\s\\S]{0,320}?(\\d+(?:\\.\\d+)?)\\s*%\\s*left[\\s\\S]*?\\(resets?\\s+([^)]+?)\\)",
+    "i",
   );
   const caps = re.exec(text);
   if (!caps) return { pct: null, resetsMs: null };
@@ -873,10 +1011,21 @@ const CODEX_MONTHS: Record<string, number> = {
 
 function isValidCodexSessionDelta(v: CodexEntry): boolean {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  if (v.type === "event_msg") {
+    if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
+    return v.payload.type === "patch_apply_end";
+  }
   if (v.type !== "response_item") return false;
   if (!v.payload || typeof v.payload !== "object" || Array.isArray(v.payload)) return false;
   const kind = v.payload.type;
-  if (kind !== "message" && kind !== "function_call" && kind !== "function_call_output") return false;
+  if (
+    kind !== "message" &&
+    kind !== "function_call" &&
+    kind !== "function_call_output" &&
+    kind !== "custom_tool_call"
+  ) {
+    return false;
+  }
   return true;
 }
 

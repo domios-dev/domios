@@ -2,6 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
 import type { UsageSnapshot, UsageSnapshotEvent } from "../types/usage";
+import { nextResetAt, zeroExpiredResets } from "../components/Usage/cycle";
+
+// setTimeout clamps past ~24.8 days; re-arm in bounded hops so a far-off weekly
+// reset still fires without depending on one giant timer surviving that long.
+const MAX_RESET_DELAY_MS = 6 * 60 * 60 * 1000;
 
 export interface UseUsageSnapshotOptions {
   /** Provider id (e.g. "claude", "codex"). Required — no implicit default
@@ -24,6 +29,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
   const [snapshot, setSnapshot] = useState<UsageSnapshot | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetTick, setResetTick] = useState(0);
   const cancelledRef = useRef(false);
 
   const refetch = useCallback(async () => {
@@ -71,6 +77,27 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
       unlisten?.();
     };
   }, [provider, accountId, enabled, refetch]);
+
+  // Auto-refresh at the cycle boundary: when a reset timer elapses, optimistically
+  // zero the spent metric (so the bubble drops instantly, no manual click) and
+  // force a probe — the event listener refetches the real values when it lands.
+  // resetTick re-arms after a capped intermediate hop toward a far-off reset.
+  useEffect(() => {
+    if (!enabled || !snapshot) return;
+    const due = nextResetAt(snapshot, Date.now());
+    if (due == null) return;
+    const delay = Math.min(Math.max(0, due - Date.now()) + 500, MAX_RESET_DELAY_MS);
+    const t = setTimeout(() => {
+      if (cancelledRef.current) return;
+      const rolled = zeroExpiredResets(snapshot, Date.now());
+      if (rolled !== snapshot) {
+        setSnapshot(rolled);
+        refresh();
+      }
+      setResetTick((v) => v + 1);
+    }, delay);
+    return () => clearTimeout(t);
+  }, [snapshot, enabled, refresh, resetTick]);
 
   return { snapshot, loading, error, refetch, refresh };
 }

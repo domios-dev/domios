@@ -1,6 +1,6 @@
 # Changing the CLI
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
 
 The clap tree in `cli/src/args/*.rs` is the single source of truth.
 
@@ -17,6 +17,22 @@ When you add/rename/remove a command or flag:
 5. If you added a chat-card template, it is checked by chat-ui `recognize.test.ts`.
 
 CI (`.github/workflows/cli-source-of-truth.yml`) runs all of the above.
+
+## Error & hint hygiene
+
+CLI user-facing lines follow three registers, by severity:
+
+- **Errors** — the operation failed. Lead with `✗ <what went wrong>` and follow
+  with a `fix: <copy-pasteable command>` line. Built in
+  `cli/src/cmd/plan_errors.rs` (`render_plan_error`). Route fallible plan/task
+  RPC calls through `render_plan_call_error(err, &params)` so the structured
+  message and the cross-daemon `hint:` (dev-vs-prod daemon mismatch) fire
+  uniformly — do not hand-roll `format!("RPC error {code}: {message}")`.
+- **Advisory** — the operation succeeded but there's a better/next step. Prefix
+  `hint:` (lowercase). Built in `cli/src/cmd/hints.rs`. Never block on these.
+- **Loud** — a non-fatal condition the user must not miss. Prefix `WARNING:`.
+
+Keep one register per line; never mix `✗` and `hint:` on the same line.
 
 ## Why no hand-parsing
 

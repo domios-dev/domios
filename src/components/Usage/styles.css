@@ -219,6 +219,52 @@
   color: var(--ct-muted-fg, #8b949e);
   letter-spacing: 0.02em;
 }
+.ct-usage-spend {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 14px 10px 10px;
+}
+.ct-usage-spend .amount {
+  font-family: var(--u-font-mono);
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--ct-fg, #c9d1d9);
+  letter-spacing: 0.01em;
+}
+.ct-usage-spend .caption {
+  font-size: 11px;
+  color: var(--ct-muted-fg, #8b949e);
+}
+.ct-usage-spend .quota {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  width: 100%;
+  font-family: var(--u-font-mono);
+  font-size: 10px;
+  color: var(--ct-fg, #c9d1d9);
+}
+.ct-usage-spend .quota span {
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid var(--ct-border, #30363d);
+  border-radius: 6px;
+  background: rgba(139, 148, 158, 0.08);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ct-usage-spend .reset {
+  margin-top: 4px;
+  font-family: var(--u-font-mono);
+  font-size: 9.5px;
+  color: var(--ct-muted-fg, #8b949e);
+  letter-spacing: 0.02em;
+}
 .ct-usage-gauge .bar-wrap {
   grid-column: 1 / 3;
   margin-top: 22px;

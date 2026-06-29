@@ -49,6 +49,8 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
 
+**Run ONE test at a time.** All `cargo test`/`build.sh test` runs share a single `target/.cargo-lock`; launching a second while one is in flight makes them queue (not parallelize) and looks like a multi-minute "hang" — narrow the filter, run it once in the background, wait for it; never fire concurrent runs.
+
 **Interactive dev restart from inside CodeTerm: prefer a visible pane.** On
 macOS/Tauri, `./build.sh dev --wait` can briefly report healthy and then lose the
 launcher process when the detached PTY goes away. For user-facing dev sessions,
@@ -199,26 +201,23 @@ frontend-dev, code-reviewer, docs-sync, release) live in
 `src-tauri/`; your task: …") — there are no per-role `codeterm mem` entries to
 fetch (do not try `codeterm mem get skill_<role>_role` — those do not exist).
 
-**`.agents/skills/`** is the canonical project-local skill directory. **`.claude/skills/`**
-is a mirror for Claude Code compatibility, synced from `.agents/skills/`.
+**`.agents/skills/`** is the canonical project-local skill directory (mem indexes it directly).
 
 ### Where the codeterm-specific skill folders live
 
-CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs, and mirrors to `.claude/skills/` for Claude Code. Currently:
+CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-controlled, comes with the checkout, evolves with the codebase via PRs. Currently:
 
-- `.agents/skills/codeterm-orchestrator/` — orchestration discipline and gates
 - `.agents/skills/dev-run/` — dev daemon start/restart/diagnostics
 - `.agents/skills/dev-testing/` — dev API testing helpers
 - `.agents/skills/github-release/` — release pipeline procedure
 - `.agents/skills/prompt-evaluator/` — prompt regression harness
 
+> The **orchestrator** skill is NOT project-local — it is a cross-project discipline.
+> Canonical copy is **one per machine** at `~/.codeterm/skills/codeterm-orchestrator/`, indexed
+> in mem as `skill_codeterm_orchestrator`. Do not keep a duplicate under `.agents/`/`.claude`/
+> `~/.agents`. Each machine adapts only its build-capacity section (weak vs powerful).
+
 Prod build lives in `./build.sh build`; Windows local NSIS self-install in `scripts/self-install-local.ps1`.
-
-After editing project skills, sync the Claude mirror:
-
-```bash
-node scripts/sync-agent-skills.mjs
-```
 
 On a fresh clone, register them with mem so the Librarian indexes them:
 
@@ -320,10 +319,12 @@ No `[Tag]`, `[Idea]`, `[Bug]` brackets — just the scope prefix.
 Branch as you like, then:
 
 1. **Develop → `develop`.** PR feature branches into `develop`. Reference issues with a **bare `#N`** (NOT `Closes #N` — that would let GitHub close on master-merge, before the build actually ships). On push to `develop` the referenced open issues get the **`ready-for-release`** label (still open).
-2. **Cut a release.** PR `develop` → `master`, merge it. Then on `master`, manually tag: `git tag release-X.Y.Z && git push origin release-X.Y.Z` (single tag — the workflow stamps `vX.Y.Z` itself). The self-hosted build machine builds + publishes.
+2. **Cut a release.** PR `develop` → `master` (or a release branch → `master`), merge it. **Always land `master` via a PR** — direct pushes to `master` are intentionally gated. Bump + sync the version on the branch first (`package.json` → `npm run sync:versions` → `check:versions`, commit `release: vX.Y.Z`). Then on `master`, manually tag: `git tag release-X.Y.Z && git push origin release-X.Y.Z` (single tag — the workflow stamps `vX.Y.Z` itself). The self-hosted build machine builds + publishes.
 3. **Published → done.** On a successful publish the release workflow closes every `ready-for-release` issue ("Released in vX.Y.Z") and drops the label. Close-on-publish, never on merge, so a failed build never closes an unshipped issue.
 
 Before tagging, a fast `cargo check` precheck (linux+macOS) gates the long build; failures surface per-engine in the Actions log.
+
+**Build farm + full release runbook:** **`.codeterm/build-machine/README.md`**. A single `release-X.Y.Z` tag fires **three** workflows in parallel, each on its own self-hosted runner: `release.yml` on the **Mac** (`codeterm-builder`) builds **macOS (native) + arm64 Linux (Docker)** via `build-all.sh`; `release-windows.yml` on the **ROG** (`ROG-windows-build`, label `windows-build`) builds + signs **Windows x64 + arm64** on the runner; `release-linux.yml` on the **ROG's WSL2 Ubuntu** (label `linux-build`) builds **x86_64 Linux .deb+.AppImage** natively. No SSH between machines (the old Mac→ROG SSH path is gone); each runner signs via `TAURI_SIGNING_PRIVATE_KEY` and publishes/mirrors itself. That doc has the three-runner table, per-runner provisioning, and the PR-based release steps.
 
 ## Documentation
 

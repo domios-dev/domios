@@ -37,6 +37,24 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Plugin { .. } => {
             unsupported("plugin management is local-only — run it on the target machine")
         }
+        Commands::Plan { .. } => {
+            unsupported("plan management is local-only — run it on the target machine")
+        }
+        Commands::Spec { .. } => {
+            unsupported("spec management is local-only — run it on the target machine")
+        }
+        Commands::Effort { .. } => {
+            unsupported("effort management is local-only — run it on the target machine")
+        }
+        Commands::Orchestrator { .. } => {
+            unsupported("orchestrator handoff is local-only — run it on the target machine")
+        }
+        Commands::Task { .. } => {
+            unsupported("task management is local-only — run it on the target machine")
+        }
+        Commands::Canvas { .. } => {
+            unsupported("canvas control is local-only — run it on the target machine")
+        }
         // `cli-manifest` introspects the local clap binary — no remote form.
         Commands::CliManifest { .. } => {
             unsupported("cli-manifest is local-only — it dumps this binary's own command tree")
@@ -44,14 +62,6 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Identify => ("GET".into(), "/api/identify".into(), None),
         Commands::Capabilities => {
             unsupported("capabilities is socket-only; run it on the target machine")
-        }
-        Commands::GetOutput { pane, lines } => {
-            let p = pane.as_deref().unwrap_or("general");
-            (
-                "GET".into(),
-                format!("/api/panes/{}/output?lines={}&strip_ansi=true", p, lines),
-                None,
-            )
         }
         Commands::SendText {
             text,
@@ -453,6 +463,19 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
             crate::AgentAction::Providers | crate::AgentAction::Models { .. } => {
                 ("GET".into(), "/api/agents/providers".into(), None)
             }
+            crate::AgentAction::Message {
+                text,
+                pane,
+                from_file,
+                stdin,
+            } => send_text_to_api(
+                text,
+                &Some(pane.clone()),
+                from_file,
+                *stdin,
+                &None,
+                &mut std::io::stdin(),
+            ),
             _ => ("GET".into(), "/api/panes".into(), None),
         },
         Commands::Notifications { unread, .. } => {
@@ -742,8 +765,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
         // `system` is local-only platform config (schtasks/launchd/systemd).
         // Mesh relay falls through to /identify for a valid response shape.
         Commands::System { .. } => ("GET".into(), "/api/identify".into(), None),
-        // `docs` reads embedded markdown — local-only by definition.
+        // `docs` / `doc` read embedded markdown — local-only by definition.
         Commands::Docs { .. } => ("GET".into(), "/api/identify".into(), None),
+        Commands::Doc { .. } => ("GET".into(), "/api/identify".into(), None),
         Commands::Usage { action } => match action {
             crate::UsageAction::Latest {
                 provider,

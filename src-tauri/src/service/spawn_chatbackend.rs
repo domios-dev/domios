@@ -82,15 +82,13 @@ impl ServiceContext {
 
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
-            let from_parent = spec
-                .parent_pane_id
-                .as_ref()
-                .and_then(|pid| mux.find_workspace_for_pane(pid));
-            let id = from_parent
-                .or_else(|| spec.workspace_id.clone())
-                .or_else(|| mux.snapshot().active_workspace_id.clone())
-                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or("No workspace found")?;
+            let id = crate::service::spawn::resolve_spawn_workspace_id(
+                spec.workspace_id.clone(),
+                spec.parent_pane_id.as_deref(),
+                |pid| mux.find_workspace_for_pane(pid),
+                mux.get_active_workspace().map(|w| w.id.clone()),
+                mux.list_workspaces().first().map(|w| w.id.clone()),
+            )?;
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
@@ -103,7 +101,6 @@ impl ServiceContext {
                 if let Err(e) = mux.rename_pane(&result.1, title) {
                     log::warn!("[spawn.chatbackend] rename_pane failed: {}", e);
                 }
-                let _ = mux.rename_tab(&ws_id, &result.0, title);
             }
             if let Some(ref description) = spec.description {
                 let _ = mux.set_pane_description(&result.1, Some(description.clone()));

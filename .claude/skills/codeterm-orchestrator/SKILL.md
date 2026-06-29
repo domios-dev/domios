@@ -155,16 +155,18 @@ git log --oneline <mainline>..<branch>
 - QuickJS plugin host calls are synchronous; Promise-wrapping a sync consumer
   can break polling/pump contracts.
 
-## Final Handoff
+## Handoff Verify-Loop
 
-A useful handoff includes:
+Before `orchestrator handoff --reseed`, run: compose -> read back -> verify x3
+-> reseed. No reseed until three consecutive clean passes. Full procedure:
+`.agents/skills/codeterm-orchestrator/SKILL.md` section Handoff Verify-Loop and
+`docs/ORCHESTRATION.md` section Handoffs.
 
-- Current branch/worktree map.
-- Integrated diff summary.
-- Gates run, with exact commands and outcomes.
-- UI/Playwright/manual oracle status.
-- Known gaps or residual risk.
-- Branches/worktrees intentionally left in place.
+```bash
+codeterm plan handoff create "$CODETERM_PLAN_ID" --goal "..." --next "..." --from-file body.md
+codeterm plan handoff show "$CODETERM_PLAN_ID" --latest --markdown
+# Verify x3 vs plan get, spec show, plan in-progress, and agent reports.
+codeterm orchestrator handoff --plan "$CODETERM_PLAN_ID" --reseed --mode new --goal "..." --next "..." --from-file body.md
+```
 
-Do not report "verified" unless the relevant integration/UI gate was actually
-run by the Orchestrator.
+Resume from `next_actions`, not a provider generic recap.

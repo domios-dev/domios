@@ -1,0 +1,1 @@
+In-place zoom default; double-click=zoom-to-fit+lock Document+dim rest+breadcrumb HUD; Esc=back.

@@ -80,6 +80,10 @@ pub fn handle_delayed(client: &mut SocketClient, json: bool, action: DelayedActi
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI forwarding mirrors send text options."
+)]
 pub fn queue_from_send(
     client: &mut SocketClient,
     json: bool,

@@ -1,0 +1,1 @@
+Paged A4 + on-canvas pager + persistent left section rail (TOC); chunk-worlds when extreme.

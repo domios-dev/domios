@@ -108,6 +108,48 @@
           "subcommands": []
         },
         {
+          "name": "message",
+          "about": "Send an immediate message to a running agent pane",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read message text from a file instead of the positional arg",
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": "Target agent pane ID",
+              "aliases": []
+            },
+            {
+              "name": "stdin",
+              "positional": false,
+              "value_name": "STDIN",
+              "default": null,
+              "help": "Read message text from stdin",
+              "aliases": [
+                "from-stdin"
+              ]
+            },
+            {
+              "name": "text",
+              "positional": true,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Message text (positional, or omit and use --from-file/--stdin)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "model",
           "about": "Switch agent model. Claude only — Codex /model is an interactive picker, respawn with `agent spawn codex --model X` instead",
           "aliases": [],
@@ -176,6 +218,22 @@
               "aliases": []
             },
             {
+              "name": "doc",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Markdown document to append to the report milestone",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": "Milestone kind when writing to --plan/--task",
+              "aliases": []
+            },
+            {
               "name": "message",
               "positional": true,
               "value_name": "MESSAGE",
@@ -189,6 +247,14 @@
               "value_name": "PANE",
               "default": null,
               "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": "Plan id to append this report to",
               "aliases": []
             },
             {
@@ -212,7 +278,15 @@
               "positional": false,
               "value_name": "STATUS",
               "default": null,
-              "help": "Task outcome: done | blocked | partial",
+              "help": "Task outcome: done | in_review | blocked | partial",
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": "Task id to append this report to",
               "aliases": []
             },
             {
@@ -229,6 +303,14 @@
               "value_name": "TEST_RESULT",
               "default": null,
               "help": "Result of the test command (e.g. \"42 passed\")",
+              "aliases": []
+            },
+            {
+              "name": "text",
+              "positional": false,
+              "value_name": "TEXT",
+              "default": null,
+              "help": "Report message as a flag, useful when paired with --doc",
               "aliases": []
             }
           ],
@@ -644,6 +726,62 @@
               "value_name": "TYPE",
               "default": "text",
               "help": "Content type: text, photo, document, voice, animation, video, sticker",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "canvas",
+      "about": "Canvas control commands",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "filter",
+          "about": "Dim the canvas to a facet value such as area:layout",
+          "aliases": [],
+          "args": [
+            {
+              "name": "facet",
+              "positional": false,
+              "value_name": "FACET",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "focus",
+          "about": "Focus the open canvas on a task, pane, or plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -1271,6 +1409,22 @@
       ]
     },
     {
+      "name": "doc",
+      "about": "Read one embedded CodeTerm document in full",
+      "aliases": [],
+      "args": [
+        {
+          "name": "name",
+          "positional": true,
+          "value_name": "NAME",
+          "default": null,
+          "help": "Doc name (e.g. orchestration)",
+          "aliases": []
+        }
+      ],
+      "subcommands": []
+    },
+    {
       "name": "docs",
       "about": "Read embedded CodeTerm documentation. Docs are bundled into the CLI binary at compile time so agents can request them on demand without bloating the system prompt. `codeterm docs` lists, `codeterm docs <name>` prints a bounded preview inside CodeTerm panes; pass --full for the complete doc. Names are case-insensitive and match the .md stem (CONFIG, API, MESH, MEMORY, BUILD, PROMPTS, SKILLS, TESTING)",
       "aliases": [],
@@ -1303,28 +1457,60 @@
       "subcommands": []
     },
     {
-      "name": "get-output",
-      "about": "Get terminal output from a pane (default: current pane)",
+      "name": "effort",
+      "about": "Complete work bundles and effort lineage",
       "aliases": [],
-      "args": [
+      "args": [],
+      "subcommands": [
         {
-          "name": "lines",
-          "positional": false,
-          "value_name": "LINES",
-          "default": "50",
-          "help": "Maximum number of lines to return (approximate)",
-          "aliases": []
+          "name": "link",
+          "about": "Link two efforts by lineage",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from",
+              "positional": false,
+              "value_name": "FROM",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "rel",
+              "positional": false,
+              "value_name": "REL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         },
         {
-          "name": "pane",
-          "positional": false,
-          "value_name": "PANE",
-          "default": null,
-          "help": "Target pane ID (default: $CODETERM_PANE_ID or focused pane)",
-          "aliases": []
+          "name": "show",
+          "about": "Show the full effort bundle (linked spec(s) + plan + tasks) for one plan_id",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
         }
-      ],
-      "subcommands": []
+      ]
     },
     {
       "name": "identify",
@@ -2918,6 +3104,14 @@
               "aliases": []
             },
             {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": "Project path whose in-project plan index should be searched too",
+              "aliases": []
+            },
+            {
               "name": "query",
               "positional": true,
               "value_name": "QUERY",
@@ -3686,30 +3880,6 @@
           "subcommands": []
         },
         {
-          "name": "output",
-          "about": "Get output from a pane on a remote mesh peer",
-          "aliases": [],
-          "args": [
-            {
-              "name": "pane",
-              "positional": false,
-              "value_name": "PANE",
-              "default": "general",
-              "help": "Target pane on remote instance (default: general)",
-              "aliases": []
-            },
-            {
-              "name": "target",
-              "positional": true,
-              "value_name": "TARGET",
-              "default": null,
-              "help": "Target peer name or instance ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
           "name": "panes",
           "about": "List panes on a remote mesh peer",
           "aliases": [],
@@ -3858,6 +4028,214 @@
         }
       ],
       "subcommands": []
+    },
+    {
+      "name": "orchestrator",
+      "about": "Orchestrator helpers",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "handoff",
+          "about": "Create an orchestrator handoff and optionally reseed this pane",
+          "aliases": [],
+          "args": [
+            {
+              "name": "dry_run",
+              "positional": false,
+              "value_name": "DRY_RUN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "force",
+              "positional": false,
+              "value_name": "FORCE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "from_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "goal",
+              "positional": false,
+              "value_name": "GOAL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "mode",
+              "positional": false,
+              "value_name": "MODE",
+              "default": "new",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "next_actions",
+              "positional": false,
+              "value_name": "NEXT_ACTIONS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "pane",
+              "positional": false,
+              "value_name": "PANE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "reseed",
+              "positional": false,
+              "value_name": "RESEED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "heartbeat",
+          "about": "Orchestrator heartbeat helpers",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": "Set the heartbeat focus, active lanes, and rules carried into auto-reinjection",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "clear_lanes",
+                  "positional": false,
+                  "value_name": "CLEAR_LANES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "clear_rules",
+                  "positional": false,
+                  "value_name": "CLEAR_RULES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "focus",
+                  "positional": false,
+                  "value_name": "FOCUS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "lanes",
+                  "positional": false,
+                  "value_name": "LANES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "rules",
+                  "positional": false,
+                  "value_name": "RULES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "Show the current heartbeat and learnings",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan",
+                  "positional": false,
+                  "value_name": "PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "learn",
+          "about": "Append a persistent learning to this orchestrator's heartbeat",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tag",
+              "positional": false,
+              "value_name": "TAG",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "text",
+              "positional": true,
+              "value_name": "TEXT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
     },
     {
       "name": "pane",
@@ -4091,7 +4469,7 @@
               "positional": false,
               "value_name": "PLUGIN_ID",
               "default": null,
-              "help": "Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`get-output` then route to the plugin, not a shell",
+              "help": "Open a non-PTY chat-backend pane driven by the given plugin id (a plugin declaring the `chatBackend` capability). `codeterm send`/`pane get-text` then route to the plugin, not a shell",
               "aliases": []
             },
             {
@@ -4323,6 +4701,2534 @@
               "value_name": "ID",
               "default": null,
               "help": "Paste id",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "plan",
+      "about": "Canvas plans — persistent orchestration boards",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "archive",
+          "about": "Archive a plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "claim",
+          "about": "Claim an unowned plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "coverage",
+          "about": "Show section coverage (% + gaps)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "create",
+          "about": "Create a new plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "from_spec",
+              "positional": false,
+              "value_name": "FROM_SPEC",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "kinds",
+              "positional": false,
+              "value_name": "KINDS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "spec",
+              "positional": false,
+              "value_name": "SPEC",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "spec_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "delete",
+          "about": "Delete a plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "disown",
+          "about": "Release plan ownership",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "doctor",
+          "about": "Inspect project-local plan files for storage and structure errors",
+          "aliases": [],
+          "args": [
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": "all",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "element",
+          "about": "Generic canvas elements",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Add a generic canvas element of an arbitrary kind, optionally linked",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "content",
+                  "positional": false,
+                  "value_name": "CONTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "content_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "link",
+                  "positional": false,
+                  "value_name": "LINK",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List generic canvas elements",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "Show one generic canvas element",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "element_id",
+                  "positional": true,
+                  "value_name": "ELEMENT_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "facets",
+          "about": "Set declared tag facets",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": "Set the declared tag facets (CSV)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "facets",
+                  "positional": false,
+                  "value_name": "FACETS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "files",
+          "about": "List generated section/task body files",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "gaps",
+          "about": "Show sections with zero tasks",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "get",
+          "about": "Render the whole plan as markdown (goal + sections + tasks); --sections for the tree only",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "sections",
+              "positional": false,
+              "value_name": "SECTIONS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "goal",
+          "about": "Plan north-star goal",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "get",
+              "about": "Show the plan's north-star goal (alias of show)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set",
+              "about": "Set the plan's goal vector, vision, constraints, and postulates",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "constraint",
+                  "positional": false,
+                  "value_name": "CONSTRAINT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "postulate",
+                  "positional": false,
+                  "value_name": "POSTULATE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "vector",
+                  "positional": false,
+                  "value_name": "VECTOR",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "vision",
+                  "positional": false,
+                  "value_name": "VISION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "vision_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "Show the plan's north-star goal (vector, vision, constraints, postulates)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "groups",
+          "about": "Set task groups (phases)",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": "Set the task groups / phases (CSV)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "groups",
+                  "positional": false,
+                  "value_name": "GROUPS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "handoff",
+          "about": "Orchestrator handoffs attached to the plan",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "create",
+              "about": "Create a durable, goal-anchored handoff attached to the plan",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "foundational_rules",
+                  "positional": false,
+                  "value_name": "FOUNDATIONAL_RULES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "goal",
+                  "positional": false,
+                  "value_name": "GOAL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "mode",
+                  "positional": false,
+                  "value_name": "MODE",
+                  "default": "record",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "next_actions",
+                  "positional": false,
+                  "value_name": "NEXT_ACTIONS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "open_decisions",
+                  "positional": false,
+                  "value_name": "OPEN_DECISIONS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "stdin",
+                  "positional": false,
+                  "value_name": "STDIN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task",
+                  "positional": false,
+                  "value_name": "TASK",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List the handoffs attached to a plan",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "Show a handoff (--latest or --seq N), optionally as markdown",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "latest",
+                  "positional": false,
+                  "value_name": "LATEST",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "markdown",
+                  "positional": false,
+                  "value_name": "MARKDOWN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "selector",
+                  "positional": true,
+                  "value_name": "SELECTOR",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "seq",
+                  "positional": false,
+                  "value_name": "SEQ",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "in-progress",
+          "about": "List active orchestration tasks",
+          "aliases": [],
+          "args": [
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "ingest",
+          "about": "Ingest markdown headings as plan sections",
+          "aliases": [],
+          "args": [
+            {
+              "name": "markdown",
+              "positional": true,
+              "value_name": "PATH_OR_DASH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "kinds",
+          "about": "Set milestone kind columns",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": "Set the declared milestone kind columns (CSV)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "kinds",
+                  "positional": false,
+                  "value_name": "KINDS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "layout",
+          "about": "Canvas layout overrides",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "set",
+              "about": "Set a canvas element's x/y layout override",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "element",
+                  "positional": false,
+                  "value_name": "ELEMENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "x",
+                  "positional": false,
+                  "value_name": "X",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "y",
+                  "positional": false,
+                  "value_name": "Y",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "link",
+          "about": "Link this plan to a related plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List plans",
+          "aliases": [],
+          "args": [
+            {
+              "name": "active",
+              "positional": false,
+              "value_name": "ACTIVE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "archived",
+              "positional": false,
+              "value_name": "ARCHIVED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "orchestrator",
+              "positional": false,
+              "value_name": "ORCHESTRATOR",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "unowned",
+              "positional": false,
+              "value_name": "UNOWNED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "loop",
+          "about": "Self-improving loops",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "advance",
+              "about": "Advance a loop one iteration, recording whether it made progress",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "loop_id",
+                  "positional": true,
+                  "value_name": "LOOP_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "progress",
+                  "positional": false,
+                  "value_name": "PROGRESS",
+                  "default": "false",
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "create",
+              "about": "Declare a self-improving loop with a target and iteration budget",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "budget",
+                  "positional": false,
+                  "value_name": "BUDGET",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "stop_when",
+                  "positional": false,
+                  "value_name": "STOP_WHEN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "target",
+                  "positional": false,
+                  "value_name": "TARGET",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set",
+              "about": "Update a loop's budget or stop condition",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "budget",
+                  "positional": false,
+                  "value_name": "BUDGET",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "loop_id",
+                  "positional": true,
+                  "value_name": "LOOP_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "stop_when",
+                  "positional": false,
+                  "value_name": "STOP_WHEN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "status",
+              "about": "Show a loop's iteration count, budget, and status",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "loop_id",
+                  "positional": true,
+                  "value_name": "LOOP_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "stop",
+              "about": "Stop a loop (marks it complete)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "loop_id",
+                  "positional": true,
+                  "value_name": "LOOP_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "milestone",
+          "about": "Task milestones",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Add a milestone (stride) to a task; --add-kind declares a new kind inline",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "add_kind",
+                  "positional": false,
+                  "value_name": "ADD_KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from",
+                  "positional": false,
+                  "value_name": "FROM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text",
+                  "positional": false,
+                  "value_name": "TEXT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": "Remove a milestone from a task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "milestone_id",
+                  "positional": true,
+                  "value_name": "MILESTONE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": "Update a milestone's kind or text",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "milestone_id",
+                  "positional": true,
+                  "value_name": "MILESTONE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text",
+                  "positional": false,
+                  "value_name": "TEXT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "next",
+          "about": "Prioritized, advisory next-action guidance computed from plan state",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "note",
+          "about": "Free-form notes on the canvas",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Add a free-form canvas note, optionally linked to a task or section",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "link_section",
+                  "positional": false,
+                  "value_name": "LINK_SECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "link_task",
+                  "positional": false,
+                  "value_name": "LINK_TASK",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text",
+                  "positional": false,
+                  "value_name": "TEXT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "prune",
+          "about": "Preview or delete smoke/empty project-local plan files (dry-run by default)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "apply",
+              "positional": false,
+              "value_name": "APPLY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "reconcile",
+          "about": "Detect plan/task drift and optionally apply conservative fixes",
+          "aliases": [],
+          "args": [
+            {
+              "name": "fix",
+              "positional": false,
+              "value_name": "FIX",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "record",
+          "about": "Record task progress with one atomic plan write",
+          "aliases": [],
+          "args": [
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "key",
+              "positional": false,
+              "value_name": "KEY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "links",
+              "positional": false,
+              "value_name": "LINKS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "sections",
+              "positional": false,
+              "value_name": "SECTIONS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "status",
+              "positional": false,
+              "value_name": "STATUS",
+              "default": null,
+              "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
+              "aliases": []
+            },
+            {
+              "name": "steps",
+              "positional": false,
+              "value_name": "STEPS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "value_name": "TASK",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "upsert_task",
+              "positional": false,
+              "value_name": "UPSERT_TASK",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "reindex",
+          "about": "Rebuild the project-local plan recall index",
+          "aliases": [],
+          "args": [
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "related",
+          "about": "Show structural neighbors for a plan/spec/task/section unit",
+          "aliases": [],
+          "args": [
+            {
+              "name": "depth",
+              "positional": false,
+              "value_name": "DEPTH",
+              "default": "1",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": false,
+              "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "section",
+          "about": "Plan sections",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Add a plan section (execution phase), optionally nested under --parent",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": "Remove a plan section and its subsections",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "Show one plan section's title, body, tags, and subsections",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": "Update a plan section's title, body, tags, or handle",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "spec",
+          "about": "Print only the plan's hydrated section prose (no goal, tasks, or metadata)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "state",
+          "about": "One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "tags",
+          "about": "Show tag facets, counts, topics, and duplicate warnings",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "task",
+          "about": "Plan tasks",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Add a task to a plan (carries model/why routing + quality fields)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "assign_pane",
+                  "positional": false,
+                  "value_name": "ASSIGN_PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "base",
+                  "positional": false,
+                  "value_name": "BASE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "branch",
+                  "positional": false,
+                  "value_name": "BRANCH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "cleanup_hints",
+                  "positional": false,
+                  "value_name": "CLEANUP_HINTS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "cleanup_status",
+                  "positional": false,
+                  "value_name": "CLEANUP_STATUS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "correctness",
+                  "positional": false,
+                  "value_name": "CORRECTNESS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "criterion",
+                  "positional": false,
+                  "value_name": "CRITERION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "destination",
+                  "positional": false,
+                  "value_name": "DESTINATION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "group",
+                  "positional": false,
+                  "value_name": "GROUP",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "intent",
+                  "positional": false,
+                  "value_name": "INTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "intent_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "loop_from",
+                  "positional": false,
+                  "value_name": "LOOP_FROM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "model",
+                  "positional": false,
+                  "value_name": "MODEL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": false,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "priority",
+                  "positional": false,
+                  "value_name": "PRIORITY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "sections",
+                  "positional": false,
+                  "value_name": "SECTIONS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "test_plan",
+                  "positional": false,
+                  "value_name": "TEST_PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "why",
+                  "positional": false,
+                  "value_name": "WHY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "why_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace_id",
+                  "positional": false,
+                  "value_name": "WORKSPACE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace_name",
+                  "positional": false,
+                  "value_name": "WORKSPACE_NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "worktree",
+                  "positional": false,
+                  "value_name": "WORKTREE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "assign",
+              "about": "Assign a task to a pane (exports CODETERM_TASK_ID to that pane)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "mesh",
+                  "positional": false,
+                  "value_name": "MESH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "pane",
+                  "positional": false,
+                  "value_name": "PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "close",
+              "about": "Close a task (records a result; rejects if subtasks are open)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "mesh",
+                  "positional": false,
+                  "value_name": "MESH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "result",
+                  "positional": false,
+                  "value_name": "RESULT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "result_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "link",
+              "about": "Link a task to one or more plan sections (CSV)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "sections",
+                  "positional": false,
+                  "value_name": "SECTIONS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List a plan's tasks, optionally filtered by status",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "status",
+                  "positional": false,
+                  "value_name": "STATUS",
+                  "default": null,
+                  "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "relink",
+              "about": "Preview or apply automatic section links for unlinked tasks (--apply)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "apply",
+                  "positional": false,
+                  "value_name": "APPLY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "retag",
+              "about": "Replace facet/topic tags and regenerate the task handle",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": "Remove a task from the plan",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": "Update task metadata, status, quality fields, or lane assignment",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "base",
+                  "positional": false,
+                  "value_name": "BASE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "branch",
+                  "positional": false,
+                  "value_name": "BRANCH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "cleanup_hints",
+                  "positional": false,
+                  "value_name": "CLEANUP_HINTS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "cleanup_status",
+                  "positional": false,
+                  "value_name": "CLEANUP_STATUS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "correctness",
+                  "positional": false,
+                  "value_name": "CORRECTNESS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "criterion",
+                  "positional": false,
+                  "value_name": "CRITERION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "destination",
+                  "positional": false,
+                  "value_name": "DESTINATION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "group",
+                  "positional": false,
+                  "value_name": "GROUP",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "intent",
+                  "positional": false,
+                  "value_name": "INTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "intent_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "model",
+                  "positional": false,
+                  "value_name": "MODEL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": false,
+                  "value_name": "NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "pane",
+                  "positional": false,
+                  "value_name": "PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "priority",
+                  "positional": false,
+                  "value_name": "PRIORITY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "sections",
+                  "positional": false,
+                  "value_name": "SECTIONS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "status",
+                  "positional": false,
+                  "value_name": "STATUS",
+                  "default": null,
+                  "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
+                  "aliases": []
+                },
+                {
+                  "name": "status_label",
+                  "positional": false,
+                  "value_name": "STATUS_LABEL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "test_plan",
+                  "positional": false,
+                  "value_name": "TEST_PLAN",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "why",
+                  "positional": false,
+                  "value_name": "WHY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "why_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace_id",
+                  "positional": false,
+                  "value_name": "WORKSPACE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace_name",
+                  "positional": false,
+                  "value_name": "WORKSPACE_NAME",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "worktree",
+                  "positional": false,
+                  "value_name": "WORKTREE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "transfer",
+          "about": "Transfer plan ownership",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "reason",
+              "positional": false,
+              "value_name": "REASON",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "unarchive",
+          "about": "Restore an archived plan to active",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "unlink",
+          "about": "Remove a plan link",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "to",
+              "positional": false,
+              "value_name": "TO",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "update",
+          "about": "Update plan metadata",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "spec",
+              "positional": false,
+              "value_name": "SPEC",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "spec_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "status",
+              "positional": false,
+              "value_name": "STATUS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -5090,6 +7996,414 @@
       ]
     },
     {
+      "name": "spec",
+      "about": "Requirements specs — first-class WHAT documents",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "create",
+          "about": "Create a new spec",
+          "aliases": [],
+          "args": [
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "files",
+          "about": "List generated section body files",
+          "aliases": [],
+          "args": [
+            {
+              "name": "spec_id",
+              "positional": true,
+              "value_name": "SPEC_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "link",
+          "about": "Spec-to-plan links",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Link a spec section to a plan section (M:N coverage edge)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_section",
+                  "positional": false,
+                  "value_name": "PLAN_SECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec",
+                  "positional": false,
+                  "value_name": "SPEC",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_section",
+                  "positional": false,
+                  "value_name": "SPEC_SECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List spec-to-plan links for a spec",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "spec_id",
+                  "positional": true,
+                  "value_name": "SPEC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": "Remove spec-to-plan link(s); narrow with --spec-section / --plan-section",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_section",
+                  "positional": false,
+                  "value_name": "PLAN_SECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec",
+                  "positional": false,
+                  "value_name": "SPEC",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_section",
+                  "positional": false,
+                  "value_name": "SPEC_SECTION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "about": "List specs",
+          "aliases": [],
+          "args": [
+            {
+              "name": "active",
+              "positional": false,
+              "value_name": "ACTIVE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "archived",
+              "positional": false,
+              "value_name": "ARCHIVED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "section",
+          "about": "Spec sections",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Add a spec section (requirement), optionally nested under --parent",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_id",
+                  "positional": true,
+                  "value_name": "SPEC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": "Remove a spec section and its subsections",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_id",
+                  "positional": true,
+                  "value_name": "SPEC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "show",
+              "about": "Show one spec section's title, body, tags, and subsections",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_id",
+                  "positional": true,
+                  "value_name": "SPEC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": "Update a spec section's title, body, tags, or handle",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "body",
+                  "positional": false,
+                  "value_name": "BODY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "body_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "handle",
+                  "positional": false,
+                  "value_name": "HANDLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "primary",
+                  "positional": false,
+                  "value_name": "PRIMARY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "spec_id",
+                  "positional": true,
+                  "value_name": "SPEC_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tags",
+                  "positional": false,
+                  "value_name": "TAGS",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "show",
+          "about": "Show a hydrated spec",
+          "aliases": [],
+          "args": [
+            {
+              "name": "spec_id",
+              "positional": true,
+              "value_name": "SPEC_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "system",
       "about": "OS-level integration: autostart, supervision, install hooks. Each subcommand is local-only and writes to platform-specific places (schtasks on Windows, LaunchAgents on macOS, user systemd on Linux)",
       "aliases": [],
@@ -5120,6 +8434,238 @@
               "value_name": "BINARY",
               "default": null,
               "help": "Override the path to the CodeTerm executable. Defaults to the installed app binary for the current platform",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "task",
+      "about": "Standalone and plan-backed tasks",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "add",
+          "about": "Add a standalone task to the workspace Inbox",
+          "aliases": [],
+          "args": [
+            {
+              "name": "assign_pane",
+              "positional": false,
+              "value_name": "ASSIGN_PANE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body",
+              "positional": false,
+              "value_name": "BODY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "correctness",
+              "positional": false,
+              "value_name": "CORRECTNESS",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "criterion",
+              "positional": false,
+              "value_name": "CRITERION",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "intent",
+              "positional": false,
+              "value_name": "INTENT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "intent_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "model",
+              "positional": false,
+              "value_name": "MODEL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "value_name": "NAME",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "test_plan",
+              "positional": false,
+              "value_name": "TEST_PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "why",
+              "positional": false,
+              "value_name": "WHY",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "why_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "drop",
+          "about": "Release the task assignment",
+          "aliases": [],
+          "args": [
+            {
+              "name": "task_id",
+              "positional": true,
+              "value_name": "TASK_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List tasks across active plans",
+          "aliases": [],
+          "args": [
+            {
+              "name": "active",
+              "positional": false,
+              "value_name": "ACTIVE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "mine",
+              "positional": false,
+              "value_name": "MINE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "status",
+              "positional": false,
+              "value_name": "STATUS",
+              "default": null,
+              "help": "Task status: pending | in_progress | in_review | blocked | done | cancelled",
+              "aliases": []
+            },
+            {
+              "name": "unassigned",
+              "positional": false,
+              "value_name": "UNASSIGNED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show one task with plan and section context",
+          "aliases": [],
+          "args": [
+            {
+              "name": "task_id",
+              "positional": true,
+              "value_name": "TASK_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "take",
+          "about": "Assign the task to the caller's pane",
+          "aliases": [],
+          "args": [
+            {
+              "name": "task_id",
+              "positional": true,
+              "value_name": "TASK_ID",
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -5398,7 +8944,7 @@
       "subcommands": [
         {
           "name": "link",
-          "about": "Print a ready-to-open /web URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)",
+          "about": "Print a ready-to-open browser UI URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)",
           "aliases": [],
           "args": [
             {

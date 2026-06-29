@@ -227,7 +227,7 @@ pub async fn web_manifest_bootstrap(
         return Err((StatusCode::UNAUTHORIZED, "Invalid or missing token"));
     }
     let cookie = format!(
-        "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/web; Max-Age={}",
+        "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}",
         token,
         crate::api::routes::WEB_TOKEN_TTL.as_secs()
     );
@@ -246,7 +246,7 @@ pub async fn web_manifest_bootstrap(
     ))
 }
 
-/// Public like the rest of /web. Echoes the token into start_url only when
+/// Public like the rest of the browser bundle. Echoes the token into start_url only when
 /// it matches the configured API token, so the installed app launches
 /// pre-authenticated; otherwise start_url falls back to the plain mirror.
 ///
@@ -271,22 +271,22 @@ pub async fn web_manifest(
     let start_url = if token_ok {
         let t = token.as_deref().unwrap_or_default();
         let encoded: String = url::form_urlencoded::byte_serialize(t.as_bytes()).collect();
-        format!("/web/#token={encoded}")
+        format!("/#token={encoded}")
     } else {
-        "/web/".to_string()
+        "/".to_string()
     };
     let manifest = serde_json::json!({
         "name": "CodeTerm",
         "short_name": "CodeTerm",
-        "id": "/web/",
+        "id": "/",
         "start_url": start_url,
-        "scope": "/web/",
+        "scope": "/",
         "display": "standalone",
         "background_color": "#0d1117",
         "theme_color": "#0d1117",
         "icons": [
-            { "src": "/web/icons/pwa-192.png", "sizes": "192x192", "type": "image/png" },
-            { "src": "/web/icons/pwa-512.png", "sizes": "512x512", "type": "image/png" },
+            { "src": "/icons/pwa-192.png", "sizes": "192x192", "type": "image/png" },
+            { "src": "/icons/pwa-512.png", "sizes": "512x512", "type": "image/png" },
         ],
     });
     (
@@ -567,7 +567,7 @@ mod tests {
     fn cookie_max_age_uses_web_token_ttl() {
         let ttl = WEB_TOKEN_TTL.as_secs();
         let cookie = format!(
-            "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/web; Max-Age={}",
+            "codeterm-web-token={}; HttpOnly; SameSite=Lax; Path=/; Max-Age={}",
             "tok", ttl
         );
         assert!(

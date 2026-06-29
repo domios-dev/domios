@@ -94,6 +94,7 @@ fn provider_descriptor_round_trip() {
             cli_binary: Some("testcli".into()),
             install_command: Some("npm i -g testcli".into()),
             model_switch_format: Some("/model {model}".into()),
+            fresh_context_command: Some("/new".into()),
             supports_stop: true,
             supports_chat_ui: true,
             supports_structured_prompts: true,

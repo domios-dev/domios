@@ -1,0 +1,1 @@
+Large section/task bodies move OUT of the plan JSON into sibling .md files (<plan_id>/sections/<id>.md, <plan_id>/tasks/<id>.md), wired by convention. Edit with any editor → the file-watcher reloads → board updates live. No CLI for text edits. JSON keeps structure only. Single-writer + atomic write preserved; migrate inline bodies on load.

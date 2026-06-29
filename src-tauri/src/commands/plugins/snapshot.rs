@@ -187,10 +187,17 @@ fn read_bounded_text(path: &std::path::Path) -> Option<String> {
     Some(text)
 }
 
+/// The expensive (network git-clone) channel diff, run only on the background
+/// refresh thread owned by `diff_cache`, never inline in the snapshot.
+fn fetch_channel_diff() -> Result<Value, String> {
+    run_plugin_cli(&["plugin", "channel", "diff", "--json"])
+}
+
 pub(super) fn build_snapshot(
     last_output: Option<Value>,
     chatbackends: Option<&crate::chatbackend::ChatBackendRegistry>,
 ) -> Result<Value, String> {
+    let started = std::time::Instant::now();
     let mut plugins = run_plugin_cli(&["plugin", "list", "--json"])?;
     let manifests = scan_plugin_manifests();
     // Plugins installed post-start that declared requiresReload and are waiting to activate.
@@ -237,12 +244,9 @@ pub(super) fn build_snapshot(
     // Best-effort register the default channel so its plugins surface as available; offline failures retry next snapshot.
     let _ = run_plugin_cli(&["plugin", "channel", "ensure-default", "--json"]);
     let channels = run_plugin_cli(&["plugin", "channel", "list", "--json"])?;
-    let diff = run_plugin_cli(&["plugin", "channel", "diff", "--json"]).unwrap_or_else(|e| {
-        serde_json::json!({
-            "diff": [],
-            "error": e,
-        })
-    });
+    // The channel diff does a per-channel git clone (4-7s) — served from a
+    // background-refreshed cache so it never blocks the snapshot hot path.
+    let diff = super::diff_cache::cached_diff(fetch_channel_diff);
 
     let plugins_arr = plugins
         .get("plugins")
@@ -272,6 +276,10 @@ pub(super) fn build_snapshot(
     );
 
     let audit = read_audit_events(80);
+    log::debug!(
+        "[plugin-snapshot] build_snapshot in {}ms",
+        started.elapsed().as_millis()
+    );
     Ok(serde_json::json!({
         "plugins": plugins_arr,
         "channels": channels_arr,
