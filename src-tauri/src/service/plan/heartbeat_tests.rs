@@ -126,8 +126,11 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let before = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
     assert!(before.contains("STATE-RECONCILIATION"));
-    assert!(before.contains("First run `codeterm agent reports`"));
-    assert!(before.contains("Re-arm exactly one heartbeat"));
+    assert!(before.contains("First run `codeterm agent reports --pane orch-a`"));
+    assert!(before.contains("codeterm --json orchestrator status --plan"));
+    assert!(before.contains("codeterm plan reconcile"));
+    assert!(before.contains("Keep the plan-owned heartbeat current"));
+    assert!(!before.contains("Re-arm exactly one heartbeat"));
     assert!(before.ends_with("continue"));
 
     store
@@ -198,5 +201,7 @@ fn notifier_delivery_uses_same_state_reconciliation_prelude() {
     assert!(text.contains("<codeterm-state-reconciliation"));
     assert!(text.contains("STATE-RECONCILIATION"));
     assert!(text.contains("Reconcile live panes against the plan"));
+    assert!(text.contains("codeterm plan task close"));
+    assert!(text.contains("codeterm plan task update"));
     assert!(text.contains("[task in_review]"));
 }

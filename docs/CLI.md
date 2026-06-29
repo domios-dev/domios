@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -1163,6 +1163,13 @@ Append a persistent learning to this orchestrator's heartbeat
 - `--plan`
 - `--tag`
 - `<text>`
+
+#### `codeterm orchestrator status`
+
+Show orchestration status as reports, live lanes, drift, and next actions
+
+- `--pane`
+- `--plan`
 
 #### `codeterm pane`
 
