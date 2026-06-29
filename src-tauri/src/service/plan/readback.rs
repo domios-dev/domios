@@ -382,4 +382,33 @@ impl PlanStore {
         }
         Ok(())
     }
+
+    pub(in crate::service::plan) fn verify_task_assignment(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        pane_id: Option<&str>,
+        taken_by_role: Option<&str>,
+    ) -> Result<(), PlanError> {
+        let task = self.read_task_for_verification(plan_id, task_id)?;
+        if task.assigned_pane_id.as_deref() != pane_id {
+            return Err(Self::task_readback_error(
+                "task_assignment",
+                format!("assigned_pane_id did not match for {}", task.id),
+            ));
+        }
+        if task.taken_by_role.as_deref() != taken_by_role {
+            return Err(Self::task_readback_error(
+                "task_assignment",
+                format!("taken_by_role did not match for {}", task.id),
+            ));
+        }
+        if pane_id.is_none() && task.peer.is_some() {
+            return Err(Self::task_readback_error(
+                "task_assignment",
+                format!("peer was not cleared for {}", task.id),
+            ));
+        }
+        Ok(())
+    }
 }
