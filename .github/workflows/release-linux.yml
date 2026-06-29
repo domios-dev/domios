@@ -50,6 +50,9 @@ jobs:
     runs-on: [self-hosted, linux-build]
     env:
       TARGET: x86_64-unknown-linux-gnu
+      # linuxdeploy is itself an AppImage; on the WSL2 self-hosted runner FUSE
+      # mounting fails ("failed to run linuxdeploy"). Extract-and-run avoids FUSE.
+      APPIMAGE_EXTRACT_AND_RUN: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
