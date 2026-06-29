@@ -2,6 +2,7 @@
 
 import { FIXTURE_PLAN, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import { assignedTaskIdsForPane, resolvePlanOpenCameraTarget } from "./planOpenFocus";
+import { TaskStatus } from "./types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -32,10 +33,10 @@ test("assignedTaskIdsForPane ignores terminal and empty pane bindings", () => {
   const mixed = {
     ...FIXTURE_PLAN,
     tasks: [
-      { ...FIXTURE_TASK, id: "done", status: "done", assigned_pane_id: "worker-1" },
-      { ...FIXTURE_TASK, id: "cancelled", status: "cancelled", assigned_pane_id: "worker-1" },
+      { ...FIXTURE_TASK, id: "done", status: TaskStatus.Done, assigned_pane_id: "worker-1" },
+      { ...FIXTURE_TASK, id: "cancelled", status: TaskStatus.Cancelled, assigned_pane_id: "worker-1" },
       { ...FIXTURE_TASK, id: "empty", assigned_pane_id: " " },
-      { ...FIXTURE_TASK, id: "active", status: "in_review", assigned_pane_id: " worker-1 " },
+      { ...FIXTURE_TASK, id: "active", status: TaskStatus.InReview, assigned_pane_id: " worker-1 " },
     ],
   };
   assert(assignedTaskIdsForPane([mixed], "worker-1").join() === "active", "only active trimmed binding remains");
