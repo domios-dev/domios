@@ -33,6 +33,8 @@ pub struct ActiveSession {
     display: bool,
     expires_at: Option<i64>,
     session_id: u64,
+    gnome_policy: bool,
+    system_block: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -57,6 +59,29 @@ pub struct KeepAwakeStatus {
     pub display: bool,
     /// Unix timestamp in ms when the session expires, or null for indefinite.
     pub expires_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<KeepAwakeDiagnostic>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub admin_commands: Vec<String>,
+    #[serde(default)]
+    pub gnome_policy: bool,
+    #[serde(default)]
+    pub system_block: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
+pub struct KeepAwakeDiagnostic {
+    pub runtime_inhibit_active: bool,
+    pub display_inhibit_active: bool,
+    pub gnome_policy_safe: Option<bool>,
+    pub systemd_hard_block_active: Option<bool>,
+    pub systemd_daemon_reload_needed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsafe_gnome_settings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing_systemd_masks: Vec<String>,
 }
 
 fn persist_path() -> PathBuf {
@@ -220,6 +245,7 @@ where
 fn should_reap_child(snapshot: &ProcessSnapshot) -> bool {
     snapshot.command.contains("codeterm-keepawake-wrapper")
         || snapshot.command.contains("caffeinate")
+        || snapshot.command.contains("systemd-inhibit")
 }
 
 fn inspect_process(pid: u32) -> Option<ProcessSnapshot> {
@@ -333,6 +359,11 @@ fn clear_if_owner(state: &KeepAwakeState, my_id: u64, app: &AppHandle) {
                 active: false,
                 display: false,
                 expires_at: None,
+                diagnostic: platform::diagnostic(false, false),
+                warnings: Vec::new(),
+                admin_commands: Vec::new(),
+                gnome_policy: false,
+                system_block: false,
             };
             save_snapshot(&off);
             let _ = app.emit(EVENT_CHANGED, &off);
@@ -348,12 +379,19 @@ pub fn start(
     app: &AppHandle,
     duration_secs: Option<u64>,
     display: Option<bool>,
+    gnome_policy: Option<bool>,
+    system_block: Option<bool>,
 ) -> Result<KeepAwakeStatus, String> {
     // Stop any existing session first. Don't emit an intermediate "off" state — a `start` call is a single atomic transition from the frontend's
     // view.
     stop_inner(state);
 
     let display = display.unwrap_or(false);
+    let gnome_policy = gnome_policy.unwrap_or(false);
+    let system_block = system_block.unwrap_or(false);
+    if gnome_policy {
+        platform::apply_user_power_policy()?;
+    }
     let expires_at = duration_secs.map(|d| now_ms() + (d as i64) * 1000);
     let session_id = SESSION_COUNTER.fetch_add(1, Ordering::SeqCst) + 1;
     let (stop_tx, stop_rx) = std::sync::mpsc::channel();
@@ -373,24 +411,71 @@ pub fn start(
         display,
         expires_at,
         session_id,
-    };
-    let status = KeepAwakeStatus {
-        active: true,
-        display,
-        expires_at,
+        gnome_policy,
+        system_block,
     };
     *state.lock() = Some(session);
-
+    let status = build_status(true, display, expires_at, gnome_policy, system_block);
     log::info!(
-        "[keepawake] started: id={}, display={}, duration={:?}",
+        "[keepawake] started: id={}, display={}, duration={:?}, gnome_policy={}, system_block={}",
         session_id,
         display,
-        duration_secs
+        duration_secs,
+        gnome_policy,
+        system_block
     );
 
     save_snapshot(&status);
     let _ = app.emit(EVENT_CHANGED, &status);
     Ok(status)
+}
+
+fn build_status(
+    active: bool,
+    display: bool,
+    expires_at: Option<i64>,
+    gnome_policy: bool,
+    system_block: bool,
+) -> KeepAwakeStatus {
+    let diagnostic = platform::diagnostic(active, display);
+    let mut warnings = Vec::new();
+    let mut admin_commands = Vec::new();
+    if let Some(diagnostic) = diagnostic.as_ref() {
+        if active && !diagnostic.runtime_inhibit_active {
+            warnings.push("runtime sleep inhibitor is not visible".to_string());
+        }
+        if display && !diagnostic.display_inhibit_active {
+            warnings.push("display/idle inhibitor is not visible".to_string());
+        }
+        if diagnostic.gnome_policy_safe == Some(false) {
+            warnings.push(
+                "GNOME current-user power policy can still suspend or blank the session"
+                    .to_string(),
+            );
+        }
+        if diagnostic.systemd_daemon_reload_needed == Some(true) {
+            warnings.push(
+                "systemd reports stale unit state; run sudo systemctl daemon-reload".to_string(),
+            );
+        }
+        if diagnostic.systemd_hard_block_active == Some(false) {
+            warnings.push("systemd sleep targets/services are not masked".to_string());
+        }
+    }
+    if system_block {
+        admin_commands = platform::system_block_commands();
+    }
+
+    KeepAwakeStatus {
+        active,
+        display,
+        expires_at,
+        diagnostic,
+        warnings,
+        admin_commands,
+        gnome_policy,
+        system_block,
+    }
 }
 
 pub fn stop(state: &KeepAwakeState, app: &AppHandle) -> Result<(), String> {
@@ -400,6 +485,11 @@ pub fn stop(state: &KeepAwakeState, app: &AppHandle) -> Result<(), String> {
         active: false,
         display: false,
         expires_at: None,
+        diagnostic: platform::diagnostic(false, false),
+        warnings: Vec::new(),
+        admin_commands: Vec::new(),
+        gnome_policy: false,
+        system_block: false,
     };
     save_snapshot(&off);
     let _ = app.emit(EVENT_CHANGED, &off);
@@ -420,7 +510,14 @@ pub fn resume_from_disk(state: &KeepAwakeState, app: &AppHandle) {
     match snap.expires_at {
         None => {
             log::info!("[keepawake] resuming indefinite session from snapshot");
-            let _ = start(state, app, None, Some(snap.display));
+            let _ = start(
+                state,
+                app,
+                None,
+                Some(snap.display),
+                Some(snap.gnome_policy),
+                Some(snap.system_block),
+            );
         }
         Some(expires_at) => {
             let remaining_ms = expires_at - now_ms();
@@ -437,7 +534,14 @@ pub fn resume_from_disk(state: &KeepAwakeState, app: &AppHandle) {
                 "[keepawake] resuming timed session: {}s remaining",
                 remaining_secs
             );
-            let _ = start(state, app, Some(remaining_secs), Some(snap.display));
+            let _ = start(
+                state,
+                app,
+                Some(remaining_secs),
+                Some(snap.display),
+                Some(snap.gnome_policy),
+                Some(snap.system_block),
+            );
         }
     }
 }
@@ -445,16 +549,14 @@ pub fn resume_from_disk(state: &KeepAwakeState, app: &AppHandle) {
 pub fn status(state: &KeepAwakeState) -> KeepAwakeStatus {
     let guard = state.lock();
     match guard.as_ref() {
-        Some(s) => KeepAwakeStatus {
-            active: true,
-            display: s.display,
-            expires_at: s.expires_at,
-        },
-        None => KeepAwakeStatus {
-            active: false,
-            display: false,
-            expires_at: None,
-        },
+        Some(s) => build_status(
+            true,
+            s.display,
+            s.expires_at,
+            s.gnome_policy,
+            s.system_block,
+        ),
+        None => build_status(false, false, None, false, false),
     }
 }
 
@@ -462,10 +564,19 @@ pub fn status(state: &KeepAwakeState) -> KeepAwakeStatus {
 pub fn keepawake_start(
     duration_secs: Option<u64>,
     display: Option<bool>,
+    gnome_policy: Option<bool>,
+    system_block: Option<bool>,
     state: tauri::State<'_, KeepAwakeState>,
     app: AppHandle,
 ) -> Result<KeepAwakeStatus, String> {
-    start(&state, &app, duration_secs, display)
+    start(
+        &state,
+        &app,
+        duration_secs,
+        display,
+        gnome_policy,
+        system_block,
+    )
 }
 
 #[tauri::command]
@@ -536,6 +647,18 @@ mod platform {
             })
             .map(|_| ())
             .map_err(|e| format!("failed to spawn keepawake thread: {}", e))
+    }
+
+    pub fn diagnostic(_active: bool, _display: bool) -> Option<KeepAwakeDiagnostic> {
+        None
+    }
+
+    pub fn apply_user_power_policy() -> Result<(), String> {
+        Err("GNOME power policy mode is only supported on Linux".to_string())
+    }
+
+    pub fn system_block_commands() -> Vec<String> {
+        Vec::new()
     }
 }
 
@@ -681,10 +804,306 @@ done
 wait "$child" 2>/dev/null
 "#
     }
+
+    pub fn diagnostic(_active: bool, _display: bool) -> Option<KeepAwakeDiagnostic> {
+        None
+    }
+
+    pub fn apply_user_power_policy() -> Result<(), String> {
+        Err("GNOME power policy mode is only supported on Linux".to_string())
+    }
+
+    pub fn system_block_commands() -> Vec<String> {
+        Vec::new()
+    }
 }
 
-// Fallback for Linux / other — no-op
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(target_os = "linux")]
+mod platform {
+    use super::*;
+
+    const WRAPPER_MARKER: &str = "codeterm-keepawake-wrapper";
+    const GNOME_SESSION_SCHEMA: &str = "org.gnome.desktop.session";
+    const GNOME_POWER_SCHEMA: &str = "org.gnome.settings-daemon.plugins.power";
+    const SYSTEMD_TARGETS: &[&str] = &[
+        "sleep.target",
+        "suspend.target",
+        "hibernate.target",
+        "hybrid-sleep.target",
+    ];
+    const SYSTEMD_SERVICES: &[&str] = &[
+        "systemd-suspend.service",
+        "systemd-hibernate.service",
+        "systemd-hybrid-sleep.service",
+        "systemd-suspend-then-hibernate.service",
+    ];
+
+    pub fn start(
+        display: bool,
+        duration_secs: Option<u64>,
+        stop_rx: std::sync::mpsc::Receiver<()>,
+        state: KeepAwakeState,
+        app: AppHandle,
+        session_id: u64,
+    ) -> Result<(), String> {
+        let mut child = spawn_keepawake_child(display)?;
+        let child_pid = child.id();
+        register_child(child_pid, display, true);
+
+        std::thread::Builder::new()
+            .name("keepawake".into())
+            .spawn(move || {
+                let stopped_early = match duration_secs {
+                    Some(secs) => stop_rx
+                        .recv_timeout(std::time::Duration::from_secs(secs))
+                        .is_ok(),
+                    None => stop_rx.recv().is_ok(),
+                };
+
+                let _ = terminate_pid(child_pid);
+                let _ = child.wait();
+                unregister_child(child_pid);
+
+                if !stopped_early {
+                    clear_if_owner(&state, session_id, &app);
+                }
+            })
+            .map(|_| ())
+            .map_err(|e| {
+                let _ = terminate_pid(child_pid);
+                unregister_child(child_pid);
+                format!("failed to spawn keepawake thread: {}", e)
+            })
+    }
+
+    fn spawn_keepawake_child(display: bool) -> Result<std::process::Child, String> {
+        let available = std::process::Command::new("systemd-inhibit")
+            .arg("--version")
+            .output()
+            .map(|out| out.status.success())
+            .unwrap_or(false);
+        if !available {
+            return Err(
+                "systemd-inhibit is required for Linux keepawake runtime inhibition".to_string(),
+            );
+        }
+        let script = keepawake_wrapper_script(display);
+        let mut cmd = std::process::Command::new("/bin/sh");
+        cmd.arg("-c").arg(script).arg(WRAPPER_MARKER);
+        cmd.spawn()
+            .map_err(|e| format!("systemd-inhibit wrapper spawn failed: {}", e))
+    }
+
+    fn keepawake_wrapper_script(display: bool) -> String {
+        let what = if display { "sleep:idle" } else { "sleep" };
+        format!(
+            r#"
+if ! command -v systemd-inhibit >/dev/null 2>&1; then
+  echo "systemd-inhibit not found" >&2
+  exit 127
+fi
+exec systemd-inhibit --what={what} --mode=block --who=CodeTerm --why="CodeTerm keepawake session" sleep infinity
+"#
+        )
+    }
+
+    pub fn diagnostic(active: bool, display: bool) -> Option<KeepAwakeDiagnostic> {
+        let inhibitors = std::process::Command::new("systemd-inhibit")
+            .arg("--list")
+            .output()
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out.stdout).to_string())
+            .unwrap_or_default();
+        let runtime_inhibit_active = parse_systemd_inhibit_list(&inhibitors, "sleep");
+        let display_inhibit_active = parse_systemd_inhibit_list(&inhibitors, "idle");
+
+        let gnome_settings = read_gnome_settings();
+        let unsafe_gnome_settings = unsafe_gnome_settings(&gnome_settings);
+        let gnome_policy_safe = if gnome_settings.is_empty() {
+            None
+        } else {
+            Some(unsafe_gnome_settings.is_empty())
+        };
+
+        let masked = read_systemd_masks();
+        let missing_systemd_masks = missing_systemd_masks(&masked);
+        let systemd_hard_block_active = if masked.is_empty() {
+            None
+        } else {
+            Some(missing_systemd_masks.is_empty())
+        };
+        let systemd_daemon_reload_needed = systemd_daemon_reload_needed();
+
+        let mut diagnostic = KeepAwakeDiagnostic {
+            runtime_inhibit_active,
+            display_inhibit_active,
+            gnome_policy_safe,
+            systemd_hard_block_active,
+            systemd_daemon_reload_needed,
+            unsafe_gnome_settings,
+            missing_systemd_masks,
+        };
+        if !active {
+            diagnostic.runtime_inhibit_active = false;
+            diagnostic.display_inhibit_active = false;
+        }
+        if !display {
+            diagnostic.display_inhibit_active = false;
+        }
+        Some(diagnostic)
+    }
+
+    pub fn apply_user_power_policy() -> Result<(), String> {
+        let settings = [
+            (GNOME_POWER_SCHEMA, "sleep-inactive-ac-type", "nothing"),
+            (GNOME_POWER_SCHEMA, "sleep-inactive-battery-type", "nothing"),
+            (GNOME_POWER_SCHEMA, "lid-close-ac-action", "nothing"),
+            (GNOME_POWER_SCHEMA, "lid-close-battery-action", "nothing"),
+            (GNOME_POWER_SCHEMA, "power-button-action", "nothing"),
+            (GNOME_SESSION_SCHEMA, "idle-delay", "0"),
+        ];
+        for (schema, key, value) in settings {
+            set_gsettings(schema, key, value)?;
+        }
+        Ok(())
+    }
+
+    pub fn system_block_commands() -> Vec<String> {
+        vec![
+            "sudo systemctl daemon-reload".to_string(),
+            format!("sudo systemctl mask {}", SYSTEMD_TARGETS.join(" ")),
+            format!("sudo systemctl mask {}", SYSTEMD_SERVICES.join(" ")),
+        ]
+    }
+
+    fn read_gnome_settings() -> Vec<(String, String, String)> {
+        let keys = [
+            (GNOME_POWER_SCHEMA, "sleep-inactive-ac-type"),
+            (GNOME_POWER_SCHEMA, "sleep-inactive-battery-type"),
+            (GNOME_POWER_SCHEMA, "lid-close-ac-action"),
+            (GNOME_POWER_SCHEMA, "lid-close-battery-action"),
+            (GNOME_POWER_SCHEMA, "power-button-action"),
+            (GNOME_SESSION_SCHEMA, "idle-delay"),
+        ];
+        keys.into_iter()
+            .filter_map(|(schema, key)| {
+                let output = std::process::Command::new("gsettings")
+                    .args(["get", schema, key])
+                    .output()
+                    .ok()?;
+                if !output.status.success() {
+                    return None;
+                }
+                Some((
+                    schema.to_string(),
+                    key.to_string(),
+                    String::from_utf8_lossy(&output.stdout).trim().to_string(),
+                ))
+            })
+            .collect()
+    }
+
+    fn set_gsettings(schema: &str, key: &str, value: &str) -> Result<(), String> {
+        let mut cmd = std::process::Command::new("gsettings");
+        cmd.args(["set", schema, key, value]);
+        let out = cmd
+            .output()
+            .map_err(|e| format!("gsettings set {} {} failed to start: {}", schema, key, e))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            Err(format!(
+                "gsettings set {} {} failed: {}",
+                schema,
+                key,
+                if stderr.is_empty() {
+                    out.status.to_string()
+                } else {
+                    stderr
+                }
+            ))
+        }
+    }
+
+    fn read_systemd_masks() -> Vec<(String, String)> {
+        SYSTEMD_TARGETS
+            .iter()
+            .chain(SYSTEMD_SERVICES.iter())
+            .filter_map(|unit| {
+                let output = std::process::Command::new("systemctl")
+                    .args(["is-enabled", unit])
+                    .output()
+                    .ok()?;
+                Some((
+                    (*unit).to_string(),
+                    String::from_utf8_lossy(&output.stdout).trim().to_string(),
+                ))
+            })
+            .collect()
+    }
+
+    fn systemd_daemon_reload_needed() -> Option<bool> {
+        let output = std::process::Command::new("systemctl")
+            .args(["show", "-p", "NeedDaemonReload", "--value"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        Some(parse_systemd_daemon_reload_needed(
+            &String::from_utf8_lossy(&output.stdout),
+        ))
+    }
+
+    pub(crate) fn parse_systemd_inhibit_list(output: &str, what: &str) -> bool {
+        output
+            .lines()
+            .filter(|line| line.to_ascii_lowercase().contains("codeterm"))
+            .any(|line| {
+                line.split_whitespace()
+                    .any(|part| part.split(':').any(|token| token == what))
+            })
+    }
+
+    pub(crate) fn unsafe_gnome_settings(settings: &[(String, String, String)]) -> Vec<String> {
+        settings
+            .iter()
+            .filter_map(|(schema, key, value)| {
+                let safe = match key.as_str() {
+                    "sleep-inactive-ac-type"
+                    | "sleep-inactive-battery-type"
+                    | "lid-close-ac-action"
+                    | "lid-close-battery-action"
+                    | "power-button-action" => value.trim_matches('\'') == "nothing",
+                    "idle-delay" => {
+                        let raw = value.strip_prefix("uint32 ").unwrap_or(value);
+                        raw.trim() == "0"
+                    }
+                    _ => true,
+                };
+                (!safe).then(|| format!("{}.{}={}", schema, key, value))
+            })
+            .collect()
+    }
+
+    pub(crate) fn missing_systemd_masks(statuses: &[(String, String)]) -> Vec<String> {
+        statuses
+            .iter()
+            .filter(|(_, status)| status != "masked")
+            .map(|(unit, _)| unit.clone())
+            .collect()
+    }
+
+    pub(crate) fn parse_systemd_daemon_reload_needed(output: &str) -> bool {
+        matches!(
+            output.trim().to_ascii_lowercase().as_str(),
+            "yes" | "true" | "1"
+        )
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 mod platform {
     use super::*;
 
@@ -696,8 +1115,19 @@ mod platform {
         _app: AppHandle,
         _session_id: u64,
     ) -> Result<(), String> {
-        log::warn!("[keepawake] not supported on this platform");
-        Ok(())
+        Err("keepawake is not supported on this platform".to_string())
+    }
+
+    pub fn diagnostic(_active: bool, _display: bool) -> Option<KeepAwakeDiagnostic> {
+        None
+    }
+
+    pub fn apply_user_power_policy() -> Result<(), String> {
+        Err("GNOME power policy mode is only supported on Linux".to_string())
+    }
+
+    pub fn system_block_commands() -> Vec<String> {
+        Vec::new()
     }
 }
 
@@ -785,6 +1215,102 @@ mod tests {
 
         assert_eq!(snapshot.ppid, 1);
         assert_eq!(snapshot.command, "/bin/sh codeterm-keepawake-wrapper -i -s");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_inhibit_parser_detects_codeterm_sleep_and_idle_blocks() {
+        let output = "\
+WHO      UID USER PID COMM            WHAT       WHY                         MODE
+CodeTerm 1000 me   42 systemd-inhibit sleep:idle CodeTerm keepawake session block
+";
+
+        assert!(platform::parse_systemd_inhibit_list(output, "sleep"));
+        assert!(platform::parse_systemd_inhibit_list(output, "idle"));
+        assert!(!platform::parse_systemd_inhibit_list(
+            "GNOME 1000 me 11 gsd-power sleep user active block",
+            "sleep"
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_gnome_policy_flags_unsafe_suspend_and_idle_settings() {
+        let settings = vec![
+            (
+                "org.gnome.settings-daemon.plugins.power".to_string(),
+                "sleep-inactive-battery-type".to_string(),
+                "'suspend'".to_string(),
+            ),
+            (
+                "org.gnome.desktop.session".to_string(),
+                "idle-delay".to_string(),
+                "uint32 300".to_string(),
+            ),
+            (
+                "org.gnome.settings-daemon.plugins.power".to_string(),
+                "lid-close-ac-action".to_string(),
+                "'nothing'".to_string(),
+            ),
+        ];
+
+        let unsafe_settings = platform::unsafe_gnome_settings(&settings);
+
+        assert_eq!(
+            unsafe_settings,
+            vec![
+                "org.gnome.settings-daemon.plugins.power.sleep-inactive-battery-type='suspend'",
+                "org.gnome.desktop.session.idle-delay=uint32 300",
+            ]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_gnome_policy_accepts_nothing_and_zero_idle_delay() {
+        let settings = vec![
+            (
+                "org.gnome.settings-daemon.plugins.power".to_string(),
+                "sleep-inactive-ac-type".to_string(),
+                "'nothing'".to_string(),
+            ),
+            (
+                "org.gnome.settings-daemon.plugins.power".to_string(),
+                "power-button-action".to_string(),
+                "'nothing'".to_string(),
+            ),
+            (
+                "org.gnome.desktop.session".to_string(),
+                "idle-delay".to_string(),
+                "uint32 0".to_string(),
+            ),
+        ];
+
+        assert!(platform::unsafe_gnome_settings(&settings).is_empty());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_systemd_mask_report_lists_unmasked_units() {
+        let statuses = vec![
+            ("sleep.target".to_string(), "masked".to_string()),
+            ("suspend.target".to_string(), "enabled".to_string()),
+            ("systemd-suspend.service".to_string(), "static".to_string()),
+        ];
+
+        assert_eq!(
+            platform::missing_systemd_masks(&statuses),
+            vec!["suspend.target", "systemd-suspend.service"]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_daemon_reload_parser_accepts_boolean_forms() {
+        assert!(platform::parse_systemd_daemon_reload_needed("yes\n"));
+        assert!(platform::parse_systemd_daemon_reload_needed("true\n"));
+        assert!(platform::parse_systemd_daemon_reload_needed("1\n"));
+        assert!(!platform::parse_systemd_daemon_reload_needed("no\n"));
     }
 
     #[cfg(target_os = "macos")]
