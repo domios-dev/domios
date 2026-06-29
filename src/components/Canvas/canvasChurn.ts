@@ -54,6 +54,8 @@ function ensureChurn(): (CanvasChurnSnapshot & CanvasChurnApi) | null {
   return counters;
 }
 
+ensureChurn();
+
 export function bumpCanvasChurn(key: CanvasChurnKey, by = 1): void {
   const counters = ensureChurn();
   if (counters) counters[key] += by;

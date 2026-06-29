@@ -206,11 +206,13 @@ export async function measureCanvasBaseline(page: Page, fixtureNodes: number): P
 
   await startSampler(page);
   await drivePan(page, 1600);
+  await page.waitForTimeout(180);
   const pan = await stopSampler(page);
 
   await setCanvasScale(page, 1.35);
   await startSampler(page);
   await driveZoom(page, 1600);
+  await page.waitForTimeout(180);
   const zoom = await stopSampler(page);
 
   return {
