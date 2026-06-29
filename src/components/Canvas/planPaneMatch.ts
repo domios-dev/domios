@@ -1,6 +1,6 @@
 import type { Pane } from "../../lib/types";
 import type { PlanIndexEntry } from "./plansApi";
-import type { OrchestratorRef, Plan } from "./types";
+import { TaskStatus, type OrchestratorRef, type Plan } from "./types";
 
 export function collectPaneChain(
   paneId: string,
@@ -55,6 +55,15 @@ function planMatchesPaneChain(plan: Plan, chain: Pane[]): boolean {
   return ownerMatchesPaneChain(plan.owner, chain);
 }
 
+function taskActivelyAssignedToPane(plan: Plan, paneId: string): boolean {
+  return plan.tasks.some(
+    (t) =>
+      t.status !== TaskStatus.Done &&
+      t.status !== TaskStatus.Cancelled &&
+      t.assigned_pane_id === paneId,
+  );
+}
+
 // PlanButton visibility from the lightweight index alone (no full bodies).
 export function findPlanIndexForPane(
   entries: PlanIndexEntry[],
@@ -78,7 +87,7 @@ export function findPlansForPane(
   const active = plans.filter((p) => p.status === "active");
   const chain = collectPaneChain(paneId, panes);
   return active.filter((plan) => {
-    if (plan.tasks.some((t) => t.assigned_pane_id === paneId)) return true;
+    if (taskActivelyAssignedToPane(plan, paneId)) return true;
     if (plan.owner.pane_id === paneId) return true;
     return planMatchesPaneChain(plan, chain);
   });

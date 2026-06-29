@@ -28,6 +28,20 @@ test("assignedTaskIdsForPane returns tasks bound to the pane", () => {
   assert(assignedTaskIdsForPane([plan], "unknown").length === 0, "none for unknown pane");
 });
 
+test("assignedTaskIdsForPane ignores terminal and empty pane bindings", () => {
+  const mixed = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      { ...FIXTURE_TASK, id: "done", status: "done", assigned_pane_id: "worker-1" },
+      { ...FIXTURE_TASK, id: "cancelled", status: "cancelled", assigned_pane_id: "worker-1" },
+      { ...FIXTURE_TASK, id: "empty", assigned_pane_id: " " },
+      { ...FIXTURE_TASK, id: "active", status: "in_review", assigned_pane_id: " worker-1 " },
+    ],
+  };
+  assert(assignedTaskIdsForPane([mixed], "worker-1").join() === "active", "only active trimmed binding remains");
+  assert(assignedTaskIdsForPane([mixed], " ").length === 0, "empty target pane ignored");
+});
+
 test("resolvePlanOpenCameraTarget prefers task focus in task context", () => {
   const target = resolvePlanOpenCameraTarget([plan], "worker-1", plan.id);
   assert(target.kind === "task", "task context");

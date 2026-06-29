@@ -6,9 +6,14 @@ export interface PaneCurrentTask {
   branch: string | null;
 }
 
+export function isActiveTaskStatus(status: TaskStatusType): boolean {
+  return status !== TaskStatus.Done && status !== TaskStatus.Cancelled;
+}
+
 // A worker pane owns its task via either binding: the explicit assignment or the
 // lane it physically runs in. We honor both (the index only carries the former).
 export function taskBoundToPane(task: Task, paneId: string): boolean {
+  if (!isActiveTaskStatus(task.status)) return false;
   return task.assigned_pane_id === paneId || task.lane?.pane_id === paneId;
 }
 
@@ -39,6 +44,7 @@ export function compareTaskLiveness(a: Task, b: Task): number {
 export function resolvePlanExclusivePaneTasks(plan: Plan): Map<string, string> {
   const winners = new Map<string, Task>();
   for (const task of plan.tasks) {
+    if (!isActiveTaskStatus(task.status)) continue;
     const paneIds = new Set<string>();
     const assigned = task.assigned_pane_id?.trim();
     const lanePane = task.lane?.pane_id?.trim();

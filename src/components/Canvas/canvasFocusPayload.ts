@@ -1,4 +1,5 @@
 import type { Plan } from "./types";
+import { isActiveTaskStatus } from "./paneCurrentTask";
 
 export interface CanvasFocusPayload {
   task_id?: string | null;
@@ -17,9 +18,11 @@ export function resolveCanvasFocusNodeIds(
   const ids: string[] = [...(p.node_ids ?? []), ...(p.plan_ids ?? [])];
   if (p.task_id) ids.push(p.task_id);
   if (p.plan_id) ids.push(p.plan_id);
-  if (p.pane_id) {
+  const paneId = p.pane_id?.trim();
+  if (paneId) {
     for (const plan of plans)
-      for (const t of plan.tasks) if (t.assigned_pane_id === p.pane_id) ids.push(t.id);
+      for (const t of plan.tasks)
+        if (isActiveTaskStatus(t.status) && t.assigned_pane_id?.trim() === paneId) ids.push(t.id);
   }
   return ids;
 }

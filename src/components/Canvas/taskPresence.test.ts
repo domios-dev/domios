@@ -81,6 +81,17 @@ assert(roleFallback?.agents[0].label === "backend-dev", `headless lead falls bac
 const unassigned = buildTaskPresence(plan, { ...FIXTURE_TASK, assigned_pane_id: null, lane: undefined }, panes);
 assert(unassigned === null, "unassigned task has no live presence marker");
 
+const closedAssigned = buildTaskPresence(
+  plan,
+  { ...task, status: "done", assigned_pane_id: "pane-42", lane: { pane_id: "pane-42", branch: "feat/closed" } },
+  panes,
+  resolvePlanExclusivePaneTasks({
+    ...plan,
+    tasks: [{ ...task, status: "done", assigned_pane_id: "pane-42", lane: { pane_id: "pane-42", branch: "feat/closed" } }],
+  }),
+);
+assert(closedAssigned === null, "done task with stale pane binding has no active presence marker");
+
 const stalePlan: Plan = {
   ...plan,
   tasks: [

@@ -190,6 +190,7 @@ pub fn build_plan_state_snapshot(
     let live_agents = plan
         .tasks
         .iter()
+        .filter(|t| !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled))
         .filter_map(|t| {
             let pane = t.assigned_pane_id.as_deref()?;
             live_agent_panes.contains(pane).then(|| LiveAgent {

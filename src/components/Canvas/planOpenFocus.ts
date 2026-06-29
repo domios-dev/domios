@@ -1,8 +1,14 @@
 import type { Plan } from "./types";
+import { isActiveTaskStatus } from "./paneCurrentTask";
 
 export function assignedTaskIdsForPane(plans: readonly Plan[], paneId: string): string[] {
+  const targetPaneId = paneId.trim();
+  if (!targetPaneId) return [];
   return plans.flatMap((p) =>
-    p.tasks.filter((t) => t.assigned_pane_id === paneId).map((t) => t.id),
+    p.tasks
+      .filter((t) => isActiveTaskStatus(t.status))
+      .filter((t) => t.assigned_pane_id?.trim() === targetPaneId)
+      .map((t) => t.id),
   );
 }
 

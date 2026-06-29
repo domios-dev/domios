@@ -41,6 +41,27 @@ test("pane_id resolves to tasks assigned to that pane", () => {
   assert(ids.length === 1 && ids[0] === "task-dante", `pane assignment, got ${ids.join()}`);
 });
 
+test("pane_id resolves trimmed active bindings and ignores blank payloads", () => {
+  const plan = {
+    ...FIXTURE_PLAN,
+    tasks: [{ ...FIXTURE_TASK, assigned_pane_id: " pane-worker " }],
+  };
+  assert(resolveCanvasFocusNodeIds({ pane_id: " pane-worker " }, [plan]).join() === "task-dante", "trimmed pane binding");
+  assert(resolveCanvasFocusNodeIds({ pane_id: " " }, [plan]).length === 0, "blank pane payload ignored");
+});
+
+test("pane_id ignores terminal stale bindings", () => {
+  const plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      { ...FIXTURE_TASK, id: "done", status: "done", assigned_pane_id: "pane-worker" },
+      { ...FIXTURE_TASK, id: "cancelled", status: "cancelled", assigned_pane_id: "pane-worker" },
+    ],
+  };
+  const ids = resolveCanvasFocusNodeIds({ pane_id: "pane-worker" }, [plan]);
+  assert(ids.length === 0, `terminal assignments ignored, got ${ids.join()}`);
+});
+
 test("null fields are ignored", () => {
   const ids = resolveCanvasFocusNodeIds(
     { task_id: null, plan_id: null, pane_id: null },

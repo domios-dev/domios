@@ -63,10 +63,16 @@ where
 {
     let mut items = Vec::new();
     for task in &plan.tasks {
-        let pane = task
+        let assigned_pane = task
             .assigned_pane_id
             .as_deref()
-            .map(|pane_id| (pane_id, pane_probe(pane_id)));
+            .map(str::trim)
+            .filter(|pane_id| !pane_id.is_empty());
+        let pane = if is_terminal_task_status(&task.status) {
+            None
+        } else {
+            assigned_pane.map(|pane_id| (pane_id, pane_probe(pane_id)))
+        };
         let not_mine = pane
             .as_ref()
             .is_some_and(|(_, probe)| assigned_to_other_orchestrator(probe, config));
@@ -146,9 +152,14 @@ where
 }
 
 pub fn detect_pane_gone(plan: &Plan, pane_id: &str) -> Vec<DriftItem> {
+    let pane_id = pane_id.trim();
+    if pane_id.is_empty() {
+        return Vec::new();
+    }
     plan.tasks
         .iter()
-        .filter(|task| task.assigned_pane_id.as_deref() == Some(pane_id))
+        .filter(|task| !is_terminal_task_status(&task.status))
+        .filter(|task| task.assigned_pane_id.as_deref().map(str::trim) == Some(pane_id))
         .map(|task| {
             item(
                 plan,
@@ -173,6 +184,10 @@ fn assigned_to_other_orchestrator(probe: &PaneProbe, config: &ReconcileConfig) -
         .current_orchestrator_pane_id
         .as_deref()
         .is_some_and(|mine| parent != mine)
+}
+
+fn is_terminal_task_status(status: &TaskStatus) -> bool {
+    matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
 }
 
 fn has_unambiguous_acceptance_signal(_task: &Task) -> bool {
@@ -284,6 +299,24 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(items[0].kind, DriftKind::BoundToClosedPane);
+    }
+
+    #[test]
+    fn ignores_empty_and_terminal_closed_pane_bindings() {
+        let mut empty = task("empty", TaskStatus::Pending);
+        empty.assigned_pane_id = Some(" ".into());
+        let mut done = task("done", TaskStatus::Done);
+        done.assigned_pane_id = Some("closed".into());
+        let mut cancelled = task("cancelled", TaskStatus::Cancelled);
+        cancelled.assigned_pane_id = Some("closed".into());
+        let items = detect_plan_drift(&plan(vec![empty, done, cancelled]), &cfg(2_000), |_| {
+            PaneProbe {
+                exists: false,
+                ..Default::default()
+            }
+        });
+        assert!(items.is_empty());
+        assert!(detect_pane_gone(&plan(vec![]), "").is_empty());
     }
 
     #[test]

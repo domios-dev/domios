@@ -341,7 +341,11 @@ impl PlanStore {
             assigned_pane_ids: plan
                 .tasks
                 .iter()
-                .filter_map(|t| t.assigned_pane_id.clone())
+                .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+                .filter_map(|t| {
+                    let pane_id = t.assigned_pane_id.as_deref()?.trim();
+                    (!pane_id.is_empty()).then(|| pane_id.to_string())
+                })
                 .collect(),
             task_count: plan.tasks.len(),
             section_count: plan.sections.len(),
@@ -744,6 +748,9 @@ impl PlanStore {
     }
 
     pub fn task_binding_for_pane(&self, pane_id: &str) -> Option<(String, String)> {
+        if pane_id.trim().is_empty() {
+            return None;
+        }
         for plan in self.plans.read().values() {
             let plan = plan.lock();
             if plan.status != PlanStatus::Active {
@@ -752,6 +759,7 @@ impl PlanStore {
             if let Some(task) = plan
                 .tasks
                 .iter()
+                .filter(|t| !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled))
                 .find(|t| t.assigned_pane_id.as_deref() == Some(pane_id))
             {
                 return Some((plan.id.clone(), task.id.clone()));
@@ -761,6 +769,9 @@ impl PlanStore {
     }
 
     pub fn task_bindings_for_pane(&self, pane_id: &str) -> Vec<(String, String)> {
+        if pane_id.trim().is_empty() {
+            return Vec::new();
+        }
         self.list_full()
             .into_iter()
             .filter(|plan| plan.status == PlanStatus::Active)
@@ -768,6 +779,7 @@ impl PlanStore {
                 let plan_id = plan.id.clone();
                 plan.tasks
                     .into_iter()
+                    .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
                     .filter(move |task| task.assigned_pane_id.as_deref() == Some(pane_id))
                     .map(move |task| (plan_id.clone(), task.id))
             })
@@ -789,6 +801,7 @@ impl PlanStore {
                 match item.kind {
                     DriftKind::InProgressPaneGone => {
                         task.assigned_pane_id = None;
+                        task.lane.pane_id = None;
                         task.status_label = Some(NEEDS_REASSIGN_LABEL.into());
                         task.updated_at = now_ms;
                         changed.push(ReconcileFixResult {
@@ -810,6 +823,7 @@ impl PlanStore {
                     }
                     DriftKind::BoundToClosedPane => {
                         task.assigned_pane_id = None;
+                        task.lane.pane_id = None;
                         task.updated_at = now_ms;
                         changed.push(ReconcileFixResult {
                             plan_id: plan_id.into(),
@@ -846,6 +860,7 @@ impl PlanStore {
                 return Ok(false);
             };
             task.assigned_pane_id = None;
+            task.lane.pane_id = None;
             task.status_label = Some(PANE_GONE_LABEL.into());
             task.updated_at = now_ms;
             Ok(true)
