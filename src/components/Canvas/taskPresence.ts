@@ -1,5 +1,6 @@
 import type { Pane } from "../../lib/types";
 import { presenceColor, type PresenceAgent } from "./presence/identity";
+import { isActiveTaskStatus } from "./paneCurrentTask";
 import type { AgentRef, Milestone, Plan, Task } from "./types";
 
 export interface TaskPresenceLatest {
@@ -100,6 +101,7 @@ export function buildTaskPresence(
   panes: Record<string, Pane>,
   exclusivePaneTasks?: ReadonlyMap<string, string>,
 ): TaskPresence | null {
+  if (!isActiveTaskStatus(task.status)) return null;
   const paneId = clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
   if (!paneId) return null;
   if (!panes[paneId]) return null;

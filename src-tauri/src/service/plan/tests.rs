@@ -815,14 +815,69 @@ fn update_task_preserves_model_when_patching_parent() {
 #[test]
 fn close_task_sets_done_and_optional_milestone() {
     let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
     store
         .close_task(&id, &tid, Some("shipped"), AgentRef::from_pane("w"), 30)
         .unwrap();
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
     assert_eq!(t.status, TaskStatus::Done);
+    assert!(t.assigned_pane_id.is_none());
+    assert!(t.lane.pane_id.is_none());
     assert!(t.milestones.iter().any(|m| m.text == "shipped"));
     assert_eq!(p.updated_at, 30);
+}
+
+#[test]
+fn closed_task_assignment_is_not_indexed_or_bound() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    store
+        .close_task(&id, &tid, None, AgentRef::from_pane("w"), 30)
+        .unwrap();
+
+    let entry = store
+        .list_index()
+        .into_iter()
+        .find(|entry| entry.plan_id == id)
+        .unwrap();
+    assert!(entry.assigned_pane_ids.is_empty());
+    assert!(store.task_binding_for_pane("pane-live").is_none());
+    assert!(store.task_bindings_for_pane("pane-live").is_empty());
+}
+
+#[test]
+fn reconcile_assignment_cleanup_clears_lane_pane() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+    let drift = [crate::plan::reconcile::DriftItem {
+        plan_id: id.clone(),
+        task_id: tid.clone(),
+        kind: crate::plan::reconcile::DriftKind::BoundToClosedPane,
+        detail: "closed".into(),
+        suggested_fix: "clear".into(),
+        not_mine: false,
+    }];
+
+    store.apply_reconcile_fixes(&id, &drift, 30).unwrap();
+
+    let p = store.get(&id).unwrap();
+    let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
+    assert!(t.assigned_pane_id.is_none());
+    assert!(t.lane.pane_id.is_none());
+}
+
+#[test]
+fn pane_gone_cleanup_clears_lane_pane() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store.assign_task(&id, &tid, "pane-live", None, 20).unwrap();
+
+    assert!(store.flag_pane_gone(&id, &tid, 30).unwrap());
+
+    let p = store.get(&id).unwrap();
+    let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
+    assert!(t.assigned_pane_id.is_none());
+    assert!(t.lane.pane_id.is_none());
 }
 
 #[test]

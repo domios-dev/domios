@@ -83,6 +83,15 @@ const live = resolvePaneCurrentTask(
 );
 ok("in_progress beats done regardless of freshness", live?.task.id === "wip");
 
+const closedOnly = resolvePaneCurrentTask(
+  [plan([
+    task({ id: "done", assigned_pane_id: "p1", lane: { pane_id: "p1" }, status: "done", status_changed_at: 999 }),
+    task({ id: "cancelled", assigned_pane_id: "p1", status: "cancelled", status_changed_at: 1000 }),
+  ])],
+  "p1",
+);
+ok("done/cancelled bindings do not create current work", closedOnly === null);
+
 const fresh = resolvePaneCurrentTask(
   [plan([
     task({ id: "old", assigned_pane_id: "p1", status: "pending", updated_at: 10 }),
@@ -105,6 +114,11 @@ const exclusive = resolvePlanExclusivePaneTasks(
   ]),
 );
 ok("exclusive map picks in_progress task", exclusive.get("p1") === "wip");
+
+const closedExclusive = resolvePlanExclusivePaneTasks(
+  plan([task({ id: "done", assigned_pane_id: "p1", lane: { pane_id: "p1" }, status: "done" })]),
+);
+ok("exclusive map ignores terminal stale bindings", !closedExclusive.has("p1"));
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

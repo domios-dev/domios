@@ -260,6 +260,21 @@ test("resolveWorkspaceFocusNodeIds resolves pane assignments in workspace mode",
   assert(ids[0] === FIXTURE_TASK.id, "pane maps to assigned task");
 });
 
+test("resolveWorkspaceFocusNodeIds ignores terminal and empty pane assignments", () => {
+  const plans = [
+    {
+      ...FIXTURE_PLAN,
+      tasks: [
+        { ...FIXTURE_TASK, id: "done", status: "done", assigned_pane_id: "worker-1" },
+        { ...FIXTURE_TASK, id: "cancelled", status: "cancelled", assigned_pane_id: "worker-1" },
+        { ...FIXTURE_TASK, id: "empty", assigned_pane_id: " " },
+      ],
+    },
+  ] as Plan[];
+  const ids = resolveWorkspaceFocusNodeIds("workspace", { focusPaneId: "worker-1" }, plans);
+  assert(ids.length === 0, "terminal stale bindings do not focus nodes");
+});
+
 test("canvasFitContextKey encodes workspace target fields", () => {
   const key = canvasFitContextKey("workspace", "pane-a", {
     focusPaneId: "pane-b",

@@ -177,6 +177,11 @@ fn is_terminal_task_status(status: &TaskStatus) -> bool {
     matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
 }
 
+fn clear_task_assignment(task: &mut Task) {
+    task.assigned_pane_id = None;
+    task.lane.pane_id = None;
+}
+
 fn open_subtasks(plan: &Plan, parent_task_id: &str) -> Vec<OpenSubtask> {
     plan.tasks
         .iter()
@@ -454,6 +459,7 @@ impl PlanStore {
                 task.status_changed_at = now_ms;
             }
             task.status = TaskStatus::Done;
+            clear_task_assignment(task);
             task.updated_at = now_ms;
             if let Some(text) = result {
                 task.milestones.push(Milestone {
@@ -671,6 +677,9 @@ impl PlanStore {
                     task.status = status;
                     task.status_changed_at = now_ms;
                 }
+                if is_terminal_task_status(&task.status) {
+                    clear_task_assignment(task);
+                }
             }
             if let Some(priority) = priority {
                 task.priority = parse_task_priority(priority)?;
@@ -720,7 +729,9 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             apply_lane_update(&mut task.lane, lane);
             task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
-            if task.assigned_pane_id.is_none() {
+            if is_terminal_task_status(&task.status) {
+                clear_task_assignment(task);
+            } else if task.assigned_pane_id.is_none() {
                 task.assigned_pane_id = task.lane.pane_id.clone();
             }
             task.updated_at = now_ms;
