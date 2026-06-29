@@ -260,7 +260,7 @@ function TabItemInner({
         {/* Prompt/status indicator dot */}
         {pane?.pending_prompt && (
           <span
-            className="shrink-0 w-2 h-2 rounded-full animate-pulse"
+            className="shrink-0 w-2 h-2 rounded-full"
             style={{ background: "var(--ct-yellow)" }}
             title={pane.pending_prompt.question}
           />

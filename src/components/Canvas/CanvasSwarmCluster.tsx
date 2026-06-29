@@ -3,13 +3,8 @@ import { ChevronDown, ChevronUp, GitBranch } from "lucide-react";
 import { AgentCircle } from "./presence/AgentCircle";
 import type { SwarmMember, SwarmRoster } from "./swarmRoster";
 
-// EMERGENCE (north-star #2): the Figma-multiplayer "faces" cluster, viewport-
-// anchored to the canvas top-right and ALWAYS visible regardless of pan/zoom (it is
-// screen-space, outside the world transform — so it is LOD/zoom-independent and its
-// memos never touch camera scale). Collapsed = a compact stack of identity circles +
-// a live count; click a circle to FLY to the task that agent is working; expand for a
-// labeled roster (handle · role · current task · branch). Empty swarm → renders
-// nothing (honest). The roster is budget-capped upstream so 100 agents stay bounded.
+// EMERGENCE (north-star #2): viewport-anchored swarm roster. Collapsed = a quiet
+// count chip + expand control; faces and labels live only in the opened roster.
 
 const FACE_CAP = 5;
 
@@ -179,54 +174,26 @@ export function CanvasSwarmCluster({ roster, onFlyToTask, reserveTopRight }: Can
           display: "flex",
           alignItems: "center",
           gap: 8,
-          height: 36,
-          padding: "0 8px 0 11px",
+          height: 32,
+          padding: "0 10px 0 12px",
           borderRadius: 999,
         }}
       >
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           <span
-            className={roster.liveCount > 0 ? "ct-presence-live" : undefined}
             style={{
-              width: 7,
-              height: 7,
+              width: 6,
+              height: 6,
               borderRadius: "50%",
               background: roster.liveCount > 0 ? "var(--ct-success, #2f9e7e)" : "color-mix(in srgb, var(--ct-fg) 35%, transparent)",
-              ["--ct-presence-color" as string]: "var(--ct-success, #2f9e7e)",
             }}
           />
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--ct-fg)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ct-fg)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
             {headline}
           </span>
-        </span>
-
-        <span style={{ width: 1, height: 18, background: "var(--ct-border-subtle)" }} />
-
-        <span style={{ display: "inline-flex", alignItems: "center", paddingLeft: 6 }}>
-          {faces.map((m) => (
-            <FaceButton key={m.agent.id} member={m} onFly={() => onFlyToTask(m.taskId)} />
-          ))}
-          {facesOverflow > 0 && (
-            <span
-              data-testid="canvas-swarm-faces-overflow"
-              title={`${facesOverflow} more — expand the roster`}
-              style={{
-                marginLeft: -6,
-                width: 22,
-                height: 22,
-                borderRadius: "50%",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "var(--ct-bg-active)",
-                color: "color-mix(in srgb, var(--ct-fg) 80%, transparent)",
-                border: "1.5px solid var(--ct-bg)",
-                fontSize: 9.5,
-                fontWeight: 800,
-                lineHeight: 1,
-              }}
-            >
-              +{facesOverflow}
+          {!expanded && roster.totalCount > 0 && (
+            <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.55, fontVariantNumeric: "tabular-nums" }}>
+              · {roster.totalCount}
             </span>
           )}
         </span>
@@ -245,8 +212,8 @@ export function CanvasSwarmCluster({ roster, onFlyToTask, reserveTopRight }: Can
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: 24,
-            height: 24,
+            width: 22,
+            height: 22,
             marginLeft: 2,
             borderRadius: "50%",
             border: "none",
@@ -255,7 +222,7 @@ export function CanvasSwarmCluster({ roster, onFlyToTask, reserveTopRight }: Can
             cursor: "pointer",
           }}
         >
-          <Chevron size={15} />
+          <Chevron size={14} />
         </button>
       </div>
 
@@ -274,9 +241,34 @@ export function CanvasSwarmCluster({ roster, onFlyToTask, reserveTopRight }: Can
             overflowY: "auto",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 8px 6px" }}>
-            <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", opacity: 0.55 }}>
-              Swarm
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 8px 8px" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, paddingLeft: 2 }}>
+              {faces.map((m) => (
+                <FaceButton key={m.agent.id} member={m} onFly={() => onFlyToTask(m.taskId)} />
+              ))}
+              {facesOverflow > 0 && (
+                <span
+                  data-testid="canvas-swarm-faces-overflow"
+                  title={`${facesOverflow} more`}
+                  style={{
+                    marginLeft: -6,
+                    width: 22,
+                    height: 22,
+                    borderRadius: "50%",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "var(--ct-bg-active)",
+                    color: "color-mix(in srgb, var(--ct-fg) 80%, transparent)",
+                    border: "1.5px solid var(--ct-bg)",
+                    fontSize: 9.5,
+                    fontWeight: 800,
+                    lineHeight: 1,
+                  }}
+                >
+                  +{facesOverflow}
+                </span>
+              )}
             </span>
             <span style={{ fontSize: 10.5, fontWeight: 600, opacity: 0.55, fontVariantNumeric: "tabular-nums" }}>
               {roster.liveCount} working · {roster.totalCount} total

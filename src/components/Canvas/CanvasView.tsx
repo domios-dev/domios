@@ -376,6 +376,7 @@ export function CanvasViewInner({
   }, [layout, transform.scale, nodeIds]);
 
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   // UX-2 READ surface: the node whose fullscreen detail is open (null = none). It
   // OVERLAYS the map without moving the camera, so closing returns to the exact spot.
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
@@ -428,6 +429,15 @@ export function CanvasViewInner({
     }
     return best;
   }, [layout, nodeIds, transform.scale, size.width, size.height, focusedNodeId]);
+
+  const presenceEmphasisIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (hoveredNodeId) ids.add(hoveredNodeId);
+    if (detailNodeId) ids.add(detailNodeId);
+    if (focusedNodeId) ids.add(focusedNodeId);
+    if (dominantNodeId) ids.add(dominantNodeId);
+    return ids;
+  }, [hoveredNodeId, detailNodeId, focusedNodeId, dominantNodeId]);
 
   const { pulsePlanIds, changeMarkers, flyToPlan } = useCanvasChangeSignal({
     filteredPlans,
@@ -677,7 +687,9 @@ export function CanvasViewInner({
         hoverRafRef.current = null;
         const rect = containerRef.current?.getBoundingClientRect();
         const hit = canvasApiRef.current?.hitTest({ x: cx - (rect?.left ?? 0), y: cy - (rect?.top ?? 0) });
-        canvasApiRef.current?.setHover(hit?.node.id ?? null);
+        const nodeId = hit?.node.id ?? null;
+        canvasApiRef.current?.setHover(nodeId);
+        setHoveredNodeId(nodeId);
       });
     },
     [isDragging, containerRef],
@@ -739,7 +751,7 @@ export function CanvasViewInner({
             className="pointer-events-none absolute inset-0"
             style={{ transformOrigin: "0 0", zIndex: 10, overflow: "visible" }}
           >
-            <CanvasPresenceLayer overlays={presenceOverlays} onFlyToTask={onFlyToTask} />
+            <CanvasPresenceLayer overlays={presenceOverlays} emphasisTaskIds={presenceEmphasisIds} onFlyToTask={onFlyToTask} />
           </div>
         )}
         {!loading && !error && filteredPlans.length > 0 && (

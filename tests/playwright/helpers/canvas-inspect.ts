@@ -46,19 +46,22 @@ export async function openPanePlanCanvas(page: Page, paneId?: string): Promise<v
   const scope = paneId ? page.locator(`[data-pane-id="${paneId}"]`) : page;
   const taskStrip = scope.locator('[data-testid="worker-task-strip"]').first();
   await taskStrip.click({ force: true });
-  await page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]').waitFor({ state: "visible", timeout: 30_000 });
+  await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
+  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
   await page
-    .locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-plan-node"], [data-testid="pane-plan-overlay"] [data-testid="canvas-empty"]')
+    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
     .first()
     .waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForTimeout(450);
 }
 
-export async function closePanePlanCanvas(page: Page, paneId?: string): Promise<void> {
-  const scope = paneId ? page.locator(`[data-pane-id="${paneId}"]`) : page;
-  const close = scope.locator('[data-testid="canvas-focus-close"]').first();
-  if ((await close.count()) > 0) await close.click({ force: true }).catch(() => {});
+export async function closePanePlanCanvas(page: Page, _paneId?: string): Promise<void> {
+  const btn = page.locator('[data-testid="canvas-toolbar-button"]');
+  if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) === "true") {
+    await btn.click({ force: true }).catch(() => {});
+  }
   await page.waitForTimeout(150);
+  await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
 }
 
 // Inline workspace canvas (mode=workspace) mounts when the active workspace has no tab.
@@ -111,11 +114,8 @@ export async function ensureCanvasBoard(page: Page): Promise<void> {
 }
 
 export async function openCanvas(page: Page): Promise<void> {
-  const overlayView = page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]');
   const inlineView = page.locator('[data-testid="canvas-view"]').first();
-  if (await overlayView.isVisible().catch(() => false)) {
-    await overlayView.waitFor({ state: "visible", timeout: 30_000 });
-  } else if (await inlineView.isVisible().catch(() => false)) {
+  if (await inlineView.isVisible().catch(() => false)) {
     await inlineView.waitFor({ state: "visible", timeout: 30_000 });
   } else {
     await ensureCanvasBoard(page);
@@ -268,8 +268,7 @@ export async function panToMountTaskCards(page: Page, midScale = 1.6): Promise<N
 export async function fitToView(page: Page): Promise<void> {
   const strip = page.locator('[data-testid="worker-task-strip"]').first();
   if ((await strip.count()) === 0) return;
-  await page.locator('[data-testid="canvas-focus-close"]').first().click({ force: true }).catch(() => {});
-  await page.waitForTimeout(150);
+  await closePanePlanCanvas(page);
   await strip.click({ force: true });
   await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 15_000 });
   await page.waitForTimeout(400);
