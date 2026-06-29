@@ -142,12 +142,12 @@ export function layoutPlanIntra(plan: Plan, s: CanvasLayoutSettings, titleOverri
     ...autoBoxes,
     ...[...anchors.values(), ...extraPoints, ...zones.flatMap((z) => z.hull)].map((p) => ({ x: p.x, y: p.y, width: 0, height: 0 })),
   ]);
-  const width = content.width + s.framePadding * 2;
-  const height = content.height + s.framePadding * 2;
-
-  // Shift everything by framePadding so nothing sits on the frame edge.
-  const dx = s.framePadding - content.x;
-  const dy = s.framePadding - content.y;
+  // Pin the plan at (framePadding, framePadding) — never re-normalize to content min.
+  // Re-centering on every bounds change shifted unrelated nodes when tasks grew.
+  const dx = s.framePadding;
+  const dy = s.framePadding;
+  const width = content.x + content.width + s.framePadding - Math.min(0, content.x + dx);
+  const height = content.y + content.height + s.framePadding - Math.min(0, content.y + dy);
   for (let i = 0; i < nodes.length; i++) {
     nodes[i] = { ...nodes[i], box: { ...nodes[i].box, x: nodes[i].box.x + dx, y: nodes[i].box.y + dy } };
   }
