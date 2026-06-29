@@ -54,11 +54,10 @@ jobs:
             vsarch: x64
             sdkarch: x64
             label: x64
-          - target: aarch64-pc-windows-msvc
-            platform_key: windows-aarch64
-            vsarch: x64_arm64
-            sdkarch: arm64
-            label: arm64
+          # TODO(1.6.1): restore aarch64-pc-windows-msvc. Cross-compiling it on the
+          # x64 ROG fails to link bundled-sqlite (the cc crate doesn't emit aarch64
+          # objects under x64_arm64 vcvars); the deleted QEMU VM built it natively.
+          # Needs per-target CC env or a vcpkg arm64 sqlite — or a native arm64 runner.
     env:
       TARGET: ${{ matrix.target }}
       # Drive every cargo invocation in tauri's beforeBuildCommand at the matrix
