@@ -61,7 +61,7 @@ export function buildPresenceOverlays({
 }: BuildPresenceOverlaysInput): PresenceOverlay[] {
   const overlays: PresenceOverlay[] = [];
   for (const [taskId, src] of presenceByTask) {
-    if (!src.agents.length || !visibleIds.has(taskId)) continue;
+    if (!src.agents.length || !src.agents[0] || !visibleIds.has(taskId)) continue;
     const node = nodeById.get(taskId);
     if (!node) continue;
     const screenBox = projectWorldBox(node.box, transform);
