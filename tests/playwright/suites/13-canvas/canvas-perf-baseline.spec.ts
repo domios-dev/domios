@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import {
   formatBaselineTable,
@@ -10,8 +13,15 @@ import {
 
 const FIXTURE_NODE_COUNTS = [100, 500, 1000] as const;
 
-test("@golden @canvas-perf-baseline records deterministic synthetic canvas baseline", async ({ ui }) => {
+test("@golden @canvas-perf-baseline records deterministic synthetic canvas baseline", async ({ api, ui }) => {
   test.setTimeout(300_000);
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-canvas-perf-"));
+  const workspaceName = `canvas perf baseline ${Date.now()}`;
+  await api.createWorkspace(workspaceName, projectPath);
+  const workspace = (await api.workspaces()).find((w) => w.cwd === projectPath || w.name === workspaceName);
+  expect(workspace, `workspace ${workspaceName} missing after create`).toBeDefined();
+  await api.focusWorkspace(workspace!.id);
+
   const { page } = ui;
   await installPerfFixture(page, FIXTURE_NODE_COUNTS[0]);
 
