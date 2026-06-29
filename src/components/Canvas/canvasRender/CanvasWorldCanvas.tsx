@@ -9,6 +9,7 @@ import { registerBuiltinPainters } from "./builtinPainters";
 import { getCanvasPainter } from "./painterRegistry";
 import { NodeBitmapCache } from "./nodeBitmapCache";
 import { resolveCanvasPalette, type CanvasPalette } from "./palette";
+import { bumpCanvasChurn } from "../canvasChurn";
 
 registerBuiltinPainters();
 
@@ -130,6 +131,7 @@ export function CanvasWorldCanvas({
       const ctx = ctxRef.current;
       if (!ctx) return;
       const t = transformRef.current;
+      bumpCanvasChurn("canvasBlits");
       paintCamera(t);
       drawScene(ctx, inputRef.current, t, extras());
     };
@@ -180,9 +182,11 @@ export function CanvasWorldCanvas({
       cacheRef.current.clear();
       paletteVersionRef.current = palette;
     }
+    bumpCanvasChurn("canvasResharpens");
     resharpenVisible(inputRef.current, transform);
     if (typeof window !== "undefined") {
       const w = window as unknown as { __codetermCanvasRender?: { nodes: RenderReadbackNode[] }; __codetermCamera?: ViewportTransform };
+      bumpCanvasChurn("renderReadbackBuilds");
       w.__codetermCanvasRender = { nodes: buildReadback(inputRef.current, transform) };
       w.__codetermCamera = { x: transform.x, y: transform.y, scale: transform.scale };
     }
