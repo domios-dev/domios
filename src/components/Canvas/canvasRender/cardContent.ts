@@ -145,6 +145,9 @@ function taskContent(m: TaskModel): CardContent {
     { label: "priority", value: (task.priority ?? "p2").toUpperCase(), color: null },
     { label: "assignee", value: assigneeLabel(m), color: null },
   ];
+  if (m.presence?.focus) {
+    fields.push({ label: "focus", value: m.presence.focus, color: null });
+  }
   if (m.childCount && m.childCount > 0) {
     fields.push({ label: "subtasks", value: `${m.childDone ?? 0}/${m.childCount}`, color: null });
   }

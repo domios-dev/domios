@@ -220,11 +220,19 @@ export function CanvasViewInner({
       const s = v?.trim();
       if (s) ids.add(s);
     };
+    const assignmentParts: string[] = [];
     for (const p of filteredPlans) {
+      const hb = p.heartbeat;
+      assignmentParts.push(
+        p.id,
+        hb?.current_focus ?? "",
+        (hb?.active_lanes ?? []).join(","),
+      );
       for (const t of p.tasks) {
         add(t.assigned_pane_id);
         add(t.lane?.pane_id);
         for (const m of t.milestones) add(m.from?.pane_id);
+        assignmentParts.push(t.id, t.assigned_pane_id ?? "", t.lane?.pane_id ?? "", t.status);
       }
     }
     const parts: string[] = [];
@@ -232,7 +240,7 @@ export function CanvasViewInner({
       const pane = panes[id];
       parts.push(id, pane ? pane.title ?? "" : "\x00");
     }
-    return parts.join("\x1f");
+    return `${parts.join("\x1f")}\x1d${assignmentParts.join("\x1e")}`;
   }, [filteredPlans, panes]);
   const lookups = useCanvasLookups(layout, filteredPlans, driftByPlan, panes, panesContentKey);
 

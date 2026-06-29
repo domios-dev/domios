@@ -46,28 +46,34 @@ function kindLabel(kind: string): string {
   return kind.replace(/[_-]+/g, " ");
 }
 
-function focusApplies(plan: Plan, task: Task, paneId: string, focus: string): boolean {
-  const candidates = [
+function focusLaneTokens(task: Task, paneId: string): string[] {
+  return [
     task.id,
     `task:${task.id}`,
     task.handle,
-    task.name,
-    task.group,
-    task.assigned_pane_id,
-    task.lane?.pane_id,
     paneId,
     `pane:${paneId}`,
   ].flatMap((v) => {
     const text = clean(v);
-    return text ? [text] : [];
+    return text ? [text.toLowerCase()] : [];
   });
-  const candidateSet = new Set(candidates);
+}
+
+function focusApplies(plan: Plan, task: Task, paneId: string, focus: string): boolean {
+  const laneTokens = focusLaneTokens(task, paneId);
+  const laneSet = new Set(laneTokens);
   if ((plan.heartbeat?.active_lanes ?? []).some((lane) => {
-    const text = clean(lane);
-    return text ? candidateSet.has(text) : false;
+    const text = clean(lane)?.toLowerCase();
+    return text ? laneSet.has(text) : false;
   })) return true;
+
   const haystack = focus.toLowerCase();
-  return candidates.some((c) => haystack.includes(c.toLowerCase()));
+  const identityNeedles = [task.id, task.handle, task.name, `task:${task.id}`]
+    .flatMap((v) => {
+      const text = clean(v);
+      return text ? [text.toLowerCase()] : [];
+    });
+  return identityNeedles.some((needle) => haystack.includes(needle));
 }
 
 // Lead identity prefers the pane's own title; falls back to the orchestrator's
@@ -81,7 +87,6 @@ function buildAgents(task: Task, paneId: string, panes: Record<string, Pane>): P
     role,
     color: presenceColor(paneId),
   };
-  // peer may name >1 collaborator (comma-separated) → a real multiplayer stack.
   const peers = (clean(task.peer)?.split(",") ?? [])
     .map((p) => p.trim())
     .filter(Boolean)
@@ -89,13 +94,18 @@ function buildAgents(task: Task, paneId: string, panes: Record<string, Pane>): P
   return [lead, ...peers];
 }
 
-export function buildTaskPresence(plan: Plan, task: Task, panes: Record<string, Pane>): TaskPresence | null {
+export function buildTaskPresence(
+  plan: Plan,
+  task: Task,
+  panes: Record<string, Pane>,
+  exclusivePaneTasks?: ReadonlyMap<string, string>,
+): TaskPresence | null {
   const paneId = clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
   if (!paneId) return null;
-  // Presence is LIVE / in-RAM, never persisted history: show an agent only while its pane is an
-  // actually-running session in THIS daemon. A task's stored assigned_pane_id/lane.pane_id is just
-  // a record — without a live pane there is no agent, so no stale "idle" swarm accretes.
   if (!panes[paneId]) return null;
+  const winnerId = exclusivePaneTasks?.get(paneId);
+  if (winnerId && winnerId !== task.id) return null;
+
   const focus = clean(plan.heartbeat?.current_focus);
   const latest = latestMilestone(task);
   return {

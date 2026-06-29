@@ -8,7 +8,7 @@ export interface PaneCurrentTask {
 
 // A worker pane owns its task via either binding: the explicit assignment or the
 // lane it physically runs in. We honor both (the index only carries the former).
-function taskBoundToPane(task: Task, paneId: string): boolean {
+export function taskBoundToPane(task: Task, paneId: string): boolean {
   return task.assigned_pane_id === paneId || task.lane?.pane_id === paneId;
 }
 
@@ -28,6 +28,30 @@ function freshnessOf(task: Task): number {
   return task.status_changed_at ?? task.updated_at ?? task.created_at ?? 0;
 }
 
+/** Negative when `a` is the more live task for the same pane. */
+export function compareTaskLiveness(a: Task, b: Task): number {
+  const rank = STATUS_RANK[a.status] - STATUS_RANK[b.status];
+  return rank !== 0 ? rank : freshnessOf(b) - freshnessOf(a);
+}
+
+// One live pane → one current task per plan. Reassignment can leave stale
+// assigned_pane_id / lane.pane_id rows; presence must follow the winner only.
+export function resolvePlanExclusivePaneTasks(plan: Plan): Map<string, string> {
+  const winners = new Map<string, Task>();
+  for (const task of plan.tasks) {
+    const paneIds = new Set<string>();
+    const assigned = task.assigned_pane_id?.trim();
+    const lanePane = task.lane?.pane_id?.trim();
+    if (assigned) paneIds.add(assigned);
+    if (lanePane) paneIds.add(lanePane);
+    for (const paneId of paneIds) {
+      const prev = winners.get(paneId);
+      if (!prev || compareTaskLiveness(task, prev) < 0) winners.set(paneId, task);
+    }
+  }
+  return new Map([...winners.entries()].map(([paneId, task]) => [paneId, task.id]));
+}
+
 export function resolvePaneCurrentTask(
   plans: readonly Plan[],
   paneId: string | null | undefined,
@@ -43,9 +67,6 @@ export function resolvePaneCurrentTask(
     }
   }
   if (matches.length === 0) return null;
-  matches.sort((a, b) => {
-    const rank = STATUS_RANK[a.task.status] - STATUS_RANK[b.task.status];
-    return rank !== 0 ? rank : freshnessOf(b.task) - freshnessOf(a.task);
-  });
+  matches.sort((a, b) => compareTaskLiveness(a.task, b.task));
   return matches[0];
 }
