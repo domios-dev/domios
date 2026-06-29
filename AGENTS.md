@@ -319,10 +319,12 @@ No `[Tag]`, `[Idea]`, `[Bug]` brackets — just the scope prefix.
 Branch as you like, then:
 
 1. **Develop → `develop`.** PR feature branches into `develop`. Reference issues with a **bare `#N`** (NOT `Closes #N` — that would let GitHub close on master-merge, before the build actually ships). On push to `develop` the referenced open issues get the **`ready-for-release`** label (still open).
-2. **Cut a release.** PR `develop` → `master`, merge it. Then on `master`, manually tag: `git tag release-X.Y.Z && git push origin release-X.Y.Z` (single tag — the workflow stamps `vX.Y.Z` itself). The self-hosted build machine builds + publishes.
+2. **Cut a release.** PR `develop` → `master` (or a release branch → `master`), merge it. **Always land `master` via a PR** — direct pushes to `master` are intentionally gated. Bump + sync the version on the branch first (`package.json` → `npm run sync:versions` → `check:versions`, commit `release: vX.Y.Z`). Then on `master`, manually tag: `git tag release-X.Y.Z && git push origin release-X.Y.Z` (single tag — the workflow stamps `vX.Y.Z` itself). The self-hosted build machine builds + publishes.
 3. **Published → done.** On a successful publish the release workflow closes every `ready-for-release` issue ("Released in vX.Y.Z") and drops the label. Close-on-publish, never on merge, so a failed build never closes an unshipped issue.
 
 Before tagging, a fast `cargo check` precheck (linux+macOS) gates the long build; failures surface per-engine in the Actions log.
+
+**Build farm + full release runbook:** **`.codeterm/build-machine/README.md`**. The tag-driven `release.yml` runs on the self-hosted `codeterm-builder` runner (the Mac), which builds **macOS (native) + Linux (Docker) on the Mac, and Windows on the ROG over SSH** (no local Windows VM). That doc has the 3-engine×2-wave model, the ROG Windows-host setup, env vars (`WIN_SSH`/`WIN_CARGO_BIN`/`WIN_LLVM_BIN`), and the PR-based release steps.
 
 ## Documentation
 
