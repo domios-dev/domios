@@ -294,8 +294,9 @@ jobs:
           if (-not (Test-Path $bundle)) { Write-Error "Bundle missing next to $($sig.FullName)"; exit 1 }
 
           # With createUpdaterArtifacts=true, Tauri v2 reuses the NSIS .exe
-          # as the updater bundle; v1Compatible builds emit .nsis.zip.
-          gh release upload "$env:TAG" "$bundle" "$($sig.FullName)" --clobber --repo "$env:SOURCE_REPO"
+          # as the updater bundle; v1Compatible builds emit .nsis.zip. The .sig
+          # is NOT uploaded — the updater reads its signature from latest.json.
+          gh release upload "$env:TAG" "$bundle" --clobber --repo "$env:SOURCE_REPO"
 
           # Fragment URL points at the public MIRROR repo (where the asset is mirrored
           # to and the updater fetches from), not the private source release.
@@ -333,10 +334,15 @@ jobs:
             New-Item -ItemType Directory -Force "manifest-fragments/$base" | Out-Null
             Copy-Item $f.FullName "manifest-fragments/$base/latest.json" -Force
           }
-          node scripts/merge-latest-json.js --in manifest-fragments --out "$env:MANIFEST"
+          # Fold the existing manifest (monotonic) so a workflow finishing after
+          # us cannot drop a platform we just published, and vice versa.
+          $baseArgs = @()
+          gh release download "$env:TAG" --pattern 'latest.json' --dir _base --repo "$env:SOURCE_REPO" 2>$null
+          if (Test-Path "_base/latest.json") { $baseArgs = @('--base', '_base/latest.json') }
+          node scripts/merge-latest-json.js --in manifest-fragments --out "$env:MANIFEST" @baseArgs
           gh release upload "$env:TAG" "$env:MANIFEST" --clobber --repo "$env:SOURCE_REPO"
 
-      # Mirror updater bundle, signature, and merged manifest to the public
+      # Mirror the updater bundle (installer) and merged manifest to the public
       # release repo so the auto-updater endpoint
       # (rollacode/codeterm-releases/releases/latest/download/latest.json) can
       # serve them anonymously. Skip on workflow_dispatch — only mirror on the
@@ -372,4 +378,4 @@ jobs:
             }
           }
 
-          gh release upload "$env:TAG" "$bundle" "$($sig.FullName)" "$env:MANIFEST" --clobber --repo "$env:MIRROR_REPO"
+          gh release upload "$env:TAG" "$bundle" "$env:MANIFEST" --clobber --repo "$env:MIRROR_REPO"
