@@ -44,21 +44,8 @@ function ensureArtDir(): void {
 
 export async function openPanePlanCanvas(page: Page, paneId?: string): Promise<void> {
   const scope = paneId ? page.locator(`[data-pane-id="${paneId}"]`) : page;
-  const toggle = scope.locator('[data-testid="pane-mode-switch"][data-plan-toggle="true"]');
-  if ((await toggle.count()) > 0) {
-    if ((await toggle.getAttribute("aria-pressed")) !== "true") {
-      await toggle.click();
-    }
-  } else {
-    const planTabs = scope.locator('[data-testid="pane-mode-switch"] [role="tab"]').filter({ hasText: /Plan|Tasks/ });
-    const count = await planTabs.count();
-    for (let i = 0; i < count; i++) {
-      await planTabs.nth(i).click({ force: true }).catch(() => {});
-      if (await page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]').isVisible({ timeout: 1_000 }).catch(() => false)) {
-        break;
-      }
-    }
-  }
+  const taskStrip = scope.locator('[data-testid="worker-task-strip"]').first();
+  await taskStrip.click({ force: true });
   await page.locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-view"]').waitFor({ state: "visible", timeout: 30_000 });
   await page
     .locator('[data-testid="pane-plan-overlay"] [data-testid="canvas-plan-node"], [data-testid="pane-plan-overlay"] [data-testid="canvas-empty"]')
@@ -69,13 +56,8 @@ export async function openPanePlanCanvas(page: Page, paneId?: string): Promise<v
 
 export async function closePanePlanCanvas(page: Page, paneId?: string): Promise<void> {
   const scope = paneId ? page.locator(`[data-pane-id="${paneId}"]`) : page;
-  const toggle = scope.locator('[data-testid="pane-mode-switch"][data-plan-toggle="true"]');
-  if ((await toggle.count()) > 0) {
-    if ((await toggle.getAttribute("aria-pressed")) === "true") await toggle.click();
-    return;
-  }
-  const terminalTab = scope.locator('[data-testid="pane-mode-switch"] [role="tab"]').filter({ hasText: /Terminal|Chat/ }).first();
-  if ((await terminalTab.count()) > 0) await terminalTab.click({ force: true }).catch(() => {});
+  const close = scope.locator('[data-testid="canvas-focus-close"]').first();
+  if ((await close.count()) > 0) await close.click({ force: true }).catch(() => {});
   await page.waitForTimeout(150);
 }
 
@@ -84,7 +66,7 @@ export async function openInlineWorkspaceCanvas(page: Page): Promise<void> {
   await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
   await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
   await page
-    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
+    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"], [data-testid="canvas-empty"]')
     .first()
     .waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForTimeout(450);
@@ -98,22 +80,31 @@ export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {
   await page.waitForTimeout(450);
 }
 
-// Robust board-open for unattended gates (perf/ux). The WORKSPACE/inline canvas
-// self-mounts with no pane, so we use ONLY that path: if a canvas-view isn't already
-// up, toggle it on via the always-present titlebar workspace-canvas button. We never
-// touch the pane-plan-overlay path (openPanePlanCanvas needs an existing plan pane and
-// times out from a cold/no-pane dev — the failure this fixes).
+// Robust board-open for unattended gates (perf/ux). Prefer the workspace Plan row,
+// then fall back to the titlebar canvas button.
 export async function ensureCanvasBoard(page: Page): Promise<void> {
   const view = page.locator('[data-testid="canvas-view"]').first();
   if (!(await view.isVisible().catch(() => false))) {
-    const btn = page.locator('[data-testid="canvas-toolbar-button"]');
-    if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) !== "true") {
-      await btn.click().catch(() => {});
+    const workspace = page.locator('[data-testid="workspace-item"][data-workspace-name="codeterm"]').first();
+    if (await workspace.isVisible().catch(() => false)) {
+      const expand = workspace.locator('button[title="Expand"]');
+      if (await expand.isVisible().catch(() => false)) await expand.click().catch(() => {});
+    }
+    const row = page.locator('[data-testid="workspace-plan-entry"]').first();
+    if (await row.isVisible().catch(() => false)) {
+      await row.click().catch(async () => {
+        await row.click({ force: true }).catch(() => {});
+      });
+    } else {
+      const btn = page.locator('[data-testid="canvas-toolbar-button"]');
+      if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) !== "true") {
+        await btn.click().catch(() => {});
+      }
     }
   }
   await view.waitFor({ state: "visible", timeout: 30_000 });
   await page
-    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
+    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"], [data-testid="canvas-empty"]')
     .first()
     .waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForTimeout(450);
@@ -127,7 +118,7 @@ export async function openCanvas(page: Page): Promise<void> {
   } else if (await inlineView.isVisible().catch(() => false)) {
     await inlineView.waitFor({ state: "visible", timeout: 30_000 });
   } else {
-    await openPanePlanCanvas(page);
+    await ensureCanvasBoard(page);
     return;
   }
   await page
@@ -272,14 +263,14 @@ export async function panToMountTaskCards(page: Page, midScale = 1.6): Promise<N
   return cards;
 }
 
-// No fit-to-view button; toggle the pane out of and back into Plan mode to remount
-// the focus canvas, which re-runs fit-to-view.
+// No fit-to-view button; close and reopen through the task strip to remount the
+// focus canvas, which re-runs fit-to-view.
 export async function fitToView(page: Page): Promise<void> {
-  const tabs = page.locator('[data-testid="pane-mode-switch"] [role="tab"]');
-  if ((await tabs.count()) < 2) return;
-  await tabs.filter({ hasText: /Terminal|Chat/ }).first().click({ force: true }).catch(() => {});
+  const strip = page.locator('[data-testid="worker-task-strip"]').first();
+  if ((await strip.count()) === 0) return;
+  await page.locator('[data-testid="canvas-focus-close"]').first().click({ force: true }).catch(() => {});
   await page.waitForTimeout(150);
-  await tabs.filter({ hasText: /Plan|Tasks/ }).first().click({ force: true }).catch(() => {});
+  await strip.click({ force: true });
   await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 15_000 });
   await page.waitForTimeout(400);
 }

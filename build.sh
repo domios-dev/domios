@@ -64,8 +64,20 @@ kill_dev() {
         screen -S "$session" -X quit 2>/dev/null || true
       done
     fi
-    lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null | xargs kill 2>/dev/null || true
-    lsof -ti:"$CT_VITE_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    local dev_pids
+    dev_pids="$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)"
+    if [ -n "$dev_pids" ]; then
+      echo "$dev_pids" | xargs kill 2>/dev/null || true
+      for _ in $(seq 1 30); do
+        [ -z "$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)" ] && break
+        sleep 0.1
+      done
+      dev_pids="$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)"
+      [ -z "$dev_pids" ] || echo "$dev_pids" | xargs kill -9 2>/dev/null || true
+    fi
+    local vite_pids
+    vite_pids="$(lsof -ti:"$CT_VITE_PORT" 2>/dev/null || true)"
+    [ -z "$vite_pids" ] || echo "$vite_pids" | xargs kill -9 2>/dev/null || true
     if [ -f "$CT_DATA_DIR/daemon.pid" ]; then
       kill "$(cat "$CT_DATA_DIR/daemon.pid")" 2>/dev/null || true
       rm -f "$CT_DATA_DIR/daemon.pid"

@@ -6,6 +6,7 @@ import { zoneColor } from "../layout/sectionZones";
 import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
 import type { CanvasElement, DriftItem, Plan, Section, Task } from "../types";
+export { buildTaskPresenceFingerprint } from "./presenceFingerprint";
 import { collectSections, type CanvasLookups, type TaskCardModel } from "./models";
 
 // Per-data lookups: id→node/task/model/section/milestone/cluster/element maps. Built
