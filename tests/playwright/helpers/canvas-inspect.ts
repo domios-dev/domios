@@ -9,10 +9,22 @@
  */
 import { expect, type Page } from "@playwright/test";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import type { ApiClient } from "./api-client";
 import { CANVAS_ZOOM_INTENSITY } from "../../../src/components/Canvas/useCanvasViewport";
 
 export const CANVAS_ART_DIR = path.resolve(__dirname, "..", "artifacts", "canvas");
+
+export const PERF_FIXTURE_KEY = "canvas.perfFixtureN";
+export const SUBSTRATE_V2_KEY = "canvas.substrateV2";
+
+/** Board is ready when the blit canvas or legacy DOM plan node is visible (not empty). */
+export const CANVAS_BOARD_SEL =
+  '[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"]';
+
+export const CANVAS_BOARD_OR_EMPTY_SEL =
+  `${CANVAS_BOARD_SEL}, [data-testid="canvas-empty"]`;
 
 // Must match useCanvasViewport.ts CANVAS_ZOOM_INTENSITY; scale = exp(-deltaY * INTENSITY).
 const ZOOM_INTENSITY = CANVAS_ZOOM_INTENSITY;
@@ -42,16 +54,166 @@ function ensureArtDir(): void {
   fs.mkdirSync(CANVAS_ART_DIR, { recursive: true });
 }
 
+export interface RenderReadbackNode {
+  id: string;
+  kind: string;
+  title: string;
+}
+
+interface MuxTabState {
+  workspaces: Array<{ id: string; tabs: Array<{ id: string }> }>;
+}
+
+export async function openSidebarIfNeeded(page: Page): Promise<void> {
+  const toggle = page.locator('[data-testid="web-sidebar-open"]');
+  if (await toggle.isVisible().catch(() => false)) await toggle.click();
+}
+
+export async function expandWorkspaceSidebar(page: Page, workspaceId?: string): Promise<void> {
+  const scope = workspaceId
+    ? page.locator(`[data-testid="workspace-item"][data-workspace-id="${workspaceId}"]`)
+    : page.locator('[data-testid="workspace-item"]').first();
+  if (!(await scope.isVisible().catch(() => false))) return;
+  const expand = scope.locator('button[title="Expand"]');
+  if (await expand.isVisible().catch(() => false)) await expand.click().catch(() => {});
+}
+
+export async function closeWorkspaceTabs(api: ApiClient, workspaceId: string): Promise<void> {
+  for (let pass = 0; pass < 8; pass++) {
+    const mux = await api.get<MuxTabState>("/mux/state");
+    const ws = mux.workspaces.find((w) => w.id === workspaceId);
+    const tabs = [...(ws?.tabs ?? [])];
+    if (tabs.length === 0) return;
+    for (const tab of tabs) {
+      await api.post(`/workspaces/${workspaceId}/tabs/${tab.id}/close`);
+    }
+  }
+  const mux = await api.get<MuxTabState>("/mux/state");
+  const remaining = mux.workspaces.find((w) => w.id === workspaceId)?.tabs.length ?? 0;
+  expect(remaining, "workspace tabs closed for inline canvas").toBe(0);
+}
+
+export async function closeActiveWorkspaceTabs(api: ApiClient): Promise<void> {
+  const mux = await api.get<MuxTabState & { active_workspace_id?: string }>("/mux/state");
+  const activeId =
+    mux.active_workspace_id ?? mux.workspaces.find((w) => (w as { is_active?: boolean }).is_active)?.id;
+  if (activeId) await closeWorkspaceTabs(api, activeId);
+}
+
+export async function clearCanvasHarnessFlags(page: Page): Promise<void> {
+  await page.addInitScript(([perfKey, subKey]) => {
+    try {
+      window.localStorage.removeItem(perfKey);
+      window.localStorage.removeItem(subKey);
+    } catch {
+      /* non-fatal */
+    }
+  }, [PERF_FIXTURE_KEY, SUBSTRATE_V2_KEY]);
+}
+
+export async function seedPerfFixture(page: Page, taskCount = 24): Promise<void> {
+  await page.addInitScript(([perfKey, subKey, n]) => {
+    try {
+      window.localStorage.setItem(perfKey, String(n));
+      window.localStorage.setItem(subKey, "true");
+    } catch {
+      /* surfaced by wait helpers */
+    }
+  }, [PERF_FIXTURE_KEY, SUBSTRATE_V2_KEY, taskCount]);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+}
+
+export async function seedPerfFixtureAndOpenInlineCanvas(page: Page, api: ApiClient, taskCount = 24): Promise<string> {
+  const projectPath = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-canvas-perf-"));
+  await api.createWorkspace("canvas perf gate", projectPath);
+  const workspace = (await api.workspaces()).find((w) => w.cwd === projectPath);
+  if (!workspace) throw new Error("perf workspace was not listed");
+  await api.focusWorkspace(workspace.id);
+  await closeWorkspaceTabs(api, workspace.id);
+  await seedPerfFixture(page, taskCount);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
+  await openInlineWorkspaceCanvas(page, workspace.id);
+  return workspace.id;
+}
+
+async function waitForBoardSurface(page: Page): Promise<void> {
+  await page.locator(CANVAS_BOARD_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await page.waitForTimeout(450);
+}
+
+export async function readbackRenderNodes(page: Page): Promise<RenderReadbackNode[]> {
+  return page.evaluate(
+    () => (window as unknown as { __codetermCanvasRender?: { nodes: RenderReadbackNode[] } }).__codetermCanvasRender?.nodes ?? [],
+  );
+}
+
+export async function waitForReadbackCounts(
+  page: Page,
+  plans: number,
+  tasks: number,
+  timeoutMs = 30_000,
+): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const render = await readbackRenderNodes(page);
+        let planCount = render.filter((n) => n.kind === "plan").length;
+        let taskCount = render.filter((n) => n.kind === "task").length;
+        if (planCount < plans || taskCount < tasks) {
+          const sceneCounts = await page.evaluate(() => {
+            const reg = (window as unknown as {
+              __codetermCanvasScene?: { list: () => string[]; get: (slot: string) => { scene?: { nodes: Array<{ kind: string }> } } | null };
+            }).__codetermCanvasScene;
+            for (const slot of reg?.list() ?? []) {
+              const nodes = reg?.get(slot)?.scene?.nodes ?? [];
+              return {
+                plans: nodes.filter((n) => n.kind === "plan").length,
+                tasks: nodes.filter((n) => n.kind === "task").length,
+              };
+            }
+            return { plans: 0, tasks: 0 };
+          });
+          planCount = Math.max(planCount, sceneCounts.plans);
+          taskCount = Math.max(taskCount, sceneCounts.tasks);
+        }
+        return { plans: planCount, tasks: taskCount };
+      },
+      { timeout: timeoutMs },
+    )
+    .toEqual({ plans, tasks });
+}
+
+export async function assertReadbackNodesOnScreen(page: Page, minPx = 8): Promise<void> {
+  await expect
+    .poll(async () => {
+      return page.evaluate((min) => {
+        const registry = (window as unknown as {
+          __codetermCanvasScene?: {
+            list: () => string[];
+            get: (slot: string) => { projectedBoxes: () => Array<{ screenBox: { width: number; height: number } }> } | null;
+          };
+        }).__codetermCanvasScene;
+        let visible = 0;
+        for (const slot of registry?.list() ?? []) {
+          for (const box of registry?.get(slot)?.projectedBoxes() ?? []) {
+            if (box.screenBox.width >= min && box.screenBox.height >= min) visible++;
+          }
+        }
+        return visible;
+      }, minPx);
+    })
+    .toBeGreaterThan(0);
+}
+
 export async function openPanePlanCanvas(page: Page, paneId?: string): Promise<void> {
   const scope = paneId ? page.locator(`[data-pane-id="${paneId}"]`) : page;
   const taskStrip = scope.locator('[data-testid="worker-task-strip"]').first();
   await taskStrip.click({ force: true });
   await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
   await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
-  await page
-    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 30_000 });
+  await page.locator(CANVAS_BOARD_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForTimeout(450);
 }
 
@@ -65,32 +227,49 @@ export async function closePanePlanCanvas(page: Page, _paneId?: string): Promise
 }
 
 // Inline workspace canvas (mode=workspace) mounts when the active workspace has no tab.
-export async function openInlineWorkspaceCanvas(page: Page): Promise<void> {
+export async function openInlineWorkspaceCanvas(page: Page, workspaceId?: string): Promise<void> {
+  await openSidebarIfNeeded(page);
   await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
-  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
-  await page
-    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"], [data-testid="canvas-empty"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(450);
+  const view = page.locator('[data-testid="canvas-view"]').first();
+  if (!(await view.isVisible().catch(() => false))) {
+    if (workspaceId) await expandWorkspaceSidebar(page, workspaceId);
+    const entry = workspaceId
+      ? page.locator(`[data-testid="workspace-item"][data-workspace-id="${workspaceId}"] [data-testid="workspace-plan-entry"]`)
+      : page.locator('[data-testid="workspace-plan-entry"]').first();
+    if (await entry.isVisible().catch(() => false)) {
+      await entry.click().catch(async () => {
+        await entry.click({ force: true });
+      });
+    } else {
+      const btn = page.locator('[data-testid="canvas-toolbar-button"]');
+      if ((await btn.count()) > 0 && (await btn.getAttribute("aria-pressed")) !== "true") {
+        await btn.click().catch(() => {});
+      }
+    }
+  }
+  await view.waitFor({ state: "visible", timeout: 30_000 });
+  await waitForBoardSurface(page);
 }
 
 export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {
+  await openSidebarIfNeeded(page);
   const btn = page.locator('[data-testid="canvas-toolbar-button"]');
   await btn.waitFor({ state: "visible", timeout: 10_000 });
   if ((await btn.getAttribute("aria-pressed")) !== "true") await btn.click();
   await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(450);
+  await waitForBoardSurface(page);
 }
 
-// Robust board-open for unattended gates (perf/ux). Prefer the workspace Plan row,
+// Robust board-open for unattended gates (perf/ux). Prefer any workspace Plan row,
 // then fall back to the titlebar canvas button.
 export async function ensureCanvasBoard(page: Page): Promise<void> {
+  await openSidebarIfNeeded(page);
   const view = page.locator('[data-testid="canvas-view"]').first();
   if (!(await view.isVisible().catch(() => false))) {
-    const workspace = page.locator('[data-testid="workspace-item"][data-workspace-name="codeterm"]').first();
-    if (await workspace.isVisible().catch(() => false)) {
-      const expand = workspace.locator('button[title="Expand"]');
+    const workspaces = page.locator('[data-testid="workspace-item"]');
+    const wsCount = await workspaces.count();
+    for (let i = 0; i < wsCount; i++) {
+      const expand = workspaces.nth(i).locator('button[title="Expand"]');
       if (await expand.isVisible().catch(() => false)) await expand.click().catch(() => {});
     }
     const row = page.locator('[data-testid="workspace-plan-entry"]').first();
@@ -106,11 +285,7 @@ export async function ensureCanvasBoard(page: Page): Promise<void> {
     }
   }
   await view.waitFor({ state: "visible", timeout: 30_000 });
-  await page
-    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"], [data-testid="canvas-empty"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(450);
+  await waitForBoardSurface(page);
 }
 
 export async function openCanvas(page: Page): Promise<void> {
@@ -121,11 +296,7 @@ export async function openCanvas(page: Page): Promise<void> {
     await ensureCanvasBoard(page);
     return;
   }
-  await page
-    .locator('[data-testid="canvas-plan-node"], [data-testid="canvas-empty"]')
-    .first()
-    .waitFor({ state: "visible", timeout: 30_000 });
-  await page.waitForTimeout(450);
+  await waitForBoardSurface(page);
 }
 
 export async function isEmpty(page: Page): Promise<boolean> {
