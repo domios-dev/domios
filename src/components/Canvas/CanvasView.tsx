@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig, Pane, Workspace } from "../../lib/types";
@@ -31,7 +31,7 @@ import type { PlanGhostModel } from "./canvasView/models";
 import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
-import { useCanvasViewport } from "./useCanvasViewport";
+import { useCanvasViewport, paintLayer } from "./useCanvasViewport";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
 import { CanvasPresenceLayer } from "./CanvasPresenceLayer";
@@ -186,7 +186,7 @@ export function CanvasViewInner({
   const canvasApiRef = useRef<CanvasRenderApi | null>(null);
   const hoverRafRef = useRef<number | null>(null);
   const onCanvasPaint = useCallback(() => drawRequestRef.current?.(), []);
-  const { transform, handlers, fitToView, animateTo, animateToView, zoomBy, setTransform, isDragging, containerRef, transformRef } = useCanvasViewport({
+  const { transform, handlers, fitToView, animateTo, animateToView, zoomBy, setTransform, isDragging, containerRef, layerRef, transformRef } = useCanvasViewport({
     width: size.width,
     height: size.height,
     panButton: "middle",
@@ -194,6 +194,12 @@ export function CanvasViewInner({
     maxScale: 10,
     onPaint: onCanvasPaint,
   });
+
+  // Keep the world layer transform aligned when React commits the settled camera
+  // (gesture pan/zoom paints layerRef imperatively every event via paintLayer).
+  useLayoutEffect(() => {
+    paintLayer(layerRef.current, transformRef.current);
+  }, [transform, layerRef, transformRef]);
 
   // §24.1: ONE behavior — no manual view modes. Node frames are fixed; content
   // adapts to camera zoom (content-LOD). The toolbar is camera-only.
@@ -741,7 +747,14 @@ export function CanvasViewInner({
           </div>
         )}
         {!loading && filteredPlans.length > 0 && (
-          <CanvasPresenceLayer overlays={presenceOverlays} onFlyToTask={onFlyToTask} />
+          <div
+            ref={layerRef}
+            data-testid="canvas-world-layer"
+            className="pointer-events-none absolute inset-0"
+            style={{ transformOrigin: "0 0", zIndex: 10, overflow: "visible" }}
+          >
+            <CanvasPresenceLayer overlays={presenceOverlays} onFlyToTask={onFlyToTask} />
+          </div>
         )}
         {!loading && !error && filteredPlans.length > 0 && (
           <CanvasSwarmCluster roster={swarmRoster} onFlyToTask={onFlyToTask} reserveTopRight={!!onClose} />

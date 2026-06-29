@@ -78,7 +78,7 @@ export function formatLayerTransform(t: ViewportTransform): string {
   return `translate(${t.x}px, ${t.y}px) scale(${t.scale})`;
 }
 
-function paintLayer(el: HTMLElement | null, t: ViewportTransform): void {
+export function paintLayer(el: HTMLElement | null, t: ViewportTransform): void {
   if (!el) return;
   el.style.transform = formatLayerTransform(t);
   el.style.transformOrigin = "0 0";
