@@ -18,11 +18,13 @@ pub(super) fn dispatch(
             let p = params.as_ref().ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
+                data: None,
             })?;
             let spawn_params =
                 crate::service::SpawnAgentParams::from_json(p).map_err(|e| JsonRpcError {
                     code: -32602,
                     message: e,
+                    data: None,
                 })?;
 
             let svc_ref = &**svc;
@@ -31,6 +33,7 @@ pub(super) fn dispatch(
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             {
                 let h = app.clone();
@@ -43,6 +46,7 @@ pub(super) fn dispatch(
                 "pane_id": result.pane_id,
                 "tab_id": result.tab_id,
                 "agent": result.agent,
+                "model": result.model,
                 "title": result.title,
                 "description": result.description,
                 "role": result.role,
@@ -50,12 +54,30 @@ pub(super) fn dispatch(
             if let Some(ref warning) = result.warning {
                 resp["warning"] = serde_json::json!(warning);
             }
+            if let Some(hint) = crate::service::plan::hints::maybe_orchestration_reminder() {
+                resp["_hints"] = serde_json::json!([hint]);
+            }
             Ok(resp)
         }
 
         "agent.report" => {
             let pane_id = get_string_param(params, "pane_id")?;
             let message = get_string_param(params, "message")?;
+            let plan_id = params
+                .as_ref()
+                .and_then(|p| p.get("plan_id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let task_id = params
+                .as_ref()
+                .and_then(|p| p.get("task_id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let milestone_kind = params
+                .as_ref()
+                .and_then(|p| p.get("kind"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
             // Optional structured fields (status/branch/sha/...) ride alongside
             // the freeform message; absent keys deserialize to None.
             let details = params
@@ -64,10 +86,18 @@ pub(super) fn dispatch(
                 .unwrap_or_default();
             let svc_ref = &**svc;
             let result = svc_ref
-                .submit_report(&pane_id, &message, details)
+                .submit_report(
+                    &pane_id,
+                    &message,
+                    details,
+                    plan_id.as_deref(),
+                    task_id.as_deref(),
+                    milestone_kind.as_deref(),
+                )
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,
+                    data: None,
                 })?;
             Ok(serde_json::json!({
                 "ok": true,
@@ -91,6 +121,7 @@ pub(super) fn dispatch(
             serde_json::to_value(&reports).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
@@ -101,12 +132,14 @@ pub(super) fn dispatch(
             serde_json::to_value(&rows).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
+                data: None,
             })
         }
 
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),
+            data: None,
         }),
     }
 }

@@ -1,4 +1,4 @@
-use super::{IntegrationsConfig, MemoryConfig, UiConfig};
+use super::{IntegrationsConfig, MemoryConfig, OrchestrationConfig, UiConfig};
 
 #[test]
 fn ui_config_extra_keys_round_trip_over_json() {
@@ -54,6 +54,21 @@ fn memory_l1_budget_default_is_300() {
 fn memory_l1_budget_user_override() {
     let cfg: MemoryConfig = toml::from_str("l1_budget_tokens = 1200").unwrap();
     assert_eq!(cfg.l1_budget_tokens, 1200);
+}
+
+#[test]
+fn orchestration_plan_reminder_defaults() {
+    let cfg: OrchestrationConfig = toml::from_str("").unwrap();
+    assert!(cfg.plan_reminders);
+    assert_eq!(cfg.nudge_after_turns, 12);
+}
+
+#[test]
+fn orchestration_plan_reminder_overrides() {
+    let cfg: OrchestrationConfig =
+        toml::from_str("plan_reminders = false\nnudge_after_turns = 3").unwrap();
+    assert!(!cfg.plan_reminders);
+    assert_eq!(cfg.nudge_after_turns, 3);
 }
 
 #[test]

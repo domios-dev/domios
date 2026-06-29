@@ -89,12 +89,9 @@ fn test_create_tab_generates_unique_titles() {
     let ws = state.get_workspace(&ws_id).unwrap();
     let mut titles = std::collections::HashSet::new();
     for tab in &ws.tabs {
-        assert_ne!(tab.title, "Terminal");
-        assert!(
-            titles.insert(tab.title.as_str()),
-            "duplicate tab title: {}",
-            tab.title
-        );
+        let title = state.get_pane(&tab.pane_id).unwrap().title.as_str();
+        assert_ne!(title, "Terminal");
+        assert!(titles.insert(title), "duplicate pane title: {}", title);
     }
 }
 
@@ -354,10 +351,17 @@ fn test_worker_requires_orchestrator_parent() {
 }
 
 #[test]
-fn test_worker_parent_must_be_orchestrator() {
-    let (mut state, pane_id) = MultiplexerState::new();
+fn test_worker_parent_must_not_be_worker() {
+    let (mut state, orch_id) = MultiplexerState::new();
+    state
+        .set_pane_role(&orch_id, AgentRole::Orchestrator, None)
+        .unwrap();
+    let worker_parent = state.create_pane();
+    state
+        .set_pane_role(&worker_parent, AgentRole::Worker, Some(&orch_id))
+        .unwrap();
     let other_id = state.create_pane();
-    let result = state.set_pane_role(&pane_id, AgentRole::Worker, Some(&other_id));
+    let result = state.set_pane_role(&other_id, AgentRole::Worker, Some(&worker_parent));
     assert!(result.is_err());
 }
 
@@ -504,30 +508,23 @@ fn test_rename_pane_pins_title() {
 }
 
 #[test]
-fn test_rename_pane_does_not_change_tab_title() {
+fn test_rename_pane_changes_canonical_title() {
     let (mut state, pane_id) = MultiplexerState::new();
-    let ws_id = state.list_workspaces()[0].id.clone();
-    let original = state.get_workspace(&ws_id).unwrap().tabs[0].title.clone();
 
     state.rename_pane(&pane_id, "My Pane").unwrap();
 
-    let ws = state.get_workspace(&ws_id).unwrap();
-    assert_eq!(
-        ws.tabs[0].title, original,
-        "tab title must be stable across pane renames"
-    );
+    assert_eq!(state.display_label_for_pane(&pane_id), "My Pane");
 }
 
 #[test]
-fn test_rename_tab_changes_title() {
-    let (mut state, _) = MultiplexerState::new();
+fn test_rename_tab_changes_canonical_pane_title() {
+    let (mut state, pane_id) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
     let tab_id = state.get_workspace(&ws_id).unwrap().tabs[0].id.clone();
 
     state.rename_tab(&ws_id, &tab_id, "Renamed").unwrap();
 
-    let ws = state.get_workspace(&ws_id).unwrap();
-    assert_eq!(ws.tabs[0].title, "Renamed");
+    assert_eq!(state.get_pane(&pane_id).unwrap().title, "Renamed");
 }
 
 #[test]

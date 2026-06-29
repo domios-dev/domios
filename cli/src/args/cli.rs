@@ -13,15 +13,20 @@ use super::agent::AgentAction;
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
+use super::effort::EffortAction;
 use super::mem::MemAction;
 use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
     ThemeAction, WorkspaceAction,
 };
+use super::orchestrator::OrchestratorAction;
+use super::plan::PlanAction;
 use super::plugin::PluginAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
+use super::spec::SpecAction;
 use super::system::SystemAction;
+use super::task::{CanvasAction, TaskAction};
 use super::update::UpdateAction;
 use super::usage::UsageAction;
 
@@ -46,6 +51,10 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Clap command enums keep parsed options inline."
+)]
 pub enum Commands {
     /// Show CodeTerm version and system info
     Identify,
@@ -72,21 +81,16 @@ pub enum Commands {
         action: WorkspaceAction,
     },
 
+    /// Orchestrator helpers
+    Orchestrator {
+        #[command(subcommand)]
+        action: OrchestratorAction,
+    },
+
     /// Pane management
     Pane {
         #[command(subcommand)]
         action: PaneAction,
-    },
-
-    /// Get terminal output from a pane (default: current pane)
-    GetOutput {
-        /// Target pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long, alias = "id")]
-        pane: Option<String>,
-
-        /// Maximum number of lines to return (approximate)
-        #[arg(long, default_value = "50")]
-        lines: u32,
     },
 
     /// Send text to a pane (default: current pane).
@@ -256,6 +260,36 @@ pub enum Commands {
         action: MemAction,
     },
 
+    /// Canvas plans — persistent orchestration boards
+    Plan {
+        #[command(subcommand)]
+        action: PlanAction,
+    },
+
+    /// Requirements specs — first-class WHAT documents
+    Spec {
+        #[command(subcommand)]
+        action: SpecAction,
+    },
+
+    /// Complete work bundles and effort lineage
+    Effort {
+        #[command(subcommand)]
+        action: EffortAction,
+    },
+
+    /// Standalone and plan-backed tasks
+    Task {
+        #[command(subcommand)]
+        action: TaskAction,
+    },
+
+    /// Canvas control commands
+    Canvas {
+        #[command(subcommand)]
+        action: CanvasAction,
+    },
+
     /// Past agent sessions — search conversations across all providers
     Sessions {
         #[command(subcommand)]
@@ -294,6 +328,14 @@ pub enum Commands {
         /// Print at most N lines.
         #[arg(long)]
         head: Option<usize>,
+    },
+
+    /// Read one embedded CodeTerm document in full.
+    ///
+    /// Canonical recovery entry for agents: `codeterm doc orchestration`.
+    Doc {
+        /// Doc name (e.g. orchestration).
+        name: String,
     },
 
     /// Internal diagnostics — verify crash reporter, etc. Dev-only;

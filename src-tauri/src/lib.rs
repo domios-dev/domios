@@ -28,6 +28,7 @@ pub mod multiplexer;
 mod notification;
 pub mod pasteboard;
 pub mod paths;
+pub mod plan;
 pub mod plugin;
 pub mod process_util;
 pub mod prompts;
@@ -307,6 +308,7 @@ pub fn run() {
             commands_mesh::mesh_exit,
             commands_mesh::mesh_add_manual,
             commands_mesh::mesh_start_discovery,
+            commands_mesh::mesh_set_enabled,
             commands_mesh::mesh_start_broadcast,
             commands_mesh::mesh_stop_broadcast,
             commands_mesh::mesh_scan_peers,
@@ -630,6 +632,11 @@ pub fn run() {
                 agent_registry.clone(),
                 chatbackend_registry.clone(),
             ));
+            let plan_store = Arc::new(crate::service::plan::PlanStore::new());
+            let plan_turn_counter =
+                Arc::new(crate::service::plan::reminders::TurnCounter::new());
+            plan_store.bind_turn_counter(plan_turn_counter.clone());
+
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -641,6 +648,8 @@ pub fn run() {
                 agent_tracker: states.agent_tracker.clone(),
                 shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
+                plan_store,
+                plan_turn_counter,
                 agent_registry,
                 mem,
                 mem_supervisor,
@@ -699,6 +708,7 @@ pub fn run() {
                     .expect("usage.db init"),
                 usage_activity: crate::usage::PaneActivity::new(),
                 usage_poller: Arc::new(parking_lot::Mutex::new(None)),
+                plan_watchers: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             // Late-bind the ServiceContext into every loaded plugin's sandbox. Weak so VMs never keep the service alive past teardown.
@@ -713,6 +723,18 @@ pub fn run() {
             // Re-kick session-name + model pollers for panes restored from snapshot: set_pane_agent_type fires on transitions, but a restore brings
             // agent_type back already-set so no transition ever happens. Walk the restored panes once at boot.
             service_state.kick_off_pollers_for_existing_agents();
+            for cwd in service_state
+                .mux
+                .read()
+                .list_workspaces()
+                .into_iter()
+                .filter_map(|ws| ws.cwd)
+            {
+                if let Err(e) = service_state.ensure_plan_project_loaded(std::path::Path::new(&cwd))
+                {
+                    log::warn!("[plan] startup scan failed for {}: {}", cwd, e);
+                }
+            }
 
             {
                 let store = service_state.services_store.clone();

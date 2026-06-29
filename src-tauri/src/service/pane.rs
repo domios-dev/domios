@@ -1,6 +1,8 @@
 //! Pane lifecycle: close, rename, focus.
 
 use super::ServiceContext;
+use crate::multiplexer::types::TitleLevel;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
 
@@ -19,6 +21,13 @@ pub fn normalize_pane_description(value: &str) -> Result<Option<String>, String>
     }
 }
 
+fn epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 impl ServiceContext {
     pub fn close_pane(&self, pane_id: &str) -> Result<(), String> {
         // Tear down the chat tailer (if any) BEFORE pane state goes away — the tailer thread reads provider/cwd/session_id from the mux on its first
@@ -35,6 +44,7 @@ impl ServiceContext {
         let pty_ids = self.mux.write().close_pane(pane_id)?;
         let post_focus = self.mux.read().get_focused_pane_id().map(str::to_string);
         self.kill_ptys(&pty_ids);
+        self.flag_bound_tasks_for_gone_pane(pane_id, epoch_ms());
         self.prompt_detector.lock().remove_pane(pane_id);
         crate::service::structured_prompt::clear_pane(pane_id);
         // Drop any remote-worker ghosts that reported to this (now-closed) pane.
@@ -49,33 +59,16 @@ impl ServiceContext {
     }
 
     pub fn rename_pane(&self, pane_id: &str, title: &str) -> Result<(), String> {
-        // Sync tab.title so the sidebar label matches.
-        let tab_sync = {
-            let mux = self.mux.read();
-            let mut sync = None;
-            'outer: for ws in mux.snapshot().workspaces.iter() {
-                for tab in &ws.tabs {
-                    if tab.pane_id == pane_id {
-                        sync = Some((ws.id.clone(), tab.id.clone()));
-                        break 'outer;
-                    }
-                }
-            }
-            sync
-        };
         self.mux.write().rename_pane(pane_id, title)?;
-        if let Some((ws_id, tab_id)) = tab_sync {
-            let _ = self.mux.write().rename_tab(&ws_id, &tab_id, title);
-        }
         self.emit_pane_title_pinned(pane_id, title);
         self.emit_state_changed();
         Ok(())
     }
 
-    /// Label only the pane, leaving the tab's (auto-generated, unique) name untouched.
     pub fn set_pane_title(&self, pane_id: &str, title: &str) -> Result<(), String> {
-        self.mux.write().rename_pane(pane_id, title)?;
-        self.emit_pane_title_pinned(pane_id, title);
+        self.mux
+            .write()
+            .rename_pane_at_level(pane_id, title, TitleLevel::Agent)?;
         self.emit_state_changed();
         Ok(())
     }

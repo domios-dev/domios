@@ -1,0 +1,39 @@
+{
+  "id": "sp_73ce178fcd6a4f149f084befefb6e4ad",
+  "title": "Worker spec-first proof",
+  "project_path": "/Users/rollacode/Developer/codeterm",
+  "status": "active",
+  "sections": [
+    {
+      "id": "sec_3dfe86a025ea46d09db60ae878c51a76",
+      "title": "Discovery",
+      "handle": "discovery",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_de3141fae69b4258b0afae932788d721",
+      "title": "Implementation",
+      "handle": "implementation",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    }
+  ],
+  "created_at": 1782375901338,
+  "updated_at": 1782375903022,
+  "canvas": {
+    "viewport": null
+  }
+}

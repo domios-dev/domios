@@ -10,7 +10,7 @@ import { mapCursorStyle, buildXtermTheme } from "../../components/Terminal/helpe
 import type { ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { shouldEnableXtermA11yMode } from "./xtermTestMode";
 
-// Playwright harness (`/web/?a11y=1`) can enable xterm screen-reader mode.
+// Playwright harness (`/?a11y=1`) can enable xterm screen-reader mode.
 // Production ignores VITE_CODETERM_TEST to avoid accidental renderer disable.
 const E2E_TEST_MODE = shouldEnableXtermA11yMode({
   isViteDev: import.meta.env.DEV,
@@ -71,7 +71,7 @@ export function useXterm({
       theme: buildXtermTheme(theme),
       overviewRuler: { width: 4 },
       allowProposedApi: true,
-      // DOM accessibility mirror for Playwright/e2e (`/web/?a11y=1`).
+      // DOM accessibility mirror for Playwright/e2e (`/?a11y=1`).
       // It disables truecolor, so normal/dev sessions keep WebGL.
       screenReaderMode: E2E_TEST_MODE,
       windowsPty: {

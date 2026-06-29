@@ -1,24 +1,26 @@
 #!/usr/bin/env bash
-# CodeTerm local build machine — orchestrator.
+# CodeTerm local build machine — orchestrator (macOS + Linux only).
 #
-# Topology: 3 independent build engines, each builds ONE arch per wave, so 3 artifacts
-# build concurrently per wave; two waves cover all 6 targets.
+# Topology: 2 build engines on THIS Mac, each builds ONE arch per wave, so 2 artifacts
+# build concurrently per wave; two waves cover all 4 mac+linux targets.
 #
 #   ENGINE        WHERE                 arm64 wave            x86_64 wave
 #   mac host      native macOS          macOS aarch64 dmg     macOS x86_64 dmg
-#   docker        baked linux images    linux arm64 .deb      linux x86_64 .deb (cross)
-#   windows VM    ssh into QEMU/peer     windows arm64 .exe    windows x86_64 .exe
+#   docker        baked linux images    linux arm64 .deb+.AppImage   (x86_64 -> ROG/WSL)
+#
+# NOT built here, each on its own ROG self-hosted GitHub Actions runner (tag-triggered):
+#   - Windows x64+arm64 -> release-windows.yml   (label windows-build)
+#   - x86_64 Linux .deb+.AppImage -> release-linux.yml (label linux-build, native in WSL2)
+# x86_64 Linux moved off this Mac because the AppImage can't be cross-built on ARM.
 #
 # Builds are CLEAN (fresh git clone of the tag inside each engine; no cargo target cache).
-# The heavy toolchain/deps are pre-baked into the Docker images and the VM, so per-build
-# startup is fast.
+# The heavy toolchain/deps are pre-baked into the Docker images, so per-build startup is fast.
 #
 # Prereqs:
 #   - docker images:  codeterm-build-linux-arm64 / codeterm-build-linux-x64
 #       (build once:  docker build -t codeterm-build-linux-arm64 -f docker/Dockerfile.linux-arm64 .
 #                     docker build -t codeterm-build-linux-x64   -f docker/Dockerfile.linux-x64   . )
 #   - macOS signing: ~/.claude/.secrets/apple-notary.env + Developer ID in keychain + notary profile
-#   - windows VM:    WIN_SSH / WIN_PORT / WIN_SSH_KEY env (see build-windows.sh)
 #   - minisign updater key on the Mac: ~/.tauri/codeterm.key (updater .sig signed on the Mac)
 #
 # Usage:  build-all.sh vX.Y.Z
@@ -52,21 +54,11 @@ echo "### creating auth-free source bundle for $TAG"
 git -C "$REPO" bundle create "/tmp/codeterm-${TAG}.bundle" "$TAG"
 cp "/tmp/codeterm-${TAG}.bundle" "$LWORK/${TAG}.bundle"
 
-# Pre-warm the Windows VM so it cold-boots in parallel with wave-1's mac/linux compiles instead of
-# starting from cold under full CPU contention when the windows engine first reaches it (that
-# starves the boot and the stability gate times out). build-windows.sh's gate waits for it.
-VM_DIR="$HOME/VMs/codeterm-win11-arm"
-if [ -x "$VM_DIR/vm.sh" ] && ! pgrep -f qemu-system-aarch64 >/dev/null 2>&1; then
-  echo "### pre-warming Windows VM (background) so it is ready by the time the windows engine needs it"
-  ( cd "$VM_DIR" && nohup ./vm.sh run >/tmp/win-vm-boot.log 2>&1 & ) 2>/dev/null || true
-fi
-
 # Short engine name from its command, so per-engine logs are attributable.
 engine_name() {
   case "$1" in
     *mac-bundle*)    echo "macos" ;;
     *build-linux*)   echo "linux" ;;
-    *build-windows*) echo "windows" ;;
     *)               echo "engine" ;;
   esac
 }
@@ -121,24 +113,38 @@ rc=0
 # arm64 wave
 run_wave arm64 \
   "$HELPERS/mac-bundle.sh $VER arm64 $ART" \
-  "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null; cp $LWORK/out/*aarch64.AppImage $ART/ 2>/dev/null" \
-  "OUT=$ART bash $BM/scripts/build-windows.sh $TAG aarch64" || rc=1
+  "$DOCKER codeterm-build-linux-arm64 bash /build-linux.sh $TAG deb,appimage; cp $LWORK/out/*arm64.deb $ART/ 2>/dev/null; cp $LWORK/out/*aarch64.AppImage $ART/ 2>/dev/null" || rc=1
 
-# x86_64 wave
+# x86_64 wave — macOS only; x86_64 Linux is built natively on the ROG/WSL runner
+# (release-linux.yml), not cross-compiled here.
 run_wave x86_64 \
-  "$HELPERS/mac-bundle.sh $VER x86_64 $ART" \
-  "$DOCKER codeterm-build-linux-x64 bash /build-linux.sh $TAG deb; cp $LWORK/out/*amd64.deb $ART/ 2>/dev/null" \
-  "OUT=$ART bash $BM/scripts/build-windows.sh $TAG x86_64" || rc=1
+  "$HELPERS/mac-bundle.sh $VER x86_64 $ART" || rc=1
 
 # Collect mac DMGs into the artifacts dir (mac-bundle leaves them in target/).
 cp -f "$REPO/src-tauri/target/release/bundle/dmg/CodeTerm_${VER}_aarch64.dmg" "$ART/" 2>/dev/null || true
 cp -f "$REPO/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/CodeTerm_${VER}_x64.dmg" "$ART/" 2>/dev/null || true
 
 # Sign updater-capable bundles with the minisign updater key (key stays on the Mac).
-for bundle in "$ART"/CodeTerm_${VER}_*-setup.exe "$ART"/CodeTerm_${VER}_*.AppImage; do
+# Windows installers are signed on the ROG runner (release-windows.yml), not here.
+for bundle in "$ART"/CodeTerm_${VER}_*.AppImage; do
   [ -f "$bundle" ] && ( cd "$REPO" && set -a; . ~/.claude/.secrets/apple-notary.env; set +a; pnpm tauri signer sign "$bundle" )
 done
 
 echo "### artifacts in $ART"; ls -la "$ART"
+
+# Post-build cache reclaim — artifacts are already collected in $ART, so the build
+# intermediates are pure garbage. Release builds otherwise leave the mac release bundle,
+# the linux $LWORK target and docker buildx cache to grow unbounded on the builder
+# (cargo has no target GC — this is the disk-bloat class). Best-effort; never touches $ART.
+echo "### post-build cleanup (reclaim build caches; artifacts safe in $ART)"
+rm -rf "$LWORK" 2>/dev/null || true
+rm -rf "$REPO/src-tauri/target/release/bundle" \
+       "$REPO/src-tauri/target/x86_64-apple-darwin/release/bundle" 2>/dev/null || true
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  docker buildx prune -af >/dev/null 2>&1 || true
+  docker container prune -f  >/dev/null 2>&1 || true
+fi
+df -h / | awk 'NR==2{print "### builder free after cleanup:", $4}'
+
 [ "$rc" -eq 0 ] || { echo "::error::one or more release build waves failed"; exit "$rc"; }
 echo "BUILD_ALL_DONE $TAG"

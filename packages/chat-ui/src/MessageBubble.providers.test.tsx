@@ -6,6 +6,7 @@ import { MessageBubble } from "./MessageBubble";
 import { attachToolResults } from "@codeterm/chat-core";
 import {
   providerTranscriptFixtures,
+  codexStructuredEditMessages,
   type ProviderTranscriptFixture,
 } from "./providerTranscriptFixtures.testdata";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
@@ -179,6 +180,12 @@ for (const fixture of providerTranscriptFixtures) {
       for (const label of fixture.expected.toolLabels) {
         assertToolIcon(host, label);
       }
+      if (fixture.expected.diffNeedle) {
+        assertIncludes(host, fixture.expected.diffNeedle, `${fixture.provider} structured edit added line`);
+      }
+      if (fixture.expected.diffRemovedNeedle) {
+        assertIncludes(host, fixture.expected.diffRemovedNeedle, `${fixture.provider} structured edit removed line`);
+      }
 
       await clickButtonContaining(host, "Thinking");
       assertIncludes(host, fixture.expected.thinkingNeedle, `${fixture.provider} expanded thinking`);
@@ -331,6 +338,37 @@ test("Codex injected transcript rows render as collapsed neutral artifacts", asy
 
     await clickButtonContaining(host, "System context");
     assertIncludes(host, "Full instructions visible only after expansion.", "expanded Codex instructions body");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("codex structured apply_patch renders diff from real-session patch text", async () => {
+  const { host, root } = await renderMessages(codexStructuredEditMessages);
+  try {
+    assertIncludes(host, "apply_patch", "structured apply_patch tool label");
+    assertIncludes(host, "mem/mod.rs", "structured edit file path");
+    assertIncludes(host, "let body = text.trim()", "structured edit added hunk");
+    assertIncludes(host, "val.to_string()", "structured edit removed hunk");
+    assertIncludes(host, "+", "structured edit shows added line count");
+    assertIncludes(host, "-", "structured edit shows removed line count");
+    assertIncludes(host, "Success. Updated the following files", "patch_apply_end result");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("codex exec_command rg search does not render as structured edit diff", async () => {
+  const { host, root } = await renderMessages([
+    codexStructuredEditMessages[0],
+  ]);
+  try {
+    assertIncludes(host, "rg -n", "rg exec command renders");
+    assert(!textOf(host).includes("let body = text.trim()"), "rg search must not show patch diff content");
+    const diffMarkers = textOf(host).match(/\+\d+/g) ?? [];
+    assert(diffMarkers.length === 0, "rg search must not show +/- edit counts");
   } finally {
     await act(async () => root.unmount());
     host.remove();

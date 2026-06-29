@@ -39,6 +39,7 @@ pub(crate) fn handle_mem_items(
             kind,
             area,
             scope,
+            project,
             limit,
             rerank,
         } => {
@@ -56,6 +57,14 @@ pub(crate) fn handle_mem_items(
             }
             if let Some(s) = &scope {
                 url.push_str(&format!("&scope={}", s));
+            }
+            let project = project.or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .map(|path| path.display().to_string())
+            });
+            if let Some(p) = &project {
+                url.push_str(&format!("&project={}", urlencoding::encode(p)));
             }
             if rerank {
                 url.push_str("&rerank=true");
@@ -420,14 +429,11 @@ pub(crate) fn handle_mem_history(
 ) -> Result<Option<serde_json::Value>, String> {
     let val = mem_get_request(http, &format!("{}/api/mem/items/{}/history", base, id));
     if !json_mode {
-        match &val {
-            Ok(v) => {
-                if let Some(rows) = v.get("history").and_then(|h| h.as_array()) {
-                    crate::cmd::print::print_history_timeline(rows);
-                    return Ok(None);
-                }
+        if let Ok(v) = &val {
+            if let Some(rows) = v.get("history").and_then(|h| h.as_array()) {
+                crate::cmd::print::print_history_timeline(rows);
+                return Ok(None);
             }
-            Err(_) => {}
         }
     }
     Ok(Some(val?))

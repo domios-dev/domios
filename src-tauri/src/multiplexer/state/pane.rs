@@ -104,7 +104,6 @@ impl MultiplexerState {
         Some(target)
     }
 
-    /// Rename a pane and its containing tab. Pins the title to block OSC auto-rename.
     /// Rename a pane at User level (highest priority).
     pub fn rename_pane(&mut self, pane_id: &str, title: &str) -> Result<(), String> {
         self.rename_pane_at_level(pane_id, title, TitleLevel::User)
@@ -169,9 +168,8 @@ impl MultiplexerState {
         None
     }
 
-    /// Sidebar label for a pane — tab.title, falling back to pane.title, then short id.
+    /// Sidebar label for a pane — pane.title, falling back to short id.
     pub fn display_label_for_pane(&self, pane_id: &str) -> String {
-        // Callers may pass a short id / alias — resolve first so the tab-title lookup (which compares full ids) matches.
         let resolved = self
             .resolve_pane_id(pane_id)
             .unwrap_or_else(|| pane_id.to_string());
@@ -179,15 +177,6 @@ impl MultiplexerState {
             .get_pane(&resolved)
             .map(|p| p.title.clone())
             .unwrap_or_default();
-        for ws in &self.workspaces {
-            if let Some(tab) = ws.tabs.iter().find(|t| t.pane_id == resolved) {
-                let t = tab.title.trim();
-                if !t.is_empty() && t != pane_title.trim() {
-                    return t.to_string();
-                }
-                break;
-            }
-        }
         if !pane_title.trim().is_empty() {
             pane_title
         } else {
@@ -265,45 +254,31 @@ mod display_label_tests {
     use super::*;
 
     #[test]
-    fn display_label_prefers_tab_title_over_pane_title() {
-        // Regression: `[from MY-CUSTOM-TITLE pane=2503fbce]` showed the raw pane.title instead of the sidebar's friendly tab name. Recipients had no
-        // way to map the prefix back to the tab they could see.
+    fn display_label_uses_canonical_pane_title() {
         let (mut state, pane_id) = MultiplexerState::new();
         let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
         let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
         state.rename_tab(&ws_id, &tab_id, "Fibonacci").unwrap();
-        state.rename_pane(&pane_id, "MY-CUSTOM-TITLE").unwrap();
         assert_eq!(state.display_label_for_pane(&pane_id), "Fibonacci");
     }
 
     #[test]
-    fn display_label_falls_back_to_pane_title_when_tab_matches() {
+    fn display_label_respects_user_pin_over_agent_title() {
         let (mut state, pane_id) = MultiplexerState::new();
-        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
-        let tab_id = state.find_tab_for_pane(&pane_id).unwrap();
-        state.rename_tab(&ws_id, &tab_id, "Same").unwrap();
-        state.rename_pane(&pane_id, "Same").unwrap();
-        // Tab and pane title are identical — no point parroting the same word, fall back to pane.title so the resulting string isn't double-empty.
-        assert_eq!(state.display_label_for_pane(&pane_id), "Same");
+        state.rename_pane(&pane_id, "Euler").unwrap();
+        state
+            .rename_pane_at_level(&pane_id, "claude", TitleLevel::Agent)
+            .unwrap();
+        assert_eq!(state.display_label_for_pane(&pane_id), "Euler");
     }
 
     #[test]
-    fn auto_generated_tab_name_survives_pane_label_with_provider_id() {
-        // Regression: a new agent pane was labelled with the provider id ("claude") and that leaked into the tab title, so every fresh tab read "claude"
-        // instead of its unique auto-generated name. Labelling only the pane must leave the generated tab name intact.
+    fn auto_generated_pane_name_is_canonical() {
         let (mut state, _root) = MultiplexerState::new();
         let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
         let (_tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
-        let generated = state.find_tab_for_pane(&pane_id).and_then(|tid| {
-            state.workspaces[0]
-                .tabs
-                .iter()
-                .find(|t| t.id == tid)
-                .map(|t| t.title.clone())
-        });
-        let generated = generated.unwrap();
+        let generated = state.get_pane(&pane_id).unwrap().title.clone();
         assert_ne!(generated, "claude");
-        state.rename_pane(&pane_id, "claude").unwrap();
         assert_eq!(state.display_label_for_pane(&pane_id), generated);
     }
 
@@ -312,7 +287,6 @@ mod display_label_tests {
         let (mut state, pane_id) = MultiplexerState::new();
         state.rename_pane(&pane_id, "").unwrap();
         let label = state.display_label_for_pane(&pane_id);
-        // Default auto-generated tab title is non-empty, so the label is either the tab title or the short id — either way, never empty.
         assert!(
             !label.is_empty(),
             "display label must never be empty (got {:?})",

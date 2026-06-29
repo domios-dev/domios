@@ -1,0 +1,202 @@
+use super::PlanStore;
+use crate::plan::{OrchestratorRef, Plan};
+
+fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let plan = store
+        .create_plan(
+            "Heartbeat".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane(owner),
+            vec![],
+            10,
+        )
+        .unwrap();
+    (dir, store, plan.id)
+}
+
+#[test]
+fn heartbeat_learning_persists_reloads_and_dedups() {
+    let (dir, store, plan_id) = store_with_plan("orch-a");
+    let first = store
+        .add_heartbeat_learning(
+            Some(&plan_id),
+            None,
+            None,
+            "Always verify delayed reseed text at send time.",
+            Some("reseed"),
+            20,
+        )
+        .unwrap();
+    assert!(!first.deduped);
+
+    let duplicate = store
+        .add_heartbeat_learning(
+            Some(&plan_id),
+            None,
+            None,
+            "always verify delayed reseed text at send time",
+            Some("reseed"),
+            30,
+        )
+        .unwrap();
+    assert!(duplicate.deduped);
+    assert_eq!(duplicate.learning.id, first.learning.id);
+
+    let raw = std::fs::read_to_string(
+        dir.path()
+            .join(".codeterm")
+            .join("plans")
+            .join(format!("{plan_id}.json")),
+    )
+    .unwrap();
+    let plan: Plan = serde_json::from_str(&raw).unwrap();
+    assert_eq!(plan.heartbeat.learnings.len(), 1);
+
+    let reloaded = PlanStore::new_for_test(dir.path());
+    reloaded.scan_project(dir.path()).unwrap();
+    let shown = reloaded.show_heartbeat(Some(&plan_id), None, None).unwrap();
+    assert_eq!(shown.heartbeat.learnings[0].text, first.learning.text);
+    assert!(shown.reinjection.contains("Recent learnings"));
+}
+
+#[test]
+fn heartbeat_set_writes_focus_lanes_rules_and_reinjects() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+
+    let result = store
+        .set_heartbeat(
+            Some(&plan_id),
+            None,
+            None,
+            Some("Land lane fixes"),
+            Some(vec!["lane-a: cli".into(), "  ".into()]),
+            Some(vec!["never merge before gate green".into()]),
+            false,
+            false,
+            20,
+        )
+        .unwrap();
+    assert_eq!(
+        result.heartbeat.current_focus.as_deref(),
+        Some("Land lane fixes")
+    );
+    assert_eq!(
+        result.heartbeat.active_lanes,
+        vec!["lane-a: cli".to_string()]
+    );
+    assert_eq!(
+        result.heartbeat.rules,
+        vec!["never merge before gate green".to_string()]
+    );
+
+    // Auto-reinjection now carries the focus + lanes set above.
+    let reinjected = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    assert!(reinjected.contains("Current focus: Land lane fixes"));
+    assert!(reinjected.contains("lane-a: cli"));
+
+    // Partial set leaves unspecified fields intact; --clear-lanes empties lanes.
+    let cleared = store
+        .set_heartbeat(
+            Some(&plan_id),
+            None,
+            None,
+            None,
+            None,
+            None,
+            true,
+            false,
+            30,
+        )
+        .unwrap();
+    assert_eq!(
+        cleared.heartbeat.current_focus.as_deref(),
+        Some("Land lane fixes")
+    );
+    assert!(cleared.heartbeat.active_lanes.is_empty());
+    assert_eq!(
+        cleared.heartbeat.rules,
+        vec!["never merge before gate green".to_string()]
+    );
+}
+
+#[test]
+fn heartbeat_resolves_for_owner_pane_at_send_time() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    let before = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    assert!(before.contains("STATE-RECONCILIATION"));
+    assert!(before.contains("First run `codeterm agent reports`"));
+    assert!(before.contains("Re-arm exactly one heartbeat"));
+    assert!(before.ends_with("continue"));
+
+    store
+        .with_plan(&plan_id, 10, |plan| {
+            plan.heartbeat.current_focus = Some("Review worker branches".into());
+            plan.heartbeat.active_lanes = vec!["backend tests".into(), "frontend canvas".into()];
+            plan.heartbeat.rules = vec!["Workers report in_review only".into()];
+            Ok(())
+        })
+        .unwrap();
+    store
+        .add_heartbeat_learning(
+            Some(&plan_id),
+            None,
+            None,
+            "Workers report in_review, orchestrator verifies done.",
+            None,
+            20,
+        )
+        .unwrap();
+    store
+        .add_heartbeat_learning(
+            Some(&plan_id),
+            None,
+            None,
+            "workers report in review orchestrator verifies done",
+            None,
+            30,
+        )
+        .unwrap();
+    let after = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    assert!(after.contains("<codeterm-state-reconciliation"));
+    assert!(after.contains("<codeterm-orchestrator-heartbeat"));
+    assert!(after.contains("Current focus: Review worker branches"));
+    assert!(after.contains("Active lanes:\n- backend tests\n- frontend canvas"));
+    assert!(after.contains("Rules:\n- Workers report in_review only"));
+    assert!(after.contains("Workers report in_review"));
+    assert_eq!(
+        after
+            .matches("- Workers report in_review, orchestrator verifies done.")
+            .count(),
+        1
+    );
+    assert!(after.ends_with("continue"));
+
+    store
+        .with_plan(&plan_id, 40, |plan| {
+            plan.heartbeat.current_focus = Some("Integrate verified branches".into());
+            Ok(())
+        })
+        .unwrap();
+    let resolved_later = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    assert!(resolved_later.contains("Current focus: Integrate verified branches"));
+    assert!(!resolved_later.contains("Current focus: Review worker branches"));
+
+    let worker_text = store.prepend_heartbeat_for_orchestrator_pane("worker-a", "continue");
+    assert_eq!(worker_text, "continue");
+}
+
+#[test]
+fn notifier_delivery_uses_same_state_reconciliation_prelude() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    let text = store.prepend_heartbeat_for_plan(
+        &plan_id,
+        "[task in_review] 'Backend' (task-a) -> in_review by worker-a\nReview it.",
+    );
+
+    assert!(text.contains("<codeterm-state-reconciliation"));
+    assert!(text.contains("STATE-RECONCILIATION"));
+    assert!(text.contains("Reconcile live panes against the plan"));
+    assert!(text.contains("[task in_review]"));
+}

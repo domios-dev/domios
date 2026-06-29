@@ -20,6 +20,7 @@ import {
 } from "../../lib/slashCommands";
 import type { ModelInfo, PendingPrompt, ProviderDescriptor } from "../../lib/types";
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
+import { PaneTaskStrip } from "./PaneTaskStrip";
 
 const COMPOSER_MIN_HEIGHT = 20;
 const COMPOSER_HEIGHT_EPSILON = 2;
@@ -712,6 +713,7 @@ export function ChatComposer({
           </div>
         </div>
       )}
+      <PaneTaskStrip paneId={paneId} />
       <ComposerBubbleRow
         attachments={attachments}
         onRemove={removeAttachment}

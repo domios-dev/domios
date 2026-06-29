@@ -90,9 +90,15 @@ fn register_sqlite_vec_extension() {
     use std::sync::Once;
     static REGISTER: Once = Once::new();
     REGISTER.call_once(|| unsafe {
-        rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-            sqlite_vec::sqlite3_vec_init as *const (),
-        )));
+        let init = std::mem::transmute::<
+            *const (),
+            unsafe extern "C" fn(
+                *mut rusqlite::ffi::sqlite3,
+                *mut *mut i8,
+                *const rusqlite::ffi::sqlite3_api_routines,
+            ) -> i32,
+        >(sqlite_vec::sqlite3_vec_init as *const ());
+        rusqlite::ffi::sqlite3_auto_extension(Some(init));
     });
 }
 
@@ -355,7 +361,8 @@ fn run_merge_pass(conn: &rusqlite::Connection) -> Result<(u64, Vec<serde_json::V
         codeterm_mem_store::graph::list_entities_with_degree(conn).map_err(|e| e.to_string())?;
 
     use std::collections::HashMap;
-    let mut buckets: HashMap<(String, String), Vec<(String, String, u32)>> = HashMap::new();
+    type MergeBuckets = HashMap<(String, String), Vec<(String, String, u32)>>;
+    let mut buckets: MergeBuckets = HashMap::new();
     for e in &entities {
         if let Some((prefix, suffix)) = split_prefix(&e.id) {
             if suffix.chars().count() >= 2 {
@@ -647,7 +654,7 @@ fn librarian_sync_one(
         .modified()
         .ok()
         .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
-    let size_match = item.source_size.map_or(false, |s| s == current_size);
+    let size_match = item.source_size == Some(current_size);
     let mtime_match = match (&item.source_mtime, &current_mtime) {
         (Some(stored), Some(current)) => stored == current,
         _ => false,

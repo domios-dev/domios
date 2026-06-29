@@ -4,7 +4,10 @@ use serde::Serialize;
 use tauri::Emitter;
 
 use super::{ReportResult, ServiceContext};
+use crate::agent::ledger::LedgerRow;
+use crate::agent::reports::{ReportDetails, ReportStatus};
 use crate::multiplexer::types::AgentRole;
+use crate::plan::AgentRef;
 use tauri::Manager;
 
 impl ServiceContext {
@@ -40,6 +43,27 @@ impl ServiceContext {
         Ok(())
     }
 
+    /// Post-condition for spawn: `--parent` on a Worker must land on the pane.
+    pub(crate) fn expect_spawn_parent_link(
+        &self,
+        pane_id: &str,
+        expected_parent: &str,
+    ) -> Result<(), String> {
+        let mux = self.mux.read();
+        let pane = mux
+            .get_pane(pane_id)
+            .ok_or_else(|| format!("Pane {} not found after spawn role apply", pane_id))?;
+        match pane.parent_pane_id.as_deref() {
+            Some(p) if p == expected_parent => Ok(()),
+            Some(p) => Err(format!(
+                "spawn parent link mismatch on {pane_id}: expected {expected_parent}, got {p}"
+            )),
+            None => Err(format!(
+                "spawn dropped parent_pane_id on {pane_id}: expected parent {expected_parent}"
+            )),
+        }
+    }
+
     /// Send report to the resolved target. Routing priority:
     /// remote mesh target (`report_target_mesh_peer` + pane/alias) →
     /// `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`.
@@ -48,16 +72,84 @@ impl ServiceContext {
         &self,
         pane_id: &str,
         message: &str,
-        details: crate::agent::reports::ReportDetails,
+        details: ReportDetails,
+        plan_id: Option<&str>,
+        task_id: Option<&str>,
+        milestone_kind: Option<&str>,
     ) -> Result<ReportResult, String> {
-        let (from_title, target_opt, model) = {
+        let (from_title, default_target_opt, model, from_ref, role) = {
             let mux = self.mux.read();
-            let (from_title, target_opt) = resolve_report_target(&mux, pane_id)?;
-            let model = mux
-                .get_pane(pane_id)
-                .and_then(|p| p.agent_session_model.clone());
-            (from_title, target_opt, model)
+            let (from_title, target_opt) = match resolve_report_target(&mux, pane_id) {
+                Ok(resolved) => resolved,
+                Err(_) if plan_id.is_some() => (pane_id.to_string(), None),
+                Err(e) => return Err(e),
+            };
+            let pane = mux.get_pane(pane_id);
+            let model = pane.and_then(|p| p.agent_session_model.clone());
+            let from_ref = pane.map_or_else(
+                || AgentRef::from_pane(pane_id),
+                |p| AgentRef {
+                    pane_id: Some(pane_id.to_string()),
+                    session_id: p.agent_session_id.clone(),
+                    title: Some(p.title.clone()),
+                },
+            );
+            let role = pane.and_then(|p| p.role);
+            (from_title, target_opt, model, from_ref, role)
         };
+        let target_opt = plan_id
+            .and_then(|id| self.plan_store.owner_of(id))
+            .and_then(|owner| owner.pane_id)
+            .filter(|target| !target.is_empty() && target != pane_id)
+            .map(ReportTarget::Local)
+            .or(default_target_opt);
+
+        if let Some(plan_id) = plan_id {
+            let task_id = task_id
+                .map(str::to_string)
+                .or_else(|| {
+                    self.plan_store.task_binding_for_pane(pane_id).and_then(
+                        |(bound_plan, bound_task)| {
+                            if bound_plan == plan_id {
+                                Some(bound_task)
+                            } else {
+                                None
+                            }
+                        },
+                    )
+                })
+                .ok_or_else(|| "task_id required for plan report".to_string())?;
+            let mut ops = Vec::new();
+            if matches!(details.status, Some(ReportStatus::InReview)) {
+                ops.push(crate::service::plan::batch::BatchOp::SetTaskStatus {
+                    client_id: None,
+                    task: task_id.clone(),
+                    status: "in_review".into(),
+                });
+            }
+            ops.push(crate::service::plan::batch::BatchOp::AddMilestone {
+                client_id: Some("report".into()),
+                task: task_id,
+                kind: milestone_kind.unwrap_or("status_update").into(),
+                text: milestone_text(message, details.status),
+                from: Some(from_ref),
+                key: None,
+                links: vec![],
+            });
+            self.plan_store
+                .apply_batch(
+                    plan_id,
+                    crate::service::plan::batch::BatchRequest { key: None, ops },
+                    epoch_ms(),
+                )
+                .map_err(|e| e.to_string())?;
+            self.plan_turn_counter.reset(pane_id);
+            crate::api::events::emit_everywhere(
+                &self.app_handle,
+                "plan-changed",
+                serde_json::json!({ "plan_id": plan_id }),
+            );
+        }
 
         let target = target_opt.ok_or_else(|| {
             "No report target for this pane. You are not attached to an orchestrator, report target, or spawning pane. Ask for the target pane id, then use `codeterm send [--mesh <peer>] --pane <pane-or-alias> \"...\"`, or spawn with a report target.".to_string()
@@ -117,10 +209,79 @@ impl ServiceContext {
             }
         }
 
+        if plan_id.is_none() {
+            self.maybe_send_plan_reminder(pane_id, role);
+        }
+
         Ok(ReportResult {
             report_id: report.id,
             orchestrator_pane_id: storage_key,
         })
+    }
+
+    /// §EFFORT: moving a task to `in_review` IS the trigger — the plan system itself
+    /// notifies the plan owner (orchestrator) so a worker need not send a separate
+    /// `agent report`. The status change carries the intent; this delivers it. Best-effort.
+    pub fn notify_owner_task_in_review(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        by_pane: Option<&str>,
+        intent: Option<&str>,
+    ) {
+        let Some(plan) = self.plan_store.get(plan_id) else {
+            return;
+        };
+        let Some(owner) = plan.owner.pane_id.as_deref() else {
+            return;
+        };
+        if Some(owner) == by_pane {
+            return; // no self-notify
+        }
+        let task_name = plan
+            .tasks
+            .iter()
+            .find(|t| t.id == task_id)
+            .map(|t| t.name.clone())
+            .unwrap_or_else(|| task_id.to_string());
+        let who = by_pane.unwrap_or("a worker");
+        let intent_part = intent
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| format!(" — {s}"))
+            .unwrap_or_default();
+        let text = format!(
+            "[task in_review] '{task_name}' ({task_id}) → in_review by {who}{intent_part}\nReview it, then judge done or bounce back."
+        );
+        let text = self.plan_store.prepend_heartbeat_for_plan(plan_id, &text);
+        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
+        let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
+    }
+
+    fn maybe_send_plan_reminder(&self, pane_id: &str, role: Option<AgentRole>) {
+        if self.plan_store.task_binding_for_pane(pane_id).is_none() {
+            return;
+        }
+        let (turns, last_nudge) = self.plan_turn_counter.increment(pane_id);
+        let cfg = crate::config::load_config().orchestration;
+        let nudge_cfg = crate::service::plan::reminders::NudgeConfig {
+            plan_reminders: cfg.plan_reminders,
+            nudge_after_turns: cfg.nudge_after_turns,
+            role,
+        };
+        let Some(kind) =
+            crate::service::plan::reminders::should_nudge(turns, last_nudge, &nudge_cfg)
+        else {
+            return;
+        };
+        let text = crate::service::plan::reminders::nudge_text(kind);
+        let text = self
+            .plan_store
+            .prepend_worker_charter_for_pane(pane_id, &text);
+        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+        if crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok() {
+            self.plan_turn_counter.mark_nudged(pane_id, turns);
+        }
     }
 
     /// Fire-and-forget delivery of a report to a pane (id or `main`/`general`
@@ -200,8 +361,10 @@ impl ServiceContext {
 
     /// Durable per-orchestrator ledger rows (survive restart) from the sqlite ledger,
     /// unlike [`get_reports`](Self::get_reports) which reads the in-memory stream.
-    pub fn get_ledger(&self, orchestrator_pane_id: &str) -> Vec<crate::agent::ledger::LedgerRow> {
-        self.report_store.lock().ledger_rows(orchestrator_pane_id)
+    pub fn get_ledger(&self, orchestrator_pane_id: &str) -> Vec<LedgerRow> {
+        let rows = self.report_store.lock().ledger_rows(orchestrator_pane_id);
+        let mux = self.mux.read();
+        ledger_with_live_children(&mux, orchestrator_pane_id, rows, epoch_seconds())
     }
 
     pub fn get_pane_status(&self, pane_id: &str) -> Result<PaneStatusInfo, String> {
@@ -232,6 +395,71 @@ impl ServiceContext {
             title: pane.title.clone(),
         })
     }
+}
+
+fn milestone_text(message: &str, status: Option<ReportStatus>) -> String {
+    match status {
+        Some(ReportStatus::Done) => format!("DONE: {message}"),
+        Some(ReportStatus::InReview) => format!("IN_REVIEW: {message}"),
+        Some(ReportStatus::Partial) => format!("PARTIAL: {message}"),
+        Some(ReportStatus::Blocked) => format!("BLOCKED: {message}"),
+        None => message.to_string(),
+    }
+}
+
+fn epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn epoch_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn ledger_with_live_children(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    orchestrator_pane_id: &str,
+    mut rows: Vec<LedgerRow>,
+    now: u64,
+) -> Vec<LedgerRow> {
+    for child_id in mux.get_children_ids(orchestrator_pane_id) {
+        let Some(child) = mux.get_pane(&child_id) else {
+            continue;
+        };
+        let title = mux.display_label_for_pane(&child_id);
+        match rows.iter_mut().find(|r| r.worker_pane_id == child_id) {
+            Some(row) => {
+                row.title = title;
+                row.model = child
+                    .agent_session_model
+                    .clone()
+                    .or_else(|| row.model.clone());
+                row.updated_at = row.updated_at.max(now);
+            }
+            None => rows.push(LedgerRow {
+                orchestrator_pane_id: orchestrator_pane_id.to_string(),
+                worker_pane_id: child_id,
+                title,
+                branch: None,
+                model: child.agent_session_model.clone(),
+                status: None,
+                message: String::new(),
+                sha: None,
+                changed_files: None,
+                test_cmd: None,
+                test_result: None,
+                skipped: None,
+                updated_at: now,
+            }),
+        }
+    }
+    rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    rows
 }
 
 /// Where a report should be delivered. A target is either a pane on this same
@@ -282,7 +510,7 @@ pub fn resolve_report_target(
     pane_id: &str,
 ) -> Result<(String, Option<ReportTarget>), String> {
     let pane = mux.get_pane(pane_id).ok_or("Pane not found")?;
-    let title = pane.title.clone();
+    let title = mux.display_label_for_pane(pane_id);
 
     let nonempty = |s: &Option<String>| {
         s.as_deref()
@@ -370,8 +598,12 @@ pub struct PaneStatusInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_report_target, worker_death_report, ReportTarget};
-    use crate::agent::reports::ReportStore;
+    use super::{
+        ledger_with_live_children, milestone_text, resolve_report_target, worker_death_report,
+        ReportTarget,
+    };
+    use crate::agent::ledger::LedgerRow;
+    use crate::agent::reports::{ReportStatus, ReportStore};
     use crate::multiplexer::state::MultiplexerState;
     use crate::multiplexer::types::AgentRole;
 
@@ -430,6 +662,104 @@ mod tests {
             "submit_report write key and agent.reports query key must agree"
         );
         assert_eq!(store.get(query_key, false).len(), 1);
+    }
+
+    #[test]
+    fn ledger_includes_live_child_before_first_report() {
+        let (mut mux, orch, worker) = build_orchestrator_with_worker("ledger-smoke");
+        mux.get_pane_mut(&worker).unwrap().agent_session_model = Some("gpt-5.5".into());
+
+        let rows = ledger_with_live_children(&mux, &orch, vec![], 123);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].orchestrator_pane_id, orch);
+        assert_eq!(rows[0].worker_pane_id, worker);
+        assert_eq!(rows[0].title, "ledger-smoke");
+        assert_eq!(rows[0].model.as_deref(), Some("gpt-5.5"));
+        assert_eq!(rows[0].status, None);
+        assert_eq!(rows[0].message, "");
+        assert_eq!(rows[0].updated_at, 123);
+    }
+
+    #[test]
+    fn ledger_refreshes_existing_live_child_without_losing_report_details() {
+        let (mut mux, orch, worker) = build_orchestrator_with_worker("fresh-title");
+        mux.get_pane_mut(&worker).unwrap().agent_session_model = Some("sonnet".into());
+        let rows = vec![LedgerRow {
+            orchestrator_pane_id: orch.clone(),
+            worker_pane_id: worker.clone(),
+            title: "stale-title".into(),
+            branch: Some("lane/agent-ledger".into()),
+            model: Some("old-model".into()),
+            status: Some(ReportStatus::Partial),
+            message: "still working".into(),
+            sha: Some("abc123".into()),
+            changed_files: Some(vec!["src-tauri/src/service/hierarchy.rs".into()]),
+            test_cmd: Some("cargo test hierarchy".into()),
+            test_result: Some("ok".into()),
+            skipped: None,
+            updated_at: 10,
+        }];
+
+        let rows = ledger_with_live_children(&mux, &orch, rows, 99);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].title, "fresh-title");
+        assert_eq!(rows[0].model.as_deref(), Some("sonnet"));
+        assert_eq!(rows[0].branch.as_deref(), Some("lane/agent-ledger"));
+        assert_eq!(rows[0].status, Some(ReportStatus::Partial));
+        assert_eq!(rows[0].message, "still working");
+        assert_eq!(rows[0].updated_at, 99);
+    }
+
+    #[test]
+    fn no_plan_routing_keeps_parent_priority() {
+        let (mux, orch, worker) = build_orchestrator_with_worker("Worker-A");
+        let (_from_title, target) = resolve_report_target(&mux, &worker).expect("resolve target");
+        assert_eq!(target, Some(ReportTarget::Local(orch.clone())));
+    }
+
+    #[test]
+    fn report_title_uses_user_pinned_pane_identity_not_provider_default() {
+        let (mut mux, orch) = MultiplexerState::new();
+        let ws = mux
+            .find_workspace_for_pane(&orch)
+            .expect("orchestrator lives in a workspace");
+        let (_tab_id, worker) = mux.create_tab(&ws).expect("create worker tab");
+        mux.set_pane_role(&worker, AgentRole::Worker, Some(&orch))
+            .expect("attach worker");
+        mux.rename_pane(&worker, "Euler")
+            .expect("set pane identity");
+        mux.rename_pane_at_level(
+            &worker,
+            "claude",
+            crate::multiplexer::types::TitleLevel::Agent,
+        )
+        .expect("agent title ignored below user pin");
+
+        let (from_title, target) = resolve_report_target(&mux, &worker).expect("resolve");
+        assert_eq!(target, Some(ReportTarget::Local(orch.clone())));
+        assert_eq!(
+            from_title, "Euler",
+            "report must carry the tab identity, not the provider default"
+        );
+    }
+
+    #[test]
+    fn milestone_text_prefixes_structured_status_only() {
+        assert_eq!(milestone_text("shipped", None), "shipped");
+        assert_eq!(
+            milestone_text("shipped", Some(ReportStatus::Done)),
+            "DONE: shipped"
+        );
+        assert_eq!(
+            milestone_text("needs help", Some(ReportStatus::Blocked)),
+            "BLOCKED: needs help"
+        );
+        assert_eq!(
+            milestone_text("ready", Some(ReportStatus::InReview)),
+            "IN_REVIEW: ready"
+        );
     }
 
     #[test]

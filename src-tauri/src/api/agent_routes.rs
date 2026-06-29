@@ -170,6 +170,7 @@ pub async fn spawn_agent(
         "tab_id": result.tab_id,
         "pty_id": result.pty_id,
         "agent": result.agent,
+        "model": result.model,
         "title": result.title,
         "description": result.description,
         "role": result.role,
@@ -268,6 +269,9 @@ pub async fn get_pane_status(
 #[derive(Deserialize)]
 pub(crate) struct ReportBody {
     message: String,
+    plan_id: Option<String>,
+    task_id: Option<String>,
+    kind: Option<String>,
     #[serde(flatten)]
     details: crate::agent::reports::ReportDetails,
 }
@@ -281,7 +285,14 @@ pub async fn submit_report(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let result = state
         .svc
-        .submit_report(&id, &body.message, body.details)
+        .submit_report(
+            &id,
+            &body.message,
+            body.details,
+            body.plan_id.as_deref(),
+            body.task_id.as_deref(),
+            body.kind.as_deref(),
+        )
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(
         serde_json::json!({"ok": true, "report_id": result.report_id}),

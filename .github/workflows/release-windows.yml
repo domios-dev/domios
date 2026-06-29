@@ -1,13 +1,22 @@
 name: release-windows
 
-# Builds and signs the Windows installer (NSIS + MSI), uploads bundles to
-# the GitHub release, then refreshes the channel updater manifest.
+# Builds and signs the Windows installers (NSIS) for BOTH arches — x86_64 and
+# aarch64 — on the ROG self-hosted runner (label `windows-build`), uploads the
+# bundles to the GitHub release, then refreshes the channel updater manifest.
 #
 # Triggers:
-#   - workflow_dispatch with explicit `tag` input (manual fallback re-run)
+#   - push of a `release-*` tag (the same tag that drives release.yml on the Mac;
+#     mapped to the `vX.Y.Z` release so Windows lands beside mac+linux)
+#   - workflow_dispatch with an explicit `tag` input (manual re-run / verification)
 #
-# Normal releases use release.yml on the self-hosted codeterm-builder runner.
-# Do not trigger this hosted workflow from v* tags; GitHub-hosted runners burn billing minutes.
+# Runs on the always-on ROG (self-hosted runner, labels include
+# [self-hosted, Windows, X64, windows-build]). The ROG already has node 22 /
+# pnpm 10.32.1 / Rust 1.95.0 (rust-toolchain.toml-pinned, both windows-msvc
+# targets installed) / VS2022 (x64 + ARM64) / LLVM. The setup-node/pnpm/
+# rust-cache actions still run on self-hosted runners; node/pnpm versions are
+# pinned to what the ROG has so they no-op instead of conflicting, and the Rust
+# toolchain is left to rust-toolchain.toml (NOT dtolnay@stable, which would
+# mismatch the targets installed on 1.95.0).
 #
 # Disable: set repo Variable RELEASE_WINDOWS_ENABLED=false in
 # Settings -> Secrets and variables -> Actions -> Variables.
@@ -18,6 +27,9 @@ name: release-windows
 # encrypted — it evaluates to empty when unset).
 
 "on":
+  push:
+    tags:
+      - 'release-*'
   workflow_dispatch:
     inputs:
       tag:
@@ -30,45 +42,73 @@ permissions:
 
 jobs:
   build:
-    name: build (x86_64-pc-windows-msvc)
+    name: build (${{ matrix.target }})
     if: ${{ vars.RELEASE_WINDOWS_ENABLED != 'false' }}
-    runs-on: windows-latest
+    runs-on: [self-hosted, windows-build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            platform_key: windows-x86_64
+            vsarch: x64
+            sdkarch: x64
+            label: x64
+          # TODO(1.6.1): restore aarch64-pc-windows-msvc. Cross-compiling it on the
+          # x64 ROG fails to link bundled-sqlite (the cc crate doesn't emit aarch64
+          # objects under x64_arm64 vcvars); the deleted QEMU VM built it natively.
+          # Needs per-target CC env or a vcpkg arm64 sqlite — or a native arm64 runner.
     env:
-      TARGET: x86_64-pc-windows-msvc
+      TARGET: ${{ matrix.target }}
+      # Drive every cargo invocation in tauri's beforeBuildCommand at the matrix
+      # target so the bundled CLI/embed sidecars match the installer arch (this is
+      # what makes the aarch64 cross-build on the x64 ROG produce arm64 sidecars).
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+      # Some repo paths exceed Windows' 260-char limit (.codeterm/plans/**). git's
+      # core.longpaths must be on for checkout to write them. Set it via GIT_CONFIG_*
+      # env (not --global) because actions/checkout swaps HOME and ignores ~/.gitconfig.
+      GIT_CONFIG_COUNT: '1'
+      GIT_CONFIG_KEY_0: core.longpaths
+      GIT_CONFIG_VALUE_0: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # All scripted steps use pwsh, not bash: this self-hosted ROG runner has no
+      # bash on PATH (unlike GitHub-hosted windows-latest), so `shell: bash` fails
+      # with "bash: command not found". pwsh + node + gh are present.
       - name: Resolve tag
         id: tag
-        shell: bash
+        shell: pwsh
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
-          fi
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $name = "${{ inputs.tag }}"
+          } else {
+            # push of release-X.Y.Z -> publish under the vX.Y.Z release (matches release.yml).
+            $name = "${{ github.ref_name }}" -replace '^release-', 'v'
+          }
+          "name=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Detect channel and prerelease flag
         id: channel
-        shell: bash
+        shell: pwsh
         run: |
-          tag="${{ steps.tag.outputs.name }}"
-          if [[ "$tag" == *-rc* ]]; then
-            echo "manifest=latest-rc.json" >> "$GITHUB_OUTPUT"
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$tag" == *-nightly* ]]; then
-            echo "manifest=latest-nightly.json" >> "$GITHUB_OUTPUT"
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "manifest=latest.json" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
+          $tag = "${{ steps.tag.outputs.name }}"
+          if ($tag -like '*-rc*') { $manifest = 'latest-rc.json'; $prerelease = 'true' }
+          elseif ($tag -like '*-nightly*') { $manifest = 'latest-nightly.json'; $prerelease = 'true' }
+          else { $manifest = 'latest.json'; $prerelease = 'false' }
+          "manifest=$manifest"     | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "prerelease=$prerelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ env.TARGET }}
+      # Repo-pinned toolchain (rust-toolchain.toml = 1.95.0) drives rustc; the
+      # ROG already has both windows-msvc targets installed on 1.95.0. We do NOT
+      # install dtolnay@stable — that would float off the pin and miss the targets.
+      - name: Show pinned Rust toolchain
+        shell: pwsh
+        run: |
+          rustup show
+          rustc -vV
+          rustup target list --installed | Select-String 'pc-windows-msvc'
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
@@ -90,7 +130,93 @@ jobs:
           run_install: false
 
       - name: Install npm dependencies
+        shell: pwsh
         run: pnpm install --frozen-lockfile
+
+      # Load the MSVC + Windows SDK dev environment for the matrix arch. INCLUDE/
+      # LIB go to $GITHUB_ENV; new PATH dirs go to $GITHUB_PATH (PREPEND, so the
+      # runner's existing PATH — gh, git, node — is preserved). ring's aarch64
+      # build needs a clang the runner account can execute (see clang note below).
+      - name: Load MSVC dev environment (${{ matrix.vsarch }})
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vcvars = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -find "VC\Auxiliary\Build\vcvarsall.bat" | Select-Object -First 1
+          if (-not $vcvars) { Write-Error "vcvarsall.bat not found via vswhere"; exit 1 }
+          Write-Host "Using $vcvars ${{ matrix.vsarch }}"
+          # cmd is not on PATH in the runner's scoop pwsh session — call it by absolute path.
+          $cmdExe = if ($env:ComSpec) { $env:ComSpec } else { "$env:SystemRoot\System32\cmd.exe" }
+          $vc = @{}
+          & $cmdExe /c "`"$vcvars`" ${{ matrix.vsarch }} && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { $vc[$matches[1]] = $matches[2] }
+          }
+          $newPathDirs = New-Object System.Collections.Generic.List[string]
+          $orig = @($env:PATH -split ';' | Where-Object { $_ })
+          # vcvars-added PATH dirs (MSVC bin etc.), minus the literal %PATH% token.
+          foreach ($d in (($vc['Path'] -replace ';?%PATH%;?', ';') -split ';')) {
+            if ($d -and ($orig -notcontains $d) -and ($newPathDirs -notcontains $d)) { $newPathDirs.Add($d) }
+          }
+          # vcvarsall under the runner service account does NOT auto-detect the Windows
+          # SDK, so INCLUDE lacks the UCRT headers (stdio.h/assert.h -> C1083). Inject
+          # the SDK include/lib/bin for the matrix arch explicitly.
+          $kits = "C:\Program Files (x86)\Windows Kits\10"
+          if (($vc['INCLUDE'] -notmatch 'Windows Kits') -and (Test-Path "$kits\Include")) {
+            $sdk = (Get-ChildItem "$kits\Include" -Directory |
+                    Where-Object { $_.Name -match '^10\.' } |
+                    Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1).Name
+            $arch = "${{ matrix.sdkarch }}"
+            $vc['INCLUDE'] = "$($vc['INCLUDE'].TrimEnd(';'));$kits\Include\$sdk\ucrt;$kits\Include\$sdk\shared;$kits\Include\$sdk\um;$kits\Include\$sdk\winrt;$kits\Include\$sdk\cppwinrt"
+            $vc['LIB']     = "$($vc['LIB'].TrimEnd(';'));$kits\Lib\$sdk\ucrt\$arch;$kits\Lib\$sdk\um\$arch"
+            $vc['WindowsSdkDir'] = "$kits\"
+            $vc['WindowsSDKVersion'] = "$sdk\"
+            $newPathDirs.Add("$kits\bin\$sdk\x64"); $newPathDirs.Add("$kits\bin\$sdk\x64\ucrt")
+            Write-Host "Injected Windows SDK $sdk (lib arch $arch)"
+          } elseif ($vc['INCLUDE'] -notmatch 'Windows Kits') {
+            Write-Error "Windows SDK not found under $kits — runner is missing the SDK component"; exit 1
+          }
+          # ring's aarch64 build invokes bare `clang`. The scoop clang lives under a
+          # per-user profile that the runner service account can't execute ('permission
+          # denied'). Prefer a machine-wide clang (VS-bundled LLVM / Program Files LLVM).
+          $clang = @(
+            (Join-Path $vc['VCINSTALLDIR'] 'Tools\Llvm\x64\bin\clang.exe'),
+            (Join-Path $vc['VCINSTALLDIR'] 'Tools\Llvm\bin\clang.exe'),
+            'C:\Program Files\LLVM\bin\clang.exe'
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($clang) {
+            $clangDir = Split-Path $clang -Parent
+            $newPathDirs.Insert(0, $clangDir)
+            "LIBCLANG_PATH=$clangDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            Write-Host "Using machine-wide clang: $clang"
+          } else {
+            Write-Host "::warning::No machine-wide clang found (checked VS LLVM + C:\Program Files\LLVM). The aarch64 ring build will fail with 'permission denied' on the per-user scoop clang — install LLVM to Program Files or run the runner as the toolchain-owning user."
+          }
+          # INCLUDE/LIB/etc -> GITHUB_ENV (skip Path; that goes to GITHUB_PATH).
+          $before = @{}
+          foreach ($l in (Get-ChildItem Env:)) { $before[$l.Name] = $l.Value }
+          foreach ($k in $vc.Keys) {
+            if ($k -ieq 'Path') { continue }
+            if (-not $before.ContainsKey($k) -or $before[$k] -ne $vc[$k]) {
+              "$k=$($vc[$k])" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          }
+          # Prepend new dirs to PATH for later steps (preserves gh/git/node).
+          foreach ($d in $newPathDirs) { $d | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append }
+
+      # Pre-create the target-triple sidecar stubs so tauri_build's externalBin/
+      # resource glob validation passes on the FIRST cargo build of a cross target
+      # (prepare-embed-stub.js only stubs the HOST triple). bundle-cli.js /
+      # bundle-embed.js overwrite these with the real arm64/x64 binaries during
+      # beforeBuildCommand, so the shipped installer carries the correct sidecars.
+      - name: Pre-create cross-build sidecar stubs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force src-tauri\bundled-embed | Out-Null
+          New-Item -ItemType Directory -Force src-tauri\bundled-cli | Out-Null
+          New-Item -ItemType File -Force "src-tauri\bundled-embed\codeterm-embed-${{ matrix.target }}.exe" | Out-Null
+          New-Item -ItemType File -Force "src-tauri\bundled-cli\codeterm.exe" | Out-Null
 
       - name: Build, sign, and upload release assets
         uses: tauri-apps/tauri-action@v0
@@ -119,55 +245,62 @@ jobs:
           TAG: ${{ steps.tag.outputs.name }}
           SOURCE_REPO: ${{ github.repository }}
           MANIFEST_REPO: rollacode/codeterm-releases
-          PLATFORM_KEY: windows-x86_64
-        shell: bash
+          PLATFORM_KEY: ${{ matrix.platform_key }}
+        shell: pwsh
         run: |
-          set -euo pipefail
-          BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
-          echo "::group::bundle directory listing"
-          find "$BUNDLE_ROOT" -maxdepth 3 -type f | sort || true
-          echo "::endgroup::"
-          UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*.nsis.zip.sig' 2>/dev/null | head -n1)
-          if [ -z "$UPDATER_SIG" ]; then
-            UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*-setup.exe.sig' 2>/dev/null | head -n1)
-          fi
-          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS updater signature under $BUNDLE_ROOT/nsis"; exit 1; }
-          UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
-          [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+          $ErrorActionPreference = 'Stop'
+          $bundleRoot = "src-tauri/target/$env:TARGET/release/bundle"
+          Write-Host "::group::bundle directory listing"
+          Get-ChildItem -Recurse -File $bundleRoot | ForEach-Object { $_.FullName } | Sort-Object | Write-Host
+          Write-Host "::endgroup::"
+          $sig = Get-ChildItem -Recurse -File "$bundleRoot/nsis" -Filter '*.nsis.zip.sig' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $sig) { $sig = Get-ChildItem -Recurse -File "$bundleRoot/nsis" -Filter '*-setup.exe.sig' -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          if (-not $sig) { Write-Error "No NSIS updater signature under $bundleRoot/nsis"; exit 1 }
+          $bundle = $sig.FullName -replace '\.sig$', ''
+          if (-not (Test-Path $bundle)) { Write-Error "Bundle missing next to $($sig.FullName)"; exit 1 }
 
           # With createUpdaterArtifacts=true, Tauri v2 reuses the NSIS .exe
           # as the updater bundle; v1Compatible builds emit .nsis.zip.
-          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" --clobber --repo "$SOURCE_REPO"
+          gh release upload "$env:TAG" "$bundle" "$($sig.FullName)" --clobber --repo "$env:SOURCE_REPO"
 
-          OUT="updater-${TARGET}.json"
-          REPO="$MANIFEST_REPO" \
-          UPDATER_BUNDLE="$UPDATER_BUNDLE" \
-          UPDATER_SIG="$UPDATER_SIG" \
-          OUT="$OUT" \
-            python3 .github/workflows/build-updater-fragment.py
-          gh release upload "$TAG" "$OUT" --clobber --repo "$SOURCE_REPO"
+          # Fragment URL points at the public MIRROR repo (where the asset is mirrored
+          # to and the updater fetches from), not the private source release.
+          $ver = "$env:TAG" -replace '^v', ''
+          $bname = Split-Path $bundle -Leaf
+          $url = "https://github.com/$env:MANIFEST_REPO/releases/download/$env:TAG/$bname"
+          $sigText = (Get-Content -Raw $sig.FullName).Trim()
+          $pub = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $platforms = [ordered]@{}
+          $platforms["$env:PLATFORM_KEY"] = [ordered]@{ url = $url; signature = $sigText }
+          $fragment = [ordered]@{
+            version   = $ver
+            notes     = "See the assets to download this version and install."
+            pub_date  = $pub
+            platforms = $platforms
+          }
+          $out = "updater-$env:TARGET.json"
+          $fragment | ConvertTo-Json -Depth 6 | Set-Content -Path $out -Encoding utf8
+          Write-Host "Wrote $out for $env:PLATFORM_KEY -> $bname"
+          gh release upload "$env:TAG" "$out" --clobber --repo "$env:SOURCE_REPO"
 
       - name: Refresh merged channel manifest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
+          TAG: ${{ steps.tag.outputs.name }}
+          SOURCE_REPO: ${{ github.repository }}
+          MANIFEST: ${{ steps.channel.outputs.manifest }}
+        shell: pwsh
         run: |
-          mkdir -p _frags manifest-fragments
-          gh release download "${{ steps.tag.outputs.name }}" \
-            --pattern 'updater-*.json' \
-            --dir _frags \
-            --repo "${{ github.repository }}"
-          for f in _frags/updater-*.json; do
-            base=$(basename "$f" .json)
-            mkdir -p "manifest-fragments/$base"
-            cp "$f" "manifest-fragments/$base/latest.json"
-          done
-          node scripts/merge-latest-json.js \
-            --in manifest-fragments \
-            --out "${{ steps.channel.outputs.manifest }}"
-          gh release upload "${{ steps.tag.outputs.name }}" \
-            "${{ steps.channel.outputs.manifest }}" \
-            --clobber --repo "${{ github.repository }}"
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force _frags, manifest-fragments | Out-Null
+          gh release download "$env:TAG" --pattern 'updater-*.json' --dir _frags --repo "$env:SOURCE_REPO"
+          foreach ($f in Get-ChildItem _frags -Filter 'updater-*.json') {
+            $base = $f.BaseName
+            New-Item -ItemType Directory -Force "manifest-fragments/$base" | Out-Null
+            Copy-Item $f.FullName "manifest-fragments/$base/latest.json" -Force
+          }
+          node scripts/merge-latest-json.js --in manifest-fragments --out "$env:MANIFEST"
+          gh release upload "$env:TAG" "$env:MANIFEST" --clobber --repo "$env:SOURCE_REPO"
 
       # Mirror updater bundle, signature, and merged manifest to the public
       # release repo so the auto-updater endpoint
@@ -182,35 +315,27 @@ jobs:
           MANIFEST: ${{ steps.channel.outputs.manifest }}
           PRERELEASE: ${{ steps.channel.outputs.prerelease }}
           MIRROR_REPO: rollacode/codeterm-releases
-        shell: bash
+        shell: pwsh
         run: |
-          set -euo pipefail
-          BUNDLE_ROOT="src-tauri/target/${TARGET}/release/bundle"
-          UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*.nsis.zip.sig' 2>/dev/null | head -n1)
-          if [ -z "$UPDATER_SIG" ]; then
-            UPDATER_SIG=$(find "$BUNDLE_ROOT/nsis" -name '*-setup.exe.sig' 2>/dev/null | head -n1)
-          fi
-          [ -n "$UPDATER_SIG" ] || { echo "::error::No NSIS updater signature under $BUNDLE_ROOT/nsis"; exit 1; }
-          UPDATER_BUNDLE="${UPDATER_SIG%.sig}"
-          [ -f "$UPDATER_BUNDLE" ] || { echo "::error::Bundle missing next to $UPDATER_SIG"; exit 1; }
+          $ErrorActionPreference = 'Stop'
+          $bundleRoot = "src-tauri/target/$env:TARGET/release/bundle"
+          $sig = Get-ChildItem -Recurse -File "$bundleRoot/nsis" -Filter '*.nsis.zip.sig' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $sig) { $sig = Get-ChildItem -Recurse -File "$bundleRoot/nsis" -Filter '*-setup.exe.sig' -ErrorAction SilentlyContinue | Select-Object -First 1 }
+          if (-not $sig) { Write-Error "No NSIS updater signature under $bundleRoot/nsis"; exit 1 }
+          $bundle = $sig.FullName -replace '\.sig$', ''
+          if (-not (Test-Path $bundle)) { Write-Error "Bundle missing next to $($sig.FullName)"; exit 1 }
 
           # Idempotent: create the release in the mirror only if missing.
           # Each platform workflow may run this step in any order; first one
           # wins, the rest just upload assets to the existing release.
-          if ! gh release view "$TAG" --repo "$MIRROR_REPO" >/dev/null 2>&1; then
-            if [ "$PRERELEASE" = "true" ]; then
-              gh release create "$TAG" \
-                --repo "$MIRROR_REPO" \
-                --title "CodeTerm $TAG" \
-                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes." \
-                --prerelease
-            else
-              gh release create "$TAG" \
-                --repo "$MIRROR_REPO" \
-                --title "CodeTerm $TAG" \
-                --notes "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
-            fi
-          fi
+          gh release view "$env:TAG" --repo "$env:MIRROR_REPO" 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            $notes = "Auto-mirrored from rollacode/codeterm. See the source repo for full release notes."
+            if ($env:PRERELEASE -eq 'true') {
+              gh release create "$env:TAG" --repo "$env:MIRROR_REPO" --title "CodeTerm $env:TAG" --notes $notes --prerelease
+            } else {
+              gh release create "$env:TAG" --repo "$env:MIRROR_REPO" --title "CodeTerm $env:TAG" --notes $notes
+            }
+          }
 
-          gh release upload "$TAG" "$UPDATER_BUNDLE" "$UPDATER_SIG" "$MANIFEST" \
-            --clobber --repo "$MIRROR_REPO"
+          gh release upload "$env:TAG" "$bundle" "$($sig.FullName)" "$env:MANIFEST" --clobber --repo "$env:MIRROR_REPO"

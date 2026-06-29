@@ -50,6 +50,11 @@ impl ServiceContext {
                 env_vars.insert("CODETERM_WORKER_ID".into(), worker_id.clone());
             }
         }
+        drop(mux);
+        if let Some((plan_id, task_id)) = self.plan_store.task_binding_for_pane(pane_id) {
+            env_vars.insert("CODETERM_PLAN_ID".into(), plan_id);
+            env_vars.insert("CODETERM_TASK_ID".into(), task_id);
+        }
         env_vars
     }
 

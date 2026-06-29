@@ -6,7 +6,7 @@
  */
 import { expect, test, type Page, API_BASE, readDevToken } from "../../helpers/fixtures";
 
-const WEB_URL = `${API_BASE}/web/`;
+const WEB_URL = `${API_BASE}/`;
 
 // Counts getUserMedia calls on window.__gumCalls; returns a stream whose audio
 // track stays "live" so acquireWarmStream() reuses it on the second record.

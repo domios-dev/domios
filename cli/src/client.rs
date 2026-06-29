@@ -25,13 +25,30 @@ struct JsonRpcResponse {
     #[allow(dead_code)]
     id: Option<serde_json::Value>,
     result: Option<serde_json::Value>,
-    error: Option<JsonRpcError>,
+    error: Option<RpcError>,
 }
 
-#[derive(Deserialize)]
-struct JsonRpcError {
-    code: i32,
-    message: String,
+#[derive(Debug, Deserialize)]
+pub struct RpcError {
+    pub code: i32,
+    pub message: String,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+}
+
+#[derive(Debug)]
+pub enum SocketCallError {
+    Transport(String),
+    Rpc(RpcError),
+}
+
+impl std::fmt::Display for SocketCallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SocketCallError::Transport(message) => write!(f, "{message}"),
+            SocketCallError::Rpc(err) => write!(f, "RPC error {}: {}", err.code, err.message),
+        }
+    }
 }
 
 impl SocketClient {
@@ -84,6 +101,15 @@ impl SocketClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, String> {
+        self.call_detailed(method, params)
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, SocketCallError> {
         let req = JsonRpcRequest {
             jsonrpc: "2.0",
             id: self.next_id,
@@ -92,44 +118,47 @@ impl SocketClient {
         };
         self.next_id += 1;
 
-        let payload = serde_json::to_string(&req).map_err(|e| format!("Serialize error: {}", e))?;
+        let payload = serde_json::to_string(&req)
+            .map_err(|e| SocketCallError::Transport(format!("Serialize error: {}", e)))?;
 
         // Write request line
         let writer = self.reader.get_mut();
         writer
             .write_all(payload.as_bytes())
-            .map_err(|e| format!("Write error: {}", e))?;
+            .map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
         writer
             .write_all(b"\n")
-            .map_err(|e| format!("Write error: {}", e))?;
-        writer.flush().map_err(|e| format!("Flush error: {}", e))?;
+            .map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
+        writer
+            .flush()
+            .map_err(|e| SocketCallError::Transport(format!("Flush error: {}", e)))?;
 
         // Read response line
         let mut line = String::new();
         let bytes_read = self
             .reader
             .read_line(&mut line)
-            .map_err(|e| format!("Read error: {}", e))?;
+            .map_err(|e| SocketCallError::Transport(format!("Read error: {}", e)))?;
 
         if bytes_read == 0 || line.trim().is_empty() {
-            return Err(format!(
+            return Err(SocketCallError::Transport(format!(
                 "daemon closed the socket without responding to '{}' (read {} bytes). \
                  The server-side handler may have panicked during dispatch, or the daemon \
                  restarted mid-request. Retry usually clears it; if it persists, check daemon logs.",
                 method, bytes_read
-            ));
+            )));
         }
 
         let resp: JsonRpcResponse = serde_json::from_str(line.trim()).map_err(|e| {
             let preview: String = line.chars().take(200).collect();
-            format!(
+            SocketCallError::Transport(format!(
                 "malformed JSON-RPC response from daemon for '{}' ({} bytes, first 200 chars: {:?}): {}",
                 method, line.len(), preview, e
-            )
+            ))
         })?;
 
         if let Some(err) = resp.error {
-            return Err(format!("RPC error {}: {}", err.code, err.message));
+            return Err(SocketCallError::Rpc(err));
         }
 
         Ok(resp.result.unwrap_or(serde_json::Value::Null))
@@ -139,25 +168,43 @@ impl SocketClient {
 /// Discover the CodeTerm socket path.
 ///
 /// 1. Check `CODETERM_SOCKET_PATH` env var, but VERIFY the named pipe / socket
-///    is actually live before trusting it. After a daemon update_apply
+///    is actually live before trusting it. This is the explicit escape hatch.
+/// 2. Derive named dev sockets from `CODETERM_INSTANCE` / `CODETERM_API_PORT`.
+/// 3. On Windows, scan `\\.\pipe\` for pipes matching `codeterm-*`.
+/// 4. On Unix, scan `/tmp/` for `codeterm-*.sock`.
+///
+/// After a daemon update_apply
 ///    restart the parent's env var still points at the OLD pid's pipe; the
 ///    new daemon listens on a fresh pid-suffixed pipe, so any subprocess
 ///    that blindly trusts the env var ends up with `Failed to connect to
 ///    'codeterm-{old-pid}.sock'` on every invocation.
-/// 2. On Windows, scan `\\.\pipe\` for pipes matching `codeterm-*`.
-/// 3. On Unix, scan `/tmp/` for `codeterm-*.sock`.
 pub fn discover_socket() -> Result<String, String> {
+    let deterministic = deterministic_socket_name();
     if let Ok(path) = std::env::var("CODETERM_SOCKET_PATH") {
         if !path.is_empty() {
             let normalized = normalize_socket_path(&path);
-            if socket_path_matches_port_pref(&normalized, prefers_dev_socket())
+            if deterministic
+                .as_deref()
+                .is_none_or(|name| name == normalized)
                 && socket_is_live(&normalized)
             {
                 return Ok(normalized);
             }
-            // Either dead pipe (post-restart stale env), or mismatch with CODETERM_API_PORT (e.g. CLI invoked from a prod pane but user set API_PORT=7686
-            // to target dev). Fall through to discovery so the port preference wins.
+            // Dead pipe (post-restart stale env). Fall through to deterministic
+            // dev-instance discovery or filesystem scanning. A mismatched
+            // inherited socket also falls through when CODETERM_INSTANCE asks
+            // for a named dev daemon.
         }
+    }
+
+    if let Some(name) = deterministic {
+        if socket_is_live(&name) {
+            return Ok(name);
+        }
+        return Err(format!(
+            "CodeTerm socket '{}' is not live. Check CODETERM_INSTANCE/CODETERM_API_PORT or set CODETERM_SOCKET_PATH.",
+            name
+        ));
     }
 
     #[cfg(target_os = "windows")]
@@ -221,15 +268,28 @@ fn normalize_socket_path(path: &str) -> String {
     }
 }
 
-/// Whether the caller wants the dev instance.
+/// Whether the caller wants a dev instance.
 ///
-/// Mirrors `read_api_config()`: when CODETERM_API_PORT=7686, the user is
-/// targeting the dev daemon. Auto-discovery should then prefer the dev
-/// socket pipe over any prod pipe alphabetically encountered first.
+/// Mirrors `read_api_config()`: an explicit non-prod CODETERM_API_PORT targets
+/// a dev daemon. Auto-discovery should then prefer a dev socket over any
+/// inherited prod socket.
 fn prefers_dev_socket() -> bool {
     std::env::var("CODETERM_API_PORT")
-        .map(|v| v.trim() == "7686")
+        .map(|v| {
+            let port = v.trim();
+            !port.is_empty() && port != "7685"
+        })
         .unwrap_or(false)
+}
+
+fn deterministic_socket_name() -> Option<String> {
+    if let Some(prefix) = instance_socket_prefix() {
+        return Some(format!("{prefix}.sock"));
+    }
+    if prefers_dev_socket() {
+        return Some("codeterm-dev.sock".to_string());
+    }
+    None
 }
 
 /// True when the socket name belongs to the dev daemon.
@@ -247,6 +307,7 @@ fn is_dev_socket(name: &str) -> bool {
 /// A mismatch means the inherited SOCKET_PATH points at the wrong daemon —
 /// typical when the CLI runs inside a prod pane and the user has overridden
 /// CODETERM_API_PORT to 7686 to target the dev daemon.
+#[cfg(test)]
 fn socket_path_matches_port_pref(name: &str, prefer_dev: bool) -> bool {
     is_dev_socket(name) == prefer_dev
 }
@@ -434,6 +495,58 @@ mod tests {
     }
 
     #[test]
+    fn deterministic_socket_uses_named_instance() {
+        let _guard = crate::test_env_lock().lock().unwrap();
+        let prev_instance = std::env::var("CODETERM_INSTANCE").ok();
+        let prev_port = std::env::var("CODETERM_API_PORT").ok();
+        std::env::set_var("CODETERM_INSTANCE", "handoff");
+        std::env::set_var("CODETERM_API_PORT", "7691");
+
+        assert_eq!(
+            deterministic_socket_name().as_deref(),
+            Some("codeterm-dev-handoff.sock")
+        );
+
+        restore_env("CODETERM_INSTANCE", prev_instance);
+        restore_env("CODETERM_API_PORT", prev_port);
+    }
+
+    #[test]
+    fn deterministic_socket_uses_plain_dev_port() {
+        let _guard = crate::test_env_lock().lock().unwrap();
+        let prev_instance = std::env::var("CODETERM_INSTANCE").ok();
+        let prev_port = std::env::var("CODETERM_API_PORT").ok();
+        std::env::remove_var("CODETERM_INSTANCE");
+        std::env::set_var("CODETERM_API_PORT", "7686");
+
+        assert_eq!(
+            deterministic_socket_name().as_deref(),
+            Some("codeterm-dev.sock")
+        );
+
+        restore_env("CODETERM_INSTANCE", prev_instance);
+        restore_env("CODETERM_API_PORT", prev_port);
+    }
+
+    #[test]
+    fn deterministic_socket_treats_non_prod_port_as_dev() {
+        let _guard = crate::test_env_lock().lock().unwrap();
+        let prev_instance = std::env::var("CODETERM_INSTANCE").ok();
+        let prev_port = std::env::var("CODETERM_API_PORT").ok();
+        std::env::remove_var("CODETERM_INSTANCE");
+        std::env::set_var("CODETERM_API_PORT", "7694");
+
+        assert_eq!(
+            deterministic_socket_name().as_deref(),
+            Some("codeterm-dev.sock")
+        );
+        assert!(!socket_path_matches_port_pref("codeterm-12345.sock", true));
+
+        restore_env("CODETERM_INSTANCE", prev_instance);
+        restore_env("CODETERM_API_PORT", prev_port);
+    }
+
+    #[test]
     fn socket_pref_match_dev_pipe_with_dev_pref() {
         assert!(socket_path_matches_port_pref("codeterm-dev.sock", true));
         assert!(socket_path_matches_port_pref("codeterm-dev", true));
@@ -447,8 +560,6 @@ mod tests {
 
     #[test]
     fn socket_pref_mismatch_when_prod_pipe_but_dev_requested() {
-        // The bug from #82: inherited SOCKET_PATH points at prod daemon (pid-suffixed) but user set CODETERM_API_PORT=7686 to hit dev. Must reject the
-        // inherited pipe so discovery falls through.
         assert!(!socket_path_matches_port_pref("codeterm-12345.sock", true));
     }
 
@@ -464,5 +575,12 @@ mod tests {
         assert!(!is_dev_socket("codeterm-developerlaptop.sock"));
         assert!(is_dev_socket("codeterm-dev"));
         assert!(is_dev_socket("codeterm-dev.sock"));
+    }
+
+    fn restore_env(key: &str, value: Option<String>) {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
     }
 }

@@ -20,10 +20,14 @@ export interface ExtendedState extends MultiplexerState {
 export function makeTab(pane: Pane): Tab {
   return {
     id: uid(),
-    title: "Terminal",
     description: pane.description ?? null,
     pane_id: pane.id,
   };
+}
+
+export function displayTitleForTab(tab: Tab, pane?: Pane | null): string {
+  const title = pane?.title?.trim() || tab.title?.trim();
+  return title || tab.pane_id.slice(0, 8);
 }
 
 /** Compare two TitleLevel values and return the higher-priority one. */

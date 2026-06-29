@@ -36,6 +36,9 @@ pub(crate) fn invalidate_plugin_snapshot() {
         *flight = None;
     }
     SNAPSHOT_EPOCH.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    // A plugin/channel action changes the diff; force one background refetch
+    // while the last-known diff stays visible.
+    super::diff_cache::invalidate_diff();
 }
 
 #[derive(Debug, Deserialize)]

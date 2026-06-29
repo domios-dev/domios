@@ -1,0 +1,338 @@
+{
+  "id": "sp_e8c7b831bd75427bb7c733fc04359994",
+  "title": "Canvas v2 — design (WHAT)",
+  "project_path": "/Users/rollacode/Developer/codeterm",
+  "status": "active",
+  "sections": [
+    {
+      "id": "sec_6aa58eb09c894d7c8d9f4c0f5a8852d3",
+      "title": "Concept & vision",
+      "handle": "concept-vision",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_e6952880a7c449f88688e5fecfb43683",
+      "title": "Data model",
+      "handle": "data-model",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_53693063384a409faa6912e5b0951dd8",
+      "title": "Layout model (the big v1 fix)",
+      "handle": "layout-model-the-big-v1-fix",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_aec9c932f4554c82b838a4bb719c64ad",
+      "title": "Navigation (Figma-grade)",
+      "handle": "navigation-figma-grade",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_2316fd3bf116413db85687400afb8ca1",
+      "title": "Workspace isolation",
+      "handle": "workspace-isolation",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_9c591678395d43d799db1e587ab862b1",
+      "title": "Standalone tasks (Inbox)",
+      "handle": "standalone-tasks-inbox",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_12253c5d1a8f4201af52fa90f49146cf",
+      "title": "Graph / Task CLI + canvas focus",
+      "handle": "graph-task-cli-canvas-focus",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_31e74fee1e08499794e9f4bce6449c86",
+      "title": "Plan-as-mode + composer + activity bubble",
+      "handle": "plan-as-mode-composer-activity-bubble",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_a4910100a8b048efa55d0dd082d12758",
+      "title": "Persistence (rescan on restart)",
+      "handle": "persistence-rescan-on-restart",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_dc4904c486d643ceb2be617c22b36ad1",
+      "title": "Coverage model",
+      "handle": "coverage-model",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_58f825da2f184ee1bd30afef6117ff7d",
+      "title": "The overnight iteration loop",
+      "handle": "the-overnight-iteration-loop",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_712b81db30234a1d9d9c93870352094a",
+      "title": "Infra lessons (learned the hard way)",
+      "handle": "infra-lessons-learned-the-hard-way",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_10256bd17e5c47978bd9fb979fe12fd0",
+      "title": "v3 — Semantic zoom (never hide info)",
+      "handle": "v3-semantic-zoom-never-hide-info",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_36d287c24d314c0e95332f67941f49c2",
+      "title": "v3 — Plan & Spec are ONE node type (markdown + mermaid + code)",
+      "handle": "v3-plan-spec-are-one-node-type-markdown-mermaid-code",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_6f751e4ec3d84c2d99975c3866267c4a",
+      "title": "v3 — Layout integrity & auto-bounds",
+      "handle": "v3-layout-integrity-auto-bounds",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_0f81701690154f1ab85bf1a6e5f1525c",
+      "title": "Display methodology brainstorm",
+      "handle": "display-methodology-brainstorm",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_4bb746a4416141f8821ef3e46700c4e6",
+      "title": "v3 — Externalized bodies (editable .md files)",
+      "handle": "v3-externalized-bodies-editable-md-files",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_75c23f0940e048d5a00ef173fa81bbd1",
+      "title": "v3 — View modes & manual controls",
+      "handle": "v3-view-modes-manual-controls",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_65116483819240eb85c329fcce77e5f3",
+      "title": "v3 — Tag system (facets + topics)",
+      "handle": "v3-tag-system-facets-topics",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_fa42422e803b45728af8868ff77dadc9",
+      "title": "v3 — Worlds + Banded Multi-Column layout",
+      "handle": "v3-worlds-banded-multi-column-layout",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_d009e910a17649588145454d34987b45",
+      "title": "v3 — Provenance: discussions captured in the plan",
+      "handle": "v3-provenance-discussions-captured-in-the-plan",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_46bc76bf62de4bc58d1d9772fa9f8326",
+      "title": "v3 — Test coverage (per-feature)",
+      "handle": "v3-test-coverage-per-feature",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_39ed50f7eb7448239be00536a5e05a25",
+      "title": "core — chat render: codeterm-injected info delimiters",
+      "handle": "core-chat-render-codeterm-injected-info-delimiters",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_137dbe31f54e437dbcf3b92e9625c803",
+      "title": "v3 — Project plan-memory (mem sidecar, DEFERRED)",
+      "handle": "v3-project-plan-memory-mem-sidecar-deferred",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_0a3fb4739b694e25ada06e57c75e0792",
+      "title": "v3 — Current visual bugs (fix to §22)",
+      "handle": "v3-current-visual-bugs-fix-to-22",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    }
+  ],
+  "created_at": 1782375315635,
+  "updated_at": 1782375319469,
+  "canvas": {
+    "viewport": null
+  }
+}

@@ -30,6 +30,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub memory: MemoryConfig,
     #[serde(default)]
+    pub orchestration: OrchestrationConfig,
+    #[serde(default)]
     pub integrations: IntegrationsConfig,
     #[serde(default)]
     pub mesh: MeshConfig,
@@ -54,6 +56,7 @@ impl Default for AppConfig {
             plugins: HashMap::new(),
             general_agent: GeneralAgentConfig::default(),
             memory: MemoryConfig::default(),
+            orchestration: OrchestrationConfig::default(),
             integrations: IntegrationsConfig::default(),
             mesh: MeshConfig::default(),
             updater: UpdaterConfig::default(),
@@ -361,6 +364,22 @@ fn default_dedup_threshold() -> f64 {
 
 fn default_file_sync_interval() -> u64 {
     60
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OrchestrationConfig {
+    pub plan_reminders: bool,
+    pub nudge_after_turns: u32,
+}
+
+impl Default for OrchestrationConfig {
+    fn default() -> Self {
+        Self {
+            plan_reminders: true,
+            nudge_after_turns: 12,
+        }
+    }
 }
 
 fn default_l1_budget_tokens() -> usize {

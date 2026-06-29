@@ -1,0 +1,1 @@
+plan create --from-spec; spec/plan create hints; remove the --spec trap

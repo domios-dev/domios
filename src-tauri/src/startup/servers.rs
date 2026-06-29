@@ -206,9 +206,9 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     update::post_update::spawn(service_state.clone());
 }
 
-/// Locate the built React bundle for the /web mirror.
+/// Locate the built React bundle for the browser mirror.
 /// Priority: explicit env override → repo dist (dev builds) →
-/// exe-adjacent dist (portable/prod layouts). None → /web returns 404
+/// exe-adjacent dist (portable/prod layouts). None → the browser UI returns 404
 /// and the daemon logs the miss once.
 fn resolve_web_dist() -> Option<std::path::PathBuf> {
     let candidates = [
@@ -236,10 +236,10 @@ fn resolve_web_dist() -> Option<std::path::PathBuf> {
     ];
     for cand in candidates.into_iter().flatten() {
         if cand.join("index.html").exists() {
-            log::info!("[web] serving /web from {}", cand.display());
+            log::info!("[web] serving browser UI from {}", cand.display());
             return Some(cand);
         }
     }
-    log::warn!("[web] no dist/ bundle found — /web disabled (build with `pnpm build`)");
+    log::warn!("[web] no dist/ bundle found — browser UI disabled (build with `pnpm build`)");
     None
 }

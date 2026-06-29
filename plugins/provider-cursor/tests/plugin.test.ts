@@ -587,5 +587,62 @@ console.log("\n--- buildPromptResponse (vertical ↓ nav + Enter) ---\n");
   );
 }
 
+console.log("\n--- usage (dashboard API fetch + parse) ---\n");
+{
+  // Real api2.cursor.sh response shapes (values sanitized), captured live.
+  const invoiceFixture = readFixture("usage-invoice.json");
+  const aggFixture = readFixture("usage-aggregated.json");
+  const currentFixture = readFixture("usage-current-period.json");
+  const PERIOD_END = 1782864000000;
+  const SPEND_CENTS = 125050;
+  const LIMIT_CENTS = 200000;
+  const REMAINING_CENTS = 74950;
+  const nowMs = 1781000000000;
+
+  const usageHost = (over: Record<string, unknown> = {}) =>
+    baseHost({
+      platform: () => "macos",
+      exec: () => JSON.stringify({ code: 0, stdout: "cursor-test-token\n" }),
+      fetch: (optsJson: string) => {
+        const url = String(JSON.parse(optsJson).url || "");
+        if (url.indexOf("GetMonthlyInvoice") !== -1) return JSON.stringify({ status: 200, body: invoiceFixture });
+        if (url.indexOf("GetAggregatedUsageEvents") !== -1) return JSON.stringify({ status: 200, body: aggFixture });
+        if (url.indexOf("GetCurrentPeriodUsage") !== -1) return JSON.stringify({ status: 200, body: currentFixture });
+        return JSON.stringify({ status: 404, body: "{}" });
+      },
+      ...over,
+    });
+
+  const p = loadCursorWithHost(usageHost());
+  const raw = p.fetchUsage(nowMs);
+  assert(typeof raw === "string", "fetchUsage returns a raw JSON string");
+  const payload = JSON.parse(String(raw));
+  eq(payload.spendCents, SPEND_CENTS, "fetchUsage spend = current period planUsage.includedSpend");
+  eq(payload.limitCents, LIMIT_CENTS, "fetchUsage limit = current period planUsage.limit");
+  eq(payload.remainingCents, REMAINING_CENTS, "fetchUsage remaining = current period planUsage.remaining");
+  eq(payload.resetsAtMs, PERIOD_END, "fetchUsage reset = invoice periodEndMs");
+
+  const snap = p.parseUsage(String(raw), nowMs) as Record<string, unknown>;
+  eq(snap.provider, "cursor", "parseUsage provider is cursor");
+  eq(snap.spend_cents, SPEND_CENTS, "parseUsage spend_cents from payload");
+  eq(snap.spend_limit_cents, LIMIT_CENTS, "parseUsage spend_limit_cents from payload");
+  eq(snap.spend_remaining_cents, REMAINING_CENTS, "parseUsage spend_remaining_cents from payload");
+  eq(snap.spend_resets_at_ms, PERIOD_END, "parseUsage spend_resets_at_ms from payload");
+  eq(snap.session_pct, null, "parseUsage leaves session_pct null (spend-based)");
+  eq(snap.weekly_pct, null, "parseUsage leaves weekly_pct null (spend-based)");
+
+  // No token → no usage, honestly (not a fabricated zero).
+  const noTokenHost = usageHost({ exec: () => JSON.stringify({ code: 127, error: "not found" }) });
+  eq(loadCursorWithHost(noTokenHost).fetchUsage(nowMs), null, "fetchUsage null when keychain token missing");
+
+  // Windows has no clean keychain CLI read → null (usage hidden, not broken).
+  const winHost = usageHost({ platform: () => "windows" });
+  eq(loadCursorWithHost(winHost).fetchUsage(nowMs), null, "fetchUsage null on windows (no token path)");
+
+  // Garbage payload never yields a bogus snapshot.
+  eq(p.parseUsage("not json", nowMs), null, "parseUsage null on non-JSON");
+  eq(p.parseUsage(JSON.stringify({ nope: 1 }), nowMs), null, "parseUsage null without spendCents");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

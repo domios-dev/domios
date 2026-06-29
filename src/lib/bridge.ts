@@ -29,9 +29,18 @@ type Args = Record<string, unknown>;
 type Mapper = (args: Args) => Promise<unknown>;
 const webPtyOffsets = new Map<string, number>();
 let invokeForTest: (<T>(cmd: string, args?: Args) => Promise<T>) | null = null;
+let listenForTest:
+  | (<T>(event: string, handler: (e: { payload: T }) => void) => Promise<UnlistenFn>)
+  | null = null;
 
 export function __setInvokeForTest(fn: (<T>(cmd: string, args?: Args) => Promise<T>) | null): void {
   invokeForTest = fn;
+}
+
+export function __setListenForTest(
+  fn: (<T>(event: string, handler: (e: { payload: T }) => void) => Promise<UnlistenFn>) | null,
+): void {
+  listenForTest = fn;
 }
 
 /** Drop the tail cursor so the next read_pty replays retained history from 0. */
@@ -253,6 +262,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   mesh_reject_pairing: (a) =>
     webJson("POST", "/api/mesh/reject", { request_id: a.requestId }),
   mesh_add_manual: (a) => webJson("POST", "/api/mesh/peers/add-manual", a),
+  mesh_set_enabled: (a) => webJson("POST", "/api/mesh/enabled", { enabled: a.enabled }),
   mesh_start_broadcast: () => webJson("POST", "/api/mesh/broadcast/start"),
   mesh_stop_broadcast: () => webJson("POST", "/api/mesh/broadcast/stop"),
 
@@ -478,6 +488,7 @@ export async function listen<T>(
   event: string,
   handler: (e: { payload: T }) => void,
 ): Promise<UnlistenFn> {
+  if (listenForTest) return listenForTest(event, handler);
   if (!IS_WEB) {
     return tauriListen<T>(event, handler);
   }

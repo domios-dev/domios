@@ -1,0 +1,1 @@
+Brainstorm the canvas display methodology; produce concrete proposals for semantic zoom, portyanka-bounding, plan+spec node, mermaid/code at scale, auto-bounds, layout testing.

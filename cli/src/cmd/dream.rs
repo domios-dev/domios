@@ -79,10 +79,7 @@ fn run_diary(limit: usize) -> ! {
             println!();
         }
         if count == 0 {
-            println!(
-                "No dream diary entries yet — the Dreamer hasn't logged anything in {area}.",
-                area = "_dreams"
-            );
+            println!("No dream diary entries yet — the Dreamer hasn't logged anything in _dreams.");
             println!("Trigger a dream cycle with: codeterm mem dream run");
         }
         Ok(())

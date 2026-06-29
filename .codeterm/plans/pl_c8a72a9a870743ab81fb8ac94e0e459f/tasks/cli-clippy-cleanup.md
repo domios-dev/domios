@@ -1,0 +1,1 @@
+Pre-existing cli/ clippy warnings (map().flatten() agent.rs:580, too-many-args delayed.rs/graph_mutate/local_io, empty-format dream.rs:84, clone→from_ref manifest.rs:87, match→if-let mem/item.rs:432, filter().next()→find) fail the pre-push -D-warnings clippy gate, forcing --no-verify. Clean them so pushes pass the hook.

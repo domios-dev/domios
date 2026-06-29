@@ -123,7 +123,7 @@ impl ServiceContext {
         let pane_id = json_str(params, "pane_id").ok_or("pane_id required")?;
         let message = json_str(params, "message").ok_or("message required")?;
         let details = serde_json::from_value(params.clone()).unwrap_or_default();
-        let result = self.submit_report(&pane_id, &message, details)?;
+        let result = self.submit_report(&pane_id, &message, details, None, None, None)?;
         Ok(serde_json::json!({"ok": true, "report_id": result.report_id}))
     }
 }
@@ -136,6 +136,8 @@ pub struct SpawnResult {
     pub tab_id: String,
     pub pty_id: String,
     pub agent: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -296,6 +298,7 @@ impl ServiceContext {
             .clone()
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent.clone());
+        let model = params.model.clone();
         // Reject non-spawnable backends / unknown ids cleanly before building the
         // spec, so the socket-RPC path errors identically to the HTTP path
         self.classify_spawn_target(&agent)?;
@@ -309,6 +312,7 @@ impl ServiceContext {
             tab_id: handle.tab_id,
             pty_id: handle.pty_id.unwrap_or_default(),
             agent,
+            model,
             title,
             description: handle.description,
             role,
@@ -332,6 +336,7 @@ impl ServiceContext {
         let is_shell = self.classify_spawn_target(&agent_cmd)?;
         if is_shell {
             let role = params.role.clone();
+            let model = params.model.clone();
             let title = params
                 .title
                 .clone()
@@ -347,6 +352,7 @@ impl ServiceContext {
                 tab_id: handle.tab_id,
                 pty_id: handle.pty_id.unwrap_or_default(),
                 agent: agent_cmd,
+                model,
                 title,
                 description: handle.description,
                 role,
@@ -386,18 +392,16 @@ impl ServiceContext {
             .or_else(|| params.agent_name.clone())
             .unwrap_or_else(|| agent_cmd.clone());
 
-        // 1. Find workspace — lock once, resolve everything
+        // 1. Find workspace — explicit workspace_id wins over the parent's workspace.
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
-            let from_parent = params
-                .parent_pane_id
-                .as_ref()
-                .and_then(|pid| mux.find_workspace_for_pane(pid));
-            let id = from_parent
-                .or_else(|| params.workspace_id.clone())
-                .or_else(|| mux.snapshot().active_workspace_id.clone())
-                .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-                .ok_or("No workspace found")?;
+            let id = crate::service::spawn::resolve_spawn_workspace_id(
+                params.workspace_id.clone(),
+                params.parent_pane_id.as_deref(),
+                |pid| mux.find_workspace_for_pane(pid),
+                mux.get_active_workspace().map(|w| w.id.clone()),
+                mux.list_workspaces().first().map(|w| w.id.clone()),
+            )?;
             let cwd = mux.get_workspace(&id).and_then(|ws| ws.cwd.clone());
             (id, cwd)
         };
@@ -430,10 +434,13 @@ impl ServiceContext {
         let (tab_id, pane_id) = {
             let mut mux = self.mux.write();
             let result = mux.create_tab(&ws_id)?;
-            // Pin the sidebar label up-front (rename_pane sync runs later too).
             if let Some(ref t) = params.title {
                 if !t.trim().is_empty() {
-                    let _ = mux.rename_tab(&ws_id, &result.0, t);
+                    let _ = mux.rename_pane_at_level(
+                        &result.1,
+                        t,
+                        crate::multiplexer::types::TitleLevel::User,
+                    );
                 }
             }
             if let Some(ref dir) = params.cwd {
@@ -498,6 +505,11 @@ impl ServiceContext {
                     params.parent_pane_id.as_deref(),
                     params.can_spawn,
                 )?;
+                if role_str == "Worker" {
+                    if let Some(ref parent) = params.parent_pane_id {
+                        self.expect_spawn_parent_link(&pane_id, parent)?;
+                    }
+                }
             }
         }
 
@@ -586,6 +598,7 @@ impl ServiceContext {
             tab_id,
             pty_id: String::new(), // PTY not yet assigned — happens async
             agent: agent_cmd,
+            model: params.model,
             title,
             description: params.description,
             role: params.role,

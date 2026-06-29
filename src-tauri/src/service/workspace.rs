@@ -38,6 +38,27 @@ impl ServiceContext {
         self.mux.read().list_workspaces()
     }
 
+    /// Best-effort auto-load: scan + watch project-local plans under a workspace cwd so the
+    /// plan index reflects on-disk plans without a manual reindex. Gated on the watcher set so
+    /// the heavy scan runs once per project (the watcher then keeps it fresh).
+    fn ensure_workspace_plans_loaded(&self, cwd: Option<&str>) {
+        let Some(cwd) = cwd.filter(|c| !c.is_empty()) else {
+            return;
+        };
+        let path = std::path::Path::new(cwd);
+        if self
+            .plan_watchers
+            .lock()
+            .keys()
+            .any(|root| path.starts_with(root))
+        {
+            return;
+        }
+        if let Err(e) = self.ensure_plan_project_loaded(path) {
+            log::debug!("[workspace] no project plans loaded for {cwd}: {e}");
+        }
+    }
+
     pub fn create_workspace(
         &self,
         name: String,
@@ -50,6 +71,7 @@ impl ServiceContext {
                 if activate {
                     let _ = self.mux.write().set_active_workspace(&ws.id);
                 }
+                self.ensure_workspace_plans_loaded(Some(cwd_str));
                 log::info!(
                     "[workspace] reused existing workspace '{}' ({}) for cwd={}",
                     ws.name,
@@ -63,16 +85,25 @@ impl ServiceContext {
             }
         }
 
-        let ws = self.mux.write().create_workspace(name, cwd);
+        let ws = self.mux.write().create_workspace(name, cwd.clone());
         if activate {
             let _ = self.mux.write().set_active_workspace(&ws.id);
         }
+        self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
         ws
     }
 
     pub fn focus_workspace(&self, id: &str) -> Result<(), String> {
         self.mux.write().set_active_workspace(id)?;
+        let cwd = self
+            .mux
+            .read()
+            .list_workspaces()
+            .into_iter()
+            .find(|w| w.id == id)
+            .and_then(|w| w.cwd);
+        self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
         Ok(())
     }

@@ -165,7 +165,7 @@ For targeted proof runs, set `PW_LINT_SCOPE` to a spec file or directory under
 
 ## Web mirror (12-web)
 
-12-web drives the **web mirror** (`/web` on the daemon) in a **launched
+12-web drives the **web mirror** (served at the daemon root) in a **launched
 msedge browser** — a real cross-origin browser context, unlike the other
 suites' CDP attach to the Tauri WebView. Key facts:
 
@@ -178,8 +178,8 @@ suites' CDP attach to the Tauri WebView. Key facts:
   workspaces, so a switch is provable end-to-end (stub request log +
   stub workspace rendered + clean switch-back).
 - The browser terminal renders WebGL (no readable DOM); tests that read
-  terminal text load `/web/?a11y=1` — a runtime screen-reader opt-in.
-- The daemon serves `/web` from `dist/` — run `pnpm build` after
+  terminal text load `/?a11y=1` — a runtime screen-reader opt-in.
+- The daemon serves the browser UI from `dist/` at `/` — run `pnpm build` after
   frontend changes or the suite tests a stale bundle.
 
 Known web-mode limitations (honest rejects, sweep-audited via
@@ -201,4 +201,4 @@ server-spawned panes do). Each throws a clear
 - Suites assert **UI DOM state**, not just API JSON, wherever the action
   has a user-visible effect.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

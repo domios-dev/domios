@@ -7,15 +7,17 @@ import { KeepAwakeTray } from "../Titlebar/KeepAwakeTray";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer } from "../../store/multiplexer";
+import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import type { Tab, PaneStatus, Pane, AppConfig } from "../../lib/types";
-import { Check, ChevronDown, Plus } from "lucide-react";
+import type { Tab, PaneStatus, AppConfig } from "../../lib/types";
+import { Plus } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
+import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
 import { RemoteWorkerRow } from "./RemoteWorkerRow";
 import { RecentlyClosed } from "./RecentlyClosed";
 import { useRemoteWorkers } from "../../hooks/useRemoteWorkers";
@@ -30,24 +32,17 @@ import {
 } from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
+import type { MeshPresence } from "./meshPresenceHeader";
 import {
-  getMeshPresenceMenuItems,
-  getMeshPresenceSummary,
-  type MeshPresence,
-} from "./meshPresenceHeader";
+  childTabsForParent,
+  collectPaneIds,
+  flattenSidebarTabs,
+  topLevelTabsInWorkspace,
+} from "./workspaceTabs";
+import { usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
 
 export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
-
-function collectPaneIds(
-  tab: Tab,
-  panes?: Record<string, Pane>,
-): string[] {
-  if (panes) {
-    const p = panes[tab.pane_id];
-    return p && !p.hidden ? [tab.pane_id] : [];
-  }
-  return [tab.pane_id];
-}
 
 /** Returns the "worst" status among a set of pane statuses. */
 function aggregateStatus(
@@ -75,6 +70,7 @@ interface SidebarProps {
   mainView?: "workspace" | "settings" | "memory" | "mesh" | "git" | "extensions";
   config?: AppConfig;
   uiFontScale?: number;
+  workspaceCanvasActive?: boolean;
 }
 
 export function Sidebar({
@@ -86,6 +82,7 @@ export function Sidebar({
   mainView = "workspace",
   config,
   uiFontScale,
+  workspaceCanvasActive = false,
 }: SidebarProps) {
   const {
     state,
@@ -121,6 +118,7 @@ export function Sidebar({
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
   const { providers } = useAgentProviders();
+  const { index: planIndex } = usePlanIndexOptional();
   const remoteWorkers = useRemoteWorkers();
   const agentsConfig = config?.agents;
   // Skip-permissions "remember" choice is centralized in backend config so it
@@ -245,39 +243,15 @@ export function Sidebar({
   }, [config?.mesh.enabled]);
 
   const meshPresence: MeshPresence = (meshEnabledOverride ?? config?.mesh.enabled ?? false) ? "online" : "offline";
-  const meshPresenceSummary = getMeshPresenceSummary(meshPresence);
-  const setMeshPresence = useCallback(async (next: MeshPresence) => {
-    if (next === meshPresence) return;
-    const nextEnabled = next === "online";
+  const setMeshEnabled = useCallback(async (nextEnabled: boolean) => {
+    if ((meshPresence === "online") === nextEnabled) return;
     setMeshEnabledOverride(nextEnabled);
     try {
-      const current = config ?? await invoke<AppConfig>("get_config");
-      await invoke("update_config", {
-        config: { ...current, mesh: { ...current.mesh, enabled: nextEnabled } },
-      });
+      await invoke("mesh_set_enabled", { enabled: nextEnabled });
     } catch {
       setMeshEnabledOverride(null);
     }
-  }, [config, meshPresence]);
-  const meshPresenceItems = useMemo<DropdownMenuItem[]>(
-    () => getMeshPresenceMenuItems(meshPresence).map((item) => ({
-      label: item.label,
-      icon: item.active
-        ? <Check size={12} className="text-[var(--ct-accent)]" />
-        : (
-            <span
-              className="inline-block w-2 h-2 rounded-full"
-              style={
-                item.value === "online"
-                  ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
-                  : { background: "transparent", border: "1.5px solid var(--ct-muted)" }
-              }
-            />
-          ),
-      onClick: () => setMeshPresence(item.value),
-    })),
-    [meshPresence, setMeshPresence],
-  );
+  }, [meshPresence]);
 
   const toggleExpanded = useCallback((wsId: string) => {
     setExpandedWorkspaces((prev) => {
@@ -460,34 +434,8 @@ export function Sidebar({
                   </div>
                 </div>
               )}
-              {/* Presence header — live online/offline signal (was the static "Panes" label). */}
-              <div className={`flex items-center ${isCompact ? "justify-center" : "justify-between"} px-3 py-2`}>
-                {!isCompact && (
-                  <DropdownMenu
-                    items={meshPresenceItems}
-                    className="min-w-0"
-                    trigger={
-                      <button
-                        type="button"
-                        className="flex min-w-0 items-center gap-1.5 truncate rounded-md px-1.5 py-1 -ml-1.5 text-left transition-colors hover:bg-[var(--ct-hover)]"
-                        title={meshPresenceSummary.title}
-                      >
-                      <span
-                        className="inline-block w-2 h-2 rounded-full shrink-0"
-                        style={
-                          meshPresence === "online"
-                            ? { background: "#22c55e", boxShadow: "0 0 6px rgba(34,197,94,0.55)" }
-                            : { background: "transparent", border: "1.5px solid var(--ct-muted)" }
-                        }
-                      />
-                      <span className="text-[10px] uppercase tracking-[0.06em] font-medium text-[var(--ct-muted)] truncate">
-                        {meshPresenceSummary.label}
-                      </span>
-                        <ChevronDown size={11} className="shrink-0 text-[var(--ct-muted)]" />
-                      </button>
-                    }
-                  />
-                )}
+              {/* Header row — new-workspace action. Presence moved to the bottom nav. */}
+              <div className={`flex items-center ${isCompact ? "justify-center" : "justify-end"} px-3 py-2`}>
                 <div className="flex items-center gap-1">
                   {/* New workspace */}
                   <button
@@ -519,7 +467,22 @@ export function Sidebar({
                         >
                           <FolderIcon size={12} open={isExpanded} className={isExpanded ? "opacity-70" : "opacity-40"} />
                         </button>
-                        {isExpanded && sortByOrder(ws.tabs).map((tab) => {
+                        {isExpanded && (
+                          <>
+                            <WorkspacePlanTreeSlot
+                              workspace={ws}
+                              panes={state.panes}
+                              planIndex={planIndex}
+                              canvasActive={isActiveVisual && workspaceCanvasActive}
+                              touchMode={touchMode}
+                              compact={isCompact}
+                              uiFontScale={uiFontScale}
+                              onBeforeOpen={() => {
+                                setActiveWorkspace(ws.id);
+                                onNavigateToTab?.();
+                              }}
+                            />
+                            {flattenSidebarTabs(ws.tabs, state.panes).map((tab) => {
                           const tabPaneIds = collectPaneIds(tab, state.panes);
                           const isTabActive = isActiveVisual && tab.id === state.activeTabIds[ws.id];
                           return (
@@ -531,7 +494,7 @@ export function Sidebar({
                                   ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
                                   : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-muted-fg)]"
                               }`}
-                              title={tab.title}
+                              title={displayTitleForTab(tab, state.panes[tab.pane_id])}
                             >
                               {(() => {
                                 // Any pane with an agent_type set (backend already classified) — don't gate on the FE-only `getAgentProvider` registry, or drop-in plugins
@@ -546,7 +509,9 @@ export function Sidebar({
                               })()}
                             </button>
                           );
-                        })}
+                            })}
+                          </>
+                        )}
                         <div className="w-5 h-px bg-[var(--ct-border)] my-0.5" />
                       </div>
                     );
@@ -606,14 +571,6 @@ export function Sidebar({
                         {/* Content always rendered — CSS grid-template-rows handles show/hide with animation */}
                         <>
                           {(() => {
-                            // Set of pane IDs that are children (have a parent) — skip at top level
-                            const childPaneIds = new Set<string>();
-                            for (const tab of sortedTabs) {
-                              const pids = collectPaneIds(tab, state.panes);
-                              const pane = pids[0] ? state.panes[pids[0]] : null;
-                              if (pane?.parent_pane_id) childPaneIds.add(pids[0]);
-                            }
-
                             // Render a tab + its children recursively. `group`/`groupKey`/
                             // `items` scope this tab's drag to its own sibling set.
                             const renderTab = (
@@ -627,13 +584,11 @@ export function Sidebar({
                             ): React.ReactNode => {
                               const tabPids = collectPaneIds(tab, state.panes);
                               const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
-                              // Child tabs (pane.parent_pane_id === this pane), in sort order.
+                              const tabActivity = firstPane
+                                ? resolvePaneTabActivity(planIndex, firstPane.id, state.panes)
+                                : null;
                               const childTabs = firstPane
-                                ? sortedTabs.filter((t) => {
-                                    const tPids = collectPaneIds(t, state.panes);
-                                    const tPane = tPids[0] ? state.panes[tPids[0]] : null;
-                                    return tPane?.parent_pane_id === firstPane.id;
-                                  })
+                                ? childTabsForParent(sortedTabs, state.panes, firstPane.id)
                                 : [];
                               const childIds = childTabs.map((t) => `${TAB_PREFIX}${t.id}`);
 
@@ -673,6 +628,7 @@ export function Sidebar({
                                     isClosing={isClosing}
                                     touchMode={touchMode}
                                     uiFontScale={uiFontScale}
+                                    activity={tabActivity}
                                   />
                                   </SortableRow>
                                   {childTabs.length > 0 && firstPane && (
@@ -696,23 +652,33 @@ export function Sidebar({
                             };
 
                             // Only render top-level tabs (children render under their parent).
-                            const topLevel = sortedTabs.filter((tab) => {
-                              const pids = collectPaneIds(tab, state.panes);
-                              if (pids.length === 0) return false;
-                              if (childPaneIds.has(pids[0])) return false;
-                              return true;
-                            });
+                            const topLevel = topLevelTabsInWorkspace(sortedTabs, state.panes);
                             const topLevelIds = topLevel.map((t) => `${TAB_PREFIX}${t.id}`);
                             // Pin the General (protected) tab to the top of this group.
                             const pinnedTabIds = topLevel
                               .filter((t) => state.panes[t.pane_id]?.protected)
                               .map((t) => `${TAB_PREFIX}${t.id}`);
                             return (
-                              <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
-                                {topLevel.map((tab, index) =>
-                                  renderTab(tab, index, 0, "tab", ws.id, topLevelIds, pinnedTabIds),
-                                )}
-                              </SortableContext>
+                              <>
+                                <WorkspacePlanTreeSlot
+                                  workspace={ws}
+                                  panes={state.panes}
+                                  planIndex={planIndex}
+                                  canvasActive={isActiveVisual && workspaceCanvasActive}
+                                  touchMode={touchMode}
+                                  compact={isCompact}
+                                  uiFontScale={uiFontScale}
+                                  onBeforeOpen={() => {
+                                    setActiveWorkspace(ws.id);
+                                    onNavigateToTab?.();
+                                  }}
+                                />
+                                <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
+                                  {topLevel.map((tab, index) =>
+                                    renderTab(tab, index, 0, "tab", ws.id, topLevelIds, pinnedTabIds),
+                                  )}
+                                </SortableContext>
+                              </>
                             );
                           })()}
                           {/* Add agent session button */}
@@ -751,6 +717,9 @@ export function Sidebar({
                         if (!activeTab) return null;
                         const atPids = collectPaneIds(activeTab, state.panes);
                         const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
+                        const atActivity = atFirstPane
+                          ? resolvePaneTabActivity(planIndex, atFirstPane.id, state.panes)
+                          : null;
                         return (
                           <TabItem
                             tab={activeTab}
@@ -773,6 +742,7 @@ export function Sidebar({
                             orchestrators={wsOrchestrators}
                             touchMode={touchMode}
                             uiFontScale={uiFontScale}
+                            activity={atActivity}
                           />
                         );
                       })()
@@ -843,29 +813,67 @@ export function Sidebar({
                 </svg>
                 {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Memory</span>}
               </button>
-              <button
-                data-testid="nav-mesh"
-                onClick={onOpenMesh}
-                className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                  mainView === "mesh"
-                    ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                    : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                }`}
-                title="Mesh"
-              >
-                <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                  <circle cx="12" cy="12" r="2" />
-                  <circle cx="4" cy="6" r="2" />
-                  <circle cx="20" cy="6" r="2" />
-                  <circle cx="4" cy="18" r="2" />
-                  <circle cx="20" cy="18" r="2" />
-                  <line x1="6" y1="6" x2="10.5" y2="11" />
-                  <line x1="18" y1="6" x2="13.5" y2="11" />
-                  <line x1="6" y1="18" x2="10.5" y2="13" />
-                  <line x1="18" y1="18" x2="13.5" y2="13" />
-                </svg>
-                {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Mesh</span>}
-              </button>
+              {/* Mesh row — nav entry on the left, inline [off|on] segmented switch on the right. */}
+              <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
+                <button
+                  data-testid="nav-mesh"
+                  onClick={onOpenMesh}
+                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 flex-1 min-w-0 px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
+                    mainView === "mesh"
+                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
+                  }`}
+                  title="Mesh"
+                >
+                  <svg width={touchMode ? 18 : 14} height={touchMode ? 18 : 14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <circle cx="12" cy="12" r="2" />
+                    <circle cx="4" cy="6" r="2" />
+                    <circle cx="20" cy="6" r="2" />
+                    <circle cx="4" cy="18" r="2" />
+                    <circle cx="20" cy="18" r="2" />
+                    <line x1="6" y1="6" x2="10.5" y2="11" />
+                    <line x1="18" y1="6" x2="13.5" y2="11" />
+                    <line x1="6" y1="18" x2="10.5" y2="13" />
+                    <line x1="18" y1="18" x2="13.5" y2="13" />
+                  </svg>
+                  {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Mesh</span>}
+                </button>
+                {!isCompact && (
+                  <div
+                    data-testid="mesh-presence-toggle"
+                    role="group"
+                    aria-label="Mesh on/off"
+                    className="flex shrink-0 items-center overflow-hidden rounded border border-[var(--ct-border)] text-[10px] font-medium"
+                  >
+                    <button
+                      type="button"
+                      data-testid="mesh-switch-off"
+                      onClick={() => setMeshEnabled(false)}
+                      aria-pressed={meshPresence !== "online"}
+                      className={`px-2 py-0.5 transition-colors ${
+                        meshPresence !== "online"
+                          ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                          : "text-[var(--ct-muted)] hover:text-[var(--ct-fg)]"
+                      }`}
+                    >
+                      off
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="mesh-switch-on"
+                      onClick={() => setMeshEnabled(true)}
+                      aria-pressed={meshPresence === "online"}
+                      className={`px-2 py-0.5 transition-colors border-l border-[var(--ct-border)] ${
+                        meshPresence === "online"
+                          ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
+                          : "text-[var(--ct-muted)] hover:text-[var(--ct-fg)]"
+                      }`}
+                    >
+                      on
+                    </button>
+                  </div>
+                )}
+              </div>
               {/* Desktop surfaces Settings in the titlebar tray; web mirror has no
                   titlebar, so the sidebar keeps the entry point there. */}
               {IS_WEB && (

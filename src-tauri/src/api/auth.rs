@@ -199,9 +199,9 @@ pub async fn auth_middleware(
     let path = req.uri().path().to_string();
     let method = req.method().clone();
 
-    // Mesh-disabled gate: blocks /api/mesh/* except /api/mesh/ping (so paired peers detect us as down without retrying forever). Also blocks
-    // /api/mesh/pair/* by design — re-enabling mesh requires a local config change, not a remote pair request.
-    if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" {
+    // Mesh-disabled gate: blocks /api/mesh/* except /api/mesh/ping (so paired peers detect us as down without retrying forever) and
+    // /api/mesh/enabled (the local on/off switch — it MUST stay reachable to turn mesh back on; still token-gated, peers rejected below).
+    if path.starts_with("/api/mesh/") && path != "/api/mesh/ping" && path != "/api/mesh/enabled" {
         let mesh_enabled = state.config.lock().mesh.enabled;
         if !mesh_enabled {
             log::warn!(
@@ -217,12 +217,11 @@ pub async fn auth_middleware(
         }
     }
 
-    // The /web static bundle is public by design: it is the same React code anyone can build from the repo. Every API call it makes is still
-    // token-gated. Exact /web redirects to /web/ so the bundle's relative asset URLs resolve under the mount.
-    if path == "/web" {
-        return axum::response::Redirect::permanent("/web/").into_response();
-    }
-    if path.starts_with("/web/") {
+    // The static web bundle is public by design: it is the same React code
+    // anyone can build from the repo. Every API call it makes is still
+    // token-gated. Treat non-/api paths as public so the root SPA, static
+    // assets, PWA manifest, and client-side deep links can load directly.
+    if !path.starts_with("/api/") {
         return next.run(req).await;
     }
 

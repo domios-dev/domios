@@ -223,12 +223,14 @@ export function PaneSessionChat({
     const byShort = new Map<string, string>();
     for (const ws of muxState.workspaces) {
       for (const tab of ws.tabs) {
-        const name = tab.title?.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "").trim();
+        const pane = muxState.panes[tab.pane_id];
+        const rawName = pane?.title ?? tab.title;
+        const name = rawName?.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "").trim();
         if (name && tab.pane_id) byShort.set(tab.pane_id.slice(0, 8), name);
       }
     }
     return (paneRef: string): string | undefined => byShort.get(paneRef.slice(0, 8));
-  }, [muxState.workspaces]);
+  }, [muxState.workspaces, muxState.panes]);
 
   useEffect(() => {
     if (!currentPtyId) {

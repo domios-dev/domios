@@ -21,6 +21,9 @@ import { CrashReportToast } from "./components/CrashReportToast";
 import { StaleBuildBanner } from "./components/StaleBuildBanner";
 import { UpdateProgressLayer } from "./components/UpdateProgressLayer";
 import { HamburgerIcon } from "./components/Icons";
+import { CanvasView } from "./components/Canvas/CanvasView";
+import { PlansProvider } from "./components/Canvas/PlansProvider";
+import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { useConfig } from "./hooks/useConfig";
 import { useKeyboardInset } from "./hooks/useKeyboardInset";
 import { useAgentProviders } from "./hooks/useAgentProviders";
@@ -268,6 +271,28 @@ function AppInner() {
     () => activeWs?.tabs.find((t) => t.id === state.activeTabIds[activeWs.id]),
     [activeWs, state.activeTabIds],
   );
+  const showWorkspaceCanvas =
+    mainView === "workspace" && !pluginViewId && activeWs != null && !activeTab;
+  const workspaceCanvasOpen = useCanvasWorkspaceOpen();
+  const workspaceCanvasDismissed = useCanvasWorkspaceDismissed();
+  const showInlineWorkspaceCanvas = showWorkspaceCanvas && !workspaceCanvasDismissed;
+  const showOverlayWorkspaceCanvas =
+    workspaceCanvasOpen &&
+    !!activeTab &&
+    mainView === "workspace" &&
+    !pluginViewId &&
+    activeWs != null;
+  const workspaceCanvasVisible = showInlineWorkspaceCanvas || showOverlayWorkspaceCanvas;
+  const handleNavigateToTab = useCallback(() => {
+    canvasFocusStore.closeWorkspace();
+    setMainView("workspace");
+    closeSidebarOnMobile();
+  }, [closeSidebarOnMobile]);
+  useEffect(() => {
+    if (!activeTab) canvasFocusStore.resetWorkspaceDismissed();
+  }, [activeTab]);
+  const canvasFocusOpen = useCanvasFocusOpen();
+  const canvasFocusTarget = useCanvasFocusTarget();
   useEffect(() => {
     if (!activeTab?.id) return;
     setMountedTabIds((prev) => {
@@ -470,6 +495,7 @@ function AppInner() {
           onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
           onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
           onOpenExtensions={() => { setExtensionsOpen(true); }}
+          workspaceCanvasActive={workspaceCanvasVisible}
         />
       )}
       {/* Status-bar scrim: content sliding under the notch fogs into the bg color + a soft blur, fading to clear below. */}
@@ -515,6 +541,7 @@ function AppInner() {
         </button>
       )}
 
+      <PlansProvider api={stableApiConfig}>
       <div className="flex flex-1 min-h-0 relative">
         {sidebarMounted && (
           <>
@@ -531,10 +558,11 @@ function AppInner() {
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
                 onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
-                onNavigateToTab={() => { setMainView("workspace"); closeSidebarOnMobile(); }}
+                onNavigateToTab={handleNavigateToTab}
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
+                workspaceCanvasActive={workspaceCanvasVisible}
               />
             </div>
           </>
@@ -594,6 +622,36 @@ function AppInner() {
               <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={() => setPluginViewId(null)} />
             </div>
           )}
+          {showInlineWorkspaceCanvas && (
+            <div className="absolute inset-0" style={{ zIndex: 1 }}>
+              <CanvasView
+                mode="workspace"
+                workspaceId={activeWs?.id}
+                api={stableApiConfig}
+              />
+            </div>
+          )}
+          {showOverlayWorkspaceCanvas && (
+            <div className="absolute inset-0" style={{ zIndex: 25 }}>
+              <CanvasView
+                mode="workspace"
+                workspaceId={activeWs?.id}
+                api={stableApiConfig}
+              />
+            </div>
+          )}
+          {canvasFocusOpen && canvasFocusTarget && (
+            <div className="absolute inset-0" style={{ zIndex: 25 }}>
+              <CanvasView
+                mode="focus"
+                planId={canvasFocusTarget.planId}
+                orchestratorPaneId={canvasFocusTarget.orchestratorPaneId}
+                focusPaneId={canvasFocusTarget.focusPaneId}
+                api={stableApiConfig}
+                onClose={() => canvasFocusStore.close()}
+              />
+            </div>
+          )}
           {state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tab) => {
@@ -638,16 +696,12 @@ function AppInner() {
               })
             )
           ) : mainView === "workspace" ? (
-            <div
-              className="flex items-center justify-center w-full h-full text-sm"
-              style={{ color: stableTheme.bright_black }}
-            >
-              Loading...
-            </div>
+            <CanvasView mode="workspace" api={stableApiConfig} />
           ) : null}
         </main>
         </div>
       </div>
+      </PlansProvider>
 
       <NotificationToastContainer
         toasts={state.toasts}

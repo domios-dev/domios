@@ -22,6 +22,7 @@ const MIN_MANIFEST: &str = r#"{
         },
         "commands": {
             "compact": "/compact",
+            "freshContext": "/new",
             "exit": "/exit",
             "autoApproveFlags": ["--yolo"]
         }
@@ -55,6 +56,7 @@ fn binary_name_defaults_to_id_when_omitted() {
 fn commands_read_off_manifest() {
     let p = load(MIN_MANIFEST, "module.exports.default = {};");
     assert_eq!(p.compact_command(), Some("/compact"));
+    assert_eq!(p.fresh_context_command(), Some("/new"));
     assert_eq!(p.exit_command(), Some("/exit"));
     assert_eq!(p.auto_approve_flags(), vec!["--yolo".to_string()]);
     assert_eq!(p.status_bar_rows(), 2);

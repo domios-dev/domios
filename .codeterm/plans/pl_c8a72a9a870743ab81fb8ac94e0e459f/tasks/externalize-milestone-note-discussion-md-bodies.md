@@ -1,0 +1,1 @@
+Extend body_files to milestone/note bodies so attached discussion md is editable + doesn't inflate the plan JSON.

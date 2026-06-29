@@ -19,10 +19,12 @@ impl SpawnRole {
 
 /// Worker-declared outcome for `agent report --status`. Lowercase value names
 /// match the daemon's `ReportStatus` serde representation, so the parsed value
-/// is sent over the wire as-is. clap rejects anything outside the three.
+/// is sent over the wire as-is. clap rejects anything outside known outcomes.
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
 pub enum ReportStatusArg {
     Done,
+    #[value(name = "in_review")]
+    InReview,
     Blocked,
     Partial,
 }
@@ -31,6 +33,7 @@ impl ReportStatusArg {
     pub fn as_str(&self) -> &'static str {
         match self {
             ReportStatusArg::Done => "done",
+            ReportStatusArg::InReview => "in_review",
             ReportStatusArg::Blocked => "blocked",
             ReportStatusArg::Partial => "partial",
         }
@@ -73,11 +76,26 @@ pub enum AgentAction {
     /// Send a report to your parent in the hierarchy
     Report {
         /// Report message (also accepts --message alias)
-        message: String,
+        message: Option<String>,
+        /// Report message as a flag, useful when paired with --doc
+        #[arg(long, alias = "message", allow_hyphen_values = true)]
+        text: Option<String>,
+        /// Milestone kind when writing to --plan/--task
+        #[arg(long)]
+        kind: Option<String>,
+        /// Markdown document to append to the report milestone
+        #[arg(long, value_name = "PATH")]
+        doc: Option<String>,
         /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
         #[arg(long)]
         pane: Option<String>,
-        /// Task outcome: done | blocked | partial
+        /// Plan id to append this report to
+        #[arg(long)]
+        plan: Option<String>,
+        /// Task id to append this report to
+        #[arg(long)]
+        task: Option<String>,
+        /// Task outcome: done | in_review | blocked | partial
         #[arg(long)]
         status: Option<ReportStatusArg>,
         /// Git branch the work landed on
@@ -98,6 +116,21 @@ pub enum AgentAction {
         /// Anything deliberately skipped
         #[arg(long)]
         skipped: Option<String>,
+    },
+    /// Send an immediate message to a running agent pane
+    Message {
+        /// Message text (positional, or omit and use --from-file/--stdin)
+        #[arg(allow_hyphen_values = true)]
+        text: Option<String>,
+        /// Target agent pane ID
+        #[arg(long, alias = "id")]
+        pane: String,
+        /// Read message text from a file instead of the positional arg
+        #[arg(long, value_name = "PATH")]
+        from_file: Option<String>,
+        /// Read message text from stdin
+        #[arg(long, visible_alias = "from-stdin", conflicts_with = "text")]
+        stdin: bool,
     },
     /// Read reports (for orchestrator panes)
     Reports {
@@ -226,10 +259,48 @@ mod tests {
         }
     }
 
+    fn parse_message(args: &[&str]) -> Result<AgentAction, clap::Error> {
+        let mut full = vec!["codeterm", "agent", "message"];
+        full.extend_from_slice(args);
+        let cli = Cli::try_parse_from(full)?;
+        match cli.command {
+            crate::Commands::Agent { action } => Ok(action),
+            _ => panic!("expected agent subcommand"),
+        }
+    }
+
     #[test]
-    fn report_status_accepts_done_blocked_partial() {
+    fn message_requires_target_pane() {
+        match parse_message(&["hello"]) {
+            Err(e) => assert_eq!(e.kind(), clap::error::ErrorKind::MissingRequiredArgument),
+            Ok(_) => panic!("message without --pane must be rejected"),
+        }
+    }
+
+    #[test]
+    fn message_parses_text_and_target_pane() {
+        let action = parse_message(&["hello", "--pane", "abc123"]).expect("message parses");
+        match action {
+            AgentAction::Message {
+                text,
+                pane,
+                from_file,
+                stdin,
+            } => {
+                assert_eq!(text.as_deref(), Some("hello"));
+                assert_eq!(pane, "abc123");
+                assert!(from_file.is_none());
+                assert!(!stdin);
+            }
+            _ => panic!("expected message action"),
+        }
+    }
+
+    #[test]
+    fn report_status_accepts_known_values() {
         for (input, expected) in [
             ("done", "done"),
+            ("in_review", "in_review"),
             ("blocked", "blocked"),
             ("partial", "partial"),
         ] {

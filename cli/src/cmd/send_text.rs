@@ -85,6 +85,10 @@ pub fn handle_send_text_result(json: bool, result: Result<serde_json::Value, Str
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "CLI command preserves send text option surface."
+)]
 pub fn handle_send_text(
     client: &mut SocketClient,
     json: bool,

@@ -72,7 +72,7 @@ pub enum PaneAction {
         eager: bool,
         /// Open a non-PTY chat-backend pane driven by the given plugin id
         /// (a plugin declaring the `chatBackend` capability).
-        /// `codeterm send`/`get-output` then route to the plugin, not a shell.
+        /// `codeterm send`/`pane get-text` then route to the plugin, not a shell.
         #[arg(long, value_name = "PLUGIN_ID")]
         chat_backend: Option<String>,
         /// JSON config object passed to the chat-backend plugin's `openSession`
@@ -372,7 +372,7 @@ pub enum ConfigAction {
 
 #[derive(clap::Subcommand)]
 pub enum WebAction {
-    /// Print a ready-to-open /web URL for THIS machine with the API token
+    /// Print a ready-to-open browser UI URL for THIS machine with the API token
     /// embedded in the URL fragment (use --query for ?token= instead).
     Link {
         /// Build a link for a paired mesh PEER (by instance name) instead of

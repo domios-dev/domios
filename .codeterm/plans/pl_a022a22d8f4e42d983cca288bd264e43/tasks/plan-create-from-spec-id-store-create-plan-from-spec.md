@@ -1,0 +1,1 @@
+Add codeterm plan create --from-spec <spec_id>: store create_plan_from_spec creates a Plan with primary_spec_id set, scaffolds plan sections mirroring the spec section tree, and auto-creates spec_links (spec_section->plan_section). Remove or repurpose the --spec/--spec-file text shortcut so it never dumps prose into a plan section.

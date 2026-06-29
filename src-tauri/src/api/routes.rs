@@ -1,7 +1,7 @@
 use axum::{
     http::{HeaderMap, StatusCode},
     middleware,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer};
@@ -9,9 +9,9 @@ use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, co
 use super::{
     agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, delayed_send_routes,
     fs_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
-    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, services_routes,
-    session_routes, theme_routes, updater_routes, usage_routes, web_routes, webhook_routes,
-    workspace_routes,
+    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, plan_routes,
+    services_routes, session_routes, task_routes, theme_routes, updater_routes, usage_routes,
+    web_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -30,12 +30,16 @@ pub struct AppState {
     pub test_clock: Option<std::sync::Arc<crate::cron::clock::MockClock>>,
     /// System event bus — feeds the web mirror's SSE stream.
     pub events: crate::api::events::EventBroadcasterState,
-    /// Directory holding the built React bundle, served at /web.
+    /// Directory holding the built React bundle, served at the daemon root.
     pub web_dist: Option<std::path::PathBuf>,
 }
 
 /// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
 pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
+
+async fn legacy_web_route_gone() -> StatusCode {
+    StatusCode::NOT_FOUND
+}
 
 pub fn create_router(state: AppState) -> Router {
     let router = Router::new()
@@ -99,6 +103,118 @@ pub fn create_router(state: AppState) -> Router {
             "/api/panes",
             get(pane_routes::list_panes).post(pane_routes::create_shell_pane),
         )
+        .route(
+            "/api/plans",
+            get(plan_routes::list).post(plan_routes::create),
+        )
+        .route(
+            "/api/specs",
+            get(plan_routes::spec::list).post(plan_routes::spec::create),
+        )
+        .route("/api/specs/{id}", get(plan_routes::spec::get))
+        .route("/api/specs/{id}/files", get(plan_routes::spec::files))
+        .route(
+            "/api/specs/{id}/sections",
+            post(plan_routes::spec::section_add),
+        )
+        .route(
+            "/api/specs/{id}/sections/{sid}",
+            patch(plan_routes::spec::section_update).delete(plan_routes::spec::section_rm),
+        )
+        .route("/api/specs/{id}/links", get(plan_routes::spec::link_list))
+        .route("/api/efforts/{id}", get(plan_routes::spec::effort_show))
+        .route(
+            "/api/efforts/{id}/links",
+            post(plan_routes::spec::effort_link),
+        )
+        .route(
+            "/api/plans/{id}",
+            get(plan_routes::get)
+                .patch(plan_routes::update)
+                .delete(plan_routes::delete_plan),
+        )
+        .route("/api/plans/{id}/archive", post(plan_routes::archive))
+        .route("/api/plans/{id}/unarchive", post(plan_routes::unarchive))
+        .route("/api/plans/{id}/reconcile", get(plan_routes::reconcile))
+        .route("/api/plans/{id}/state", get(plan_routes::state))
+        .route("/api/plans/{id}/next", get(plan_routes::next))
+        .route("/api/plans/{id}/transfer", post(plan_routes::transfer))
+        .route("/api/plans/{id}/disown", post(plan_routes::disown))
+        .route("/api/plans/{id}/claim", post(plan_routes::claim))
+        .route("/api/plans/{id}/ingest", post(plan_routes::ingest))
+        .route("/api/plans/{id}/sections", post(plan_routes::section_add))
+        .route(
+            "/api/plans/{id}/sections/{sid}",
+            patch(plan_routes::section_update).delete(plan_routes::section_rm),
+        )
+        .route("/api/plans/{id}/kinds", post(plan_routes::kinds_set))
+        .route(
+            "/api/plans/{id}/tag-facets",
+            post(plan_routes::tag_facets_set),
+        )
+        .route("/api/plans/{id}/coverage", get(plan_routes::coverage))
+        .route("/api/plans/{id}/groups", post(plan_routes::groups_set))
+        .route("/api/plans/{id}/batch", post(plan_routes::batch::batch))
+        .route(
+            "/api/plans/{id}/handoffs",
+            get(plan_routes::handoff::list).post(plan_routes::handoff::create),
+        )
+        .route(
+            "/api/plans/{id}/handoffs/show",
+            get(plan_routes::handoff::show),
+        )
+        .route("/api/plans/{id}/links", post(plan_routes::link))
+        .route("/api/plans/{id}/links/{to}", delete(plan_routes::unlink))
+        .route(
+            "/api/plans/{id}/spec-links",
+            post(plan_routes::spec::link_add),
+        )
+        .route(
+            "/api/plans/{id}/spec-links/{spec_id}",
+            delete(plan_routes::spec::link_rm),
+        )
+        .route("/api/plans/{id}/tasks", post(plan_routes::task_add))
+        .route("/api/tasks", get(task_routes::list).post(task_routes::add))
+        .route("/api/tasks/{id}", get(task_routes::show))
+        .route("/api/tasks/{id}/take", post(task_routes::take))
+        .route("/api/tasks/{id}/drop", post(task_routes::drop_task))
+        .route("/api/canvas/focus", post(task_routes::canvas_focus))
+        .route(
+            "/api/plans/{id}/tasks/{tid}",
+            patch(plan_routes::task_update).delete(plan_routes::task_rm),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/close",
+            post(plan_routes::task_close),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/assign",
+            post(plan_routes::task_assign),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/milestones",
+            post(plan_routes::milestone_add),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/milestones/{ms_id}",
+            patch(plan_routes::milestone_update).delete(plan_routes::milestone_rm),
+        )
+        .route("/api/plans/{id}/loops", post(plan_routes::loop_create))
+        .route(
+            "/api/plans/{id}/loops/{lid}",
+            get(plan_routes::loop_status).patch(plan_routes::loop_set),
+        )
+        .route(
+            "/api/plans/{id}/loops/{lid}/stop",
+            post(plan_routes::loop_stop),
+        )
+        .route(
+            "/api/plans/{id}/loops/{lid}/advance",
+            post(plan_routes::loop_advance),
+        )
+        .route("/api/plans/{id}/layout", patch(plan_routes::layout_set))
+        .route("/api/plans/{id}/notes", post(plan_routes::note_add))
+        .route("/api/plans/{id}/elements", post(plan_routes::element_add))
         .route("/api/panes/{id}/send", post(pane_routes::send_text))
         .route("/api/panes/{id}/stop", post(pane_routes::stop_pane))
         .route("/api/panes/{id}/focus", post(pane_routes::focus_pane))
@@ -420,6 +536,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/mesh/pair/reject", post(mesh_routes::mesh_pair_reject))
         .route("/api/mesh/introduce", post(mesh_routes::mesh_introduce))
         .route("/api/mesh/sync", post(mesh_routes::mesh_sync))
+        .route("/api/mesh/enabled", post(mesh_routes::mesh_set_enabled))
         .route(
             "/api/mesh/broadcast/start",
             post(mesh_routes::mesh_start_broadcast),
@@ -679,26 +796,29 @@ pub fn create_router(state: AppState) -> Router {
             .layer(CompressionLayer::new()),
     );
 
-    // Web mirror: serve the built React bundle at /web with an SPA fallback (deep links resolve to index.html). Public route — the auth middleware
-    // skips /web; all API calls remain token-gated.
+    // Web mirror: serve the built React bundle at the daemon root with an SPA
+    // fallback (deep links resolve to index.html). Public route — the auth
+    // middleware skips non-/api paths; all API calls remain token-gated.
     let router = if let Some(dist) = &state.web_dist {
-        let serve = tower_http::services::ServeDir::new(dist).fallback(
+        let root_serve = tower_http::services::ServeDir::new(dist).fallback(
             tower_http::services::ServeFile::new(dist.join("index.html")),
         );
         // no-cache = revalidate every load (304s via Last-Modified). Installed
         // iOS web apps otherwise heuristically cache index.html and miss updates.
-        let serve = tower_http::set_header::SetResponseHeader::overriding(
-            serve,
+        let root_serve = tower_http::set_header::SetResponseHeader::overriding(
+            root_serve,
             axum::http::header::CACHE_CONTROL,
             axum::http::HeaderValue::from_static("no-cache"),
         );
         router
-            .route("/web/manifest.webmanifest", get(web_routes::web_manifest))
+            .route("/manifest.webmanifest", get(web_routes::web_manifest))
             .route(
-                "/web/manifest-bootstrap",
+                "/manifest-bootstrap",
                 axum::routing::post(web_routes::web_manifest_bootstrap),
             )
-            .nest_service("/web", serve)
+            .route("/web", get(legacy_web_route_gone))
+            .route("/web/{*path}", get(legacy_web_route_gone))
+            .fallback_service(root_serve)
     } else {
         router
     };

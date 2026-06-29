@@ -1,0 +1,1 @@
+Emit hints: spec create -> add sections then plan create --from-spec; spec section add -> link or build plan; plan create WITHOUT a spec -> warn plans are built from a spec; after plan sections exist with a bound spec but no links -> nudge spec link add. Reuse cli/src/cmd/hints.rs.
