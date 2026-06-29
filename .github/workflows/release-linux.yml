@@ -86,17 +86,10 @@ jobs:
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install system dependencies
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            patchelf
+      # System deps (webkit2gtk-4.1, gtk-3, rsvg, appindicator, patchelf, libfuse2,
+      # xdg-utils, …) are pre-provisioned on the self-hosted linux-build runner
+      # (ubunta). No apt-install step — the runner user has no passwordless sudo,
+      # and re-installing per build is wrong for a self-hosted machine.
 
       # Repo-pinned toolchain (rust-toolchain.toml = 1.95.0) drives rustc; do NOT
       # use dtolnay@stable, which would float off the pin. x86_64-unknown-linux-gnu
