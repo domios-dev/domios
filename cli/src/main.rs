@@ -495,11 +495,15 @@ fn main() {
                     KeepAwakeAction::Start {
                         duration_secs,
                         display,
+                        gnome_policy,
+                        system_block,
                     } => http
                         .post(format!("{}/api/keepawake/start", base))
                         .json(&serde_json::json!({
                             "duration_secs": duration_secs,
                             "display": display,
+                            "gnome_policy": gnome_policy,
+                            "system_block": system_block,
                         }))
                         .send()
                         .map_err(|e| e.to_string())

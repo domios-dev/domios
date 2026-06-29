@@ -75,6 +75,8 @@ pub async fn serve_disable_handler(
 pub(crate) struct KeepAwakeStartBody {
     duration_secs: Option<u64>,
     display: Option<bool>,
+    gnome_policy: Option<bool>,
+    system_block: Option<bool>,
 }
 
 pub async fn keepawake_status_handler(
@@ -100,6 +102,8 @@ pub async fn keepawake_start_handler(
         &state.svc.app_handle,
         body.duration_secs,
         body.display,
+        body.gnome_policy,
+        body.system_block,
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(
