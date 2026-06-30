@@ -83,10 +83,12 @@ impl ServiceContext {
     }
 
     pub fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
-        self.mux.write().set_focused_pane(pane_id)?;
-        self.emit_pane_focus_changed(pane_id);
-        self.refresh_focused_pane_model();
-        Ok(())
+        focus_pane_hot_path(
+            &self.mux,
+            pane_id,
+            |focused| self.emit_pane_focus_changed(focused),
+            || self.schedule_focused_pane_model_refresh(),
+        )
     }
 
     pub fn link_pty(&self, pane_id: &str, pty_id: String) {
@@ -272,6 +274,13 @@ impl ServiceContext {
         if let Some((pid, at)) = target {
             self.refresh_session_model_once(&pid, &at);
         }
+    }
+
+    fn schedule_focused_pane_model_refresh(&self) {
+        let svc = self.clone();
+        std::thread::spawn(move || {
+            svc.refresh_focused_pane_model();
+        });
     }
 
     fn refresh_session_model_once(&self, pane_id: &str, agent_id: &str) {
@@ -637,4 +646,16 @@ impl ServiceContext {
         self.emit_state_changed();
         Ok(())
     }
+}
+
+pub(crate) fn focus_pane_hot_path(
+    mux: &crate::multiplexer::commands::MuxState,
+    pane_id: &str,
+    emit_focus_changed: impl FnOnce(&str),
+    schedule_model_refresh: impl FnOnce(),
+) -> Result<(), String> {
+    mux.write().set_focused_pane(pane_id)?;
+    emit_focus_changed(pane_id);
+    schedule_model_refresh();
+    Ok(())
 }
