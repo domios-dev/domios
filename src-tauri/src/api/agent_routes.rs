@@ -298,6 +298,19 @@ pub async fn clear_pane_role(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+pub async fn make_orchestrator(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    state
+        .svc
+        .make_orchestrator(&id)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 pub async fn get_pane_status(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
