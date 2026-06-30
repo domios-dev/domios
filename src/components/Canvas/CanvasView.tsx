@@ -52,6 +52,7 @@ import { useCanvasChangeSignal } from "./canvasView/useCanvasChangeSignal";
 import { useStableSet } from "./canvasView/useStableSet";
 import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
 import { bumpCanvasChurn } from "./canvasChurn";
+import { PlanViewShell } from "./PlanViewShell";
 
 export type { TaskCardModel } from "./canvasView/models";
 
@@ -869,7 +870,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
     [perfN, useReal, plans, state.panes],
   );
   return (
-    <CanvasViewInner
+    <PlanViewShell
       mode={mode}
       plans={plans}
       loading={loading}

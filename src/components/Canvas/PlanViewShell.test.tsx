@@ -1,0 +1,134 @@
+// Run: npx tsx src/components/Canvas/PlanViewShell.test.tsx
+
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { Window } from "happy-dom";
+import { __setListenForTest } from "../../lib/bridge";
+import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
+import { PlanViewShell } from "./PlanViewShell";
+
+type TestFn = () => void | Promise<void>;
+const tests: Array<[string, TestFn]> = [];
+function test(name: string, fn: TestFn) {
+  tests.push([name, fn]);
+}
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+const STABLE_PANES = {};
+const SHELL_PROPS = {
+  mode: "workspace" as const,
+  plans: [FIXTURE_PLAN],
+  panes: STABLE_PANES,
+  viewportPadding: 10000,
+};
+
+function setupDom() {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const window = new Window({ url: "http://localhost/plan-view-shell" });
+  (window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }).__TAURI_INTERNALS__ = {};
+  Object.defineProperty(globalThis, "window", { value: window, configurable: true });
+  Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
+  Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
+  Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
+  Object.defineProperty(globalThis, "HTMLButtonElement", { value: window.HTMLButtonElement, configurable: true });
+  Object.defineProperty(globalThis, "ResizeObserver", {
+    configurable: true,
+    value: class {
+      observe() {}
+      disconnect() {}
+    },
+  });
+  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
+  Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
+  (globalThis as unknown as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame =
+    (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0) as unknown as number;
+  __setListenForTest(async () => () => {});
+}
+
+async function render(ui: ReactElement) {
+  setupDom();
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root: Root = createRoot(host);
+  await act(async () => {
+    root.render(ui);
+  });
+  return {
+    host,
+    root,
+    rerender: async (next: ReactElement) => {
+      await act(async () => {
+        root.render(next);
+      });
+    },
+    unmount: async () => {
+      await act(async () => {
+        root.unmount();
+      });
+      host.remove();
+    },
+  };
+}
+
+function clickTab(host: HTMLElement, label: string) {
+  const tabs = host.querySelectorAll('[data-testid="plan-view-mode-switch"] [role="tab"]');
+  for (const tab of tabs) {
+    if (tab.textContent?.trim() === label) {
+      (tab as HTMLButtonElement).click();
+      return;
+    }
+  }
+  throw new Error(`tab not found: ${label}`);
+}
+
+test("PlanViewShell defaults to canvas mode", async () => {
+  const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
+  const shell = host.querySelector('[data-testid="plan-view-shell"]');
+  assert(shell?.getAttribute("data-plan-view-mode") === "canvas", "default mode attr");
+  const canvas = host.querySelector('[data-testid="canvas-view"]');
+  assert(canvas && !canvas.hasAttribute("hidden"), "canvas visible");
+  const list = host.querySelector('[data-testid="plan-list-view"]');
+  assert(list?.hasAttribute("hidden"), "list hidden");
+  await unmount();
+});
+
+test("PlanViewShell switches to list and board without losing shell target", async () => {
+  const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
+  await act(async () => {
+    clickTab(host, "List");
+  });
+  const shell = host.querySelector('[data-testid="plan-view-shell"]');
+  assert(shell?.getAttribute("data-plan-view-mode") === "list", "list mode attr");
+  const list = host.querySelector('[data-testid="plan-list-view"]');
+  assert(list && !list.hasAttribute("hidden"), "list visible");
+  const canvas = host.querySelector('[data-testid="canvas-view"]');
+  assert(canvas?.hasAttribute("hidden"), "canvas hidden but mounted");
+
+  await act(async () => {
+    clickTab(host, "Board");
+  });
+  assert(shell?.getAttribute("data-plan-view-mode") === "board", "board mode attr");
+  const board = host.querySelector('[data-testid="plan-board-view"]');
+  assert(board && !board.hasAttribute("hidden"), "board visible");
+  await unmount();
+});
+
+let passed = 0;
+async function main() {
+  for (const [name, fn] of tests) {
+    try {
+      await fn();
+      passed++;
+      console.log(`  ✓ ${name}`);
+    } catch (e) {
+      console.error(`  ✗ ${name}`);
+      console.error(e);
+      process.exit(1);
+    }
+  }
+  console.log(`\n✓ ${passed}/${tests.length} PlanViewShell tests passed`);
+}
+
+main();
