@@ -1077,6 +1077,19 @@ button,
   color: var(--ct-fg, #c9d1d9);
 }
 
+/* Tab bar: plan glance is a fixed-size dot — no pulse, no layout jump. */
+.ct-tab-activity-quiet {
+  opacity: 0.58;
+  flex-shrink: 0;
+}
+
+/* Sidebar tabs keep provider icons static; liveness lives in-pane/canvas. */
+.sidebar-tab .agent-icon-working > svg {
+  animation: none;
+  transform: none;
+  opacity: 1;
+}
+
 /* Pinned workspace plan action — sits above closable tab rows, not a tab. */
 .sidebar-workspace-plan {
   position: relative;

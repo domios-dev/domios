@@ -1,12 +1,15 @@
-import { Workflow } from "lucide-react";
-import { presenceColor } from "../Canvas/presence/identity";
 import type { PaneTabActivity } from "../Canvas/paneTabActivity";
+import { presenceColor } from "../Canvas/presence/identity";
 
-// EMERGENCE (north-star #2): the per-tab swarm glance. Deliberately TINY — a single
-// 7px token that never widens or clips the tab title (shrink-0, leading-none). A
-// WORKER wears its board-identity dot (same presenceColor as its agent circle on the
-// canvas); an ORCHESTRATOR wears the plan glyph (same hue as its plan presence).
-const ORCH_ACCENT = "rgba(82,180,145,0.95)"; // matches OrchestratorProgressStrip
+const ORCH_ACCENT = "rgba(82,180,145,0.72)";
+
+function quietDot(color: string) {
+  return {
+    width: 5,
+    height: 5,
+    background: color,
+  } as const;
+}
 
 export function TabActivityIndicator({
   activity,
@@ -23,13 +26,12 @@ export function TabActivityIndicator({
       <span
         data-testid="tab-activity"
         data-activity-kind="orchestrator"
+        data-tab-activity-quiet="true"
         data-plan-id={activity.planId}
         title={title}
-        className="shrink-0 inline-flex items-center leading-none"
-        style={{ color: ORCH_ACCENT }}
-      >
-        <Workflow size={11} strokeWidth={2.4} aria-hidden />
-      </span>
+        className="ct-tab-activity-quiet shrink-0 block rounded-full"
+        style={quietDot(ORCH_ACCENT)}
+      />
     );
   }
 
@@ -39,15 +41,11 @@ export function TabActivityIndicator({
     <span
       data-testid="tab-activity"
       data-activity-kind="worker"
+      data-tab-activity-quiet="true"
       data-plan-id={activity.planId}
       title={title}
-      className="shrink-0 block rounded-full"
-      style={{
-        width: 7,
-        height: 7,
-        background: color,
-        boxShadow: `0 0 0 1px color-mix(in srgb, ${color} 55%, transparent)`,
-      }}
+      className="ct-tab-activity-quiet shrink-0 block rounded-full"
+      style={quietDot(color)}
     />
   );
 }
