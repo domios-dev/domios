@@ -3,7 +3,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
+import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task } from "../types";
 import { PlanBoardView } from "./PlanBoardView";
 
