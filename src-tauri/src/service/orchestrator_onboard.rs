@@ -31,7 +31,13 @@ pub fn orchestrator_onboarding_body(pane_id: &str) -> String {
     format!(
         "You are now the Orchestrator for this pane (role=Orchestrator, can_spawn=true).\n\
 \n\
-Read the orchestration toolset (full reference):\n\
+First load the orchestration rules and local preferences:\n\
+  codeterm docs ORCHESTRATION\n\
+  codeterm mem search \"CodeTerm planner orchestration preferences\"\n\
+\n\
+Planning rule: CodeTerm planner is the source of truth. Set GOAL first; put WHAT/WHY in Spec, HOW in Plan sections, and concrete work in Tasks. Do not create markdown implementation plans as the primary plan unless the user explicitly asks for an export.\n\
+\n\
+Full orchestration toolset reference:\n\
   codeterm doc orchestration\n\
   (alias: codeterm docs ORCHESTRATION)\n\
 \n\
@@ -121,6 +127,8 @@ mod tests {
     #[test]
     fn onboarding_body_lists_canonical_commands() {
         let msg = orchestrator_onboarding_body("pane-abc");
+        assert!(msg.contains("CodeTerm planner is the source of truth"));
+        assert!(msg.contains("codeterm mem search \"CodeTerm planner orchestration preferences\""));
         assert!(msg.contains("codeterm doc orchestration"));
         assert!(msg.contains("codeterm docs ORCHESTRATION"));
         assert!(msg.contains("codeterm orchestrator status --plan PLAN_ID"));
