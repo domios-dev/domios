@@ -102,4 +102,14 @@ mod tests {
         assert!(!MEM_EXTRACTION.contains("mem search returns BOTH"));
         assert!(!DREAMING_REM.contains("mem search returns BOTH"));
     }
+
+    #[test]
+    fn orchestration_prompts_separate_capability_from_mode() {
+        assert!(GENERAL_AGENT_TEMPLATE.contains("Orchestrator is an explicit mode"));
+        assert!(GENERAL_AGENT_TEMPLATE.contains("Until then, stay the machine-level General Agent"));
+        assert!(CODETERM_CLI.contains("You are not automatically an Orchestrator"));
+        assert!(CODETERM_CLI.contains("Make Orchestrator"));
+        assert!(CODETERM_CLI.contains("codeterm docs ORCHESTRATION"));
+        assert!(ORCHESTRATOR_SUFFIX.contains("CodeTerm planner is the source of truth"));
+    }
 }

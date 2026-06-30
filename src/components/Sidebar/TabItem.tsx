@@ -21,6 +21,7 @@ import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { TabActivityIndicator } from "./TabActivityIndicator";
+import { RoleIcon } from "./HierarchyTree";
 import type { PaneTabActivity } from "../Canvas/paneTabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { canMakeOrchestrator, makeOrchestrator } from "../../lib/orchestratorOnboard";
@@ -256,6 +257,11 @@ function TabItemInner({
           </span>
         )}
         {/* Plan-membership glance — worker dot / orchestrator glyph (EMERGENCE) */}
+        {pane?.role && !activity && !editing && (
+          <span data-testid="tab-role-indicator" data-tab-role={pane.role} className="shrink-0 text-[var(--ct-muted-fg)]/70">
+            <RoleIcon role={pane.role} uiFontScale={uiFontScale} />
+          </span>
+        )}
         {activity && pane && !editing && (
           <TabActivityIndicator activity={activity} paneId={pane.id} />
         )}

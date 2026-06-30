@@ -20,6 +20,10 @@ assert(
   "TabItem should use the shared sidebar model badge",
 );
 assert(
+  source.includes('import { RoleIcon } from "./HierarchyTree";'),
+  "TabItem should use the shared role icon for real orchestrator/worker roles",
+);
+assert(
   source.includes("const tabModelBadge = tabModel ? formatModelBadge(tabModel) : null;"),
   "TabItem should derive badge text through formatModelBadge",
 );
@@ -42,6 +46,10 @@ assert(
 assert(
   source.includes("description && !activity"),
   "TabItem should hide description subtitles when plan activity is shown elsewhere",
+);
+assert(
+  source.includes('data-testid="tab-role-indicator"') && source.includes("data-tab-role={pane.role}"),
+  "TabItem should show a quiet role marker when a pane is promoted without plan activity",
 );
 
 console.log("✓ TabItem quiet tab chrome: no task bubbles, no working spin, subdued subtitles");

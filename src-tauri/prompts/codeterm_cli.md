@@ -420,6 +420,8 @@ Full reference (every command, all kinds, graph queries, search-strategy details
 
 Persistent per-project plans (spec → tasks → milestone chains → self-improving loops). Full mechanics: `codeterm docs ORCHESTRATION`.
 
+You are not automatically an Orchestrator just because this command surface exists. If the user asks you to manage multi-step work, or the UI promotes your pane with **Make Orchestrator**, use the CodeTerm planner as the source of truth: read `codeterm docs ORCHESTRATION`, set GOAL first, put WHAT/WHY in Spec, HOW in Plan sections, and concrete work in Tasks with criteria/tests/correctness. Do not use standalone markdown implementation plans as the primary plan unless the user explicitly asks for an export. Check `codeterm mem wake-up --workspace $CODETERM_WORKSPACE_ID` or `codeterm mem search "CodeTerm planner orchestration preferences"` for local planning preferences.
+
 Essential one-liners:
 
 ```bash

@@ -1,10 +1,12 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
 > **Doc entry:** `codeterm doc orchestration` (full doc). `codeterm docs ORCHESTRATION` is the same content via the list command.
+
+**Planning source of truth:** in this project, durable planning content lives in CodeTerm GOAL/Spec/Plan/Tasks/Strides. Do not create `docs/superpowers/plans/*` or standalone markdown implementation plans as the primary plan unless the user explicitly asks for an export. Markdown may guide style, but the authoritative state is the planner.
 
 ## Model — the EFFORT: GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides
 

@@ -217,6 +217,24 @@ CodeTerm-project skills live in **`<repo>/.agents/skills/`** — version-control
 > in mem as `skill_codeterm_orchestrator`. Do not keep a duplicate under `.agents/`/`.claude`/
 > `~/.agents`. Each machine adapts only its build-capacity section (weak vs powerful).
 
+### CodeTerm planning is the source of truth
+
+For multi-step project work, use the CodeTerm planner as the primary planning surface.
+Before creating or restructuring an effort, read `codeterm docs ORCHESTRATION`.
+
+- Set the GOAL first.
+- Put WHAT/WHY into `codeterm spec` sections.
+- Put HOW/execution phases into `codeterm plan` sections.
+- Put concrete execution work into `codeterm plan task` entries with body,
+  acceptance criteria, test plan, correctness vector, and section links.
+- Run `codeterm plan state <plan_id>` after structural edits and keep coverage clean.
+- Do not use `docs/superpowers/plans/*` as the primary plan in this repo. Markdown
+  plans are exports/secondary artifacts only unless the user explicitly asks for one.
+- At orchestration start, check `codeterm mem wake-up --workspace $CODETERM_WORKSPACE_ID`
+  or `codeterm mem search "CodeTerm planner orchestration preferences"` for local
+  machine/user planning preferences. If the user gives a durable preference, save it
+  to mem instead of relying on chat context.
+
 Prod build lives in `./build.sh build`; Windows local NSIS self-install in `scripts/self-install-local.ps1`.
 
 On a fresh clone, register them with mem so the Librarian indexes them:
