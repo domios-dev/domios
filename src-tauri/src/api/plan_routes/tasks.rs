@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::plan::{AgentRef, OrchestratorRef, TaskLaneMetadata};
+use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
 
 use super::{
@@ -298,6 +299,97 @@ pub async fn task_assign(
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn task_attempts(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let attempts = state
+        .svc
+        .plan_store
+        .list_task_attempts(&id, &tid)
+        .map_err(plan_err)?;
+    Ok(Json(serde_json::json!({
+        "plan_id": id,
+        "task_id": tid,
+        "attempts": attempts
+    })))
+}
+
+pub async fn task_attempt_show(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid, attempt_id)): Path<(String, String, String)>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let attempt = state
+        .svc
+        .plan_store
+        .show_task_attempt(&id, &tid, &attempt_id)
+        .map_err(plan_err)?;
+    Ok(Json(serde_json::json!({
+        "plan_id": id,
+        "task_id": tid,
+        "attempt": attempt
+    })))
+}
+
+pub async fn task_respawn(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+    Json(body): Json<TaskRespawnRequest>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let draft = state
+        .svc
+        .plan_store
+        .build_task_respawn_draft(&id, &tid, body)
+        .map_err(plan_err)?;
+    let spawn = state
+        .svc
+        .spawn_agent(
+            crate::service::SpawnAgentParams {
+                agent: Some(draft.provider.clone()),
+                cwd: Some(draft.cwd.clone()),
+                title: Some(draft.title.clone()),
+                role: Some("Worker".into()),
+                parent_pane_id: draft.parent_pane_id.clone(),
+                task: Some(draft.task_prompt.clone()),
+                workspace_id: draft.workspace_id.clone(),
+                spawned_by_pane_id: draft.parent_pane_id.clone(),
+                model: draft.model.clone(),
+                ..Default::default()
+            },
+            None,
+        )
+        .await
+        .map_err(|e| text_err(axum::http::StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let created = state
+        .svc
+        .plan_store
+        .record_task_respawn_attempt(
+            &id,
+            &tid,
+            &spawn.pane_id,
+            &draft,
+            Some("worker"),
+            epoch_ms(),
+        )
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "plan_id": id,
+        "task_id": tid,
+        "pane_id": spawn.pane_id,
+        "spawn": spawn,
+        "attempt": created.attempt,
+        "draft": draft
+    })))
 }
 
 pub async fn task_rm(

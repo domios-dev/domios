@@ -151,10 +151,10 @@ impl ServiceContext {
             }
             ops.push(crate::service::plan::batch::BatchOp::AddMilestone {
                 client_id: Some("report".into()),
-                task: task_id,
+                task: task_id.clone(),
                 kind: milestone_kind.unwrap_or("status_update").into(),
                 text: milestone_text(message, details.status),
-                from: Some(from_ref),
+                from: Some(from_ref.clone()),
                 key: None,
                 links: vec![],
             });
@@ -165,6 +165,14 @@ impl ServiceContext {
                     epoch_ms(),
                 )
                 .map_err(|e| e.to_string())?;
+            let _ = self.plan_store.record_task_attempt_report(
+                plan_id,
+                &task_id,
+                &from_ref,
+                message,
+                details.status,
+                epoch_ms(),
+            );
             self.plan_turn_counter.reset(pane_id);
             crate::api::events::emit_everywhere(
                 &self.app_handle,

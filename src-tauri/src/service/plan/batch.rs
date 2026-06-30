@@ -408,6 +408,7 @@ impl PlanStore {
                                     group,
                                     canvas: Default::default(),
                                     milestones: vec![],
+                                    execution_attempts: vec![],
                                 };
                                 working.tasks.push(task);
                                 id

@@ -378,6 +378,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
             iteration: None,
             canvas: Default::default(),
         }],
+        execution_attempts: vec![],
     });
     plan.elements.push(CanvasElement {
         id: "el_discussion".into(),
@@ -465,6 +466,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
             iteration: None,
             canvas: Default::default(),
         }],
+        execution_attempts: vec![],
     });
     let json_path = plans_dir.join(format!("{}.json", plan.id));
     std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();

@@ -6697,6 +6697,62 @@
               "subcommands": []
             },
             {
+              "name": "attempt",
+              "about": "Show one execution attempt for a plan task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "attempt_id",
+                  "positional": true,
+                  "value_name": "ATTEMPT_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "attempts",
+              "about": "List execution attempts for a plan task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "close",
               "about": "Close a task (records a result; rejects if subtasks are open)",
               "aliases": [],
@@ -6817,6 +6873,78 @@
                   "name": "plan_id",
                   "positional": true,
                   "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "respawn",
+              "about": "Respawn a worker from one prior execution attempt",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "attempt",
+                  "positional": false,
+                  "value_name": "ATTEMPT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "model",
+                  "positional": false,
+                  "value_name": "MODEL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "parent",
+                  "positional": false,
+                  "value_name": "PARENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "provider",
+                  "positional": false,
+                  "value_name": "PROVIDER",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "title",
+                  "positional": false,
+                  "value_name": "TITLE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "workspace",
+                  "positional": false,
+                  "value_name": "WORKSPACE",
                   "default": null,
                   "help": null,
                   "aliases": []

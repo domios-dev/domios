@@ -20,12 +20,15 @@ pub mod spec_files;
 pub mod state;
 pub mod stride_log;
 pub mod tag_model;
+pub mod task_attempts;
 pub mod task_queries;
 pub mod watcher;
 pub mod worker_charter;
 
 #[cfg(test)]
 mod body_file_tests;
+#[cfg(test)]
+mod core_tests;
 #[cfg(test)]
 mod goal_tests;
 #[cfg(test)]
@@ -34,6 +37,8 @@ mod heartbeat_tests;
 mod reminder_tests;
 #[cfg(test)]
 mod subtask_close_tests;
+#[cfg(test)]
+mod task_attempt_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

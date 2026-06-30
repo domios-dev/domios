@@ -372,6 +372,7 @@ fn dispatch(
                     "plan.ingest", "plan.section.add", "plan.section.update", "plan.section.rm",
                     "plan.kinds.set", "plan.tag_facets.set",
                     "plan.task.add", "plan.task.update", "plan.task.close", "plan.task.assign",
+                    "plan.task.attempts", "plan.task.attempt.show", "plan.task.respawn",
                     "plan.task.rm",
                     "plan.milestone.add", "plan.milestone.update", "plan.milestone.rm",
                     "plan.loop.create", "plan.loop.set", "plan.loop.status", "plan.loop.stop", "plan.loop.advance",

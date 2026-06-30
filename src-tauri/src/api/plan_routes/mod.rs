@@ -27,7 +27,10 @@ pub use plans::{
     tag_facets_set, transfer, unarchive, update,
 };
 pub use sections::{ingest, section_add, section_rm, section_update};
-pub use tasks::{task_add, task_assign, task_close, task_rm, task_update};
+pub use tasks::{
+    task_add, task_assign, task_attempt_show, task_attempts, task_close, task_respawn, task_rm,
+    task_update,
+};
 
 #[cfg(test)]
 mod tests;

@@ -884,6 +884,91 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
 
+        "plan.task.attempts" => {
+            let id = get_string_param(params, "plan_id")?;
+            let tid = get_string_param(params, "task_id")?;
+            let attempts = store.list_task_attempts(&id, &tid).map_err(plan_rpc_err)?;
+            Ok(json!({ "plan_id": id, "task_id": tid, "attempts": attempts }))
+        }
+
+        "plan.task.attempt.show" => {
+            let id = get_string_param(params, "plan_id")?;
+            let tid = get_string_param(params, "task_id")?;
+            let attempt_id = get_string_param(params, "attempt_id")?;
+            let attempt = store
+                .show_task_attempt(&id, &tid, &attempt_id)
+                .map_err(plan_rpc_err)?;
+            Ok(json!({ "plan_id": id, "task_id": tid, "attempt": attempt }))
+        }
+
+        "plan.task.respawn" => {
+            let id = get_string_param(params, "plan_id")?;
+            let tid = get_string_param(params, "task_id")?;
+            let body = p.ok_or(JsonRpcError {
+                code: -32602,
+                message: "params required".to_string(),
+                data: None,
+            })?;
+            let request = crate::service::plan::task_attempts::TaskRespawnRequest {
+                attempt_id: get_string_param(params, "attempt_id")?,
+                provider: body
+                    .get("provider")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                model: body
+                    .get("model")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                parent_pane_id: body
+                    .get("parent_pane_id")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                workspace_id: body
+                    .get("workspace_id")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                title: body
+                    .get("title")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+            };
+            let draft = store
+                .build_task_respawn_draft(&id, &tid, request)
+                .map_err(plan_rpc_err)?;
+            let spawn_params = crate::service::SpawnAgentParams {
+                agent: Some(draft.provider.clone()),
+                cwd: Some(draft.cwd.clone()),
+                title: Some(draft.title.clone()),
+                role: Some("Worker".into()),
+                parent_pane_id: draft.parent_pane_id.clone(),
+                task: Some(draft.task_prompt.clone()),
+                workspace_id: draft.workspace_id.clone(),
+                model: draft.model.clone(),
+                spawned_by_pane_id: draft.parent_pane_id.clone(),
+                ..Default::default()
+            };
+            let spawn = svc
+                .spawn_agent_sync(spawn_params)
+                .map_err(|e| JsonRpcError {
+                    code: -32603,
+                    message: e,
+                    data: None,
+                })?;
+            let created = store
+                .record_task_respawn_attempt(&id, &tid, &spawn.pane_id, &draft, Some("worker"), now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({
+                "ok": true,
+                "plan_id": id,
+                "task_id": tid,
+                "pane_id": spawn.pane_id,
+                "spawn": spawn,
+                "attempt": created.attempt,
+                "draft": draft
+            }))
+        }
+
         "plan.task.rm" => {
             let id = get_string_param(params, "plan_id")?;
             let tid = get_string_param(params, "task_id")?;

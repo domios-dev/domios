@@ -192,6 +192,18 @@ pub fn create_router(state: AppState) -> Router {
             post(plan_routes::task_assign),
         )
         .route(
+            "/api/plans/{id}/tasks/{tid}/attempts",
+            get(plan_routes::task_attempts),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}",
+            get(plan_routes::task_attempt_show),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/respawn",
+            post(plan_routes::task_respawn),
+        )
+        .route(
             "/api/plans/{id}/tasks/{tid}/milestones",
             post(plan_routes::milestone_add),
         )

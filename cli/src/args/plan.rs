@@ -529,6 +529,31 @@ pub enum PlanTaskAction {
         #[arg(long, alias = "peer")]
         mesh: Option<String>,
     },
+    /// List execution attempts for a plan task
+    Attempts { plan_id: String, task_id: String },
+    /// Show one execution attempt for a plan task
+    Attempt {
+        plan_id: String,
+        task_id: String,
+        attempt_id: String,
+    },
+    /// Respawn a worker from one prior execution attempt
+    Respawn {
+        plan_id: String,
+        task_id: String,
+        #[arg(long)]
+        attempt: String,
+        #[arg(long)]
+        provider: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        parent: Option<String>,
+        #[arg(long)]
+        workspace: Option<String>,
+        #[arg(long)]
+        title: Option<String>,
+    },
     /// Link a task to one or more plan sections (CSV)
     Link {
         plan_id: String,
