@@ -206,12 +206,12 @@ impl ServiceContext {
     }
 
     /// Poll the screen until the provider's TUI fingerprint shows, bounded by `timeout`. Best-effort.
-    fn await_agent_tui_on_screen(
+    pub(crate) fn await_agent_tui_on_screen(
         &self,
         pty_id: &str,
         agent_id: &str,
         timeout: std::time::Duration,
-    ) {
+    ) -> bool {
         let deadline = std::time::Instant::now() + timeout;
         loop {
             let screen = self.screen_state.lock().get_screen_text(pty_id);
@@ -222,11 +222,11 @@ impl ServiceContext {
                         .with_provider(agent_id, |p| p.screen_has_tui(&text))
                         .unwrap_or(false);
                 if ready {
-                    return;
+                    return true;
                 }
             }
             if std::time::Instant::now() >= deadline {
-                return;
+                return false;
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
