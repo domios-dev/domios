@@ -39,6 +39,7 @@ pub mod plan_task_retag;
 pub mod plan_task_update;
 pub mod plugin;
 pub mod print;
+pub mod report_guard;
 pub mod send_text;
 pub mod service;
 pub mod sessions;
