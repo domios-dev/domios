@@ -286,3 +286,36 @@ fn test_build_non_claude_ignores_task_in_command() {
     // Non-claude: task is NOT added to the command (it's sent separately via PTY) The function just puts agent_cmd + args
     assert_eq!(cmd, "aider");
 }
+
+#[test]
+fn initial_task_delivery_requires_echo_and_submit_confirmation() {
+    let ok = crate::service::inject_verify::InjectionResult {
+        bytes_written: 42,
+        echo_observed: true,
+        submit_observed: true,
+        elapsed: std::time::Duration::from_millis(50),
+    };
+    assert!(initial_task_delivery_confirmed(&ok).is_ok());
+
+    let lost_before_echo = crate::service::inject_verify::InjectionResult {
+        echo_observed: false,
+        ..ok.clone()
+    };
+    assert!(
+        initial_task_delivery_confirmed(&lost_before_echo)
+            .unwrap_err()
+            .contains("not observed"),
+        "spawn task delivery must not succeed when a TUI swallowed the paste before echo"
+    );
+
+    let not_submitted = crate::service::inject_verify::InjectionResult {
+        submit_observed: false,
+        ..ok
+    };
+    assert!(
+        initial_task_delivery_confirmed(&not_submitted)
+            .unwrap_err()
+            .contains("not confirmed"),
+        "spawn task delivery must not succeed when Enter was swallowed"
+    );
+}

@@ -822,6 +822,17 @@ pub(crate) fn launch_agent_in_background(
                 if !warmup.is_zero() {
                     std::thread::sleep(warmup);
                 }
+                if !svc.await_agent_tui_on_screen(
+                    &pty_id,
+                    &agent_cmd,
+                    std::time::Duration::from_secs(15),
+                ) {
+                    log::warn!(
+                        "launch_agent: timed out waiting for {} TUI before task delivery in pane {}",
+                        agent_cmd,
+                        pane_id
+                    );
+                }
                 let provider_submit_strategy = registry
                     .with_provider(&agent_cmd, |p| p.verify_submit_strategy())
                     .unwrap_or(crate::agent::provider::VerifySubmitStrategy::ShellPrompt {
@@ -832,16 +843,27 @@ pub(crate) fn launch_agent_in_background(
                     verify_echo: true,
                     verify_submit: true,
                     prompt_timeout: std::time::Duration::from_secs(0),
-                    echo_timeout: std::time::Duration::from_secs(3),
+                    echo_timeout: std::time::Duration::from_secs(10),
                     submit_timeout: std::time::Duration::from_secs(15),
                 };
-                if let Err(e) = svc.send_text_verified(
+                let delivery = svc.send_text_verified(
                     &pty_id,
                     task_text,
                     true,
                     provider_submit_strategy,
                     task_opts,
-                ) {
+                );
+                let delivery =
+                    delivery.and_then(|result| match initial_task_delivery_confirmed(&result) {
+                        Ok(()) => Ok(result),
+                        Err(message) => Err(
+                            crate::service::inject_verify::InjectionError::SubmitNeverConfirmed {
+                                waited: result.elapsed,
+                                screen_tail: message,
+                            },
+                        ),
+                    });
+                if let Err(e) = delivery {
                     log::error!(
                         "launch_agent: task delivery failed for pane {} (pty {}): {}",
                         pane_id,
@@ -863,6 +885,18 @@ pub(crate) fn launch_agent_in_background(
             let _ = tx.send(Ok(()));
         }
     });
+}
+
+pub(crate) fn initial_task_delivery_confirmed(
+    result: &crate::service::inject_verify::InjectionResult,
+) -> Result<(), String> {
+    if !result.echo_observed {
+        return Err("task text was not observed in the agent input".into());
+    }
+    if !result.submit_observed {
+        return Err("task submit was not confirmed by the agent input".into());
+    }
+    Ok(())
 }
 
 /// Build a single shell command that launches the agent.
