@@ -766,10 +766,13 @@ pub async fn chatbackend_session_info(
     Json(req): Json<ChatBackendSessionReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let info = state
-        .svc
-        .chatbackend_session_info(&req.plugin_id, &req.session_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let svc = state.svc.clone();
+    let info = tokio::task::spawn_blocking(move || {
+        svc.chatbackend_session_info(&req.plugin_id, &req.session_id)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::to_value(info).unwrap_or_default()))
 }
 
@@ -788,10 +791,13 @@ pub async fn chatbackend_switch_model(
     Json(req): Json<ChatBackendSwitchModelReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let info = state
-        .svc
-        .chatbackend_set_model(&req.plugin_id, &req.session_id, &req.model)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let svc = state.svc.clone();
+    let info = tokio::task::spawn_blocking(move || {
+        svc.chatbackend_set_model(&req.plugin_id, &req.session_id, &req.model)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::to_value(info).unwrap_or_default()))
 }
 

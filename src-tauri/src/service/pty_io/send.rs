@@ -3,7 +3,7 @@
 use crate::service::ServiceContext;
 
 /// Bytes written to a fresh pty to launch a shell-level command. On Unix, exec a
-/// temp script via `bash <path>` to bypass bracketed-paste markers — macOS system
+/// temp script via `/bin/bash <path>` to bypass bracketed-paste markers — macOS system
 /// bash 3.2 has no bracketed-paste binding and leaks the markers as literal text.
 /// Script self-cleans via `trap 'rm -f $0' EXIT`.
 #[cfg(unix)]
@@ -18,7 +18,7 @@ pub(crate) fn build_spawn_dispatch(cmd: &str) -> std::io::Result<Vec<u8>> {
         writeln!(f, "{}", cmd)?;
     }
     std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o700))?;
-    Ok(format!("bash {}\r", script_path).into_bytes())
+    Ok(format!("/bin/bash {}\r", script_path).into_bytes())
 }
 
 /// Windows keeps bracketed paste (no /bin/bash to script-exec). The leading space
