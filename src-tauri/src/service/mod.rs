@@ -24,6 +24,7 @@ pub mod input_parser;
 pub mod messenger;
 pub mod notification;
 mod orchestrator;
+mod orchestrator_onboard;
 mod output;
 mod pane;
 pub mod pane_chat;

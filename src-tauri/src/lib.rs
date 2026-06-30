@@ -248,6 +248,7 @@ pub fn run() {
             multiplexer::commands::mux_spawn_pane,
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,
+            multiplexer::commands::mux_make_orchestrator,
             multiplexer::commands::mux_set_can_spawn,
             multiplexer::commands::mux_respond_prompt,
             multiplexer::commands::mux_batch,

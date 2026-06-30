@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { X, Pencil, UserMinus, MessageSquare, SquareTerminal } from "lucide-react";
+import { X, Pencil, UserMinus, MessageSquare, SquareTerminal, UserCog } from "lucide-react";
 import {
   emitPaneUiMode,
   isChatUiSupported,
@@ -23,6 +23,7 @@ import { SidebarModelBadge } from "./SidebarModelBadge";
 import { TabActivityIndicator } from "./TabActivityIndicator";
 import type { PaneTabActivity } from "../Canvas/paneTabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
+import { canMakeOrchestrator, makeOrchestrator } from "../../lib/orchestratorOnboard";
 
 interface TabItemProps {
   tab: Tab;
@@ -122,6 +123,13 @@ function TabItemInner({
         label: "Rename",
         icon: <Pencil size={11} strokeWidth={2} />,
         onClick: () => { setEditName(canonicalTitle); setEditing(true); },
+      });
+    }
+    if (pane && canMakeOrchestrator(pane)) {
+      items.push({
+        label: "Make Orchestrator",
+        icon: <UserCog size={11} strokeWidth={2} />,
+        onClick: () => { void makeOrchestrator(pane.id); },
       });
     }
     // Role management — hide for Orchestrators (default role on all tabs)

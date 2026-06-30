@@ -69,6 +69,41 @@ test("@smoke pane status endpoint answers for a live pane and 404s for a dead id
   expect(code).toBe(404);
 });
 
+test("@smoke make-orchestrator rejects plain shell panes", async ({ api, paneCleanup }) => {
+  const pane = await paneCleanup.createPane({ title: "pw-make-orch-shell" });
+  let status = 0;
+  try {
+    await api.post(`/panes/${pane.id}/make-orchestrator`, {});
+  } catch (e) {
+    status = Number(/HTTP (\d+)/.exec(String(e))?.[1] ?? 0);
+  }
+  expect(status).toBe(400);
+});
+
+test("@smoke make-orchestrator promotes agent pane and submits onboarding reminder", async ({
+  api,
+  paneCleanup,
+}) => {
+  const pane = await paneCleanup.createPane({ title: "pw-make-orch-agent", eager: true });
+  await api.post(`/panes/${pane.id}/agent-type`, { agent_type: "claude" });
+
+  const promoted = await api.post<{ ok: boolean }>(`/panes/${pane.id}/make-orchestrator`, {});
+  expect(promoted.ok).toBe(true);
+
+  const state = await api.get<{ panes: Record<string, { role?: string; can_spawn?: boolean }> }>(
+    "/mux/state",
+  );
+  const live = state.panes[pane.id];
+  expect(live?.role).toBe("Orchestrator");
+  expect(live?.can_spawn).toBe(true);
+
+  const output = await api.get<{ output?: string; text?: string }>(`/panes/${pane.id}/output`);
+  const blob = output.output ?? output.text ?? "";
+  expect(blob).toContain("-=-codeterm:reminder");
+  expect(blob).toContain("codeterm doc orchestration");
+  expect(blob).toContain(`codeterm agent spawn --parent ${pane.id}`);
+});
+
 // ── @golden: ONE real LLM call ───────────────────────────────────────
 
 test("@golden real agent spawn → works → reports back (structural asserts)", async ({ api, paneCleanup, spawnAgent }) => {

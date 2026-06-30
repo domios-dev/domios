@@ -434,6 +434,12 @@ pub fn mux_clear_pane_role(svc: State<'_, ServiceState>, pane_id: String) -> Res
     svc.clear_pane_role(&pane_id)
 }
 
+/// Promote a pane to Orchestrator and inject the onboarding cheat-sheet.
+#[tauri::command]
+pub fn mux_make_orchestrator(svc: State<'_, ServiceState>, pane_id: String) -> Result<(), String> {
+    svc.make_orchestrator(&pane_id)
+}
+
 /// Toggle whether a pane can spawn child agents.
 #[tauri::command]
 pub fn mux_set_can_spawn(

@@ -339,6 +339,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/panes/{id}/role",
             post(agent_routes::set_pane_role).delete(agent_routes::clear_pane_role),
         )
+        .route(
+            "/api/panes/{id}/make-orchestrator",
+            post(agent_routes::make_orchestrator),
+        )
         .route("/api/panes/{id}/status", get(agent_routes::get_pane_status))
         .route("/api/panes/{id}/report", post(agent_routes::submit_report))
         .route("/api/panes/{id}/reports", get(agent_routes::get_reports))
