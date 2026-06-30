@@ -1,4 +1,4 @@
-import { GitBranch, Hash, User } from "lucide-react";
+import { GitBranch, Hash, History, User } from "lucide-react";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { BoardTaskCardModel } from "./boardModel";
 
@@ -43,11 +43,19 @@ export function BoardTaskCard({ card }: { card: BoardTaskCardModel }) {
       <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
         {task.name}
       </h4>
-      {(card.presenceLabel || card.roleLabel) && (
-        <p data-testid="plan-board-task-agent" className="plan-board-task-meta">
+      {card.presenceLabel && (
+        <p data-testid="plan-board-task-active-executor" className="plan-board-task-meta">
           <User size={11} aria-hidden className="shrink-0 opacity-70" />
           <span className="min-w-0 break-words">
             {[card.presenceLabel, card.roleLabel].filter(Boolean).join(" · ")}
+          </span>
+        </p>
+      )}
+      {card.historicalExecutorSummary && !card.presenceLabel && (
+        <p data-testid="plan-board-task-historical-executor" className="plan-board-task-meta plan-board-task-historical">
+          <History size={11} aria-hidden className="shrink-0 opacity-60" />
+          <span className="min-w-0 break-words" style={{ opacity: 0.82 }}>
+            {card.historicalExecutorSummary}
           </span>
         </p>
       )}

@@ -80,6 +80,27 @@ test("groupTasksIntoColumns places tasks by status and sorts freshest first", ()
   assert(pending.cards.map((c) => c.task.id).join(",") === "new,old", "pending sort");
   const live = columns.find((c) => c.key === "in_progress")!;
   assert(live.cards[0]?.presenceLabel === "Puccini", "presence from pane title");
+  assert(!live.cards[0]?.historicalExecutorSummary, "active task has no historical summary");
+});
+
+test("done task shows historical executor without active presence label", () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({
+        id: "done",
+        status: TaskStatus.Done,
+        assigned_pane_id: "pane-worker",
+        taken_by_role: "backend-dev",
+        model: "gpt-5.5",
+        lane: { pane_id: "pane-worker", branch: "feat/history" },
+      }),
+    ],
+  };
+  const card = groupTasksIntoColumns(plan, PANES).columns.find((c) => c.key === "done")!.cards[0]!;
+  assert(card.presenceLabel === null, "done task has no active presence");
+  assert(card.historicalExecutorSummary?.includes("Puccini"), "historical summary uses pane title");
+  assert(card.historicalExecutorSummary?.includes("backend-dev"), "historical summary includes role");
 });
 
 test("buildBoardPlanModel wires spec + columns", () => {

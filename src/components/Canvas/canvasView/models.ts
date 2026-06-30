@@ -1,6 +1,7 @@
 import type { LaidOutNode } from "../layout";
 import type { CanvasElement, DriftItem, Section, TagFacet, Task } from "../types";
 import type { TaskPresence } from "../taskPresence";
+import type { HistoricalExecutorView } from "../taskExecutorHistory";
 
 export interface TaskCardModel {
   task: Task;
@@ -11,6 +12,7 @@ export interface TaskCardModel {
   stepColors: Map<string, string>;
   drift?: DriftItem;
   presence?: TaskPresence | null;
+  historicalExecutor?: HistoricalExecutorView | null;
   /** Card surface tint = the task's region (its main section; subtasks inherit parent's). */
   regionColor?: string;
 }

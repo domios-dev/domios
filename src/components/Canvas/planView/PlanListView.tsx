@@ -131,11 +131,16 @@ function PlanListRowView({ row }: { row: PlanListRow }) {
             )}
           </div>
         )}
-        {isTask && (row.paneLabel || row.milestoneKind || row.focus) && (
+        {isTask && (row.paneLabel || row.historicalExecutorSummary || row.milestoneKind || row.focus) && (
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>
             {row.paneLabel && (
-              <span data-testid="plan-list-pane" className="font-medium" style={{ color: "var(--ct-fg)" }}>
+              <span data-testid="plan-list-active-executor" className="font-medium" style={{ color: "var(--ct-fg)" }}>
                 {row.paneLabel}
+              </span>
+            )}
+            {row.historicalExecutorSummary && !row.paneLabel && (
+              <span data-testid="plan-list-historical-executor" style={{ opacity: 0.82 }}>
+                {row.historicalExecutorSummary}
               </span>
             )}
             {row.focus && (

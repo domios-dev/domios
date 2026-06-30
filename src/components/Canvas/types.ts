@@ -100,6 +100,23 @@ export interface Milestone {
 export type TaskPriority = "p0" | "p1" | "p2" | "p3"; // p0 = highest
 export const TaskPriority = { P0: "p0", P1: "p1", P2: "p2", P3: "p3" } as const satisfies Record<string, TaskPriority>;
 
+export interface TaskExecutionAttempt {
+  id?: string;
+  pane_id: string | null;
+  pane_title?: string | null;
+  agent_type?: string | null;
+  model?: string | null;
+  session_id?: string | null;
+  role?: string | null;
+  branch?: string | null;
+  worktree_path?: string | null;
+  report_status?: string | null;
+  assigned_at?: number;
+  reported_at?: number;
+  closed_at?: number;
+  outcome?: string | null;
+}
+
 export interface Task {
   id: string;
   name: string;
@@ -129,6 +146,7 @@ export interface Task {
   lane?: TaskLaneMetadata;
   taken_by_role?: string | null;
   peer: string | null;
+  execution_attempts?: TaskExecutionAttempt[];
   canvas: ElementCanvas;
   milestones: Milestone[];
 }

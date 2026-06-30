@@ -1,5 +1,7 @@
 import { RichMarkdown } from "@codeterm/chat-ui";
 import type { CSSProperties } from "react";
+import type { Pane } from "../../../lib/types";
+import { historicalExecutorForTask } from "../taskExecutorHistory";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task } from "../types";
 import type { LaidOutNode } from "../layout";
@@ -13,6 +15,7 @@ import type { SectionNavArgs } from "../nodeRegistry";
 export interface DetailContentProps {
   node: LaidOutNode;
   model: unknown;
+  panes?: Record<string, Pane>;
   onOpenPane?: (paneId: string) => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
@@ -64,16 +67,39 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
-function TaskDetail({ task }: { task: Task }) {
+function TaskDetail({ task, panes = {} }: { task: Task; panes?: Record<string, Pane> }) {
   const body = task.body?.trim();
+  const historical = historicalExecutorForTask(task, panes, false);
   return (
     <div style={wrap} data-testid="canvas-detail-content">
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
         <Chip label="status" value={task.status_label?.trim() || task.status.replace(/_/g, " ")} color={TASK_STATUS_COLORS[task.status]} />
         {task.priority && <Chip label="priority" value={task.priority.toUpperCase()} />}
         {task.type && <Chip label="type" value={task.type} />}
-        {(task.assigned_pane_id || task.lane?.pane_id) && <Chip label="assignee" value={(task.assigned_pane_id || task.lane?.pane_id)!} />}
       </div>
+      {historical && (
+        <Block label="Execution history">
+          <div data-testid="canvas-detail-executor-history" style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
+            {historical.attempts.map((attempt, index) => {
+              const label = attempt.pane_title?.trim()
+                || (attempt.pane_id ? (panes[attempt.pane_id]?.title?.trim() || attempt.pane_id.slice(0, 8)) : "unknown");
+              const bits = [label, attempt.role, attempt.model, attempt.branch, attempt.report_status?.replace(/_/g, " ")]
+                .map((v) => v?.trim())
+                .filter(Boolean);
+              return (
+                <div
+                  key={attempt.id ?? `${attempt.pane_id ?? "attempt"}-${index}`}
+                  data-testid="canvas-detail-executor-attempt"
+                  data-executor-attempt={index + 1}
+                  style={{ color: "color-mix(in srgb, var(--ct-fg) 78%, transparent)" }}
+                >
+                  {bits.join(" · ")}
+                </div>
+              );
+            })}
+          </div>
+        </Block>
+      )}
       <Block label="Description">
         {body ? <Markdown text={body} /> : <span style={muted} data-testid="canvas-detail-empty-body">No description</span>}
       </Block>
@@ -176,11 +202,11 @@ function PlanDetail({ plan, variant, onSection }: { plan: Plan; variant: "plan" 
   );
 }
 
-export function DetailContent({ node, model, onSectionFrame }: DetailContentProps) {
+export function DetailContent({ node, model, panes, onSectionFrame }: DetailContentProps) {
   if (model == null) return null;
   if (node.kind === "task") {
     const m = model as { task: Task };
-    return m.task ? <TaskDetail task={m.task} /> : null;
+    return m.task ? <TaskDetail task={m.task} panes={panes} /> : null;
   }
   // Click a section → fly/focus its tasks on the canvas (the overlay closes first).
   const variant = node.kind === "spec" ? "spec" : "plan";
