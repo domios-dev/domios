@@ -1,0 +1,140 @@
+use super::{NewTask, PlanStore};
+use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef};
+
+fn store_with_task(owner: &str) -> (tempfile::TempDir, PlanStore, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let plan = store
+        .create_plan(
+            "Reminder".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane(owner),
+            vec![MilestoneKind {
+                key: "status_update".into(),
+                label: "Status update".into(),
+                color: None,
+            }],
+            10,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "lane".into(),
+                kind: "status_update".into(),
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+    (dir, store, plan.id, task_id)
+}
+
+#[test]
+fn owner_active_plan_with_open_work_is_nudge_eligible_without_task_binding() {
+    let (_dir, store, plan_id, task_id) = store_with_task("orch-pane");
+    store
+        .update_task(
+            &plan_id,
+            &task_id,
+            None,
+            None,
+            None,
+            None,
+            Some("in_review"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            30,
+        )
+        .unwrap();
+
+    assert_eq!(store.task_binding_for_pane("orch-pane"), None);
+    assert_eq!(
+        store.active_owned_plan_with_open_work_for_pane("orch-pane"),
+        Some(plan_id)
+    );
+}
+
+#[test]
+fn worker_active_task_binding_remains_nudge_eligible() {
+    let (_dir, store, plan_id, task_id) = store_with_task("orch-pane");
+    store
+        .assign_task(&plan_id, &task_id, "worker-pane", None, 30)
+        .unwrap();
+
+    assert_eq!(
+        store.task_binding_for_pane("worker-pane"),
+        Some((plan_id, task_id))
+    );
+    assert_eq!(
+        store.active_owned_plan_with_open_work_for_pane("worker-pane"),
+        None
+    );
+}
+
+#[test]
+fn terminal_done_and_cancelled_work_is_not_nudge_eligible() {
+    let (_done_dir, done_store, done_plan_id, done_task_id) = store_with_task("done-orch");
+    done_store
+        .close_task(
+            &done_plan_id,
+            &done_task_id,
+            None,
+            AgentRef::from_pane("done-orch"),
+            30,
+        )
+        .unwrap();
+
+    let (_cancelled_dir, cancelled_store, cancelled_plan_id, cancelled_task_id) =
+        store_with_task("cancelled-orch");
+    cancelled_store
+        .assign_task(
+            &cancelled_plan_id,
+            &cancelled_task_id,
+            "worker-pane",
+            None,
+            25,
+        )
+        .unwrap();
+    cancelled_store
+        .update_task(
+            &cancelled_plan_id,
+            &cancelled_task_id,
+            None,
+            None,
+            None,
+            None,
+            Some("cancelled"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            30,
+        )
+        .unwrap();
+
+    assert_eq!(
+        done_store.active_owned_plan_with_open_work_for_pane("done-orch"),
+        None
+    );
+    assert_eq!(
+        cancelled_store.active_owned_plan_with_open_work_for_pane("cancelled-orch"),
+        None
+    );
+    assert_eq!(cancelled_store.task_binding_for_pane("worker-pane"), None);
+}

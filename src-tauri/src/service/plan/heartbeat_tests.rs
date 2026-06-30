@@ -127,9 +127,13 @@ fn heartbeat_resolves_for_owner_pane_at_send_time() {
     let before = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
     assert!(before.contains("STATE-RECONCILIATION"));
     assert!(before.contains("First run `codeterm agent reports --pane orch-a`"));
-    assert!(before.contains("codeterm --json orchestrator status --plan"));
+    assert!(before.contains("codeterm orchestrator status --plan"));
+    assert!(before.contains("--pane orch-a --json"));
     assert!(before.contains("codeterm plan reconcile"));
+    assert!(before.contains("codeterm plan task close"));
+    assert!(before.contains("codeterm send \"<next concrete instruction>\" --pane"));
     assert!(before.contains("Keep the plan-owned heartbeat current"));
+    assert!(before.contains("codeterm docs ORCHESTRATION"));
     assert!(!before.contains("Re-arm exactly one heartbeat"));
     assert!(before.ends_with("continue"));
 
@@ -204,4 +208,36 @@ fn notifier_delivery_uses_same_state_reconciliation_prelude() {
     assert!(text.contains("codeterm plan task close"));
     assert!(text.contains("codeterm plan task update"));
     assert!(text.contains("[task in_review]"));
+}
+
+#[test]
+fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    store
+        .with_plan(&plan_id, 20, |plan| {
+            plan.heartbeat.current_focus = Some("Review open lanes".into());
+            plan.heartbeat.active_lanes = vec!["owner-only".into()];
+            Ok(())
+        })
+        .unwrap();
+
+    let text = store.prepend_heartbeat_for_plan(
+        &plan_id,
+        &super::reminders::nudge_text(super::reminders::NudgeKind::Orchestrator),
+    );
+
+    assert!(text.starts_with("<codeterm-state-reconciliation"));
+    assert!(text.contains("codeterm agent reports --pane orch-a"));
+    assert!(text.contains(&format!(
+        "codeterm orchestrator status --plan {plan_id} --pane orch-a --json"
+    )));
+    assert!(text.contains(&format!("codeterm plan task close {plan_id} <task_id>")));
+    assert!(text.contains("codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>"));
+    assert!(text.contains(&format!(
+        "codeterm orchestrator heartbeat set --plan {plan_id}"
+    )));
+    assert!(text.contains("codeterm docs ORCHESTRATION"));
+    assert!(text.contains("<codeterm-orchestrator-heartbeat"));
+    assert!(text.contains("Current focus: Review open lanes"));
+    assert!(text.contains("Plan reminder: this pane owns active plan work."));
 }
