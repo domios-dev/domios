@@ -75,6 +75,15 @@ const statusColor = TASK_STATUS_COLORS[FIXTURE_TASK.status];
   ok("MID kicker is status-coloured", kicker?.fill === statusColor);
 }
 
+// NEAR expand affordance is not status-like: "View", never "Open".
+{
+  const s = stubCtx();
+  drawCard(s.ctx, taskContent, 260, 190, "near", palette);
+  const texts = s.drawn.map((d) => d.text);
+  ok("NEAR expand affordance says View", texts.includes("View"));
+  ok("NEAR expand affordance does not say Open", !texts.includes("Open"));
+}
+
 // Extreme tiny: a clean single initial, never a half-cut word.
 {
   const s = stubCtx();
