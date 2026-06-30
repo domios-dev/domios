@@ -1,5 +1,7 @@
 //! Agent hierarchy: roles, reports, status queries.
 
+mod plan_reminder_nudge;
+
 use serde::Serialize;
 use tauri::Emitter;
 
@@ -276,32 +278,6 @@ impl ServiceContext {
         let text = self.plan_store.prepend_heartbeat_for_plan(plan_id, &text);
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
         let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
-    }
-
-    fn maybe_send_plan_reminder(&self, pane_id: &str, role: Option<AgentRole>) {
-        if self.plan_store.task_binding_for_pane(pane_id).is_none() {
-            return;
-        }
-        let (turns, last_nudge) = self.plan_turn_counter.increment(pane_id);
-        let cfg = crate::config::load_config().orchestration;
-        let nudge_cfg = crate::service::plan::reminders::NudgeConfig {
-            plan_reminders: cfg.plan_reminders,
-            nudge_after_turns: cfg.nudge_after_turns,
-            role,
-        };
-        let Some(kind) =
-            crate::service::plan::reminders::should_nudge(turns, last_nudge, &nudge_cfg)
-        else {
-            return;
-        };
-        let text = crate::service::plan::reminders::nudge_text(kind);
-        let text = self
-            .plan_store
-            .prepend_worker_charter_for_pane(pane_id, &text);
-        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
-        if crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok() {
-            self.plan_turn_counter.mark_nudged(pane_id, turns);
-        }
     }
 
     /// Fire-and-forget delivery of a report to a pane (id or `main`/`general`

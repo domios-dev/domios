@@ -31,6 +31,8 @@ mod goal_tests;
 #[cfg(test)]
 mod heartbeat_tests;
 #[cfg(test)]
+mod reminder_tests;
+#[cfg(test)]
 mod subtask_close_tests;
 #[cfg(test)]
 mod tests;
@@ -834,6 +836,26 @@ impl PlanStore {
                 .find(|t| t.assigned_pane_id.as_deref() == Some(pane_id))
             {
                 return Some((plan.id.clone(), task.id.clone()));
+            }
+        }
+        None
+    }
+
+    pub fn active_owned_plan_with_open_work_for_pane(&self, pane_id: &str) -> Option<String> {
+        if pane_id.trim().is_empty() {
+            return None;
+        }
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active || plan.owner.pane_id.as_deref() != Some(pane_id) {
+                continue;
+            }
+            if plan
+                .tasks
+                .iter()
+                .any(|t| !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled))
+            {
+                return Some(plan.id.clone());
             }
         }
         None

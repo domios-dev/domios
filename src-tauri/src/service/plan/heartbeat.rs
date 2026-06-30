@@ -111,8 +111,8 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
         |pane| format!("codeterm agent reports --pane {pane}"),
     );
     let status = pane_id.map_or_else(
-        || format!("codeterm --json orchestrator status --plan {plan_id}"),
-        |pane| format!("codeterm --json orchestrator status --plan {plan_id} --pane {pane}"),
+        || format!("codeterm orchestrator status --plan {plan_id} --json"),
+        |pane| format!("codeterm orchestrator status --plan {plan_id} --pane {pane} --json"),
     );
     format!(
         "STATE-RECONCILIATION:\n\
@@ -122,7 +122,8 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
          - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\
          - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
          - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
-         - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`."
+         - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`.\n\
+         - Re-read orchestration procedure with `codeterm docs ORCHESTRATION` when state is ambiguous."
     )
 }
 
