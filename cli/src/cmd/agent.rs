@@ -346,6 +346,18 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(s) = status {
                 body["status"] = serde_json::json!(s.as_str());
             }
+            let (branch, sha, changed_files) = match crate::cmd::report_guard::enrich_ready_report(
+                status,
+                branch,
+                sha,
+                changed_files,
+            ) {
+                Ok(fields) => fields,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
             if let Some(b) = branch {
                 body["branch"] = serde_json::json!(b);
             }

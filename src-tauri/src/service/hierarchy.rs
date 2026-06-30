@@ -478,16 +478,9 @@ fn ledger_with_live_children(
                 orchestrator_pane_id: orchestrator_pane_id.to_string(),
                 worker_pane_id: child_id,
                 title,
-                branch: None,
                 model: child.agent_session_model.clone(),
-                status: None,
-                message: String::new(),
-                sha: None,
-                changed_files: None,
-                test_cmd: None,
-                test_result: None,
-                skipped: None,
                 updated_at: now,
+                ..Default::default()
             }),
         }
     }

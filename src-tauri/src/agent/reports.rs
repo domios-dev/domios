@@ -35,6 +35,10 @@ impl ReportStatus {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReportDetails {
     #[serde(default)]
+    pub plan_id: Option<String>,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
     pub status: Option<ReportStatus>,
     #[serde(default)]
     pub branch: Option<String>,
@@ -58,6 +62,10 @@ pub struct AgentReport {
     pub message: String,
     pub timestamp: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<ReportStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
@@ -80,6 +88,12 @@ impl AgentReport {
     /// and synthetic reports inject exactly as they did before this existed.
     pub fn inject_body(&self) -> String {
         let mut lines: Vec<String> = Vec::new();
+        match (self.plan_id.as_deref(), self.task_id.as_deref()) {
+            (Some(plan), Some(task)) => lines.push(format!("task: {plan}/{task}")),
+            (Some(plan), None) => lines.push(format!("plan: {plan}")),
+            (None, Some(task)) => lines.push(format!("task: {task}")),
+            (None, None) => {}
+        }
         if let Some(status) = self.status {
             lines.push(format!("status: {}", status.label()));
         }
@@ -191,6 +205,8 @@ impl ReportStore {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
+            plan_id: details.plan_id.clone(),
+            task_id: details.task_id.clone(),
             status: details.status,
             branch: details.branch.clone(),
             sha: details.sha.clone(),
@@ -207,6 +223,8 @@ impl ReportStore {
                 orchestrator_pane_id: orchestrator_pane_id.to_string(),
                 worker_pane_id: from_pane_id.to_string(),
                 title: from_title.to_string(),
+                plan_id: details.plan_id.clone(),
+                task_id: details.task_id.clone(),
                 branch: details.branch.clone(),
                 model: model.map(str::to_string),
                 status: details.status,
@@ -361,6 +379,8 @@ mod tests {
     #[test]
     fn structured_report_round_trips_through_serde() {
         let details = ReportDetails {
+            plan_id: Some("pl_structured".to_string()),
+            task_id: Some("task_structured".to_string()),
             status: Some(ReportStatus::Partial),
             branch: Some("orch-p2-structured-report".to_string()),
             sha: Some("deadbeef".to_string()),
@@ -375,12 +395,16 @@ mod tests {
         // Through the store, the typed fields survive.
         let listed = store.get("orch", false);
         assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].plan_id.as_deref(), Some("pl_structured"));
+        assert_eq!(listed[0].task_id.as_deref(), Some("task_structured"));
         assert_eq!(listed[0].status, Some(ReportStatus::Partial));
         assert_eq!(listed[0].changed_files.as_deref().unwrap().len(), 2);
 
         // Through serde JSON, every field round-trips byte-for-byte.
         let json = serde_json::to_string(&stored).unwrap();
         let back: AgentReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.plan_id.as_deref(), Some("pl_structured"));
+        assert_eq!(back.task_id.as_deref(), Some("task_structured"));
         assert_eq!(back.status, Some(ReportStatus::Partial));
         assert_eq!(back.branch.as_deref(), Some("orch-p2-structured-report"));
         assert_eq!(back.sha.as_deref(), Some("deadbeef"));
@@ -407,6 +431,8 @@ mod tests {
         let json = serde_json::to_value(&report).unwrap();
         for key in [
             "status",
+            "plan_id",
+            "task_id",
             "branch",
             "sha",
             "changed_files",
@@ -433,6 +459,8 @@ mod tests {
     #[test]
     fn structured_inject_block_renders_in_stable_order() {
         let details = ReportDetails {
+            plan_id: Some("pl_1".to_string()),
+            task_id: Some("task_1".to_string()),
             status: Some(ReportStatus::Done),
             branch: Some("feature-x".to_string()),
             sha: Some("abc123".to_string()),
@@ -443,7 +471,8 @@ mod tests {
         };
         let mut store = ReportStore::new(100);
         let report = store.add_detailed("orch", "w1", "Worker", "the freeform body", details, None);
-        let expected = "status: Done\n\
+        let expected = "task: pl_1/task_1\n\
+             status: Done\n\
              branch: feature-x\n\
              sha: abc123\n\
              tests: cargo test -> 42 passed\n\

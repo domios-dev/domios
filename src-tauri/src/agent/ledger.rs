@@ -9,14 +9,18 @@ use serde::{Deserialize, Serialize};
 
 use super::reports::ReportStatus;
 
-const CURRENT_LEDGER_SCHEMA_VERSION: u32 = 1;
+const CURRENT_LEDGER_SCHEMA_VERSION: u32 = 2;
 
 /// One worker's latest state under an orchestrator (structured report fields + identity + model).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct LedgerRow {
     pub orchestrator_pane_id: String,
     pub worker_pane_id: String,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -92,6 +96,10 @@ impl OrchestrationLedger {
                     Self::create_v1_schema(conn)?;
                     version = 1;
                 }
+                1 => {
+                    Self::migrate_v1_to_v2(conn)?;
+                    version = 2;
+                }
                 CURRENT_LEDGER_SCHEMA_VERSION => return Ok(()),
                 _ if version > CURRENT_LEDGER_SCHEMA_VERSION => {
                     return Err(rusqlite::Error::InvalidQuery);
@@ -129,6 +137,16 @@ impl OrchestrationLedger {
         )
     }
 
+    fn migrate_v1_to_v2(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE orchestration_ledger ADD COLUMN plan_id TEXT;
+            ALTER TABLE orchestration_ledger ADD COLUMN task_id TEXT;
+            PRAGMA user_version = 2;
+            "#,
+        )
+    }
+
     fn user_version(conn: &Connection) -> rusqlite::Result<u32> {
         conn.query_row("PRAGMA user_version", [], |r| {
             let version = r.get::<_, i64>(0)?;
@@ -147,12 +165,14 @@ impl OrchestrationLedger {
         conn.execute(
             r#"
             INSERT INTO orchestration_ledger (
-                orchestrator_pane_id, worker_pane_id, title, branch, model,
+                orchestrator_pane_id, worker_pane_id, title, plan_id, task_id, branch, model,
                 status, message, sha, changed_files_json, test_cmd,
                 test_result, skipped, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
             ON CONFLICT(orchestrator_pane_id, worker_pane_id) DO UPDATE SET
                 title = excluded.title,
+                plan_id = excluded.plan_id,
+                task_id = excluded.task_id,
                 branch = excluded.branch,
                 model = excluded.model,
                 status = excluded.status,
@@ -168,6 +188,8 @@ impl OrchestrationLedger {
                 row.orchestrator_pane_id,
                 row.worker_pane_id,
                 row.title,
+                row.plan_id,
+                row.task_id,
                 row.branch,
                 row.model,
                 status,
@@ -193,7 +215,7 @@ impl OrchestrationLedger {
         let mut stmt = conn
             .prepare(
                 r#"
-                SELECT orchestrator_pane_id, worker_pane_id, title, branch, model,
+                SELECT orchestrator_pane_id, worker_pane_id, title, plan_id, task_id, branch, model,
                        status, message, sha, changed_files_json, test_cmd,
                        test_result, skipped, updated_at
                 FROM orchestration_ledger
@@ -211,23 +233,25 @@ impl OrchestrationLedger {
     }
 
     fn row_from_sql(r: &rusqlite::Row<'_>) -> rusqlite::Result<LedgerRow> {
-        let status: Option<String> = r.get(5)?;
-        let changed_files_json: Option<String> = r.get(8)?;
+        let status: Option<String> = r.get(7)?;
+        let changed_files_json: Option<String> = r.get(10)?;
         Ok(LedgerRow {
             orchestrator_pane_id: r.get(0)?,
             worker_pane_id: r.get(1)?,
             title: r.get(2)?,
-            branch: r.get(3)?,
-            model: r.get(4)?,
+            plan_id: r.get(3)?,
+            task_id: r.get(4)?,
+            branch: r.get(5)?,
+            model: r.get(6)?,
             status: status.and_then(|s| parse_status(&s)),
-            message: r.get(6)?,
-            sha: r.get(7)?,
+            message: r.get(8)?,
+            sha: r.get(9)?,
             changed_files: changed_files_json
                 .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok()),
-            test_cmd: r.get(9)?,
-            test_result: r.get(10)?,
-            skipped: r.get(11)?,
-            updated_at: r.get::<_, i64>(12)? as u64,
+            test_cmd: r.get(11)?,
+            test_result: r.get(12)?,
+            skipped: r.get(13)?,
+            updated_at: r.get::<_, i64>(14)? as u64,
         })
     }
 }
@@ -251,6 +275,8 @@ mod tests {
             orchestrator_pane_id: orch.into(),
             worker_pane_id: worker.into(),
             title: "Worker".into(),
+            plan_id: Some("pl_1".into()),
+            task_id: Some("task_1".into()),
             branch: Some("orch-p3-ledger".into()),
             model: Some("opus".into()),
             status: Some(status),
@@ -432,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn pre_versioning_db_migrates_to_v1_without_dropping_rows() {
+    fn pre_versioning_db_migrates_to_current_without_dropping_rows() {
         let db = temp_db();
         std::fs::create_dir_all(db.parent().unwrap()).unwrap();
         {
@@ -446,6 +472,8 @@ mod tests {
         let rows = ledger.list_for_orchestrator("orch").unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].worker_pane_id, "w1");
+        assert_eq!(rows[0].plan_id, None);
+        assert_eq!(rows[0].task_id, None);
         assert_eq!(rows[0].updated_at, 42);
         let conn = ledger.conn.lock();
         assert_eq!(
@@ -457,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn migrate_ladder_establishes_v1_from_zero() {
+    fn migrate_ladder_establishes_current_from_zero() {
         let conn = Connection::open_in_memory().unwrap();
         assert_eq!(OrchestrationLedger::user_version(&conn).unwrap(), 0);
 

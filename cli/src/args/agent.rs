@@ -57,10 +57,10 @@ pub struct ReportArgs {
     #[arg(long)]
     pub pane: Option<String>,
     /// Plan id to append this report to (default: $CODETERM_PLAN_ID)
-    #[arg(long)]
+    #[arg(long, env = "CODETERM_PLAN_ID")]
     pub plan: Option<String>,
     /// Task id to append this report to (default: $CODETERM_TASK_ID)
-    #[arg(long)]
+    #[arg(long, env = "CODETERM_TASK_ID")]
     pub task: Option<String>,
     /// Task outcome: in_review | blocked | partial | done
     #[arg(long)]

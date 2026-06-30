@@ -89,6 +89,8 @@ fn ledger_refreshes_existing_live_child_without_losing_report_details() {
         orchestrator_pane_id: orch.clone(),
         worker_pane_id: worker.clone(),
         title: "stale-title".into(),
+        plan_id: Some("pl_1".into()),
+        task_id: Some("task_1".into()),
         branch: Some("lane/agent-ledger".into()),
         model: Some("old-model".into()),
         status: Some(ReportStatus::Partial),
@@ -97,8 +99,8 @@ fn ledger_refreshes_existing_live_child_without_losing_report_details() {
         changed_files: Some(vec!["src-tauri/src/service/hierarchy.rs".into()]),
         test_cmd: Some("cargo test hierarchy".into()),
         test_result: Some("ok".into()),
-        skipped: None,
         updated_at: 10,
+        ..Default::default()
     }];
 
     let rows = ledger_with_live_children(&mux, &orch, rows, 99);
