@@ -415,6 +415,8 @@ impl PlanStore {
                 task.status_changed_at = now_ms;
             }
             task.status = TaskStatus::Done;
+            let assigned = task.assigned_pane_id.clone();
+            super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             clear_task_assignment(task);
             task.updated_at = now_ms;
             if let Some(text) = result {
@@ -640,6 +642,12 @@ impl PlanStore {
                     task.status_changed_at = now_ms;
                 }
                 if is_terminal_task_status(&task.status) {
+                    let assigned = task.assigned_pane_id.clone();
+                    super::task_attempts::mark_task_assignment_closed(
+                        task,
+                        assigned.as_deref(),
+                        now_ms,
+                    );
                     clear_task_assignment(task);
                 }
             }
@@ -714,6 +722,12 @@ impl PlanStore {
             apply_lane_update(&mut task.lane, lane);
             task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
             if is_terminal_task_status(&task.status) {
+                let assigned = task.assigned_pane_id.clone();
+                super::task_attempts::mark_task_assignment_closed(
+                    task,
+                    assigned.as_deref(),
+                    now_ms,
+                );
                 clear_task_assignment(task);
             } else if task.assigned_pane_id.is_none() {
                 task.assigned_pane_id = task.lane.pane_id.clone();

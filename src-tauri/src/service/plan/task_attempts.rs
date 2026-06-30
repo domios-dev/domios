@@ -235,6 +235,32 @@ pub fn new_assignment_attempt(
     }
 }
 
+pub fn mark_task_assignment_closed(task: &mut Task, pane: Option<&str>, now_ms: u64) {
+    let pane = pane.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then_some(trimmed)
+    });
+    if let Some(pane) = pane {
+        if let Some(attempt) = task
+            .execution_attempts
+            .iter_mut()
+            .rev()
+            .find(|attempt| attempt.executor_pane_id == pane && attempt.closed_at.is_none())
+        {
+            attempt.closed_at = Some(now_ms);
+            return;
+        }
+    }
+    if let Some(attempt) = task
+        .execution_attempts
+        .iter_mut()
+        .rev()
+        .find(|attempt| attempt.closed_at.is_none())
+    {
+        attempt.closed_at = Some(now_ms);
+    }
+}
+
 fn provider_name_from_model(value: Option<&str>) -> Option<String> {
     split_provider_model(value).0
 }

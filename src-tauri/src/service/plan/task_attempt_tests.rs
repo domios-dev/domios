@@ -1,6 +1,6 @@
 use super::*;
 use crate::agent::reports::ReportStatus;
-use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata};
+use crate::plan::{AgentRef, OrchestratorRef, Plan, TaskLaneMetadata, TaskStatus};
 
 #[test]
 fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
@@ -121,4 +121,109 @@ fn task_attempt_ids_are_stable_distinct_from_executor_pane() {
     assert!(store
         .show_task_attempt(&p.id, &task_id, "pane_same")
         .is_err());
+}
+
+#[test]
+fn terminal_status_update_leaves_history_but_no_active_presence() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Attempts".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "terminal".into(),
+                kind: "implement".into(),
+                body: "Close me.".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task(&p.id, &task_id, "pane_live", None, 3)
+        .unwrap();
+    store
+        .update_task(
+            &p.id,
+            &task_id,
+            None,
+            None,
+            None,
+            None,
+            Some("cancelled"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            4,
+        )
+        .unwrap();
+
+    let p = store.get(&p.id).unwrap();
+    let task = p.tasks.iter().find(|task| task.id == task_id).unwrap();
+    assert_eq!(task.status, TaskStatus::Cancelled);
+    assert!(task.assigned_pane_id.is_none());
+    assert!(task.lane.pane_id.is_none());
+    assert_eq!(task.execution_attempts.len(), 1);
+    assert_eq!(task.execution_attempts[0].executor_pane_id, "pane_live");
+    assert_eq!(task.execution_attempts[0].closed_at, Some(4));
+    assert!(store.task_binding_for_pane("pane_live").is_none());
+    assert!(store.task_bindings_for_pane("pane_live").is_empty());
+}
+
+#[test]
+fn reconcile_assignment_cleanup_closes_live_attempt_history() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Attempts".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "reconcile".into(),
+                kind: "implement".into(),
+                body: "Pane vanished.".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task(&p.id, &task_id, "pane_live", None, 3)
+        .unwrap();
+    let drift = [crate::plan::reconcile::DriftItem {
+        plan_id: p.id.clone(),
+        task_id: task_id.clone(),
+        kind: crate::plan::reconcile::DriftKind::BoundToClosedPane,
+        detail: "closed".into(),
+        suggested_fix: "clear".into(),
+        not_mine: false,
+    }];
+
+    store.apply_reconcile_fixes(&p.id, &drift, 4).unwrap();
+
+    let p = store.get(&p.id).unwrap();
+    let task = p.tasks.iter().find(|task| task.id == task_id).unwrap();
+    assert!(task.assigned_pane_id.is_none());
+    assert!(task.lane.pane_id.is_none());
+    assert_eq!(task.execution_attempts.len(), 1);
+    assert_eq!(task.execution_attempts[0].executor_pane_id, "pane_live");
+    assert_eq!(task.execution_attempts[0].closed_at, Some(4));
 }
