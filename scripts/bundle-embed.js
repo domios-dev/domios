@@ -35,17 +35,26 @@ fs.copyFileSync(src, dest);
 console.log(`codeterm-embed bundled: ${src} -> ${dest}`);
 
 if (isMacOS) {
-  const identity =
-    process.env.APPLE_SIGNING_IDENTITY ||
-    "Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)";
-  try {
-    execSync(
-      `codesign --force --options runtime --timestamp --sign "${identity}" "${dest}"`,
-      { stdio: "inherit" }
-    );
-    console.log("codeterm-embed signed for notarization");
-  } catch (e) {
-    console.error("Failed to codesign codeterm-embed:", e.message);
-    process.exit(1);
+  // Dev/local bundles use ad-hoc signing; release builds require Developer ID.
+  if (process.env.CODETERM_DEV === "1") {
+    try {
+      execSync(`codesign --force --sign - "${dest}"`, { stdio: "inherit" });
+    } catch (e) {
+      console.warn("Ad-hoc codesign failed (continuing for dev):", e.message);
+    }
+  } else {
+    const identity =
+      process.env.APPLE_SIGNING_IDENTITY ||
+      "Developer ID Application: ANDREY KOVALEV (JMMWQ9LWF7)";
+    try {
+      execSync(
+        `codesign --force --options runtime --timestamp --sign "${identity}" "${dest}"`,
+        { stdio: "inherit" }
+      );
+      console.log("codeterm-embed signed for notarization");
+    } catch (e) {
+      console.error("Failed to codesign codeterm-embed:", e.message);
+      process.exit(1);
+    }
   }
 }

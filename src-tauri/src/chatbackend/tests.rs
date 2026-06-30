@@ -92,6 +92,15 @@ fn unregistered_backend_resolves_to_none() {
     assert!(reg.get("absent").is_none());
 }
 
+#[test]
+fn chatbackend_describe_does_not_call_live_model_getters() {
+    let fake = FakeBackend::default();
+    let desc = fake.describe();
+
+    assert!(desc.available_models.is_empty());
+    assert_eq!(fake.listed.load(Ordering::SeqCst), 0);
+}
+
 /// Pane teardown / `pty kill` reach the plugin via `chatbackend_close` →
 /// `close_session(sid)`; assert that path releases the session (no model/context leak).
 #[test]

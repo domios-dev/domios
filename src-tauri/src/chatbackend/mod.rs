@@ -122,7 +122,9 @@ pub trait ChatBackendProvider: Send + Sync {
     }
 
     /// Build the unified wire descriptor for this chat backend. Transport is
-    /// always `ChatBackend`; models/presets come from the live getters.
+    /// always `ChatBackend`. Keep this pure/cheap: provider descriptors are
+    /// requested from UI hot paths, while live chatBackend getters enter the
+    /// plugin VM and can block unrelated session loading.
     fn describe(&self) -> ProviderDescriptor {
         ProviderDescriptor {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
@@ -131,7 +133,7 @@ pub trait ChatBackendProvider: Send + Sync {
             icon_hint: self.icon_hint().map(|s| s.to_string()),
             icon_svg: self.icon_svg().map(|s| s.to_string()),
             icon_color: self.icon_color().map(|s| s.to_string()),
-            available_models: self.list_models().unwrap_or_default(),
+            available_models: Vec::new(),
             default_model: None,
             settings_schema: Vec::new(),
             notifications_schema: Vec::new(),
@@ -148,7 +150,7 @@ pub trait ChatBackendProvider: Send + Sync {
             trust: ProviderTrust::Unknown,
             transport: ProviderTransport::ChatBackend,
             behavior_config: BehaviorConfig::PresetsAndSystemPrompt,
-            presets: self.list_presets().unwrap_or_default(),
+            presets: Vec::new(),
             system_prompt_delivery: SystemPromptDelivery::SessionConfig,
         }
     }
