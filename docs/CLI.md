@@ -1803,6 +1803,21 @@ Assign a task to a pane (exports CODETERM_TASK_ID to that pane)
 - `<plan_id>`
 - `<task_id>`
 
+#### `codeterm plan task attempt`
+
+Show one execution attempt for a plan task
+
+- `<attempt_id>`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan task attempts`
+
+List execution attempts for a plan task
+
+- `<plan_id>`
+- `<task_id>`
+
 #### `codeterm plan task close`
 
 Close a task (records a result; rejects if subtasks are open)
@@ -1834,6 +1849,19 @@ Preview or apply automatic section links for unlinked tasks (--apply)
 
 - `--apply`
 - `<plan_id>`
+
+#### `codeterm plan task respawn`
+
+Respawn a worker from one prior execution attempt
+
+- `--attempt`
+- `--model`
+- `--parent`
+- `<plan_id>`
+- `--provider`
+- `<task_id>`
+- `--title`
+- `--workspace`
 
 #### `codeterm plan task retag`
 

@@ -333,6 +333,7 @@ mod tests {
             group: None,
             canvas: Default::default(),
             milestones: vec![],
+            execution_attempts: vec![],
         }
     }
 

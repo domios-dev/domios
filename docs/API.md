@@ -835,6 +835,16 @@ Restart the agent in a pane. Default behaviour is graceful: send the provider-sp
 
 This is the same flow `codeterm agent restart --pane PANE_ID [--force] [--grace-secs N]` invokes from the CLI.
 
+### Plan Task Attempts
+
+Task execution attempts are append-only history on `Task.execution_attempts`. The CLI/API uses the canonical stable `TaskExecutionAttempt.id` as `attempt_id`; `executor_pane_id` remains the executor identity and is not the primary key. Respawning creates a new Worker pane and a new live attempt; it never reactivates the selected historical attempt.
+
+| Method | Path | Body / Query | Description |
+|--------|------|--------------|-------------|
+| GET | `/api/plans/{id}/tasks/{tid}/attempts` | — | List execution attempts recorded for one task |
+| GET | `/api/plans/{id}/tasks/{tid}/attempts/{attempt_id}` | — | Show one attempt by stable attempt id, including derived report command, derived prompt, and last report summary when present |
+| POST | `/api/plans/{id}/tasks/{tid}/respawn` | `{attempt_id, provider?, model?, parent_pane_id?, workspace_id?, title?}` | Build a Worker prompt from the task body, selected prior attempt, last report/status, lane branch/worktree hints, and exact `codeterm agent report --plan ... --task ...` command; spawn a new Worker and append a new `execution_attempts` entry |
+
 ### Keep-Awake (GET/POST /api/keepawake*)
 
 Prevents the machine from sleeping (and optionally from dimming the display) while long-running agents are working. Global machine state, not pane- or workspace-scoped. All three endpoints require the standard Bearer token.
@@ -1116,6 +1126,9 @@ Newline-delimited JSON:
 | `agent.report` | `{pane_id, message}` | Send report to direct parent |
 | `agent.reports` | `{pane_id, clear?}` | Read reports from children |
 | `agent.restart` | `{pane_id, force?, grace_secs?}` | Restart the agent in a pane; resumes only when the recorded session is valid. |
+| `plan.task.attempts` | `{plan_id, task_id}` | List execution attempts for one plan task |
+| `plan.task.attempt.show` | `{plan_id, task_id, attempt_id}` | Show one historical task attempt |
+| `plan.task.respawn` | `{plan_id, task_id, attempt_id, provider?, model?, parent_pane_id?, workspace_id?, title?}` | Spawn a new Worker from one prior task attempt and record a new live attempt |
 | `cron.list` | `{workspace_id?}` | List cron jobs |
 | `cron.get` | `{id}` | Get cron job by ID |
 | `cron.create` | `{name, schedule, task, workspace_id, agent?, model?, cwd?, description?, oneshot?, jitter_max_ms?}` | Create cron job |
@@ -1244,4 +1257,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 67 -->
+<!-- revision: 70 -->

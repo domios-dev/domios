@@ -259,6 +259,16 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             task.assigned_pane_id = pane_id.map(str::to_string);
             task.taken_by_role = taken_by_role.map(str::to_string);
+            if let Some(pane) = pane_id {
+                let attempt = super::task_attempts::new_assignment_attempt(
+                    task,
+                    pane,
+                    None,
+                    taken_by_role,
+                    now_ms,
+                );
+                task.execution_attempts.push(attempt);
+            }
             if pane_id.is_none() {
                 task.peer = None;
             }

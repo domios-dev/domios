@@ -375,6 +375,7 @@ impl PlanStore {
             group: new.group,
             canvas: Default::default(),
             milestones: vec![],
+            execution_attempts: vec![],
         };
         let verify_sections = !task.section_ids.is_empty();
         let expected = Self::task_add_expectation(&task, verify_sections);
@@ -775,6 +776,9 @@ impl PlanStore {
             task.taken_by_role = None;
             task.peer = peer.map(|s| s.into());
             task.updated_at = now_ms;
+            let attempt =
+                super::task_attempts::new_assignment_attempt(task, pane, peer, None, now_ms);
+            task.execution_attempts.push(attempt);
             Ok(())
         });
         pending_after_verified(

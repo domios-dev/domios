@@ -89,6 +89,65 @@ pub struct TaskLaneMetadata {
     pub cleanup_hints: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TaskExecutionReportSnapshot {
+    pub id: String,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub changed_files: Vec<String>,
+    #[serde(default)]
+    pub test_cmd: Option<String>,
+    #[serde(default)]
+    pub test_result: Option<String>,
+    #[serde(default)]
+    pub skipped: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TaskExecutionAttempt {
+    pub id: String,
+    pub executor_pane_id: String,
+    #[serde(default)]
+    pub executor_title: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub agent_type: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub role: Option<String>,
+    #[serde(default)]
+    pub parent_pane_id: Option<String>,
+    #[serde(default)]
+    pub orchestrator_pane_id: Option<String>,
+    #[serde(default)]
+    pub mesh_peer: Option<String>,
+    #[serde(default)]
+    pub branch: Option<String>,
+    #[serde(default)]
+    pub worktree_path: Option<String>,
+    #[serde(default)]
+    pub base: Option<String>,
+    #[serde(default)]
+    pub destination: Option<String>,
+    #[serde(default)]
+    pub report: Option<TaskExecutionReportSnapshot>,
+    #[serde(default)]
+    pub assigned_at: Option<u64>,
+    #[serde(default)]
+    pub reported_at: Option<u64>,
+    #[serde(default)]
+    pub reviewed_at: Option<u64>,
+    #[serde(default)]
+    pub closed_at: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TransferRecord {
     pub from: OrchestratorRef,
@@ -322,6 +381,8 @@ pub struct Task {
     pub canvas: ElementCanvas,
     #[serde(default)]
     pub milestones: Vec<Milestone>,
+    #[serde(default)]
+    pub execution_attempts: Vec<TaskExecutionAttempt>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
