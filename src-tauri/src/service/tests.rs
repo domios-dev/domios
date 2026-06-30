@@ -197,3 +197,36 @@ fn coalesce_snapshot_reflects_latest_mutation_in_window() {
     // Pending flag cleared so a mutation after the window starts a fresh one.
     assert!(!pending.load(Ordering::Acquire));
 }
+
+#[test]
+fn focus_pane_hot_path_does_not_refresh_agent_model_inline() {
+    use crate::multiplexer::state::MultiplexerState;
+    use parking_lot::RwLock;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let mux: MuxState = Arc::new(RwLock::new(MultiplexerState::empty()));
+    let pane_id = mux.write().create_pane();
+    let emitted = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+    let scheduled = Arc::new(AtomicUsize::new(0));
+
+    crate::service::pane::focus_pane_hot_path(
+        &mux,
+        &pane_id,
+        {
+            let emitted = emitted.clone();
+            move |focused| emitted.lock().push(focused.to_string())
+        },
+        {
+            let scheduled = scheduled.clone();
+            move || {
+                scheduled.fetch_add(1, Ordering::SeqCst);
+            }
+        },
+    )
+    .unwrap();
+
+    assert_eq!(mux.read().get_focused_pane_id(), Some(pane_id.as_str()));
+    assert_eq!(*emitted.lock(), vec![pane_id.clone()]);
+    assert_eq!(scheduled.load(Ordering::SeqCst), 1);
+}
