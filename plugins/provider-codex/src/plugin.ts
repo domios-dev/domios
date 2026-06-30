@@ -378,8 +378,8 @@ const plugin: PluginModule = {
     const raw = String(rawText || "");
     if (!raw.trim()) return null;
     const text = raw.split("\r").join("").split("█").join(" ").split("░").join(" ");
-    const session = codexParseGauge(text, "5h\\s*limit", false, nowMs);
-    const weekly = codexParseGauge(text, "Weekly\\s*limit", true, nowMs);
+    const session = codexParseGauge(text, "5\\s*(?:h|hour|hours|-hour)\\s*limit", false, nowMs);
+    const weekly = codexParseGauge(text, "weekly\\s*limit", true, nowMs);
     if (session.pct === null && weekly.pct === null) return null;
     return {
       provider: "codex",
@@ -1051,14 +1051,17 @@ interface CodexGauge { pct: number | null; resetsMs: number | null }
 
 function codexParseGauge(text: string, marker: string, isWeekly: boolean, nowMs: number): CodexGauge {
   const re = new RegExp(
-    marker + "[\\s\\S]{0,320}?(\\d+(?:\\.\\d+)?)\\s*%\\s*left[\\s\\S]*?\\(resets?\\s+([^)]+?)\\)",
+    marker + "[\\s\\S]{0,240}?(\\d+(?:\\.\\d+)?)\\s*%\\s*(left|remaining|used)[\\s\\S]{0,180}?\\(\\s*resets?\\s+(?:at\\s+)?([^)]+?)\\)",
     "i",
   );
   const caps = re.exec(text);
   if (!caps) return { pct: null, resetsMs: null };
-  const left = parseFloat(caps[1]);
-  const pct = isNaN(left) ? null : Math.min(100, Math.max(0, 100 - left));
-  const resetsRaw = (caps[2] || "").trim();
+  const value = parseFloat(caps[1]);
+  const mode = (caps[2] || "").toLowerCase();
+  const pct = isNaN(value)
+    ? null
+    : Math.min(100, Math.max(0, mode === "used" ? value : 100 - value));
+  const resetsRaw = (caps[3] || "").trim();
   const resetsMs = isWeekly
     ? codexParseWeeklyResets(resetsRaw, nowMs)
     : codexParseSessionResets(resetsRaw, nowMs);
@@ -1141,15 +1144,32 @@ function isValidCodexSessionMessage(v: CodexEntry): boolean {
 }
 
 function codexParseWeeklyResets(raw: string, nowMs: number): number | null {
-  const m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)/.exec(String(raw || "").trim());
-  if (!m) return null;
-  const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
-  const day = parseInt(m[3], 10);
-  const month = CODEX_MONTHS[m[4].toLowerCase()];
+  const s = String(raw || "").trim().replace(/^at\s+/i, "");
+  let hh: number;
+  let mm: number;
+  let day: number;
+  let month: number | undefined;
+  let year: number | null = null;
+  let m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)(?:,?\s+(\d{4}))?/i.exec(s);
+  if (m) {
+    hh = parseInt(m[1], 10);
+    mm = parseInt(m[2], 10);
+    day = parseInt(m[3], 10);
+    month = CODEX_MONTHS[m[4].toLowerCase()];
+    year = m[5] ? parseInt(m[5], 10) : null;
+  } else {
+    m = /(\d{1,2}):(\d{2})\s+on\s+([A-Za-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i.exec(s);
+    if (!m) return null;
+    hh = parseInt(m[1], 10);
+    mm = parseInt(m[2], 10);
+    month = CODEX_MONTHS[m[3].toLowerCase()];
+    day = parseInt(m[4], 10);
+    year = m[5] ? parseInt(m[5], 10) : null;
+  }
   if (month === undefined) return null;
   const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), month, day, hh, mm, 0, 0);
-  if (cand.getTime() <= nowMs) {
+  let cand = new Date(year ?? now.getFullYear(), month, day, hh, mm, 0, 0);
+  if (year === null && cand.getTime() <= nowMs) {
     cand = new Date(now.getFullYear() + 1, month, day, hh, mm, 0, 0);
   }
   return cand.getTime();

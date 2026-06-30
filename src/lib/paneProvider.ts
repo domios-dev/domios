@@ -28,6 +28,7 @@ export function resolvePaneProvider(pane: Pane | null | undefined): ResolvedPane
         kind: d.transport === "chat_backend" ? "shell" : "agent",
       };
     }
+    return fallbackAgentProvider(pane.agent_type);
   }
 
   const backing = pane.backing;
@@ -46,4 +47,24 @@ export function resolvePaneProvider(pane: Pane | null | undefined): ResolvedPane
   }
 
   return null;
+}
+
+function fallbackAgentProvider(id: string): ResolvedPaneProvider {
+  const known: Record<string, { displayName: string; iconHint: string; iconColor?: string }> = {
+    claude: { displayName: "Claude Code", iconHint: "C", iconColor: "#d97757" },
+    codex: { displayName: "Codex", iconHint: "</>", iconColor: "#58a6ff" },
+    cursor: { displayName: "Cursor", iconHint: "Cu", iconColor: "#d6d9e0" },
+    opencode: { displayName: "OpenCode", iconHint: "OC", iconColor: "#f0b429" },
+  };
+  const meta = known[id] ?? {
+    displayName: id,
+    iconHint: id.slice(0, 2).toUpperCase(),
+  };
+  return {
+    id,
+    displayName: meta.displayName,
+    iconColor: meta.iconColor,
+    iconHint: meta.iconHint,
+    kind: "agent",
+  };
 }

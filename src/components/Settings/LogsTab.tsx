@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import { RefreshCw, Trash2, ScrollText } from "lucide-react";
 import type { AppConfig } from "../../lib/types";
+import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { SettingsCard } from "./shared";
 import { LogsFilterBar } from "./LogsFilterBar";
 import { LogsListRow } from "./LogsListRow";
@@ -41,10 +42,13 @@ interface LogEventPayload {
 
 export function LogsTab({ config }: { config: AppConfig }) {
   const api = config.api;
-  const apiBase = api ? `http://${api.host === "0.0.0.0" ? "127.0.0.1" : api.host}:${api.port}` : "";
+  const apiBase = api ? daemonHttpBase(api) : "";
   const authHeaders: HeadersInit = useMemo(
-    () => (api?.token ? { Authorization: `Bearer ${api.token}` } : ({} as Record<string, string>)),
-    [api?.token],
+    () => {
+      const token = daemonAuthToken(api);
+      return token ? { Authorization: `Bearer ${token}` } : ({} as Record<string, string>);
+    },
+    [api],
   );
 
   const [logs, setLogs] = useState<AppLog[]>([]);
