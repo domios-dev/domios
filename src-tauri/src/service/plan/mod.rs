@@ -898,6 +898,12 @@ impl PlanStore {
                 };
                 match item.kind {
                     DriftKind::InProgressPaneGone => {
+                        let assigned = task.assigned_pane_id.clone();
+                        task_attempts::mark_task_assignment_closed(
+                            task,
+                            assigned.as_deref(),
+                            now_ms,
+                        );
                         task.assigned_pane_id = None;
                         task.lane.pane_id = None;
                         task.status_label = Some(NEEDS_REASSIGN_LABEL.into());
@@ -920,6 +926,12 @@ impl PlanStore {
                         });
                     }
                     DriftKind::BoundToClosedPane => {
+                        let assigned = task.assigned_pane_id.clone();
+                        task_attempts::mark_task_assignment_closed(
+                            task,
+                            assigned.as_deref(),
+                            now_ms,
+                        );
                         task.assigned_pane_id = None;
                         task.lane.pane_id = None;
                         task.updated_at = now_ms;
@@ -957,6 +969,8 @@ impl PlanStore {
             let Some(task) = plan.tasks.iter_mut().find(|task| task.id == task_id) else {
                 return Ok(false);
             };
+            let assigned = task.assigned_pane_id.clone();
+            task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             task.assigned_pane_id = None;
             task.lane.pane_id = None;
             task.status_label = Some(PANE_GONE_LABEL.into());
