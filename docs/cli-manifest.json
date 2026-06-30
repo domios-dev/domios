@@ -254,7 +254,7 @@
               "positional": false,
               "value_name": "PLAN",
               "default": null,
-              "help": "Plan id to append this report to",
+              "help": "Plan id to append this report to (default: $CODETERM_PLAN_ID)",
               "aliases": []
             },
             {
@@ -278,7 +278,7 @@
               "positional": false,
               "value_name": "STATUS",
               "default": null,
-              "help": "Task outcome: done | in_review | blocked | partial",
+              "help": "Task outcome: in_review | blocked | partial | done",
               "aliases": []
             },
             {
@@ -286,7 +286,7 @@
               "positional": false,
               "value_name": "TASK",
               "default": null,
-              "help": "Task id to append this report to",
+              "help": "Task id to append this report to (default: $CODETERM_TASK_ID)",
               "aliases": []
             },
             {
@@ -1544,6 +1544,22 @@
               "value_name": "DURATION_SECS",
               "default": null,
               "help": "Duration in seconds (omit for indefinite)",
+              "aliases": []
+            },
+            {
+              "name": "gnome_policy",
+              "positional": false,
+              "value_name": "GNOME_POLICY",
+              "default": null,
+              "help": "On Linux/GNOME, explicitly apply current-user power policy overrides (disable inactive sleep, idle blanking, lid-close and power-button suspend)",
+              "aliases": []
+            },
+            {
+              "name": "system_block",
+              "positional": false,
+              "value_name": "SYSTEM_BLOCK",
+              "default": null,
+              "help": "Print system-level sudo mask commands in the status response. CodeTerm never runs these commands silently",
               "aliases": []
             }
           ],
@@ -7544,6 +7560,126 @@
           "subcommands": []
         }
       ]
+    },
+    {
+      "name": "report",
+      "about": "Report worker progress to the owning orchestrator or plan",
+      "aliases": [],
+      "args": [
+        {
+          "name": "branch",
+          "positional": false,
+          "value_name": "BRANCH",
+          "default": null,
+          "help": "Git branch the work landed on",
+          "aliases": []
+        },
+        {
+          "name": "changed_files",
+          "positional": false,
+          "value_name": "CHANGED_FILES",
+          "default": null,
+          "help": "Changed files (comma-separated or repeat the flag)",
+          "aliases": []
+        },
+        {
+          "name": "doc",
+          "positional": false,
+          "value_name": "PATH",
+          "default": null,
+          "help": "Markdown document to append to the report milestone",
+          "aliases": []
+        },
+        {
+          "name": "kind",
+          "positional": false,
+          "value_name": "KIND",
+          "default": null,
+          "help": "Milestone kind when writing to --plan/--task",
+          "aliases": []
+        },
+        {
+          "name": "message",
+          "positional": true,
+          "value_name": "MESSAGE",
+          "default": null,
+          "help": "Report message (also accepts --message alias)",
+          "aliases": []
+        },
+        {
+          "name": "pane",
+          "positional": false,
+          "value_name": "PANE",
+          "default": null,
+          "help": "Pane ID (default: $CODETERM_PANE_ID or focused pane)",
+          "aliases": []
+        },
+        {
+          "name": "plan",
+          "positional": false,
+          "value_name": "PLAN",
+          "default": null,
+          "help": "Plan id to append this report to (default: $CODETERM_PLAN_ID)",
+          "aliases": []
+        },
+        {
+          "name": "sha",
+          "positional": false,
+          "value_name": "SHA",
+          "default": null,
+          "help": "Commit SHA produced",
+          "aliases": []
+        },
+        {
+          "name": "skipped",
+          "positional": false,
+          "value_name": "SKIPPED",
+          "default": null,
+          "help": "Anything deliberately skipped",
+          "aliases": []
+        },
+        {
+          "name": "status",
+          "positional": false,
+          "value_name": "STATUS",
+          "default": null,
+          "help": "Task outcome: in_review | blocked | partial | done",
+          "aliases": []
+        },
+        {
+          "name": "task",
+          "positional": false,
+          "value_name": "TASK",
+          "default": null,
+          "help": "Task id to append this report to (default: $CODETERM_TASK_ID)",
+          "aliases": []
+        },
+        {
+          "name": "test_cmd",
+          "positional": false,
+          "value_name": "TEST_CMD",
+          "default": null,
+          "help": "Test command that was run",
+          "aliases": []
+        },
+        {
+          "name": "test_result",
+          "positional": false,
+          "value_name": "TEST_RESULT",
+          "default": null,
+          "help": "Result of the test command (e.g. \"42 passed\")",
+          "aliases": []
+        },
+        {
+          "name": "text",
+          "positional": false,
+          "value_name": "TEXT",
+          "default": null,
+          "help": "Report message as a flag, useful when paired with --doc",
+          "aliases": []
+        }
+      ],
+      "subcommands": []
     },
     {
       "name": "send",

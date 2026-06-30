@@ -375,6 +375,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 ("DELETE".into(), format!("/api/pasteboard/{}", id), None)
             }
         },
+        Commands::Report(_) => ("GET".into(), "/api/panes".into(), None),
         Commands::Agent { action } => match action {
             crate::AgentAction::Spawn {
                 agent,

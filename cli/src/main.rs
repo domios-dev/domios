@@ -562,6 +562,11 @@ fn main() {
             return;
         }
 
+        Commands::Report(args) => {
+            cmd::agent::handle_agent(&mut client, cli.json, AgentAction::Report(args));
+            return;
+        }
+
         Commands::Plan { action } => {
             cmd::plan::handle_plan(&mut client, cli.json, action);
             return;
