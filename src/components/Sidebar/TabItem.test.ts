@@ -31,5 +31,17 @@ assert(
   source.includes("<SidebarModelBadge label={tabModelBadge}") && !source.includes("{tabModel}\n          </span>"),
   "TabItem should render the formatted badge text, not the raw model id",
 );
+assert(
+  source.includes('data-tab-no-task-bubble="true"'),
+  "TabItem should mark tabs as free of task/focus bubble chrome",
+);
+assert(
+  !source.includes("working={status === \"Working\"}"),
+  "TabItem should not spin the provider icon while working",
+);
+assert(
+  source.includes("description && !activity"),
+  "TabItem should hide description subtitles when plan activity is shown elsewhere",
+);
 
-console.log("✓ TabItem applies formatModelBadge and preserves the raw model title");
+console.log("✓ TabItem quiet tab chrome: no task bubbles, no working spin, subdued subtitles");

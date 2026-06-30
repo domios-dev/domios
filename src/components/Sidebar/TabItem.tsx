@@ -171,6 +171,7 @@ function TabItemInner({
       ref={tabRef}
       data-testid="tab-item"
       data-tab-id={tab.id}
+      data-tab-no-task-bubble="true"
       title={description ? `${displayTitle}\n${description}` : displayTitle}
       onClick={onClick}
       className={`
@@ -199,7 +200,6 @@ function TabItemInner({
             iconSvg={provider.iconSvg}
             iconColor={provider.iconColor}
             iconHint={provider.iconHint}
-            working={status === "Working"}
             className={`shrink-0 leading-none ${touchMode ? "text-[15px]" : isSubPane ? "text-[10px]" : "text-[12px]"}`}
             title={status === "Working" ? `${providerName} working...` : status === "Waiting" ? `${providerName} — waiting for input` : providerName}
           />
@@ -240,7 +240,7 @@ function TabItemInner({
             >
               {displayTitle}
             </span>
-            {description && (
+            {description && !activity && (
               <span className="block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">
                 {description}
               </span>

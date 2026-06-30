@@ -115,7 +115,7 @@ test("multi-plan owner counts plans and leads with the freshest", () => {
 });
 
 // ── view: TabActivityIndicator ────────────────────────────────────────────────
-test("orchestrator renders the plan glyph; worker renders the identity dot", async () => {
+test("orchestrator and worker render the same quiet dot shape", async () => {
   const { host, root } = await render(
     <div>
       <TabActivityIndicator activity={{ kind: "orchestrator", planId: "p1", planTitle: "Plan A", taskCount: 4, planCount: 1 }} paneId="orch-1" />
@@ -124,17 +124,23 @@ test("orchestrator renders the plan glyph; worker renders the identity dot", asy
   );
   const orch = host.querySelector('[data-activity-kind="orchestrator"]');
   const worker = host.querySelector('[data-activity-kind="worker"]');
-  assert(orch?.querySelector("svg"), "orchestrator wears a glyph");
-  assert(worker, "worker wears a token");
+  assert(orch?.getAttribute("data-tab-activity-quiet") === "true", "orchestrator marked quiet");
+  assert(worker?.getAttribute("data-tab-activity-quiet") === "true", "worker marked quiet");
+  assert(!orch?.querySelector("svg"), "orchestrator uses a dot, not a glyph bubble");
+  assert(orch?.className.includes("ct-tab-activity-quiet"), "orchestrator wears quiet class");
+  assert(worker?.className.includes("ct-tab-activity-quiet"), "worker wears quiet class");
   const dotColor = (worker as HTMLElement).style.background;
   assert(dotColor && dotColor === presenceColor("w1"), `worker dot uses board-identity color (got ${dotColor})`);
   await act(async () => root.unmount());
 });
 
-test("working status stays static; liveness is shown on the canvas/composer", async () => {
+test("quiet indicator never wears live pulse classes", async () => {
   const activity = { kind: "worker" as const, planId: "p1", planTitle: "Plan A", taskCount: 1, planCount: 1 };
   const liveR = await render(<TabActivityIndicator activity={activity} paneId="w1" />);
-  assert(!liveR.host.querySelector('[data-activity-kind="worker"]')?.className.includes("ct-presence-live"), "Working → no tab pulse");
+  const el = liveR.host.querySelector('[data-activity-kind="worker"]');
+  assert(!el?.className.includes("ct-presence-live"), "no tab pulse class");
+  assert(!el?.className.includes("animate-pulse"), "no tailwind pulse");
+  assert(el?.getAttribute("data-tab-activity-quiet") === "true", "quiet data attr");
   await act(async () => liveR.root.unmount());
   const idleR = await render(<TabActivityIndicator activity={activity} paneId="w1" />);
   assert(!idleR.host.querySelector('[data-activity-kind="worker"]')?.className.includes("ct-presence-live"), "Idle → no pulse");
