@@ -1514,3 +1514,191 @@ button,
   from { opacity: 0; transform: translateY(16px) scale(0.985); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
+
+/* Plan board — read-only operational kanban for agent observability */
+.plan-board-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+.plan-board-state {
+  margin: auto;
+  padding: 1.5rem;
+  font-size: 0.875rem;
+  color: var(--ct-muted-fg);
+  text-align: center;
+}
+.plan-board-error {
+  color: var(--ct-error, #f87171);
+}
+.plan-board-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 0.85rem 1rem 1.25rem;
+}
+.plan-board-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.plan-board-summaries {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.65rem;
+}
+.plan-board-entity-summary {
+  border: 1px solid var(--ct-border);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--ct-surface) 88%, var(--ct-bg));
+  padding: 0.65rem 0.8rem;
+}
+.plan-board-spec-summary {
+  border-left: 3px solid color-mix(in srgb, var(--ct-accent) 55%, var(--ct-border));
+}
+.plan-board-plan-summary {
+  border-left: 3px solid color-mix(in srgb, var(--ct-green, #3fb950) 45%, var(--ct-border));
+}
+.plan-board-entity-kind {
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ct-muted-fg);
+}
+.plan-board-entity-title {
+  margin: 0.2rem 0 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.plan-board-entity-meta,
+.plan-board-entity-body,
+.plan-board-entity-focus {
+  margin: 0.35rem 0 0;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  color: var(--ct-muted-fg);
+  word-break: break-word;
+}
+.plan-board-entity-focus {
+  color: color-mix(in srgb, var(--ct-accent) 70%, var(--ct-fg));
+}
+.plan-board-columns {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(11.5rem, 1fr));
+  gap: 0.55rem;
+  min-height: 12rem;
+  overflow-x: auto;
+}
+.plan-board-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 11.5rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--ct-bg) 92%, var(--ct-surface));
+}
+.plan-board-column-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--ct-border);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ct-muted-fg);
+}
+.plan-board-column-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.plan-board-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.45rem;
+  min-height: 4rem;
+}
+.plan-board-task-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 0.55rem;
+  padding: 0.45rem 0.5rem;
+}
+.plan-board-task-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+.plan-board-task-handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  font-family: var(--ct-font-mono, ui-monospace, monospace);
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ct-fg) 62%, transparent);
+  word-break: break-all;
+}
+.plan-board-task-status {
+  flex-shrink: 0;
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1.6;
+  padding: 0 0.45em;
+  border-radius: 999px;
+  text-transform: capitalize;
+  color: var(--ct-bg, #0d1117);
+  white-space: nowrap;
+}
+.plan-board-task-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-word;
+}
+.plan-board-task-meta,
+.plan-board-task-milestone {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.3rem;
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: var(--ct-muted-fg);
+  word-break: break-word;
+}
+.plan-board-task-lane {
+  font-family: var(--ct-font-mono, ui-monospace, monospace);
+  color: color-mix(in srgb, rgba(96, 165, 250, 0.95) 80%, var(--ct-muted-fg));
+}
+.plan-board-task-milestone-kind {
+  flex-shrink: 0;
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.9;
+}
+.plan-board-cancelled-note {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--ct-muted-fg);
+  opacity: 0.85;
+}
