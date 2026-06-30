@@ -829,6 +829,7 @@ export function CanvasViewInner({
         nodeId={detailNodeId}
         nodeById={lookups.nodeById}
         resolveModel={resolveModel}
+        panes={panes}
         onClose={() => setDetailNodeId(null)}
         onOpenPane={onOpenPane}
         onCopyLink={onCopyLink}

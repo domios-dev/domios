@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { DetailContent } from "./canvasRender/DetailContent";
+import type { Pane } from "../../lib/types";
 import type { LaidOutNode } from "./layout";
 import type { SectionNavArgs } from "./nodeRegistry";
 
@@ -14,6 +15,7 @@ export interface CanvasDetailOverlayProps {
   nodeId: string | null;
   nodeById: Map<string, LaidOutNode>;
   resolveModel: (node: LaidOutNode) => unknown;
+  panes?: Record<string, Pane>;
   onClose: () => void;
   onOpenPane?: (paneId: string) => void;
   onCopyLink?: (id: string) => void;
@@ -36,6 +38,7 @@ export function CanvasDetailOverlay({
   nodeId,
   nodeById,
   resolveModel,
+  panes,
   onClose,
   onOpenPane,
   onSectionClick,
@@ -150,6 +153,7 @@ export function CanvasDetailOverlay({
           <DetailContent
             node={node}
             model={model}
+            panes={panes}
             onOpenPane={onOpenPane}
             onSectionClick={onSectionClick}
             onSectionFrame={(a) => { onClose(); onSectionFrame?.(a); }}

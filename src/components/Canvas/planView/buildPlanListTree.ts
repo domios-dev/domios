@@ -2,6 +2,7 @@ import type { Pane } from "../../../lib/types";
 import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
 import { flattenSections, sectionRows, type SectionRowGlyph } from "../sectionRows";
 import { buildTaskPresence } from "../taskPresence";
+import { historicalExecutorForTask } from "../taskExecutorHistory";
 import type { Milestone, Plan, Section, Task, TaskStatus } from "../types";
 
 export type PlanListRowKind =
@@ -26,6 +27,7 @@ export interface PlanListRow {
   sectionGlyph?: SectionRowGlyph;
   taskCount?: number;
   paneLabel?: string;
+  historicalExecutorSummary?: string;
   focus?: string;
   milestoneKind?: string;
   milestoneAuthor?: string;
@@ -68,6 +70,7 @@ function appendTaskRows(
   childrenByParent: Map<string, Task[]>,
 ): void {
   const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
+  const historical = historicalExecutorForTask(task, panes, presence != null);
   const latest = latestMilestone(task);
   out.push({
     id: `${plan.id}::${kind}::${task.id}`,
@@ -78,6 +81,7 @@ function appendTaskRows(
     status: task.status,
     statusLabel: statusText(task),
     paneLabel: presence?.label ?? undefined,
+    historicalExecutorSummary: historical?.summary,
     focus: presence?.focus ?? undefined,
     milestoneKind: presence?.latest?.kindLabel ?? latest?.kind.replace(/[_-]+/g, " "),
     milestoneAuthor: presence?.latest?.authorLabel,

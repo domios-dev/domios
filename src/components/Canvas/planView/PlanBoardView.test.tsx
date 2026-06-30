@@ -104,9 +104,30 @@ test("renders board columns with spec/plan summaries and task cards", async () =
   const card = inProgress?.querySelector('[data-testid="plan-board-task-card"]');
   assert(card, "in-progress card");
   assert(card?.getAttribute("data-task-id") === "task-dante", "task id");
-  assert(host.querySelector('[data-testid="plan-board-task-agent"]')?.textContent?.includes("Puccini"), "agent");
+  assert(host.querySelector('[data-testid="plan-board-task-active-executor"]')?.textContent?.includes("Puccini"), "active executor");
   assert(host.querySelector('[data-testid="plan-board-task-lane"]')?.textContent?.includes("lane/plan-board-view"), "lane");
   assert(host.querySelector('[data-testid="plan-board-task-milestone"]')?.textContent?.includes("Board model landed"), "milestone");
+});
+
+test("done task card shows historical executor without active executor row", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({
+        id: "task-done",
+        status: TaskStatus.Done,
+        assigned_pane_id: "pane-worker",
+        taken_by_role: "backend-dev",
+        model: "gpt-5.5",
+      }),
+    ],
+  };
+  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />);
+  const doneCol = host.querySelector('[data-testid="plan-board-column"][data-column="done"]');
+  const card = doneCol?.querySelector('[data-testid="plan-board-task-card"]');
+  assert(card, "done card");
+  assert(!card?.querySelector('[data-testid="plan-board-task-active-executor"]'), "no active executor");
+  assert(card?.querySelector('[data-testid="plan-board-task-historical-executor"]')?.textContent?.includes("Puccini"), "historical executor");
 });
 
 test("empty workspace shows stable empty gate", async () => {

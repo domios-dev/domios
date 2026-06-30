@@ -87,7 +87,27 @@ test("surfaces pane label and milestone on active assigned task", () => {
   };
   const taskRow = buildPlanListRows(plan, { panes }).find((r) => r.taskId === FIXTURE_TASK.id);
   assert(taskRow?.paneLabel === "Puccini", "pane title");
+  assert(!taskRow?.historicalExecutorSummary, "active task has no historical summary");
   assert(taskRow?.milestoneKind === "status update", "milestone kind label");
+});
+
+test("done task surfaces historical executor instead of active pane label", () => {
+  const plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      {
+        ...FIXTURE_TASK,
+        status: "done" as const,
+        assigned_pane_id: "pane-42",
+        taken_by_role: "backend-dev",
+        model: "gpt-5.5",
+        lane: { pane_id: "pane-42", branch: "feat/history" },
+      },
+    ],
+  };
+  const taskRow = buildPlanListRows(plan, { panes }).find((r) => r.taskId === FIXTURE_TASK.id);
+  assert(!taskRow?.paneLabel, "done task has no active pane label");
+  assert(taskRow?.historicalExecutorSummary?.includes("Puccini"), "historical summary shown");
 });
 
 test("spec sections come from fetched spec tree, plan sections from plan.sections", () => {

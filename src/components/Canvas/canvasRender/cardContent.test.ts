@@ -38,7 +38,7 @@ const hasSection = (c: { sections: { title: string }[] }, title: string) => c.se
   ok("task tag resolves facet label", c.tags.some((t) => t.text === "Navigation"));
   ok("task tag keeps topic", c.tags.some((t) => t.text === "pan-zoom"));
   const labels = c.fields.map((f) => f.label);
-  ok("task fields status/priority/assignee", labels.includes("status") && labels.includes("priority") && labels.includes("assignee"));
+  ok("task fields status/priority/executor", labels.includes("status") && labels.includes("priority") && (labels.includes("executor") || labels.includes("assignee")));
   ok("task status field uses status_label", c.fields.find((f) => f.label === "status")?.value === "90% done");
 }
 
@@ -56,6 +56,26 @@ const hasSection = (c: { sections: { title: string }[] }, title: string) => c.se
   ok("task content carries the body for deep-read", c.body === FIXTURE_TASK.body.trim());
   const empty = buildCardContent("task", { task: { ...FIXTURE_TASK, body: "" }, tagFacets: [...FIXTURE_TAG_FACETS] })!;
   ok("task with no body → undefined (drawn as 'No description')", empty.body === undefined);
+}
+
+// Done task shows last executor metadata, not a raw pane id assignee field.
+{
+  const done = buildCardContent("task", {
+    task: { ...FIXTURE_TASK, status: "done", assigned_pane_id: "pane-42", taken_by_role: "backend-dev", model: "gpt-5.5" },
+    historicalExecutor: {
+      label: "Puccini",
+      role: "backend-dev",
+      model: "gpt-5.5",
+      branch: null,
+      reportStatus: "done",
+      outcome: "done",
+      attemptCount: 1,
+      attempts: [],
+      summary: "Puccini · backend-dev · gpt-5.5 · done",
+    },
+  })!;
+  ok("done task uses last executor field", done.fields.some((f) => f.label === "last executor"));
+  ok("done task summary on card", done.fields.find((f) => f.label === "last executor")?.value.includes("Puccini"));
 }
 
 // A node with no sections/fields (e.g. unknown kind) stays far / null content.

@@ -3,6 +3,7 @@ import { flattenSections } from "../sectionRows";
 import { filterPlansForCanvas } from "../planPaneMatch";
 import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
+import { historicalExecutorForTask } from "../taskExecutorHistory";
 import { TaskStatus, type Milestone, type Plan, type Section, type Task, type TaskStatus as TaskStatusType } from "../types";
 
 export const BOARD_COLUMN_DEFS = [
@@ -35,6 +36,7 @@ export interface BoardPlanSummary {
 export interface BoardTaskCardModel {
   task: Task;
   presenceLabel: string | null;
+  historicalExecutorSummary: string | null;
   roleLabel: string | null;
   branch: string | null;
   worktree: string | null;
@@ -113,12 +115,14 @@ function buildTaskCard(
   exclusivePaneTasks: Map<string, string>,
 ): BoardTaskCardModel {
   const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
+  const historical = historicalExecutorForTask(task, panes, presence != null);
   const milestone = latestMilestone(task);
   const paneId = presence?.paneId ?? clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
   return {
     task,
     presenceLabel: presence?.label ?? null,
-    roleLabel: clean(task.taken_by_role),
+    historicalExecutorSummary: historical?.summary ?? null,
+    roleLabel: presence ? clean(task.taken_by_role) : historical?.role ?? clean(task.taken_by_role),
     branch: laneBranch(task),
     worktree: laneWorktree(task),
     workspaceName: laneWorkspace(task),

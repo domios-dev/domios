@@ -51,6 +51,7 @@ type TaskModel = {
   childCount?: number;
   childDone?: number;
   presence?: TaskPresence | null;
+  historicalExecutor?: import("../taskExecutorHistory").HistoricalExecutorView | null;
 };
 
 const KICKER: Record<string, string> = { plan: "PLAN", spec: "SPEC", task: "TASK" };
@@ -126,11 +127,15 @@ function specContent(plan: PlanModel): CardContent {
   };
 }
 
-function assigneeLabel(m: TaskModel): string {
-  const lead = m.presence?.agents?.[0]?.label ?? m.presence?.label;
-  if (lead) return lead;
-  const pane = m.task.assigned_pane_id ?? m.task.lane?.pane_id;
-  return pane ? (pane.length > 12 ? pane.slice(0, 8) : pane) : "—";
+function executorField(m: TaskModel): CardField {
+  const lead = m.presence?.agents?.[0];
+  if (lead) {
+    return { label: "executor", value: lead.label, color: lead.color };
+  }
+  if (m.historicalExecutor) {
+    return { label: "last executor", value: m.historicalExecutor.summary, color: null };
+  }
+  return { label: "assignee", value: "—", color: null };
 }
 
 function taskContent(m: TaskModel): CardContent {
@@ -143,7 +148,7 @@ function taskContent(m: TaskModel): CardContent {
   const fields: CardField[] = [
     { label: "status", value: task.status_label?.trim() || task.status.replace(/_/g, " "), color: TASK_STATUS_COLORS[task.status] ?? null },
     { label: "priority", value: (task.priority ?? "p2").toUpperCase(), color: null },
-    { label: "assignee", value: assigneeLabel(m), color: null },
+    executorField(m),
   ];
   if (m.presence?.focus) {
     fields.push({ label: "focus", value: m.presence.focus, color: null });
