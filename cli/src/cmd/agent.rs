@@ -1,3 +1,4 @@
+use crate::args::agent::ReportArgs;
 use crate::client::SocketClient;
 use crate::cmd::hints::maybe_orchestration_reminder;
 use crate::cmd::plan_errors::render_plan_call_error;
@@ -48,6 +49,15 @@ pub(crate) fn normalize_pane_description(value: &str) -> Result<Option<String>, 
     } else {
         Ok(Some(trimmed.to_string()))
     }
+}
+
+fn env_default(current: Option<String>, var: &str) -> Option<String> {
+    current.or_else(|| {
+        std::env::var(var)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    })
 }
 
 fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
@@ -263,7 +273,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Report {
+        AgentAction::Report(ReportArgs {
             message,
             text,
             kind,
@@ -278,7 +288,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             test_cmd,
             test_result,
             skipped,
-        } => {
+        }) => {
             // Footgun guard: `--pane X` sets the SENDER (you report AS X), NOT the
             // destination. Reports route to your parent automatically. An agent passing
             // another pane's id here (the "report TO" misconception) silently mis-routes
@@ -318,6 +328,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 eprintln!("Error: report message, --text, or --doc is required");
                 std::process::exit(1);
             }
+            let plan = env_default(plan, "CODETERM_PLAN_ID");
+            let task = env_default(task, "CODETERM_TASK_ID");
             let mut body = serde_json::json!({
                 "pane_id": pane_id,
                 "message": message,
@@ -690,6 +702,20 @@ mod tests {
         assert!(out.contains("Live Codex (default)"));
         assert!(out.contains("catalog snapshot"));
         assert!(!out.contains("static-codex"));
+    }
+
+    #[test]
+    fn env_default_uses_explicit_value_before_worker_env() {
+        std::env::set_var("CODETERM_TEST_REPORT_DEFAULT", "from-env");
+        assert_eq!(
+            env_default(Some("explicit".into()), "CODETERM_TEST_REPORT_DEFAULT"),
+            Some("explicit".into())
+        );
+        assert_eq!(
+            env_default(None, "CODETERM_TEST_REPORT_DEFAULT"),
+            Some("from-env".into())
+        );
+        std::env::remove_var("CODETERM_TEST_REPORT_DEFAULT");
     }
 
     #[test]

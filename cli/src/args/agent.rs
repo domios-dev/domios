@@ -1,4 +1,4 @@
-use clap::Subcommand;
+use clap::{Args, Subcommand};
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum SpawnRole {
@@ -40,6 +40,51 @@ impl ReportStatusArg {
     }
 }
 
+#[derive(Args, Clone, Debug)]
+pub struct ReportArgs {
+    /// Report message (also accepts --message alias)
+    pub message: Option<String>,
+    /// Report message as a flag, useful when paired with --doc
+    #[arg(long, alias = "message", allow_hyphen_values = true)]
+    pub text: Option<String>,
+    /// Milestone kind when writing to --plan/--task
+    #[arg(long)]
+    pub kind: Option<String>,
+    /// Markdown document to append to the report milestone
+    #[arg(long, value_name = "PATH")]
+    pub doc: Option<String>,
+    /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
+    #[arg(long)]
+    pub pane: Option<String>,
+    /// Plan id to append this report to (default: $CODETERM_PLAN_ID)
+    #[arg(long)]
+    pub plan: Option<String>,
+    /// Task id to append this report to (default: $CODETERM_TASK_ID)
+    #[arg(long)]
+    pub task: Option<String>,
+    /// Task outcome: in_review | blocked | partial | done
+    #[arg(long)]
+    pub status: Option<ReportStatusArg>,
+    /// Git branch the work landed on
+    #[arg(long)]
+    pub branch: Option<String>,
+    /// Commit SHA produced
+    #[arg(long)]
+    pub sha: Option<String>,
+    /// Changed files (comma-separated or repeat the flag)
+    #[arg(long, value_delimiter = ',')]
+    pub changed_files: Option<Vec<String>>,
+    /// Test command that was run
+    #[arg(long)]
+    pub test_cmd: Option<String>,
+    /// Result of the test command (e.g. "42 passed")
+    #[arg(long)]
+    pub test_result: Option<String>,
+    /// Anything deliberately skipped
+    #[arg(long)]
+    pub skipped: Option<String>,
+}
+
 #[derive(Subcommand)]
 pub enum AgentAction {
     /// Mark a pane as orchestrator (top-level, can spawn workers)
@@ -74,49 +119,7 @@ pub enum AgentAction {
         enable: bool,
     },
     /// Send a report to your parent in the hierarchy
-    Report {
-        /// Report message (also accepts --message alias)
-        message: Option<String>,
-        /// Report message as a flag, useful when paired with --doc
-        #[arg(long, alias = "message", allow_hyphen_values = true)]
-        text: Option<String>,
-        /// Milestone kind when writing to --plan/--task
-        #[arg(long)]
-        kind: Option<String>,
-        /// Markdown document to append to the report milestone
-        #[arg(long, value_name = "PATH")]
-        doc: Option<String>,
-        /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
-        #[arg(long)]
-        pane: Option<String>,
-        /// Plan id to append this report to
-        #[arg(long)]
-        plan: Option<String>,
-        /// Task id to append this report to
-        #[arg(long)]
-        task: Option<String>,
-        /// Task outcome: done | in_review | blocked | partial
-        #[arg(long)]
-        status: Option<ReportStatusArg>,
-        /// Git branch the work landed on
-        #[arg(long)]
-        branch: Option<String>,
-        /// Commit SHA produced
-        #[arg(long)]
-        sha: Option<String>,
-        /// Changed files (comma-separated or repeat the flag)
-        #[arg(long, value_delimiter = ',')]
-        changed_files: Option<Vec<String>>,
-        /// Test command that was run
-        #[arg(long)]
-        test_cmd: Option<String>,
-        /// Result of the test command (e.g. "42 passed")
-        #[arg(long)]
-        test_result: Option<String>,
-        /// Anything deliberately skipped
-        #[arg(long)]
-        skipped: Option<String>,
-    },
+    Report(ReportArgs),
     /// Send an immediate message to a running agent pane
     Message {
         /// Message text (positional, or omit and use --from-file/--stdin)
@@ -259,6 +262,16 @@ mod tests {
         }
     }
 
+    fn parse_top_report(args: &[&str]) -> Result<ReportArgs, clap::Error> {
+        let mut full = vec!["codeterm", "report"];
+        full.extend_from_slice(args);
+        let cli = Cli::try_parse_from(full)?;
+        match cli.command {
+            crate::Commands::Report(args) => Ok(args),
+            _ => panic!("expected report command"),
+        }
+    }
+
     fn parse_message(args: &[&str]) -> Result<AgentAction, clap::Error> {
         let mut full = vec!["codeterm", "agent", "message"];
         full.extend_from_slice(args);
@@ -306,8 +319,8 @@ mod tests {
         ] {
             let action = parse_report(&["msg", "--status", input]).expect("status should parse");
             match action {
-                AgentAction::Report { status, .. } => {
-                    assert_eq!(status.expect("status set").as_str(), expected);
+                AgentAction::Report(args) => {
+                    assert_eq!(args.status.expect("status set").as_str(), expected);
                 }
                 _ => panic!("expected report action"),
             }
@@ -326,9 +339,9 @@ mod tests {
     fn report_changed_files_splits_on_comma() {
         let action = parse_report(&["msg", "--changed-files", "a.rs,b.rs,c.rs"]).unwrap();
         match action {
-            AgentAction::Report { changed_files, .. } => {
+            AgentAction::Report(args) => {
                 assert_eq!(
-                    changed_files,
+                    args.changed_files,
                     Some(vec!["a.rs".into(), "b.rs".into(), "c.rs".into()])
                 );
             }
@@ -340,26 +353,33 @@ mod tests {
     fn report_without_flags_leaves_structured_fields_unset() {
         let action = parse_report(&["just a message"]).unwrap();
         match action {
-            AgentAction::Report {
-                status,
-                branch,
-                sha,
-                changed_files,
-                test_cmd,
-                test_result,
-                skipped,
-                ..
-            } => {
-                assert!(status.is_none());
-                assert!(branch.is_none());
-                assert!(sha.is_none());
-                assert!(changed_files.is_none());
-                assert!(test_cmd.is_none());
-                assert!(test_result.is_none());
-                assert!(skipped.is_none());
+            AgentAction::Report(args) => {
+                assert!(args.status.is_none());
+                assert!(args.branch.is_none());
+                assert!(args.sha.is_none());
+                assert!(args.changed_files.is_none());
+                assert!(args.test_cmd.is_none());
+                assert!(args.test_result.is_none());
+                assert!(args.skipped.is_none());
             }
             _ => panic!("expected report action"),
         }
+    }
+
+    #[test]
+    fn top_level_report_uses_same_parser() {
+        let args = parse_top_report(&[
+            "--status",
+            "in_review",
+            "--branch",
+            "lane/report-cli-planning",
+            "ready",
+        ])
+        .expect("top-level report parses");
+
+        assert_eq!(args.message.as_deref(), Some("ready"));
+        assert_eq!(args.status.expect("status set").as_str(), "in_review");
+        assert_eq!(args.branch.as_deref(), Some("lane/report-cli-planning"));
     }
 
     #[test]

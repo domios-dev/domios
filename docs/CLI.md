@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -76,11 +76,11 @@ Send a report to your parent in the hierarchy
 - `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
-- `--plan` — Plan id to append this report to
+- `--plan` — Plan id to append this report to (default: $CODETERM_PLAN_ID)
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
-- `--status` — Task outcome: done | in_review | blocked | partial
-- `--task` — Task id to append this report to
+- `--status` — Task outcome: in_review | blocked | partial | done
+- `--task` — Task id to append this report to (default: $CODETERM_TASK_ID)
 - `--test_cmd` — Test command that was run
 - `--test_result` — Result of the test command (e.g. "42 passed")
 - `--text` — Report message as a flag, useful when paired with --doc
@@ -407,6 +407,8 @@ Start keeping the system awake
 
 - `--display` — Also prevent display sleep
 - `--duration_secs` — Duration in seconds (omit for indefinite)
+- `--gnome_policy` — On Linux/GNOME, explicitly apply current-user power policy overrides (disable inactive sleep, idle blanking, lid-close and power-button suspend)
+- `--system_block` — Print system-level sudo mask commands in the status response. CodeTerm never runs these commands silently
 
 #### `codeterm keepawake status`
 
@@ -2007,6 +2009,25 @@ Update one installed plugin, or all plugins when id is omitted
 Update bundled system provider plugins from the official plugin channel
 
 - `<id>`
+
+#### `codeterm report`
+
+Report worker progress to the owning orchestrator or plan
+
+- `--branch` — Git branch the work landed on
+- `--changed_files` — Changed files (comma-separated or repeat the flag)
+- `--doc` — Markdown document to append to the report milestone
+- `--kind` — Milestone kind when writing to --plan/--task
+- `<message>` — Report message (also accepts --message alias)
+- `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
+- `--plan` — Plan id to append this report to (default: $CODETERM_PLAN_ID)
+- `--sha` — Commit SHA produced
+- `--skipped` — Anything deliberately skipped
+- `--status` — Task outcome: in_review | blocked | partial | done
+- `--task` — Task id to append this report to (default: $CODETERM_TASK_ID)
+- `--test_cmd` — Test command that was run
+- `--test_result` — Result of the test command (e.g. "42 passed")
+- `--text` — Report message as a flag, useful when paired with --doc
 
 #### `codeterm send`
 

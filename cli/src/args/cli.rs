@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 
 use crate::mesh_cli::MeshAction;
 
-use super::agent::AgentAction;
+use super::agent::{AgentAction, ReportArgs};
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
@@ -208,6 +208,9 @@ pub enum Commands {
         #[command(subcommand)]
         action: AgentAction,
     },
+
+    /// Report worker progress to the owning orchestrator or plan
+    Report(ReportArgs),
 
     /// Cron job management
     Cron {
