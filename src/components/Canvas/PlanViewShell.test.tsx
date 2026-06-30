@@ -83,13 +83,17 @@ function clickTab(host: HTMLElement, label: string) {
   throw new Error(`tab not found: ${label}`);
 }
 
+function panelFor(host: HTMLElement, testId: string): HTMLElement | null {
+  return host.querySelector(`[data-testid="${testId}"]`)?.parentElement ?? null;
+}
+
 test("PlanViewShell defaults to canvas mode", async () => {
   const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
   const shell = host.querySelector('[data-testid="plan-view-shell"]');
   assert(shell?.getAttribute("data-plan-view-mode") === "canvas", "default mode attr");
   const canvas = host.querySelector('[data-testid="canvas-view"]');
   assert(canvas && !canvas.hasAttribute("hidden"), "canvas visible");
-  const list = host.querySelector('[data-testid="plan-list-view"]');
+  const list = panelFor(host, "plan-list-view");
   assert(list?.hasAttribute("hidden"), "list hidden");
   await unmount();
 });
@@ -101,16 +105,16 @@ test("PlanViewShell switches to list and board without losing shell target", asy
   });
   const shell = host.querySelector('[data-testid="plan-view-shell"]');
   assert(shell?.getAttribute("data-plan-view-mode") === "list", "list mode attr");
-  const list = host.querySelector('[data-testid="plan-list-view"]');
+  const list = panelFor(host, "plan-list-view");
   assert(list && !list.hasAttribute("hidden"), "list visible");
-  const canvas = host.querySelector('[data-testid="canvas-view"]');
+  const canvas = panelFor(host, "canvas-view");
   assert(canvas?.hasAttribute("hidden"), "canvas hidden but mounted");
 
   await act(async () => {
     clickTab(host, "Board");
   });
   assert(shell?.getAttribute("data-plan-view-mode") === "board", "board mode attr");
-  const board = host.querySelector('[data-testid="plan-board-view"]');
+  const board = panelFor(host, "plan-board-view");
   assert(board && !board.hasAttribute("hidden"), "board visible");
   await unmount();
 });
