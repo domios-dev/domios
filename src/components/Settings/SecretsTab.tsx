@@ -4,6 +4,7 @@ import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "luci
 import type { AppConfig, SecretsConfig } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
 import { setPendingCommand } from "../../lib/pendingCommands";
+import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { SettingsCard, SettingsPill } from "./shared";
 import { UI_BUTTON, UI_INPUT, UI_TEXT } from "../shared/design";
 
@@ -46,9 +47,10 @@ export function SecretsTab({
   onCloseSettings?: () => void;
 }) {
   const api = config.api;
-  const apiBase = api ? `http://${api.host === "0.0.0.0" ? "127.0.0.1" : api.host}:${api.port}` : "";
-  const apiHeaders: HeadersInit = api?.token
-    ? { Authorization: `Bearer ${api.token}` }
+  const apiBase = api ? daemonHttpBase(api) : "";
+  const authToken = daemonAuthToken(api);
+  const apiHeaders: HeadersInit = authToken
+    ? { Authorization: `Bearer ${authToken}` }
     : {};
   const jsonHeaders: HeadersInit = { "Content-Type": "application/json", ...apiHeaders };
 

@@ -38,6 +38,7 @@ import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { PaneStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
 import { claimResizeOwner, getResizeClientId } from "../../lib/resizeOwner";
 import { shouldShowDropOverlay } from "./dropOverlay";
+import { terminalOwnsLivePty } from "./terminalOwnership";
 
 interface TerminalPaneProps {
   paneId: string;
@@ -127,10 +128,14 @@ export const TerminalPane = memo(function TerminalPane({
   const [searchOpen, setSearchOpen] = useState(false);
   const terminalVisible = uiMode === "terminal" || terminalFallbackOpen;
   const wasTerminalVisibleRef = useRef(terminalVisible);
-  const terminalOwnsLivePty = !IS_WEB || terminalVisible;
+  const ownsLivePty = terminalOwnsLivePty({
+    terminalVisible,
+    paneVisible: isVisible,
+    ptyId,
+  });
   const resizeClientId = useMemo(() => getResizeClientId(), []);
   const claimTerminalOwnership = useCallback((force = false) => {
-    if (!terminalOwnsLivePty && !force) return;
+    if (!ownsLivePty && !force) return;
     const term = termRef.current;
     const ptyIdNow = connectedPtyRef.current ?? ptyId ?? null;
     if (!term || !ptyIdNow || term.cols <= 0 || term.rows <= 0) return;
@@ -142,7 +147,7 @@ export const TerminalPane = memo(function TerminalPane({
         clientId: resizeClientId,
       }))
       .catch(() => {});
-  }, [paneId, ptyId, resizeClientId, terminalOwnsLivePty, termRef, connectedPtyRef]);
+  }, [paneId, ptyId, resizeClientId, ownsLivePty, termRef, connectedPtyRef]);
 
   // --- Resize handling ---
   const { jiggleResize } = useTerminalResize({
@@ -177,7 +182,7 @@ export const TerminalPane = memo(function TerminalPane({
     },
     jiggleResize,
     localFitEnabled: terminalVisible,
-    ioEnabled: terminalOwnsLivePty,
+    ioEnabled: ownsLivePty,
     resizeClientId,
   });
 
@@ -207,10 +212,10 @@ export const TerminalPane = memo(function TerminalPane({
   // unmount (PaneSessionChat is mounted iff uiMode === "chat"). A second
 
   useEffect(() => {
-    if (isFocused && terminalOwnsLivePty) {
+    if (isFocused && ownsLivePty) {
       claimTerminalOwnership();
     }
-  }, [isFocused, terminalOwnsLivePty, claimTerminalOwnership]);
+  }, [isFocused, ownsLivePty, claimTerminalOwnership]);
 
   useEffect(() => {
     const desired = computeMode();

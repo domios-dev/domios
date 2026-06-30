@@ -17,8 +17,7 @@ use winapi::shared::winerror::{HRESULT, S_OK};
 use winapi::um::handleapi::*;
 use winapi::um::processthreadsapi::*;
 use winapi::um::winbase::{
-    CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, STARTF_USESHOWWINDOW,
-    STARTF_USESTDHANDLES, STARTUPINFOEXW,
+    CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, STARTF_USESHOWWINDOW, STARTUPINFOEXW,
 };
 use winapi::um::wincon::COORD;
 use winapi::um::winnt::HANDLE;
@@ -165,15 +164,10 @@ impl PsuedoCon {
     pub fn spawn_command(&self, cmd: CommandBuilder) -> anyhow::Result<WinChild> {
         let mut si: STARTUPINFOEXW = unsafe { mem::zeroed() };
         si.StartupInfo.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
-        // Reset stdio handles to INVALID_HANDLE to prevent children inheriting parent redirections.
-        // Without this, detached children may write output to a log file instead of PTY.
-        // SW_HIDE suppresses the transient console window without CREATE_NO_WINDOW, which would
-        // detach the child from the pseudoconsole and leave every terminal blank (see psuedocon notes).
-        si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+        // The pseudoconsole attribute owns stdio. Passing INVALID std handles here makes
+        // console children allocate a legacy conhost.exe beside the real headless ConPTY host.
+        si.StartupInfo.dwFlags = STARTF_USESHOWWINDOW;
         si.StartupInfo.wShowWindow = SW_HIDE as u16;
-        si.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
-        si.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
-        si.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
 
         let mut attrs = ProcThreadAttributeList::with_capacity(1)?;
         attrs.set_pty(self.con)?;

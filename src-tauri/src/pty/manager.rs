@@ -580,6 +580,74 @@ mod tests {
         );
     }
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn conpty_shell_does_not_spawn_legacy_child_conhost() {
+        use std::io::Read;
+        use std::sync::mpsc;
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 30,
+                cols: 100,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty");
+        let mut reader = pair.master.try_clone_reader().expect("clone reader");
+        let child = pair
+            .slave
+            .spawn_command(CommandBuilder::new("cmd.exe"))
+            .expect("spawn cmd.exe");
+        drop(pair.slave);
+
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = vec![0u8; 4096];
+            let n = reader.read(&mut buf).unwrap_or(0);
+            buf.truncate(n);
+            let _ = tx.send(buf);
+        });
+        let got = rx
+            .recv_timeout(std::time::Duration::from_secs(8))
+            .unwrap_or_default();
+        assert!(!got.is_empty(), "ConPTY child produced no output");
+
+        let child_pid = child.process_id().expect("child pid");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let legacy = legacy_conhost_children(child_pid);
+        assert!(
+            legacy.is_empty(),
+            "ConPTY child {} spawned legacy conhost children {:?}; only the headless ConPTY host should exist",
+            child_pid,
+            legacy
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    fn legacy_conhost_children(parent_pid: u32) -> Vec<u32> {
+        let script = format!(
+            "$p={}; Get-CimInstance Win32_Process -Filter \"Name = 'conhost.exe' AND ParentProcessId = $p\" | Where-Object {{ $_.CommandLine -like '*conhost.exe 0x4*' }} | ForEach-Object {{ $_.ProcessId }}",
+            parent_pid
+        );
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &script,
+        ]);
+        crate::process_util::no_window_std(&mut cmd);
+        let Ok(output) = cmd.output() else {
+            return Vec::new();
+        };
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u32>().ok())
+            .collect()
+    }
+
     #[test]
     fn kill_returns_err_for_unknown_pty() {
         let mut manager = PtyManager::new();

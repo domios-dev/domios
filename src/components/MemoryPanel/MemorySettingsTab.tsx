@@ -3,6 +3,7 @@ import { Cog, Moon, RefreshCw } from "lucide-react";
 import type { AppConfig, CronJob } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { canonicalizeShort } from "../../lib/modelLabels";
+import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { Label, SettingsCard, SettingsPage, Toggle } from "../Settings/shared";
 
 type ScheduleFreq = "daily" | "every-2" | "every-3" | "weekly" | "off";
@@ -98,8 +99,9 @@ export function MemorySettingsTab({ config, onUpdate }: { config: AppConfig; onU
   const [syncing, setSyncing] = useState(false);
 
   const api = config.api;
-  const apiBase = api ? `http://${api.host === "0.0.0.0" ? "127.0.0.1" : api.host}:${api.port}` : "";
-  const apiHeaders: HeadersInit = api?.token ? { Authorization: `Bearer ${api.token}` } : {};
+  const apiBase = api ? daemonHttpBase(api) : "";
+  const authToken = daemonAuthToken(api);
+  const apiHeaders: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
   const [dreamCron, setDreamCron] = useState<CronJob | null>(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);
