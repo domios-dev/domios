@@ -1,7 +1,8 @@
-// Codex provider plugin runtime logic, compiled to QuickJS-compatible plugin.js
-// by scripts/build-plugin.mjs. Frontend contract lives in src/index.ts.
 import type { LaunchParams, ModelInfo, ParsedPrompt, PluginModule } from "@codeterm/plugin-sdk";
+import { discoverCodexModels } from "./models";
 import { parseCodexPrompt, parseMenuOptions, responseKeysForIndex, type MenuOption } from "./prompt";
+import { readSessionMeta } from "./sessionMeta";
+import { parseCodexUsage } from "./usage";
 
 const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
 const TITLE_RE = /codex/i;
@@ -96,7 +97,7 @@ const plugin: PluginModule = {
 
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
   discoverModels(): ModelInfo[] {
-    return discoverCodexModelsFromCache() || manifestModels();
+    return discoverCodexModels();
   },
 
   buildLaunchCommand(params: LaunchParams): string {
@@ -375,22 +376,7 @@ const plugin: PluginModule = {
 
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText: string, nowMs: number): unknown {
-    const raw = String(rawText || "");
-    if (!raw.trim()) return null;
-    const text = raw.split("\r").join("").split("█").join(" ").split("░").join(" ");
-    const session = codexParseGauge(text, "5\\s*(?:h|hour|hours|-hour)\\s*limit", false, nowMs);
-    const weekly = codexParseGauge(text, "weekly\\s*limit", true, nowMs);
-    if (session.pct === null && weekly.pct === null) return null;
-    return {
-      provider: "codex",
-      account_id: null,
-      captured_at_ms: nowMs,
-      session_pct: session.pct,
-      session_resets_at_ms: session.resetsMs,
-      weekly_pct: weekly.pct,
-      weekly_resets_at_ms: weekly.resetsMs,
-      raw_text: raw,
-    };
+    return parseCodexUsage(rawText, nowMs);
   },
 
   detectActiveSession(_cwd: string, _currentSid?: string): string | null {
@@ -768,9 +754,6 @@ interface CodexEntry { type?: string; payload?: CodexPayload; timestamp?: string
 interface CodexHookCmd { type?: string; command?: string; commandWindows?: string; timeout?: number; _source?: string }
 interface CodexHookEntry { matcher?: string; hooks?: CodexHookCmd[] }
 interface CodexHooks { hooks?: { SessionStart?: CodexHookEntry[] } }
-interface CodexModelCache { models?: CodexCachedModel[] }
-interface CodexCachedModel { slug?: string; display_name?: string; description?: string; visibility?: string; priority?: number }
-interface CodexManifest { models?: ModelInfo[] }
 
 // Use function declarations for QuickJS strict-mode compatibility with bundler rewrites.
 function endsWith(s: string, suffix: string): boolean {
@@ -799,81 +782,6 @@ function codexConfigPath(): string | null {
   if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
   return home + sep + ".codex" + sep + "config.toml";
-}
-
-function codexModelsCachePath(): string | null {
-  const home = host.homeDir();
-  if (!home) return null;
-  const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "models_cache.json";
-}
-
-function discoverCodexModelsFromCache(): ModelInfo[] | null {
-  const path = codexModelsCachePath();
-  if (!path || !host.fs.fileExists(path)) return null;
-  const cache = host.fs.readJson<CodexModelCache>(path);
-  const raw = cache && cache.models;
-  if (!Array.isArray(raw)) return null;
-  const kept: CodexCachedModel[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const item = raw[i];
-    const id = typeof item.slug === "string" ? item.slug.trim() : "";
-    if (!id) continue;
-    if (item.visibility === "hide") continue; // internal/non-selectable (e.g. codex-auto-review)
-    if (isNonChatModel(id)) continue;
-    kept.push(item);
-  }
-  // Codex orders the picker by ascending priority; preserve it so current models surface first.
-  kept.sort((a, b) => priorityOf(a) - priorityOf(b));
-  const models: ModelInfo[] = [];
-  for (let i = 0; i < kept.length; i++) {
-    const item = kept[i];
-    const id = (item.slug as string).trim();
-    models.push({
-      id: id,
-      displayName: typeof item.display_name === "string" && item.display_name.trim()
-        ? item.display_name.trim()
-        : displayNameFromId(id),
-      description: typeof item.description === "string" && item.description.trim()
-        ? item.description.trim()
-        : undefined,
-    });
-  }
-  // Codex cache carries no account-plan lockout signal, so availability is left unset (treated as available).
-  return models.length ? models : null;
-}
-
-function priorityOf(m: CodexCachedModel): number {
-  return typeof m.priority === "number" ? m.priority : 1e9;
-}
-
-function manifestModels(): ModelInfo[] {
-  try {
-    const m = JSON.parse(host.manifestJson() || "null") as CodexManifest | null;
-    return Array.isArray(m && m.models) ? m!.models! : [];
-  } catch (_) {
-    return [];
-  }
-}
-
-// Duplicated across provider bundles by design (QuickJS, no imports) — drops
-// embedding/tts/moderation/rerank ids so only chat models reach the picker.
-const NON_CHAT_TOKENS = ["embed", "embedding", "embeddings", "tts", "whisper", "moderation", "rerank", "dall", "dalle"];
-function isNonChatModel(id: string): boolean {
-  const leaf = (id.split("/").pop() || id).toLowerCase();
-  const toks = leaf.split(/[-_.]/);
-  for (let i = 0; i < toks.length; i++) if (NON_CHAT_TOKENS.indexOf(toks[i]) !== -1) return true;
-  return false;
-}
-
-function displayNameFromId(id: string): string {
-  const parts = id.split("/");
-  const leaf = parts[parts.length - 1] || id;
-  return leaf.split("-").filter(Boolean).map(capitalizeToken).join(" ");
-}
-
-function capitalizeToken(token: string): string {
-  return token ? token.charAt(0).toUpperCase() + token.substring(1) : token;
 }
 
 function codexWindowsHookScriptPath(): string | null {
@@ -1029,62 +937,6 @@ function codexShortLabel(modelId: string): string {
   return first.charAt(0).toUpperCase() + first.substring(1);
 }
 
-// Read first JSONL line, return {sessionId, cwd} only when type is `session_meta`.
-function readSessionMeta(path: string): { sessionId: string | null; cwd: string | null } | null {
-  const contents = host.fs.readFile(path);
-  if (!contents) return null;
-  const firstNl = contents.indexOf("\n");
-  const line = firstNl === -1 ? contents : contents.substring(0, firstNl);
-  let v: { type?: string; payload?: { id?: string; cwd?: string } };
-  try { v = JSON.parse(line.trim()); } catch (_) { return null; }
-  if (!v || v.type !== "session_meta") return null;
-  const p = v.payload || {};
-  return {
-    sessionId: typeof p.id === "string" ? p.id : null,
-    cwd: typeof p.cwd === "string" ? p.cwd : null,
-  };
-}
-
-// ── /status screen parsing (port of native status_tui) ──────────────
-
-interface CodexGauge { pct: number | null; resetsMs: number | null }
-
-function codexParseGauge(text: string, marker: string, isWeekly: boolean, nowMs: number): CodexGauge {
-  const re = new RegExp(
-    marker + "[\\s\\S]{0,240}?(\\d+(?:\\.\\d+)?)\\s*%\\s*(left|remaining|used)[\\s\\S]{0,180}?\\(\\s*resets?\\s+(?:at\\s+)?([^)]+?)\\)",
-    "i",
-  );
-  const caps = re.exec(text);
-  if (!caps) return { pct: null, resetsMs: null };
-  const value = parseFloat(caps[1]);
-  const mode = (caps[2] || "").toLowerCase();
-  const pct = isNaN(value)
-    ? null
-    : Math.min(100, Math.max(0, mode === "used" ? value : 100 - value));
-  const resetsRaw = (caps[3] || "").trim();
-  const resetsMs = isWeekly
-    ? codexParseWeeklyResets(resetsRaw, nowMs)
-    : codexParseSessionResets(resetsRaw, nowMs);
-  return { pct: pct, resetsMs: resetsMs };
-}
-
-function codexParseSessionResets(raw: string, nowMs: number): number | null {
-  const m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
-  if (!m) return null;
-  const hh = parseInt(m[1], 10), mm = parseInt(m[2], 10);
-  const now = new Date(nowMs);
-  let cand = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0, 0);
-  if (cand.getTime() <= nowMs) cand = new Date(cand.getTime() + 24 * 3600 * 1000);
-  return cand.getTime();
-}
-
-const CODEX_MONTHS: Record<string, number> = {
-  jan: 0, january: 0, feb: 1, february: 1, mar: 2, march: 2, apr: 3, april: 3,
-  may: 4, jun: 5, june: 5, jul: 6, july: 6, aug: 7, august: 7,
-  sep: 8, sept: 8, september: 8, oct: 9, october: 9, nov: 10, november: 10,
-  dec: 11, december: 11,
-};
-
 function isValidCodexSessionDelta(v: CodexEntry): boolean {
   if (!v || typeof v !== "object" || Array.isArray(v)) return false;
   if (v.type === "event_msg") {
@@ -1141,38 +993,6 @@ function isValidCodexSessionMessage(v: CodexEntry): boolean {
   if (v.payload.role !== "user" && v.payload.role !== "assistant") return false;
   if (!Array.isArray(v.payload.content)) return false;
   return true;
-}
-
-function codexParseWeeklyResets(raw: string, nowMs: number): number | null {
-  const s = String(raw || "").trim().replace(/^at\s+/i, "");
-  let hh: number;
-  let mm: number;
-  let day: number;
-  let month: number | undefined;
-  let year: number | null = null;
-  let m = /(\d{1,2}):(\d{2})\s+on\s+(\d{1,2})\s+([A-Za-z]+)(?:,?\s+(\d{4}))?/i.exec(s);
-  if (m) {
-    hh = parseInt(m[1], 10);
-    mm = parseInt(m[2], 10);
-    day = parseInt(m[3], 10);
-    month = CODEX_MONTHS[m[4].toLowerCase()];
-    year = m[5] ? parseInt(m[5], 10) : null;
-  } else {
-    m = /(\d{1,2}):(\d{2})\s+on\s+([A-Za-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?/i.exec(s);
-    if (!m) return null;
-    hh = parseInt(m[1], 10);
-    mm = parseInt(m[2], 10);
-    month = CODEX_MONTHS[m[3].toLowerCase()];
-    day = parseInt(m[4], 10);
-    year = m[5] ? parseInt(m[5], 10) : null;
-  }
-  if (month === undefined) return null;
-  const now = new Date(nowMs);
-  let cand = new Date(year ?? now.getFullYear(), month, day, hh, mm, 0, 0);
-  if (year === null && cand.getTime() <= nowMs) {
-    cand = new Date(now.getFullYear() + 1, month, day, hh, mm, 0, 0);
-  }
-  return cand.getTime();
 }
 
 export default plugin;

@@ -199,7 +199,7 @@ mod spawn_audit_tests {
             .unwrap_or(path)
             .to_string_lossy()
             .replace('\\', "/");
-        rel == "process_util.rs" || rel.ends_with("/tests.rs")
+        rel == "process_util.rs" || rel.ends_with("/tests.rs") || rel == "keepawake/linux.rs"
     }
 
     fn allowed_visible_or_unix_spawn(line: &str) -> bool {

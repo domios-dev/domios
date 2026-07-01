@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use super::batch::{BatchOp, BatchRequest};
 use super::{heartbeat, PlanError, PlanStore};
 use crate::plan::{AgentRef, Plan, TaskStatus};
+use crate::process_util;
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct HandoffCreateRequest {
@@ -101,12 +102,9 @@ fn default_reseed_mode() -> String {
 }
 
 fn git_value(project_path: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(project_path)
-        .args(args)
-        .output()
-        .ok()?;
+    let mut cmd = Command::new("git");
+    process_util::no_window_std(&mut cmd);
+    let output = cmd.arg("-C").arg(project_path).args(args).output().ok()?;
     output
         .status
         .success()
