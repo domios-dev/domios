@@ -223,6 +223,30 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             if *pin { payload["pinned"] = json!(true); }
             ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
         }
+        MemAction::SavePreference { title, body, body_file, summary, tags, area, importance, scope, workspace, pin, replace } => {
+            let mut payload = json!({"kind": "preference", "importance": importance, "skip_extract": true});
+            if let Some(v) = title { payload["title"] = json!(v); }
+            if let Some(v) = resolve_remote_text(body, body_file) { payload["body"] = json!(v); }
+            if let Some(v) = summary { payload["summary"] = json!(v); }
+            if let Some(v) = tags { payload["tags"] = json!(v); }
+            if let Some(v) = area { payload["area"] = json!(v); }
+            let resolved_scope = match (workspace, scope) {
+                (Some(ws), _) => {
+                    let ws = ws.trim();
+                    if ws.is_empty() {
+                        eprintln!("Error: --workspace requires a non-empty id");
+                        std::process::exit(1);
+                    }
+                    Some(format!("workspace:{ws}"))
+                }
+                (None, Some(s)) => Some(s.clone()),
+                (None, None) => None,
+            };
+            if let Some(v) = resolved_scope { payload["scope"] = json!(v); }
+            if *replace { payload["replace"] = json!(true); }
+            if *pin { payload["pinned"] = json!(true); }
+            ("POST".into(), "/api/mem/items".into(), Some(payload.to_string()))
+        }
         MemAction::WakeUp { budget, l0_only, no_l0, explain, workspace } => {
             let mut path = String::from("/api/mem/wake-up");
             let mut sep = '?';

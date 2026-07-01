@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{PlanError, PlanStore};
-use crate::plan::{HeartbeatLearning, OrchestratorHeartbeat, Plan, PlanStatus};
+use crate::plan::{HeartbeatLearning, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus};
 
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
 
@@ -116,14 +116,15 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
     );
     format!(
         "STATE-RECONCILIATION:\n\
+         - This pane owns an execution-mode plan with unfinished work; do not park while open tasks remain.\n\
+         - If you forgot how to orchestrate, read `codeterm docs ORCHESTRATION` first.\n\
          - First run `{reports}` and process queued reports before inspecting panes.\n\
          - Pull the full plan-owned snapshot with `{status}`.\n\
          - Reconcile live panes against the plan with `codeterm plan reconcile {plan_id}`.\n\
          - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\
          - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
          - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
-         - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`.\n\
-         - Re-read orchestration procedure with `codeterm docs ORCHESTRATION` when state is ambiguous."
+         - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`."
     )
 }
 
@@ -266,6 +267,16 @@ impl PlanStore {
     ) -> Result<HeartbeatShowResult, PlanError> {
         let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, pane_id, session_id)?;
         self.with_plan(&plan_id, now_ms, |plan| {
+            let writes_runtime_state = focus.is_some()
+                || lanes
+                    .as_ref()
+                    .is_some_and(|items| !clean_list(items.clone()).is_empty())
+                || rules
+                    .as_ref()
+                    .is_some_and(|items| !clean_list(items.clone()).is_empty());
+            if plan.mode == PlanMode::Planning && writes_runtime_state {
+                return Err(PlanError::HeartbeatRequiresExecution);
+            }
             if let Some(focus) = focus {
                 let focus = focus.trim();
                 plan.heartbeat.current_focus = (!focus.is_empty()).then(|| focus.to_string());

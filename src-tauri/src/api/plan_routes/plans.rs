@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{OrchestratorRef, PlanStatus};
+use crate::plan::{OrchestratorRef, PlanMode, PlanStatus};
 use crate::service::plan::PlanError;
 
 use super::{
@@ -220,6 +220,8 @@ pub(crate) struct UpdatePlanBody {
     title: Option<String>,
     #[serde(default)]
     status: Option<String>,
+    #[serde(default)]
+    mode: Option<String>,
 }
 
 pub async fn update(
@@ -239,7 +241,36 @@ pub async fn update(
     state
         .svc
         .plan_store
-        .update_plan(&id, body.title.as_deref(), status, now)
+        .update_plan(
+            &id,
+            body.title.as_deref(),
+            status,
+            body.mode.as_deref(),
+            now,
+        )
+        .map_err(plan_err)?;
+    emit_plan_changed(&state, &id);
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ModeBody {
+    mode: String,
+}
+
+pub async fn mode_set(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<ModeBody>,
+) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let mode = serde_json::from_value::<PlanMode>(serde_json::Value::String(body.mode))
+        .map_err(|_| plan_err(PlanError::BadMode))?;
+    state
+        .svc
+        .plan_store
+        .set_mode(&id, mode, epoch_ms())
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))

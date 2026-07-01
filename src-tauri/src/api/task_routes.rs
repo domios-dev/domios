@@ -20,7 +20,10 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
             StatusCode::NOT_FOUND
         }
         PlanError::BadStatus
+        | PlanError::BadMode
         | PlanError::BadPriority
+        | PlanError::TaskCreationRequiresApproval
+        | PlanError::HeartbeatRequiresExecution
         | PlanError::UndeclaredKind { .. }
         | PlanError::OpenSubtasks { .. }
         | PlanError::TransitionDenied { .. }

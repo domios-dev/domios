@@ -147,16 +147,6 @@ pub(crate) fn init_states() -> AppStates {
             e
         ),
     }
-    // Session restore (kill + restart) re-creates panes outside the fresh-spawn
-    // default logic, so re-apply the chat-UI default here. The dynamic plugin
-    if config_state.lock().ui.default_new_agent_pane_chat {
-        let capable: std::collections::HashSet<String> = BUNDLED_CHAT_UI_PROVIDERS
-            .iter()
-            .map(|id| id.to_string())
-            .collect();
-        mux_state_inner.apply_default_chat_view_for_capable(&capable);
-    }
-
     if general_config.enabled {
         service::general_agent::ensure_directories();
         service::general_agent::generate_instructions(&general_config.agent_provider, None);

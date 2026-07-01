@@ -148,6 +148,69 @@ fn save_accepts_workspace_flag() {
 }
 
 #[test]
+fn save_preference_accepts_shortcut_flags() {
+    let cli = Cli::try_parse_from([
+        "codeterm",
+        "mem",
+        "save-preference",
+        "--title",
+        "orchestration",
+        "--workspace",
+        "W1",
+        "--area",
+        "planning",
+        "--pin",
+        "--replace",
+        "Use CodeTerm planner as source of truth.",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Mem {
+            action:
+                MemAction::SavePreference {
+                    title,
+                    body,
+                    workspace,
+                    area,
+                    pin,
+                    replace,
+                    ..
+                },
+        } => {
+            assert_eq!(title.as_deref(), Some("orchestration"));
+            assert_eq!(workspace.as_deref(), Some("W1"));
+            assert_eq!(area.as_deref(), Some("planning"));
+            assert_eq!(
+                body.as_deref(),
+                Some("Use CodeTerm planner as source of truth.")
+            );
+            assert!(pin);
+            assert!(replace);
+        }
+        _ => panic!("expected SavePreference"),
+    }
+}
+
+#[test]
+fn save_preference_accepts_dash_leading_body() {
+    let cli = Cli::try_parse_from([
+        "codeterm",
+        "mem",
+        "save-preference",
+        "--title",
+        "weak-machine",
+        "--do-not-run-two-builds",
+    ])
+    .unwrap();
+    match cli.command {
+        Commands::Mem {
+            action: MemAction::SavePreference { body, .. },
+        } => assert_eq!(body.as_deref(), Some("--do-not-run-two-builds")),
+        _ => panic!("expected SavePreference"),
+    }
+}
+
+#[test]
 fn wakeup_accepts_explain_flag() {
     let cli = Cli::try_parse_from(["codeterm", "mem", "wake-up", "--explain"]).unwrap();
     match cli.command {

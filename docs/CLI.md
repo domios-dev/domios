@@ -814,6 +814,22 @@ Save a new mem item
 - `--title` — Title (will be slugified into id). If omitted, first line of body
 - `--workspace` — Convenience: scope this item to workspace ID. Maps to scope="workspace:<ws>"
 
+#### `codeterm mem save-preference`
+
+Save a stable user/machine preference for wake-up context
+
+- `--area` — Area tag (planning | orchestration | machine | ...)
+- `<body>` — Preference body. Use `-` (or omit with piped stdin) to read stdin
+- `--body_file` — Read body from a file instead of the positional arg
+- `--importance` — Importance 1-5 (default 4.0). Higher = more likely in L1 wake-up
+- `--pin` — Pin the item for L1 wake-up (always loaded)
+- `--replace` — Overwrite an existing row with the same id (upsert)
+- `--scope` — Scope: global (default) or workspace:<id>
+- `--summary` — Optional summary (~50-200 chars)
+- `--tags` — Comma-separated tags
+- `--title` — Title (will be slugified into id). If omitted, first line of body
+- `--workspace` — Convenience: scope this item to workspace ID. Maps to scope="workspace:<ws>"
+
 #### `codeterm mem search`
 
 Search across mem_items (FTS5 + hybrid scoring)
@@ -1320,6 +1336,12 @@ Explicit delete
 
 Canvas plans — persistent orchestration boards
 
+#### `codeterm plan approve`
+
+Mark the plan approved for task generation
+
+- `<plan_id>`
+
 #### `codeterm plan archive`
 
 Archive a plan
@@ -1390,11 +1412,29 @@ List generic canvas elements
 - `--kind`
 - `<plan_id>`
 
+#### `codeterm plan element rm`
+
+Remove a generic canvas element
+
+- `<element_id>`
+- `<plan_id>`
+
 #### `codeterm plan element show`
 
 Show one generic canvas element
 
 - `<element_id>`
+- `<plan_id>`
+
+#### `codeterm plan element update`
+
+Update a generic canvas element's content, kind, or links
+
+- `--content`
+- `--content_file`
+- `<element_id>`
+- `--kind`
+- `--link`
 - `<plan_id>`
 
 #### `codeterm plan facets`
@@ -1631,6 +1671,13 @@ Update a milestone's kind or text
 - `--text`
 - `--text_file`
 
+#### `codeterm plan mode`
+
+Set explicit effort mode: planning | approved | execution | complete
+
+- `<plan_id>`
+- `--set`
+
 #### `codeterm plan next`
 
 Prioritized, advisory next-action guidance computed from plan state
@@ -1647,6 +1694,22 @@ Add a free-form canvas note, optionally linked to a task or section
 
 - `--link_section`
 - `--link_task`
+- `<plan_id>`
+- `--text`
+- `--text_file`
+
+#### `codeterm plan note rm`
+
+Remove a free-form canvas note
+
+- `<note_id>`
+- `<plan_id>`
+
+#### `codeterm plan note update`
+
+Update a free-form canvas note
+
+- `<note_id>`
 - `<plan_id>`
 - `--text`
 - `--text_file`
@@ -1773,6 +1836,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--correctness`
 - `--criterion`
 - `--destination`
+- `--force`
 - `--group`
 - `--handle`
 - `--intent`
@@ -1874,10 +1938,12 @@ Replace facet/topic tags and regenerate the task handle
 
 #### `codeterm plan task rm`
 
-Remove a task from the plan
+Remove a task from the plan, or --all to reset generated tasks
 
+- `--all`
 - `<plan_id>`
 - `<task_id>`
+- `--yes`
 
 #### `codeterm plan task update`
 
@@ -1924,6 +1990,12 @@ Transfer plan ownership
 - `--reason`
 - `--to`
 
+#### `codeterm plan unapprove`
+
+Return an approved/execution plan to planning mode
+
+- `<plan_id>`
+
 #### `codeterm plan unarchive`
 
 Restore an archived plan to active
@@ -1941,6 +2013,7 @@ Remove a plan link
 
 Update plan metadata
 
+- `--mode`
 - `<plan_id>`
 - `--spec`
 - `--spec_file`

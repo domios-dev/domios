@@ -40,7 +40,7 @@ pub fn nudge_text(kind: NudgeKind) -> String {
                 .to_string()
         }
         NudgeKind::Orchestrator => {
-            "Plan reminder: this pane owns active plan work. Reconcile the plan, review worker reports, and keep the canvas current."
+            "Plan reminder: this pane owns unfinished execution-plan work. Read `codeterm docs ORCHESTRATION` if the orchestration loop is unclear, then process reports, reconcile, review, close, or bounce tasks."
                 .to_string()
         }
         NudgeKind::Escalated => "UNREPORTED task; your parent is blind until you report.".to_string(),
@@ -130,7 +130,8 @@ mod tests {
     #[test]
     fn orchestrator_nudge_body_defers_state_reconciliation_to_plan_prepend() {
         let text = nudge_text(NudgeKind::Orchestrator);
-        assert!(text.contains("this pane owns active plan work"));
+        assert!(text.contains("unfinished execution-plan work"));
+        assert!(text.contains("codeterm docs ORCHESTRATION"));
         assert!(!text.contains("STATE-RECONCILIATION"));
 
         let worker_text = nudge_text(NudgeKind::Worker);

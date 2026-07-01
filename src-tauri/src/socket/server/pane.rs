@@ -149,6 +149,10 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
+                if !raw_text.trim().is_empty() {
+                    svc.as_ref()
+                        .maybe_send_owned_plan_reminder(&resolved_target);
+                }
             } else {
                 svc.as_ref()
                     .send_text(&resolved_target, &raw_text, enter)
@@ -157,6 +161,10 @@ pub(super) fn dispatch(
                         message: e,
                         data: None,
                     })?;
+                if !raw_text.trim().is_empty() {
+                    svc.as_ref()
+                        .maybe_send_owned_plan_reminder(&resolved_target);
+                }
             }
             Ok(serde_json::json!({"ok": true}))
         }

@@ -1,12 +1,13 @@
 use serde::Serialize;
 
-use crate::plan::{LoopStatus, TaskStatus};
+use crate::plan::{LoopStatus, PlanMode, TaskStatus};
 
 use super::state::{LoopSnapshot, PlanStateSnapshot};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum NextActionKind {
+    ApprovePlan,
     Gate,
     Advance,
     Reconcile,
@@ -35,6 +36,17 @@ fn loop_near_limit(l: &LoopSnapshot) -> bool {
 /// Priority ascending (1 = act first). Never mutates anything.
 pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
     let mut actions = Vec::new();
+
+    if s.mode == PlanMode::Planning {
+        actions.push(NextAction {
+            priority: 1,
+            kind: NextActionKind::ApprovePlan,
+            task_id: None,
+            loop_id: None,
+            message: "finish planning: run quality doctor, then approve before task generation"
+                .into(),
+        });
+    }
 
     for lane in &s.open_lanes {
         if lane.status == TaskStatus::InReview {
@@ -130,6 +142,8 @@ mod tests {
             plan_id: "pl".into(),
             title: "T".into(),
             status: crate::plan::PlanStatus::Active,
+            mode: crate::plan::PlanMode::Execution,
+            planning_readiness: Default::default(),
             owner: Default::default(),
             goal: None,
             task_counts: Default::default(),
@@ -245,5 +259,14 @@ mod tests {
         );
         // priorities must be non-decreasing
         assert!(a.windows(2).all(|w| w[0].priority <= w[1].priority));
+    }
+
+    #[test]
+    fn planning_mode_points_to_approval_gate() {
+        let mut s = empty();
+        s.mode = PlanMode::Planning;
+        let a = compute_next_actions(&s);
+        assert_eq!(a[0].kind, NextActionKind::ApprovePlan);
+        assert!(a[0].message.contains("quality doctor"));
     }
 }

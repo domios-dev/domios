@@ -320,6 +320,9 @@ pub async fn send_text(
             format!("{} <actions:{}>", raw_text, action_preview(&actions))
         };
         record_push_activity(&state, &svc_token_match, &pane_id, &preview);
+        if !raw_text.trim().is_empty() {
+            state.svc.maybe_send_owned_plan_reminder(&pane_id);
+        }
         return Ok(Json(serde_json::json!({"ok": true, "actions": true})));
     }
 
@@ -342,6 +345,9 @@ pub async fn send_text(
             .send_text_batch(&pane_id, items)
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
         record_push_activity(&state, &svc_token_match, &pane_id, &preview);
+        if !preview.trim().is_empty() {
+            state.svc.maybe_send_owned_plan_reminder(&pane_id);
+        }
         return Ok(Json(serde_json::json!({"ok": true, "batch": true})));
     }
 
@@ -365,9 +371,13 @@ pub async fn send_text(
         crate::service::messenger::Messenger::deliver(&state.svc, &pane_id, envelope, &raw_text)
             .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found"))?;
         record_push_activity(&state, &svc_token_match, &pane_id, &raw_text);
+        if !raw_text.trim().is_empty() {
+            state.svc.maybe_send_owned_plan_reminder(&pane_id);
+        }
         return Ok(Json(serde_json::json!({"ok": true})));
     }
 
+    let has_text = !raw_text.trim().is_empty();
     let text = prepend(&stage(raw_text));
     state
         .svc
@@ -375,5 +385,8 @@ pub async fn send_text(
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, "Pane not found or has no PTY"))?;
     record_push_activity(&state, &svc_token_match, &pane_id, &text);
+    if has_text {
+        state.svc.maybe_send_owned_plan_reminder(&pane_id);
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }

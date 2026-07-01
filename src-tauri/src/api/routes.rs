@@ -135,6 +135,7 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/plans/{id}/archive", post(plan_routes::archive))
         .route("/api/plans/{id}/unarchive", post(plan_routes::unarchive))
+        .route("/api/plans/{id}/mode", post(plan_routes::mode_set))
         .route("/api/plans/{id}/reconcile", get(plan_routes::reconcile))
         .route("/api/plans/{id}/state", get(plan_routes::state))
         .route("/api/plans/{id}/next", get(plan_routes::next))
@@ -226,7 +227,15 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/plans/{id}/layout", patch(plan_routes::layout_set))
         .route("/api/plans/{id}/notes", post(plan_routes::note_add))
+        .route(
+            "/api/plans/{id}/notes/{element_id}",
+            patch(plan_routes::note_update).delete(plan_routes::element_rm),
+        )
         .route("/api/plans/{id}/elements", post(plan_routes::element_add))
+        .route(
+            "/api/plans/{id}/elements/{element_id}",
+            patch(plan_routes::element_update).delete(plan_routes::element_rm),
+        )
         .route("/api/panes/{id}/send", post(pane_routes::send_text))
         .route("/api/panes/{id}/stop", post(pane_routes::stop_pane))
         .route("/api/panes/{id}/focus", post(pane_routes::focus_pane))

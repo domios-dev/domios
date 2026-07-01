@@ -9,7 +9,10 @@ use crate::service::ServiceState;
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn handles(method: &str) -> bool {
-    matches!(method, "plan.layout.set" | "plan.note.add") || method.starts_with("plan.element.")
+    matches!(
+        method,
+        "plan.layout.set" | "plan.note.add" | "plan.note.update"
+    ) || method.starts_with("plan.element.")
 }
 
 fn epoch_ms() -> u64 {
@@ -104,6 +107,54 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "element_id": eid }))
+        }
+        "plan.note.update" => {
+            let id = get_string_param(params, "plan_id")?;
+            let element_id = get_string_param(params, "element_id")?;
+            let text = p
+                .and_then(|x| x.get("text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            store
+                .update_element(
+                    &id,
+                    &element_id,
+                    Some("note"),
+                    Some(json!({ "text": text })),
+                    None,
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true }))
+        }
+        "plan.element.update" => {
+            let id = get_string_param(params, "plan_id")?;
+            let element_id = get_string_param(params, "element_id")?;
+            let links = p
+                .and_then(|x| x.get("links"))
+                .map(|v| serde_json::from_value(v.clone()).unwrap_or_default());
+            store
+                .update_element(
+                    &id,
+                    &element_id,
+                    p.and_then(|x| x.get("kind")).and_then(|v| v.as_str()),
+                    p.and_then(|x| x.get("content")).cloned(),
+                    links,
+                    now,
+                )
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true }))
+        }
+        "plan.element.rm" => {
+            let id = get_string_param(params, "plan_id")?;
+            let element_id = get_string_param(params, "element_id")?;
+            store
+                .rm_element(&id, &element_id, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true }))
         }
         "plan.element.list" => {
             let id = get_string_param(params, "plan_id")?;

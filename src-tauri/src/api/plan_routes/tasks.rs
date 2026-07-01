@@ -82,6 +82,8 @@ pub(crate) struct TaskAddBody {
     handle: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    force: bool,
 }
 
 pub async fn task_add(
@@ -106,6 +108,11 @@ pub async fn task_add(
         .svc
         .plan_store
         .resolve_task_section_ids(&id, &requested_sections)
+        .map_err(plan_err)?;
+    state
+        .svc
+        .plan_store
+        .ensure_task_creation_allowed(&id, body.force)
         .map_err(plan_err)?;
     let has_sections = !section_ids.is_empty();
     let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());

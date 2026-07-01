@@ -1,5 +1,5 @@
 use super::PlanStore;
-use crate::plan::{OrchestratorRef, Plan};
+use crate::plan::{OrchestratorRef, Plan, PlanMode};
 
 fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
     let dir = tempfile::tempdir().unwrap();
@@ -13,6 +13,7 @@ fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
             10,
         )
         .unwrap();
+    store.set_mode(&plan.id, PlanMode::Execution, 11).unwrap();
     (dir, store, plan.id)
 }
 
@@ -122,6 +123,35 @@ fn heartbeat_set_writes_focus_lanes_rules_and_reinjects() {
 }
 
 #[test]
+fn planning_mode_rejects_runtime_heartbeat_state() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let plan = store
+        .create_plan(
+            "Planning".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch-a"),
+            vec![],
+            10,
+        )
+        .unwrap();
+    let err = store
+        .set_heartbeat(
+            Some(&plan.id),
+            None,
+            None,
+            Some("remember this"),
+            None,
+            None,
+            false,
+            false,
+            20,
+        )
+        .unwrap_err();
+    assert!(matches!(err, super::PlanError::HeartbeatRequiresExecution));
+}
+
+#[test]
 fn heartbeat_resolves_for_owner_pane_at_send_time() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let before = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
@@ -204,6 +234,8 @@ fn notifier_delivery_uses_same_state_reconciliation_prelude() {
 
     assert!(text.contains("<codeterm-state-reconciliation"));
     assert!(text.contains("STATE-RECONCILIATION"));
+    assert!(text.contains("execution-mode plan with unfinished work"));
+    assert!(text.contains("codeterm docs ORCHESTRATION"));
     assert!(text.contains("Reconcile live panes against the plan"));
     assert!(text.contains("codeterm plan task close"));
     assert!(text.contains("codeterm plan task update"));
@@ -239,5 +271,5 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
     assert!(text.contains("codeterm docs ORCHESTRATION"));
     assert!(text.contains("<codeterm-orchestrator-heartbeat"));
     assert!(text.contains("Current focus: Review open lanes"));
-    assert!(text.contains("Plan reminder: this pane owns active plan work."));
+    assert!(text.contains("Plan reminder: this pane owns unfinished execution-plan work."));
 }

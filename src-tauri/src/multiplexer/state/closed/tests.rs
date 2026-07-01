@@ -74,9 +74,7 @@ fn reopen_recreates_pane_with_same_backing() {
     state.rename_tab(&wsid, &tab_id, "Restored Chat").unwrap();
     state.close_tab(&wsid, &tab_id).unwrap();
 
-    let (new_tab, new_pane) = state
-        .reopen_closed_pane(&wsid, None, &HashSet::new())
-        .unwrap();
+    let (new_tab, new_pane) = state.reopen_closed_pane(&wsid, None).unwrap();
     assert_ne!(new_tab, tab_id, "fresh tab id");
     let pane = state.get_pane(&new_pane).expect("reopened pane exists");
     assert_eq!(
@@ -110,9 +108,7 @@ fn reopen_chatbackend_pane_opens_in_chat() {
     state.rename_tab(&wsid, &tab_id, "Chat").unwrap();
     state.close_tab(&wsid, &tab_id).unwrap();
 
-    let (_t, new_pane) = state
-        .reopen_closed_pane(&wsid, None, &HashSet::new())
-        .unwrap();
+    let (_t, new_pane) = state.reopen_closed_pane(&wsid, None).unwrap();
     let pane = state.get_pane(&new_pane).unwrap();
     assert!(pane.is_chat_backend(), "backing preserved on reopen");
     assert!(
@@ -136,9 +132,7 @@ fn reopen_cascade_group_activates_root_not_leaf() {
     state.close_pane(&orch_pane).unwrap();
     let group_id = state.recent_closed_view()[0].group_id.clone();
 
-    let (_ws, _tab, activated) = state
-        .reopen_closed_group(&group_id, &HashSet::new())
-        .unwrap();
+    let (_ws, _tab, activated) = state.reopen_closed_group(&group_id).unwrap();
     let pane = state.get_pane(&activated).expect("activated pane exists");
     assert_eq!(
         pane.title, "Orchestrator",
@@ -161,9 +155,7 @@ fn reopen_agent_pane_marks_for_resume() {
     }
     state.close_pane(&pane_id).unwrap();
 
-    let (_t, new_pane) = state
-        .reopen_closed_pane(&wsid, None, &HashSet::new())
-        .unwrap();
+    let (_t, new_pane) = state.reopen_closed_pane(&wsid, None).unwrap();
     let pane = state.get_pane(&new_pane).unwrap();
     assert_eq!(pane.agent_type.as_deref(), Some("codex"));
     assert!(pane.agent_type_locked);
@@ -172,131 +164,112 @@ fn reopen_agent_pane_marks_for_resume() {
     assert_eq!(pane.backing, PaneBacking::Pty);
 }
 
-// ── chat-UI default re-applied on reopen (default_new_agent_pane_chat) ──
-
-/// Helper: the chat-capable provider set the service layer passes when the
-/// `default_new_agent_pane_chat` preference is ON.
-fn capable(ids: &[&str]) -> HashSet<String> {
-    ids.iter().map(|s| s.to_string()).collect()
-}
-
 #[test]
-fn reopen_chat_capable_agent_with_pref_on_opens_chat() {
+fn reopen_agent_pane_preserves_terminal_mode() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
     let (_tab_id, pane_id) = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_pane_mut(&pane_id) {
         p.agent_type = Some("claude".into());
+        p.chat_view = false;
     }
     state.close_pane(&pane_id).unwrap();
 
-    // pref ON → claude is chat-capable → reopened pane defaults to chat.
-    let (_t, new_pane) = state
-        .reopen_closed_pane(&wsid, None, &capable(&["claude", "codex"]))
-        .unwrap();
+    let (_t, new_pane) = state.reopen_closed_pane(&wsid, None).unwrap();
+    assert!(
+        !state.get_pane(&new_pane).unwrap().chat_view,
+        "history restore must preserve terminal mode instead of reapplying chat default"
+    );
+}
+
+#[test]
+fn reopen_agent_pane_preserves_chat_mode() {
+    let (mut state, _root) = MultiplexerState::new();
+    let wsid = ws_id(&state);
+    let (_tab_id, pane_id) = state.create_tab(&wsid).unwrap();
+    if let Some(p) = state.get_pane_mut(&pane_id) {
+        p.agent_type = Some("claude".into());
+        p.chat_view = true;
+    }
+    state.close_pane(&pane_id).unwrap();
+
+    let (_t, new_pane) = state.reopen_closed_pane(&wsid, None).unwrap();
     assert!(
         state.get_pane(&new_pane).unwrap().chat_view,
-        "chat-capable agent pane reopens in chat when the pref is on"
+        "history restore must preserve chat mode"
     );
 }
 
 #[test]
-fn reopen_chat_capable_agent_with_pref_off_stays_terminal() {
+fn reopen_unsupported_provider_preserves_chat_mode_too() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
     let (_tab_id, pane_id) = state.create_tab(&wsid).unwrap();
     if let Some(p) = state.get_pane_mut(&pane_id) {
-        p.agent_type = Some("claude".into());
+        p.agent_type = Some("aider".into());
+        p.chat_view = true;
     }
     state.close_pane(&pane_id).unwrap();
 
-    // pref OFF → empty capable set → terminal.
-    let (_t, new_pane) = state
-        .reopen_closed_pane(&wsid, None, &HashSet::new())
-        .unwrap();
+    let (_t, new_pane) = state.reopen_closed_pane(&wsid, None).unwrap();
     assert!(
-        !state.get_pane(&new_pane).unwrap().chat_view,
-        "preference off keeps the reopened pane in terminal"
+        state.get_pane(&new_pane).unwrap().chat_view,
+        "history restore preserves the pane's stored mode, not provider capability defaults"
     );
 }
 
 #[test]
-fn reopen_unsupported_provider_stays_terminal_even_with_pref_on() {
-    let (mut state, _root) = MultiplexerState::new();
-    let wsid = ws_id(&state);
-    let (_tab_id, pane_id) = state.create_tab(&wsid).unwrap();
-    if let Some(p) = state.get_pane_mut(&pane_id) {
-        p.agent_type = Some("aider".into()); // not in the capable set
-    }
-    state.close_pane(&pane_id).unwrap();
-
-    let (_t, new_pane) = state
-        .reopen_closed_pane(&wsid, None, &capable(&["claude", "codex"]))
-        .unwrap();
-    assert!(
-        !state.get_pane(&new_pane).unwrap().chat_view,
-        "a provider that does not support chat UI stays terminal"
-    );
-}
-
-#[test]
-fn reopen_cascade_group_applies_chat_default_to_every_pane() {
+fn reopen_cascade_group_preserves_each_pane_mode() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
     let (orch_tab, orch_pane) = state.create_tab(&wsid).unwrap();
     state.rename_tab(&wsid, &orch_tab, "Orchestrator").unwrap();
-    state.get_pane_mut(&orch_pane).unwrap().agent_type = Some("claude".into());
+    {
+        let pane = state.get_pane_mut(&orch_pane).unwrap();
+        pane.agent_type = Some("claude".into());
+        pane.chat_view = false;
+    }
     let (w1_tab, worker1) = state.create_tab(&wsid).unwrap();
     state.rename_tab(&wsid, &w1_tab, "Worker").unwrap();
     let w = state.get_pane_mut(&worker1).unwrap();
     w.parent_pane_id = Some(orch_pane.clone());
     w.agent_type = Some("codex".into());
+    w.chat_view = true;
 
     state.close_pane(&orch_pane).unwrap();
     let group_id = state.recent_closed_view()[0].group_id.clone();
+    let closed_modes: Vec<(String, bool)> = state
+        .recent_closed_view()
+        .into_iter()
+        .filter(|row| row.group_id == group_id)
+        .filter_map(|row| {
+            row.pane
+                .agent_type
+                .clone()
+                .map(|agent| (agent, row.pane.chat_view))
+        })
+        .collect();
+    assert!(
+        closed_modes.contains(&("codex".to_string(), true)),
+        "cascade history must store each child pane mode"
+    );
 
-    let (_ws, _tab, _first) = state
-        .reopen_closed_group(&group_id, &capable(&["claude", "codex"]))
-        .unwrap();
+    let (_ws, _tab, _first) = state.reopen_closed_group(&group_id).unwrap();
     let restored: Vec<String> = state
         .list_workspaces()
         .iter()
         .find(|w| w.id == wsid)
         .map(|w| w.pane_ids.clone())
         .unwrap_or_default();
-    let agent_panes: Vec<bool> = restored
+    let mut agent_panes: Vec<(&str, bool)> = restored
         .iter()
         .filter_map(|pid| state.get_pane(pid))
         .filter(|p| p.agent_type.is_some())
-        .map(|p| p.chat_view)
+        .map(|p| (p.agent_type.as_deref().unwrap_or(""), p.chat_view))
         .collect();
+    agent_panes.sort_by_key(|(provider, _)| *provider);
     assert_eq!(agent_panes.len(), 2, "both agent panes restored");
-    assert!(
-        agent_panes.iter().all(|&c| c),
-        "every chat-capable pane in the group reopens in chat"
-    );
-}
-
-#[test]
-fn session_restore_reapplies_chat_default_for_capable_agents() {
-    let (mut state, _root) = MultiplexerState::new();
-    let wsid = ws_id(&state);
-    let (_t1, claude_pane) = state.create_tab(&wsid).unwrap();
-    state.get_pane_mut(&claude_pane).unwrap().agent_type = Some("claude".into());
-    let (_t2, other_pane) = state.create_tab(&wsid).unwrap();
-    state.get_pane_mut(&other_pane).unwrap().agent_type = Some("aider".into());
-
-    // Simulates the startup pass after `from_session_snapshot` when the pref is
-    // on: only chat-capable agents flip to chat.
-    state.apply_default_chat_view_for_capable(&capable(&["claude", "codex"]));
-    assert!(state.get_pane(&claude_pane).unwrap().chat_view);
-    assert!(!state.get_pane(&other_pane).unwrap().chat_view);
-
-    // Empty set (pref off) is a no-op.
-    let (_t3, c2) = state.create_tab(&wsid).unwrap();
-    state.get_pane_mut(&c2).unwrap().agent_type = Some("claude".into());
-    state.apply_default_chat_view_for_capable(&HashSet::new());
-    assert!(!state.get_pane(&c2).unwrap().chat_view);
+    assert_eq!(agent_panes, vec![("claude", false), ("codex", true)]);
 }
 
 #[test]
@@ -339,9 +312,7 @@ fn reopen_by_index_selects_older_entry() {
     state.close_tab(&wsid, &t2).unwrap();
 
     // index 1 = the older "first"-closed entry.
-    let (_t, new_pane) = state
-        .reopen_closed_pane(&wsid, Some(1), &HashSet::new())
-        .unwrap();
+    let (_t, new_pane) = state.reopen_closed_pane(&wsid, Some(1)).unwrap();
     assert_eq!(state.get_pane(&new_pane).unwrap().title, "older");
     // The remaining entry is the newer one.
     let list = state.list_recently_closed(&wsid);
@@ -353,9 +324,7 @@ fn reopen_by_index_selects_older_entry() {
 fn reopen_empty_history_errors() {
     let (mut state, _root) = MultiplexerState::new();
     let wsid = ws_id(&state);
-    let err = state
-        .reopen_closed_pane(&wsid, None, &HashSet::new())
-        .unwrap_err();
+    let err = state.reopen_closed_pane(&wsid, None).unwrap_err();
     assert!(err.contains("No recently closed"));
 }
 
@@ -365,9 +334,7 @@ fn reopen_out_of_range_index_errors() {
     let wsid = ws_id(&state);
     let (tab_id, _p) = state.create_tab(&wsid).unwrap();
     state.close_tab(&wsid, &tab_id).unwrap();
-    let err = state
-        .reopen_closed_pane(&wsid, Some(5), &HashSet::new())
-        .unwrap_err();
+    let err = state.reopen_closed_pane(&wsid, Some(5)).unwrap_err();
     assert!(err.contains("index 5"));
 }
 
@@ -445,9 +412,7 @@ fn reopen_cascade_group_restores_subtree_and_relinks_parents() {
     state.close_pane(&orch_pane).unwrap();
 
     let group_id = state.recent_closed_view()[0].group_id.clone();
-    let (ws, _tab, first_pane) = state
-        .reopen_closed_group(&group_id, &HashSet::new())
-        .unwrap();
+    let (ws, _tab, first_pane) = state.reopen_closed_group(&group_id).unwrap();
     assert_eq!(ws, wsid, "cascade reopens into origin workspace");
 
     // Two panes restored, parent link rebuilt across the new ids.
@@ -514,9 +479,7 @@ fn reopen_workspace_group_recreates_workspace_with_tabs() {
     state.close_workspace(&wsid).unwrap();
     let group_id = state.recent_closed_view()[0].group_id.clone();
 
-    let (new_ws, _tab, _pane) = state
-        .reopen_closed_group(&group_id, &HashSet::new())
-        .unwrap();
+    let (new_ws, _tab, _pane) = state.reopen_closed_group(&group_id).unwrap();
     let info = state
         .list_workspaces()
         .into_iter()
@@ -544,7 +507,7 @@ fn reopen_orphaned_pane_recreates_workspace() {
 
     state.close_workspace(&wsid).unwrap();
 
-    let (new_ws, _tab, new_pane) = state.reopen_orphaned_pane(&pane1, &HashSet::new()).unwrap();
+    let (new_ws, _tab, new_pane) = state.reopen_orphaned_pane(&pane1).unwrap();
     assert_ne!(new_ws, wsid);
     assert_eq!(state.get_pane(&new_pane).unwrap().title, "Lonely");
 }
@@ -568,9 +531,7 @@ fn reopen_workspace_group_matches_existing_workspace_by_path() {
         .id;
     let count_before = state.list_workspaces().len();
 
-    let (target_ws, _tab, _pane) = state
-        .reopen_closed_group(&group_id, &HashSet::new())
-        .unwrap();
+    let (target_ws, _tab, _pane) = state.reopen_closed_group(&group_id).unwrap();
     assert_eq!(
         target_ws, live_id,
         "restore into the live same-path workspace, not a duplicate"

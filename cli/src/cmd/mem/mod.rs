@@ -72,6 +72,19 @@ pub fn handle_mem(json_mode: bool, action: MemAction) {
             replace: _,
             skip_extract: _,
         }
+        | MemAction::SavePreference {
+            title: _,
+            body: _,
+            body_file: _,
+            summary: _,
+            tags: _,
+            area: _,
+            importance: _,
+            scope: _,
+            workspace: _,
+            pin: _,
+            replace: _,
+        }
         | MemAction::ExtractPending { limit: _ }
         | MemAction::WakeUp {
             budget: _,

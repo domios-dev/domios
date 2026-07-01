@@ -2,11 +2,11 @@ use super::lane_metadata::{apply_lane_update, normalize_lane_metadata};
 use super::readback::pending_after_verified;
 use super::{NewTask, OpenSubtask, PlanError, PlanStore};
 use crate::plan::{
-    AgentRef, CanvasElement, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanStatus,
-    Section, TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
+    AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus, Section,
+    TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
 };
 
-fn gen_id(prefix: &str) -> String {
+pub(super) fn gen_id(prefix: &str) -> String {
     format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
 }
 
@@ -98,22 +98,12 @@ pub(super) fn has_section(sections: &[Section], id: &str) -> bool {
     })
 }
 
-fn set_section_canvas(sections: &mut [Section], id: &str, x: Option<f64>, y: Option<f64>) -> bool {
-    for s in sections.iter_mut() {
-        if s.id == id {
-            s.canvas.x = x;
-            s.canvas.y = y;
-            return true;
-        }
-        if set_section_canvas(&mut s.subsections, id, x, y) {
-            return true;
-        }
-    }
-    false
-}
-
 fn parse_task_status(raw: &str) -> Result<TaskStatus, PlanError> {
     serde_json::from_value(serde_json::Value::String(raw.into())).map_err(|_| PlanError::BadStatus)
+}
+
+fn parse_plan_mode(raw: &str) -> Result<PlanMode, PlanError> {
+    serde_json::from_value(serde_json::Value::String(raw.into())).map_err(|_| PlanError::BadMode)
 }
 
 fn parse_task_priority(raw: &str) -> Result<TaskPriority, PlanError> {
@@ -175,6 +165,21 @@ pub(super) fn validate_task_status_transition(
 }
 
 impl PlanStore {
+    pub fn ensure_task_creation_allowed(
+        &self,
+        plan_id: &str,
+        force: bool,
+    ) -> Result<(), PlanError> {
+        if force {
+            return Ok(());
+        }
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        match plan.mode {
+            PlanMode::Planning | PlanMode::Complete => Err(PlanError::TaskCreationRequiresApproval),
+            PlanMode::Approved | PlanMode::Execution => Ok(()),
+        }
+    }
+
     pub fn create_plan(
         &self,
         title: String,
@@ -201,6 +206,7 @@ impl PlanStore {
         plan_id: &str,
         title: Option<&str>,
         status: Option<PlanStatus>,
+        mode: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
@@ -210,6 +216,16 @@ impl PlanStore {
             if let Some(s) = status {
                 p.status = s;
             }
+            if let Some(mode) = mode {
+                p.mode = parse_plan_mode(mode)?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn set_mode(&self, plan_id: &str, mode: PlanMode, now_ms: u64) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            p.mode = mode;
             Ok(())
         })
     }
@@ -814,6 +830,17 @@ impl PlanStore {
         })
     }
 
+    pub fn rm_all_tasks(&self, plan_id: &str, now_ms: u64) -> Result<usize, PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            let count = p.tasks.len();
+            p.tasks.clear();
+            p.heartbeat.current_focus = None;
+            p.heartbeat.active_lanes.clear();
+            p.mode = PlanMode::Planning;
+            Ok(count)
+        })
+    }
+
     pub fn update_milestone(
         &self,
         plan_id: &str,
@@ -870,109 +897,6 @@ impl PlanStore {
                 .ok_or(PlanError::NotFound)?;
             task.milestones.remove(pos);
             Ok(())
-        })
-    }
-
-    pub fn add_note(
-        &self,
-        plan_id: &str,
-        text: &str,
-        links: Vec<String>,
-        x: Option<f64>,
-        y: Option<f64>,
-        now_ms: u64,
-    ) -> Result<String, PlanError> {
-        let eid = gen_id("el");
-        let el = CanvasElement {
-            id: eid.clone(),
-            kind: "note".into(),
-            canvas: crate::plan::ElementCanvas {
-                x,
-                y,
-                collapsed: false,
-            },
-            content: serde_json::json!({ "text": text }),
-            links,
-        };
-        self.with_plan(plan_id, now_ms, |p| {
-            p.elements.push(el);
-            Ok(())
-        })?;
-        Ok(eid)
-    }
-
-    pub fn add_element(
-        &self,
-        plan_id: &str,
-        kind: &str,
-        content: serde_json::Value,
-        links: Vec<String>,
-        x: Option<f64>,
-        y: Option<f64>,
-        now_ms: u64,
-    ) -> Result<String, PlanError> {
-        let eid = gen_id("el");
-        let el = CanvasElement {
-            id: eid.clone(),
-            kind: kind.into(),
-            canvas: crate::plan::ElementCanvas {
-                x,
-                y,
-                collapsed: false,
-            },
-            content,
-            links,
-        };
-        self.with_plan(plan_id, now_ms, |p| {
-            p.elements.push(el);
-            Ok(())
-        })?;
-        Ok(eid)
-    }
-
-    pub fn set_layout(
-        &self,
-        plan_id: &str,
-        element_id: &str,
-        x: Option<f64>,
-        y: Option<f64>,
-        now_ms: u64,
-    ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            // Match the FULL id the frontend sends (node.id). Ids carry their own
-            // unique prefix (sec_/task_/ms_/el_), so no namespace parsing is needed —
-            // the old split_once(':') rejected the underscore ids and 404'd every drag.
-            let found = set_section_canvas(&mut p.sections, element_id, x, y)
-                || p.tasks
-                    .iter_mut()
-                    .find(|t| t.id == element_id)
-                    .is_some_and(|t| {
-                        t.canvas.x = x;
-                        t.canvas.y = y;
-                        true
-                    })
-                || p.tasks
-                    .iter_mut()
-                    .flat_map(|t| t.milestones.iter_mut())
-                    .find(|m| m.id == element_id)
-                    .is_some_and(|m| {
-                        m.canvas.x = x;
-                        m.canvas.y = y;
-                        true
-                    })
-                || p.elements
-                    .iter_mut()
-                    .find(|e| e.id == element_id)
-                    .is_some_and(|e| {
-                        e.canvas.x = x;
-                        e.canvas.y = y;
-                        true
-                    });
-            if found {
-                Ok(())
-            } else {
-                Err(PlanError::NotFound)
-            }
         })
     }
 }

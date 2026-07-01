@@ -18,13 +18,16 @@ pub mod sections;
 pub mod spec;
 pub mod tasks;
 
-pub use elements::{coverage, element_add, groups_set, layout_set, note_add};
+pub use elements::{
+    coverage, element_add, element_rm, element_update, groups_set, layout_set, note_add,
+    note_update,
+};
 pub use linking::{link, unlink};
 pub use loops::{loop_advance, loop_create, loop_set, loop_status, loop_stop};
 pub use milestones::{milestone_add, milestone_rm, milestone_update};
 pub use plans::{
-    archive, claim, create, delete_plan, disown, get, kinds_set, list, next, reconcile, state,
-    tag_facets_set, transfer, unarchive, update,
+    archive, claim, create, delete_plan, disown, get, kinds_set, list, mode_set, next, reconcile,
+    state, tag_facets_set, transfer, unarchive, update,
 };
 pub use sections::{ingest, section_add, section_rm, section_update};
 pub use tasks::{

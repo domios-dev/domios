@@ -52,6 +52,21 @@ pub fn run(
     Ok(None)
 }
 
+pub(crate) fn assert_quality_ready(plan_id: &str) -> Result<(), String> {
+    let report = doctor_report(Some(plan_id.to_string()), None, "quality")?;
+    if report.get("ok").and_then(Value::as_bool).unwrap_or(false) {
+        return Ok(());
+    }
+    Err(render_quality_approval_error(plan_id, &report))
+}
+
+fn render_quality_approval_error(plan_id: &str, report: &Value) -> String {
+    format!(
+        "✗ plan approval blocked by quality doctor\n\n{}fix:\n  codeterm plan doctor {plan_id} --kind quality\n  codeterm plan approve {plan_id}",
+        render_doctor(&report)
+    )
+}
+
 fn doctor_report(
     plan_id: Option<String>,
     project: Option<String>,
@@ -114,7 +129,10 @@ fn inspect_plan(path: &Path, plan: &Value, kind: &str) -> Vec<Finding> {
     if matches!(kind, "all" | "structure") {
         findings.extend(inspect_structure(path, plan));
     }
-    if !matches!(kind, "all" | "storage" | "structure") {
+    if matches!(kind, "all" | "quality") {
+        findings.extend(inspect_quality(path, plan));
+    }
+    if !matches!(kind, "all" | "storage" | "structure" | "quality") {
         findings.push(Finding {
             severity: "error",
             kind: "unknown_doctor_kind",
@@ -122,7 +140,7 @@ fn inspect_plan(path: &Path, plan: &Value, kind: &str) -> Vec<Finding> {
             path: path.display().to_string(),
             task_id: None,
             detail: format!("unknown doctor kind '{kind}'"),
-            fix: "use --kind all, --kind storage, or --kind structure".into(),
+            fix: "use --kind all, --kind storage, --kind structure, or --kind quality".into(),
         });
     }
     findings
@@ -328,6 +346,221 @@ fn structure_finding(
     }
 }
 
+fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let mode = plan
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("planning");
+    if plan
+        .get("goal")
+        .and_then(|g| g.get("vector"))
+        .and_then(Value::as_str)
+        .is_none_or(|s| s.trim().is_empty())
+    {
+        findings.push(plan_quality_error(
+            path,
+            plan,
+            "missing_goal",
+            "plan has no goal vector",
+            "set the north-star first: codeterm plan goal set <plan> --vector <objective>",
+        ));
+    }
+    if !has_spec_source(plan) {
+        findings.push(plan_quality_error(
+            path,
+            plan,
+            "missing_spec_source",
+            "plan is not linked to a spec",
+            "create/update the spec first, then use codeterm plan create --from-spec or spec link add",
+        ));
+    }
+
+    let tasks = plan
+        .get("tasks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let sections = plan.get("sections").and_then(Value::as_array);
+    let section_text = flatten_section_text(sections);
+    if tasks.is_empty() && heartbeat_has_content(plan) {
+        findings.push(plan_quality_error(
+            path,
+            plan,
+            "heartbeat_without_execution",
+            "heartbeat has runtime state while the plan has no tasks",
+            "move planning-only policy into spec/plan sections or mem; keep heartbeat for active lanes",
+        ));
+    }
+    if mode == "planning" && !tasks.is_empty() {
+        findings.push(plan_quality_error(
+            path,
+            plan,
+            "tasks_before_approval",
+            "planning-mode plan already has tasks",
+            "run the approval gate and `codeterm plan approve <plan>`, or remove draft tasks with `codeterm plan task rm <plan> --all --yes`",
+        ));
+    }
+    if tasks.is_empty() && !section_text.is_empty() {
+        findings.push(plan_warning(
+            path,
+            plan,
+            "planning_mode_no_tasks",
+            "plan has sections but no tasks; task coverage will read as 0%",
+            "this is fine before approval; run quality review before generating tasks",
+        ));
+    }
+    for task in &tasks {
+        inspect_task_quality(path, plan, task, &mut findings);
+    }
+    findings
+}
+
+fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut Vec<Finding>) {
+    let task_id = task
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("?")
+        .to_string();
+    let mut missing = Vec::new();
+    if task
+        .get("section_ids")
+        .and_then(Value::as_array)
+        .is_none_or(|items| items.is_empty())
+    {
+        missing.push("section link");
+    }
+    if task
+        .get("body")
+        .and_then(Value::as_str)
+        .is_none_or(|s| s.trim().is_empty())
+    {
+        missing.push("body");
+    }
+    if task
+        .get("acceptance_criteria")
+        .and_then(Value::as_array)
+        .is_none_or(|items| items.is_empty())
+    {
+        missing.push("acceptance criteria");
+    }
+    if task
+        .get("test_plan")
+        .and_then(Value::as_str)
+        .is_none_or(|s| s.trim().is_empty())
+    {
+        missing.push("test plan");
+    }
+    if task
+        .get("correctness")
+        .and_then(Value::as_str)
+        .is_none_or(|s| s.trim().is_empty())
+    {
+        missing.push("correctness vector");
+    }
+    if !missing.is_empty() {
+        findings.push(Finding {
+            severity: "error",
+            kind: "task_quality_gap",
+            plan_id: plan_id(plan, path),
+            path: path.display().to_string(),
+            task_id: Some(task_id),
+            detail: format!("task is missing {}", missing.join(", ")),
+            fix: "update the task with body, section links, criteria, test plan, and correctness before dispatch".into(),
+        });
+    }
+}
+
+fn has_spec_source(plan: &Value) -> bool {
+    let has_primary = plan
+        .get("primary_spec_id")
+        .and_then(Value::as_str)
+        .is_some_and(|s| !s.trim().is_empty());
+    let has_refs = plan
+        .get("spec_refs")
+        .and_then(Value::as_array)
+        .is_some_and(|items| !items.is_empty());
+    let has_links = plan
+        .get("spec_links")
+        .and_then(Value::as_array)
+        .is_some_and(|items| !items.is_empty());
+    has_primary || has_refs || has_links
+}
+
+fn heartbeat_has_content(plan: &Value) -> bool {
+    let Some(hb) = plan.get("heartbeat") else {
+        return false;
+    };
+    hb.get("current_focus")
+        .and_then(Value::as_str)
+        .is_some_and(|s| !s.trim().is_empty())
+        || hb
+            .get("active_lanes")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty())
+        || hb
+            .get("rules")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty())
+        || hb
+            .get("learnings")
+            .and_then(Value::as_array)
+            .is_some_and(|items| !items.is_empty())
+}
+
+fn flatten_section_text(sections: Option<&Vec<Value>>) -> String {
+    fn walk(section: &Value, out: &mut String) {
+        for key in ["title", "body"] {
+            if let Some(value) = section.get(key).and_then(Value::as_str) {
+                out.push_str(value);
+                out.push('\n');
+            }
+        }
+        if let Some(children) = section.get("subsections").and_then(Value::as_array) {
+            for child in children {
+                walk(child, out);
+            }
+        }
+    }
+    let mut out = String::new();
+    if let Some(sections) = sections {
+        for section in sections {
+            walk(section, &mut out);
+        }
+    }
+    out.to_lowercase()
+}
+
+fn plan_quality_error(
+    path: &Path,
+    plan: &Value,
+    kind: &'static str,
+    detail: &str,
+    fix: &str,
+) -> Finding {
+    Finding {
+        severity: "error",
+        kind,
+        plan_id: plan_id(plan, path),
+        path: path.display().to_string(),
+        task_id: None,
+        detail: detail.into(),
+        fix: fix.into(),
+    }
+}
+
+fn plan_warning(path: &Path, plan: &Value, kind: &'static str, detail: &str, fix: &str) -> Finding {
+    Finding {
+        severity: "warning",
+        kind,
+        plan_id: plan_id(plan, path),
+        path: path.display().to_string(),
+        task_id: None,
+        detail: detail.into(),
+        fix: fix.into(),
+    }
+}
+
 fn plan_id(plan: &Value, path: &Path) -> Option<String> {
     plan_id_from(plan, path)
 }
@@ -484,5 +717,111 @@ mod tests {
         let rendered = render_doctor(&report);
         assert!(rendered.contains("Plan doctor: 1 checked, 1 errors"));
         assert!(rendered.contains("missing_parent_task"));
+    }
+
+    #[test]
+    fn approval_error_includes_doctor_recovery_commands() {
+        let report = json!({
+            "checked_plans": 1,
+            "error_count": 1,
+            "warning_count": 0,
+            "findings": [{
+                "severity": "error",
+                "kind": "missing_goal",
+                "plan_id": "pl_1",
+                "task_id": null,
+                "detail": "plan has no goal vector",
+                "fix": "set the north-star first"
+            }]
+        });
+        let rendered = render_quality_approval_error("pl_1", &report);
+        assert!(rendered.contains("plan approval blocked by quality doctor"));
+        assert!(rendered.contains("codeterm plan doctor pl_1 --kind quality"));
+        assert!(rendered.contains("codeterm plan approve pl_1"));
+    }
+
+    #[test]
+    fn quality_blocks_unapproved_or_underplanned_work() {
+        let plan = json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "sections": [{
+                "id": "sec_1",
+                "title": "Requirements",
+                "body": "WHAT/WHY: evidence and accepted gap"
+            }],
+            "tasks": [],
+            "heartbeat": {"current_focus": "remember policy"}
+        });
+        let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+        let kinds = findings.iter().map(|f| f.kind).collect::<Vec<_>>();
+        assert!(kinds.contains(&"missing_goal"));
+        assert!(kinds.contains(&"missing_spec_source"));
+        assert!(kinds.contains(&"heartbeat_without_execution"));
+        assert!(kinds.contains(&"planning_mode_no_tasks"));
+        assert!(findings
+            .iter()
+            .any(|f| f.kind == "missing_goal" && f.severity == "error"));
+        assert!(findings
+            .iter()
+            .any(|f| f.kind == "planning_mode_no_tasks" && f.severity == "warning"));
+    }
+
+    #[test]
+    fn quality_errors_for_underspecified_tasks() {
+        let plan = json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "mode": "approved",
+            "goal": {"vector": "ship"},
+            "primary_spec_id": "sp_1",
+            "sections": [{
+                "id": "sec_1",
+                "title": "File ownership and approval gate",
+                "body": "Exact paths, verification with build.sh check."
+            }],
+            "tasks": [{
+                "id": "task_1",
+                "name": "Do work",
+                "status": "pending",
+                "section_ids": []
+            }]
+        });
+        let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+        assert!(findings.iter().any(|f| f.kind == "task_quality_gap"
+            && f.task_id.as_deref() == Some("task_1")
+            && f.severity == "error"
+            && f.detail.contains("acceptance criteria")));
+    }
+
+    #[test]
+    fn quality_accepts_complete_task_and_plan_scaffold() {
+        let plan = json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "mode": "approved",
+            "goal": {"vector": "ship"},
+            "primary_spec_id": "sp_1",
+            "sections": [{
+            "id": "sec_1",
+            "title": "Execution",
+            "body": "File ownership map with exact paths. Approval gate. Verification map: build.sh check. Wave sequencing: discovery is intermediate, then synthesis creates remaining tasks."
+        }],
+            "tasks": [{
+                "id": "task_1",
+                "name": "Do work",
+                "status": "pending",
+                "section_ids": ["sec_1"],
+                "body": "Implement the scoped change.",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "run focused test",
+                "correctness": "matches spec"
+            }]
+        });
+        let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+        assert!(findings.is_empty(), "{findings:?}");
     }
 }

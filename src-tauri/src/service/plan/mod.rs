@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod body_files;
+pub mod canvas_elements;
 pub mod element_queries;
 pub mod handoff;
 pub mod heartbeat;
@@ -47,8 +48,8 @@ mod timestamp_tests;
 
 use crate::plan::reconcile::DriftKind;
 use crate::plan::{
-    OrchestratorRef, Plan, PlanStatus, Spec, TaskLaneMetadata, TaskStatus, INBOX_PLAN_FILE_STEM,
-    INBOX_PLAN_ID,
+    OrchestratorRef, Plan, PlanMode, PlanStatus, Spec, TaskLaneMetadata, TaskStatus,
+    INBOX_PLAN_FILE_STEM, INBOX_PLAN_ID,
 };
 use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
@@ -78,7 +79,10 @@ pub enum PlanError {
         budget: u32,
     },
     BadStatus,
+    BadMode,
     BadPriority,
+    TaskCreationRequiresApproval,
+    HeartbeatRequiresExecution,
     WritePending {
         operation: String,
         committed: bool,
@@ -138,7 +142,16 @@ impl fmt::Display for PlanError {
                 write!(f, "loop budget {count}/{budget} reached")
             }
             PlanError::BadStatus => write!(f, "invalid status"),
+            PlanError::BadMode => write!(f, "invalid plan mode"),
             PlanError::BadPriority => write!(f, "invalid priority"),
+            PlanError::TaskCreationRequiresApproval => write!(
+                f,
+                "plan is still in planning mode; run `codeterm plan approve <plan>` before creating tasks, or pass --force for deliberate draft tasks"
+            ),
+            PlanError::HeartbeatRequiresExecution => write!(
+                f,
+                "heartbeat is for active execution; approve the plan or store planning-only policy in spec/plan sections or mem"
+            ),
             PlanError::WritePending {
                 operation,
                 committed,
@@ -193,7 +206,14 @@ impl PlanError {
                 serde_json::json!({ "type": "budget_exhausted", "count": count, "budget": budget })
             }
             PlanError::BadStatus => serde_json::json!({ "type": "bad_status" }),
+            PlanError::BadMode => serde_json::json!({ "type": "bad_mode" }),
             PlanError::BadPriority => serde_json::json!({ "type": "bad_priority" }),
+            PlanError::TaskCreationRequiresApproval => {
+                serde_json::json!({ "type": "task_creation_requires_approval" })
+            }
+            PlanError::HeartbeatRequiresExecution => {
+                serde_json::json!({ "type": "heartbeat_requires_execution" })
+            }
             PlanError::WritePending {
                 operation,
                 committed,
@@ -845,13 +865,42 @@ impl PlanStore {
         None
     }
 
+    pub fn report_pending_task_binding_for_pane(&self, pane_id: &str) -> Option<(String, String)> {
+        if pane_id.trim().is_empty() {
+            return None;
+        }
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active || plan.mode != PlanMode::Execution {
+                continue;
+            }
+            if let Some(task) = plan
+                .tasks
+                .iter()
+                .filter(|t| {
+                    matches!(
+                        t.status,
+                        TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
+                    )
+                })
+                .find(|t| t.assigned_pane_id.as_deref() == Some(pane_id))
+            {
+                return Some((plan.id.clone(), task.id.clone()));
+            }
+        }
+        None
+    }
+
     pub fn active_owned_plan_with_open_work_for_pane(&self, pane_id: &str) -> Option<String> {
         if pane_id.trim().is_empty() {
             return None;
         }
         for plan in self.plans.read().values() {
             let plan = plan.lock();
-            if plan.status != PlanStatus::Active || plan.owner.pane_id.as_deref() != Some(pane_id) {
+            if plan.status != PlanStatus::Active
+                || plan.mode != PlanMode::Execution
+                || plan.owner.pane_id.as_deref() != Some(pane_id)
+            {
                 continue;
             }
             if plan

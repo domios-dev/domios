@@ -4,13 +4,25 @@ use serde::Serialize;
 
 use crate::plan::coverage::{compute_coverage_report, CoverageReport};
 use crate::plan::reconcile::DriftItem;
-use crate::plan::{Goal, LoopStatus, OrchestratorRef, Plan, PlanStatus, TaskStatus};
+use crate::plan::{Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, TaskStatus};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
 use super::next_actions::{compute_next_actions, NextAction};
 
 const RECENT_STRIDE_LIMIT: usize = 10;
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+pub struct PlanningReadiness {
+    pub has_goal: bool,
+    pub has_spec_source: bool,
+    pub has_plan_sections: bool,
+    pub spec_link_coverage: f64,
+    pub linked_plan_sections: usize,
+    pub total_plan_sections: usize,
+    pub has_approval_gate_hint: bool,
+    pub has_verification_hint: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 pub struct TaskCounts {
@@ -78,6 +90,8 @@ pub struct PlanStateSnapshot {
     pub plan_id: String,
     pub title: String,
     pub status: PlanStatus,
+    pub mode: PlanMode,
+    pub planning_readiness: PlanningReadiness,
     pub owner: OrchestratorRef,
     pub goal: Option<Goal>,
     pub task_counts: TaskCounts,
@@ -156,6 +170,61 @@ fn recent_strides(plan: &Plan) -> Vec<StrideSnapshot> {
     strides
 }
 
+fn section_count(sections: &[crate::plan::Section]) -> usize {
+    sections
+        .iter()
+        .map(|section| 1 + section_count(&section.subsections))
+        .sum()
+}
+
+fn section_text(sections: &[crate::plan::Section], out: &mut String) {
+    for section in sections {
+        out.push_str(&section.title.to_lowercase());
+        out.push('\n');
+        out.push_str(&section.body.to_lowercase());
+        out.push('\n');
+        section_text(&section.subsections, out);
+    }
+}
+
+fn planning_readiness(plan: &Plan) -> PlanningReadiness {
+    let total_plan_sections = section_count(&plan.sections);
+    let linked_plan_sections = plan
+        .spec_links
+        .iter()
+        .map(|link| link.plan_section_id.as_str())
+        .collect::<HashSet<_>>()
+        .len();
+    let spec_link_coverage = if total_plan_sections == 0 {
+        0.0
+    } else {
+        linked_plan_sections.min(total_plan_sections) as f64 / total_plan_sections as f64
+    };
+    let mut text = String::new();
+    section_text(&plan.sections, &mut text);
+    PlanningReadiness {
+        has_goal: plan
+            .goal
+            .as_ref()
+            .is_some_and(|goal| !goal.vector.trim().is_empty()),
+        has_spec_source: plan.primary_spec_id.is_some()
+            || !plan.spec_refs.is_empty()
+            || !plan.spec_links.is_empty(),
+        has_plan_sections: !plan.sections.is_empty(),
+        spec_link_coverage,
+        linked_plan_sections,
+        total_plan_sections,
+        has_approval_gate_hint: text.contains("approval")
+            || text.contains("self-review")
+            || text.contains("review gate"),
+        has_verification_hint: text.contains("verification")
+            || text.contains("test plan")
+            || text.contains("build.sh")
+            || text.contains("cargo test")
+            || text.contains("playwright"),
+    }
+}
+
 pub fn build_plan_state_snapshot(
     plan: &Plan,
     coverage: CoverageReport,
@@ -220,6 +289,8 @@ pub fn build_plan_state_snapshot(
         plan_id: plan.id.clone(),
         title: plan.title.clone(),
         status: plan.status.clone(),
+        mode: plan.mode.clone(),
+        planning_readiness: planning_readiness(plan),
         owner: plan.owner.clone(),
         goal: plan.goal.clone(),
         task_counts: counts,

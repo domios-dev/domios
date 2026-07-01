@@ -135,6 +135,18 @@ pub enum PlanAction {
         spec_file: Option<String>,
         #[arg(long)]
         status: Option<String>,
+        #[arg(long)]
+        mode: Option<String>,
+    },
+    /// Mark the plan approved for task generation
+    Approve { plan_id: String },
+    /// Return an approved/execution plan to planning mode
+    Unapprove { plan_id: String },
+    /// Set explicit effort mode: planning | approved | execution | complete
+    Mode {
+        plan_id: String,
+        #[arg(long)]
+        set: String,
     },
     /// Archive a plan
     Archive { plan_id: String },
@@ -430,6 +442,8 @@ pub enum PlanTaskAction {
         #[arg(long)]
         handle: Option<String>,
         #[arg(long)]
+        force: bool,
+        #[arg(long)]
         loop_from: Option<String>,
     },
     /// Update task metadata, status, quality fields, or lane assignment
@@ -567,8 +581,15 @@ pub enum PlanTaskAction {
         #[arg(long)]
         apply: bool,
     },
-    /// Remove a task from the plan
-    Rm { plan_id: String, task_id: String },
+    /// Remove a task from the plan, or --all to reset generated tasks
+    Rm {
+        plan_id: String,
+        task_id: Option<String>,
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -636,6 +657,17 @@ pub enum PlanNoteAction {
         #[arg(long)]
         link_section: Option<String>,
     },
+    /// Update a free-form canvas note
+    Update {
+        plan_id: String,
+        note_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        text: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        text_file: Option<String>,
+    },
+    /// Remove a free-form canvas note
+    Rm { plan_id: String, note_id: String },
 }
 
 #[derive(Subcommand)]
@@ -660,6 +692,21 @@ pub enum PlanElementAction {
         #[arg(long)]
         link: Option<String>,
     },
+    /// Update a generic canvas element's content, kind, or links
+    Update {
+        plan_id: String,
+        element_id: String,
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        content: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        content_file: Option<String>,
+        #[arg(long)]
+        link: Option<String>,
+    },
+    /// Remove a generic canvas element
+    Rm { plan_id: String, element_id: String },
 }
 
 #[derive(Subcommand)]

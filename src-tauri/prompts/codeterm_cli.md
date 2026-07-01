@@ -360,6 +360,7 @@ Top commands:
 codeterm mem search "<query>" [--kind K] [--area A] [--limit N]   # hybrid FTS5 + vector
 codeterm mem get <id>                                              # full body
 codeterm mem save --kind <kind> --title "..." "<body>"             # capture (auto-classified)
+codeterm mem save-preference --title "..." --replace "<body>"      # durable user/machine preference for wake-up
 codeterm mem save --kind fact --title "..." --pin --workspace $CODETERM_WORKSPACE_ID "<body>"
                                                                    # atomic create + pin + workspace scope
 codeterm mem learn "<insight>" [--kind insight|error|feature] [--tags a,b]   # quick lightweight capture → kind=learning
@@ -420,7 +421,7 @@ Full reference (every command, all kinds, graph queries, search-strategy details
 
 Persistent per-project plans (spec → tasks → milestone chains → self-improving loops). Full mechanics: `codeterm docs ORCHESTRATION`.
 
-You are not automatically an Orchestrator just because this command surface exists. If the user asks you to manage multi-step work, or the UI promotes your pane with **Make Orchestrator**, use the CodeTerm planner as the source of truth: read `codeterm docs ORCHESTRATION`, set GOAL first, put WHAT/WHY in Spec, HOW in Plan sections, and concrete work in Tasks with criteria/tests/correctness. Do not use standalone markdown implementation plans as the primary plan unless the user explicitly asks for an export. Check `codeterm mem wake-up --workspace $CODETERM_WORKSPACE_ID` or `codeterm mem search "CodeTerm planner orchestration preferences"` for local planning preferences.
+You are not automatically an Orchestrator just because this command surface exists. If the user asks you to manage multi-step work, or the UI promotes your pane with **Make Orchestrator**, use the CodeTerm planner as the source of truth: read `codeterm docs ORCHESTRATION`, check `codeterm mem wake-up --workspace $CODETERM_WORKSPACE_ID` or `codeterm mem search "CodeTerm planner orchestration preferences"`, set GOAL first, put WHAT/WHY in Spec, HOW in Plan sections, run `codeterm plan doctor <plan> --kind quality`, approve the plan, and only then create concrete Tasks with criteria/tests/correctness. Do not use standalone markdown implementation plans as the primary plan unless the user explicitly asks for an export.
 
 Essential one-liners:
 
@@ -428,6 +429,10 @@ Essential one-liners:
 codeterm plan create --title "My plan" [--kinds status_update,testing,review] [--project PATH]
 codeterm plan list [--active|--archived|--unowned]
 codeterm plan get PLAN_ID
+codeterm plan state PLAN_ID
+codeterm plan doctor PLAN_ID --kind quality
+codeterm plan approve PLAN_ID
+codeterm plan mode PLAN_ID --set execution
 codeterm plan coverage PLAN_ID
 codeterm plan gaps PLAN_ID
 codeterm plan update PLAN_ID [--title T] [--status active|archived]
@@ -439,6 +444,7 @@ codeterm plan unlink PLAN_ID --to OTHER_PLAN_ID
 codeterm plan section add PLAN_ID --title "..." [--body "..." | --body-file PATH]
 codeterm plan task add PLAN_ID --name N [--type implement] [--sections id,id] [--group phase-1] \
   [--model "claude:opus"] [--why "routing rationale"] [--body "..." | --body-file PATH]
+codeterm plan task rm PLAN_ID --all --yes              # reset draft/generated tasks and return to planning
 codeterm plan task update PLAN_ID TASK_ID [--status done] [--group phase-1] [--model M] [--why "..."]
 codeterm plan task assign PLAN_ID TASK_ID --pane PANE_ID
 codeterm plan task close PLAN_ID TASK_ID [--result "..." | --result-file PATH]

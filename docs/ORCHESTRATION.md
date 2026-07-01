@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 8 -->
+<!-- revision: 10 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -53,6 +53,56 @@ plan create --from-spec <spec> --title ...   # 3. Plan (HOW), built FROM the spe
 
 Edit while work runs — `codeterm plan ...`/`spec ...` mutate a running effort safely. Re-orient with `plan get PLAN_ID` / `spec show SPEC_ID` (markdown) at any time.
 
+## Planning Method — state in CodeTerm, quality from Superpowers
+
+Use CodeTerm for durable state, and use the old Superpowers planning habits as
+a quality checklist. Do **not** export the plan to markdown just because a
+planning template says so; in CodeTerm the authoritative objects are GOAL,
+Spec, Plan, Tasks, and Strides.
+
+Correct authoring order:
+
+1. Set or refine the GOAL.
+2. Write Spec sections for requirements, evidence, gaps, constraints,
+   acceptance, non-goals, and decision vocabulary.
+3. Write Plan sections for execution phases, file ownership, decision flow,
+   verification, and approval.
+4. Run a plan self-review / doctor pass.
+5. Approve the plan, then generate execution tasks.
+
+Good Plan sections include:
+
+- a file ownership map with exact paths and responsibilities;
+- an approval/self-review gate;
+- exact verification commands and expected results;
+- wave sequencing: discovery/research first, synthesis of the remaining task
+  graph, then implementation/review/verification tasks.
+
+Discovery/research tasks are **intermediate only**. Completing the first wave
+does not complete the plan. A discovery wave must record evidence, accepted
+gaps, decisions, and follow-up requirements; the Orchestrator then uses those
+results to autonomously generate the remaining execution/review/verification
+tasks and continues until the GOAL is satisfied. Stop only when the plan goal
+and acceptance gates are complete, or when the user explicitly blocks/changes
+the effort.
+
+Good Tasks include body, section links, routing model + why, acceptance
+criteria, test plan, correctness vector, exact commands, and report format.
+Tasks should be small enough that a Worker can execute and report cleanly.
+
+Use `codeterm plan doctor PLAN_ID --kind quality` before approval and again
+before dispatch. It is a structural approval gate: missing goal/spec link,
+task-quality gaps, heartbeat-before-execution state, and tasks created while
+still in planning mode are errors. It deliberately does **not** infer quality
+from prose keywords; if a rule must be machine-enforced, model it as structured
+planner state instead of text heuristics.
+
+Heartbeat is runtime execution state, not a planning scratchpad. Plan-owned
+nudges are automatic once an assigned orchestrator owns an execution-mode plan
+with unfinished work. Manual heartbeat focus/lanes/rules are only overlays that
+make the automatic nudge more precise; they are not a prerequisite. Workers get
+task nudges only while their assigned task is still waiting for their report.
+
 ## Handoffs
 
 A handoff is a durable, goal-anchored resume point attached to the plan — far sharper than a provider's generic `/compact` recap. Whoever wakes (you post-compaction, a reseeded session, or another orchestrator) pulls it first and continues from its `next_actions`.
@@ -85,7 +135,7 @@ When YOU sense you are ready to compact, do **not** rely on the provider's gener
 5. Resume from the handoff's `next_actions` — never a generic recap.
 ## Heartbeat — auto-reinjected orchestrator state
 
-The orchestrator **heartbeat** is durable state attached to the plan (`current_focus`, `active_lanes`, `rules`, plus appended `learnings`). The daemon **auto-prepends** it to every delayed message delivered to your pane and to every plan nudge — so your focus and lane map survive compaction and idle drift without a manual self-ping.
+The orchestrator **heartbeat** is durable state attached to the plan (`current_focus`, `active_lanes`, `rules`, plus appended `learnings`). The daemon **auto-prepends** the state-reconciliation envelope to every plan nudge for an execution-mode plan with unfinished work, even if you never manually set focus/lanes. If focus and lane map exist, they are prepended too — so active orchestration survives compaction and idle drift without a manual self-ping.
 
 ```bash
 codeterm orchestrator heartbeat set \
@@ -119,8 +169,14 @@ codeterm plan get PLAN_ID
 
 codeterm plan update PLAN_ID \
   [--title T] [--spec "..." | --spec-file PATH] \
-  [--status active|archived]
+  [--status active|archived] [--mode planning|approved|execution|complete]
 
+codeterm plan approve PLAN_ID
+codeterm plan unapprove PLAN_ID
+codeterm plan mode PLAN_ID --set planning|approved|execution|complete
+
+codeterm plan state PLAN_ID
+codeterm plan doctor [PLAN_ID] [--kind storage|structure|quality|all]
 codeterm plan archive PLAN_ID
 codeterm plan delete PLAN_ID
 ```
@@ -165,7 +221,7 @@ codeterm plan task add PLAN_ID --name NAME \
   [--body "..." | --body-file PATH] \
   [--intent "..." | --intent-file PATH] \
   [--assign-pane PANE_ID] \
-  [--loop-from TASK_ID]
+  [--loop-from TASK_ID] [--force]
 
 codeterm plan task update PLAN_ID TASK_ID \
   [--name N] [--type T] [--model M] \
@@ -181,9 +237,12 @@ codeterm plan task close PLAN_ID TASK_ID \
 codeterm plan task assign PLAN_ID TASK_ID --pane PANE_ID [--mesh PEER]
 
 codeterm plan task rm PLAN_ID TASK_ID
+codeterm plan task rm PLAN_ID --all --yes
 ```
 
 `--type` is an open string — the listed values are hints for icon/color only. `--model` and `--why` record routing rationale on the task (not enforced, used for canvas display).
+`plan task add` refuses planning-mode plans. Run `plan doctor --kind quality` and
+`plan approve` first; use `--force` only for a deliberate draft task.
 
 ### Milestones
 

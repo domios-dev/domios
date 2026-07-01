@@ -1,5 +1,5 @@
 use super::PlanStore;
-use crate::plan::{PlanStatus, TaskStatus};
+use crate::plan::{PlanMode, PlanStatus, TaskStatus};
 
 /// Compact, self-sufficient restatement of the three Worker rules. Mirrors the
 /// orchestrator-heartbeat reinjection so worker role survives context drift.
@@ -14,8 +14,11 @@ You are a Worker on task {task_id}. Three rules:\n\
     )
 }
 
-fn is_open(status: &TaskStatus) -> bool {
-    !matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
+fn report_is_pending(status: &TaskStatus) -> bool {
+    matches!(
+        status,
+        TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
+    )
 }
 
 impl PlanStore {
@@ -29,11 +32,11 @@ impl PlanStore {
             let Some(plan) = self.get(&entry.plan_id) else {
                 continue;
             };
-            if plan.status != PlanStatus::Active {
+            if plan.status != PlanStatus::Active || plan.mode != PlanMode::Execution {
                 continue;
             }
             if let Some(task) = plan.tasks.iter().find(|task| {
-                is_open(&task.status)
+                report_is_pending(&task.status)
                     && (task.assigned_pane_id.as_deref() == Some(pane_id)
                         || task.lane.pane_id.as_deref() == Some(pane_id))
             }) {
@@ -62,7 +65,7 @@ impl PlanStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::{OrchestratorRef, Plan};
+    use crate::plan::{OrchestratorRef, Plan, PlanMode};
     use crate::service::plan::NewTask;
 
     fn store_with_assigned_task() -> (tempfile::TempDir, PlanStore, String) {
@@ -74,6 +77,7 @@ mod tests {
             OrchestratorRef::default(),
         );
         plan.id = "pl_charter".into();
+        plan.mode = PlanMode::Execution;
         store.save(&mut plan, 1).unwrap();
         let task_id = store
             .add_task(
@@ -107,6 +111,66 @@ mod tests {
         let (_dir, store, _task_id) = store_with_assigned_task();
 
         let out = store.prepend_worker_charter_for_pane("some-other-pane", "continue");
+
+        assert_eq!(out, "continue");
+    }
+
+    #[test]
+    fn noop_for_planning_plan_assignment() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut plan = Plan::new(
+            "Draft charter".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::default(),
+        );
+        plan.id = "pl_draft_charter".into();
+        store.save(&mut plan, 1).unwrap();
+        store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: "Draft task".into(),
+                    kind: "task".into(),
+                    assigned_pane_id: Some("worker-pane".into()),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+
+        let out = store.prepend_worker_charter_for_pane("worker-pane", "continue");
+
+        assert_eq!(out, "continue");
+    }
+
+    #[test]
+    fn noop_after_worker_reported_in_review() {
+        let (_dir, store, task_id) = store_with_assigned_task();
+        store
+            .update_task(
+                "pl_charter",
+                &task_id,
+                None,
+                None,
+                None,
+                None,
+                Some("in_review"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                &[],
+                None,
+                None,
+                3,
+            )
+            .unwrap();
+
+        let out = store.prepend_worker_charter_for_pane("worker-pane", "continue");
 
         assert_eq!(out, "continue");
     }

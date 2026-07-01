@@ -3091,6 +3091,102 @@
           "subcommands": []
         },
         {
+          "name": "save-preference",
+          "about": "Save a stable user/machine preference for wake-up context",
+          "aliases": [],
+          "args": [
+            {
+              "name": "area",
+              "positional": false,
+              "value_name": "AREA",
+              "default": null,
+              "help": "Area tag (planning | orchestration | machine | ...)",
+              "aliases": []
+            },
+            {
+              "name": "body",
+              "positional": true,
+              "value_name": "BODY",
+              "default": null,
+              "help": "Preference body. Use `-` (or omit with piped stdin) to read stdin",
+              "aliases": []
+            },
+            {
+              "name": "body_file",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "Read body from a file instead of the positional arg",
+              "aliases": []
+            },
+            {
+              "name": "importance",
+              "positional": false,
+              "value_name": "IMPORTANCE",
+              "default": "4.0",
+              "help": "Importance 1-5 (default 4.0). Higher = more likely in L1 wake-up",
+              "aliases": []
+            },
+            {
+              "name": "pin",
+              "positional": false,
+              "value_name": "PIN",
+              "default": null,
+              "help": "Pin the item for L1 wake-up (always loaded)",
+              "aliases": []
+            },
+            {
+              "name": "replace",
+              "positional": false,
+              "value_name": "REPLACE",
+              "default": null,
+              "help": "Overwrite an existing row with the same id (upsert)",
+              "aliases": []
+            },
+            {
+              "name": "scope",
+              "positional": false,
+              "value_name": "SCOPE",
+              "default": null,
+              "help": "Scope: global (default) or workspace:<id>",
+              "aliases": []
+            },
+            {
+              "name": "summary",
+              "positional": false,
+              "value_name": "SUMMARY",
+              "default": null,
+              "help": "Optional summary (~50-200 chars)",
+              "aliases": []
+            },
+            {
+              "name": "tags",
+              "positional": false,
+              "value_name": "TAGS",
+              "default": null,
+              "help": "Comma-separated tags",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": "Title (will be slugified into id). If omitted, first line of body",
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": "Convenience: scope this item to workspace ID. Maps to scope=\"workspace:<ws>\"",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "search",
           "about": "Search across mem_items (FTS5 + hybrid scoring)",
           "aliases": [],
@@ -4755,6 +4851,22 @@
       "args": [],
       "subcommands": [
         {
+          "name": "approve",
+          "about": "Mark the plan approved for task generation",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "archive",
           "about": "Archive a plan",
           "aliases": [],
@@ -5001,6 +5113,30 @@
               "subcommands": []
             },
             {
+              "name": "rm",
+              "about": "Remove a generic canvas element",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "element_id",
+                  "positional": true,
+                  "value_name": "ELEMENT_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "show",
               "about": "Show one generic canvas element",
               "aliases": [],
@@ -5009,6 +5145,62 @@
                   "name": "element_id",
                   "positional": true,
                   "value_name": "ELEMENT_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": "Update a generic canvas element's content, kind, or links",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "content",
+                  "positional": false,
+                  "value_name": "CONTENT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "content_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "element_id",
+                  "positional": true,
+                  "value_name": "ELEMENT_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "value_name": "KIND",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "link",
+                  "positional": false,
+                  "value_name": "LINK",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -5907,6 +6099,30 @@
           ]
         },
         {
+          "name": "mode",
+          "about": "Set explicit effort mode: planning | approved | execution | complete",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "set",
+              "positional": false,
+              "value_name": "SET",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "next",
           "about": "Prioritized, advisory next-action guidance computed from plan state",
           "aliases": [],
@@ -5945,6 +6161,70 @@
                   "name": "link_task",
                   "positional": false,
                   "value_name": "LINK_TASK",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text",
+                  "positional": false,
+                  "value_name": "TEXT",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "text_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "rm",
+              "about": "Remove a free-form canvas note",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note_id",
+                  "positional": true,
+                  "value_name": "NOTE_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "update",
+              "about": "Update a free-form canvas note",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note_id",
+                  "positional": true,
+                  "value_name": "NOTE_ID",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -6494,6 +6774,14 @@
                   "aliases": []
                 },
                 {
+                  "name": "force",
+                  "positional": false,
+                  "value_name": "FORCE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "group",
                   "positional": false,
                   "value_name": "GROUP",
@@ -6994,9 +7282,17 @@
             },
             {
               "name": "rm",
-              "about": "Remove a task from the plan",
+              "about": "Remove a task from the plan, or --all to reset generated tasks",
               "aliases": [],
               "args": [
+                {
+                  "name": "all",
+                  "positional": false,
+                  "value_name": "ALL",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
                 {
                   "name": "plan_id",
                   "positional": true,
@@ -7009,6 +7305,14 @@
                   "name": "task_id",
                   "positional": true,
                   "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "yes",
+                  "positional": false,
+                  "value_name": "YES",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -7315,6 +7619,22 @@
           "subcommands": []
         },
         {
+          "name": "unapprove",
+          "about": "Return an approved/execution plan to planning mode",
+          "aliases": [],
+          "args": [
+            {
+              "name": "plan_id",
+              "positional": true,
+              "value_name": "PLAN_ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "unarchive",
           "about": "Restore an archived plan to active",
           "aliases": [],
@@ -7359,6 +7679,14 @@
           "about": "Update plan metadata",
           "aliases": [],
           "args": [
+            {
+              "name": "mode",
+              "positional": false,
+              "value_name": "MODE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
             {
               "name": "plan_id",
               "positional": true,

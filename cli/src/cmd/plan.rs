@@ -406,6 +406,7 @@ fn run_plan(
             spec: _,
             spec_file: _,
             status,
+            mode,
         } => {
             let mut params = json!({ "plan_id": plan_id });
             if let Some(t) = title {
@@ -414,8 +415,32 @@ fn run_plan(
             if let Some(s) = status {
                 params["status"] = json!(s);
             }
+            if let Some(mode) = mode {
+                params["mode"] = json!(mode);
+            }
             call(client, "plan.update", params)
         }
+
+        PlanAction::Approve { plan_id } => {
+            crate::cmd::plan_doctor::assert_quality_ready(&plan_id)?;
+            call(
+                client,
+                "plan.mode.set",
+                json!({ "plan_id": plan_id, "mode": "approved" }),
+            )
+        }
+
+        PlanAction::Unapprove { plan_id } => call(
+            client,
+            "plan.mode.set",
+            json!({ "plan_id": plan_id, "mode": "planning" }),
+        ),
+
+        PlanAction::Mode { plan_id, set } => call(
+            client,
+            "plan.mode.set",
+            json!({ "plan_id": plan_id, "mode": set }),
+        ),
 
         PlanAction::Archive { plan_id } => {
             call(client, "plan.archive", json!({ "plan_id": plan_id }))
@@ -657,6 +682,24 @@ fn run_plan(
                     }),
                 )
             }
+            PlanNoteAction::Update {
+                plan_id,
+                note_id,
+                text,
+                text_file,
+            } => {
+                let text_val = resolve_text(text, text_file)?.unwrap_or_default();
+                call(
+                    client,
+                    "plan.note.update",
+                    json!({ "plan_id": plan_id, "element_id": note_id, "text": text_val }),
+                )
+            }
+            PlanNoteAction::Rm { plan_id, note_id } => call(
+                client,
+                "plan.element.rm",
+                json!({ "plan_id": plan_id, "element_id": note_id }),
+            ),
         },
 
         PlanAction::Element { action } => match action {
@@ -704,6 +747,35 @@ fn run_plan(
                 }
                 call(client, "plan.element.add", params)
             }
+            PlanElementAction::Update {
+                plan_id,
+                element_id,
+                kind,
+                content,
+                content_file,
+                link,
+            } => {
+                let content_text = resolve_text(content, content_file)?;
+                let mut params = json!({ "plan_id": plan_id, "element_id": element_id });
+                if let Some(kind) = kind {
+                    params["kind"] = json!(kind);
+                }
+                if let Some(c) = content_text {
+                    params["content"] = json!({ "text": c });
+                }
+                if let Some(l) = link {
+                    params["links"] = json!(l.split(',').map(str::trim).collect::<Vec<_>>());
+                }
+                call(client, "plan.element.update", params)
+            }
+            PlanElementAction::Rm {
+                plan_id,
+                element_id,
+            } => call(
+                client,
+                "plan.element.rm",
+                json!({ "plan_id": plan_id, "element_id": element_id }),
+            ),
         },
     };
 

@@ -9,6 +9,7 @@ pub(crate) fn render_plan_markdown(plan: &Value) -> String {
     let id = plan.get("id").and_then(|v| v.as_str()).unwrap_or("?");
     let status = plan.get("status").and_then(|v| v.as_str()).unwrap_or("?");
     out.push_str(&format!("# {title} (`{id}`)\n\n"));
+    out.push_str("> Exported snapshot. CodeTerm planner state is authoritative; update the plan with `codeterm plan ...`, not by editing this markdown.\n\n");
     out.push_str(&format!("**Status:** {status}\n\n"));
     if let Some(goal) = plan.get("goal").filter(|v| !v.is_null()) {
         render_goal_block(goal, &mut out);
