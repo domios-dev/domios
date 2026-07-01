@@ -317,9 +317,10 @@ pub async fn get_pane_status(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let pane_id = resolve_pane(&state, &id).map_err(|(s, m)| (s, m.to_string()))?;
     let info = state
         .svc
-        .get_pane_status(&id)
+        .get_pane_status(&pane_id)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     Ok(Json(serde_json::to_value(info).unwrap()))
 }
