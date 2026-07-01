@@ -886,6 +886,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
   // Tool result — subtle, compact
   if (message.type === "tool_result") {
+    if (!hasMeaningfulToolResult(message.content)) return null;
     if (isLargeArtifact(message.content)) {
       return (
         <LongArtifact
@@ -993,3 +994,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
   return null;
 });
+
+function hasMeaningfulToolResult(content: string): boolean {
+  return content
+    .split("\n")
+    .map((line) => line.trim())
+    .some((line) => line.length > 0 && !/^(?:->|→|⎿)+$/.test(line));
+}

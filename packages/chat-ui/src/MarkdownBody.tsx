@@ -340,6 +340,7 @@ function isShellToolName(name: string | undefined): boolean {
   return n === "bash"
     || n === "shell"
     || n === "shell_command"
+    || n === "exec_command"
     || n === "exec"
     || n === "powershell"
     || n.includes("shell")
@@ -349,14 +350,15 @@ function isShellToolName(name: string | undefined): boolean {
 /** Extract shell command text across Claude/Codex provider shapes. */
 export function extractCommand(message: ChatMessage): string | null {
   if (message.toolInput) {
-    const cmd = message.toolInput.command as string | undefined;
+    const cmd = (message.toolInput.command ?? message.toolInput.cmd) as string | undefined;
     if (cmd) return cmd;
   }
   if (message.toolArgs) {
     try {
       const parsed = JSON.parse(message.toolArgs);
-      if (parsed && typeof parsed === "object" && typeof parsed.command === "string") {
-        return parsed.command;
+      if (parsed && typeof parsed === "object") {
+        const cmd = (parsed.command ?? parsed.cmd) as unknown;
+        if (typeof cmd === "string") return cmd;
       }
     } catch {
       if (isShellToolName(message.toolName)) {

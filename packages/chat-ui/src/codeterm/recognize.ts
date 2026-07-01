@@ -21,6 +21,9 @@ const KNOWN_SUBCOMMANDS: Record<string, Set<string>> = {
   mem: new Set(["save", "search", "get", "delete", "skill", "graph", "worker"]),
   workspace: new Set(["create", "list", "focus", "rename", "close", "current", "move-tab"]),
   pane: new Set(["list", "new", "focus", "close", "rename", "exec", "status", "search", "stop", "current"]),
+  plan: new Set(["state", "task", "record", "mode", "approve", "doctor", "get", "list", "update", "reconcile", "loop", "handoff", "element"]),
+  spec: new Set(["show", "list", "section"]),
+  orchestrator: new Set(["status", "heartbeat", "handoff"]),
   mesh: new Set(["send", "exec", "output", "panes", "peers", "status", "connect"]),
   cron: new Set(["create", "list", "edit", "delete", "trigger", "history"]),
   keepawake: new Set(["start", "stop", "status"]),
@@ -61,15 +64,48 @@ function basename(tok: string): string {
   return slash >= 0 ? tok.slice(slash + 1) : tok;
 }
 
+function commandStartIndex(tokens: string[]): number {
+  let i = 0;
+  while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) i++;
+  if (tokens[i] !== "env") return i;
+
+  i++;
+  while (i < tokens.length) {
+    const tok = tokens[i];
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) {
+      i++;
+      continue;
+    }
+    if ((tok === "-u" || tok === "--unset") && tokens[i + 1] != null) {
+      i += 2;
+      continue;
+    }
+    if (tok.startsWith("-")) {
+      i++;
+      continue;
+    }
+    break;
+  }
+  return i;
+}
+
+function codetermSegment(input: string): string | null {
+  const tokens = tokenize(input);
+  const i = commandStartIndex(tokens);
+  return i < tokens.length && BINARIES.has(basename(tokens[i])) ? input : null;
+}
+
 export function recognize(command: string): CodetermInvocation | null {
   if (!command) return null;
-  // Reject compound commands — we won't misrepresent a chained line.
-  if (/[|;]|&&|\|\|/.test(command)) return null;
+  if (/[|;]|\|\|/.test(command)) return null;
 
-  const tokens = tokenize(command);
-  let i = 0;
-  // Strip leading KEY=val env assignments.
-  while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) i++;
+  const normalized = command
+    .split("&&")
+    .map((part) => part.trim())
+    .find((part) => codetermSegment(part) != null) ?? command;
+
+  const tokens = tokenize(normalized);
+  let i = commandStartIndex(tokens);
   if (i >= tokens.length) return null;
 
   const binary = basename(tokens[i]);
