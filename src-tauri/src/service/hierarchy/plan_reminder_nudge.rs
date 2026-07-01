@@ -16,10 +16,16 @@ enum PlanReminderTarget {
 fn plan_reminder_target(
     task_binding: Option<(String, String)>,
     owner_plan_id: Option<String>,
+    role: Option<AgentRole>,
     scope: PlanReminderScope,
 ) -> Option<PlanReminderTarget> {
     match scope {
         PlanReminderScope::OwnerOnly => {
+            owner_plan_id.map(|plan_id| PlanReminderTarget::Owner { plan_id })
+        }
+        PlanReminderScope::AnyEligible
+            if matches!(role, Some(AgentRole::Orchestrator)) && owner_plan_id.is_some() =>
+        {
             owner_plan_id.map(|plan_id| PlanReminderTarget::Owner { plan_id })
         }
         PlanReminderScope::AnyEligible if task_binding.is_some() => {
@@ -57,12 +63,15 @@ impl ServiceContext {
             PlanReminderScope::OwnerOnly => self
                 .plan_store
                 .active_owned_plan_with_open_work_for_pane(pane_id),
+            PlanReminderScope::AnyEligible if matches!(role, Some(AgentRole::Orchestrator)) => self
+                .plan_store
+                .active_owned_plan_with_open_work_for_pane(pane_id),
             PlanReminderScope::AnyEligible if task_binding.is_none() => self
                 .plan_store
                 .active_owned_plan_with_open_work_for_pane(pane_id),
             PlanReminderScope::AnyEligible => None,
         };
-        let Some(target) = plan_reminder_target(task_binding, owner_plan_id, scope) else {
+        let Some(target) = plan_reminder_target(task_binding, owner_plan_id, role, scope) else {
             return;
         };
 
@@ -110,6 +119,7 @@ mod tests {
             plan_reminder_target(
                 Some(("pl_worker".into(), "task_1".into())),
                 None,
+                Some(AgentRole::Orchestrator),
                 PlanReminderScope::OwnerOnly
             ),
             None
@@ -119,7 +129,12 @@ mod tests {
     #[test]
     fn owner_only_trigger_selects_owned_open_plan() {
         assert_eq!(
-            plan_reminder_target(None, Some("pl_owner".into()), PlanReminderScope::OwnerOnly),
+            plan_reminder_target(
+                None,
+                Some("pl_owner".into()),
+                Some(AgentRole::Orchestrator),
+                PlanReminderScope::OwnerOnly
+            ),
             Some(PlanReminderTarget::Owner {
                 plan_id: "pl_owner".into()
             })
@@ -132,6 +147,7 @@ mod tests {
             plan_reminder_target(
                 Some(("pl_worker".into(), "task_1".into())),
                 Some("pl_owner".into()),
+                Some(AgentRole::Orchestrator),
                 PlanReminderScope::OwnerOnly
             ),
             Some(PlanReminderTarget::Owner {
@@ -141,14 +157,30 @@ mod tests {
     }
 
     #[test]
-    fn report_path_scope_preserves_worker_reminder() {
+    fn report_path_scope_preserves_worker_reminder_for_worker_pane() {
         assert_eq!(
             plan_reminder_target(
                 Some(("pl_worker".into(), "task_1".into())),
                 Some("pl_owner".into()),
+                Some(AgentRole::Worker),
                 PlanReminderScope::AnyEligible
             ),
             Some(PlanReminderTarget::Worker)
+        );
+    }
+
+    #[test]
+    fn report_path_scope_prioritizes_owned_plan_for_orchestrator_pane() {
+        assert_eq!(
+            plan_reminder_target(
+                Some(("pl_worker".into(), "task_1".into())),
+                Some("pl_owner".into()),
+                Some(AgentRole::Orchestrator),
+                PlanReminderScope::AnyEligible
+            ),
+            Some(PlanReminderTarget::Owner {
+                plan_id: "pl_owner".into()
+            })
         );
     }
 }

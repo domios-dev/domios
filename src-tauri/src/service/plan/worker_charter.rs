@@ -50,6 +50,12 @@ impl PlanStore {
     /// No-op (returns `text` unchanged) for panes with no such assignment —
     /// the orchestrator-heartbeat prepend is the symmetric counterpart.
     pub fn prepend_worker_charter_for_pane(&self, pane_id: &str, text: &str) -> String {
+        if self
+            .active_owned_plan_with_open_work_for_pane(pane_id)
+            .is_some()
+        {
+            return text.to_string();
+        }
         let Some(task_id) = self.open_task_for_pane(pane_id) else {
             return text.to_string();
         };
@@ -171,6 +177,56 @@ mod tests {
             .unwrap();
 
         let out = store.prepend_worker_charter_for_pane("worker-pane", "continue");
+
+        assert_eq!(out, "continue");
+    }
+
+    #[test]
+    fn noop_for_pane_that_owns_active_plan_with_open_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut owner_plan = Plan::new(
+            "Owned plan".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("dual-role-pane"),
+        );
+        owner_plan.id = "pl_owned_charter".into();
+        owner_plan.mode = PlanMode::Execution;
+        store.save(&mut owner_plan, 1).unwrap();
+        store
+            .add_task(
+                &owner_plan.id,
+                NewTask {
+                    name: "Coordinate".into(),
+                    kind: "task".into(),
+                    ..Default::default()
+                },
+                2,
+            )
+            .unwrap();
+
+        let mut worker_plan = Plan::new(
+            "Assigned plan".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("other-orch"),
+        );
+        worker_plan.id = "pl_assigned_charter".into();
+        worker_plan.mode = PlanMode::Execution;
+        store.save(&mut worker_plan, 3).unwrap();
+        store
+            .add_task(
+                &worker_plan.id,
+                NewTask {
+                    name: "Assigned task".into(),
+                    kind: "task".into(),
+                    assigned_pane_id: Some("dual-role-pane".into()),
+                    ..Default::default()
+                },
+                4,
+            )
+            .unwrap();
+
+        let out = store.prepend_worker_charter_for_pane("dual-role-pane", "continue");
 
         assert_eq!(out, "continue");
     }
