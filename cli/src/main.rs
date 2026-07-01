@@ -130,10 +130,17 @@ pub fn read_api_config() -> (String, Option<String>) {
         .ok()
         .filter(|s| !s.is_empty());
 
-    let token = if std::env::var("CODETERM_INSTANCE")
+    let targets_dev = std::env::var("CODETERM_INSTANCE")
         .map(|s| !s.trim().is_empty())
         .unwrap_or(false)
-    {
+        || std::env::var("CODETERM_SOCKET_PATH")
+            .map(|sp| sp.contains("codeterm-dev"))
+            .unwrap_or(false)
+        || std::env::var("CODETERM_API_PORT")
+            .map(|p| !p.trim().is_empty() && p.trim() != "7685")
+            .unwrap_or(false);
+
+    let token = if targets_dev {
         config_token().or(signed_token).or(env_token)
     } else {
         env_token.or(signed_token).or_else(config_token)
