@@ -71,7 +71,7 @@ export function PlanViewShell(props: CanvasViewInnerProps) {
           hidden={viewMode !== "list"}
           aria-hidden={viewMode !== "list"}
         >
-          <PlanListView {...surfaceProps} />
+          <PlanListView {...surfaceProps} onClose={undefined} />
         </div>
         <div
           className="absolute inset-0"

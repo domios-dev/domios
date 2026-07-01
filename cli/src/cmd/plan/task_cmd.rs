@@ -449,6 +449,7 @@ pub(super) fn run_task(
             let attempt_id = val
                 .get("attempt")
                 .and_then(|v| v.get("attempt_id"))
+                .or_else(|| val.get("attempt").and_then(|v| v.get("id")))
                 .and_then(|v| v.as_str())
                 .unwrap_or("?");
             println!("Respawned worker pane {pane} (attempt {attempt_id})");

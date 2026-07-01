@@ -232,7 +232,11 @@ export function PlanListView({
         </button>
       )}
       {loading && (
-        <div className="flex flex-1 items-center justify-center text-sm" style={{ opacity: "var(--ct-text-secondary-opacity)" }}>
+        <div
+          data-testid="plan-list-loading"
+          className="flex flex-1 items-center justify-center text-sm"
+          style={{ opacity: "var(--ct-text-secondary-opacity)" }}
+        >
           Loading plans…
         </div>
       )}

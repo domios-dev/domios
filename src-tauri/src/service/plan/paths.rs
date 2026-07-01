@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::process_util;
+
 pub fn project_root(cwd: &Path) -> PathBuf {
     #[cfg(test)]
     if test_project_root_marker(cwd).is_some() {
@@ -25,7 +27,9 @@ pub fn project_root(cwd: &Path) -> PathBuf {
 }
 
 fn worktree_top(cwd: &Path) -> Option<PathBuf> {
-    let out = Command::new("git")
+    let mut cmd = Command::new("git");
+    process_util::no_window_std(&mut cmd);
+    let out = cmd
         .current_dir(cwd)
         .args(["rev-parse", "--show-toplevel"])
         .output()
@@ -65,7 +69,9 @@ fn test_project_root_marker(cwd: &Path) -> Option<PathBuf> {
 }
 
 fn main_worktree_root(cwd: &Path) -> Option<PathBuf> {
-    let out = Command::new("git")
+    let mut cmd = Command::new("git");
+    process_util::no_window_std(&mut cmd);
+    let out = cmd
         .current_dir(cwd)
         .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
         .output()
@@ -102,11 +108,9 @@ mod tests {
     use super::*;
 
     fn run_git(cwd: &Path, args: &[&str]) {
-        let out = Command::new("git")
-            .current_dir(cwd)
-            .args(args)
-            .output()
-            .unwrap();
+        let mut cmd = Command::new("git");
+        process_util::no_window_std(&mut cmd);
+        let out = cmd.current_dir(cwd).args(args).output().unwrap();
         assert!(
             out.status.success(),
             "git {:?} failed: {}",

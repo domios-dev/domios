@@ -1,21 +1,3 @@
-//! `JsProvider` — generic `AgentProvider` impl over a `PluginVm`.
-//!
-//! Every method dispatches in one of three ways:
-//!
-//! * **Manifest data** — `id`, `display_name`, `models`, slash commands,
-//!   icons, readiness/verify/task-delivery enums, etc. Read straight off
-//!   the parsed `plugin.json`. Zero allocations on the hot path.
-//! * **JS function call** — `detect_from_title`, `detect_from_output`,
-//!   `build_launch_command`, `parse_session_messages`, etc. Pure logic
-//!   that varies per provider lives in `plugin.js`; we invoke through
-//!   `call_json` and surface a sensible default if the function isn't
-//!   exported.
-//! * **Rust I/O driven by manifest config** — `session_file_path`,
-//!   `enumerate_sessions`, `detect_session_id`, `install_bridge_rule`,
-//!   `install_integration`. Filesystem and process work stays in Rust
-//!   because QuickJS has no `fs`/`process`; the manifest tells us where
-//!   to look, and we hand the raw file text to JS for parsing.
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
