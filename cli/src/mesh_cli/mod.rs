@@ -224,6 +224,13 @@ pub fn run_via_mesh(cli: &super::Cli, target: &str) {
         relay::mesh_spawn_and_register(&http, &base, &token, target, body.as_deref(), cli.json);
         return;
     }
+    if let Commands::Pane {
+        action: super::PaneAction::Close { id },
+    } = &cli.command
+    {
+        relay::mesh_close_pane_and_forget_remote_worker(&http, &base, &token, target, id, cli.json);
+        return;
+    }
     // Resolve the source agent's label/model locally so the remote can render
     // `label@PEER` — the source pane is foreign to the peer and unresolvable
     let body = if matches!(cli.command, Commands::SendText { .. }) {

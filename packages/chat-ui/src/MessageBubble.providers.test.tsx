@@ -412,6 +412,54 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
   }
 });
 
+test("codex codeterm command after cd chain renders CodeTerm card", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "codex-codeterm-chain",
+      provider: "codex",
+      type: "tool_call",
+      content: "",
+      toolName: "exec_command",
+      toolId: "call-codeterm",
+      toolInput: { cmd: "cd frontend && codeterm agent reports" },
+      toolArgs: "cd frontend && codeterm agent reports",
+    },
+    {
+      id: "codex-codeterm-chain-result",
+      provider: "codex",
+      type: "tool_result",
+      content: "OK\n",
+      toolResult: "OK\n",
+      toolId: "call-codeterm",
+    },
+  ]);
+  try {
+    assertIncludes(host, "CodeTerm", "CodeTerm card label");
+    assertIncludes(host, "agent reports", "CodeTerm command title");
+    assert(!host.querySelector('[data-testid="chat-tool-call"]'), "codeterm command should not render as generic exec tool");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("standalone arrow-only tool result is hidden", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "arrow-only-result",
+      provider: "codex",
+      type: "tool_result",
+      content: "→\n\n->\n⎿",
+    },
+  ]);
+  try {
+    assert(textOf(host).trim() === "", `arrow-only tool result should be hidden, got: ${textOf(host)}`);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("codex sparse tool_call rows between exec commands do not render ghost buttons", async () => {
   const { host, root } = await renderMessages([
     {

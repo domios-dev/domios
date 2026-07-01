@@ -480,6 +480,14 @@ fn pane_new_relays_cmd_field() {
 }
 
 #[test]
+fn remote_worker_forget_body_matches_registry_delete_contract() {
+    let body = super::relay::remote_worker_forget_body("ROG", "pane_1");
+    assert_eq!(body["peer"], "ROG");
+    assert_eq!(body["remote_pane"], "pane_1");
+    assert!(body.get("orchestrator_pane").is_none());
+}
+
+#[test]
 fn mesh_local_only_mem_subcommands_are_rejected_not_misrouted() {
     use crate::MemAction;
     // Mesh must return errors for local-only mem commands, not fake /api/mem/stats.

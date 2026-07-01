@@ -348,6 +348,13 @@ pub(crate) fn remote_worker_record_body(
     Some(body)
 }
 
+pub(crate) fn remote_worker_forget_body(peer: &str, remote_pane: &str) -> serde_json::Value {
+    serde_json::json!({
+        "peer": peer,
+        "remote_pane": remote_pane,
+    })
+}
+
 /// Relay an `agent spawn` to a peer, then register the resulting worker in the
 /// origin's remote-worker registry so the sidebar ghosts it under its
 /// orchestrator without waiting for the first report. Registration is
@@ -387,6 +394,43 @@ pub fn mesh_spawn_and_register(
     } else if let Some(pid) = data.get("pane_id").and_then(|v| v.as_str()) {
         let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("?");
         println!("Spawned: {} (pane {}) on {}", title, pid, target);
+    } else {
+        crate::cmd::print::print_human(&data);
+    }
+}
+
+/// Relay a remote pane close and remove any matching origin-side remote-worker
+/// ghost. The registry cleanup is best-effort: a successful remote close should
+/// not fail just because the origin had no stale ghost or could not delete it.
+pub fn mesh_close_pane_and_forget_remote_worker(
+    http: &reqwest::blocking::Client,
+    base: &str,
+    token: &Option<String>,
+    target: &str,
+    pane_id: &str,
+    json_mode: bool,
+) {
+    let path = format!("/api/panes/{pane_id}/close");
+    let data = mesh_relay_invoke(http, base, token, target, "POST", &path, None);
+
+    let peer_name = find_peer(&fetch_peers(http, base, token), target)
+        .and_then(|p| p.get("instance_name").and_then(|v| v.as_str()))
+        .map(str::to_string)
+        .unwrap_or_else(|| target.to_string());
+    let _ = http
+        .delete(format!("{}/api/remote-workers", base))
+        .header(
+            "Authorization",
+            format!("Bearer {}", token.as_deref().unwrap_or("")),
+        )
+        .json(&remote_worker_forget_body(&peer_name, pane_id))
+        .send();
+
+    if json_mode {
+        println!("{}", serde_json::to_string_pretty(&data).unwrap());
+    } else if data.is_null() {
+        eprintln!("Error: unexpected response from peer (null data)");
+        std::process::exit(1);
     } else {
         crate::cmd::print::print_human(&data);
     }
