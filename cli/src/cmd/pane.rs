@@ -266,7 +266,7 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
             }
         }
         PaneAction::Status { pane } => {
-            let pane_id = resolve_pane(client, pane);
+            let pane_selector = pane.unwrap_or_else(|| resolve_pane(client, None));
             let (api_url, api_token) = read_api_config();
             let http = match build_http(&api_token) {
                 Ok(c) => c,
@@ -275,38 +275,28 @@ pub fn handle_pane(client: &mut SocketClient, json: bool, action: PaneAction) {
                     std::process::exit(1);
                 }
             };
-            match http.get(format!("{}/api/panes", api_url)).send() {
+            match http
+                .get(format!("{}/api/panes/{}/status", api_url, pane_selector))
+                .send()
+            {
                 Ok(resp) => {
-                    if let Ok(panes) = resp.json::<Vec<serde_json::Value>>() {
-                        if let Some(p) = panes
-                            .iter()
-                            .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(&pane_id))
-                        {
-                            let at = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
-                            let sid = p
-                                .get("agent_session_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("-");
-                            let pp = if p.get("pending_prompt").is_some() {
-                                "yes"
-                            } else {
-                                "no"
-                            };
-                            let cv = p
-                                .get("chat_view")
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false);
-                            println!("pane:    {}", pane_id);
-                            println!("agent:   {}", at);
-                            println!(
-                                "desc:    {}",
-                                p.get("description").and_then(|v| v.as_str()).unwrap_or("-")
-                            );
-                            println!("session: {}", sid);
-                            println!("prompt:  {}", pp);
-                            println!("chat:    {}", cv);
-                            return;
-                        }
+                    if !resp.status().is_success() {
+                        eprintln!("Pane not found");
+                        std::process::exit(1);
+                    }
+                    if let Ok(p) = resp.json::<serde_json::Value>() {
+                        let pane_id = p
+                            .get("pane_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&pane_selector);
+                        let at = p.get("agent_type").and_then(|v| v.as_str()).unwrap_or("-");
+                        let status = p.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+                        let title = p.get("title").and_then(|v| v.as_str()).unwrap_or("-");
+                        println!("pane:    {}", pane_id);
+                        println!("agent:   {}", at);
+                        println!("title:   {}", title);
+                        println!("status:  {}", status);
+                        return;
                     }
                     eprintln!("Pane not found");
                     std::process::exit(1);
