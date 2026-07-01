@@ -137,6 +137,7 @@ fn render_plan_markdown_prepends_goal_block() {
     let goal_pos = rendered.find("## Goal").unwrap();
     let sections_pos = rendered.find("## Sections").unwrap_or(rendered.len());
     assert!(goal_pos < sections_pos);
+    assert!(rendered.contains("CodeTerm planner state is authoritative"));
     assert!(rendered.contains("**Vector:** Ship the foundation"));
     assert!(rendered.contains("- backend only"));
     assert!(rendered.contains("- reread plan"));

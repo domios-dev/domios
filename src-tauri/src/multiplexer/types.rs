@@ -44,6 +44,8 @@ pub struct ClosedPane {
     pub agent_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub chat_view: bool,
     pub closed_at: u64,
     /// Workspace the pane belonged to when it was closed. Empty string on old
     /// records (pre-field snapshots) — treat as "unknown workspace".
@@ -70,6 +72,7 @@ impl From<&Pane> for ClosedPane {
             agent_type: pane.agent_type.clone(),
             agent_session_id: pane.agent_session_id.clone(),
             model: pane.agent_session_model.clone(),
+            chat_view: pane.chat_view,
             closed_at: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()

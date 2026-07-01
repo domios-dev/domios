@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const ORCHESTRATION_REMINDER: &str =
-    "hint: you work autonomously; if unsure how to orchestrate -> codeterm doc orchestration";
+    "hint: orchestrating? read `codeterm docs ORCHESTRATION`; before dispatch, run `codeterm plan doctor <plan> --kind quality`";
 const ORCHESTRATION_REMINDER_EVERY: u64 = 5;
 static ORCHESTRATION_REMINDER_COUNT: AtomicU64 = AtomicU64::new(0);
 

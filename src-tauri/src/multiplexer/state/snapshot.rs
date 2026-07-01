@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::{MultiplexerSnapshot, MultiplexerState};
 use crate::multiplexer::types::{Pane, PaneBacking, PaneType, Tab, TitleLevel, Workspace};
@@ -46,27 +46,6 @@ impl MultiplexerState {
             // Bounded indexed query against the local sqlite store — cheap, not
             // the multi-second blocking work the hot-path rule warns about, and
             recently_closed: self.recent_closed_view(),
-        }
-    }
-
-    /// Re-apply the chat-UI default to restored agent panes after a session
-    /// restore (kill + restart) — a pane-creation path the fresh-spawn default
-    /// logic never runs through. `chat_capable` holds the chat-UI-capable
-    /// provider ids only when the `default_new_agent_pane_chat` preference is on
-    /// (empty otherwise → no-op). Only upgrades terminal→chat for capable
-    /// agents; never downgrades an already-chat pane.
-    pub fn apply_default_chat_view_for_capable(&mut self, chat_capable: &HashSet<String>) {
-        if chat_capable.is_empty() {
-            return;
-        }
-        for pane in self.panes.values_mut() {
-            if pane
-                .agent_type
-                .as_deref()
-                .is_some_and(|at| chat_capable.contains(at))
-            {
-                pane.chat_view = true;
-            }
         }
     }
 

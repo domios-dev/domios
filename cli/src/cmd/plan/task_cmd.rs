@@ -162,6 +162,7 @@ pub(super) fn run_task(
             tags,
             primary,
             handle,
+            force,
             loop_from: _,
         } => {
             let why_text = resolve_text(why, why_file)?;
@@ -177,6 +178,9 @@ pub(super) fn run_task(
             let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
             let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
             let mut params = json!({ "plan_id": plan_id.clone(), "name": name });
+            if force {
+                params["force"] = json!(true);
+            }
             if let Some(k) = kind {
                 params["type"] = json!(k);
             }
@@ -477,11 +481,26 @@ pub(super) fn run_task(
             print!("{}", render_relink_report(&val));
             Ok(None)
         }
-        PlanTaskAction::Rm { plan_id, task_id } => call(
-            client,
-            "plan.task.rm",
-            json!({ "plan_id": plan_id, "task_id": task_id }),
-        )
-        .map(Some),
+        PlanTaskAction::Rm {
+            plan_id,
+            task_id,
+            all,
+            yes,
+        } => {
+            if all && !yes {
+                return Err(
+                    "refusing to remove all tasks without --yes; this resets the plan to planning mode"
+                        .into(),
+                );
+            }
+            if !all && task_id.is_none() {
+                return Err("provide TASK_ID or pass --all --yes".into());
+            }
+            let mut params = json!({ "plan_id": plan_id, "all": all });
+            if let Some(task_id) = task_id {
+                params["task_id"] = json!(task_id);
+            }
+            call(client, "plan.task.rm", params).map(Some)
+        }
     }
 }

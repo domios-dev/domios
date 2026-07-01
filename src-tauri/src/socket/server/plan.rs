@@ -35,7 +35,6 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
-
 fn lane_metadata_field(p: Option<&Value>) -> Result<TaskLaneMetadata, JsonRpcError> {
     p.and_then(|x| x.get("lane"))
         .map(|v| {
@@ -411,11 +410,13 @@ pub(super) fn dispatch(
                 .map(|s| serde_json::from_value::<PlanStatus>(Value::String(s.into())))
                 .transpose()
                 .map_err(|_| plan_rpc_err(PlanError::BadStatus))?;
+            let mode = p.and_then(|x| x.get("mode")).and_then(|v| v.as_str());
             store
                 .update_plan(
                     &id,
                     p.and_then(|x| x.get("title")).and_then(|v| v.as_str()),
                     status,
+                    mode,
                     now,
                 )
                 .map_err(plan_rpc_err)?;
@@ -652,6 +653,10 @@ pub(super) fn dispatch(
             let requested_sections = csv_string_field(p, "sections");
             let section_ids = store
                 .resolve_task_section_ids(&id, &requested_sections)
+                .map_err(plan_rpc_err)?;
+            let force = p.and_then(|x| x.get("force")).and_then(|v| v.as_bool()) == Some(true);
+            store
+                .ensure_task_creation_allowed(&id, force)
                 .map_err(plan_rpc_err)?;
             let has_sections = !section_ids.is_empty();
             let has_model = p
@@ -971,10 +976,16 @@ pub(super) fn dispatch(
 
         "plan.task.rm" => {
             let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
-            store.rm_task(&id, &tid, now).map_err(plan_rpc_err)?;
+            let all = p.and_then(|x| x.get("all")).and_then(|v| v.as_bool()) == Some(true);
+            let count = if all {
+                store.rm_all_tasks(&id, now).map_err(plan_rpc_err)?
+            } else {
+                let tid = get_string_param(params, "task_id")?;
+                store.rm_task(&id, &tid, now).map_err(plan_rpc_err)?;
+                1
+            };
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            Ok(json!({ "ok": true, "removed": count }))
         }
 
         _ => Err(JsonRpcError {

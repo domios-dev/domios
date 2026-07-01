@@ -11,6 +11,16 @@ pub enum PlanStatus {
     Archived,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanMode {
+    #[default]
+    Planning,
+    Approved,
+    Execution,
+    Complete,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
@@ -476,6 +486,8 @@ pub struct Plan {
     #[serde(default)]
     pub sections: Vec<Section>,
     pub status: PlanStatus,
+    #[serde(default)]
+    pub mode: PlanMode,
     pub owner: OrchestratorRef,
     pub project_path: String,
     pub created_at: u64,
@@ -520,6 +532,7 @@ impl Plan {
             title,
             sections: vec![],
             status: PlanStatus::Active,
+            mode: PlanMode::Planning,
             owner,
             project_path,
             created_at: 0,

@@ -53,6 +53,24 @@ pub(crate) fn render_plan_error(data: &Value, params: &Value) -> Option<String> 
                 .unwrap_or("<element_id>")
         )),
         "open_subtasks" => render_open_subtasks(data, plan_id, task_id),
+        "task_creation_requires_approval" => Some(format!(
+            "✗ this plan is still in planning mode.\n\
+finish planning before generating execution tasks:\n\
+  codeterm docs ORCHESTRATION\n\
+  codeterm plan state {plan_id}\n\
+  codeterm plan doctor {plan_id} --kind quality\n\
+  codeterm plan approve {plan_id}\n\
+then retry the task add. If you intentionally need a draft task, pass `--force`."
+        )),
+        "heartbeat_requires_execution" => Some(format!(
+            "✗ heartbeat is for active execution state, not planning notes.\n\
+Use spec/plan sections for approval rules, or mem for durable preferences:\n\
+  codeterm docs ORCHESTRATION\n\
+  codeterm plan state {plan_id}\n\
+  codeterm mem save-preference --scope global --title \"CodeTerm planner preference\" \"<preference>\"\n\
+After approval/execution starts, set heartbeat with:\n\
+  codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\""
+        )),
         "budget_exhausted" => {
             let count = data.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
             let budget = data.get("budget").and_then(|v| v.as_u64()).unwrap_or(0);

@@ -470,6 +470,32 @@
         "y": null,
         "collapsed": false
       }
+    },
+    {
+      "id": "sec_7efb364a93114b24927d73a0378d2365",
+      "title": "Plan alternate views: Canvas/List/Board",
+      "handle": "plan-alternate-views-canvas-list-board",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_4ad8487989a744a3b673cbe895601e1e",
+      "title": "Planning model migration from plan.md",
+      "handle": "planning-model-migration-from-plan-md",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
     }
   ],
   "status": "active",
@@ -480,7 +506,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782765234761,
+  "updated_at": 1782918302142,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -10996,6 +11022,1674 @@
         "collapsed": false
       },
       "milestones": []
+    },
+    {
+      "id": "task_72212435437b4c0289c23becaad84ec2",
+      "name": "temp output shape probe - delete me",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "cancelled",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782770273882,
+      "updated_at": 1782770306067,
+      "status_changed_at": 1782770306067,
+      "handle": "temp-output-shape-probe",
+      "tags": [],
+      "section_ids": [
+        "sec_5049d213a0a046f39c98ea7aadf6b3de"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_89c0b6975ac24f2da449ccb67c204edd",
+      "name": "L1 1.6.2 canvas perf harness + baseline",
+      "type": "implement",
+      "model": "codex/gpt-5.5",
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Baseline report includes numeric p95 frame interval, longtask count, DOM counts, reproducible commands, and thresholds for L5."
+      ],
+      "test_plan": "Run focused helper/unit tests if added and Playwright perf probe against verified dev build. No product fix in this lane.",
+      "correctness": null,
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p0",
+      "created_at": 1782770351120,
+      "updated_at": 1782773905071,
+      "status_changed_at": 1782772534922,
+      "handle": "canvas-perf-baseline",
+      "tags": [],
+      "section_ids": [
+        "sec_5049d213a0a046f39c98ea7aadf6b3de"
+      ],
+      "body": "",
+      "intent": "Bounced after orchestrator gate: Playwright @canvas-perf-baseline fails before test body because shared ui fixture requires .xterm/chat-composer while fresh dev shows empty General. Worker must make harness deterministic from empty dev state before acceptance.",
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": "done",
+        "cleanup_hints": [
+          "After acceptance: close pane 94984dbe, remove worktree /Users/rollacode/Developer/codeterm-l1-perf-baseline, delete branch lane/canvas-perf-baseline if merged."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_e758327f72b14b2ab779033d363f4e96",
+      "name": "L2 orchestration CLI ergonomics for plan heartbeats",
+      "type": "implement",
+      "model": "codex/gpt-5.5",
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "CLI behavior is deterministic, stale wording removed, orchestrator status JSON is documented/tested, and plan hints are actionable with exact commands."
+      ],
+      "test_plan": "Run focused CLI/Rust tests, prompt tests that cover STATE_RECONCILIATION text, and ./build.sh check in the worker lane if feasible.",
+      "correctness": null,
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p0",
+      "created_at": 1782770352023,
+      "updated_at": 1782773945525,
+      "status_changed_at": 1782772742528,
+      "handle": "orchestration-cli-ergonomics",
+      "tags": [],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": "done",
+        "cleanup_hints": [
+          "After acceptance: close pane e7918476, remove worktree /Users/rollacode/Developer/codeterm-l2-cli-ergonomics, delete branch lane/orchestration-cli-ergonomics if merged."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_988387cc141141cdb82a0a163ec2576a",
+      "name": "L3 task lifecycle and presence data hygiene",
+      "type": "implement",
+      "model": "codex/gpt-5.5",
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Closing a task clears the pane presence immediately; stale done/cancelled assignments do not render pins, bubbles, live-agent lanes, or active work labels."
+      ],
+      "test_plan": "Add backend/frontend oracle tests: assign pane to task, close task, immediate read shows assignment cleared and presence selector returns no pin.",
+      "correctness": null,
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p0",
+      "created_at": 1782770353074,
+      "updated_at": 1782773169644,
+      "status_changed_at": 1782773169570,
+      "handle": "task-lifecycle-presence-hygiene",
+      "tags": [],
+      "section_ids": [
+        "sec_5049d213a0a046f39c98ea7aadf6b3de"
+      ],
+      "body": "",
+      "intent": "Bounced by final reviewer: canvasFocusPayload pane_id focus path still targets stale terminal assigned_pane_id; worker must filter done/cancelled and trim/empty, with tests.",
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "a33ed299",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-l3-presence-data",
+        "branch": "lane/task-lifecycle-presence-hygiene",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After acceptance: close pane a33ed299, remove worktree /Users/rollacode/Developer/codeterm-l3-presence-data, delete branch lane/task-lifecycle-presence-hygiene if merged."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_b3313ef6dc3a412aac4f07e4d76b9a2f",
+      "name": "L4 calm canvas UX simplification",
+      "type": "implement",
+      "model": "cursor/composer-2.5",
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Canvas/Plan UI is calmer with no gratuitous surfaces; presence remains understandable without clutter; no empty-plan row in General."
+      ],
+      "test_plan": "Run tsc, focused UI tests, and Playwright visual gate after dev restart with health build hash verified.",
+      "correctness": null,
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p1",
+      "created_at": 1782770353910,
+      "updated_at": 1782775197729,
+      "status_changed_at": 1782775197588,
+      "handle": "calm-canvas-ux-simplification",
+      "tags": [],
+      "section_ids": [
+        "sec_5049d213a0a046f39c98ea7aadf6b3de"
+      ],
+      "body": "",
+      "intent": "Bounced: L4 Playwright specs still depend on shared ui fixture shell bootstrap and fail from fresh/empty dev before test body.",
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "3770ffec",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-l4-calm-ux",
+        "branch": "lane/calm-canvas-ux-simplification",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After acceptance: close pane 3770ffec, remove worktree /Users/rollacode/Developer/codeterm-l4-calm-ux, delete branch lane/calm-canvas-ux-simplification if merged."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_deeef71d6b0e429685940c6d867c5e09",
+      "name": "L6 plan-write reliability and read-back verification",
+      "type": "implement",
+      "model": "codex/gpt-5.5",
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "Close/update/add task operations are immediately consistent for the caller or return explicit busy/pending diagnostics; no silent stale OK."
+      ],
+      "test_plan": "Add tests for close then immediate read consistency, transient database locked behavior, and no duplicate/unsafe blind retry.",
+      "correctness": null,
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p0",
+      "created_at": 1782770354892,
+      "updated_at": 1782773411768,
+      "status_changed_at": 1782773411712,
+      "handle": "plan-write-readback-reliability",
+      "tags": [],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": "Bounced by final reviewer: task_routes.rs stale for WritePending/ReadbackMismatch; set_task_assignment still raw unverified with_plan and can return pending without committed_id.",
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "d3794683",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-l6-plan-write-reliability",
+        "branch": "lane/plan-write-readback-reliability",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": "pending",
+        "cleanup_hints": [
+          "After acceptance: close pane d3794683, remove worktree /Users/rollacode/Developer/codeterm-l6-plan-write-reliability, delete branch lane/plan-write-readback-reliability if merged."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_e37c5dfba2254bed89da671939695652",
+      "name": "L5 measured canvas render-churn fix after baseline",
+      "type": "implement",
+      "model": "codex/gpt-5.5",
+      "model_rationale": null,
+      "acceptance_criteria": [
+        "L1 p95 frame interval, longtask count, and DOM churn metrics improve materially at 500+ nodes without visual regressions."
+      ],
+      "test_plan": "Run L1 perf probe before/after, tsc, focused tests, ./build.sh check, and relevant Playwright canvas goldens.",
+      "correctness": null,
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p0",
+      "created_at": 1782770355921,
+      "updated_at": 1782774266683,
+      "status_changed_at": 1782774266517,
+      "handle": "measured-canvas-render-churn-fix",
+      "tags": [],
+      "section_ids": [
+        "sec_5049d213a0a046f39c98ea7aadf6b3de"
+      ],
+      "body": "",
+      "intent": "Bounced: L5 counter validation now fails honestly in Playwright; canvasBlits remains 0 in real perf path.",
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "b1950b4b",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-l5-render-churn",
+        "branch": "lane/measured-canvas-render-churn-fix",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_7021fa3b39f64bb4b2bdf10f86f03975",
+      "name": "Fix agent spawn --task-file initial task delivery",
+      "type": "implement",
+      "model": "codex",
+      "model_rationale": "Spawn/readiness/task-injection bug is likely in CodeTerm orchestrator/provider plumbing; Codex worker can implement focused regression after 1.6.2 review branch stabilizes.",
+      "acceptance_criteria": [
+        "Spawning codex worker with --task-file causes the task text to appear in chat/session and execute without a separate codeterm send."
+      ],
+      "test_plan": "Automated or integration smoke: spawn worker with --task-file in a temp workspace, wait for report/file, assert report arrives and no manual send was needed.",
+      "correctness": "A worker spawned with --task-file receives and executes the provided task exactly once after provider readiness; no manual codeterm send is needed.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782796971182,
+      "updated_at": 1782807695684,
+      "status_changed_at": 1782805907337,
+      "handle": "fix-agent-spawn-task-file-initial-task-delivery",
+      "tags": [
+        "orchestration",
+        "agent-spawn"
+      ],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "141c9fb7",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-spawn-task-delivery",
+        "branch": "lane/spawn-task-delivery",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": null,
+        "cleanup_hints": [
+          "After acceptance: close pane 141c9fb7, remove worktree /Users/rollacode/Developer/codeterm-spawn-task-delivery, delete branch lane/spawn-task-delivery."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_4224d35f70db4ff59f3c4bb7da4f5fa4",
+      "name": "Orchestrator onboarding from pane menu",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "A bare agent can be marked Orchestrator via CLI/API, but the tab 3-dot UI does not expose a Make Orchestrator action and set-orchestrator only changes role/can_spawn; it does not inject docs/ORCHESTRATION or the codeterm-orchestrator skill/onboarding hint.",
+      "acceptance_criteria": [
+        "3-dot pane menu can mark an eligible pane as Orchestrator and the pane status shows role=Orchestrator can_spawn=true.",
+        "The target pane receives an onboarding message with exact commands: codeterm doc orchestration, codeterm orchestrator status, heartbeat set, plan task add/assign, agent spawn --parent --role Worker.",
+        "No duplicate/contradictory docs wording between doc/docs aliases in prompts/hints."
+      ],
+      "test_plan": "Unit-test menu item derivation/API call if factored; Playwright or API smoke creates a bare pane, triggers Make Orchestrator, verifies role/can_spawn and visible onboarding text.",
+      "correctness": "A cold/bare agent promoted by the user can discover the orchestration playbook without relying on prior context.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782797314789,
+      "updated_at": 1782807694526,
+      "status_changed_at": 1782805599294,
+      "handle": "orchestrator-onboarding-from-pane-menu",
+      "tags": [],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "9bd710ac",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-orchestrator-onboarding",
+        "branch": "lane/orchestrator-onboarding",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": null,
+        "cleanup_hints": [
+          "After acceptance: close pane 9bd710ac, remove worktree /Users/rollacode/Developer/codeterm-orchestrator-onboarding, delete branch lane/orchestrator-onboarding."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_b23505a7f95d4fa58c8630357446f1b1",
+      "name": "Plan reminder and nudge E2E harness",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Plan reminders exist in code and unit tests, but the dogfood smoke only verified heartbeat state and reports; it did not wait for automatic nudge delivery. We need a dev/prod-safe harness proving reminders arrive with heartbeat and useful commands.",
+      "acceptance_criteria": [
+        "Owner pane with active plan and open/in_review tasks receives orchestrator nudge after threshold even without assigned_pane_id/task binding.",
+        "Nudge includes heartbeat block and exact recovery commands including codeterm doc orchestration or codeterm docs ORCHESTRATION.",
+        "Worker assigned to active task still receives worker-specific report nudge; terminal/done/cancelled bindings do not nudge."
+      ],
+      "test_plan": "Focused Rust/service tests for reminders/hierarchy delivery with low threshold plus a deterministic dev/API smoke if practical; verify delayed-send heartbeat prepend remains covered.",
+      "correctness": "Plan-owned heartbeat/nudge behavior can recover a fresh or compacted orchestrator without manual delayed self-messages.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782797315041,
+      "updated_at": 1782807696223,
+      "status_changed_at": 1782805356109,
+      "handle": "plan-reminder-and-nudge-e2e-harness",
+      "tags": [],
+      "section_ids": [
+        "sec_fad45b8c52464615a011c26868e2a32a"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "94bce054",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-plan-reminder-nudge",
+        "branch": "lane/plan-reminder-nudge",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": null,
+        "cleanup_hints": [
+          "After acceptance: close pane 94bce054, remove worktree /Users/rollacode/Developer/codeterm-plan-reminder-nudge, delete branch lane/plan-reminder-nudge."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_530d8ab59822494198a4170d25b42d14",
+      "name": "Report CLI as single planning update",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Worker reporting should be the canonical one-call planning update: write a working point/milestone, update task status when appropriate, and notify the orchestrator. Today agent report is close, but the command is verbose, status semantics can confuse done vs in_review, and blocked/partial behavior needs to be explicit.",
+      "acceptance_criteria": [
+        "A worker can run one short command using env-derived plan/task ids to record progress and update task status.",
+        "in_review/blocked/partial semantics are deterministic and covered by tests; done does not let a worker silently close its own task.",
+        "Owner receives a useful notification and plan task gets a structured working point."
+      ],
+      "test_plan": "CLI parse/render tests plus service tests around submit_report status transitions and milestone text; smoke with a temp plan/task/pane if practical.",
+      "correctness": "Reporting is the single ergonomic write path from worker execution into Plan state, without unsafe extra CLI calls.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782798581646,
+      "updated_at": 1782807693905,
+      "status_changed_at": 1782804214968,
+      "handle": "report-cli-as-single-planning-update",
+      "tags": [],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "b582dc78",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-report-cli-planning",
+        "branch": "lane/report-cli-planning",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": null,
+        "cleanup_hints": [
+          "After acceptance: close pane b582dc78, remove worktree /Users/rollacode/Developer/codeterm-report-cli-planning, delete branch lane/report-cli-planning."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_75d5e8ad42e24e6dbba4fff2a28cf3fc",
+      "name": "Canvas/List/Board view switch",
+      "type": "implement",
+      "model": "cursor:auto",
+      "model_rationale": "User wants a first-class switch above the plan surface: Canvas | List | Board. This should replace nested/list-only thinking and keep all views as read-only plan observation modes.",
+      "acceptance_criteria": [
+        "The plan surface exposes Canvas | List | Board as a clear top-level switch.",
+        "Switching modes does not close the plan or lose current plan/workspace context.",
+        "Canvas mode remains visually and behaviorally unchanged except for the switch."
+      ],
+      "test_plan": "Focused TS tests for mode state/routing if factored; Playwright smoke switches all three modes on a seeded plan and verifies expected testids.",
+      "correctness": "Users can switch between spatial, hierarchical, and board views without changing plan data.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782800330119,
+      "updated_at": 1782807697235,
+      "status_changed_at": 1782804848366,
+      "handle": "canvas-list-board-view-switch",
+      "tags": [],
+      "section_ids": [
+        "sec_7efb364a93114b24927d73a0378d2365"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "927a2ebd",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-plan-view-switch",
+        "branch": "lane/plan-view-switch",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": null,
+        "cleanup_hints": [
+          "After acceptance: close pane 927a2ebd, remove worktree /Users/rollacode/Developer/codeterm-plan-view-switch, delete branch lane/plan-view-switch."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_1d1730bd54a94cc498e7dc5eda1c34e4",
+      "name": "Read-only hierarchical List view",
+      "type": "implement",
+      "model": "cursor:auto",
+      "model_rationale": "The canvas is not always the best way to inspect current Spec, Plan, tasks, and subtasks. A classic list gives a stable non-spatial view of the same work.",
+      "acceptance_criteria": [
+        "List view shows Spec and Plan as separate top-level entities when spec data exists, then sections/tasks/subtasks in stable order.",
+        "Task rows show status and assigned/working agent presence without stale done/cancelled presence.",
+        "Subtasks are nested under parent tasks."
+      ],
+      "test_plan": "Unit tests for hierarchy projection using existing plan fixtures; Playwright smoke verifies list rows for spec/plan/task/subtask and active agent marker.",
+      "correctness": "List view is stable, scannable, and faithful to current plan state.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782800331466,
+      "updated_at": 1782807693403,
+      "status_changed_at": 1782804849403,
+      "handle": "read-only-hierarchical-list-view",
+      "tags": [],
+      "section_ids": [
+        "sec_7efb364a93114b24927d73a0378d2365"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "ebfdc96d",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-plan-list-view",
+        "branch": "lane/plan-list-view",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": null,
+        "cleanup_hints": [
+          "After acceptance: close pane ebfdc96d, remove worktree /Users/rollacode/Developer/codeterm-plan-list-view, delete branch lane/plan-list-view."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_e0619a82133b4abbb0c4a13f678e6b82",
+      "name": "Read-only Board view",
+      "type": "implement",
+      "model": "cursor:auto",
+      "model_rationale": "A kanban-like read-only board is useful for watching active agents and task status, but Spec and Plan must stay visible as separate higher-level entities above the task lanes.",
+      "acceptance_criteria": [
+        "Board shows Spec and Plan above task columns, not hidden inside a column.",
+        "Board groups tasks by status and shows agent/pane presence calmly.",
+        "No drag/drop or direct status mutation UI is exposed."
+      ],
+      "test_plan": "Projection unit tests for status grouping; Playwright smoke verifies board columns, spec/plan summaries, and no draggable task affordance.",
+      "correctness": "Board is a read-only operations dashboard for agents, not an editing kanban.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782800332428,
+      "updated_at": 1782807695264,
+      "status_changed_at": 1782804850890,
+      "handle": "read-only-board-view",
+      "tags": [],
+      "section_ids": [
+        "sec_7efb364a93114b24927d73a0378d2365"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "4c40a728",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-plan-board-view",
+        "branch": "lane/plan-board-view",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": null,
+        "cleanup_hints": [
+          "After acceptance: close pane 4c40a728, remove worktree /Users/rollacode/Developer/codeterm-plan-board-view, delete branch lane/plan-board-view."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_62430e0e296948ebb8d61aa246bad2e7",
+      "name": "Alternate views visual gates",
+      "type": "review",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "New visual modes need deterministic coverage and must not regress the existing Canvas Playwright gates.",
+      "acceptance_criteria": [
+        "Playwright covers switching Canvas -> List -> Board -> Canvas on a deterministic fixture.",
+        "Visual assertions cover spec/plan top-level presence, subtask nesting, board columns, and active agent marker.",
+        "Existing canvas calm/perf/presence gates remain green after alternate views land."
+      ],
+      "test_plan": "Run focused new Playwright grep plus relevant existing canvas golden gates against dev build hash.",
+      "correctness": "The alternate view feature is visually verified, not just unit-tested.",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782800333468,
+      "updated_at": 1782805242005,
+      "status_changed_at": 1782805242005,
+      "handle": "alternate-views-visual-gates",
+      "tags": [],
+      "section_ids": [
+        "sec_7efb364a93114b24927d73a0378d2365"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_dadd1cdba8fb4fb58e90aeaef1560100",
+      "name": "Quiet tab activity indicator and remove task bubbles from tabs",
+      "type": "ux",
+      "model": "cursor:auto",
+      "model_rationale": "The current active-task/tab chrome is too noisy: animated indicator blinks aggressively and task/focus bubbles on tabs distract from work. Keep a subtle signal, remove tab-level task bubbles, and leave task context to the pane input/canvas presence surfaces.",
+      "acceptance_criteria": [
+        "Tab activity signal remains visible but calm: no aggressive blinking/pulsing, no layout jump.",
+        "Task/focus bubbles are removed from tab chrome; task context is not shown as large bubbles on each tab.",
+        "No regression to pane focus, active agent status, or canvas presence indicators."
+      ],
+      "test_plan": "Focused TS/TSX test for tab indicator/rendering if applicable; Playwright visual gate or existing tab/sidebar test proving no tab task bubbles and calm indicator.",
+      "correctness": "Do not remove the signal entirely; move or suppress only the noisy tab-level chrome. Keep files under 1000 lines.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782800734625,
+      "updated_at": 1782807694901,
+      "status_changed_at": 1782804852234,
+      "handle": "quiet-tab-activity-indicator-and-remove-task-bubbles-from-tabs",
+      "tags": [
+        "ui",
+        "calm-ux",
+        "tabs"
+      ],
+      "section_ids": [
+        "sec_7efb364a93114b24927d73a0378d2365"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "4ebbd29a",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-quiet-tab-activity",
+        "branch": "lane/quiet-tab-activity",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": null,
+        "cleanup_hints": [
+          "After acceptance: close pane 4ebbd29a, remove worktree /Users/rollacode/Developer/codeterm-quiet-tab-activity, delete branch lane/quiet-tab-activity."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_05afbfb263b642dabf213a6bbe4c553c",
+      "name": "Report context autofill, rich task links, and dirty SHA guard",
+      "type": "bug",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Worker reports should be structured and trustworthy. The worker should not have to hand-type task id/status metadata when it was spawned from a plan task; the report message should carry parseable plan/task/status/branch/sha fields so the orchestrator chat can render a useful task link. Readiness reports must also guard against dirty worktrees or stale/base SHAs.",
+      "acceptance_criteria": [
+        "Plan task assignment/spawn path provides enough context to the worker environment or prompt so codeterm report can default plan_id and task_id without manual flags.",
+        "codeterm report / agent report output stored in reports includes parseable task metadata and the rendered injected message can show task id/name/status/branch/sha as structured fields or a task link, not just free text.",
+        "Readiness statuses such as in_review warn or fail when local worktree is dirty, SHA is missing, or SHA is still the base commit while files are changed.",
+        "Progress/partial/research reports stay lightweight and are not forced to commit; the guard targets readiness/acceptance evidence."
+      ],
+      "test_plan": "CLI parser/env tests, report-store/rendering tests, and at least one service test proving a plan-assigned worker report defaults plan/task and updates the task/report metadata.",
+      "correctness": "Keep report routing backwards-compatible for plain non-plan reports. Avoid hot-path git shellouts in daemon/UI; local git checks belong in CLI when cwd is available.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782801029358,
+      "updated_at": 1782807696749,
+      "status_changed_at": 1782804831033,
+      "handle": "report-context-autofill-rich-task-links-and-dirty-sha-guard",
+      "tags": [
+        "reliability",
+        "orchestration",
+        "reports",
+        "integrity"
+      ],
+      "section_ids": [
+        "sec_7efb364a93114b24927d73a0378d2365"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": "d5e1f263",
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": "/Users/rollacode/Developer/codeterm-report-context-autofill",
+        "branch": "lane/report-context-autofill",
+        "base": "feat/canvas-updates",
+        "destination": "feat/canvas-updates",
+        "cleanup_status": null,
+        "cleanup_hints": [
+          "After acceptance: close pane d5e1f263, remove worktree /Users/rollacode/Developer/codeterm-report-context-autofill, delete branch lane/report-context-autofill."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_403d983a71a44817a87449f41910823b",
+      "name": "Persist task executor history and respawn workers from it",
+      "type": "implement",
+      "model": "codex/gpt-5.5",
+      "model_rationale": "Closing/cleaning a worker should clear live presence, but task history must retain who executed it so an orchestrator can respawn the same/similar worker with useful context later.",
+      "acceptance_criteria": [
+        "Live task assignment clears on worker cleanup, but executor history remains queryable on the task.",
+        "Executor snapshot stores pane id, title, provider, model, session id, role, peer, branch/worktree, report ids/statuses, and timestamps."
+      ],
+      "test_plan": "Rust tests cover report/close/reconcile cleanup preserving executor history; CLI/API tests cover querying the history.",
+      "correctness": "assigned_pane_id/lane.pane_id are live-only; execution history is separate and preserved.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782807828649,
+      "updated_at": 1782836727914,
+      "status_changed_at": 1782836727914,
+      "handle": "persist-task-executor-history-and-respawn-workers-from-it",
+      "tags": [],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_69893989106a4e019d3f5d1bcfb4fcf9",
+      "name": "Audit and model task execution-attempt metadata",
+      "type": "implement",
+      "model": "codex/gpt-5.5",
+      "model_rationale": "Task metadata needs first-class execution attempts so old workers can be respawned without confusing historical executors with active presence.",
+      "acceptance_criteria": [
+        "A task can store multiple execution attempts without using assigned_pane_id/lane.pane_id for history."
+      ],
+      "test_plan": "Rust serialization/unit tests for schema defaults, legacy tasks, and multiple attempts.",
+      "correctness": "Historical executor snapshots are append-only/merge-safe and separate from live assignment.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782807887601,
+      "updated_at": 1782836728165,
+      "status_changed_at": 1782836728165,
+      "handle": "audit-and-model-task-execution-attempt-metadata",
+      "tags": [],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_32212926514c4a468983100090959289",
+      "name": "Persist executor history from agent reports and task lifecycle",
+      "type": "implement",
+      "model": "codex/gpt-5.5",
+      "model_rationale": "Reports already carry plan/task/from_pane metadata; task history should consume that instead of relying on transient report queues.",
+      "acceptance_criteria": [
+        "agent report with plan/task updates task execution history with pane title/id/model/status/report id."
+      ],
+      "test_plan": "Rust tests for report->history, in_review transition, blocked/partial, and close preserving history while clearing live fields.",
+      "correctness": "Report ledger, task history, and visible task status agree on task identity and outcome.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782807887924,
+      "updated_at": 1782836728422,
+      "status_changed_at": 1782836728422,
+      "handle": "persist-executor-history-from-agent-reports-and-task-lifecycle",
+      "tags": [],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_3388d0473dd34e66bacc76c335f56a9d",
+      "name": "Add CLI/API respawn-from-task-history",
+      "type": "implement",
+      "model": "codex/gpt-5.5",
+      "model_rationale": "The main value of executor history is token-saving continuation: restart similar worker context when a task needs follow-up.",
+      "acceptance_criteria": [
+        "CLI can list task execution attempts and respawn a worker from one selected attempt."
+      ],
+      "test_plan": "CLI parser tests, service tests for prompt payload, and a live smoke that spawned worker receives prior context.",
+      "correctness": "Respawn creates a new attempt/live assignment and never mutates the old historical attempt into active presence.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782807888413,
+      "updated_at": 1782836728667,
+      "status_changed_at": 1782836728667,
+      "handle": "add-cli-api-respawn-from-task-history",
+      "tags": [],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_8d1afa7d06fe468c9f147aa555c246e6",
+      "name": "Show historical executors separately from active presence",
+      "type": "implement",
+      "model": "cursor/composer",
+      "model_rationale": "Users need to see who worked on a task and optionally resume them, without old dashed connectors or ghost bubbles.",
+      "acceptance_criteria": [
+        "Done/cancelled tasks show historical executor metadata but no active presence pin, dashed connector, or tab task bubble."
+      ],
+      "test_plan": "Frontend unit tests plus Playwright visual gate for active vs historical executor rendering.",
+      "correctness": "The UI makes active presence and past execution visually distinct and calm.",
+      "status": "done",
+      "status_label": "pane-gone",
+      "priority": "p2",
+      "created_at": 1782807889021,
+      "updated_at": 1782836728910,
+      "status_changed_at": 1782836728910,
+      "handle": "show-historical-executors-separately-from-active-presence",
+      "tags": [],
+      "section_ids": [
+        "sec_00c951f115424682968590d75a620a1b"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_b06247dbe1824c91b2e15760c5801157",
+      "name": "Implement strict planning lifecycle and task-creation gate",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Cross-cutting Rust/CLI model change with compile gates",
+      "acceptance_criteria": [
+        "Plans have explicit lifecycle mode and new plans default to planning",
+        "plan task add refuses planning/complete plans unless --force is supplied",
+        "CLI error points to docs ORCHESTRATION, plan state, plan doctor --kind quality, and plan approve"
+      ],
+      "test_plan": "cargo test --manifest-path cli/Cargo.toml plan_planning_gate_tests; cargo test --manifest-path src-tauri/Cargo.toml service::plan::heartbeat_tests --lib; CODETERM_API_PORT=7686 ./build.sh check",
+      "correctness": "Execution tasks cannot be generated accidentally before planning is approved; heartbeat remains runtime-only",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782907076565,
+      "updated_at": 1782907087662,
+      "status_changed_at": 1782907087662,
+      "handle": "implement-strict-planning-lifecycle-and-task-creation-gate",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_5c7f695b6fd744a7a6750fb96c29da2f",
+      "name": "Move plan.md planning discipline into docs, prompts, and doctor gate",
+      "type": "docs",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Docs/prompts plus CLI doctor need exact command and manifest consistency",
+      "acceptance_criteria": [
+        "docs/ORCHESTRATION describes planner source-of-truth and strict approval sequence",
+        "embedded prompts teach promoted orchestrators to read docs and use planner before tasks",
+        "plan doctor --kind quality blocks incomplete planning artifacts"
+      ],
+      "test_plan": "cargo test --manifest-path cli/Cargo.toml cmd::manifest; cargo test --manifest-path src-tauri/Cargo.toml prompts -- --nocapture; bash scripts/check-file-sizes.sh --fail",
+      "correctness": "A fresh agent sees product-level orchestration rules without relying on this chat or local memory",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782907106384,
+      "updated_at": 1782907119428,
+      "status_changed_at": 1782907119428,
+      "handle": "move-plan-md-planning-discipline-into-docs-prompts-and-doctor-gate",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_dc33b0e9cd51465f88b05f4027216a5d",
+      "name": "Add mem save-preference shortcut for orchestration preferences",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "CLI ergonomics and docs consistency",
+      "acceptance_criteria": [
+        "CLI exposes a low-friction preference save command backed by mem kind=preference",
+        "ORCHESTRATION docs and prompts use that command instead of ad hoc generic mem syntax",
+        "CLI manifest/docs stay fresh"
+      ],
+      "test_plan": "cargo test --manifest-path cli/Cargo.toml mem -- --nocapture; cargo test --manifest-path cli/Cargo.toml cmd::manifest -- --nocapture",
+      "correctness": "Durable local planning preferences become easy to save and discover without polluting plan sections",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782907136016,
+      "updated_at": 1782918179865,
+      "status_changed_at": 1782918179865,
+      "handle": "add-mem-save-preference-shortcut-for-orchestration-preferences",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_3f4fdcae9c2d43f59fc7b3635d8f8302",
+      "name": "Improve active-plan discovery and not-found recovery hints",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "CLI recovery ergonomics",
+      "acceptance_criteria": [
+        "missing/ambiguous plan errors include exact recovery commands",
+        "hints distinguish daemon/workspace/project mismatch where possible",
+        "tests cover the rendered guidance"
+      ],
+      "test_plan": "cargo test --manifest-path cli/Cargo.toml plan -- --nocapture; cargo test --manifest-path cli/Cargo.toml cmd::manifest -- --nocapture",
+      "correctness": "Agents recover planner context from CLI output instead of drifting into markdown or chat memory",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782907148201,
+      "updated_at": 1782918211166,
+      "status_changed_at": 1782918211166,
+      "handle": "improve-active-plan-discovery-and-not-found-recovery-hints",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_36c8f08220b648a99d403058cb1bbe9a",
+      "name": "Mark markdown plan exports as secondary to CodeTerm planner",
+      "type": "docs",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "CLI rendering/docs task",
+      "acceptance_criteria": [
+        "markdown render/export output carries a source-of-truth warning",
+        "docs explain exports are secondary unless user explicitly asks for docs",
+        "render tests cover the marker"
+      ],
+      "test_plan": "cargo test --manifest-path cli/Cargo.toml plan -- --nocapture",
+      "correctness": "Future agents do not fork planning state into markdown documents",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782907158933,
+      "updated_at": 1782918189136,
+      "status_changed_at": 1782918189136,
+      "handle": "mark-markdown-plan-exports-as-secondary-to-codeterm-planner",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_715668279089416793252eb1c175bca2",
+      "name": "Add REST parity for planning reset and element mutations",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Rust API surface and docs",
+      "acceptance_criteria": [
+        "REST exposes explicit all-task reset with removed count and planning-mode reset",
+        "note/element update/remove REST routes are documented or covered",
+        "PlanError approval gate semantics match socket/CLI"
+      ],
+      "test_plan": "cargo check --manifest-path src-tauri/Cargo.toml; CODETERM_API_PORT=7686 ./build.sh check",
+      "correctness": "Web/API clients can use the same planning migration semantics as CLI/socket clients",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782907172193,
+      "updated_at": 1782918203513,
+      "status_changed_at": 1782918203513,
+      "handle": "add-rest-parity-for-planning-reset-and-element-mutations",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_5a6edbcc3ed344c492faa11cd63b073e",
+      "name": "Make plan approve run or enforce quality doctor",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "CLI/product semantics require careful local-vs-daemon design",
+      "acceptance_criteria": [
+        "plan approve cannot silently approve an underplanned effort",
+        "operator gets exact doctor/recovery command output",
+        "override, if present, is explicit and documented"
+      ],
+      "test_plan": "cargo test --manifest-path cli/Cargo.toml plan_doctor -- --nocapture; cargo test --manifest-path cli/Cargo.toml plan_planning_gate_tests -- --nocapture",
+      "correctness": "Approval is a real gate, not a label flip that bypasses the quality model",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782907186440,
+      "updated_at": 1782918196663,
+      "status_changed_at": 1782918196663,
+      "handle": "make-plan-approve-run-or-enforce-quality-doctor",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_c36647cce434400d9a806f037fae490c",
+      "name": "Split plan coverage and wave readiness diagnostics",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "CLI output and diagnostics",
+      "acceptance_criteria": [
+        "plan state/doctor separates spec coverage, section/task coverage, and task-quality readiness",
+        "pre-task planning state is not misreported as execution failure",
+        "wave guidance remains concise and actionable"
+      ],
+      "test_plan": "cargo test --manifest-path cli/Cargo.toml plan_state -- --nocapture; cargo test --manifest-path cli/Cargo.toml plan_doctor -- --nocapture",
+      "correctness": "Planning status tells agents exactly which layer is incomplete",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782907202966,
+      "updated_at": 1782918217465,
+      "status_changed_at": 1782918217465,
+      "handle": "split-plan-coverage-and-wave-readiness-diagnostics",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_70affef99f63423486392c221abd1e3f",
+      "name": "Render planning lifecycle correctly in Canvas/List/Board",
+      "type": "implement",
+      "model": "cursor:composer",
+      "model_rationale": "Frontend view/status rendering task",
+      "acceptance_criteria": [
+        "Canvas/List/Board status rendering stays correct for done/cancelled/open tasks",
+        "Plan lifecycle mode is visible only where useful and not animated/noisy",
+        "quiet tab and active presence rules remain intact"
+      ],
+      "test_plan": "npx tsx src/components/Canvas/planView/PlanListView.test.tsx; npx tsx src/components/Canvas/planView/PlanBoardView.test.tsx; npx tsx src/components/Canvas/PlanViewShell.test.tsx",
+      "correctness": "The UI reflects planner truth after the model migration instead of confusing planning with active execution",
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782907216676,
+      "updated_at": 1782918225139,
+      "status_changed_at": 1782918225139,
+      "handle": "render-planning-lifecycle-correctly-in-canvas-list-board",
+      "tags": [],
+      "section_ids": [
+        "sec_7efb364a93114b24927d73a0378d2365"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_81a53f3364ab4799b442c7b879658814",
+      "name": "Make plan reminders auto-owned by execution state",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782908303174,
+      "updated_at": 1782908921690,
+      "status_changed_at": 1782908921311,
+      "handle": "make-plan-reminders-auto-owned-by-execution-state",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_ea4f725c96d4408181f77cd12afdcde1",
+      "name": "Inject orchestration help into automatic plan heartbeats",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782908315356,
+      "updated_at": 1782908923019,
+      "status_changed_at": 1782908922566,
+      "handle": "inject-orchestration-help-into-automatic-plan-heartbeats",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_32be8728fd0c42f8a0dc3bf5f0f65b24",
+      "name": "Make plan nudge delivery fire for assigned orchestrator turns",
+      "type": "implement",
+      "model": null,
+      "model_rationale": null,
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "done",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782909474140,
+      "updated_at": 1782910298630,
+      "status_changed_at": 1782910298630,
+      "handle": "make-plan-nudge-delivery-fire-for-assigned-orchestrator-turns",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
     }
   ],
   "task_groups": [],
@@ -11036,15 +12730,21 @@
   "primary_spec_id": "sp_e8c7b831bd75427bb7c733fc04359994",
   "lineage": [],
   "goal": {
-    "vector": "Canvas = Figma-grade spatial orchestration where zoom IS navigation (W0 glance→W3 full): read the PLAN as a living HOW-document, SEE the live swarm working, FLY anywhere and RETURN. PRIMARY: ZERO LAG — pan, zoom, and load must be perfectly smooth (60fps camera; all viewport/scene work decoupled from frame rate; no O(N)-per-frame), profiled and proven, scaling to 20k. Every node readable + beautiful at every distance; clean architecture.",
+    "vector": "Canvas/Plan is FAST (numeric: smooth pan/zoom at 500+ nodes, p95 frame interval and longtask count measurably improved, no jank), CALM (no gratuitous bells/whistles — progressive disclosure, quiet defaults), CORRECT (agents render on the right task only; no stale/duplicate/ghost presence; done tasks never appear active), and the orchestration CLI (heartbeats/hints/lifecycle/plan-writes) is ergonomic and TRUSTWORTHY — shipped in 1.6.2 with zero regressions.",
     "vision": "",
-    "constraints": [],
+    "constraints": [
+      "All plan, agent, pane, heartbeat, and task state is written only to Mac-Air prod daemon 7685; dev 7686 is for build/UI gates only.",
+      "Workers are CODEX primary and CURSOR secondary; no Claude/Opus workers for this workstream.",
+      "UI/perf lanes require Playwright or numeric evidence before acceptance."
+    ],
     "postulates": []
   },
   "heartbeat": {
-    "current_focus": "Canvas dogfood task batch accepted. No active worker lanes; keep plan active for demo, do not auto-archive.",
+    "current_focus": "All 1.6.2 planning/canvas tasks are closed; run final review/release gates before commit/tag.",
     "active_lanes": [],
-    "rules": [],
+    "rules": [
+      "Do not spam cleanup nudges. Surface worker/lane cleanup through orchestrator status + the single plan heartbeat cleanup step; only ping separately for unsafe stale state or user-visible drift."
+    ],
     "learnings": []
   },
   "canvas": {

@@ -76,7 +76,9 @@ fn generated_index_regenerates_with_current_titles() {
         )
         .unwrap();
 
-    store.update_plan(&plan.id, Some("After"), None, 4).unwrap();
+    store
+        .update_plan(&plan.id, Some("After"), None, None, 4)
+        .unwrap();
     store
         .update_section(
             &plan.id,
@@ -701,6 +703,39 @@ fn set_layout_uses_the_real_id_the_frontend_sends() {
     let p = store.get(&id).unwrap();
     let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
     assert_eq!((t.canvas.x, t.canvas.y), (Some(12.0), Some(34.0)));
+}
+
+#[test]
+fn set_layout_accepts_prefixed_ids_from_cli_and_docs() {
+    let (store, id, tid) = store_with_task(&["status_update"]);
+    store
+        .set_layout(&id, &format!("task:{tid}"), Some(56.0), Some(78.0), 60)
+        .unwrap();
+    let p = store.get(&id).unwrap();
+    let t = p.tasks.iter().find(|t| t.id == tid).unwrap();
+    assert_eq!((t.canvas.x, t.canvas.y), (Some(56.0), Some(78.0)));
+}
+
+#[test]
+fn task_creation_requires_plan_approval_unless_forced() {
+    use crate::plan::PlanMode;
+
+    let root = tempfile::tempdir().unwrap().keep();
+    let store = PlanStore::new_for_test(&root);
+    let mut plan = crate::plan::Plan::new(
+        "Approval".into(),
+        root.display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    let id = plan.id.clone();
+    store.save(&mut plan, 1).unwrap();
+
+    let err = store.ensure_task_creation_allowed(&id, false).unwrap_err();
+    assert!(matches!(err, PlanError::TaskCreationRequiresApproval));
+    store.ensure_task_creation_allowed(&id, true).unwrap();
+
+    store.set_mode(&id, PlanMode::Approved, 2).unwrap();
+    store.ensure_task_creation_allowed(&id, false).unwrap();
 }
 
 #[test]
