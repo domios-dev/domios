@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use crate::args::orchestrator::{OrchestratorAction, OrchestratorHeartbeatAction};
-use crate::client::SocketClient;
+use crate::client::{SocketCallError, SocketClient};
 use crate::cmd::plan::{call_plan_rpc, owner_from_env, resolve_text};
 use crate::resolve_pane;
 
@@ -108,13 +108,15 @@ fn status(
 ) -> Result<Option<Value>, String> {
     let plan_id = plan.ok_or("--plan or CODETERM_PLAN_ID is required")?;
     let pane_id = resolve_pane(client, pane);
-    let reports = client.call(
-        "agent.reports",
-        Some(json!({
-            "pane_id": pane_id,
-            "clear": false,
-        })),
-    )?;
+    let reports = client
+        .call_detailed(
+            "agent.reports",
+            Some(json!({
+                "pane_id": pane_id,
+                "clear": false,
+            })),
+        )
+        .map_err(|err| render_reports_error(&pane_id, err))?;
     let state = call_plan_rpc(client, "plan.state", json!({ "plan_id": plan_id }))?;
     let out = json!({
         "plan_id": plan_id,
@@ -427,7 +429,9 @@ fn handoff(
 }
 
 fn pane_session_id(client: &mut SocketClient, pane_id: &str) -> Result<String, String> {
-    let panes = client.call("pane.list", None)?;
+    let panes = client
+        .call_detailed("pane.list", None)
+        .map_err(|err| render_reseed_pane_lookup_error(pane_id, err))?;
     let pane = panes
         .as_array()
         .and_then(|items| {
@@ -435,18 +439,49 @@ fn pane_session_id(client: &mut SocketClient, pane_id: &str) -> Result<String, S
                 .iter()
                 .find(|item| item.get("id").and_then(|v| v.as_str()) == Some(pane_id))
         })
-        .ok_or_else(|| format!("pane {pane_id} not found"))?;
+        .ok_or_else(|| render_reseed_pane_session_error(pane_id))?;
     pane.get("agent_session_id")
         .and_then(|v| v.as_str())
         .map(str::to_string)
-        .ok_or_else(|| format!("pane {pane_id} has no source session id"))
+        .ok_or_else(|| render_reseed_pane_session_error(pane_id))
+}
+
+fn render_reports_error(pane_id: &str, err: SocketCallError) -> String {
+    format!(
+        "cannot read orchestrator reports for pane {pane_id}.\nfix: run `codeterm pane list`\ncause: {}",
+        concise_socket_error(err)
+    )
+}
+
+fn render_reseed_pane_lookup_error(pane_id: &str, err: SocketCallError) -> String {
+    format!(
+        "cannot inspect pane {pane_id} for handoff reseed.\nfix: run `codeterm pane list --agents` and pass an agent pane with `--pane <pane_id>`.\ncause: {}",
+        concise_socket_error(err)
+    )
+}
+
+fn render_reseed_pane_session_error(pane_id: &str) -> String {
+    format!(
+        "cannot reseed because pane {pane_id} is not an agent or has no session.\nfix: run `codeterm pane list --agents` and pass an agent pane with `--pane <pane_id>`."
+    )
+}
+
+fn concise_socket_error(err: SocketCallError) -> String {
+    match err {
+        SocketCallError::Rpc(rpc) => rpc.message,
+        SocketCallError::Transport(message) => message,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
-    use super::{action_command, render_status};
+    use super::{
+        action_command, render_reports_error, render_reseed_pane_lookup_error,
+        render_reseed_pane_session_error, render_status,
+    };
+    use crate::client::{RpcError, SocketCallError};
 
     #[test]
     fn status_renderer_includes_exact_commands() {
@@ -486,5 +521,49 @@ mod tests {
             action_command("pl_1", &json!({"kind": "reconcile"})),
             "codeterm plan reconcile pl_1"
         );
+    }
+
+    #[test]
+    fn report_fetch_error_is_orchestrator_specific() {
+        let msg = render_reports_error(
+            "pane1",
+            SocketCallError::Rpc(RpcError {
+                code: -32603,
+                message: "Pane not found".into(),
+                data: None,
+            }),
+        );
+
+        assert!(msg.contains("cannot read orchestrator reports for pane pane1"));
+        assert!(msg.contains("codeterm pane list"));
+        assert!(!msg.contains("RPC error"));
+        assert!(!msg.contains("-32603"));
+    }
+
+    #[test]
+    fn reseed_pane_lookup_error_includes_agent_recovery_command() {
+        let msg = render_reseed_pane_lookup_error(
+            "pane1",
+            SocketCallError::Rpc(RpcError {
+                code: -32603,
+                message: "Pane not found".into(),
+                data: None,
+            }),
+        );
+
+        assert!(msg.contains("cannot inspect pane pane1 for handoff reseed"));
+        assert!(msg.contains("codeterm pane list --agents"));
+        assert!(msg.contains("--pane <pane_id>"));
+        assert!(!msg.contains("RPC error"));
+        assert!(!msg.contains("-32603"));
+    }
+
+    #[test]
+    fn reseed_session_error_includes_agent_recovery_command() {
+        let msg = render_reseed_pane_session_error("pane1");
+
+        assert!(msg.contains("cannot reseed because pane pane1 is not an agent or has no session"));
+        assert!(msg.contains("codeterm pane list --agents"));
+        assert!(msg.contains("--pane <pane_id>"));
     }
 }
