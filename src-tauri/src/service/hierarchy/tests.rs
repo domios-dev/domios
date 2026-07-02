@@ -154,7 +154,13 @@ fn report_title_uses_user_pinned_pane_identity_not_provider_default() {
 fn make_store_with_assigned_task(pane_id: &str) -> (PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
-    let mut plan = Plan::new("Test".into(), "/tmp".into(), OrchestratorRef::from_pane("orch"));
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let mut plan = Plan::new(
+        "Test".into(),
+        project.display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
     store.save(&mut plan, 1).unwrap();
     let task_id = store
         .add_task(
@@ -221,7 +227,13 @@ fn resolve_plan_ctx_unassigned_pane_returns_none() {
 fn resolve_plan_ctx_ambiguous_assignment_errors_with_list() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
-    let mut plan = Plan::new("Multi".into(), "/tmp".into(), OrchestratorRef::from_pane("orch"));
+    let project = dir.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let mut plan = Plan::new(
+        "Multi".into(),
+        project.display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
     store.save(&mut plan, 1).unwrap();
     let t1 = store
         .add_task(
