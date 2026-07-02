@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use super::{PlanError, PlanStore};
-use crate::plan::{HeartbeatLearning, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus};
+use crate::plan::{
+    HeartbeatLearning, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus, TaskStatus,
+};
 
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
 
@@ -168,6 +170,34 @@ pub(super) fn prepend_heartbeat_snapshot(
     prepend_heartbeat(plan_id, heartbeat, text, None)
 }
 
+fn has_open_work(plan: &Plan) -> bool {
+    plan.tasks
+        .iter()
+        .any(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+}
+
+fn owner_matches(plan: &Plan, pane_id: Option<&str>, session_id: Option<&str>) -> bool {
+    let pane_matches = pane_id
+        .filter(|pane| !pane.trim().is_empty())
+        .is_some_and(|pane| plan.owner.pane_id.as_deref() == Some(pane));
+    let session_matches = session_id
+        .filter(|session| !session.trim().is_empty())
+        .is_some_and(|session| plan.owner.session_id.as_deref() == Some(session));
+    pane_matches || session_matches
+}
+
+fn heartbeat_resolution_rank(plan: &Plan) -> (u8, u64) {
+    let rank = match (&plan.mode, has_open_work(plan)) {
+        (PlanMode::Execution, true) => 5,
+        (PlanMode::Execution, false) => 4,
+        (PlanMode::Approved, true) => 3,
+        (PlanMode::Planning, true) => 2,
+        (PlanMode::Approved | PlanMode::Planning, false) => 1,
+        (PlanMode::Complete, _) => 0,
+    };
+    (rank, plan.updated_at)
+}
+
 impl PlanStore {
     pub fn resolve_active_plan_for_orchestrator(
         &self,
@@ -181,6 +211,7 @@ impl PlanStore {
                 .map(|plan| plan.id)
                 .ok_or(PlanError::NotFound);
         }
+        let mut best_match = None;
         for entry in self.list_index() {
             let Some(plan) = self.get(&entry.plan_id) else {
                 continue;
@@ -188,17 +219,20 @@ impl PlanStore {
             if plan.status != PlanStatus::Active {
                 continue;
             }
-            let pane_matches = pane_id
-                .filter(|pane| !pane.trim().is_empty())
-                .is_some_and(|pane| plan.owner.pane_id.as_deref() == Some(pane));
-            let session_matches = session_id
-                .filter(|session| !session.trim().is_empty())
-                .is_some_and(|session| plan.owner.session_id.as_deref() == Some(session));
-            if pane_matches || session_matches {
-                return Ok(plan.id);
+            if !owner_matches(&plan, pane_id, session_id) {
+                continue;
+            }
+            let rank = heartbeat_resolution_rank(&plan);
+            if best_match
+                .as_ref()
+                .is_none_or(|(_, best_rank)| rank > *best_rank)
+            {
+                best_match = Some((plan.id, rank));
             }
         }
-        Err(PlanError::NotFound)
+        best_match
+            .map(|(plan_id, _)| plan_id)
+            .ok_or(PlanError::NotFound)
     }
 
     pub fn add_heartbeat_learning(

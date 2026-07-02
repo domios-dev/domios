@@ -1,4 +1,4 @@
-use super::PlanStore;
+use super::{NewTask, PlanStore};
 use crate::plan::{OrchestratorRef, Plan, PlanMode};
 
 fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
@@ -49,7 +49,9 @@ fn heartbeat_learning_persists_reloads_and_dedups() {
         dir.path()
             .join(".codeterm")
             .join("plans")
-            .join(format!("{plan_id}.json")),
+            .join("active")
+            .join(&plan_id)
+            .join("plan.json"),
     )
     .unwrap();
     let plan: Plan = serde_json::from_str(&raw).unwrap();
@@ -149,6 +151,69 @@ fn planning_mode_rejects_runtime_heartbeat_state() {
         )
         .unwrap_err();
     assert!(matches!(err, super::PlanError::HeartbeatRequiresExecution));
+}
+
+#[test]
+fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let stale = store
+        .create_plan(
+            "Stale owner plan".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch-a"),
+            vec![],
+            10,
+        )
+        .unwrap();
+    store
+        .with_plan(&stale.id, 11, |plan| {
+            plan.heartbeat.current_focus = Some("old focus".into());
+            Ok(())
+        })
+        .unwrap();
+    let live = store
+        .create_plan(
+            "Live execution plan".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch-a"),
+            vec![],
+            20,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &live.id,
+            NewTask {
+                name: "open work".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            21,
+        )
+        .unwrap();
+    store.set_mode(&live.id, PlanMode::Execution, 22).unwrap();
+    store
+        .with_plan(&live.id, 23, |plan| {
+            plan.heartbeat.current_focus = Some("live focus".into());
+            Ok(())
+        })
+        .unwrap();
+
+    let shown = store.show_heartbeat(None, Some("orch-a"), None).unwrap();
+    assert_eq!(shown.plan_id, live.id);
+    assert_eq!(shown.heartbeat.current_focus.as_deref(), Some("live focus"));
+
+    let text = store.prepend_heartbeat_for_orchestrator_pane("orch-a", "continue");
+    assert!(text.contains(&format!("plan=\"{}\"", live.id)));
+    assert!(text.contains("Current focus: live focus"));
+    assert!(!text.contains("old focus"));
+
+    store
+        .close_task(&live.id, &task_id, Some("done"), Default::default(), 24)
+        .unwrap();
+    let shown_after_close = store.show_heartbeat(None, Some("orch-a"), None).unwrap();
+    assert_eq!(shown_after_close.plan_id, live.id);
 }
 
 #[test]
