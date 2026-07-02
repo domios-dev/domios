@@ -26,12 +26,40 @@ export interface PlanListRow {
   statusLabel?: string;
   sectionGlyph?: SectionRowGlyph;
   taskCount?: number;
+  doneCount?: number;
+  allTasksDone?: boolean;
   paneLabel?: string;
   historicalExecutorSummary?: string;
   focus?: string;
   milestoneKind?: string;
   milestoneAuthor?: string;
   taskId?: string;
+}
+
+export type PlanListVisibleRow =
+  | { type: "row"; row: PlanListRow }
+  | { type: "done-rollup"; sectionRow: PlanListRow; doneCount: number };
+
+const SECTION_KINDS = new Set<PlanListRowKind>(["spec-section", "plan-section", "unsectioned"]);
+const TASK_KINDS = new Set<PlanListRowKind>(["task", "subtask"]);
+
+export function isPlanListSectionRow(row: PlanListRow): boolean {
+  return SECTION_KINDS.has(row.kind);
+}
+
+export function isPlanListTaskRow(row: PlanListRow): boolean {
+  return TASK_KINDS.has(row.kind);
+}
+
+function sectionTaskStats(tasks: Task[]): { taskCount: number; doneCount: number; allTasksDone: boolean } {
+  const active = tasks.filter((t) => t.status !== "cancelled");
+  const taskCount = active.length;
+  const doneCount = active.filter((t) => t.status === "done").length;
+  return {
+    taskCount,
+    doneCount,
+    allTasksDone: taskCount > 0 && doneCount === taskCount,
+  };
 }
 
 function childOrder(children: Task[]): Task[] {
@@ -162,6 +190,8 @@ export function buildPlanListRows(
   const walkPlanSections = (sections: Section[], depth: number): void => {
     for (const s of sections) {
       const sr = secRowById.get(s.id);
+      const sectionTasks = bySection.get(s.id) ?? [];
+      const stats = sectionTaskStats(sectionTasks);
       rows.push({
         id: `${plan.id}::plan-sec::${s.id}`,
         planId: plan.id,
@@ -169,7 +199,9 @@ export function buildPlanListRows(
         depth,
         title: s.title,
         sectionGlyph: sr?.glyph,
-        taskCount: sr?.taskCount,
+        taskCount: stats.taskCount,
+        doneCount: stats.doneCount,
+        allTasksDone: stats.allTasksDone,
       });
       for (const t of childOrder(bySection.get(s.id) ?? [])) {
         appendTaskRows(t, plan, panes, exclusivePaneTasks, depth + 1, "task", rows, childrenByParent);
@@ -181,13 +213,17 @@ export function buildPlanListRows(
 
   const planSectionIds = new Set(flattenSections(plan.sections).map((s) => s.id));
   for (const sid of [...bySection.keys()].filter((k) => !planSectionIds.has(k)).sort()) {
+    const orphanTasks = bySection.get(sid) ?? [];
+    const orphanStats = sectionTaskStats(orphanTasks);
     rows.push({
       id: `${plan.id}::plan-sec::${sid}`,
       planId: plan.id,
       kind: "plan-section",
       depth: 1,
       title: sid,
-      taskCount: bySection.get(sid)?.length,
+      taskCount: orphanStats.taskCount,
+      doneCount: orphanStats.doneCount,
+      allTasksDone: orphanStats.allTasksDone,
     });
     for (const t of childOrder(bySection.get(sid) ?? [])) {
       appendTaskRows(t, plan, panes, exclusivePaneTasks, 2, "task", rows, childrenByParent);
@@ -195,13 +231,16 @@ export function buildPlanListRows(
   }
 
   if (unsectioned.length) {
+    const unsectionedStats = sectionTaskStats(unsectioned);
     rows.push({
       id: `${plan.id}::unsectioned`,
       planId: plan.id,
       kind: "unsectioned",
       depth: 1,
       title: "Unsectioned",
-      taskCount: unsectioned.length,
+      taskCount: unsectionedStats.taskCount,
+      doneCount: unsectionedStats.doneCount,
+      allTasksDone: unsectionedStats.allTasksDone,
     });
     for (const t of childOrder(unsectioned)) {
       appendTaskRows(t, plan, panes, exclusivePaneTasks, 2, "task", rows, childrenByParent);
