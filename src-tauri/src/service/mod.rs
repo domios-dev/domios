@@ -184,6 +184,10 @@ pub struct ServiceContext {
 
 pub type ServiceState = Arc<ServiceContext>;
 
+pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
+    hierarchy::start_plan_reminder_scheduler(svc);
+}
+
 impl ServiceContext {
     // ── Event helpers (used by all sub-modules) ─────────────────────
 

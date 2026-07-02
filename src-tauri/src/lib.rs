@@ -720,6 +720,7 @@ pub fn run() {
             plugin::js_runtime::set_watcher_service(Arc::downgrade(&service_state));
             app.manage(service_state.clone());
             crate::delayed_send::start_scheduler(service_state.clone());
+            crate::service::start_plan_reminder_scheduler(service_state.clone());
 
             // Re-kick session-name + model pollers for panes restored from snapshot: set_pane_agent_type fires on transitions, but a restore brings
             // agent_type back already-set so no transition ever happens. Walk the restored panes once at boot.
