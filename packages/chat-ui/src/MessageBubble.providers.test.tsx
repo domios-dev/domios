@@ -365,7 +365,10 @@ test("codex exec_command rg search does not render as structured edit diff", asy
     codexStructuredEditMessages[0],
   ]);
   try {
+    assert(host.querySelector('[data-testid="chatbackend-tool-exec"]'), "exec_command should render shell card");
+    assertIncludes(host, "shell", "exec_command card label");
     assertIncludes(host, "rg -n", "rg exec command renders");
+    assert(!textOf(host).includes("exec_command"), "raw exec_command label should not appear");
     assert(!textOf(host).includes("let body = text.trim()"), "rg search must not show patch diff content");
     const diffMarkers = textOf(host).match(/\+\d+/g) ?? [];
     assert(diffMarkers.length === 0, "rg search must not show +/- edit counts");
@@ -498,18 +501,22 @@ test("codex sparse tool_call rows between exec commands do not render ghost butt
   try {
     assertIncludes(host, "npm test", "first codex exec command");
     assertIncludes(host, "npm run build", "second codex exec command");
-    const toolButtons = Array.from(host.querySelectorAll('[data-testid="chat-tool-call"]'));
+    const toolButtons = Array.from(host.querySelectorAll('[data-testid="chatbackend-tool-exec"]'));
     assert(
       toolButtons.length === 2,
-      `only real codex exec rows should render tool buttons (${toolButtons.length}: ${toolButtons.map((button) => button.textContent ?? "").join(" | ")})`,
+      `only real codex exec rows should render shell cards (${toolButtons.length}: ${toolButtons.map((button) => button.textContent ?? "").join(" | ")})`,
     );
     assert(
       toolButtons.every((button) => (button.textContent ?? "").trim()),
       "sparse codex rows should not render chevron-only buttons",
     );
     assert(
-      toolButtons.filter((button) => (button.textContent ?? "").includes("exec_command")).length === 2,
-      "real codex exec rows still render",
+      toolButtons.every((button) => (button.textContent ?? "").includes("shell")),
+      "codex exec_command rows should render as shell cards",
+    );
+    assert(
+      !textOf(host).includes("exec_command"),
+      "raw exec_command label should not appear in chat UI",
     );
   } finally {
     await act(async () => root.unmount());

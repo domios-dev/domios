@@ -276,7 +276,7 @@ export const DiffView = React.memo(function DiffView({
   const plainRow = (line: DiffLine, i: number) => (
     <React.Fragment key={i}>
       {separatorBefore(i) && <div className="mt-2 border-t border-[var(--ct-border)] pt-2" />}
-      <div className={`${PRE_WRAP_CLASS} px-1`} style={diffRowStyle(line.kind)}>
+      <div className={`${PRE_WRAP_CLASS} px-2 py-0.5`} style={diffRowStyle(line.kind)}>
         {diffGutter(line.kind)}
         {line.content || " "}
       </div>
@@ -284,7 +284,7 @@ export const DiffView = React.memo(function DiffView({
   );
 
   return (
-    <div className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} font-mono text-[11px] leading-relaxed overflow-x-auto`}>
+    <div className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} font-mono text-[11px] leading-relaxed overflow-x-auto rounded-md`}>
       {highlight ? (
         <SyntaxHighlighter
           language={resolvedLanguage}
@@ -308,7 +308,7 @@ export const DiffView = React.memo(function DiffView({
               return (
                 <React.Fragment key={i}>
                   {separatorBefore(i) && <div className="mt-2 border-t border-[var(--ct-border)] pt-2" />}
-                  <div className={`${PRE_WRAP_CLASS} px-1`} style={diffRowStyle(line.kind)}>
+                  <div className={`${PRE_WRAP_CLASS} px-2 py-0.5`} style={diffRowStyle(line.kind)}>
                     {diffGutter(line.kind)}
                     {node
                       ? createElement({ node, stylesheet, useInlineStyles, key: `c${i}` })
@@ -335,7 +335,7 @@ export function shortPath(fullPath: string): string {
   return ".../" + parts.slice(-2).join("/");
 }
 
-function isShellToolName(name: string | undefined): boolean {
+export function isShellToolName(name: string | undefined): boolean {
   const n = (name ?? "").toLowerCase();
   return n === "bash"
     || n === "shell"
