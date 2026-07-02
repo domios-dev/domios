@@ -4,6 +4,11 @@ import type { Pane } from "../../../lib/types";
 import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { bandedSeedPlans } from "../layout/fixtures";
 import { buildPlanListForest, buildPlanListRows } from "./buildPlanListTree";
+import {
+  buildVisiblePlanListRows,
+  defaultSectionExpanded,
+  type PlanListStatusFilter,
+} from "./planListModel";
 
 type TestFn = () => void;
 const tests: Array<[string, TestFn]> = [];
@@ -131,11 +136,88 @@ test("forest flattens multiple plans with distinct plan roots", () => {
   assert(new Set(planRoots.map((r) => r.planId)).size === 2, "distinct plan ids");
 });
 
-test("section rows carry task counts from sectionRows", () => {
-  const [plan] = bandedSeedPlans();
+test("section rows carry doneCount and allTasksDone for fully done sections", () => {
+  const plan = {
+    ...FIXTURE_PLAN,
+    sections: [{ ...FIXTURE_SECTION, id: "sec-done", title: "Done section" }],
+    tasks: [
+      { ...FIXTURE_TASK, id: "t1", status: "done" as const, section_ids: ["sec-done"] },
+      { ...FIXTURE_TASK, id: "t2", status: "done" as const, name: "Second", section_ids: ["sec-done"] },
+    ],
+  };
+  const section = buildPlanListRows(plan, { panes }).find((r) => r.kind === "plan-section");
+  assert(section?.doneCount === 2, "done count");
+  assert(section?.allTasksDone === true, "all done flag");
+  assert(defaultSectionExpanded(section!) === false, "done-only section defaults collapsed");
+});
+
+test("active section defaults expanded", () => {
+  const plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [{ ...FIXTURE_TASK, status: "in_progress" as const }],
+  };
+  const section = buildPlanListRows(plan, { panes }).find((r) => r.kind === "plan-section");
+  assert(section && defaultSectionExpanded(section) === true, "active section expanded by default");
+});
+
+test("buildVisiblePlanListRows collapses done-only sections to rollup", () => {
+  const plan = {
+    ...FIXTURE_PLAN,
+    sections: [{ ...FIXTURE_SECTION, id: "sec-done", title: "Done section" }],
+    tasks: [
+      { ...FIXTURE_TASK, id: "t1", status: "done" as const, section_ids: ["sec-done"] },
+      { ...FIXTURE_TASK, id: "t2", status: "done" as const, name: "Second", section_ids: ["sec-done"] },
+    ],
+  };
   const rows = buildPlanListRows(plan, { panes });
-  const layoutRow = rows.find((r) => r.kind === "plan-section" && r.title === "sec_layout");
-  assert(layoutRow && (layoutRow.taskCount ?? 0) > 0, "layout section has tasks");
+  const visible = buildVisiblePlanListRows(rows, {
+    statusFilter: "all",
+    textQuery: "",
+    expansionOverrides: new Map(),
+  });
+  assert(visible.some((v) => v.type === "done-rollup"), "rollup row");
+  assert(!visible.some((v) => v.type === "row" && v.row.taskId === "t1"), "done tasks hidden when collapsed");
+});
+
+test("status filter hides non-matching tasks", () => {
+  const plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [
+      { ...FIXTURE_TASK, id: "t-active", status: "in_progress" as const },
+      { ...FIXTURE_TASK, id: "t-done", status: "done" as const, name: "Finished" },
+    ],
+  };
+  const rows = buildPlanListRows(plan, { panes });
+  const filter = (status: PlanListStatusFilter) =>
+    buildVisiblePlanListRows(rows, { statusFilter: status, textQuery: "", expansionOverrides: new Map() })
+      .filter((v) => v.type === "row" && v.row.taskId)
+      .map((v) => (v as { type: "row"; row: { taskId?: string } }).row.taskId);
+  assert(filter("done").includes("t-done"), "done filter keeps done task");
+  assert(!filter("done").includes("t-active"), "done filter drops active task");
+  assert(filter("active").includes("t-active"), "active filter keeps in-progress");
+});
+
+test("text filter matches task titles", () => {
+  const plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      { ...FIXTURE_TASK, id: "t1", name: "Alpha task" },
+      { ...FIXTURE_TASK, id: "t2", name: "Beta task" },
+    ],
+  };
+  const rows = buildPlanListRows(plan, { panes });
+  const visible = buildVisiblePlanListRows(rows, {
+    statusFilter: "all",
+    textQuery: "beta",
+    expansionOverrides: new Map(),
+  });
+  const taskIds = visible
+    .filter((v) => v.type === "row" && v.row.taskId)
+    .map((v) => (v as { type: "row"; row: { taskId?: string } }).row.taskId);
+  assert(taskIds.includes("t2"), "beta visible");
+  assert(!taskIds.includes("t1"), "alpha hidden");
 });
 
 let passed = 0;

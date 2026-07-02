@@ -5,8 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { buildPerfFixturePlans } from "../perfFixture";
+import { TaskStatus, type Plan } from "../types";
 import { PlanListView } from "./PlanListView";
-import type { Plan } from "../types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -57,6 +57,8 @@ test("renders plan root and task rows with stable test ids", async () => {
   const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
   assert(host.querySelector('[data-testid="plan-list-view"]'), "root");
   assert(host.querySelector('[data-testid="plan-list-scroll"]'), "scroll region");
+  assert(host.querySelector('[data-testid="plan-list-filter"]'), "filter toolbar");
+  assert(host.querySelector('[data-testid="plan-context-header"]'), "context header");
   assert(host.querySelector('[data-testid="plan-list-plan-root"]'), "plan entity band");
   const task = host.querySelector('[data-testid="plan-list-task"]');
   assert(task, "task row");
@@ -91,6 +93,90 @@ test("task title uses wrap-friendly class, not single-line truncate", async () =
   assert(title?.className.includes("break-words"), "wrap-friendly title");
   assert(!title?.className.includes("truncate"), "no truncate on task title");
   assert(host.textContent?.includes(longName), "full task name visible");
+  await unmount();
+});
+
+test("done-only section defaults to rollup instead of task rows", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [{ ...FIXTURE_SECTION, id: "sec-done", title: "Shipped" }],
+    tasks: [
+      { ...FIXTURE_TASK, id: "t-done-1", status: TaskStatus.Done, section_ids: ["sec-done"] },
+      { ...FIXTURE_TASK, id: "t-done-2", status: TaskStatus.Done, name: "Also done", section_ids: ["sec-done"] },
+    ],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  assert(host.querySelector('[data-testid="plan-list-done-rollup"]'), "rollup row");
+  assert(!host.querySelector('[data-testid="plan-list-task"]'), "no expanded done tasks");
+  assert(host.textContent?.includes("2 done"), "rollup count");
+  await unmount();
+});
+
+test("section collapse toggle expands hidden tasks", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [{ ...FIXTURE_SECTION, id: "sec-done", title: "Shipped" }],
+    tasks: [{ ...FIXTURE_TASK, id: "t-done-1", status: TaskStatus.Done, section_ids: ["sec-done"] }],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const section = host.querySelector('[data-testid="plan-list-plan-section"]') as HTMLElement;
+  assert(section, "section row");
+  await act(async () => {
+    section.click();
+  });
+  assert(host.querySelector('[data-testid="plan-list-task"]'), "task visible after expand");
+  await unmount();
+});
+
+test("status filter chip limits visible tasks", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [
+      { ...FIXTURE_TASK, id: "t-active", status: TaskStatus.InProgress },
+      { ...FIXTURE_TASK, id: "t-done", status: TaskStatus.Done, name: "Finished" },
+    ],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const doneChip = host.querySelector('[data-testid="plan-list-filter-status-done"]') as HTMLElement;
+  await act(async () => {
+    doneChip.click();
+  });
+  const tasks = host.querySelectorAll('[data-testid="plan-list-task"]');
+  assert(tasks.length === 1, `one done task visible, got ${tasks.length}`);
+  assert(tasks[0]?.getAttribute("data-task-id") === "t-done", "done task id");
+  await unmount();
+});
+
+test("clicking a task row opens PlanDetailOverlay", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [{ ...FIXTURE_TASK, id: "t-open", status: TaskStatus.Pending, name: "Open me" }],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement;
+  assert(row, "task row");
+  await act(async () => {
+    row.click();
+  });
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
+  assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "task", "task kind");
+  await unmount();
+});
+
+test("clicking plan root opens plan detail overlay", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [{ ...FIXTURE_TASK, status: TaskStatus.Pending }],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const root = host.querySelector('[data-testid="plan-list-plan-root"]') as HTMLElement;
+  await act(async () => {
+    root.click();
+  });
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
+  assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "plan", "plan kind");
   await unmount();
 });
 
