@@ -15,6 +15,7 @@ use super::plan_fields::{
 };
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_role_helpers::{assign_task_with_profile, RespawnAttemptRoleExt};
+use super::plan_refs;
 use super::{get_string_param, JsonRpcError};
 
 fn epoch_ms() -> u64 {
@@ -115,7 +116,7 @@ pub(super) fn dispatch(
 
     match method {
         "plan.batch" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
@@ -272,7 +273,7 @@ pub(super) fn dispatch(
         }
 
         "task.show" => {
-            let task_id = get_string_param(params, "task_id")?;
+            let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
             let detail = store
                 .show_task(&task_id)
                 .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
@@ -280,7 +281,7 @@ pub(super) fn dispatch(
         }
 
         "task.take" => {
-            let task_id = get_string_param(params, "task_id")?;
+            let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
             let pane_id = get_string_param(params, "caller_pane_id")?;
             let role = pane_role(svc, &pane_id);
             let plan_id = store
@@ -291,7 +292,7 @@ pub(super) fn dispatch(
         }
 
         "task.drop" => {
-            let task_id = get_string_param(params, "task_id")?;
+            let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
             let plan_id = store
                 .set_task_assignment(&task_id, None, None, now)
                 .map_err(plan_rpc_err)?;
@@ -404,7 +405,7 @@ pub(super) fn dispatch(
         }
 
         "plan.update" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let status = p
                 .and_then(|x| x.get("status"))
                 .and_then(|v| v.as_str())
@@ -425,19 +426,19 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
         "plan.archive" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             store.archive(&id, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
         "plan.unarchive" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             store.unarchive(&id, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
         "plan.delete" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             store.delete(&id).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -448,7 +449,7 @@ pub(super) fn dispatch(
         }
 
         "plan.transfer" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let to: OrchestratorRef = p
                 .and_then(|x| x.get("to"))
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -467,14 +468,14 @@ pub(super) fn dispatch(
         }
 
         "plan.disown" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             store.disown(&id, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
 
         "plan.claim" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let params_val = p.cloned().unwrap_or(json!({}));
             let owner: OrchestratorRef = params_val
                 .get("owner")
@@ -486,7 +487,7 @@ pub(super) fn dispatch(
         }
 
         "plan.ingest" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let markdown = get_string_param(params, "markdown")?;
             let result = store
                 .ingest_plan_sections(&id, &markdown, now)
@@ -496,7 +497,7 @@ pub(super) fn dispatch(
         }
 
         "plan.section.add" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let title =
                 get_string_param(params, "title").or_else(|_| get_string_param(params, "name"))?;
             let body = p
@@ -532,8 +533,7 @@ pub(super) fn dispatch(
         }
 
         "plan.section.update" => {
-            let id = get_string_param(params, "plan_id")?;
-            let sid = get_string_param(params, "section_id")?;
+            let (id, sid) = plan_refs::resolve_section(store, params)?;
             store
                 .update_section(
                     &id,
@@ -563,16 +563,14 @@ pub(super) fn dispatch(
         }
 
         "plan.section.rm" => {
-            let id = get_string_param(params, "plan_id")?;
-            let sid = get_string_param(params, "section_id")?;
+            let (id, sid) = plan_refs::resolve_section(store, params)?;
             store.rm_section(&id, &sid, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
 
         "plan.section.show" => {
-            let id = get_string_param(params, "plan_id")?;
-            let sid = get_string_param(params, "section_id")?;
+            let (id, sid) = plan_refs::resolve_section(store, params)?;
             let result = store.show_section(&id, &sid).map_err(plan_rpc_err)?;
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
@@ -582,7 +580,7 @@ pub(super) fn dispatch(
         }
 
         "plan.kinds.set" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let kinds = get_string_param(params, "kinds")?;
             store
                 .set_kinds(&id, kinds_from_csv(&kinds), now)
@@ -592,7 +590,7 @@ pub(super) fn dispatch(
         }
 
         "plan.tag_facets.set" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let facets =
                 tag_facets_field(params.as_ref(), "facets").map_err(|message| JsonRpcError {
                     code: -32602,
@@ -607,7 +605,7 @@ pub(super) fn dispatch(
         }
 
         "plan.coverage" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let report = store
                 .coverage_report(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
@@ -615,19 +613,19 @@ pub(super) fn dispatch(
         }
 
         "plan.state" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
             Ok(serde_json::to_value(snapshot).unwrap_or_default())
         }
 
         "plan.next" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
             Ok(json!({ "plan_id": id, "next_actions": snapshot.next_actions }))
         }
 
         "plan.reconcile" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let fix = p.and_then(|x| x.get("fix")).and_then(|v| v.as_bool()) == Some(true);
             let caller = p
                 .and_then(|x| x.get("caller_pane_id"))
@@ -639,7 +637,7 @@ pub(super) fn dispatch(
         }
 
         "plan.groups.set" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let groups = get_string_param(params, "groups")?;
             store
                 .set_task_groups(&id, groups_from_csv(&groups), now)
@@ -649,7 +647,7 @@ pub(super) fn dispatch(
         }
 
         "plan.link" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let to = get_string_param(params, "to")?;
             store.link_plan(&id, &to, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
@@ -657,7 +655,7 @@ pub(super) fn dispatch(
         }
 
         "plan.unlink" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let to = get_string_param(params, "to")?;
             store.unlink_plan(&id, &to, now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
@@ -665,7 +663,7 @@ pub(super) fn dispatch(
         }
 
         "plan.task.add" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let name = get_string_param(params, "name")?;
             let kind = p
                 .and_then(|x| x.get("type"))
@@ -808,8 +806,7 @@ pub(super) fn dispatch(
         }
 
         "plan.task.update" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
+            let (id, tid) = plan_refs::resolve_task(store, params)?;
             let sections = p.and_then(|x| x.get("sections")).map(|_| {
                 store
                     .resolve_task_section_ids(&id, &csv_string_field(p, "sections"))
@@ -885,8 +882,7 @@ pub(super) fn dispatch(
         }
 
         "plan.task.link" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
+            let (id, tid) = plan_refs::resolve_task(store, params)?;
             let sections = csv_string_field(p, "sections");
             let linked = store
                 .link_task_sections(&id, &tid, &sections, now)
@@ -896,7 +892,7 @@ pub(super) fn dispatch(
         }
 
         "plan.task.relink" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = plan_refs::resolve_plan(store, params)?;
             let apply = p.and_then(|x| x.get("apply")).and_then(|v| v.as_bool()) == Some(true);
             let report = store
                 .relink_unlinked_tasks(&id, apply, now)
@@ -908,8 +904,7 @@ pub(super) fn dispatch(
         }
 
         "plan.task.close" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
+            let (id, tid) = plan_refs::resolve_task(store, params)?;
             let from = p
                 .and_then(|x| x.get("from"))
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -932,14 +927,12 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
         "plan.task.attempts" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
+            let (id, tid) = plan_refs::resolve_task(store, params)?;
             let attempts = store.list_task_attempts(&id, &tid).map_err(plan_rpc_err)?;
             Ok(json!({ "plan_id": id, "task_id": tid, "attempts": attempts }))
         }
         "plan.task.attempt.show" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
+            let (id, tid) = plan_refs::resolve_task(store, params)?;
             let attempt_id = get_string_param(params, "attempt_id")?;
             let attempt = store
                 .show_task_attempt(&id, &tid, &attempt_id)
@@ -948,8 +941,7 @@ pub(super) fn dispatch(
         }
 
         "plan.task.respawn" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
+            let (id, tid) = plan_refs::resolve_task(store, params)?;
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
@@ -1023,14 +1015,15 @@ pub(super) fn dispatch(
         }
 
         "plan.task.rm" => {
-            let id = get_string_param(params, "plan_id")?;
             let all = p.and_then(|x| x.get("all")).and_then(|v| v.as_bool()) == Some(true);
-            let count = if all {
-                store.rm_all_tasks(&id, now).map_err(plan_rpc_err)?
+            let (id, count) = if all {
+                let id = plan_refs::resolve_plan(store, params)?;
+                let count = store.rm_all_tasks(&id, now).map_err(plan_rpc_err)?;
+                (id, count)
             } else {
-                let tid = get_string_param(params, "task_id")?;
+                let (id, tid) = plan_refs::resolve_task(store, params)?;
                 store.rm_task(&id, &tid, now).map_err(plan_rpc_err)?;
-                1
+                (id, 1)
             };
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true, "removed": count }))

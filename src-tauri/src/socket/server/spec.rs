@@ -98,7 +98,7 @@ pub(super) fn dispatch(
             Ok(json!({ "specs": entries }))
         }
         "spec.show" => {
-            let id = get_string_param(params, "spec_id")?;
+            let id = super::plan_refs::resolve_spec(store, params)?;
             if p.and_then(|x| x.get("full")).and_then(|v| v.as_bool()) == Some(true) {
                 return store
                     .spec_full(&id)
@@ -110,12 +110,12 @@ pub(super) fn dispatch(
             Ok(json!({ "spec": spec }))
         }
         "spec.files" => {
-            let id = get_string_param(params, "spec_id")?;
+            let id = super::plan_refs::resolve_spec(store, params)?;
             let manifest = store.spec_file_manifest(&id).map_err(plan_rpc_err)?;
             Ok(serde_json::to_value(manifest).unwrap_or_default())
         }
         "spec.section.add" => {
-            let id = get_string_param(params, "spec_id")?;
+            let id = super::plan_refs::resolve_spec(store, params)?;
             let title = get_string_param(params, "title")?;
             let body = p
                 .and_then(|x| x.get("body"))
@@ -137,8 +137,7 @@ pub(super) fn dispatch(
             Ok(json!({ "section_id": sid }))
         }
         "spec.section.update" => {
-            let id = get_string_param(params, "spec_id")?;
-            let sid = get_string_param(params, "section_id")?;
+            let (id, sid) = super::plan_refs::resolve_spec_section(store, params)?;
             store
                 .update_spec_section(
                     &id,
@@ -155,8 +154,7 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
         "spec.section.rm" => {
-            let id = get_string_param(params, "spec_id")?;
-            let sid = get_string_param(params, "section_id")?;
+            let (id, sid) = super::plan_refs::resolve_spec_section(store, params)?;
             store
                 .rm_spec_section(&id, &sid, now)
                 .map_err(plan_rpc_err)?;
@@ -164,8 +162,7 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
         "spec.section.show" => {
-            let id = get_string_param(params, "spec_id")?;
-            let sid = get_string_param(params, "section_id")?;
+            let (id, sid) = super::plan_refs::resolve_spec_section(store, params)?;
             let result = store.show_spec_section(&id, &sid).map_err(plan_rpc_err)?;
             serde_json::to_value(result).map_err(|e| JsonRpcError {
                 code: -32603,
@@ -174,8 +171,8 @@ pub(super) fn dispatch(
             })
         }
         "spec.link.add" => {
-            let plan_id = get_string_param(params, "plan_id")?;
-            let spec_id = get_string_param(params, "spec_id")?;
+            let plan_id = super::plan_refs::resolve_plan(store, params)?;
+            let spec_id = super::plan_refs::resolve_spec(store, params)?;
             let spec_section_id = get_string_param(params, "spec_section_id")?;
             let plan_section_id = get_string_param(params, "plan_section_id")?;
             store
@@ -185,8 +182,8 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
         "spec.link.rm" => {
-            let plan_id = get_string_param(params, "plan_id")?;
-            let spec_id = get_string_param(params, "spec_id")?;
+            let plan_id = super::plan_refs::resolve_plan(store, params)?;
+            let spec_id = super::plan_refs::resolve_spec(store, params)?;
             store
                 .unlink_spec_section(
                     &plan_id,
@@ -202,11 +199,11 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
         "spec.link.list" => {
-            let spec_id = get_string_param(params, "spec_id")?;
+            let spec_id = super::plan_refs::resolve_spec(store, params)?;
             Ok(json!({ "links": store.list_spec_links(&spec_id) }))
         }
         "effort.show" => {
-            let plan_id = get_string_param(params, "plan_id")?;
+            let plan_id = super::plan_refs::resolve_plan(store, params)?;
             store
                 .effort_bundle(&plan_id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))

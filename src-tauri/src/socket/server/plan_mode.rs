@@ -19,7 +19,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     match method {
         "plan.mode.set" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
             let mode = get_string_param(params, "mode")?;
             let mode = serde_json::from_value::<PlanMode>(Value::String(mode))
                 .map_err(|_| plan_rpc_err(PlanError::BadMode))?;

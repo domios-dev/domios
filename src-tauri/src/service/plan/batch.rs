@@ -197,7 +197,7 @@ impl Default for BatchResult {
 }
 
 fn gen_id(prefix: &str) -> String {
-    format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+    crate::plan::ids::short_id(prefix)
 }
 
 fn parse_status(raw: &str) -> Result<TaskStatus, PlanError> {

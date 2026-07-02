@@ -1,4 +1,5 @@
 pub mod coverage;
+pub mod ids;
 pub mod loop_engine;
 pub mod reconcile;
 pub mod types;

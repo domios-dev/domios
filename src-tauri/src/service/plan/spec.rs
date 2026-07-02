@@ -5,7 +5,7 @@ use super::{PlanError, PlanStore};
 use crate::plan::{EffortLink, EffortLinkRel, PlanStatus, Section, Spec, SpecLink};
 
 fn gen_id(prefix: &str) -> String {
-    format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+    crate::plan::ids::short_id(prefix)
 }
 
 impl PlanStore {
@@ -71,6 +71,9 @@ impl PlanStore {
                 .display()
                 .to_string();
         let mut spec = Spec::new(title, project_path);
+        if self.id_taken(&spec.id) {
+            spec.id = self.mint_id("sp");
+        }
         self.save_spec(&mut spec, now_ms)
             .map_err(|e| PlanError::Io(e.to_string()))?;
         Ok(spec)
@@ -132,7 +135,7 @@ impl PlanStore {
         handle: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        let sid = gen_id("sec");
+        let sid = self.mint_id("sec");
         let mut section_tags = tags.to_vec();
         super::tag_model::apply_tags(&mut section_tags, &[], primary);
         let section = Section {

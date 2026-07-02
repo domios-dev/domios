@@ -38,26 +38,26 @@ pub(super) fn dispatch(
     let store = &svc.plan_store;
     match method {
         "plan.get" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let plan = store
                 .get(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
             Ok(plan_with_linking(&plan))
         }
         "plan.spec" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let spec = store
                 .spec_markdown(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
             Ok(json!({ "plan_id": id, "spec": spec }))
         }
         "plan.files" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let manifest = store.file_manifest(&id).map_err(plan_rpc_err)?;
             Ok(serde_json::to_value(manifest).unwrap_or_default())
         }
         "plan.tags" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let plan = store
                 .get(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;

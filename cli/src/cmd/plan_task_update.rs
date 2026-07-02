@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run(
     client: &mut SocketClient,
-    plan_id: String,
+    plan_id: Option<String>,
     task_id: String,
     name: Option<String>,
     kind: Option<String>,
@@ -45,7 +45,10 @@ pub(crate) fn run(
     let body_text = resolve_text(body, body_file)?;
     let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
     let intent_text = resolve_text(intent, intent_file)?;
-    let mut params = json!({ "plan_id": plan_id, "task_id": task_id });
+    let mut params = json!({ "task_id": task_id });
+    if let Some(pid) = plan_id {
+        params["plan_id"] = json!(pid);
+    }
     if let Some(n) = name {
         params["name"] = json!(n);
     }

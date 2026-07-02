@@ -49,8 +49,7 @@ pub(super) fn assign_task_with_profile(
     body: Option<&Value>,
     now: u64,
 ) -> Result<String, JsonRpcError> {
-    let id = get_string_param(params, "plan_id")?;
-    let tid = get_string_param(params, "task_id")?;
+    let (id, tid) = super::plan_refs::resolve_task(store, params)?;
     let pane = get_string_param(params, "pane")?;
     store
         .assign_task_with_role(

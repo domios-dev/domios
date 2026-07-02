@@ -7,7 +7,22 @@ use crate::plan::{
 };
 
 pub(super) fn gen_id(prefix: &str) -> String {
-    format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+    crate::plan::ids::short_id(prefix)
+}
+
+pub(super) fn plan_contains_id(plan: &Plan, id: &str) -> bool {
+    plan.tasks.iter().any(|t| t.id == id)
+        || plan
+            .tasks
+            .iter()
+            .any(|t| t.milestones.iter().any(|m| m.id == id))
+        || section_ids_contains(&plan.sections, id)
+}
+
+fn section_ids_contains(sections: &[Section], id: &str) -> bool {
+    sections
+        .iter()
+        .any(|s| s.id == id || section_ids_contains(&s.subsections, id))
 }
 
 pub(super) fn push_subsection(
@@ -199,6 +214,9 @@ impl PlanStore {
                 .display()
                 .to_string();
         let mut plan = Plan::new(title, project_path, owner);
+        if self.id_taken(&plan.id) {
+            plan.id = self.mint_id("pl");
+        }
         plan.milestone_kinds = kinds;
         self.save(&mut plan, now_ms)
             .map_err(|e| PlanError::Io(e.to_string()))?;
@@ -335,7 +353,7 @@ impl PlanStore {
         handle: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        let sid = gen_id("sec");
+        let sid = self.mint_id("sec");
         let mut section_tags = tags.to_vec();
         super::tag_model::apply_tags(&mut section_tags, &[], primary);
         let section = Section {
@@ -361,7 +379,7 @@ impl PlanStore {
     }
 
     pub fn add_task(&self, plan_id: &str, new: NewTask, now_ms: u64) -> Result<String, PlanError> {
-        let tid = gen_id("task");
+        let tid = self.mint_id("task");
         let assigned_pane_id = new
             .assigned_pane_id
             .clone()
@@ -445,8 +463,9 @@ impl PlanStore {
             clear_task_assignment(task);
             task.updated_at = now_ms;
             if let Some(text) = result {
-                task.milestones.push(Milestone {
-                    id: gen_id("ms"),
+                let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
+                p.tasks[task_index].milestones.push(Milestone {
+                    id: mid,
                     from,
                     kind: "status_update".into(),
                     text: text.into(),
@@ -477,7 +496,7 @@ impl PlanStore {
         add_kind: bool,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        let mid = gen_id("ms");
+        let mid = self.mint_id("ms");
         self.with_plan(plan_id, now_ms, |p| {
             let declared = p.milestone_kinds.iter().any(|k| k.key == kind);
             if !declared {

@@ -477,7 +477,7 @@ pub enum PlanTaskAction {
     /// Update task metadata, status, quality fields, or lane assignment
     Update {
         plan_id: String,
-        task_id: String,
+        task_id: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         name: Option<String>,
         #[arg(long = "type", allow_hyphen_values = true)]
@@ -560,7 +560,7 @@ pub enum PlanTaskAction {
     /// Close a task (records a result; rejects if subtasks are open)
     Close {
         plan_id: String,
-        task_id: String,
+        task_id: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         result: Option<String>,
         #[arg(long, value_name = "PATH")]
@@ -571,7 +571,7 @@ pub enum PlanTaskAction {
     /// Assign a task to a pane (exports CODETERM_TASK_ID to that pane)
     Assign {
         plan_id: String,
-        task_id: String,
+        task_id: Option<String>,
         #[arg(long)]
         pane: String,
         #[arg(long, alias = "peer")]
