@@ -49,7 +49,11 @@ assert(
 );
 assert(
   source.includes('data-testid="tab-role-indicator"') && source.includes("data-tab-role={pane.role}"),
-  "TabItem should show a quiet role marker when a pane is promoted without plan activity",
+  "TabItem should expose a role marker tied to explicit pane.role",
+);
+assert(
+  source.includes("pane?.role && !editing") && !source.includes("pane?.role && !activity"),
+  "TabItem role marker must not hide when plan activity exists",
 );
 
 console.log("✓ TabItem quiet tab chrome: no task bubbles, no working spin, subdued subtitles");

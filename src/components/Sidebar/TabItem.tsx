@@ -256,8 +256,8 @@ function TabItemInner({
             )}
           </span>
         )}
-        {/* Plan-membership glance — worker dot / orchestrator glyph (EMERGENCE) */}
-        {pane?.role && !activity && !editing && (
+        {/* Explicit role (pane.role) stays visible even when plan activity is shown */}
+        {pane?.role && !editing && (
           <span data-testid="tab-role-indicator" data-tab-role={pane.role} className="shrink-0 text-[var(--ct-muted-fg)]/70">
             <RoleIcon role={pane.role} uiFontScale={uiFontScale} />
           </span>
