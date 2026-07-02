@@ -236,15 +236,16 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   for (let i = 0; i < taskNodes.length; i++)
     for (let j = i + 1; j < taskNodes.length; j++)
       if (boxesOverlap(taskNodes[i].box, taskNodes[j].box)) overlap = true;
-  ok("no task-tile overlap in the packed disk", !overlap);
+  ok("no task-tile overlap in the zone grid", !overlap);
 
-  // the flush-to-plan fan reads as a balanced bloom (flat-left, right-opening): neither a
-  // wide sliver nor a tall spike. The pack is intentionally not a centred round disk.
+  // v3 zone-first shelf: sections pack horizontally; the task field should read
+  // wider than tall (fixes the old vertical-strip fit-to-13% failure mode).
   const xs = taskNodes.flatMap((n) => [n.box.x, n.box.x + n.box.width]);
   const ys = taskNodes.flatMap((n) => [n.box.y, n.box.y + n.box.height]);
   const w = Math.max(...xs) - Math.min(...xs);
   const h = Math.max(...ys) - Math.min(...ys);
-  ok(`task fan is balanced (aspect ${(w / h).toFixed(2)} in [0.5,1.8])`, w / h > 0.5 && w / h < 1.8);
+  ok(`zone grid field is wider than tall (aspect ${(w / h).toFixed(2)} >= 1)`, w / h >= 1);
+  ok("one zone container per section", frame.zones.length === 8);
 }
 
 // ── section grouping: same-section tasks cluster + one group per section ──

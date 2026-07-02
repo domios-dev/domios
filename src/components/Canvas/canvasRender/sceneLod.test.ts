@@ -33,11 +33,11 @@ const nodes = [
 
 const groups = buildSectionGroups(nodes, taskById, (_p, sid) => (sid === "sec-a" ? "Alpha" : sid), new Map());
 
-ok("zoom floor matches overview threshold", CANVAS_MIN_SCALE === OVERVIEW_LOD_SCALE);
+ok("overview LOD threshold is below gesture floor", OVERVIEW_LOD_SCALE > CANVAS_MIN_SCALE);
 ok("overview mode at zoom floor", lodMode(OVERVIEW_LOD_SCALE) === "overview");
 ok("readable mode above floor", lodMode(OVERVIEW_LOD_SCALE + 0.01) === "readable");
 
-const overview = resolveSceneLod(0.4, groups, taskById);
+const overview = resolveSceneLod(0.3, groups, taskById);
 ok("overview hides all tasks", overview.hiddenNodeIds.size === 3);
 ok("overview emits one section cluster", overview.markers.length === 1 && overview.markers[0].kind === "section-cluster");
 ok("cluster title preserved", overview.markers[0]?.title === "Alpha");

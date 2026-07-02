@@ -24,6 +24,12 @@ export interface ZoneLabel {
   anchor: Point;
 }
 
+export interface SectionZoneDraw {
+  hull: Point[];
+  color: string;
+  box?: { x: number; y: number; width: number; height: number };
+}
+
 // An orchestrator avatar floating free + its dashed connectors to each owned plan node.
 export interface GroupGlyph {
   ownerKey: string;
@@ -38,6 +44,7 @@ export interface SceneDrawInput {
   edges: readonly LaidOutEdge[];
   nodeById: Map<string, LaidOutNode>;
   zoneLabels: readonly ZoneLabel[];
+  sectionZones?: readonly SectionZoneDraw[];
   groups: readonly GroupGlyph[];
   /** taskId → live agents executing it (drawn as small initials chips on the card). */
   presenceByNode: ReadonlyMap<string, PresenceAgent[]>;
@@ -256,6 +263,34 @@ export function drawScene(ctx: CanvasRenderingContext2D, input: SceneDrawInput, 
         ctx.bezierCurveTo(a.x, my, b.x, my, b.x, b.y);
         ctx.stroke();
       }
+    }
+    ctx.restore();
+  }
+
+  // v3 zone containers (rounded rects under cards).
+  if (input.sectionZones?.length) {
+    ctx.save();
+    for (const z of input.sectionZones) {
+      const box = z.box;
+      if (!box) continue;
+      const sb = projectWorldBox(box, t);
+      if (sb.x + sb.width < -CULL_MARGIN || sb.x > width + CULL_MARGIN || sb.y + sb.height < -CULL_MARGIN || sb.y > height + CULL_MARGIN) continue;
+      const r = Math.min(16, sb.width / 2, sb.height / 2);
+      ctx.beginPath();
+      ctx.moveTo(sb.x + r, sb.y);
+      ctx.arcTo(sb.x + sb.width, sb.y, sb.x + sb.width, sb.y + sb.height, r);
+      ctx.arcTo(sb.x + sb.width, sb.y + sb.height, sb.x, sb.y + sb.height, r);
+      ctx.arcTo(sb.x, sb.y + sb.height, sb.x, sb.y, r);
+      ctx.arcTo(sb.x, sb.y, sb.x + sb.width, sb.y, r);
+      ctx.closePath();
+      ctx.fillStyle = z.color;
+      ctx.globalAlpha = 0.12;
+      ctx.fill();
+      ctx.strokeStyle = z.color;
+      ctx.globalAlpha = 0.55;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
     ctx.restore();
   }

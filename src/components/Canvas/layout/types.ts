@@ -51,6 +51,7 @@ export interface SectionZone {
   color: string;
   hull: Point[];
   labelAnchor: Point;
+  box?: Box;
 }
 
 export interface PlanFrame {

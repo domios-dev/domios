@@ -228,46 +228,32 @@ console.log("\ninterior steps:");
   // Document task card as step cards (Thread & Coil interior). No cluster chrome.
   ok("no separate milestone nodes (steps are interior)", !frame.nodes.some((n) => n.kind === "milestone"));
   ok("no cluster nodes / task-cluster edges", !frame.nodes.some((n) => n.kind === "cluster") && !frame.edges.some((e) => e.kind === "task-cluster"));
-  // §32.4 data-driven footprint: size ∝ work VOLUME (fixed across zoom, varies by
-  // data), grows in BOTH axes bounded. t1 (3 steps) is taller than t2 (1 step);
-  // width snaps to column slots in [taskW, taskMaxW]; height floored at aspectFloor.
+  // v3 zone grid: uniform cell size per task (volume does not change grid slot).
   const S = DEFAULT_CANVAS_SETTINGS;
-  const withSteps = frame.nodes.find((n) => n.id === "t1")!; // t1 has 3 milestones
-  const noSteps = frame.nodes.find((n) => n.id === "t2")!; // t2 has 1 milestone
-  ok("heavier task reserves a bigger footprint", withSteps.box.height > noSteps.box.height);
-  ok("footprints within reserved bounds", [withSteps, noSteps].every((n) =>
-    n.box.height >= S.taskMinH && n.box.height <= S.taskMaxH &&
-    n.box.width >= S.taskW && n.box.width <= S.taskMaxW &&
-    (n.box.width - S.taskW) % S.taskColStep === 0 &&
-    n.box.height >= Math.round(S.aspectFloorRatio * n.box.width)));
+  const withSteps = frame.nodes.find((n) => n.id === "t1")!;
+  const noSteps = frame.nodes.find((n) => n.id === "t2")!;
+  ok("uniform grid cell width", withSteps.box.width === S.zoneTaskW && noSteps.box.width === S.zoneTaskW);
+  ok("uniform grid cell height", withSteps.box.height === S.zoneTaskH && noSteps.box.height === S.zoneTaskH);
 }
 
 // ── subtasks (parent_task_id) ─────────────────────────────────────
 console.log("\nsubtasks:");
 {
   const parent = task("tp", ["s"]);
-  const c1 = task("tc1", [], [], "tp");
-  const c2 = task("tc2", [], [], "tp");
+  const c1 = task("tc1", ["s"], { parent_task_id: "tp" });
+  const c2 = task("tc2", ["s"], { parent_task_id: "tp" });
   const psub = plan("psub", "o", 0, [section("s")], [parent, c1, c2]);
   const layout = layoutWorkspace([psub]);
   const frame = layout.frames[0];
   const byId = new Map(frame.nodes.map((n) => [n.id, n]));
   ok("parent + 2 children all laid out as solid task nodes", ["tp", "tc1", "tc2"].every((id) => byId.get(id)?.kind === "task"));
-  // worlds-v3 swarm: subtasks are SOLID satellite tiles around the parent — no
-  // stacked super-cell (no subtask-group container, no stem edges).
-  ok("no subtask-group container (swarm, not stack)", !frame.nodes.some((n) => n.kind === "subtask-group"));
-  ok("no subtask stem edges (proximity conveys grouping)", frame.edges.filter((e) => e.kind === "subtask").length === 0);
+  ok("no subtask-group container", !frame.nodes.some((n) => n.kind === "subtask-group"));
+  ok("no subtask stem edges", frame.edges.filter((e) => e.kind === "subtask").length === 0);
   const tp = byId.get("tp")!;
   const tc1 = byId.get("tc1")!;
   const tc2 = byId.get("tc2")!;
-  // Satellites are smaller than the parent tile.
-  ok("satellite smaller than parent", tc1.box.width * tc1.box.height < tp.box.width * tp.box.height);
-  // Satellites orbit the parent center within its local cluster.
-  const pc = { x: tp.box.x + tp.box.width / 2, y: tp.box.y + tp.box.height / 2 };
-  const orbit = (n: typeof tp) => Math.hypot(n.box.x + n.box.width / 2 - pc.x, n.box.y + n.box.height / 2 - pc.y);
-  ok("subtasks swarm around the parent", orbit(tc1) < 320 && orbit(tc2) < 320);
-  // no section-task edge points at a child (only the parent links to its section).
-  ok("children are not section satellites", !frame.edges.some((e) => e.kind === "section-task" && (e.to === "tc1" || e.to === "tc2")));
+  ok("subtasks share uniform grid cells with parent", tp.box.width === tc1.box.width && tp.box.height === tc1.box.height);
+  ok("subtasks placed in same section zone", frame.zones.some((z) => z.sectionId === "s" && z.box));
 }
 
 // ── focus selection ───────────────────────────────────────────────
