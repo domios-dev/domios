@@ -6,7 +6,13 @@ use clap::Parser;
 fn plan_task_update_accepts_task_ref_alone() {
     // Parent-free: one positional is the task ref; plan is inferred daemon-side.
     let parsed = Cli::try_parse_from([
-        "codeterm", "plan", "task", "update", "auth-login", "--status", "done",
+        "codeterm",
+        "plan",
+        "task",
+        "update",
+        "auth-login",
+        "--status",
+        "done",
     ])
     .expect("plan task update parses with task ref alone");
     match parsed.command {
@@ -40,7 +46,10 @@ fn plan_task_update_accepts_plan_and_task() {
         Commands::Plan {
             action:
                 PlanAction::Task {
-                    action: PlanTaskAction::Update { plan_id, task_id, .. },
+                    action:
+                        PlanTaskAction::Update {
+                            plan_id, task_id, ..
+                        },
                 },
         } => {
             assert_eq!(plan_id, "pl_1");
@@ -58,7 +67,13 @@ fn plan_task_rm_accepts_task_ref_alone() {
         Commands::Plan {
             action:
                 PlanAction::Task {
-                    action: PlanTaskAction::Rm { plan_id, task_id, all, .. },
+                    action:
+                        PlanTaskAction::Rm {
+                            plan_id,
+                            task_id,
+                            all,
+                            ..
+                        },
                 },
         } => {
             assert_eq!(plan_id, "auth-login");

@@ -143,7 +143,9 @@ fn pick(items: Vec<MatchItem>, reference: &str, kind: RefKind) -> Result<MatchIt
             .iter()
             .filter(|i| {
                 i.id.starts_with(reference)
-                    || i.handle.as_deref().is_some_and(|h| h.starts_with(reference))
+                    || i.handle
+                        .as_deref()
+                        .is_some_and(|h| h.starts_with(reference))
             })
             .collect();
         match prefix_hits.len() {
@@ -162,7 +164,11 @@ fn ambiguous(hits: Vec<&MatchItem>, reference: &str, kind: RefKind) -> ResolveEr
     ResolveError::Ambiguous {
         kind,
         reference: reference.to_string(),
-        candidates: hits.into_iter().cloned().map(MatchItem::into_candidate).collect(),
+        candidates: hits
+            .into_iter()
+            .cloned()
+            .map(MatchItem::into_candidate)
+            .collect(),
     }
 }
 
@@ -310,7 +316,11 @@ impl PlanStore {
         section_ref: &str,
     ) -> Result<(String, String), ResolveError> {
         let spec_id = self.resolve_spec_id(spec_ref)?;
-        let spec = self.specs.read().get(&spec_id).map(|arc| arc.lock().clone());
+        let spec = self
+            .specs
+            .read()
+            .get(&spec_id)
+            .map(|arc| arc.lock().clone());
         let items = spec.map(|s| spec_section_items(&s)).unwrap_or_default();
         pick(items, section_ref, RefKind::SpecSection).map(|m| (spec_id, m.id))
     }
@@ -398,8 +408,8 @@ fn section_tree_contains(sections: &[Section], id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{RefKind, ResolveError};
-    use crate::service::plan::{NewTask, PlanStore};
     use crate::plan::{OrchestratorRef, Plan, Task, TaskPriority, TaskStatus};
+    use crate::service::plan::{NewTask, PlanStore};
 
     fn store_with(dir: &std::path::Path) -> PlanStore {
         PlanStore::new_for_test(dir)
@@ -473,7 +483,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = store_with(dir.path());
         let plan_id = mk_plan(&store, dir.path(), "P");
-        assert!(plan_id.starts_with("pl_"), "plan id keeps prefix: {plan_id}");
+        assert!(
+            plan_id.starts_with("pl_"),
+            "plan id keeps prefix: {plan_id}"
+        );
         let slug = plan_id.split_once('_').unwrap().1;
         assert!(
             (6..=8).contains(&slug.len()),
@@ -570,9 +583,14 @@ mod tests {
         let store = store_with(dir.path());
         let long_plan = "pl_deadbeefdeadbeefdeadbeefdeadbeef";
         let long_task = "task_cafebabecafebabecafebabecafebabe";
-        let mut plan = Plan::new("Legacy".into(), dir.path().display().to_string(), OrchestratorRef::from_pane("p"));
+        let mut plan = Plan::new(
+            "Legacy".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("p"),
+        );
         plan.id = long_plan.into();
-        plan.tasks.push(legacy_task(long_task, "Old", "legacy-task"));
+        plan.tasks
+            .push(legacy_task(long_task, "Old", "legacy-task"));
         store.save(&mut plan, 1000).unwrap();
 
         assert_eq!(store.resolve_plan_id(long_plan).unwrap(), long_plan);
@@ -580,8 +598,17 @@ mod tests {
         assert_eq!(r.plan_id, long_plan);
         assert_eq!(r.task_id, long_task);
         // Legacy id still resolvable by handle and by prefix.
-        assert_eq!(store.resolve_task_ref(None, "legacy-task").unwrap().task_id, long_task);
-        assert_eq!(store.resolve_task_ref(None, &long_task[..12]).unwrap().task_id, long_task);
+        assert_eq!(
+            store.resolve_task_ref(None, "legacy-task").unwrap().task_id,
+            long_task
+        );
+        assert_eq!(
+            store
+                .resolve_task_ref(None, &long_task[..12])
+                .unwrap()
+                .task_id,
+            long_task
+        );
     }
 
     #[test]
