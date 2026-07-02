@@ -18,12 +18,12 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-test("PLAN_VIEW_MODES lists canvas list board in order", () => {
-  assert(PLAN_VIEW_MODES.join(",") === "canvas,list,board", `modes=${PLAN_VIEW_MODES.join(",")}`);
+test("PLAN_VIEW_MODES lists board list canvas in order", () => {
+  assert(PLAN_VIEW_MODES.join(",") === "board,list,canvas", `modes=${PLAN_VIEW_MODES.join(",")}`);
 });
 
-test("DEFAULT_PLAN_VIEW_MODE is canvas", () => {
-  assert(DEFAULT_PLAN_VIEW_MODE === "canvas", `default=${DEFAULT_PLAN_VIEW_MODE}`);
+test("DEFAULT_PLAN_VIEW_MODE is board", () => {
+  assert(DEFAULT_PLAN_VIEW_MODE === "board", `default=${DEFAULT_PLAN_VIEW_MODE}`);
 });
 
 test("isPlanViewMode accepts only known modes", () => {
@@ -41,11 +41,11 @@ test("planViewModeLabel returns exact UI labels", () => {
   assert(PLAN_VIEW_MODE_LABELS.list === "List", "record label");
 });
 
-test("resolvePlanViewMode falls back to canvas", () => {
+test("resolvePlanViewMode falls back to board", () => {
   assert(resolvePlanViewMode("list") === "list", "list preserved");
-  assert(resolvePlanViewMode("bogus") === "canvas", "bogus -> canvas");
-  assert(resolvePlanViewMode(null) === "canvas", "null -> canvas");
-  assert(resolvePlanViewMode(undefined) === "canvas", "undefined -> canvas");
+  assert(resolvePlanViewMode("bogus") === "board", "bogus -> board");
+  assert(resolvePlanViewMode(null) === "board", "null -> board");
+  assert(resolvePlanViewMode(undefined) === "board", "undefined -> board");
 });
 
 let passed = 0;
