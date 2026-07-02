@@ -52,17 +52,24 @@ mod tests {
         let (prefix, slug) = id.split_once('_').expect("prefixed");
         assert_eq!(prefix, "task");
         assert_eq!(slug.len(), 6);
-        assert!(slug.bytes().all(|b| b.is_ascii_alphanumeric() && !b.is_ascii_uppercase()));
+        assert!(slug
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() && !b.is_ascii_uppercase()));
     }
 
     #[test]
     fn mint_id_avoids_collisions_and_grows_on_saturation() {
         // Everything at length 6 is "taken" -> minter must escalate to a longer slug.
         let id = mint_id("task", |c| {
-            c.split_once('_').map(|(_, s)| s.len() == 6).unwrap_or(false)
+            c.split_once('_')
+                .map(|(_, s)| s.len() == 6)
+                .unwrap_or(false)
         });
         let slug = id.split_once('_').unwrap().1;
-        assert!(slug.len() >= 7, "expected escalation past 6 chars, got {id}");
+        assert!(
+            slug.len() >= 7,
+            "expected escalation past 6 chars, got {id}"
+        );
     }
 
     #[test]
