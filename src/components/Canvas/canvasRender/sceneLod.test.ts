@@ -2,12 +2,13 @@
 
 import type { Box } from "../layout";
 import { TaskStatus } from "../types";
+import { CANVAS_MIN_SCALE } from "../useCanvasViewport";
 import {
   buildSectionGroups,
-  CANVAS_MIN_SCALE,
+  CLUSTER_LOD_SCALE,
   lodMode,
-  OVERVIEW_LOD_SCALE,
   resolveSceneLod,
+  SUMMARY_LOD_SCALE,
 } from "./sceneLod";
 
 let passed = 0;
@@ -33,14 +34,21 @@ const nodes = [
 
 const groups = buildSectionGroups(nodes, taskById, (_p, sid) => (sid === "sec-a" ? "Alpha" : sid), new Map());
 
-ok("zoom floor matches overview threshold", CANVAS_MIN_SCALE === OVERVIEW_LOD_SCALE);
-ok("overview mode at zoom floor", lodMode(OVERVIEW_LOD_SCALE) === "overview");
-ok("readable mode above floor", lodMode(OVERVIEW_LOD_SCALE + 0.01) === "readable");
+ok("zoom floor is 10%", CANVAS_MIN_SCALE === 0.1);
+ok("summary mode at zoom floor", lodMode(CANVAS_MIN_SCALE) === "summary");
+ok("summary mode at summary threshold", lodMode(SUMMARY_LOD_SCALE) === "summary");
+ok("cluster mode above summary", lodMode(SUMMARY_LOD_SCALE + 0.01) === "cluster");
+ok("cluster mode at cluster threshold", lodMode(CLUSTER_LOD_SCALE) === "cluster");
+ok("readable mode above cluster", lodMode(CLUSTER_LOD_SCALE + 0.01) === "readable");
 
-const overview = resolveSceneLod(0.4, groups, taskById);
-ok("overview hides all tasks", overview.hiddenNodeIds.size === 3);
-ok("overview emits one section cluster", overview.markers.length === 1 && overview.markers[0].kind === "section-cluster");
-ok("cluster title preserved", overview.markers[0]?.title === "Alpha");
+const summary = resolveSceneLod(0.12, groups, taskById);
+ok("summary hides all tasks", summary.hiddenNodeIds.size === 3);
+ok("summary emits compact marker", summary.markers.length === 1 && summary.markers[0].kind === "section-summary");
+ok("summary title preserved", summary.markers[0]?.title === "Alpha");
+
+const cluster = resolveSceneLod(0.3, groups, taskById);
+ok("cluster hides all tasks", cluster.hiddenNodeIds.size === 3);
+ok("cluster emits section chip", cluster.markers.length === 1 && cluster.markers[0].kind === "section-cluster");
 
 const readable = resolveSceneLod(0.8, groups, taskById);
 ok("readable keeps active task visible", !readable.hiddenNodeIds.has("t-active"));

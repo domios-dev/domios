@@ -79,6 +79,27 @@ export function drawLodMarker(
   roundRectPath(ctx, sx + 1, sy + 1, sw - 2, sh - 2, Math.min(9, sh / 3));
   ctx.clip();
 
+  if (marker.kind === "section-summary") {
+    const n = marker.counts.pending + marker.counts.in_progress + marker.counts.in_review + marker.counts.blocked + marker.counts.done + marker.counts.cancelled;
+    ctx.font = `700 ${Math.max(9, Math.min(12, sh * 0.38))}px ${FONT}`;
+    ctx.fillStyle = p.fg;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const title = marker.title.length > 14 ? `${marker.title.slice(0, 13)}…` : marker.title;
+    ctx.fillText(title, sx + sw / 2, sy + sh * 0.38);
+    ctx.font = `600 ${Math.max(8, Math.min(10, sh * 0.28))}px ${FONT}`;
+    ctx.fillStyle = p.fgMuted;
+    ctx.fillText(`${n}`, sx + sw / 2, sy + sh * 0.72);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.restore();
+    return {
+      markerId: marker.id,
+      box: { x: sx, y: sy, width: sw, height: sh },
+      action: { type: "section-cluster", planId: marker.planId, sectionId: marker.sectionId },
+    };
+  }
+
   if (marker.kind === "done-stack") {
     const n = marker.counts.done + marker.counts.cancelled;
     ctx.font = `700 ${Math.max(10, Math.min(14, sh * 0.42))}px ${FONT}`;
