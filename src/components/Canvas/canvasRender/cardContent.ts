@@ -1,7 +1,7 @@
 // Pure card-content model: WHAT a node card shows, independent of geometry/paint.
 // Two levels — FAR (kicker + big title + tags) and NEAR (plan: tags + section
-// titles w/ per-section tags; spec: section titles + "→ tasks" buttons; task:
-// tags + status/priority/assignee fields). Unit-tested; drawCard renders it.
+// titles w/ per-section tags; spec: coverage chips + section titles w/ glyphs +
+// task-count buttons; task: tags + status/priority/assignee fields). Unit-tested.
 
 import { TASK_STATUS_COLORS } from "../settings";
 import { flatSections, flattenSections, sectionRows, type SectionRowGlyph } from "../sectionRows";
@@ -106,26 +106,81 @@ function planContent(plan: PlanModel): CardContent {
   };
 }
 
+// Coverage summary for a spec: how many sections are covered (≥1 task), partial
+// (in-progress tasks exist), or unplanned (zero tasks). Drives both the card
+// summary fields and the per-section glyph.
+export interface SpecCoverage {
+  total: number;
+  covered: number;   // all tasks done/cancelled
+  partial: number;   // some tasks exist but not all done
+  unplanned: number; // zero tasks
+}
+
+export function specCoverage(plan: PlanModel): SpecCoverage {
+  const flat = flattenSections(plan.sections);
+  const byId = new Map<string, string[]>();
+  for (const s of flat) byId.set(s.id, []);
+  for (const t of (plan.tasks ?? [])) {
+    for (const sid of t.section_ids ?? []) {
+      const arr = byId.get(sid);
+      if (arr) arr.push(t.status);
+    }
+  }
+  let covered = 0, partial = 0, unplanned = 0;
+  for (const statuses of byId.values()) {
+    if (statuses.length === 0) unplanned++;
+    else if (statuses.every((s) => s === "done" || s === "cancelled")) covered++;
+    else partial++;
+  }
+  return { total: flat.length, covered, partial, unplanned };
+}
+
+function sectionGlyph(sectionId: string, plan: PlanModel): SectionRowGlyph {
+  const tasks = (plan.tasks ?? []).filter((t) => (t.section_ids ?? []).includes(sectionId));
+  if (tasks.length === 0) return "uncovered";
+  if (tasks.every((t) => t.status === "done" || t.status === "cancelled")) return "done";
+  return "progress";
+}
+
 function specContent(plan: PlanModel): CardContent {
-  const sections: CardSectionLine[] = flattenSections(plan.sections).map((s) => ({
-    sectionId: s.id,
-    title: s.title,
-    glyph: "uncovered",
-    tags: [],
-    button: "→ tasks",
-    body: s.body?.trim() || undefined,
-  }));
+  const cov = specCoverage(plan);
+  const sections: CardSectionLine[] = flattenSections(plan.sections).map((s) => {
+    const glyph = sectionGlyph(s.id, plan);
+    // Only add the nav button when the section has tasks to navigate to.
+    const taskCount = (plan.tasks ?? []).filter((t) => (t.section_ids ?? []).includes(s.id)).length;
+    return {
+      sectionId: s.id,
+      title: s.title,
+      glyph,
+      tags: [],
+      button: taskCount > 0 ? `${taskCount} task${taskCount > 1 ? "s" : ""}` : null,
+      body: s.body?.trim() || undefined,
+    };
+  });
+  // Compact coverage summary chips shown in the tag row.
+  const tags: CardTag[] = [];
+  if (cov.covered > 0) tags.push({ text: `${cov.covered} done`, color: GLYPH_ACCENT.done });
+  if (cov.partial > 0) tags.push({ text: `${cov.partial} active`, color: GLYPH_ACCENT.progress });
+  if (cov.unplanned > 0) tags.push({ text: `${cov.unplanned} open`, color: null });
+
   return {
     kind: "spec",
     kicker: KICKER.spec,
     title: plan.title,
     accent: null,
-    tags: [],
+    tags,
     sections,
     fields: [],
-    hash: sig(["spec", plan.title, sections.map((s) => [s.title, s.body ?? ""])]),
+    hash: sig(["spec", plan.title, sections.map((s) => [s.title, s.glyph, s.button ?? "", s.body ?? ""]), tags]),
   };
 }
+
+// Exported so drawCard can colour glyph dots consistently with the coverage chips.
+export const GLYPH_ACCENT: Record<SectionRowGlyph, string> = {
+  done: "rgba(82,180,145,0.95)",
+  progress: "rgba(129,140,248,0.95)",
+  uncovered: "rgba(148,163,184,0.55)",
+};
 
 function executorField(m: TaskModel): CardField {
   const lead = m.presence?.agents?.[0];
