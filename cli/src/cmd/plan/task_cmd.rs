@@ -8,7 +8,7 @@ use crate::cmd::hints::{
 };
 use crate::cmd::plan_linking::render_relink_report;
 
-use super::{call, lane_params, resolve_text};
+use super::{call, lane_params, maybe_inject_caller_pane, resolve_text};
 
 fn render_attempts(value: &Value) -> String {
     let attempts = value
@@ -251,6 +251,7 @@ pub(super) fn run_task(
             if let Some(handle) = handle {
                 params["handle"] = json!(handle);
             }
+            maybe_inject_caller_pane(&mut params);
             let mut val = call(client, "plan.task.add", params)?;
             if let Some(task_id) = val
                 .get("task_id")

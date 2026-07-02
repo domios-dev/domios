@@ -1,5 +1,5 @@
 use crate::client::SocketClient;
-use crate::cmd::plan::{call_plan_rpc, resolve_text};
+use crate::cmd::plan::{call_plan_rpc, maybe_inject_caller_pane, resolve_text};
 use serde_json::{json, Value};
 
 #[allow(clippy::too_many_arguments)]
@@ -115,5 +115,6 @@ pub(crate) fn run(
     if let Some(handle) = handle {
         params["handle"] = json!(handle);
     }
+    maybe_inject_caller_pane(&mut params);
     call_plan_rpc(client, "plan.task.update", params)
 }

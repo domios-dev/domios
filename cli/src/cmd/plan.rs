@@ -49,6 +49,18 @@ pub(crate) fn owner_from_env() -> Value {
     })
 }
 
+pub(crate) fn caller_pane_id() -> Option<String> {
+    std::env::var("CODETERM_PANE_ID").ok()
+}
+
+pub(crate) fn maybe_inject_caller_pane(params: &mut Value) {
+    if let Some(pane) = caller_pane_id() {
+        if let Some(obj) = params.as_object_mut() {
+            obj.insert("caller_pane_id".into(), json!(pane));
+        }
+    }
+}
+
 pub(crate) fn call_plan_rpc(
     client: &mut SocketClient,
     method: &str,
@@ -379,17 +391,15 @@ fn run_plan(
                 postulate,
             } => {
                 let vision = resolve_text(vision, vision_file)?.unwrap_or_default();
-                call(
-                    client,
-                    "plan.goal.set",
-                    json!({
-                        "plan_id": plan_id,
-                        "vector": vector,
-                        "vision": vision,
-                        "constraints": constraint,
-                        "postulates": postulate,
-                    }),
-                )
+                let mut params = json!({
+                    "plan_id": plan_id,
+                    "vector": vector,
+                    "vision": vision,
+                    "constraints": constraint,
+                    "postulates": postulate,
+                });
+                maybe_inject_caller_pane(&mut params);
+                call(client, "plan.goal.set", params)
             }
         },
 

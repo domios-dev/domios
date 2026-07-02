@@ -125,4 +125,7 @@ pub(crate) fn print_plan_result(json: bool, val: &Value) {
         print_object(val);
     }
     print_hints(&hints);
+    if let Some(nudge) = val.get("_planner_nudge").and_then(|v| v.as_str()) {
+        eprintln!("{nudge}");
+    }
 }
