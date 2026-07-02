@@ -30,18 +30,19 @@ const panes: Record<string, Pane> = {
   },
 };
 
-test("orders spec root, spec sections, plan root, plan sections, tasks, subtasks", () => {
+test("orders sections, tasks, then nested subtasks with no root bands", () => {
   const [plan] = bandedSeedPlans();
-  const rows = buildPlanListRows(plan, { specSections: plan.sections, panes });
-  const kinds = rows.map((r) => r.kind);
-  const specRoot = kinds.indexOf("spec-root");
-  const planRoot = kinds.indexOf("plan-root");
+  const rows = buildPlanListRows(plan, { panes });
+  const kinds = rows.map((r) => r.kind as string);
+  const firstSection = kinds.findIndex((k) => k === "plan-section" || k === "unsectioned");
   const firstTask = kinds.indexOf("task");
   const firstSubtask = kinds.indexOf("subtask");
-  assert(specRoot >= 0, "spec root present");
-  assert(planRoot > specRoot, "plan after spec");
-  assert(firstTask > planRoot, "tasks after plan root");
+  assert(firstSection >= 0, "section present");
+  assert(firstTask > firstSection, "tasks after a section");
   assert(firstSubtask > firstTask, "subtasks after parent task");
+  assert(!kinds.includes("spec-root"), "no spec root band");
+  assert(!kinds.includes("plan-root"), "no plan root band");
+  assert(!kinds.includes("spec-section"), "no spec tree in list");
 });
 
 test("nests subtasks under parent task in section", () => {
@@ -115,25 +116,26 @@ test("done task surfaces historical executor instead of active pane label", () =
   assert(taskRow?.historicalExecutorSummary?.includes("Puccini"), "historical summary shown");
 });
 
-test("spec sections come from fetched spec tree, plan sections from plan.sections", () => {
+test("task-first list carries plan sections but no spec tree rows", () => {
   const plan = {
     ...FIXTURE_PLAN,
     primary_spec_id: "spec-fixture",
     sections: [{ ...FIXTURE_SECTION, id: "plan-sec", title: "Plan section" }],
   };
-  const specSections = [{ ...FIXTURE_SECTION, id: "spec-sec", title: "Spec section" }];
-  const rows = buildPlanListRows(plan, { specSections, panes });
-  assert(rows.some((r) => r.kind === "spec-section" && r.title === "Spec section"), "spec section from spec tree");
-  assert(rows.some((r) => r.kind === "plan-section" && r.title === "Plan section"), "plan section from plan tree");
-  assert(!rows.some((r) => r.kind === "spec-section" && r.title === "Plan section"), "no cross-contamination");
+  const rows = buildPlanListRows(plan, { panes });
+  assert(rows.some((r) => r.kind === "plan-section" && r.title === "Plan section"), "plan section listed");
+  assert(!rows.some((r) => (r.kind as string) === "spec-section"), "no spec sections in list");
+  assert(!rows.some((r) => (r.kind as string) === "spec-root"), "no spec root in list");
 });
 
-test("forest flattens multiple plans with distinct plan roots", () => {
+test("forest flattens multiple plans keyed by distinct plan ids", () => {
   const plans = bandedSeedPlans().slice(0, 2);
   const rows = buildPlanListForest(plans, { panes });
-  const planRoots = rows.filter((r) => r.kind === "plan-root");
-  assert(planRoots.length === 2, "two plan roots");
-  assert(new Set(planRoots.map((r) => r.planId)).size === 2, "distinct plan ids");
+  const taskPlanIds = new Set(
+    rows.filter((r) => r.kind === "task" || r.kind === "subtask").map((r) => r.planId),
+  );
+  assert(taskPlanIds.size === 2, "tasks from two distinct plans");
+  assert(!rows.some((r) => (r.kind as string) === "plan-root"), "no plan-root bands");
 });
 
 test("section rows carry doneCount and allTasksDone for fully done sections", () => {

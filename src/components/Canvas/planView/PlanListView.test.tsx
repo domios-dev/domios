@@ -59,7 +59,8 @@ test("renders plan root and task rows with stable test ids", async () => {
   assert(host.querySelector('[data-testid="plan-list-scroll"]'), "scroll region");
   assert(host.querySelector('[data-testid="plan-list-filter"]'), "filter toolbar");
   assert(host.querySelector('[data-testid="plan-context-header"]'), "context header");
-  assert(host.querySelector('[data-testid="plan-list-plan-root"]'), "plan entity band");
+  assert(host.querySelector('[data-testid="plan-board-plan-title"]'), "single plan title chip");
+  assert(!host.querySelector('[data-testid="plan-list-plan-root"]'), "no duplicated plan-root band");
   const task = host.querySelector('[data-testid="plan-list-task"]');
   assert(task, "task row");
   assert(task?.getAttribute("data-task-id") === FIXTURE_TASK.id, "task id hook");
@@ -68,11 +69,12 @@ test("renders plan root and task rows with stable test ids", async () => {
   await unmount();
 });
 
-test("shows spec entity band when spec sections are supplied via fixture plan", async () => {
+test("spec opens via header chip, not a spec tree in the list", async () => {
   const [plan] = buildPerfFixturePlans(8);
   const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
-  assert(host.querySelector('[data-testid="plan-list-spec-root"]'), "spec entity");
-  assert((host.querySelectorAll('[data-testid="plan-list-spec-section"]').length ?? 0) > 0, "spec sections");
+  assert(host.querySelector('[data-testid="plan-board-spec-title"]'), "spec chip in context header");
+  assert(!host.querySelector('[data-testid="plan-list-spec-root"]'), "no spec root band in list");
+  assert(!host.querySelector('[data-testid="plan-list-spec-section"]'), "no spec sections in list");
   await unmount();
 });
 
@@ -82,17 +84,18 @@ test("empty state when no active plans", async () => {
   await unmount();
 });
 
-test("task title uses wrap-friendly class, not single-line truncate", async () => {
+test("task title is a single-line cell with full name preserved for tooltip", async () => {
   const longName = "Implement resilient offline queue sync for mesh peers across flaky networks";
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [{ ...FIXTURE_TASK, name: longName }],
   };
   const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
-  const title = host.querySelector('[data-testid="plan-list-title"]') as HTMLElement | null;
-  assert(title?.className.includes("break-words"), "wrap-friendly title");
-  assert(!title?.className.includes("truncate"), "no truncate on task title");
-  assert(host.textContent?.includes(longName), "full task name visible");
+  const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement | null;
+  const title = host.querySelector('[data-testid="plan-list-task"] [data-testid="plan-list-title"]') as HTMLElement | null;
+  assert(title?.className.includes("plan-list-title"), "alignment-grid title cell");
+  assert(row?.getAttribute("title")?.includes(longName), "full name available as tooltip");
+  assert(host.textContent?.includes(longName), "full task name in DOM");
   await unmount();
 });
 
@@ -165,15 +168,15 @@ test("clicking a task row opens PlanDetailOverlay", async () => {
   await unmount();
 });
 
-test("clicking plan root opens plan detail overlay", async () => {
+test("clicking context header plan title opens plan detail overlay", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [{ ...FIXTURE_TASK, status: TaskStatus.Pending }],
   };
   const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
-  const root = host.querySelector('[data-testid="plan-list-plan-root"]') as HTMLElement;
+  const planTitle = host.querySelector('[data-testid="plan-board-plan-title"]') as HTMLElement;
   await act(async () => {
-    root.click();
+    planTitle.click();
   });
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "plan", "plan kind");
