@@ -16,10 +16,25 @@ export const PLAN_LIST_STATUS_FILTERS: ReadonlyArray<{ key: PlanListStatusFilter
 ];
 
 function textHaystack(row: PlanListRow): string {
-  return [row.title, row.focus, row.paneLabel, row.statusLabel, row.historicalExecutorSummary, row.meta]
+  return [row.title, row.focus, row.paneLabel, row.statusLabel, row.historicalExecutorSummary]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+}
+
+export function formatRelativeAge(ts: number | undefined, now: number): string {
+  if (!ts || ts <= 0) return "";
+  const secs = Math.max(0, Math.floor((now - ts) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w`;
+  return `${Math.floor(days / 30)}mo`;
 }
 
 export function taskRowMatchesStatus(row: PlanListRow, filter: PlanListStatusFilter): boolean {
@@ -40,7 +55,6 @@ export function rowMatchesTextQuery(row: PlanListRow, query: string): boolean {
 
 export function defaultSectionExpanded(row: PlanListRow): boolean {
   if (!isPlanListSectionRow(row)) return true;
-  if (row.kind === "spec-section") return true;
   return !row.allTasksDone;
 }
 
@@ -74,9 +88,7 @@ function subtreeHasVisibleTask(
 ): boolean {
   for (let i = startIdx + 1; i < rows.length; i++) {
     const row = rows[i];
-    if (row.depth <= sectionDepth && (isPlanListSectionRow(row) || row.kind === "spec-root" || row.kind === "plan-root")) {
-      break;
-    }
+    if (row.depth <= sectionDepth && isPlanListSectionRow(row)) break;
     if (isPlanListTaskRow(row) && rowPassesFilters(row, statusFilter, textQuery)) return true;
   }
   return false;
@@ -97,16 +109,11 @@ export function buildVisiblePlanListRows(
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     if (hiddenBelowDepth >= 0) {
-      if (row.depth <= hiddenBelowDepth && (isPlanListSectionRow(row) || row.kind === "spec-root" || row.kind === "plan-root")) {
+      if (row.depth <= hiddenBelowDepth && isPlanListSectionRow(row)) {
         hiddenBelowDepth = -1;
       } else if (row.depth > hiddenBelowDepth) {
         continue;
       }
-    }
-
-    if (row.kind === "spec-root" || row.kind === "plan-root") {
-      out.push({ type: "row", row });
-      continue;
     }
 
     if (isPlanListSectionRow(row)) {
@@ -132,19 +139,4 @@ export function buildVisiblePlanListRows(
   }
 
   return out;
-}
-
-export function groupPlanListRowsByPlan(
-  rows: readonly PlanListRow[],
-): Array<{ planId: string; rows: PlanListRow[] }> {
-  const map = new Map<string, PlanListRow[]>();
-  const order: string[] = [];
-  for (const row of rows) {
-    if (!map.has(row.planId)) {
-      map.set(row.planId, []);
-      order.push(row.planId);
-    }
-    map.get(row.planId)!.push(row);
-  }
-  return order.map((planId) => ({ planId, rows: map.get(planId)! }));
 }

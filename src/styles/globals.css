@@ -1789,6 +1789,150 @@ button,
   color: color-mix(in srgb, var(--ct-accent) 55%, var(--ct-fg));
   word-break: break-word;
 }
+
+/* List v3 — task-first alignment grid */
+.plan-list-chrome {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0.5rem 0.4rem;
+  flex-shrink: 0;
+}
+.plan-list-group {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.3rem 0.75rem;
+  border: none;
+  background: color-mix(in srgb, var(--ct-bg) 92%, var(--ct-surface));
+  backdrop-filter: blur(6px);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.plan-list-group-caret {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--ct-muted-fg);
+}
+.plan-list-group-glyph {
+  flex-shrink: 0;
+  width: 0.9rem;
+  font-size: 0.7rem;
+  text-align: center;
+  color: var(--ct-muted-fg);
+}
+.plan-list-group-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ct-muted-fg);
+}
+.plan-list-group-progress {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ct-muted-fg);
+  opacity: 0.7;
+}
+.plan-list-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) 128px 40px;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 0.75rem;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: var(--ct-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.plan-list-row:hover,
+.plan-list-row:focus-visible {
+  background: color-mix(in srgb, var(--ct-fg) 6%, transparent);
+  outline: none;
+}
+.plan-list-row-done {
+  opacity: 0.55;
+}
+.plan-list-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  justify-self: center;
+}
+.plan-list-title-cell {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.plan-list-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+.plan-list-status-word {
+  flex-shrink: 0;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ct-muted-fg);
+  opacity: 0.65;
+}
+.plan-list-exec {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  color: var(--ct-muted-fg);
+  opacity: 0.6;
+  text-align: right;
+}
+.plan-list-exec-active {
+  font-weight: 500;
+  color: var(--ct-fg);
+  opacity: 0.85;
+}
+.plan-list-age {
+  font-size: 0.66rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ct-muted-fg);
+  opacity: 0.6;
+  text-align: right;
+}
+.plan-list-rollup {
+  display: block;
+  width: 100%;
+  padding: 0.25rem 0.75rem 0.25rem 2.2rem;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.66rem;
+  font-style: italic;
+  color: var(--ct-muted-fg);
+  opacity: 0.6;
+  text-align: left;
+  cursor: pointer;
+}
 .plan-board-columns {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

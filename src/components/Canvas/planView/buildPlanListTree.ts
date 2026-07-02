@@ -5,14 +5,7 @@ import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import type { Milestone, Plan, Section, Task, TaskStatus } from "../types";
 
-export type PlanListRowKind =
-  | "spec-root"
-  | "spec-section"
-  | "plan-root"
-  | "plan-section"
-  | "unsectioned"
-  | "task"
-  | "subtask";
+export type PlanListRowKind = "plan-section" | "unsectioned" | "task" | "subtask";
 
 export interface PlanListRow {
   id: string;
@@ -20,9 +13,7 @@ export interface PlanListRow {
   kind: PlanListRowKind;
   depth: number;
   title: string;
-  kicker?: string;
-  meta?: string;
-  status?: TaskStatus | Plan["status"];
+  status?: TaskStatus;
   statusLabel?: string;
   sectionGlyph?: SectionRowGlyph;
   taskCount?: number;
@@ -33,6 +24,7 @@ export interface PlanListRow {
   focus?: string;
   milestoneKind?: string;
   milestoneAuthor?: string;
+  activityTs?: number;
   taskId?: string;
 }
 
@@ -40,7 +32,7 @@ export type PlanListVisibleRow =
   | { type: "row"; row: PlanListRow }
   | { type: "done-rollup"; sectionRow: PlanListRow; doneCount: number };
 
-const SECTION_KINDS = new Set<PlanListRowKind>(["spec-section", "plan-section", "unsectioned"]);
+const SECTION_KINDS = new Set<PlanListRowKind>(["plan-section", "unsectioned"]);
 const TASK_KINDS = new Set<PlanListRowKind>(["task", "subtask"]);
 
 export function isPlanListSectionRow(row: PlanListRow): boolean {
@@ -74,19 +66,6 @@ function statusText(task: Task): string {
   return task.status_label?.trim() || task.status.replace(/_/g, " ");
 }
 
-function walkSpecSections(sections: Section[], planId: string, depth: number, out: PlanListRow[]): void {
-  for (const s of sections) {
-    out.push({
-      id: `${planId}::spec-sec::${s.id}`,
-      planId,
-      kind: "spec-section",
-      depth,
-      title: s.title,
-    });
-    if (s.subsections.length) walkSpecSections(s.subsections, planId, depth + 1, out);
-  }
-}
-
 function appendTaskRows(
   task: Task,
   plan: Plan,
@@ -113,6 +92,7 @@ function appendTaskRows(
     focus: presence?.focus ?? undefined,
     milestoneKind: presence?.latest?.kindLabel ?? latest?.kind.replace(/[_-]+/g, " "),
     milestoneAuthor: presence?.latest?.authorLabel,
+    activityTs: latest?.ts ?? task.status_changed_at ?? task.updated_at ?? task.created_at,
     taskId: task.id,
   });
   for (const child of childOrder(childrenByParent.get(task.id) ?? [])) {
@@ -126,41 +106,11 @@ function primarySectionId(task: Task): string | null {
 
 export function buildPlanListRows(
   plan: Plan,
-  opts: { specSections?: Section[]; panes?: Record<string, Pane> } = {},
+  opts: { panes?: Record<string, Pane> } = {},
 ): PlanListRow[] {
   const panes = opts.panes ?? {};
   const rows: PlanListRow[] = [];
   const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
-
-  if (plan.primary_spec_id && opts.specSections?.length) {
-    rows.push({
-      id: `${plan.id}::spec-root`,
-      planId: plan.id,
-      kind: "spec-root",
-      depth: 0,
-      title: plan.title,
-      kicker: "SPEC",
-      meta: plan.primary_spec_id,
-    });
-    walkSpecSections(opts.specSections, plan.id, 1, rows);
-  }
-
-  const ownerLabel =
-    (plan.owner.pane_id ? panes[plan.owner.pane_id]?.title?.trim() : null) ||
-    plan.owner.title?.trim() ||
-    undefined;
-  const heartbeatFocus = plan.heartbeat?.current_focus?.trim() || undefined;
-  rows.push({
-    id: `${plan.id}::plan-root`,
-    planId: plan.id,
-    kind: "plan-root",
-    depth: 0,
-    title: plan.title,
-    kicker: "PLAN",
-    status: plan.status,
-    meta: ownerLabel,
-    focus: heartbeatFocus,
-  });
 
   const secRows = sectionRows(plan);
   const secRowById = new Map(secRows.map((r) => [r.section.id, r]));
@@ -252,12 +202,7 @@ export function buildPlanListRows(
 
 export function buildPlanListForest(
   plans: readonly Plan[],
-  opts: { specSectionsByPlan?: ReadonlyMap<string, Section[]>; panes?: Record<string, Pane> } = {},
+  opts: { panes?: Record<string, Pane> } = {},
 ): PlanListRow[] {
-  return plans.flatMap((plan) =>
-    buildPlanListRows(plan, {
-      specSections: opts.specSectionsByPlan?.get(plan.id),
-      panes: opts.panes,
-    }),
-  );
+  return plans.flatMap((plan) => buildPlanListRows(plan, { panes: opts.panes }));
 }

@@ -1,22 +1,36 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
-import { filterPlansForCanvas } from "../planPaneMatch";
 import { fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
 import type { Plan, Section, Task } from "../types";
-import { buildBoardPlanModel } from "./boardModel";
-import { buildPlanListForest, type PlanListRow } from "./buildPlanListTree";
+import {
+  buildBoardPlanModel,
+  filterPlansForBoard,
+  orderPlansByActivity,
+  selectDefaultPlanId,
+} from "./boardModel";
+import { buildPlanListRows, type PlanListRow } from "./buildPlanListTree";
 import { PlanContextHeader } from "./PlanContextHeader";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
 import { PlanListFilterBar } from "./PlanListFilterBar";
 import { PlanListRowView } from "./PlanListRowView";
+import { PlanSwitcher } from "./PlanSwitcher";
 import {
   buildVisiblePlanListRows,
-  groupPlanListRowsByPlan,
   resolveSectionExpanded,
   type PlanListStatusFilter,
 } from "./planListModel";
+
+const SELECTED_PLAN_STORAGE_KEY = "codeterm.list.selectedPlanId";
+
+function readStoredPlanId(): string | null {
+  try {
+    return window.sessionStorage.getItem(SELECTED_PLAN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 type ListDetail =
   | { kind: "task"; task: Task; plan: Plan }
@@ -40,12 +54,40 @@ export function PlanListView({
   onClose,
 }: PlanViewSurfaceProps) {
   const filteredPlans = useMemo(
-    () => filterPlansForCanvas(plans, mode, { planId, orchestratorPaneId, panes }),
+    () => filterPlansForBoard(plans, mode, { planId, orchestratorPaneId, panes }),
     [plans, mode, planId, orchestratorPaneId, panes],
   );
-  const plansById = useMemo(() => new Map(filteredPlans.map((p) => [p.id, p])), [filteredPlans]);
+  const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
 
-  const fixtureSpecSections = useMemo(() => fixtureSpecSectionsByPlan(filteredPlans), [filteredPlans]);
+  const defaultPlanId = useMemo(
+    () => selectDefaultPlanId(orderedPlans, { planId, orchestratorPaneId, panes }),
+    [orderedPlans, planId, orchestratorPaneId, panes],
+  );
+
+  const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
+  const selectedPlanId = useMemo(() => {
+    if (manualPlanId && orderedPlans.some((p) => p.id === manualPlanId)) return manualPlanId;
+    return defaultPlanId;
+  }, [manualPlanId, orderedPlans, defaultPlanId]);
+
+  const selectedPlan = useMemo(
+    () => orderedPlans.find((p) => p.id === selectedPlanId) ?? null,
+    [orderedPlans, selectedPlanId],
+  );
+
+  const selectPlan = useCallback((id: string) => {
+    setManualPlanId(id);
+    try {
+      window.sessionStorage.setItem(SELECTED_PLAN_STORAGE_KEY, id);
+    } catch {
+      // Best-effort session persistence; private-mode/quota failures must not block switching.
+    }
+  }, []);
+
+  const fixtureSpecSections = useMemo(
+    () => (selectedPlan ? fixtureSpecSectionsByPlan([selectedPlan]) : new Map<string, Section[]>()),
+    [selectedPlan],
+  );
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
   const [statusFilter, setStatusFilter] = useState<PlanListStatusFilter>("all");
   const [textQuery, setTextQuery] = useState("");
@@ -53,52 +95,52 @@ export function PlanListView({
   const [detail, setDetail] = useState<ListDetail | null>(null);
 
   useEffect(() => {
-    if (!api) return;
+    if (!api || !selectedPlan?.primary_spec_id) return;
+    if (fixtureSpecSections.has(selectedPlan.id)) return;
     let active = true;
-    const targets = filteredPlans.filter((p) => p.primary_spec_id && !fixtureSpecSections.has(p.id));
-    if (!targets.length) return;
-    void Promise.all(
-      targets.map((p) =>
-        fetchSpecSections(api, p.primary_spec_id as string)
-          .then((sections) => [p.id, sections] as const)
-          .catch(() => [p.id, [] as Section[]] as const),
-      ),
-    ).then((pairs) => {
-      if (active) setFetchedSpecSections(new Map(pairs));
-    });
+    const targetPlanId = selectedPlan.id;
+    const specId = selectedPlan.primary_spec_id;
+    void fetchSpecSections(api, specId)
+      .then((sections) => (active ? ([targetPlanId, sections] as const) : null))
+      .catch(() => (active ? ([targetPlanId, [] as Section[]] as const) : null))
+      .then((pair) => {
+        if (!active || !pair) return;
+        setFetchedSpecSections((prev) => new Map(prev).set(pair[0], pair[1]));
+      });
     return () => {
       active = false;
     };
-  }, [api, filteredPlans, fixtureSpecSections]);
+  }, [api, selectedPlan, fixtureSpecSections]);
 
-  const specSectionsByPlan = useMemo(() => {
-    if (!fixtureSpecSections.size) return fetchedSpecSections;
-    const merged = new Map(fetchedSpecSections);
-    for (const [k, v] of fixtureSpecSections) merged.set(k, v);
-    return merged;
-  }, [fetchedSpecSections, fixtureSpecSections]);
+  const selectedSpecSections = useMemo(() => {
+    if (!selectedPlan) return [] as Section[];
+    return fixtureSpecSections.get(selectedPlan.id) ?? fetchedSpecSections.get(selectedPlan.id) ?? [];
+  }, [selectedPlan, fixtureSpecSections, fetchedSpecSections]);
 
-  const rows = useMemo(
-    () => buildPlanListForest(filteredPlans, { specSectionsByPlan, panes }),
-    [filteredPlans, specSectionsByPlan, panes],
+  const boardModel = useMemo(
+    () => (selectedPlan ? buildBoardPlanModel(selectedPlan, panes, selectedSpecSections) : null),
+    [selectedPlan, panes, selectedSpecSections],
   );
 
-  const planGroups = useMemo(() => groupPlanListRowsByPlan(rows), [rows]);
+  const rows = useMemo(
+    () => (selectedPlan ? buildPlanListRows(selectedPlan, { panes }) : []),
+    [selectedPlan, panes],
+  );
 
-  const boardModelsByPlan = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof buildBoardPlanModel>>();
-    for (const plan of filteredPlans) {
-      map.set(plan.id, buildBoardPlanModel(plan, panes, specSectionsByPlan.get(plan.id)));
-    }
-    return map;
-  }, [filteredPlans, panes, specSectionsByPlan]);
+  const switcherOptions = useMemo(
+    () => orderedPlans.map((p) => ({ id: p.id, title: p.title.trim() || "Untitled plan" })),
+    [orderedPlans],
+  );
+
+  const visibleRows = useMemo(
+    () => buildVisiblePlanListRows(rows, { statusFilter, textQuery, expansionOverrides }),
+    [rows, statusFilter, textQuery, expansionOverrides],
+  );
 
   const toggleSection = useCallback((sectionId: string, sectionRow?: PlanListRow) => {
     setExpansionOverrides((prev) => {
       const next = new Map(prev);
-      const current =
-        prev.get(sectionId) ??
-        (sectionRow ? resolveSectionExpanded(sectionRow, prev) : true);
+      const current = prev.get(sectionId) ?? (sectionRow ? resolveSectionExpanded(sectionRow, prev) : true);
       next.set(sectionId, !current);
       return next;
     });
@@ -106,26 +148,16 @@ export function PlanListView({
 
   const openRow = useCallback(
     (row: PlanListRow) => {
-      const plan = plansById.get(row.planId);
-      if (!plan) return;
-      if (row.kind === "plan-root") {
-        setDetail({ kind: "plan", plan });
-        return;
-      }
-      if (row.kind === "spec-root") {
-        setDetail({ kind: "spec", plan, specSections: specSectionsByPlan.get(plan.id) ?? [] });
-        return;
-      }
-      if (row.taskId) {
-        const task = findTask(plan, row.taskId);
-        if (task) setDetail({ kind: "task", task, plan });
-      }
+      if (!selectedPlan || !row.taskId) return;
+      const task = findTask(selectedPlan, row.taskId);
+      if (task) setDetail({ kind: "task", task, plan: selectedPlan });
     },
-    [plansById, specSectionsByPlan],
+    [selectedPlan],
   );
 
   const closeDetail = useCallback(() => setDetail(null), []);
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
+  const now = Date.now();
 
   return (
     <div
@@ -159,7 +191,7 @@ export function PlanListView({
           {error}
         </div>
       )}
-      {!loading && !error && filteredPlans.length === 0 && (
+      {!loading && !error && !selectedPlan && (
         <div
           data-testid="plan-list-empty"
           className="flex flex-1 items-center justify-center px-6 text-center text-sm"
@@ -168,70 +200,46 @@ export function PlanListView({
           No active plans to list.
         </div>
       )}
-      {!loading && !error && rows.length > 0 && (
+      {!loading && !error && selectedPlan && boardModel && (
         <>
-          <PlanListFilterBar
-            statusFilter={statusFilter}
-            textQuery={textQuery}
-            onStatusFilter={setStatusFilter}
-            onTextQuery={setTextQuery}
-          />
-          <div data-testid="plan-list-scroll" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-1">
-            {planGroups.map(({ planId: groupPlanId, rows: planRows }) => {
-              const model = boardModelsByPlan.get(groupPlanId);
-              const plan = plansById.get(groupPlanId);
-              const visible = buildVisiblePlanListRows(planRows, {
-                statusFilter,
-                textQuery,
-                expansionOverrides,
-              });
+          <div className="plan-list-chrome">
+            <PlanSwitcher plans={switcherOptions} selectedId={selectedPlan.id} onSelect={selectPlan} />
+            <PlanContextHeader
+              summary={boardModel.planSummary}
+              spec={boardModel.spec}
+              onOpenPlan={() => setDetail({ kind: "plan", plan: selectedPlan })}
+              onOpenSpec={
+                boardModel.spec
+                  ? () => setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections })
+                  : undefined
+              }
+            />
+            <PlanListFilterBar
+              statusFilter={statusFilter}
+              textQuery={textQuery}
+              onStatusFilter={setStatusFilter}
+              onTextQuery={setTextQuery}
+            />
+          </div>
+          <div data-testid="plan-list-scroll" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+            {visibleRows.map((entry) => {
+              const sectionRow = entry.type === "row" ? entry.row : entry.sectionRow;
+              const sectionExpanded =
+                entry.type === "row" && sectionRow && (sectionRow.kind === "plan-section" || sectionRow.kind === "unsectioned")
+                  ? resolveSectionExpanded(sectionRow, expansionOverrides)
+                  : undefined;
               return (
-                <section key={groupPlanId} data-plan-id={groupPlanId} className="plan-list-plan-group">
-                  {model && plan && (
-                    <div
-                      className="sticky top-0 z-10"
-                      style={{
-                        background: "color-mix(in srgb, var(--ct-bg) 94%, transparent)",
-                        backdropFilter: "blur(6px)",
-                      }}
-                    >
-                      <PlanContextHeader
-                        summary={model.planSummary}
-                        spec={model.spec}
-                        onOpenPlan={() => setDetail({ kind: "plan", plan })}
-                        onOpenSpec={
-                          model.spec
-                            ? () =>
-                                setDetail({
-                                  kind: "spec",
-                                  plan,
-                                  specSections: specSectionsByPlan.get(plan.id) ?? [],
-                                })
-                            : undefined
-                        }
-                      />
-                    </div>
-                  )}
-                  {visible.map((entry) => {
-                    const sectionRow = entry.type === "row" ? entry.row : entry.sectionRow;
-                    const sectionExpanded =
-                      entry.type === "row" && sectionRow && (sectionRow.kind === "plan-section" || sectionRow.kind === "unsectioned" || sectionRow.kind === "spec-section")
-                        ? resolveSectionExpanded(sectionRow, expansionOverrides)
-                        : undefined;
-                    return (
-                      <PlanListRowView
-                        key={entry.type === "row" ? entry.row.id : `rollup::${entry.sectionRow.id}`}
-                        entry={entry}
-                        sectionExpanded={sectionExpanded}
-                        onToggleSection={(id) => {
-                          const row = planRows.find((r) => r.id === id);
-                          toggleSection(id, row);
-                        }}
-                        onOpenRow={openRow}
-                      />
-                    );
-                  })}
-                </section>
+                <PlanListRowView
+                  key={entry.type === "row" ? entry.row.id : `rollup::${entry.sectionRow.id}`}
+                  entry={entry}
+                  now={now}
+                  sectionExpanded={sectionExpanded}
+                  onToggleSection={(id) => {
+                    const targetRow = rows.find((r) => r.id === id);
+                    toggleSection(id, targetRow);
+                  }}
+                  onOpenRow={openRow}
+                />
               );
             })}
           </div>
