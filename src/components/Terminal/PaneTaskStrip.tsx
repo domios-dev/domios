@@ -45,5 +45,9 @@ function ResolvedPaneTaskStrip({
     openPanePlanFocus(entries, paneId);
   };
 
-  return <ComposerPlanActivityStrip activity={activity} onOpen={onOpen} />;
+  return (
+    <div className="ct-composer-activity-row mb-2 w-full min-w-0 max-w-full">
+      <ComposerPlanActivityStrip activity={activity} onOpen={onOpen} />
+    </div>
+  );
 }

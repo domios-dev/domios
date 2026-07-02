@@ -1,7 +1,21 @@
 import type { Pane } from "../../lib/types";
 import { resolvePaneCurrentTask } from "./paneCurrentTask";
 import { resolvePaneOwnedPlans } from "./paneOwnedPlans";
-import type { Plan } from "./types";
+import type { Plan, Task } from "./types";
+
+function displayPlanTitle(plan: Plan): string {
+  const title = plan.title?.trim();
+  if (title) return title;
+  return plan.id;
+}
+
+function displayTaskTitle(task: Task): string {
+  const name = task.name?.trim();
+  if (name) return name;
+  const handle = task.handle?.trim();
+  if (handle) return handle;
+  return task.id;
+}
 
 export type PaneComposerActivity =
   | { kind: "orchestrating"; planId: string; planTitle: string; extraPlans: number }
@@ -21,7 +35,7 @@ export function resolvePaneComposerActivity(
     return {
       kind: "orchestrating",
       planId: lead.plan.id,
-      planTitle: lead.plan.title,
+      planTitle: displayPlanTitle(lead.plan),
       extraPlans: owned.length - 1,
     };
   }
@@ -30,8 +44,8 @@ export function resolvePaneComposerActivity(
   return {
     kind: "working",
     planId: current.plan.id,
-    planTitle: current.plan.title,
+    planTitle: displayPlanTitle(current.plan),
     taskId: current.task.id,
-    taskTitle: current.task.name,
+    taskTitle: displayTaskTitle(current.task),
   };
 }
