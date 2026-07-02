@@ -4,17 +4,12 @@
 // Returns hit regions (node body, section rows, "-> tasks", View) for interaction.
 
 import type { CardContent, CardLevel, CardTag } from "./cardContent";
-import { FIT } from "./cardContent";
+import { FIT, GLYPH_ACCENT } from "./cardContent";
 import type { CanvasPalette } from "./palette";
 import { ellipsize, wrapLines } from "./textMetrics";
 import { worldThresholds } from "../worlds";
 
 const FONT = "Inter, -apple-system, BlinkMacSystemFont, system-ui, sans-serif";
-const GLYPH_COLOR: Record<string, string> = {
-  done: "rgba(82,180,145,0.95)",
-  progress: "rgba(129,140,248,0.95)",
-  uncovered: "rgba(148,163,184,0.55)",
-};
 const PAD = 12;
 const TITLE_PX = 14;
 
@@ -242,7 +237,7 @@ function drawNear(ctx: CanvasRenderingContext2D, content: CardContent, w: number
   for (const s of content.sections) {
     if (y + FIT.rowH > bottomLimit && drawn < totalRows - 1) { drawMore(ctx, totalRows - drawn, PAD, y, p); return; }
     const rowY = y;
-    ctx.fillStyle = GLYPH_COLOR[s.glyph] ?? p.fgMuted;
+    ctx.fillStyle = GLYPH_ACCENT[s.glyph] ?? p.fgMuted;
     ctx.beginPath();
     ctx.arc(PAD + 4, rowY + 8, 3.2, 0, Math.PI * 2);
     ctx.fill();

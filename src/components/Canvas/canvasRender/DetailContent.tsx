@@ -6,6 +6,7 @@ import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { PlanDetailKind } from "../planView/PlanDetailOverlay";
+import { GLYPH_ACCENT, specCoverage } from "./cardContent";
 
 // The READ surface body for the detail overlay. Plain (no section tint) — structure
 // + rendered markdown only. Task: description + structured fields. Plan/spec: progress
@@ -150,31 +151,110 @@ function TaskDetail({ task, panes = {}, onOpenPane }: { task: Task; panes?: Reco
   );
 }
 
-function SectionTree({ sections, depth = 0, onSection }: { sections: Section[]; depth?: number; onSection?: (sectionId: string) => void }) {
+function SectionCoverageGlyph({ glyph }: { glyph: "done" | "progress" | "uncovered" }) {
+  const color = GLYPH_ACCENT[glyph];
+  const title = glyph === "done" ? "All tasks done" : glyph === "progress" ? "Tasks in progress" : "No tasks yet";
+  return (
+    <span
+      title={title}
+      style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0, marginTop: 2 }}
+    />
+  );
+}
+
+function sectionTaskGlyph(sectionId: string, tasks: Task[]): "done" | "progress" | "uncovered" {
+  const linked = tasks.filter((t) => (t.section_ids ?? []).includes(sectionId));
+  if (linked.length === 0) return "uncovered";
+  if (linked.every((t) => t.status === "done" || t.status === "cancelled")) return "done";
+  return "progress";
+}
+
+function SectionTree({ sections, depth = 0, onSection, tasks }: { sections: Section[]; depth?: number; onSection?: (sectionId: string) => void; tasks?: Task[] }) {
   return (
     <>
-      {sections.map((s) => (
-        <div key={s.id} data-testid="canvas-detail-section" data-section-id={s.id} style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: depth * 16, paddingTop: depth ? 4 : 0 }}>
-          <button
-            type="button"
-            data-testid="canvas-detail-section-nav"
-            title="Go to this section's tasks"
-            onClick={() => onSection?.(s.id)}
-            style={{ ...sectionTitle, fontSize: depth ? 13.5 : 15, display: "flex", alignItems: "center", gap: 7, padding: 0, border: "none", background: "transparent", color: "var(--ct-fg)", cursor: onSection ? "pointer" : "default", textAlign: "left" }}
-          >
-            <span>{s.title}</span>
-            {onSection && <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ct-accent)", opacity: 0.85 }}>→ tasks</span>}
-          </button>
-          {s.tags?.length ? (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-              {s.tags.map((t) => <span key={t} style={{ fontSize: 11, padding: "1px 7px", borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 7%, transparent)" }}>{t.includes(":") ? t.slice(t.indexOf(":") + 1).replace(/-/g, " ") : t}</span>)}
+      {sections.map((s) => {
+        const linkedTasks = tasks ? tasks.filter((t) => (t.section_ids ?? []).includes(s.id)) : [];
+        const glyph = tasks ? sectionTaskGlyph(s.id, tasks) : "uncovered";
+        const taskCount = linkedTasks.length;
+        return (
+          <div key={s.id} data-testid="canvas-detail-section" data-section-id={s.id} style={{ display: "flex", flexDirection: "column", gap: 6, marginLeft: depth * 16, paddingTop: depth ? 4 : 0 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              {tasks && <SectionCoverageGlyph glyph={glyph} />}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    data-testid="canvas-detail-section-nav"
+                    title={taskCount > 0 ? `Go to ${taskCount} task${taskCount > 1 ? "s" : ""} in this section` : "No tasks in this section"}
+                    onClick={() => onSection?.(s.id)}
+                    style={{ ...sectionTitle, fontSize: depth ? 13.5 : 15, display: "inline", padding: 0, border: "none", background: "transparent", color: "var(--ct-fg)", cursor: onSection ? "pointer" : "default", textAlign: "left" }}
+                  >
+                    {s.title}
+                  </button>
+                  {taskCount > 0 && (
+                    <span
+                      data-testid="canvas-detail-section-task-count"
+                      style={{ fontSize: 11, fontWeight: 600, color: GLYPH_ACCENT[glyph], flexShrink: 0 }}
+                    >
+                      {taskCount} task{taskCount > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
-          ) : null}
-          {s.body?.trim() ? <Markdown text={s.body} /> : null}
-          {s.subsections?.length ? <SectionTree sections={s.subsections} depth={depth + 1} onSection={onSection} /> : null}
-        </div>
-      ))}
+            {s.tags?.length ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginLeft: tasks ? 16 : 0 }}>
+                {s.tags.map((t) => <span key={t} style={{ fontSize: 11, padding: "1px 7px", borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 7%, transparent)" }}>{t.includes(":") ? t.slice(t.indexOf(":") + 1).replace(/-/g, " ") : t}</span>)}
+              </div>
+            ) : null}
+            {s.body?.trim() ? <div style={{ marginLeft: tasks ? 16 : 0 }}><Markdown text={s.body} /></div> : null}
+            {s.subsections?.length ? <SectionTree sections={s.subsections} depth={depth + 1} onSection={onSection} tasks={tasks} /> : null}
+          </div>
+        );
+      })}
     </>
+  );
+}
+
+function SpecCoverageHeader({ plan }: { plan: Plan }) {
+  const cov = specCoverage(plan as Parameters<typeof specCoverage>[0]);
+  if (cov.total === 0) return null;
+  const pct = Math.round(((cov.covered + cov.partial) / cov.total) * 100);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }} data-testid="canvas-detail-spec-coverage">
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+        <span style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{cov.total}</span>
+        <span style={{ fontSize: 13, color: "color-mix(in srgb, var(--ct-fg) 60%, transparent)" }}>
+          section{cov.total !== 1 ? "s" : ""}
+        </span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {cov.covered > 0 && (
+          <span data-testid="canvas-detail-spec-covered" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: GLYPH_ACCENT.done }} />
+            {cov.covered} done
+          </span>
+        )}
+        {cov.partial > 0 && (
+          <span data-testid="canvas-detail-spec-partial" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: GLYPH_ACCENT.progress }} />
+            {cov.partial} active
+          </span>
+        )}
+        {cov.unplanned > 0 && (
+          <span data-testid="canvas-detail-spec-unplanned" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: "color-mix(in srgb, var(--ct-fg) 55%, transparent)" }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: GLYPH_ACCENT.uncovered }} />
+            {cov.unplanned} unplanned
+          </span>
+        )}
+        {cov.total > 0 && (
+          <span style={{ fontSize: 12, color: "color-mix(in srgb, var(--ct-fg) 45%, transparent)" }}>{pct}% covered</span>
+        )}
+      </div>
+      <div style={{ height: 5, borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 10%, transparent)", overflow: "hidden" }}>
+        <div style={{ width: `${Math.round((cov.covered / cov.total) * 100)}%`, height: "100%", background: GLYPH_ACCENT.done }} />
+      </div>
+    </div>
   );
 }
 
@@ -209,9 +289,12 @@ function PlanDetail({ plan, variant, onSection }: { plan: Plan; variant: "plan" 
           {metaBits.length > 0 && <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--ct-fg) 55%, transparent)" }}>{metaBits.join("  ·  ")}</div>}
         </div>
       )}
+      {variant === "spec" && <SpecCoverageHeader plan={plan} />}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={labelStyle}>{variant === "spec" ? "Specification" : "Sections"}</div>
-        {sections.length ? <SectionTree sections={sections} onSection={onSection} /> : <span style={muted}>No sections.</span>}
+        {sections.length
+          ? <SectionTree sections={sections} onSection={onSection} tasks={variant === "spec" ? plan.tasks : undefined} />
+          : <span style={muted}>No sections.</span>}
       </div>
     </div>
   );
