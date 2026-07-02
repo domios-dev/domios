@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, type ViewportBox, type ViewportTransform } from "../useCanvasViewport";
+import type { ViewportBox, ViewportTransform } from "../useCanvasViewport";
 import { resolveFlyToNodeId } from "../flyToTarget";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { Plan } from "../types";
@@ -109,7 +109,7 @@ export function useCanvasFlyTo({ lookups, planById, size, fitToView, animateToVi
       const maxY = Math.max(...boxes.map((b) => b.y + b.height));
       const cx = (minX + maxX) / 2;
       const cy = (minY + maxY) / 2;
-      const s = Math.max(CANVAS_MIN_SCALE, Math.min(CANVAS_MAX_SCALE, scale));
+      const s = Math.max(0.05, Math.min(10, scale));
       const t = { x: size.width / 2 - cx * s, y: size.height / 2 - cy * s, scale: s };
       if (animate) animateTo(t);
       else setTransform(t);

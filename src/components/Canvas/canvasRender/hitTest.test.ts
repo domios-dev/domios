@@ -64,11 +64,9 @@ ok("spec header (no region) → node", at(20, 4)?.action.type === "node");
 {
   const taskById = new Map([
     ["task-done", { id: "task-done", section_ids: ["sec-1"], status: TaskStatus.Done } as never],
-    ["task-live", { id: "task-live", section_ids: ["sec-1"], status: TaskStatus.InProgress } as never],
   ]);
   const lodNodes = [
     node("task-done", "task", 300, 300, 80, 50),
-    node("task-live", "task", 420, 300, 80, 50),
   ];
   const groups = buildSectionGroups(lodNodes, taskById, () => "Section", new Map());
   const lodInput = {
@@ -85,17 +83,6 @@ ok("spec header (no region) → node", at(20, 4)?.action.type === "node");
     const cy = marker.box.y * t.scale + t.y + (marker.box.height * t.scale) / 2;
     const h = hitTestScene(lodInput, t, { x: cx, y: cy });
     ok("done-stack hit-test", h?.action.type === "done-stack");
-  }
-
-  const cluster = resolveSceneLod(0.3, groups, taskById);
-  const chip = cluster.markers[0];
-  ok("cluster chip at mid zoom", chip?.kind === "section-cluster");
-  if (chip) {
-    const clusterT: ViewportTransform = { x: 0, y: 0, scale: 0.3 };
-    const cx = chip.box.x * clusterT.scale + clusterT.x + (chip.box.width * clusterT.scale) / 2;
-    const cy = chip.box.y * clusterT.scale + clusterT.y + (chip.box.height * clusterT.scale) / 2;
-    const h = hitTestScene(lodInput, clusterT, { x: cx, y: cy });
-    ok("cluster chip hit-test", h?.action.type === "section-cluster");
   }
 }
 

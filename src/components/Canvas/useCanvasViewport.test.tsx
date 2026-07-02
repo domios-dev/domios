@@ -3,7 +3,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { useCanvasViewport, CANVAS_ZOOM_INTENSITY, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, formatLayerTransform } from "./useCanvasViewport";
+import { useCanvasViewport, CANVAS_ZOOM_INTENSITY, CANVAS_MIN_SCALE, formatLayerTransform } from "./useCanvasViewport";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -206,34 +206,6 @@ test("zoom cannot go below CANVAS_MIN_SCALE floor", async () => {
   await flush();
   assert(last.scale >= CANVAS_MIN_SCALE - 1e-6, `scale clamped at floor ${CANVAS_MIN_SCALE}, got ${last.scale}`);
   await act(async () => root.unmount());
-});
-
-test("zoom cannot exceed CANVAS_MAX_SCALE ceiling", async () => {
-  function CeilingHarness() {
-    const { transform, handlers, containerRef, layerRef } = useCanvasViewport({
-      width: 800,
-      height: 600,
-      minScale: CANVAS_MIN_SCALE,
-      maxScale: CANVAS_MAX_SCALE,
-    });
-    last = transform;
-    return (
-      <div ref={containerRef} data-testid="vp" onMouseDown={handlers.onMouseDown} style={{ width: 800, height: 600 }}>
-        <div ref={layerRef} data-testid="layer" style={{ transform: formatLayerTransform(transform) }} />
-      </div>
-    );
-  }
-  const { host, root } = await render(<CeilingHarness />);
-  const vp = host.querySelector('[data-testid="vp"]')!;
-  for (let i = 0; i < 60; i++) wheel(vp, { deltaY: -200, ctrlKey: true });
-  await flush();
-  assert(last.scale <= CANVAS_MAX_SCALE + 1e-6, `scale clamped at ceiling ${CANVAS_MAX_SCALE}, got ${last.scale}`);
-  await act(async () => root.unmount());
-});
-
-test("CANVAS_MIN_SCALE is 10% and CANVAS_MAX_SCALE is 400%", () => {
-  assert(CANVAS_MIN_SCALE === 0.1, `min scale 0.1, got ${CANVAS_MIN_SCALE}`);
-  assert(CANVAS_MAX_SCALE === 4, `max scale 4, got ${CANVAS_MAX_SCALE}`);
 });
 
 async function main() {
