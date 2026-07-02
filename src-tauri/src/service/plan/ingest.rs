@@ -26,7 +26,7 @@ struct MarkdownSection {
 }
 
 fn gen_id() -> String {
-    format!("sec_{}", uuid::Uuid::new_v4().simple())
+    crate::plan::ids::short_id("sec")
 }
 
 fn handle_from_title(title: &str) -> String {

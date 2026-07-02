@@ -23,7 +23,7 @@ pub struct HeartbeatShowResult {
 }
 
 fn gen_id() -> String {
-    format!("learn_{}", uuid::Uuid::new_v4().simple())
+    crate::plan::ids::short_id("learn")
 }
 
 fn normalized_learning(text: &str) -> String {

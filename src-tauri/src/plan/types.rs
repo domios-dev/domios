@@ -525,7 +525,7 @@ pub struct Plan {
 
 impl Plan {
     pub fn new(title: String, project_path: String, owner: OrchestratorRef) -> Self {
-        let id = format!("pl_{}", uuid::Uuid::new_v4().simple());
+        let id = super::ids::short_id("pl");
         Self {
             id,
             title,
@@ -559,7 +559,7 @@ impl Plan {
 impl Spec {
     pub fn new(title: String, project_path: String) -> Self {
         Self {
-            id: format!("sp_{}", uuid::Uuid::new_v4().simple()),
+            id: super::ids::short_id("sp"),
             title,
             project_path: project_path.clone(),
             canonical_project_path: project_path,

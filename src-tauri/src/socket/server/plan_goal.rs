@@ -38,7 +38,7 @@ pub(super) fn dispatch(
     let store = &svc.plan_store;
     match method {
         "plan.goal.set" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let body = p.ok_or(JsonRpcError {
                 code: -32602,
                 message: "params required".to_string(),
@@ -74,7 +74,7 @@ pub(super) fn dispatch(
             Ok(resp)
         }
         "plan.goal.show" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let plan = store
                 .get(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;

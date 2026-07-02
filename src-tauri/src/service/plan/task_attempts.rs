@@ -57,7 +57,7 @@ pub struct TaskAttemptCreated {
 }
 
 fn gen_attempt_id() -> String {
-    format!("attempt_{}", uuid::Uuid::new_v4().simple())
+    crate::plan::ids::short_id("attempt")
 }
 
 fn report_status_key(status: ReportStatus) -> String {

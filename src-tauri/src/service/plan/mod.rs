@@ -13,6 +13,7 @@ pub mod next_actions;
 pub mod paths;
 mod readback;
 mod reconcile_fixes;
+pub mod resolve;
 pub mod reminders;
 pub mod search_index;
 pub mod section_links;
@@ -988,11 +989,7 @@ impl PlanStore {
     }
 
     pub fn list_full(&self) -> Vec<Plan> {
-        self.plans
-            .read()
-            .values()
-            .map(|p| p.lock().clone())
-            .collect()
+        self.plans.read().values().map(|p| p.lock().clone()).collect()
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {

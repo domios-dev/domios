@@ -57,8 +57,7 @@ pub(super) fn dispatch(
 
     match method {
         "plan.milestone.add" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
+            let (id, tid) = super::plan_refs::resolve_task(store, params)?;
             let kind = get_string_param(params, "kind")?;
             let text = p
                 .and_then(|x| x.get("text"))
@@ -80,8 +79,7 @@ pub(super) fn dispatch(
         }
 
         "plan.milestone.update" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
+            let (id, tid) = super::plan_refs::resolve_task(store, params)?;
             let ms_id = get_string_param(params, "milestone_id")?;
             store
                 .update_milestone(
@@ -98,8 +96,7 @@ pub(super) fn dispatch(
         }
 
         "plan.milestone.rm" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
+            let (id, tid) = super::plan_refs::resolve_task(store, params)?;
             let ms_id = get_string_param(params, "milestone_id")?;
             store
                 .rm_milestone(&id, &tid, &ms_id, now)
@@ -109,7 +106,7 @@ pub(super) fn dispatch(
         }
 
         "plan.loop.create" => {
-            let id = get_string_param(params, "plan_id")?;
+            let id = super::plan_refs::resolve_plan(store, params)?;
             let target = get_string_param(params, "target")?;
             let budget = p
                 .and_then(|x| x.get("budget"))

@@ -841,6 +841,8 @@ mod plan_planning_gate_tests;
 #[cfg(test)]
 mod plan_task_attempt_tests;
 #[cfg(test)]
+mod plan_ref_contract_tests;
+#[cfg(test)]
 mod plan_task_role_guidance_tests;
 #[cfg(test)]
 mod plugin_cli_tests;
