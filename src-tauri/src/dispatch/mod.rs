@@ -141,6 +141,9 @@ pub async fn dispatch_blocking(
 }
 
 pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, String> {
+    if is_mutating_user_command(cmd) {
+        ctx.user_last_activity.mark();
+    }
     match cmd {
         Command::Health => cmd_health(),
         Command::PaneList => cmd_pane_list(ctx),
@@ -195,6 +198,24 @@ pub fn dispatch(cmd: &Command, ctx: &ServiceContext) -> Result<CommandResult, St
 }
 
 // ── Command implementations ─────────────────────────────────────────
+
+fn is_mutating_user_command(cmd: &Command) -> bool {
+    matches!(
+        cmd,
+        Command::SendText { .. }
+            | Command::PaneClose { .. }
+            | Command::PaneFocus { .. }
+            | Command::PaneRename { .. }
+            | Command::PaneDescribe { .. }
+            | Command::WorkspaceCreate { .. }
+            | Command::WorkspaceRename { .. }
+            | Command::WorkspaceClose { .. }
+            | Command::WorkspaceReopenClosedPane { .. }
+            | Command::WorkspaceReopenClosedGroup { .. }
+            | Command::PtyResize { .. }
+            | Command::PtyKill { .. }
+    )
+}
 
 fn cmd_health() -> Result<CommandResult, String> {
     Ok(CommandResult::Json(serde_json::json!({

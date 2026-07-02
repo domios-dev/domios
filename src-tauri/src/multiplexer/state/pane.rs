@@ -52,6 +52,16 @@ impl MultiplexerState {
         self.panes.get(id)
     }
 
+    /// `(pane_id, pty_id)` for every pane currently backed by a PTY. Cheap
+    /// id-only clone for the multiplexed web output stream's per-tick sweep —
+    /// avoids the heavy full `snapshot()` on the hot path.
+    pub fn pty_backed_panes(&self) -> Vec<(String, String)> {
+        self.panes
+            .values()
+            .filter_map(|p| p.pty_id.clone().map(|pty| (p.id.clone(), pty)))
+            .collect()
+    }
+
     /// Collect agent_session_ids from all panes except the given one.
     pub fn other_session_ids(&self, exclude_pane_id: &str) -> Vec<String> {
         self.panes

@@ -384,7 +384,7 @@ fn session_start_string(body: &serde_json::Value, path: &[&str]) -> Option<Strin
 /// Push the just-bound session id (+cwd) onto whatever hidden run owns this pane
 /// (mem worker or cron run), so the read-only chat-ui can render it live.
 fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
-    use tauri::{Emitter, Manager};
+    use tauri::Manager;
 
     let (worker_id, cwd) = {
         let mux = state.svc.mux.write();
@@ -401,7 +401,11 @@ fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
             .workers
             .set_run_session(&wid, sid.to_string(), cwd.clone());
         if let Some(info) = state.svc.workers.get(&wid) {
-            let _ = state.svc.app_handle.emit("graph-worker-progress", &info);
+            crate::api::events::emit_everywhere(
+                &state.svc.app_handle,
+                "graph-worker-progress",
+                &info,
+            );
         }
     }
 
@@ -414,7 +418,7 @@ fn propagate_run_session(state: &AppState, pane_id: &str, sid: &str) {
             cron_state
                 .lock()
                 .set_run_session(&job_id, &run_id, sid, cwd.as_deref());
-            let _ = state.svc.app_handle.emit("cron-state-changed", ());
+            crate::api::events::emit_everywhere(&state.svc.app_handle, "cron-run-finished", ());
         }
     }
 }

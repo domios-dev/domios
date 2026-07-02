@@ -24,9 +24,14 @@ pub struct TabInfo {
 // Read-only commands read MuxState directly since they have no side effects.
 
 /// Returns the full multiplexer state for frontend hydration (read-only).
+/// Includes each PTY-backed pane's live status so the tab rail hydrates
+/// correctly on reload instead of waiting for the next `pane-status-changed`.
 #[tauri::command]
-pub fn mux_get_state(state: State<'_, MuxState>) -> Result<MultiplexerSnapshot, String> {
-    Ok(state.read().snapshot())
+pub fn mux_get_state(
+    state: State<'_, MuxState>,
+    tracker: State<'_, crate::AgentTrackerState>,
+) -> Result<MultiplexerSnapshot, String> {
+    Ok(state.read().snapshot_with_status(&tracker.lock()))
 }
 
 /// Create a new workspace.

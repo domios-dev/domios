@@ -7,11 +7,11 @@ use axum::{
 use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, cors::CorsLayer};
 
 use super::{
-    agent_routes, bridge_routes, config_routes, cron_routes, debug_routes, delayed_send_routes,
-    fs_routes, health_routes, hook_routes, logs_routes, mem_routes, mesh_routes, network_routes,
-    notification_routes, pane_chat_routes, pane_routes, pasteboard_routes, plan_routes,
-    services_routes, session_routes, task_routes, theme_routes, updater_routes, usage_routes,
-    web_routes, webhook_routes, workspace_routes,
+    agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes, debug_routes,
+    delayed_send_routes, fs_routes, health_routes, hook_routes, logs_routes, mem_routes,
+    mesh_routes, network_routes, notification_routes, output_stream, pane_chat_routes, pane_routes,
+    pasteboard_routes, plan_routes, pty_routes, services_routes, session_routes, task_routes,
+    theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -269,8 +269,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/panes/{id}/resize", post(pane_routes::resize_pane))
         .route(
             "/api/panes/{id}/resize-owner",
-            post(web_routes::claim_resize_owner),
+            post(pty_routes::claim_resize_owner),
         )
+        .route("/api/panes/{id}/link-pty", post(pane_routes::link_pty))
+        .route(
+            "/api/agents/providers/{id}/install-in-pane",
+            post(agent_routes::install_provider_in_pane),
+        )
+        .route("/api/app/restart", post(network_routes::restart_app))
         .route("/api/panes/{id}/chat", get(pane_chat_routes::snapshot))
         .route("/api/panes/{id}/chat/start", post(pane_chat_routes::start))
         .route("/api/panes/{id}/chat/stop", post(pane_chat_routes::stop))
@@ -410,7 +416,13 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/debug/clock/advance",
             post(debug_routes::clock_advance),
-        )
+        );
+    #[cfg(debug_assertions)]
+    let router = router.route(
+        "/api/dev/inject-cast",
+        post(super::dev_cast_routes::inject_cast),
+    );
+    let router = router
         // Web mirror: IPC equivalents + the SSE event stream.
         .route("/api/mux/state", get(web_routes::mux_state))
         .route(
@@ -442,6 +454,7 @@ pub fn create_router(state: AppState) -> Router {
             get(web_routes::peer_cron_history),
         )
         .route("/api/events/stream", get(web_routes::events_stream))
+        .route("/api/output/stream", get(output_stream::output_stream))
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(
             "/api/panes/{id}/chat-raw/start",
@@ -465,9 +478,14 @@ pub fn create_router(state: AppState) -> Router {
                 // Voice notes and attached files: axum's 2MB default is too small; cap at 200MB so a runaway client can't fill the disk.
                 .layer(axum::extract::DefaultBodyLimit::max(200 * 1024 * 1024)),
         )
-        .route("/api/pty/{id}/read", get(web_routes::pty_read))
-        .route("/api/pty/{id}/write", post(web_routes::pty_write))
-        .route("/api/pty/{id}/resize", post(web_routes::pty_resize))
+        .route("/api/pty/spawn", post(pty_routes::pty_spawn))
+        .route("/api/pty/{id}/read", get(pty_routes::pty_read))
+        .route("/api/pty/{id}/write", post(pty_routes::pty_write))
+        .route("/api/pty/{id}/resize", post(pty_routes::pty_resize))
+        .route(
+            "/api/pty/{id}/launch-command",
+            post(pty_routes::pty_launch_command),
+        )
         .route("/api/session/save", post(session_routes::save_session_api))
         .route(
             "/api/providers",
@@ -507,11 +525,16 @@ pub fn create_router(state: AppState) -> Router {
             "/api/services/{id}",
             get(services_routes::get_service)
                 .put(services_routes::update_service)
+                .patch(services_routes::update_service)
                 .delete(services_routes::delete_service),
         )
         .route(
             "/api/services/{id}/regenerate-token",
             post(services_routes::regenerate_token),
+        )
+        .route(
+            "/api/services/smart-add-inspect",
+            post(services_routes::smart_add_inspect),
         )
         .route("/api/activity", get(services_routes::list_activity))
         .route(
@@ -605,6 +628,11 @@ pub fn create_router(state: AppState) -> Router {
         .route(
             "/api/mesh/peers/{id}/addr",
             post(mesh_routes::mesh_set_peer_addr),
+        )
+        .route("/api/mesh/exit", post(mesh_routes::mesh_exit))
+        .route(
+            "/api/mesh/peers/{id}/access",
+            post(mesh_routes::mesh_set_access),
         )
         .route("/api/mem/search", get(mem_routes::mem_search))
         .route("/api/mem/items", post(mem_routes::mem_save))
@@ -765,7 +793,31 @@ pub fn create_router(state: AppState) -> Router {
             "/api/plugins/chatbackend/switch-model",
             post(web_routes::chatbackend_switch_model),
         )
+        .route(
+            "/api/plugins/chatbackend/open",
+            post(web_routes::open_chat_backend_pane),
+        )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
+        .route(
+            "/api/attachments/temp-file",
+            post(web_routes::save_temp_file),
+        )
+        .route(
+            "/api/attachments/clipboard-image",
+            post(clipboard_routes::save_clipboard_image),
+        )
+        .route(
+            "/api/attachments/clipboard-file",
+            post(clipboard_routes::save_clipboard_file),
+        )
+        .route(
+            "/api/clipboard/copy-image",
+            post(web_routes::copy_image_to_clipboard),
+        )
+        .route(
+            "/api/agents/general/restart",
+            post(agent_routes::restart_general_agent),
+        )
         .route("/api/secrets/status", get(crate::secrets::api::status))
         .route("/api/secrets/unlock", post(crate::secrets::api::unlock))
         .route("/api/secrets/lock", post(crate::secrets::api::lock))

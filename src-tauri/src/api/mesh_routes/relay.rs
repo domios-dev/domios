@@ -3,7 +3,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
-use tauri::Emitter;
 
 use crate::api::routes::{check_auth, AppState};
 
@@ -28,6 +27,7 @@ pub async fn mesh_sync(
         .unwrap_or_default()
         .as_secs();
     for peer_info in &payload.peers {
+        mesh.apply_gossip_peer_info(peer_info);
         if peer_info.instance_id == mesh.ident.identity.instance_id {
             continue;
         }
@@ -447,7 +447,8 @@ pub async fn mesh_relay(
             &target_pane,
             &preview,
         ));
-        let _ = state.svc.app_handle.emit(
+        crate::api::events::emit_everywhere(
+            &state.svc.app_handle,
             "service-pushed",
             serde_json::json!({"source_id": sender_name, "target": target_pane, "kind": "mesh"}),
         );

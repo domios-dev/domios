@@ -334,10 +334,9 @@ impl ServiceContext {
     }
 
     fn emit_cron_changed(&self) {
-        use tauri::Emitter;
         let handle = self.app_handle.clone();
         std::thread::spawn(move || {
-            let _ = handle.emit("cron-state-changed", ());
+            crate::api::events::emit_everywhere(&handle, "cron-run-finished", ());
         });
     }
 }

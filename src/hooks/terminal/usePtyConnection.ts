@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
-import { invoke, IS_WEB, resetWebPtyTail } from "../../lib/bridge";
+import { invoke, IS_WEB, isPtyDeadError, resetWebPtyTail, takePtyTruncation } from "../../lib/bridge";
 import { useMultiplexer } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
@@ -136,6 +136,9 @@ export function usePtyConnection({
       let pendingWriteChunks: Uint8Array[] = [];
       let pendingWriteLength = 0;
       let writeFrame: number | null = null;
+      const TRANSIENT_RETRY_BASE_MS = 500;
+      const TRANSIENT_RETRY_MAX_MS = 8_000;
+      let transientRetryMs = TRANSIENT_RETRY_BASE_MS;
 
       const waitForDrain = (): Promise<void> => {
         if (!readPaused) return Promise.resolve();
@@ -195,6 +198,15 @@ export function usePtyConnection({
             if (readPaused) await waitForDrain();
 
             const data = await invoke<number[]>("read_pty", { ptyId: predictedId });
+            transientRetryMs = TRANSIENT_RETRY_BASE_MS;
+
+            const truncatedFrom = takePtyTruncation(predictedId);
+            if (truncatedFrom != null) {
+              term.writeln(
+                `\r\n\x1b[90m[output truncated — resuming from byte ${truncatedFrom}]\x1b[0m`,
+              );
+            }
+
             if (data && data.length > 0) {
               const chunk = new Uint8Array(data);
 
@@ -204,12 +216,10 @@ export function usePtyConnection({
               enqueueTermWrite(chunk);
             }
           } catch (e) {
-            if (reading) {
-              const message = e instanceof Error ? e.message : String(e);
-              const stalePty =
-                !!ptyId && (message.includes("PTY not found") || message.includes("PTY closed"));
+            if (!reading || disposed) break; // torn down mid-read — silent stop
 
-              if (stalePty && !staleRespawnStarted && !disposed) {
+            if (isPtyDeadError(e)) {
+              if (!staleRespawnStarted) {
                 staleRespawnStarted = true;
                 reading = false;
                 connectedPtyRef.current = null;
@@ -234,11 +244,14 @@ export function usePtyConnection({
                   console.warn("Failed to respawn stale PTY:", respawnError);
                   term.writeln("\r\n\x1b[31m[Failed to reconnect PTY]\x1b[0m");
                 }
-              } else {
-                term.writeln("\r\n\x1b[90m[Process exited]\x1b[0m");
               }
+              break;
             }
-            break;
+
+            // Transient transport error: retry with backoff, cursor untouched (bridge.ts
+            // only advances it on a successful response), nothing printed.
+            await new Promise((resolve) => setTimeout(resolve, transientRetryMs));
+            transientRetryMs = Math.min(transientRetryMs * 2, TRANSIENT_RETRY_MAX_MS);
           }
         }
       };
@@ -247,6 +260,16 @@ export function usePtyConnection({
         invoke("resize_pty", { ptyId: predictedId, cols, rows, clientId: resizeClientId });
       });
       cleanupFns.push(() => onResizeDisposable.dispose());
+
+      // A daemon restart invalidates the boot-scoped byte cursor; drop it so the
+      // next read_pty full-replays instead of comparing against a reset ring.
+      if (IS_WEB) {
+        const onBootChanged = () => resetWebPtyTail(predictedId);
+        window.addEventListener("codeterm-web-boot-changed", onBootChanged);
+        cleanupFns.push(() =>
+          window.removeEventListener("codeterm-web-boot-changed", onBootChanged),
+        );
+      }
 
       // Spawn PTY if needed
       if (!ptyId) {

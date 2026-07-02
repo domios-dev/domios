@@ -1,7 +1,6 @@
 use base64::Engine as _;
 
-#[tauri::command]
-pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String, String> {
+pub fn save_clipboard_image_core(bytes: Vec<u8>, ext: String) -> Result<String, String> {
     let path = crate::attachments::save_with_uuid(
         "images",
         &ext,
@@ -11,8 +10,7 @@ pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String,
     Ok(path.to_string_lossy().to_string())
 }
 
-#[tauri::command]
-pub async fn save_clipboard_file(bytes: Vec<u8>, filename: String) -> Result<String, String> {
+pub fn save_clipboard_file_core(bytes: Vec<u8>, filename: String) -> Result<String, String> {
     let path = crate::attachments::save_with_prefixed_name(
         "files",
         &filename,
@@ -20,6 +18,16 @@ pub async fn save_clipboard_file(bytes: Vec<u8>, filename: String) -> Result<Str
         crate::attachments::EvictionPolicy::MaxBytes(crate::attachments::DEFAULT_MAX_BYTES),
     )?;
     Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn save_clipboard_image(bytes: Vec<u8>, ext: String) -> Result<String, String> {
+    save_clipboard_image_core(bytes, ext)
+}
+
+#[tauri::command]
+pub async fn save_clipboard_file(bytes: Vec<u8>, filename: String) -> Result<String, String> {
+    save_clipboard_file_core(bytes, filename)
 }
 
 #[tauri::command]

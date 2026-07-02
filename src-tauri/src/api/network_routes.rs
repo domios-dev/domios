@@ -121,6 +121,17 @@ pub async fn keepawake_stop_handler(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+/// Web-mirror twin of `restart_app` — restarts the daemon/desktop process.
+pub async fn restart_app(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let app = state.svc.app_handle.clone();
+    tokio::task::spawn_blocking(move || app.restart());
+    Ok(Json(serde_json::json!({ "ok": true })))
+}
+
 pub fn local_ip_address() -> Option<String> {
     use std::net::UdpSocket;
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;

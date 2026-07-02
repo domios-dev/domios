@@ -1,0 +1,171 @@
+/**
+ * Fork inventory (spec S1 "Parity principle & code reuse"): every `IS_WEB` /
+ * `isTauriEnv` / `__TAURI_INTERNALS__` branch site in `src/` must be listed here
+ * with a decision-vocabulary class. An unlisted (new or moved) fork fails the
+ * scan below, forcing the classification conversation at PR time instead of
+ * letting a class-(c) parity defect slip in silently.
+ *
+ * Classes (spec S1 decision vocabulary):
+ *   platform-adaptation — UI genuinely different per host (allowed)
+ *   transport-shim       — same behavior, different wire (bridge/webApi/webEvents)
+ *   capability-gate      — feature present iff daemon/browser capability present
+ * "parity-defect" (feature silently absent on web) has zero entries by design —
+ * that classification exists in the vocabulary but must never appear below.
+ */
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+type ForkClass = "platform-adaptation" | "transport-shim" | "capability-gate";
+
+interface ForkSite {
+  file: string;
+  line: number;
+  cls: ForkClass;
+  note: string;
+}
+
+const INVENTORY: ForkSite[] = [
+  { file: "src/App.tsx", line: 473, cls: "platform-adaptation", note: "native Titlebar hidden on web mirror" },
+  { file: "src/App.tsx", line: 488, cls: "platform-adaptation", note: "status-bar scrim only for web/PWA safe-area" },
+  { file: "src/App.tsx", line: 503, cls: "platform-adaptation", note: "web-only sidebar-open button (no titlebar to host it)" },
+  { file: "src/components/MemoryPanel/memoryApi.ts", line: 14, cls: "transport-shim", note: "REST base URL: apiHost() vs configured daemon host" },
+  { file: "src/components/MemoryPanel/memoryApi.ts", line: 20, cls: "transport-shim", note: "auth token source: web token store vs ApiConfig.token" },
+  { file: "src/components/MeshPanel/MeshPanel.tsx", line: 204, cls: "transport-shim", note: "spawn setup chat via webJson vs local fetch" },
+  { file: "src/components/Sidebar/Sidebar.tsx", line: 144, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
+  { file: "src/components/Sidebar/Sidebar.tsx", line: 214, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog (new workspace)" },
+  { file: "src/components/Sidebar/Sidebar.tsx", line: 429, cls: "platform-adaptation", note: "web host picker + keep-awake tray live in sidebar (no titlebar)" },
+  { file: "src/components/Sidebar/Sidebar.tsx", line: 879, cls: "platform-adaptation", note: "settings entry point moved to sidebar on web (no titlebar tray)" },
+  { file: "src/components/StaleBuildBanner.tsx", line: 18, cls: "transport-shim", note: "build-check API base: window.location.origin vs local dev daemon" },
+  { file: "src/components/Terminal/composerFiles.ts", line: 27, cls: "platform-adaptation", note: "browser DOM drag/drop vs native Tauri webview drag/drop" },
+  { file: "src/components/Terminal/terminalOwnership.ts", line: 9, cls: "capability-gate", note: "background-tab PTY suspension only applies where tabs can background (web)" },
+  { file: "src/components/Terminal/TerminalPane.tsx", line: 93, cls: "platform-adaptation", note: "mobile-web default-to-chat-view breakpoint" },
+  { file: "src/components/Terminal/TerminalPane.tsx", line: 97, cls: "platform-adaptation", note: "mobile-web viewport matchMedia listener" },
+  { file: "src/components/Terminal/voice/audio.ts", line: 181, cls: "platform-adaptation", note: "native macOS/iOS codec preference vs web codec order" },
+  { file: "src/components/Terminal/voice/audio.ts", line: 223, cls: "transport-shim", note: "persist voice blob: webUpload vs Tauri save_temp_file" },
+  { file: "src/components/Terminal/voice/useVoiceRecorder.ts", line: 215, cls: "platform-adaptation", note: "different mic-unavailable guidance text per host" },
+  { file: "src/components/Terminal/voice/useVoiceRecorder.ts", line: 224, cls: "platform-adaptation", note: "Permissions API gate only reliable in browsers (native WKWebView misreports)" },
+  { file: "src/components/Titlebar/Titlebar.tsx", line: 45, cls: "platform-adaptation", note: "native window-chrome controls (traffic lights / min/max/close)" },
+  { file: "src/components/WebGate/PwaSetup.tsx", line: 67, cls: "platform-adaptation", note: "service worker registration is web-only" },
+  { file: "src/components/WebGate/PwaSetup.tsx", line: 87, cls: "platform-adaptation", note: "PWA install-prompt banner is web-only" },
+  { file: "src/lib/serviceWorkerRegistration.ts", line: 54, cls: "platform-adaptation", note: "service worker registration guard is web-only" },
+  { file: "src/components/WebGate/WebGate.tsx", line: 24, cls: "platform-adaptation", note: "token auth gate only exists for the browser entry point" },
+  { file: "src/components/WebGate/WebGate.tsx", line: 44, cls: "platform-adaptation", note: "URL-fragment token consumption only applies to a browser tab" },
+  { file: "src/components/WebGate/WebGate.tsx", line: 83, cls: "platform-adaptation", note: "PwaSetup only mounted on web" },
+  { file: "src/hooks/terminal/usePtyConnection.ts", line: 82, cls: "transport-shim", note: "scrollback replay: web tail-reset vs native history invoke" },
+  { file: "src/hooks/terminal/usePtyConnection.ts", line: 266, cls: "capability-gate", note: "boot-changed offset revalidation only matters where the read cursor is a resumable HTTP byte offset (web)" },
+  { file: "src/hooks/terminal/useTauriFileDrop.ts", line: 33, cls: "platform-adaptation", note: "native Tauri webview drag/drop is a no-op on web (see composerFiles.ts web path)" },
+  { file: "src/hooks/useKeyboardInset.ts", line: 26, cls: "platform-adaptation", note: "soft-keyboard viewport inset only applies to mobile browsers" },
+  { file: "src/hooks/useTouchOptimizedUi.ts", line: 7, cls: "platform-adaptation", note: "touch-optimized UI only reachable via the web mirror" },
+  { file: "src/lib/bridge.ts", line: 67, cls: "transport-shim", note: "dead-PTY classification: WebApiError 404 vs native \"PTY not found\"/\"PTY closed\" message match" },
+  { file: "src/lib/bridge.ts", line: 510, cls: "capability-gate", note: "webCapability() — query whether an IPC cmd is reachable on web" },
+  { file: "src/lib/bridge.ts", line: 523, cls: "transport-shim", note: "THE seam: invoke() routes to tauriInvoke vs HTTP_MAP" },
+  { file: "src/lib/bridge.ts", line: 618, cls: "transport-shim", note: "THE seam: listen() routes to tauriListen vs webListen" },
+  { file: "src/lib/pluginConfigure.ts", line: 44, cls: "transport-shim", note: "spawn configure-agent via webJson vs local fetch" },
+  { file: "src/lib/resizeOwner.ts", line: 17, cls: "capability-gate", note: "resize-owner client-id namespacing to avoid native/web arbitration collisions" },
+  { file: "src/lib/stateCache.ts", line: 44, cls: "capability-gate", note: "boot snapshot cache only meaningful where a network round-trip exists (web)" },
+  { file: "src/lib/webApi.ts", line: 107, cls: "transport-shim", note: "THE seam: daemonHttpBase() — canonical daemon origin per access mode" },
+  { file: "src/lib/webApi.ts", line: 114, cls: "transport-shim", note: "THE seam: daemonAuthToken() — canonical auth token per access mode" },
+  { file: "src/lib/lifecycle.ts", line: 54, cls: "capability-gate", note: "visibility/pageshow/online wake resync is web-only (native webview inert)" },
+  { file: "src/lib/webEvents.ts", line: 182, cls: "transport-shim", note: "THE seam: web-only SSE bootstrap guard (no-op on native)" },
+  { file: "src/store/multiplexer/index.tsx", line: 59, cls: "capability-gate", note: "lazy-init hydration from the boot snapshot cache is web-only" },
+  { file: "src/store/multiplexer/index.tsx", line: 100, cls: "capability-gate", note: "persist boot snapshot cache only where it can ever be read back (web)" },
+  { file: "src/store/multiplexer/index.tsx", line: 127, cls: "capability-gate", note: "cache-hydrated-at-boot detection is web-only (native has no cache path)" },
+  { file: "src/store/multiplexer/index.tsx", line: 131, cls: "capability-gate", note: "IndexedDB fallback hydration for the boot cache is web-only" },
+  { file: "src/store/multiplexer/index.tsx", line: 150, cls: "capability-gate", note: "cache-reconciled signal only fires where the boot cache exists (web)" },
+  { file: "src/store/multiplexer/index.tsx", line: 418, cls: "transport-shim", note: "spawn agent tab via webJson vs Tauri invoke" },
+];
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const SRC = path.join(ROOT, "src");
+const FORK_RE = /\bIS_WEB\b|\bisTauriEnv\b|__TAURI_INTERNALS__/;
+
+function walk(dir: string, out: string[]): string[] {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === "dist") continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walk(full, out);
+    } else if (/\.(ts|tsx)$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+// Blank out import statements, bare re-exports, and the IS_WEB definition
+// itself (all non-decision mentions) while preserving newlines, so scanned
+// line numbers stay stable and comparable against INVENTORY.
+function redact(content: string): string {
+  const blank = (m: string) => m.replace(/[^\n]/g, " ");
+  let redacted = content.replace(/import\b[^;]*;/g, blank);
+  redacted = redacted.replace(/export\s*\{[^}]*\}\s*;/g, blank);
+  redacted = redacted.replace(/export const IS_WEB[^;]*;/g, blank);
+  return redacted;
+}
+
+function scanForkSites(): Set<string> {
+  const sites = new Set<string>();
+  for (const file of walk(SRC, [])) {
+    const content = fs.readFileSync(file, "utf8");
+    const lines = redact(content).split("\n");
+    lines.forEach((line, i) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) return;
+      if (FORK_RE.test(line)) {
+        sites.add(`${path.relative(ROOT, file).split(path.sep).join("/")}:${i + 1}`);
+      }
+    });
+  }
+  return sites;
+}
+
+let passed = 0;
+let failed = 0;
+
+function assert(label: string, cond: boolean) {
+  if (cond) {
+    console.log(`  ✓ ${label}`);
+    passed++;
+  } else {
+    console.error(`  ✗ ${label}`);
+    failed++;
+  }
+}
+
+console.log("webForks fork inventory:");
+
+const scanned = scanForkSites();
+const declared = new Set(INVENTORY.map((s) => `${s.file}:${s.line}`));
+
+assert(`inventory has ${INVENTORY.length} entries with unique file:line keys`, declared.size === INVENTORY.length);
+
+const unlisted = [...scanned].filter((k) => !declared.has(k)).sort();
+assert(
+  unlisted.length === 0
+    ? "no unlisted fork sites found in src/"
+    : `unlisted fork site(s) found (must be added to INVENTORY with a class): ${unlisted.join(", ")}`,
+  unlisted.length === 0,
+);
+
+const stale = [...declared].filter((k) => !scanned.has(k)).sort();
+assert(
+  stale.length === 0
+    ? "no stale inventory entries (every declared site still exists in src/)"
+    : `stale inventory entries (site moved/removed — update INVENTORY): ${stale.join(", ")}`,
+  stale.length === 0,
+);
+
+for (const site of INVENTORY) {
+  const full = path.join(ROOT, site.file);
+  const lines = fs.readFileSync(full, "utf8").split("\n");
+  const text = lines[site.line - 1] ?? "";
+  assert(
+    `${site.file}:${site.line} still references a fork identifier ("${text.trim()}")`,
+    FORK_RE.test(text),
+  );
+}
+
+console.log(`\n${passed} passed, ${failed} failed`);
+if (failed > 0) throw new Error(`${failed} test(s) failed`);

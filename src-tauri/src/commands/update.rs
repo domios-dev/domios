@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::UpdateStateHandle;
 
@@ -13,10 +13,7 @@ pub async fn check_for_update(
         .map_err(|e| e.to_string())?;
 
     if info.update_available {
-        let _ = app.emit(
-            "update-available",
-            serde_json::to_value(&info).unwrap_or_default(),
-        );
+        crate::api::events::emit_everywhere(&app, "update-available", &info);
     }
 
     let val = serde_json::to_value(&info).map_err(|e| e.to_string())?;

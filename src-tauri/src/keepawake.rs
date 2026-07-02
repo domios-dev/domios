@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 /// Monotonic session counter — every `start()` bumps this and stores the id
 /// on the ActiveSession. The platform thread captures the id on spawn and
@@ -366,7 +366,7 @@ fn clear_if_owner(state: &KeepAwakeState, my_id: u64, app: &AppHandle) {
                 system_block: false,
             };
             save_snapshot(&off);
-            let _ = app.emit(EVENT_CHANGED, &off);
+            crate::api::events::emit_everywhere(app, EVENT_CHANGED, &off);
         }
         _ => {
             // Another session took over — it owns the state now, don't touch.
@@ -426,7 +426,7 @@ pub fn start(
     );
 
     save_snapshot(&status);
-    let _ = app.emit(EVENT_CHANGED, &status);
+    crate::api::events::emit_everywhere(app, EVENT_CHANGED, &status);
     Ok(status)
 }
 
@@ -492,7 +492,7 @@ pub fn stop(state: &KeepAwakeState, app: &AppHandle) -> Result<(), String> {
         system_block: false,
     };
     save_snapshot(&off);
-    let _ = app.emit(EVENT_CHANGED, &off);
+    crate::api::events::emit_everywhere(app, EVENT_CHANGED, &off);
     Ok(())
 }
 

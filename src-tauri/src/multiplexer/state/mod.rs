@@ -86,6 +86,13 @@ pub struct MultiplexerSnapshot {
     /// persisted session snapshot — keeps both lean.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recently_closed: Vec<ClosedPaneView>,
+    /// Aggregate Idle/Working/Waiting/Dead per PTY-backed pane, mirrored from
+    /// `PaneStatusTracker` so a fresh page load hydrates the same rail color a
+    /// live `pane-status-changed` event would have delivered. Only populated by
+    /// [`MultiplexerState::snapshot_with_status`] — plain `snapshot()` leaves it
+    /// empty since most internal callers don't need it.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub pane_statuses: HashMap<String, crate::agent::status::PaneStatus>,
 }
 
 impl MultiplexerState {

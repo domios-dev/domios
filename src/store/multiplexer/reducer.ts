@@ -43,6 +43,36 @@ export type Action =
   | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
   | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus };
 
+/**
+ * Merge a fresh `pane_statuses` snapshot into the known map, then drop the
+ * synthetic "Waiting" the backend derives from a pane's `pending_prompt` once
+ * that prompt is gone and the fresh snapshot doesn't re-affirm any status for
+ * the pane. Plain merging alone leaves "Waiting" stuck forever for a pane
+ * with no attached PTY (nothing for `snapshot_with_status` to report once
+ * `pending_prompt` clears, so the key is simply absent from every future
+ * snapshot) — e.g. a hook-driven attention prompt on a pane that hasn't
+ * opened a real terminal yet. Any OTHER status (real Idle/Working/Dead, or a
+ * re-affirmed "Waiting" from a genuine PTY-detected permission prompt) is
+ * left untouched since the fresh snapshot explicitly carries it.
+ */
+function reconcilePaneStatuses(
+  prev: Record<string, PaneStatus>,
+  incoming: Record<string, PaneStatus> | undefined,
+  panes: Record<string, Pane>,
+): Record<string, PaneStatus> {
+  const merged = incoming ? { ...prev, ...incoming } : { ...prev };
+  for (const id of Object.keys(merged)) {
+    if (
+      merged[id] === "Waiting" &&
+      !panes[id]?.pending_prompt &&
+      !incoming?.[id]
+    ) {
+      delete merged[id];
+    }
+  }
+  return merged;
+}
+
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
     case "SET_STATE": {
@@ -114,6 +144,13 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         // Backend-authoritative, sqlite-sourced closed-tab history; carry it
         // from the incoming snapshot or the list silently stays empty.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
+        // Seed the tab-rail status from the snapshot so reload doesn't blank
+        // it out while waiting for the next live pane-status-changed event.
+        paneStatuses: reconcilePaneStatuses(
+          state.paneStatuses,
+          action.state.pane_statuses,
+          mergedPanes,
+        ),
         generation:
           typeof incomingGen === "number" ? incomingGen : state.generation,
       };

@@ -165,6 +165,7 @@ pub async fn do_approve(
             version: None,
             https_url: None,
             consecutive_misses: 0,
+            last_active_ms: None,
         };
         m.paired_peers
             .insert(request.from_instance_id.clone(), peer);
@@ -256,6 +257,7 @@ pub async fn mesh_pair_accept(
             version: None,
             https_url: None,
             consecutive_misses: 0,
+            last_active_ms: None,
         };
         mesh.paired_peers
             .insert(accept.from_instance_id.clone(), peer);

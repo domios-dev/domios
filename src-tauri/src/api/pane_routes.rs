@@ -771,6 +771,23 @@ pub async fn stop_capture(
     })))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct LinkPtyBody {
+    pty_id: String,
+}
+
+/// Web-mirror twin of `mux_link_pty` — bind a spawned PTY to its pane record.
+pub async fn link_pty(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(pane_id): Path<String>,
+    Json(body): Json<LinkPtyBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    state.svc.link_pty(&pane_id, body.pty_id);
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 #[cfg(test)]
 mod tests_send_text_body;
 

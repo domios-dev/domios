@@ -111,14 +111,14 @@ pub(super) async fn await_pty_link(state: &AppState, pane_id: &str) -> bool {
 }
 
 fn record_push_activity(state: &AppState, svc_id: &Option<String>, pane_id: &str, text: &str) {
-    use tauri::Emitter;
     let Some(svc_id) = svc_id else { return };
     let writer = crate::service::activity::ActivityWriter::new(state.svc.services_store.conn());
     let preview = text.chars().take(200).collect::<String>();
     let _ = writer.record(crate::service::activity::ActivityEvent::push(
         svc_id, pane_id, &preview,
     ));
-    let _ = state.svc.app_handle.emit(
+    crate::api::events::emit_everywhere(
+        &state.svc.app_handle,
         "service-pushed",
         serde_json::json!({"source_id": svc_id, "target": pane_id}),
     );

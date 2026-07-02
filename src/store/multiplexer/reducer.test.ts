@@ -5,6 +5,7 @@ import { reducer } from "./reducer";
 import type { ExtendedState } from "./tree";
 import type { MultiplexerState, Workspace, Pane } from "../../lib/types";
 import { TitleLevel } from "../../lib/types";
+import { resolveTabStatusRailVariant } from "../../components/Sidebar/TabStatusRail";
 
 let failures = 0;
 function test(name: string, fn: () => void) {
@@ -77,6 +78,106 @@ test("snapshots without a generation still apply (back-compat)", () => {
   delete (noGen as { generation?: number }).generation;
   const next = reducer(base(), { type: "SET_STATE", state: noGen });
   assert(next.active_workspace_id === "w-x", "ungenerationed snapshot applied");
+});
+
+test("SET_STATE seeds paneStatuses from the snapshot (reload hydration)", () => {
+  const withStatus = { ...snap(5, "w-new"), pane_statuses: { "p-1": "Waiting" as const } };
+  const next = reducer(base(), { type: "SET_STATE", state: withStatus });
+  assert(next.paneStatuses["p-1"] === "Waiting", "status hydrated from mux_get_state snapshot");
+});
+
+test("SET_STATE merges pane_statuses without dropping untouched live entries", () => {
+  const withLive = { ...base(), paneStatuses: { "p-2": "Working" as const } };
+  const withStatus = { ...snap(5, "w-new"), pane_statuses: { "p-1": "Waiting" as const } };
+  const next = reducer(withLive, { type: "SET_STATE", state: withStatus });
+  assert(next.paneStatuses["p-1"] === "Waiting", "new snapshot status applied");
+  assert(next.paneStatuses["p-2"] === "Working", "prior live-tracked status preserved");
+});
+
+test("end-to-end: a reload snapshot's pane_statuses drives the attention rail", () => {
+  // Closes the loop from backend snapshot -> reducer -> rail resolver, so a
+  // page reload renders the correct rail without waiting for a live event.
+  const withPrompt = {
+    ...snap(5, "w-new"),
+    pane_statuses: { "p-1": "Waiting" as const },
+  };
+  const next = reducer(base(), { type: "SET_STATE", state: withPrompt });
+  const variant = resolveTabStatusRailVariant(next.paneStatuses["p-1"], false, false);
+  assert(variant === "attention", "hydrated Waiting status resolves to the attention rail");
+});
+
+test("end-to-end: hook-driven pending_prompt survives reload as attention (not Working)", () => {
+  // Regression for the reload race this task fixes: a hook-driven prompt on a
+  // still-producing-output pane (e.g. a plain shell loop) has no agent-marker
+  // path to ever call PaneStatusTracker::set_waiting, so snapshot_with_status
+  // must derive Waiting from pane.pending_prompt itself — mirrored here as the
+  // backend now would send it, NOT the raw Working the old tracker mirror gave.
+  const promptedPane = {
+    id: "p-1",
+    pty_id: "pty-1",
+    title: "shell",
+    pending_prompt: { question: "Allow?", options: [{ label: "Yes", value: "1" }] },
+  } as unknown as Pane;
+  const withPrompt = {
+    ...snap(5, "w-new"),
+    panes: { "p-1": promptedPane },
+    pane_statuses: { "p-1": "Waiting" as const },
+  };
+  const next = reducer(base(), { type: "SET_STATE", state: withPrompt });
+  assert(next.paneStatuses["p-1"] === "Waiting", "backend-derived Waiting hydrates, not Working");
+  assert(Boolean(next.panes["p-1"].pending_prompt), "pending_prompt itself survives the snapshot merge");
+  const variant = resolveTabStatusRailVariant(
+    next.paneStatuses["p-1"],
+    Boolean(next.panes["p-1"].pending_prompt),
+    false,
+  );
+  assert(variant === "attention", "hook-driven prompt resolves to attention after reload, not working");
+});
+
+test("SET_STATE drops a stale Waiting once pending_prompt clears and no fresh status is reported", () => {
+  // Regression: a pane with no attached PTY (pty_id null) has nothing for the
+  // backend's snapshot_with_status to report once its hook-driven
+  // pending_prompt is cleared — the key is simply absent from every future
+  // pane_statuses map. A pure merge would leave "Waiting" stuck on this pane
+  // forever; the reducer must drop it once the pane's own pending_prompt is
+  // gone and the fresh snapshot doesn't re-affirm any status for it.
+  const withWaiting = {
+    ...base(),
+    panes: {
+      "p-1": {
+        id: "p-1",
+        pty_id: null,
+        title: "shell",
+        pending_prompt: { question: "Allow?", options: [{ label: "Yes", value: "1" }] },
+      } as unknown as Pane,
+    },
+    paneStatuses: { "p-1": "Waiting" as const },
+  };
+  const cleared = {
+    ...snap(5, "w-new"),
+    panes: {
+      "p-1": { id: "p-1", pty_id: null, title: "shell" } as unknown as Pane,
+    },
+    // No pane_statuses entry for p-1 — the pane has no PTY to derive from.
+  };
+  const next = reducer(withWaiting, { type: "SET_STATE", state: cleared });
+  assert(
+    next.paneStatuses["p-1"] === undefined,
+    "stale Waiting cleared once pending_prompt is gone and no fresh status reports it",
+  );
+});
+
+test("SET_STATE keeps a genuine tracker-reported Waiting even without pending_prompt", () => {
+  // A REAL PaneStatusTracker-detected permission prompt (agent marker path,
+  // not the hook-explicit path) can set Waiting with no pending_prompt on the
+  // pane at all — that must survive since the fresh snapshot re-affirms it.
+  const withWaiting = { ...base(), paneStatuses: { "p-1": "Waiting" as const } };
+  const stillWaiting = {
+    ...snap(5, "w-new"),
+    pane_statuses: { "p-1": "Waiting" as const },
+  };
+  const next = reducer(withWaiting, { type: "SET_STATE", state: stillWaiting });
+  assert(next.paneStatuses["p-1"] === "Waiting", "tracker-reaffirmed Waiting is not dropped");
 });
 
 // SET_STATE focused_pane_id: under the payload-based mux-state-changed flow,

@@ -7,7 +7,6 @@ use std::{
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use tauri::Emitter;
 
 use crate::service::ServiceState;
 
@@ -484,7 +483,8 @@ fn to_view(svc: &ServiceState, msg: DelayedMessage) -> DelayedMessageView {
 }
 
 fn emit_changed(svc: &ServiceState, pane_id: &str) {
-    let _ = svc.app_handle.emit(
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
         "delayed-send-changed",
         serde_json::json!({ "paneId": pane_id }),
     );
