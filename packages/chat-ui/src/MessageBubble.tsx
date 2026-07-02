@@ -42,6 +42,7 @@ import {
   extractFilePath,
   inferCodeLanguage,
   isLargeArtifact,
+  isShellToolName,
   languageForEdits,
   languageFromPath,
   lastNonEmptyLine,
@@ -161,6 +162,23 @@ function curatedToolKind(name: string | undefined): CuratedToolKind | null {
     default:
       return null;
   }
+}
+
+function resolveCuratedToolKind(name: string | undefined): CuratedToolKind | null {
+  const direct = curatedToolKind(name);
+  if (direct) return direct;
+  const normalized = (name ?? "").trim().toLowerCase();
+  if (isShellToolName(name)) return "exec";
+  if (normalized === "read") return "read_file";
+  if (normalized === "write") return "write_file";
+  return null;
+}
+
+function toolDisplayLabel(toolName: string): string {
+  if (isShellToolName(toolName) || toolName === "shell_command" || toolName === "exec_command") {
+    return "shell";
+  }
+  return toolName;
 }
 
 function hasRenderableValue(value: unknown): boolean {
@@ -661,7 +679,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       }
     }
 
-    const curatedKind = curatedToolKind(message.toolName);
+    const curatedKind = resolveCuratedToolKind(message.toolName);
     if (curatedKind) {
       const input = parsedToolInput(message);
       const phase = message.toolResult ? "result" : message.toolId ? "running" : "pending";
@@ -674,8 +692,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         Bot;
       const PhaseIcon = phase === "result" ? CheckCircle2 : phase === "running" ? Clock : Clock;
       const commandText =
-        curatedKind === "exec" ? textArg(input, ["cmd", "command"]) :
-        curatedKind === "codeterm" ? textArg(input, ["args", "command"]) :
+        curatedKind === "exec"
+          ? (textArg(input, ["cmd", "command"]) ?? extractCommand(message))
+          : curatedKind === "codeterm" ? textArg(input, ["args", "command"]) :
         null;
       const pathText =
         curatedKind === "read_file" || curatedKind === "write_file"
@@ -688,7 +707,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
       const cwdText = curatedKind === "exec" ? textArg(input, ["cwd"]) : null;
       const contentText = curatedKind === "write_file" ? textArg(input, ["content"]) : null;
       const title =
-        curatedKind === "exec" ? "exec" :
+        curatedKind === "exec" ? "shell" :
         curatedKind === "read_file" ? "read file" :
         curatedKind === "write_file" ? "write file" :
         curatedKind === "codeterm" ? "codeterm" :
@@ -705,13 +724,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
       return (
         <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
-          <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
+          <div className="flex w-full min-w-0 flex-col">
             <button
               data-testid={`chatbackend-tool-${curatedKind}`}
               onClick={() => setExpanded(!expanded)}
-              className="inline-flex min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
+              className="flex w-full min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1.5 text-xs transition-colors duration-150 hover:brightness-110"
               style={{
-                background: "transparent",
+                background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, black 4%)",
                 borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
                 color: "var(--ct-muted-fg)",
               }}
@@ -725,7 +744,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>
                 {title}
               </span>
-              <span className="min-w-0 truncate opacity-70 font-mono text-[11px]">
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px]" style={{ color: "var(--ct-fg)" }}>
                 {primary}
               </span>
               {secondary && (
@@ -753,8 +772,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                 style={{ color: "var(--ct-muted-fg)" }}
                 title="Show full output"
               >
-                <span className="flex-shrink-0 opacity-40">{"->"}</span>
-                <span className="min-w-0 truncate opacity-70">{lastNonEmptyLine(message.toolResult)}</span>
+                <span className="flex-shrink-0 opacity-40">{"→"}</span>
+                <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{lastNonEmptyLine(message.toolResult)}</span>
               </button>
             )}
 
@@ -796,15 +815,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
     return (
       <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
-        <div className="inline-flex flex-col max-w-[min(52rem,100%)]">
+        <div className="flex w-full min-w-0 flex-col">
           <button
             data-testid="chat-tool-call"
             onClick={() => setExpanded(!expanded)}
-            // De-bubbled on purpose: tool activity is a thin terminal trace (hairline border,
-            // no fill, green exec glyph) so it visually recedes behind user/assistant voices.
-            className="inline-flex min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1 text-xs transition-colors duration-150 hover:brightness-110"
+            className="flex w-full min-w-0 items-center gap-1.5 text-left rounded-md border px-2.5 py-1.5 text-xs transition-colors duration-150 hover:brightness-110"
             style={{
-              background: "transparent",
+              background: "color-mix(in srgb, var(--ct-surface, #161b22) 88%, black 4%)",
               borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
               color: "var(--ct-muted-fg)",
             }}
@@ -815,11 +832,11 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
             >
               <ToolIcon name={toolName} />
             </span>
-            <span className="font-medium font-mono" style={{ color: "var(--ct-muted-fg)" }}>
-              {toolName === "shell_command" ? "shell" : message.toolName}
+            <span className="font-medium font-mono shrink-0" style={{ color: "var(--ct-muted-fg)" }}>
+              {toolDisplayLabel(toolName)}
             </span>
             {summary && (
-              <span className="min-w-0 truncate opacity-60 font-mono text-[11px]">{summary}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-[11px]" style={{ color: "var(--ct-fg)" }}>{summary}</span>
             )}
             {toolContent && (
               <span className="shrink-0 opacity-40 font-mono text-[11px]">
@@ -845,13 +862,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               title="Show full output"
             >
               <span className="flex-shrink-0 opacity-40">{"→"}</span>
-              <span className="min-w-0 truncate opacity-70">{lastNonEmptyLine(resultText)}</span>
+              <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{lastNonEmptyLine(resultText)}</span>
             </button>
           )}
 
           {expanded && (
             <div
-              className="mt-1 w-full min-w-0 max-w-full rounded-md border border-[var(--ct-border)] p-2 text-xs"
+              className="mt-1 w-full min-w-0 max-w-full rounded-md border border-[var(--ct-border)] p-2.5 text-xs"
               style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 88%, black 4%)" }}
             >
               {toolContent ? (
