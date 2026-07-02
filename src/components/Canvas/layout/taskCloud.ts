@@ -11,7 +11,7 @@ export const UNSECTIONED = "__unsectioned__";
 
 // Min breathing space between cards of DIFFERENT sections after compaction — tight
 // enough that adjacent blobs nestle into one cohesive cloud, not scattered islands.
-export const SECTION_GROUP_GAP = 8;
+export const SECTION_GROUP_GAP = 14;
 
 // worlds-v3 §2: golden-angle phyllotaxis pack. The irrational that gives maximal
 // angular spacing (137.5°) so successive tiles never align into spokes.
@@ -19,7 +19,7 @@ export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 // §2.2 inter-tile gap (g) folded into each tile's enclosing radius. Kept tight so
 // the disk reads as a dense, FILLED cloud rather than a sparse ring.
-export const TILE_GAP = 3;
+export const TILE_GAP = 5;
 
 // Subtask satellites: children pack as a SMALLER nested cloud swarming around the
 // parent (parent = slot 0 at the local center, children orbit it). The whole
@@ -376,7 +376,7 @@ export function layoutTaskCloud(
       const lb = zoneLabelBox(title);
       items.push({ id: labelId(sectionId), w: lb.width, h: lb.height, slot: Math.max(1, Math.floor(clusters.length / 3)), theta: 0 });
     }
-    return { sectionId, clusters, pack: packCloud(items, TILE_GAP, true) };
+    return { sectionId, clusters, pack: packCloud(items, TILE_GAP) };
   });
 
   // Nestle section blobs with the same append-stable phyllotaxis pack used for tasks.
@@ -391,7 +391,7 @@ export function layoutTaskCloud(
       const side = Math.max(m.r * Math.SQRT2, 2);
       return { id: blob.sectionId, w: side, h: side, slot, theta: foldedTheta(slot) };
     });
-    const blobPack = packCloud(blobItems, SECTION_GROUP_GAP, true);
+    const blobPack = packCloud(blobItems, SECTION_GROUP_GAP);
     for (const it of blobPack.items) {
       const m = metricsById.get(it.id)!;
       blobCenters.set(it.id, { x: it.cx - m.cx, y: it.cy - m.cy });

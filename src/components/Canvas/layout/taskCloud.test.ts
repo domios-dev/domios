@@ -315,21 +315,7 @@ ok("ψ ≈ 2.39996 rad (137.5°)", Math.abs(GOLDEN_ANGLE - 2.399963) < 1e-5);
   ok("the lone group is the UNSECTIONED group", cloud.groups[0].sectionId === "__unsectioned__");
 }
 
-// ── dense packing: multi-section cloud span stays bounded ───────────
-{
-  const sections = [section("s0"), section("s1"), section("s2"), section("s3")];
-  const tasks: Task[] = [];
-  for (let s = 0; s < 4; s++)
-    for (let i = 0; i < 12; i++)
-      tasks.push(task(`d${s}_${i}`, { section_ids: [`s${s}`], created_at: s * 20 + i }));
-  const cloud = layoutTaskCloud(plan(tasks, sections), S, new Map());
-  const xs = cloud.nodes.flatMap((n) => [n.box.x, n.box.x + n.box.width]);
-  const ys = cloud.nodes.flatMap((n) => [n.box.y, n.box.y + n.box.height]);
-  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
-  const LEGACY_DENSE_SPAN = 6060;
-  ok(`dense 4×12 cloud span tighter than legacy (${span.toFixed(0)} < ${LEGACY_DENSE_SPAN})`, span < LEGACY_DENSE_SPAN);
-}
-
+// ── full layout determinism ──────────────────────────────────────────
 {
   const sections = [section("s0")];
   const mk = () => plan(Array.from({ length: 20 }, (_, i) => task(`t${i}`, { section_ids: ["s0"], created_at: i })), sections);
