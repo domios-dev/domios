@@ -39,11 +39,61 @@ export function realFixturePlans(): Plan[] {
 export function perfFixtureCount(): number {
   if (typeof window === "undefined") return 0;
   try {
+    if (window.localStorage.getItem("canvas.perfFixtureProfile") === "done-heavy") return 210;
     const n = Number(window.localStorage.getItem("canvas.perfFixtureN") ?? "0");
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
   } catch {
     return 0;
   }
+}
+
+export function perfFixtureProfile(): "default" | "done-heavy" {
+  if (typeof window === "undefined") return "default";
+  try {
+    return window.localStorage.getItem("canvas.perfFixtureProfile") === "done-heavy" ? "done-heavy" : "default";
+  } catch {
+    return "default";
+  }
+}
+
+export function buildDoneHeavyPerfFixturePlans(): Plan[] {
+  const sectionIds = PERF_PLAN_SECTION_IDS;
+  const active = Array.from({ length: 10 }, (_, i) =>
+    task(`perf_active_${i}`, [sectionIds[i % sectionIds.length]], {
+      status: TaskStatus.InProgress,
+      created_at: i,
+      priority: PRIORITIES[i % PRIORITIES.length],
+      assigned_pane_id: `pane-active-${i}`,
+      name: `Active task ${i}: current implementation lane`,
+      body: `Active work item ${i} for canvas perf / legibility validation.`,
+      milestones: [milestone(`perf_active_${i}_m0`, "status_update", null)],
+    }),
+  );
+  const done = Array.from({ length: 200 }, (_, i) =>
+    task(`perf_done_${i}`, [sectionIds[i % sectionIds.length]], {
+      status: TaskStatus.Done,
+      created_at: 100 + i,
+      priority: PRIORITIES[i % PRIORITIES.length],
+      name: `Done task ${i}: shipped module ${i}`,
+      body: `Completed task ${i} — compressed on canvas at normal zoom.`,
+      milestones: [],
+    }),
+  );
+  return [plan("perf_plan", "perf_orch", 1, PERF_PLAN_SECTIONS, [...active, ...done], {
+    primary_spec_id: PERF_SPEC_ID,
+    spec_links: PERF_SPEC_LINKS,
+    goal: {
+      vector: "Done-heavy canvas legibility: active tasks dominate; done history compresses per section.",
+      postulates: ["Overview LOD replaces dot-clouds with readable section chips"],
+    },
+    heartbeat: {
+      current_focus: "Validate 200 done + 10 active under pan/zoom frame budget.",
+      active_lanes: ["lane/canvas-legibility-lod"],
+      rules: ["Frame probe p95 under ~16ms on dev hardware"],
+      learnings: [],
+    },
+    loops: [],
+  })];
 }
 
 const MS_KINDS = ["status_update", "testing", "review"];

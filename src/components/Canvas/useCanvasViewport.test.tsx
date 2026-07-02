@@ -3,7 +3,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { useCanvasViewport, CANVAS_ZOOM_INTENSITY, formatLayerTransform } from "./useCanvasViewport";
+import { useCanvasViewport, CANVAS_ZOOM_INTENSITY, CANVAS_MIN_SCALE, formatLayerTransform } from "./useCanvasViewport";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -187,6 +187,24 @@ test("pinch zoom paints layer transform immediately (not only after RAF)", async
   assert(last.scale === 1, "React state still at initial scale before flush");
   await flush();
   assert(Math.abs(last.scale - factor) < 1e-6, "React state catches up after RAF");
+  await act(async () => root.unmount());
+});
+
+test("zoom cannot go below CANVAS_MIN_SCALE floor", async () => {
+  function FloorHarness() {
+    const { transform, handlers, containerRef, layerRef } = useCanvasViewport({ width: 800, height: 600, minScale: CANVAS_MIN_SCALE });
+    last = transform;
+    return (
+      <div ref={containerRef} data-testid="vp" onMouseDown={handlers.onMouseDown} style={{ width: 800, height: 600 }}>
+        <div ref={layerRef} data-testid="layer" style={{ transform: formatLayerTransform(transform) }} />
+      </div>
+    );
+  }
+  const { host, root } = await render(<FloorHarness />);
+  const vp = host.querySelector('[data-testid="vp"]')!;
+  for (let i = 0; i < 40; i++) wheel(vp, { deltaY: 200, ctrlKey: true });
+  await flush();
+  assert(last.scale >= CANVAS_MIN_SCALE - 1e-6, `scale clamped at floor ${CANVAS_MIN_SCALE}, got ${last.scale}`);
   await act(async () => root.unmount());
 });
 

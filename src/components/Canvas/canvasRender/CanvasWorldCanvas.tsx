@@ -3,8 +3,10 @@ import type { MutableRefObject } from "react";
 import type { LaidOutEdge, LaidOutNode, Point } from "../layout";
 import type { PresenceAgent } from "../presence/identity";
 import type { ViewportTransform } from "../useCanvasViewport";
+import type { Task } from "../types";
 import { buildReadback, drawScene, hitTestScene, resharpenVisible, type GroupGlyph, type RenderReadbackNode, type SceneExtras, type ZoneLabel } from "./drawScene";
 import type { HitRegion, RegionAction } from "./drawCard";
+import type { SectionTaskGroup } from "./sceneLod";
 import { registerBuiltinPainters } from "./builtinPainters";
 import { getCanvasPainter } from "./painterRegistry";
 import { NodeBitmapCache } from "./nodeBitmapCache";
@@ -43,6 +45,8 @@ export interface CanvasWorldCanvasProps {
   highlightIds?: ReadonlySet<string> | null;
   blinkIds?: ReadonlySet<string> | null;
   dominantId?: string | null;
+  lodGroups?: readonly SectionTaskGroup[];
+  taskById?: Map<string, Task>;
   /** Fired at the start of every canvas blit with the live camera — keeps world DOM in sync. */
   onCameraPaint?: (t: ViewportTransform) => void;
 }
@@ -68,6 +72,8 @@ export function CanvasWorldCanvas({
   highlightIds = null,
   blinkIds = null,
   dominantId = null,
+  lodGroups,
+  taskById,
   onCameraPaint,
 }: CanvasWorldCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -106,8 +112,8 @@ export function CanvasWorldCanvas({
     };
   }, [resolveModel]);
 
-  const inputRef = useRef({ nodes, edges, nodeById, zoneLabels, groups, presenceByNode, resolveModel, signatureOf, paintNode, cache: cacheRef.current, palette, dpr, width, height });
-  inputRef.current = { nodes, edges, nodeById, zoneLabels, groups, presenceByNode, resolveModel, signatureOf, paintNode, cache: cacheRef.current, palette, dpr, width, height };
+  const inputRef = useRef({ nodes, edges, nodeById, zoneLabels, groups, presenceByNode, resolveModel, signatureOf, paintNode, cache: cacheRef.current, palette, dpr, width, height, lodGroups, taskById });
+  inputRef.current = { nodes, edges, nodeById, zoneLabels, groups, presenceByNode, resolveModel, signatureOf, paintNode, cache: cacheRef.current, palette, dpr, width, height, lodGroups, taskById };
   const extrasRef = useRef<SceneExtras>({ dimIds, highlightIds, blinkIds, dominantId });
   extrasRef.current = { dimIds, highlightIds, blinkIds, dominantId };
   const onCameraPaintRef = useRef(onCameraPaint);
@@ -196,7 +202,7 @@ export function CanvasWorldCanvas({
       drawScene(ctx, inputRef.current, transform, extras());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transform, nodes, edges, zoneLabels, groups, presenceByNode, palette, dpr, width, height, revision, dimIds, highlightIds, blinkIds, dominantId]);
+  }, [transform, nodes, edges, zoneLabels, groups, presenceByNode, palette, dpr, width, height, revision, dimIds, highlightIds, blinkIds, dominantId, lodGroups, taskById]);
 
   return (
     <canvas

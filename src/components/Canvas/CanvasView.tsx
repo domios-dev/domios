@@ -31,7 +31,8 @@ import type { PlanGhostModel } from "./canvasView/models";
 import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
-import { useCanvasViewport, paintLayer, type ViewportTransform } from "./useCanvasViewport";
+import { useCanvasViewport, paintLayer, CANVAS_MIN_SCALE, type ViewportTransform } from "./useCanvasViewport";
+import { buildSectionGroups, resolveSceneLod } from "./canvasRender/sceneLod";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
 import { CanvasPresenceLayer } from "./CanvasPresenceLayer";
@@ -40,7 +41,7 @@ import { CanvasWorldCanvas, type CanvasRenderApi } from "./canvasRender/CanvasWo
 import type { GroupGlyph } from "./canvasRender/drawScene";
 import { CanvasSwarmCluster } from "./CanvasSwarmCluster";
 import { buildCanvasScene } from "./scene";
-import { perfFixtureCount, buildPerfFixturePlans, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
+import { perfFixtureCount, perfFixtureProfile, buildPerfFixturePlans, buildDoneHeavyPerfFixturePlans, buildPerfFixturePanes, realFixtureEnabled, realFixturePlans, fixtureSpecSectionsByPlan } from "./perfFixture";
 import { flattenSections } from "./sectionRows";
 import { buildTaskPresenceFingerprint, useCanvasLookups } from "./canvasView/useCanvasLookups";
 import { useCanvasFlyTo } from "./canvasView/useCanvasFlyTo";
@@ -195,6 +196,7 @@ export function CanvasViewInner({
     width: size.width,
     height: size.height,
     panButton: "middle",
+    minScale: CANVAS_MIN_SCALE,
     // §32.10 / worlds-dive: tasks/strides are tiny → deep zoom-drill needs wide range (to 1000%).
     maxScale: 10,
     onPaint: (t) => onPaintImpl.current(t),
@@ -568,6 +570,30 @@ export function CanvasViewInner({
     return m;
   }, [lookups.taskModelById]);
 
+  const presenceBySection = useMemo(() => {
+    const out = new Map<string, PresenceAgent[]>();
+    for (const [planId, bySection] of sectionAgentsByPlan) {
+      for (const [sectionId, agents] of bySection) out.set(`${planId}:${sectionId}`, agents);
+    }
+    return out;
+  }, [sectionAgentsByPlan]);
+
+  const lodGroups = useMemo(
+    () =>
+      buildSectionGroups(
+        allNodes,
+        lookups.taskById,
+        (_planId, sectionId) => sectionTitleById.get(sectionId) ?? (sectionId === "__unsectioned__" ? "Tasks" : sectionId),
+        presenceBySection,
+      ),
+    [allNodes, lookups.taskById, sectionTitleById, presenceBySection],
+  );
+
+  const sceneLod = useMemo(
+    () => resolveSceneLod(transform.scale, lodGroups, lookups.taskById),
+    [transform.scale, lodGroups, lookups.taskById],
+  );
+
   // Fly-arrival blink + off-screen-change plan pulse → one emphasis-ring set on the canvas.
   const blinkSet = useMemo(() => new Set<string>([...blinkIds, ...pulsePlanIds]), [blinkIds, pulsePlanIds]);
   const highlightIds = highlight?.taskIds ?? null;
@@ -650,9 +676,13 @@ export function CanvasViewInner({
     (e: React.MouseEvent) => {
       const rect = containerRef.current?.getBoundingClientRect();
       const hit = canvasApiRef.current?.hitTest({ x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) });
+      if (hit?.action.type === "section-cluster" || hit?.action.type === "done-stack") {
+        onSectionFrame({ planId: hit.action.planId, sectionId: hit.action.sectionId, variant: "plan" });
+        return;
+      }
       if (hit) focusNodeCamera(hit.node.id);
     },
-    [containerRef, focusNodeCamera],
+    [containerRef, focusNodeCamera, onSectionFrame],
   );
 
   // Single-click → canvas hit-test → action: ⤢ opens the full detail overlay; a
@@ -668,6 +698,10 @@ export function CanvasViewInner({
         if (action.type === "expand") { setDetailNodeId(node.id); return; }
         if (action.type === "section-button" || action.type === "section") {
           onSectionFrame({ planId: node.planId, sectionId: action.sectionId, variant: node.kind === "spec" ? "spec" : "plan" });
+          return;
+        }
+        if (action.type === "section-cluster" || action.type === "done-stack") {
+          onSectionFrame({ planId: action.planId, sectionId: action.sectionId, variant: "plan" });
           return;
         }
         if (action.type === "node") { focusNodeCamera(node.id); return; }
@@ -778,6 +812,8 @@ export function CanvasViewInner({
             highlightIds={highlightIds}
             blinkIds={blinkSet}
             dominantId={dominantNodeId}
+            lodGroups={lodGroups}
+            taskById={lookups.taskById}
             onCameraPaint={paintWorldLayer}
           />
         )}
@@ -812,7 +848,14 @@ export function CanvasViewInner({
         <CanvasTagLegend facets={legendFacets} filter={tagFilter} onToggleTag={onToggleTagFilter} />
       )}
       {minimapOn && !loading && !error && filteredPlans.length > 0 && (
-        <CanvasMinimap bounds={layout.bounds} nodes={[...lookups.nodeById.values()]} transform={transform} viewport={size} />
+        <CanvasMinimap
+          bounds={layout.bounds}
+          nodes={[...lookups.nodeById.values()]}
+          transform={transform}
+          viewport={size}
+          hiddenNodeIds={sceneLod.hiddenNodeIds}
+          lodMarkers={sceneLod.markers}
+        />
       )}
       {api && filteredPlans.length > 0 && (
         <CanvasComposer
@@ -859,10 +902,18 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
   const { plans: livePlans, loading, error } = useCanvasPlans(mode, projectPath);
   // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
   const perfN = perfFixtureCount();
+  const perfProfile = perfFixtureProfile();
   const useReal = realFixtureEnabled();
   const plans = useMemo(
-    () => (useReal ? realFixturePlans() : perfN > 0 ? buildPerfFixturePlans(perfN) : livePlans),
-    [useReal, perfN, livePlans],
+    () =>
+      useReal
+        ? realFixturePlans()
+        : perfProfile === "done-heavy"
+          ? buildDoneHeavyPerfFixturePlans()
+          : perfN > 0
+            ? buildPerfFixturePlans(perfN)
+            : livePlans,
+    [useReal, perfProfile, perfN, livePlans],
   );
   // Fixture-only: synthesize live panes for the synthetic swarm so presence renders
   // (the live-pane gate filters real plans correctly; this only feeds the demo plan).
