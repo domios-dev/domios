@@ -28,6 +28,9 @@ export const CANVAS_BOARD_SEL =
 export const CANVAS_BOARD_OR_EMPTY_SEL =
   `${CANVAS_BOARD_SEL}, [data-testid="canvas-empty"]`;
 
+const PLAN_SURFACE_OR_EMPTY_SEL =
+  `[data-testid="plan-view-shell"], ${CANVAS_BOARD_OR_EMPTY_SEL}`;
+
 /** Scope queries to the visible board — hidden workspace mounts can duplicate presence nodes. */
 export function visibleCanvasScope(page: Page) {
   return page.locator('[data-testid="canvas-view"]:visible').first();
@@ -69,6 +72,7 @@ export interface RenderReadbackNode {
 
 interface MuxTabState {
   workspaces: Array<{ id: string; tabs: Array<{ id: string }> }>;
+  active_workspace_id?: string;
 }
 
 export async function openSidebarIfNeeded(page: Page): Promise<void> {
@@ -101,10 +105,22 @@ export async function closeWorkspaceTabs(api: ApiClient, workspaceId: string): P
 }
 
 export async function closeActiveWorkspaceTabs(api: ApiClient): Promise<void> {
-  const mux = await api.get<MuxTabState & { active_workspace_id?: string }>("/mux/state");
+  const mux = await api.get<MuxTabState>("/mux/state");
   const activeId =
     mux.active_workspace_id ?? mux.workspaces.find((w) => (w as { is_active?: boolean }).is_active)?.id;
   if (activeId) await closeWorkspaceTabs(api, activeId);
+}
+
+async function focusWorkspaceForCanvas(api: ApiClient, page: Page, workspaceId: string): Promise<void> {
+  await api.focusWorkspace(workspaceId);
+  await expect
+    .poll(async () => {
+      const mux = await api.get<MuxTabState>("/mux/state");
+      return mux.active_workspace_id ?? mux.workspaces.find((w) => (w as { is_active?: boolean }).is_active)?.id ?? null;
+    }, { timeout: 30_000 })
+    .toBe(workspaceId);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
 }
 
 export async function clearCanvasHarnessFlags(page: Page): Promise<void> {
@@ -119,10 +135,10 @@ export async function clearCanvasHarnessFlags(page: Page): Promise<void> {
 }
 
 export async function seedPerfFixture(page: Page, taskCount = 24): Promise<void> {
-  await page.addInitScript(([perfKey, subKey, n]) => {
+  await page.addInitScript(([perfKey, subKey, n]: Array<string | number>) => {
     try {
-      window.localStorage.setItem(perfKey, String(n));
-      window.localStorage.setItem(subKey, "true");
+      window.localStorage.setItem(String(perfKey), String(n));
+      window.localStorage.setItem(String(subKey), "true");
     } catch {
       /* surfaced by wait helpers */
     }
@@ -143,6 +159,7 @@ export async function seedPerfFixtureAndOpenInlineCanvas(
   await api.focusWorkspace(workspace.id);
   await closeWorkspaceTabs(api, workspace.id);
   const session = await openCanvasWebPage(browser, { perfFixtureN: taskCount });
+  await focusWorkspaceForCanvas(api, session.page, workspace.id);
   await openInlineWorkspaceCanvas(session.page, workspace.id);
   return {
     page: session.page,
@@ -152,8 +169,15 @@ export async function seedPerfFixtureAndOpenInlineCanvas(
 }
 
 async function waitForBoardSurface(page: Page): Promise<void> {
-  await page.locator(CANVAS_BOARD_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForTimeout(450);
+}
+
+async function switchPlanSurfaceToCanvas(page: Page): Promise<void> {
+  const shell = page.locator('[data-testid="plan-view-shell"]').first();
+  if (!(await shell.isVisible().catch(() => false))) return;
+  const canvasTab = shell.locator('[data-testid="plan-view-mode-switch"]').getByRole("tab", { name: /canvas/i });
+  if (await canvasTab.isVisible().catch(() => false)) await canvasTab.click();
 }
 
 export async function readbackRenderNodes(page: Page): Promise<RenderReadbackNode[]> {
@@ -260,6 +284,8 @@ export async function openInlineWorkspaceCanvas(page: Page, workspaceId?: string
       }
     }
   }
+  await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await switchPlanSurfaceToCanvas(page);
   await view.waitFor({ state: "visible", timeout: 30_000 });
   await waitForBoardSurface(page);
 }
