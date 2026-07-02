@@ -30,6 +30,8 @@ pub mod worker_charter;
 #[cfg(test)]
 mod body_file_tests;
 #[cfg(test)]
+mod canonical_path_tests;
+#[cfg(test)]
 mod core_tests;
 #[cfg(test)]
 mod goal_tests;
@@ -345,7 +347,7 @@ impl PlanStore {
     }
 
     fn file_path(plan: &Plan) -> std::io::Result<PathBuf> {
-        paths::plan_json_path(Path::new(&plan.project_path), &plan.status, &plan.id)
+        paths::plan_json_path(paths::plan_sidecar_root(plan), &plan.status, &plan.id)
     }
 
     fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
@@ -355,6 +357,9 @@ impl PlanStore {
         }
         let tmp = path.with_extension("json.tmp");
         let mut normalized = plan.clone();
+        if normalized.canonical_project_path.trim().is_empty() {
+            normalized.canonical_project_path = normalized.project_path.clone();
+        }
         tag_model::normalize_plan(&mut normalized);
         body_files::persist_bodies(&normalized)?;
         let json_plan = body_files::strip_bodies(&normalized);
@@ -367,7 +372,7 @@ impl PlanStore {
     }
 
     fn remove_other_status_dir(plan: &Plan, written_path: &Path) -> std::io::Result<()> {
-        let project = Path::new(&plan.project_path);
+        let project = paths::plan_sidecar_root(plan);
         for status in [PlanStatus::Active, PlanStatus::Archived] {
             if paths::plan_bucket(&status) == paths::plan_bucket(&plan.status) {
                 continue;
@@ -381,13 +386,16 @@ impl PlanStore {
     }
 
     fn spec_file_path(spec: &Spec) -> std::io::Result<PathBuf> {
-        Ok(paths::specs_dir(Path::new(&spec.project_path))?.join(format!("{}.json", spec.id)))
+        Ok(paths::specs_dir(paths::spec_sidecar_root(spec))?.join(format!("{}.json", spec.id)))
     }
 
     fn write_spec_atomic(spec: &Spec) -> std::io::Result<PathBuf> {
         let path = Self::spec_file_path(spec)?;
         let tmp = path.with_extension("json.tmp");
         let mut normalized = spec.clone();
+        if normalized.canonical_project_path.trim().is_empty() {
+            normalized.canonical_project_path = normalized.project_path.clone();
+        }
         tag_model::normalize_sections_for_spec(&mut normalized.sections);
         spec_files::persist_bodies(&normalized)?;
         let json_spec = spec_files::strip_bodies(&normalized);
@@ -584,7 +592,7 @@ impl PlanStore {
         let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         let mut plan: Plan =
             serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
-        plan.project_path = project_root.display().to_string();
+        paths::normalize_plan_paths(&mut plan, project_root);
         let migrated =
             body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
         tag_model::normalize_plan(&mut plan);
@@ -607,7 +615,7 @@ impl PlanStore {
         let json = std::fs::read_to_string(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         let mut spec: Spec =
             serde_json::from_str(&json).map_err(|e| PlanError::Io(e.to_string()))?;
-        spec.project_path = project_root.display().to_string();
+        paths::normalize_spec_paths(&mut spec, project_root);
         let migrated =
             spec_files::hydrate_and_migrate(&mut spec).map_err(|e| PlanError::Io(e.to_string()))?;
         if migrated {
@@ -666,6 +674,9 @@ impl PlanStore {
         if plan.created_at == 0 {
             plan.created_at = now_ms;
         }
+        if plan.canonical_project_path.trim().is_empty() {
+            plan.canonical_project_path = plan.project_path.clone();
+        }
         plan.updated_at = now_ms;
         tag_model::normalize_plan(plan);
         let id = plan.id.clone();
@@ -697,6 +708,9 @@ impl PlanStore {
     pub fn save_spec(&self, spec: &mut Spec, now_ms: u64) -> std::io::Result<()> {
         if spec.created_at == 0 {
             spec.created_at = now_ms;
+        }
+        if spec.canonical_project_path.trim().is_empty() {
+            spec.canonical_project_path = spec.project_path.clone();
         }
         spec.updated_at = now_ms;
         tag_model::normalize_sections_for_spec(&mut spec.sections);
@@ -822,7 +836,7 @@ impl PlanStore {
             )));
         }
         let project_root = paths::project_root(Path::new(&plan.project_path));
-        plan.project_path = project_root.display().to_string();
+        paths::normalize_plan_paths(&mut plan, &project_root);
         let migrated =
             body_files::hydrate_and_migrate(&mut plan).map_err(|e| PlanError::Io(e.to_string()))?;
         tag_model::normalize_plan(&mut plan);

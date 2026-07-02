@@ -107,6 +107,9 @@ impl PlanStore {
         let mut guard = arc.lock();
         let out = f(&mut guard)?;
         guard.updated_at = now_ms;
+        if guard.canonical_project_path.trim().is_empty() {
+            guard.canonical_project_path = guard.project_path.clone();
+        }
         super::tag_model::normalize_sections_for_spec(&mut guard.sections);
         let path = Self::write_spec_atomic(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&guard, &path);

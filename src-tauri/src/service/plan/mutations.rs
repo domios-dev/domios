@@ -302,6 +302,9 @@ impl PlanStore {
         let mut guard = arc.lock();
         let out = f(&mut guard)?;
         guard.updated_at = now_ms;
+        if guard.canonical_project_path.trim().is_empty() {
+            guard.canonical_project_path = guard.project_path.clone();
+        }
         super::tag_model::normalize_plan(&mut guard);
         let path = Self::write_atomic(&guard).map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&guard, &path);

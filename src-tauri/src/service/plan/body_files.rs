@@ -39,7 +39,7 @@ impl BodyKind {
 }
 
 pub fn plan_body_dir(plan: &Plan) -> std::io::Result<PathBuf> {
-    super::paths::plan_dir(Path::new(&plan.project_path), &plan.status, &plan.id)
+    super::paths::plan_dir(canonical_project_path(plan), &plan.status, &plan.id)
 }
 
 pub fn section_path(plan: &Plan, section_id: &str) -> std::io::Result<PathBuf> {
@@ -254,7 +254,7 @@ pub fn body_paths(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
 }
 
 pub fn file_manifest(plan: &Plan) -> std::io::Result<PlanFileManifest> {
-    let project = Path::new(&plan.project_path);
+    let project = canonical_project_path(plan);
     let entries = index_entries(plan)?
         .into_iter()
         .map(|entry| PlanFileEntry {
@@ -267,6 +267,14 @@ pub fn file_manifest(plan: &Plan) -> std::io::Result<PlanFileManifest> {
         index_path: project_relative(project, &index_path(plan)?),
         entries,
     })
+}
+
+fn canonical_project_path(plan: &Plan) -> &Path {
+    if plan.canonical_project_path.trim().is_empty() {
+        Path::new(&plan.project_path)
+    } else {
+        Path::new(&plan.canonical_project_path)
+    }
 }
 
 pub fn spec_markdown(plan: &Plan) -> String {

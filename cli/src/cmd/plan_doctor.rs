@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use serde_json::{json, Value};
 
@@ -81,7 +82,12 @@ fn doctor_report(
         checked += 1;
         match std::fs::read_to_string(&path) {
             Ok(raw) => match serde_json::from_str::<Value>(&raw) {
-                Ok(plan) => findings.extend(inspect_plan(&path, &plan, kind)),
+                Ok(plan) => {
+                    findings.extend(inspect_plan(&path, &plan, kind));
+                    if matches!(kind, "all" | "storage") {
+                        findings.extend(inspect_stray_sidecars(&project_root, &path, &plan));
+                    }
+                }
                 Err(err) => findings.push(Finding {
                     severity: "error",
                     kind: "malformed_json",
@@ -119,6 +125,89 @@ fn doctor_report(
         "warning_count": findings.iter().filter(|f| f.severity == "warning").count(),
         "findings": findings.iter().map(Finding::json).collect::<Vec<_>>(),
     }))
+}
+
+fn inspect_stray_sidecars(
+    project_root: &Path,
+    canonical_path: &Path,
+    plan: &Value,
+) -> Vec<Finding> {
+    let Some(plan_id) = plan_id_from(plan, canonical_path) else {
+        return vec![];
+    };
+    let canonical_project = canonical_project_path(project_root, plan);
+    let canonical_plan = canonical_path
+        .canonicalize()
+        .unwrap_or_else(|_| canonical_path.to_path_buf());
+    worktree_roots(project_root)
+        .into_iter()
+        .filter(|root| canonicalize_path(root) != canonicalize_path(&canonical_project))
+        .flat_map(|root| {
+            let plan_id = plan_id.clone();
+            ["active", "archive"]
+                .into_iter()
+                .map(move |bucket| {
+                    root.join(".codeterm")
+                        .join("plans")
+                        .join(bucket)
+                        .join(plan_stem(&plan_id))
+                        .join("plan.json")
+                })
+        })
+        .filter(|path| path.is_file())
+        .filter(|path| canonicalize_path(path) != canonical_plan)
+        .map(|path| Finding {
+            severity: "warning",
+            kind: "stray_sidecar_copy",
+            plan_id: Some(plan_id.clone()),
+            path: path.display().to_string(),
+            task_id: None,
+            detail: format!(
+                "non-canonical plan sidecar copy; canonical project path is {}",
+                canonical_project.display()
+            ),
+            fix: "remove the stray .codeterm/plans copy from the linked worktree after confirming canonical state".into(),
+        })
+        .collect()
+}
+
+fn canonical_project_path(project_root: &Path, plan: &Value) -> PathBuf {
+    plan.get("canonical_project_path")
+        .or_else(|| plan.get("project_path"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| project_root.to_path_buf())
+}
+
+fn worktree_roots(project_root: &Path) -> Vec<PathBuf> {
+    let Ok(out) = Command::new("git")
+        .current_dir(project_root)
+        .args(["worktree", "list", "--porcelain"])
+        .output()
+    else {
+        return vec![];
+    };
+    if !out.status.success() {
+        return vec![];
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| line.strip_prefix("worktree "))
+        .map(PathBuf::from)
+        .collect()
+}
+
+fn canonicalize_path(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn plan_stem(id: &str) -> &str {
+    if id == "inbox" {
+        "_inbox"
+    } else {
+        id
+    }
 }
 
 fn inspect_plan(path: &Path, plan: &Value, kind: &str) -> Vec<Finding> {
@@ -615,6 +704,20 @@ pub(crate) fn render_doctor(report: &Value) -> String {
 mod tests {
     use super::*;
 
+    fn run_git(cwd: &Path, args: &[&str]) {
+        let out = Command::new("git")
+            .current_dir(cwd)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {:?} failed: {}",
+            args,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
     #[test]
     fn detects_missing_milestone_from() {
         let plan = json!({
@@ -668,6 +771,63 @@ mod tests {
             .unwrap()
             .iter()
             .any(|f| f["kind"] == "malformed_json"));
+    }
+
+    #[test]
+    fn storage_warns_about_stray_linked_worktree_sidecar_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let main = tmp.path().join("main");
+        let linked = tmp.path().join("linked");
+        std::fs::create_dir(&main).unwrap();
+        run_git(&main, &["init"]);
+        run_git(&main, &["config", "user.email", "test@example.com"]);
+        run_git(&main, &["config", "user.name", "Test User"]);
+        std::fs::write(main.join("README.md"), "root\n").unwrap();
+        run_git(&main, &["add", "README.md"]);
+        run_git(&main, &["commit", "-m", "init"]);
+        run_git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                linked.to_str().unwrap(),
+                "-b",
+                "linked-test",
+            ],
+        );
+
+        let plan = json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "owner": {},
+            "project_path": main.display().to_string(),
+            "canonical_project_path": main.display().to_string(),
+            "created_at": 1,
+            "updated_at": 2,
+            "tasks": []
+        });
+        let canonical_dir = main.join(".codeterm/plans/active/pl_1");
+        let stray_dir = linked.join(".codeterm/plans/active/pl_1");
+        std::fs::create_dir_all(&canonical_dir).unwrap();
+        std::fs::create_dir_all(&stray_dir).unwrap();
+        let raw = serde_json::to_string_pretty(&plan).unwrap();
+        std::fs::write(canonical_dir.join("plan.json"), &raw).unwrap();
+        std::fs::write(stray_dir.join("plan.json"), raw).unwrap();
+
+        let report = doctor_report(None, Some(linked.display().to_string()), "storage").unwrap();
+        let findings = report["findings"].as_array().unwrap();
+        assert!(findings.iter().any(|f| {
+            f["kind"] == "stray_sidecar_copy"
+                && f["detail"]
+                    .as_str()
+                    .unwrap()
+                    .contains(main.to_str().unwrap())
+                && f["path"]
+                    .as_str()
+                    .unwrap()
+                    .contains(linked.to_str().unwrap())
+        }));
     }
 
     #[test]

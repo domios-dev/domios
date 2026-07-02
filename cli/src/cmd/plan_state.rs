@@ -19,6 +19,10 @@ pub fn render_state(val: &Value) -> String {
     if !mode.is_empty() {
         out.push_str(&format!("mode: {mode}\n"));
     }
+    let canonical_path = s(val, "canonical_project_path");
+    if !canonical_path.is_empty() {
+        out.push_str(&format!("canonical project: {canonical_path}\n"));
+    }
 
     if let Some(vector) = val
         .get("goal")

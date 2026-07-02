@@ -91,6 +91,7 @@ pub struct PlanStateSnapshot {
     pub title: String,
     pub status: PlanStatus,
     pub mode: PlanMode,
+    pub canonical_project_path: String,
     pub planning_readiness: PlanningReadiness,
     pub owner: OrchestratorRef,
     pub goal: Option<Goal>,
@@ -290,6 +291,11 @@ pub fn build_plan_state_snapshot(
         title: plan.title.clone(),
         status: plan.status.clone(),
         mode: plan.mode.clone(),
+        canonical_project_path: if plan.canonical_project_path.trim().is_empty() {
+            plan.project_path.clone()
+        } else {
+            plan.canonical_project_path.clone()
+        },
         planning_readiness: planning_readiness(plan),
         owner: plan.owner.clone(),
         goal: plan.goal.clone(),
