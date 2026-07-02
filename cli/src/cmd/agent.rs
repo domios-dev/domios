@@ -3,6 +3,7 @@ use crate::client::SocketClient;
 use crate::cmd::hints::maybe_orchestration_reminder;
 use crate::cmd::plan_errors::render_plan_call_error;
 use crate::cmd::print::{handle_result, print_object};
+use crate::cmd::report_guard::ReportRefusal;
 use crate::{build_http, read_api_config, resolve_pane, AgentAction};
 use std::io::Read;
 
@@ -35,6 +36,99 @@ pub fn resolve_spawn_task<R: Read>(
 }
 
 pub(crate) const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
+
+fn refusal_next_commands() -> Vec<&'static str> {
+    vec![
+        "git status --short",
+        "git add <files>",
+        "git commit -m \"<message>\"",
+        "codeterm agent report --status in_review --sha $(git rev-parse HEAD) \"...\"",
+        "codeterm agent report --status partial \"...\"",
+    ]
+}
+
+fn refusal_report_message(refusal: &ReportRefusal, original: &str) -> String {
+    format!(
+        "REPORT NOT SENT\n{}\n\nOriginal readiness report that was refused locally:\n{}",
+        refusal.message(),
+        original
+    )
+}
+
+fn format_report_refusal_text(
+    refusal: &ReportRefusal,
+    sent: bool,
+    report_id: Option<&str>,
+    error: Option<&str>,
+) -> String {
+    let mut lines = vec!["REPORT NOT SENT".to_string(), refusal.message()];
+    match (sent, report_id, error) {
+        (true, Some(id), _) => lines.push(format!("Diagnostic report sent to parent: {id}")),
+        (true, None, _) => lines.push("Diagnostic report sent to parent.".to_string()),
+        (false, _, Some(err)) => lines.push(format!("Diagnostic report could not be sent: {err}")),
+        (false, _, None) => lines.push("Diagnostic report could not be sent.".to_string()),
+    }
+    lines.push("REPORT NOT SENT".to_string());
+    format!("{}\n", lines.join("\n"))
+}
+
+fn handle_report_refusal(
+    client: &mut SocketClient,
+    json: bool,
+    mut body: serde_json::Value,
+    refusal: ReportRefusal,
+) -> ! {
+    let original = body
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    body["message"] = serde_json::json!(refusal_report_message(&refusal, &original));
+    body["kind"] = serde_json::json!("report_refused");
+    body["status"] = serde_json::json!("partial");
+
+    let diagnostic = client.call_detailed("agent.report", Some(body.clone()));
+    let (sent, report_id, error) = match diagnostic {
+        Ok(value) => (
+            true,
+            value
+                .get("report_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            None,
+        ),
+        Err(err) => {
+            let rendered = if body.get("plan_id").and_then(|v| v.as_str()).is_some() {
+                render_plan_call_error(err, &body)
+            } else {
+                err.to_string()
+            };
+            (false, None, Some(rendered))
+        }
+    };
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "verdict": "REPORT NOT SENT",
+                "reason": refusal.reason,
+                "dirty_files": refusal.dirty_files,
+                "next_commands": refusal_next_commands(),
+                "diagnostic_report_sent": sent,
+                "diagnostic_report_id": report_id,
+                "diagnostic_error": error,
+            }))
+            .unwrap()
+        );
+    } else {
+        eprint!(
+            "{}",
+            format_report_refusal_text(&refusal, sent, report_id.as_deref(), error.as_deref())
+        );
+    }
+    std::process::exit(1);
+}
 
 pub(crate) fn normalize_pane_description(value: &str) -> Result<Option<String>, String> {
     let trimmed = value.trim();
@@ -353,10 +447,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 changed_files,
             ) {
                 Ok(fields) => fields,
-                Err(e) => {
-                    eprintln!("Error: {e}");
-                    std::process::exit(1);
-                }
+                Err(refusal) => handle_report_refusal(client, json, body, refusal),
             };
             if let Some(b) = branch {
                 body["branch"] = serde_json::json!(b);
@@ -731,6 +822,24 @@ mod tests {
             Some("from-env".into())
         );
         std::env::remove_var("CODETERM_TEST_REPORT_DEFAULT");
+    }
+
+    #[test]
+    fn report_refusal_text_starts_and_ends_with_not_sent() {
+        let refusal = ReportRefusal {
+            reason: "readiness report refused: this git worktree has uncommitted lane changes."
+                .to_string(),
+            dirty_files: vec!["src/main.rs".to_string()],
+        };
+
+        let out = format_report_refusal_text(&refusal, true, Some("rep-1"), None);
+        let lines = out.lines().collect::<Vec<_>>();
+
+        assert_eq!(lines.first().copied(), Some("REPORT NOT SENT"));
+        assert_eq!(lines.last().copied(), Some("REPORT NOT SENT"));
+        assert!(out.contains("git status --short"));
+        assert!(out.contains("codeterm agent report --status partial"));
+        assert!(out.contains("Diagnostic report sent to parent: rep-1"));
     }
 
     #[test]

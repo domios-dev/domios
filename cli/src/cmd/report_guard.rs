@@ -10,12 +10,39 @@ pub struct ReportGitMetadata {
     pub changed_files: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportRefusal {
+    pub reason: String,
+    pub dirty_files: Vec<String>,
+}
+
+impl ReportRefusal {
+    pub fn message(&self) -> String {
+        let mut lines = vec![
+            self.reason.clone(),
+            "Next commands:".to_string(),
+            "  git status --short".to_string(),
+            "  git add <files>".to_string(),
+            "  git commit -m \"<message>\"".to_string(),
+            "  codeterm agent report --status in_review --sha $(git rev-parse HEAD) \"...\""
+                .to_string(),
+            "Or report WIP with:".to_string(),
+            "  codeterm agent report --status partial \"...\"".to_string(),
+        ];
+        if !self.dirty_files.is_empty() {
+            lines.push("Dirty lane files:".to_string());
+            lines.extend(self.dirty_files.iter().map(|file| format!("  {file}")));
+        }
+        lines.join("\n")
+    }
+}
+
 pub fn enrich_ready_report(
     status: Option<ReportStatusArg>,
     branch: Option<String>,
     sha: Option<String>,
     changed_files: Option<Vec<String>>,
-) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), String> {
+) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
     enrich_ready_report_in(Path::new("."), status, branch, sha, changed_files)
 }
 
@@ -25,7 +52,7 @@ fn enrich_ready_report_in(
     branch: Option<String>,
     sha: Option<String>,
     changed_files: Option<Vec<String>>,
-) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), String> {
+) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
     if !is_readiness_status(status) {
         return Ok((branch, sha, changed_files));
     }
@@ -34,10 +61,12 @@ fn enrich_ready_report_in(
     };
     if let (Some(given), Some(head)) = (sha.as_deref(), metadata.sha.as_deref()) {
         if !sha_matches_head(given, head) {
-            return Err(format!(
-                "readiness report refused: provided --sha {given} does not match HEAD {head}.\n\
-                 Commit the lane changes and report the resulting HEAD SHA, or report WIP with `--status partial`."
-            ));
+            return Err(ReportRefusal {
+                reason: format!(
+                    "readiness report refused: provided --sha {given} does not match HEAD {head}."
+                ),
+                dirty_files: Vec::new(),
+            });
         }
     }
     Ok((
@@ -60,15 +89,16 @@ fn sha_matches_head(given: &str, head: &str) -> bool {
     !given.is_empty() && (given == head || head.starts_with(given))
 }
 
-fn inspect_git_worktree(cwd: &Path) -> Result<Option<ReportGitMetadata>, String> {
+fn inspect_git_worktree(cwd: &Path) -> Result<Option<ReportGitMetadata>, ReportRefusal> {
     if !git_success(cwd, &["rev-parse", "--is-inside-work-tree"]) {
         return Ok(None);
     }
-    let dirty = git_lines(cwd, &["status", "--porcelain"])?;
-    if !dirty.is_empty() {
-        return Err(readiness_dirty_error(&dirty));
+    let dirty = git_lines(cwd, &["status", "--porcelain", "-uall"]).map_err(git_refusal)?;
+    let lane_dirty = lane_dirty_files(&dirty);
+    if !lane_dirty.is_empty() {
+        return Err(readiness_dirty_error(lane_dirty));
     }
-    let sha = git_one(cwd, &["rev-parse", "HEAD"])?;
+    let sha = git_one(cwd, &["rev-parse", "HEAD"]).map_err(git_refusal)?;
     let branch = git_one(cwd, &["branch", "--show-current"]).ok();
     let changed = git_lines(
         cwd,
@@ -80,7 +110,8 @@ fn inspect_git_worktree(cwd: &Path) -> Result<Option<ReportGitMetadata>, String>
             "-r",
             "HEAD",
         ],
-    )?;
+    )
+    .map_err(git_refusal)?;
     Ok(Some(ReportGitMetadata {
         branch,
         sha: Some(sha),
@@ -88,19 +119,45 @@ fn inspect_git_worktree(cwd: &Path) -> Result<Option<ReportGitMetadata>, String>
     }))
 }
 
-fn readiness_dirty_error(status_lines: &[String]) -> String {
-    let files = status_lines
+fn git_refusal(reason: String) -> ReportRefusal {
+    ReportRefusal {
+        reason: format!("readiness report refused: {reason}"),
+        dirty_files: Vec::new(),
+    }
+}
+
+fn readiness_dirty_error(dirty_files: Vec<String>) -> ReportRefusal {
+    ReportRefusal {
+        reason: "readiness report refused: this git worktree has uncommitted lane changes."
+            .to_string(),
+        dirty_files: dirty_files.into_iter().take(8).collect(),
+    }
+}
+
+fn lane_dirty_files(status_lines: &[String]) -> Vec<String> {
+    status_lines
         .iter()
-        .take(8)
-        .map(|line| line.trim().to_string())
-        .collect::<Vec<_>>()
-        .join("\n  ");
-    format!(
-        "readiness report refused: this git worktree has uncommitted changes.\n\
-         Commit the lane changes, then rerun `codeterm agent report --status in_review ...`, \
-         or report WIP with `--status partial`.\n\
-         Dirty files:\n  {files}"
-    )
+        .flat_map(|line| porcelain_paths(line))
+        .filter(|path| !is_tool_owned_path(path))
+        .collect()
+}
+
+fn porcelain_paths(line: &str) -> Vec<String> {
+    let Some(rest) = line.get(3..) else {
+        return Vec::new();
+    };
+    rest.split(" -> ")
+        .map(unquote_git_path)
+        .filter(|path| !path.is_empty())
+        .collect()
+}
+
+fn unquote_git_path(path: &str) -> String {
+    path.trim().trim_matches('"').to_string()
+}
+
+fn is_tool_owned_path(path: &str) -> bool {
+    path == ".codeterm/plans" || path.starts_with(".codeterm/plans/")
 }
 
 fn git_success(cwd: &Path, args: &[&str]) -> bool {
@@ -133,8 +190,8 @@ fn git_lines(cwd: &Path, args: &[&str]) -> Result<Vec<String>, String> {
     }
     Ok(String::from_utf8_lossy(&out.stdout)
         .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
         .map(str::to_string)
         .collect())
 }
@@ -180,9 +237,35 @@ mod tests {
 
         let err = inspect_git_worktree(dir.path()).unwrap_err();
 
-        assert!(err.contains("readiness report refused"));
-        assert!(err.contains("--status partial"));
-        assert!(err.contains("a.txt"));
+        assert!(err.message().contains("readiness report refused"));
+        assert!(err.message().contains("--status partial"));
+        assert_eq!(err.dirty_files, vec!["a.txt"]);
+    }
+
+    #[test]
+    fn tool_owned_plan_mirror_dirt_is_ignored() {
+        let dir = repo();
+        let plans_dir = dir.path().join(".codeterm/plans");
+        fs::create_dir_all(&plans_dir).unwrap();
+        fs::write(plans_dir.join("mirror.md"), "tool state\n").unwrap();
+
+        let metadata = inspect_git_worktree(dir.path()).unwrap().unwrap();
+
+        assert!(metadata.sha.unwrap().len() >= 7);
+    }
+
+    #[test]
+    fn mixed_tool_and_lane_dirt_refuses_only_lane_files() {
+        let dir = repo();
+        let plans_dir = dir.path().join(".codeterm/plans");
+        fs::create_dir_all(&plans_dir).unwrap();
+        fs::write(plans_dir.join("mirror.md"), "tool state\n").unwrap();
+        fs::write(dir.path().join("src.rs"), "lane dirt\n").unwrap();
+
+        let err = inspect_git_worktree(dir.path()).unwrap_err();
+
+        assert_eq!(err.dirty_files, vec!["src.rs"]);
+        assert!(!err.message().contains(".codeterm/plans"));
     }
 
     #[test]
@@ -209,8 +292,10 @@ mod tests {
             .unwrap_err()
         };
 
-        assert!(err.contains("provided --sha deadbeef does not match HEAD"));
-        assert!(err.contains("--status partial"));
+        assert!(err
+            .message()
+            .contains("provided --sha deadbeef does not match HEAD"));
+        assert!(err.message().contains("--status partial"));
     }
 
     #[test]
