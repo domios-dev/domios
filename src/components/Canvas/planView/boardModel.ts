@@ -16,6 +16,14 @@ export const BOARD_COLUMN_DEFS = [
 
 export type BoardColumnKey = (typeof BOARD_COLUMN_DEFS)[number]["key"];
 
+export const DONE_COLUMN_COLLAPSED_LIMIT = 5;
+
+export interface DoneColumnBounds {
+  visible: BoardTaskCardModel[];
+  total: number;
+  hidden: number;
+}
+
 export interface BoardSpecSummary {
   specId: string;
   title: string;
@@ -219,6 +227,18 @@ export function buildBoardModels(
   return plans.map((plan) =>
     buildBoardPlanModel(plan, panes, specSectionsByPlan.get(plan.id)),
   );
+}
+
+export function boundDoneColumnCards(
+  cards: readonly BoardTaskCardModel[],
+  expanded: boolean,
+  limit: number = DONE_COLUMN_COLLAPSED_LIMIT,
+): DoneColumnBounds {
+  const total = cards.length;
+  if (expanded || total <= limit) {
+    return { visible: [...cards], total, hidden: 0 };
+  }
+  return { visible: cards.slice(0, limit), total, hidden: total - limit };
 }
 
 export function filterPlansForBoard(

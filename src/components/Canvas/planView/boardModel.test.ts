@@ -4,9 +4,11 @@ import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.t
 import { TaskStatus, type Plan, type Section, type Task } from "../types";
 import {
   BOARD_COLUMN_DEFS,
+  boundDoneColumnCards,
   buildBoardPlanModel,
   deriveBoardPlanSummary,
   deriveBoardSpecSummary,
+  DONE_COLUMN_COLLAPSED_LIMIT,
   groupTasksIntoColumns,
 } from "./boardModel";
 
@@ -112,6 +114,48 @@ test("buildBoardPlanModel wires spec + columns", () => {
   const model = buildBoardPlanModel(plan, PANES, [FIXTURE_SECTION]);
   assert(model.spec?.specId === "spec-abc", "spec summary");
   assert(model.columns.find((c) => c.key === "blocked")?.cards[0]?.task.name === "Blocked lane", "blocked card");
+});
+
+test("boundDoneColumnCards keeps newest N when collapsed", () => {
+  const cards = Array.from({ length: 8 }, (_, i) =>
+    task({ id: `done-${i}`, status: TaskStatus.Done, status_changed_at: 100 - i }),
+  ).map((t) => ({
+    task: t,
+    presenceLabel: null,
+    historicalExecutorSummary: null,
+    roleLabel: null,
+    branch: null,
+    worktree: null,
+    workspaceName: null,
+    latestMilestone: null,
+    latestMilestoneKind: null,
+    focusMatch: false,
+  }));
+  const collapsed = boundDoneColumnCards(cards, false);
+  assert(collapsed.total === 8, "total count");
+  assert(collapsed.hidden === 3, `hidden=${collapsed.hidden}`);
+  assert(collapsed.visible.length === DONE_COLUMN_COLLAPSED_LIMIT, "visible capped");
+  assert(collapsed.visible[0]?.task.id === "done-0", "newest first");
+
+  const expanded = boundDoneColumnCards(cards, true);
+  assert(expanded.visible.length === 8 && expanded.hidden === 0, "expanded shows all");
+});
+
+test("boundDoneColumnCards passes through small done columns", () => {
+  const cards = [task({ id: "only", status: TaskStatus.Done })].map((t) => ({
+    task: t,
+    presenceLabel: null,
+    historicalExecutorSummary: null,
+    roleLabel: null,
+    branch: null,
+    worktree: null,
+    workspaceName: null,
+    latestMilestone: null,
+    latestMilestoneKind: null,
+    focusMatch: false,
+  }));
+  const bounds = boundDoneColumnCards(cards, false);
+  assert(bounds.visible.length === 1 && bounds.hidden === 0, "no bounding needed");
 });
 
 let passed = 0;

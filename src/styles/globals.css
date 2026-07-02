@@ -1591,11 +1591,14 @@ button,
 
 /* Plan board — read-only operational kanban for agent observability */
 .plan-board-view {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   width: 100%;
   overflow: hidden;
+  background: var(--ct-bg);
+  color: var(--ct-fg);
 }
 .plan-board-state {
   margin: auto;
@@ -1610,89 +1613,157 @@ button,
 .plan-board-stack {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.85rem;
   min-height: 0;
   flex: 1;
   overflow: auto;
-  padding: 0.85rem 1rem 1.25rem;
+  padding: 0.65rem 0.75rem 0.85rem;
 }
 .plan-board-plan {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.55rem;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.plan-context-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--ct-border);
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--ct-bg) 94%, var(--ct-surface));
+}
+.plan-context-header-primary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.65rem;
   min-width: 0;
 }
-.plan-board-summaries {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 0.65rem;
-}
-.plan-board-entity-summary {
-  border: 1px solid var(--ct-border);
-  border-radius: 0.75rem;
-  background: color-mix(in srgb, var(--ct-surface) 88%, var(--ct-bg));
-  padding: 0.65rem 0.8rem;
-}
-.plan-board-spec-summary {
-  border-left: 3px solid color-mix(in srgb, var(--ct-accent) 55%, var(--ct-border));
-}
-.plan-board-plan-summary {
-  border-left: 3px solid color-mix(in srgb, var(--ct-green, #3fb950) 45%, var(--ct-border));
-}
-.plan-board-entity-kind {
+.plan-context-header-plan-trigger {
   margin: 0;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ct-muted-fg);
-}
-.plan-board-entity-title {
-  margin: 0.2rem 0 0;
-  font-size: 0.92rem;
-  font-weight: 600;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 650;
   line-height: 1.35;
+  color: var(--ct-fg);
+  text-align: left;
+  cursor: pointer;
   word-break: break-word;
 }
-.plan-board-entity-meta,
-.plan-board-entity-body,
-.plan-board-entity-focus {
-  margin: 0.35rem 0 0;
-  font-size: 0.74rem;
+.plan-context-header-plan-trigger:hover,
+.plan-context-header-plan-trigger:focus-visible {
+  color: color-mix(in srgb, var(--ct-accent) 75%, var(--ct-fg));
+  outline: none;
+}
+.plan-context-header-meta {
+  font-size: 0.72rem;
+  color: var(--ct-muted-fg);
+  font-variant-numeric: tabular-nums;
+}
+.plan-context-header-spec-trigger {
+  margin: 0;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  text-align: right;
+}
+.plan-context-header-spec-meta {
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--ct-accent) 65%, var(--ct-muted-fg));
+}
+.plan-context-header-spec-trigger:hover .plan-context-header-spec-meta,
+.plan-context-header-spec-trigger:focus-visible .plan-context-header-spec-meta {
+  color: var(--ct-accent);
+  outline: none;
+}
+.plan-context-header-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.35rem 0.75rem;
+  min-width: 0;
+}
+.plan-context-header-goal {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.45rem;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.72rem;
   line-height: 1.45;
   color: var(--ct-muted-fg);
+}
+.plan-context-header-goal-text {
+  min-width: 0;
   word-break: break-word;
 }
-.plan-board-entity-focus {
+.plan-context-header-goal-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
   color: color-mix(in srgb, var(--ct-accent) 70%, var(--ct-fg));
+  cursor: pointer;
+}
+.plan-context-header-focus {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  font-style: italic;
+  color: color-mix(in srgb, var(--ct-accent) 55%, var(--ct-fg));
+  word-break: break-word;
 }
 .plan-board-columns {
   display: grid;
-  grid-template-columns: repeat(5, minmax(11.5rem, 1fr));
-  gap: 0.55rem;
-  min-height: 12rem;
-  overflow-x: auto;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.45rem;
+  min-height: 0;
+  flex: 1;
+  width: 100%;
 }
 .plan-board-column {
   display: flex;
   flex-direction: column;
-  min-width: 11.5rem;
+  min-width: 0;
+  min-height: 0;
   border: 1px solid var(--ct-border);
-  border-radius: 0.7rem;
-  background: color-mix(in srgb, var(--ct-bg) 92%, var(--ct-surface));
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--ct-bg) 96%, var(--ct-surface));
+  overflow: hidden;
 }
 .plan-board-column-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.35rem;
-  padding: 0.45rem 0.55rem;
+  padding: 0.4rem 0.5rem;
   border-bottom: 1px solid var(--ct-border);
-  font-size: 0.68rem;
+  font-size: 0.64rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--ct-muted-fg);
+  background: color-mix(in srgb, var(--ct-bg) 92%, var(--ct-surface));
 }
 .plan-board-column-count {
   font-variant-numeric: tabular-nums;
@@ -1701,37 +1772,78 @@ button,
 .plan-board-column-body {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  padding: 0.45rem;
-  min-height: 4rem;
+  gap: 0.4rem;
+  padding: 0.4rem;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+.plan-board-column-empty {
+  margin: 0;
+  padding: 0.65rem 0.35rem;
+  text-align: center;
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--ct-muted-fg) 55%, transparent);
+  user-select: none;
+}
+.plan-board-done-toggle {
+  margin-top: 0.15rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px dashed color-mix(in srgb, var(--ct-border) 85%, var(--ct-muted-fg));
+  border-radius: 0.4rem;
+  background: transparent;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+  text-align: center;
+}
+.plan-board-done-toggle:hover,
+.plan-board-done-toggle:focus-visible {
+  color: var(--ct-fg);
+  border-color: var(--ct-border);
+  outline: none;
 }
 .plan-board-task-card {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.28rem;
   border: 1px solid var(--ct-border);
-  border-radius: 0.55rem;
-  padding: 0.45rem 0.5rem;
+  border-radius: 0.45rem;
+  padding: 0.42rem 0.48rem;
+  background: var(--ct-bg-elev, var(--ct-surface));
+}
+.plan-board-task-card-interactive {
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.plan-board-task-card-interactive:hover,
+.plan-board-task-card-interactive:focus-visible {
+  border-color: color-mix(in srgb, var(--ct-accent) 35%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-bg-elev, var(--ct-surface)) 88%, var(--ct-accent));
+  outline: none;
 }
 .plan-board-task-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.35rem;
+  order: 1;
 }
 .plan-board-task-handle {
   display: inline-flex;
   align-items: center;
   gap: 0.15rem;
   font-family: var(--ct-font-mono, ui-monospace, monospace);
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   font-weight: 600;
-  color: color-mix(in srgb, var(--ct-fg) 62%, transparent);
+  color: color-mix(in srgb, var(--ct-fg) 58%, transparent);
   word-break: break-all;
 }
 .plan-board-task-status {
   flex-shrink: 0;
-  font-size: 0.58rem;
+  font-size: 0.56rem;
   font-weight: 700;
   line-height: 1.6;
   padding: 0 0.45em;
@@ -1742,10 +1854,12 @@ button,
 }
 .plan-board-task-title {
   margin: 0;
+  order: -1;
   font-size: 0.78rem;
   font-weight: 600;
   line-height: 1.35;
   word-break: break-word;
+  color: var(--ct-fg);
 }
 .plan-board-task-meta,
 .plan-board-task-milestone {
@@ -1753,18 +1867,18 @@ button,
   align-items: flex-start;
   gap: 0.3rem;
   margin: 0;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   line-height: 1.4;
   color: var(--ct-muted-fg);
   word-break: break-word;
 }
 .plan-board-task-lane {
   font-family: var(--ct-font-mono, ui-monospace, monospace);
-  color: color-mix(in srgb, rgba(96, 165, 250, 0.95) 80%, var(--ct-muted-fg));
+  color: color-mix(in srgb, var(--ct-accent) 45%, var(--ct-muted-fg));
 }
 .plan-board-task-milestone-kind {
   flex-shrink: 0;
-  font-size: 0.58rem;
+  font-size: 0.56rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1772,7 +1886,7 @@ button,
 }
 .plan-board-cancelled-note {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: 0.66rem;
   color: var(--ct-muted-fg);
   opacity: 0.85;
 }

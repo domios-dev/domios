@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task } from "../types";
+import { DONE_COLUMN_COLLAPSED_LIMIT } from "./boardModel";
 import { PlanBoardView } from "./PlanBoardView";
 
 type TestFn = () => void | Promise<void>;
@@ -57,7 +58,7 @@ test("renders loading gate", async () => {
   assert(host.querySelector('[data-testid="plan-board-loading"]'), "loading visible");
 });
 
-test("renders board columns with spec/plan summaries and task cards", async () => {
+test("renders board columns with context header and task cards", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     primary_spec_id: "spec-fixture",
@@ -95,8 +96,9 @@ test("renders board columns with spec/plan summaries and task cards", async () =
     />,
   );
   assert(host.querySelector('[data-testid="plan-board-view"]'), "board root");
-  assert(host.querySelector('[data-testid="plan-board-spec-summary"]'), "spec summary");
-  assert(host.querySelector('[data-testid="plan-board-plan-summary"]'), "plan summary");
+  assert(host.querySelector('[data-testid="plan-context-header"]'), "context header");
+  assert(host.querySelector('[data-testid="plan-board-plan-title"]')?.textContent?.includes("Auth rollout"), "plan title");
+  assert(host.querySelector('[data-testid="plan-board-spec-title"]'), "spec trigger");
   assert(host.querySelector('[data-testid="plan-board-plan-goal"]')?.textContent?.includes("Deliver auth"), "goal");
   const columns = host.querySelectorAll('[data-testid="plan-board-column"]');
   assert(columns.length === 5, `column count=${columns.length}`);
@@ -107,6 +109,50 @@ test("renders board columns with spec/plan summaries and task cards", async () =
   assert(host.querySelector('[data-testid="plan-board-task-active-executor"]')?.textContent?.includes("Puccini"), "active executor");
   assert(host.querySelector('[data-testid="plan-board-task-lane"]')?.textContent?.includes("lane/plan-board-view"), "lane");
   assert(host.querySelector('[data-testid="plan-board-task-milestone"]')?.textContent?.includes("Board model landed"), "milestone");
+});
+
+test("clicking a task card opens PlanDetailOverlay", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [task({ id: "task-open", status: TaskStatus.Pending, name: "Open me" })],
+  };
+  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />);
+  const card = host.querySelector('[data-testid="plan-board-task-card"]') as HTMLElement;
+  assert(card, "task card");
+  await act(async () => {
+    card.click();
+  });
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
+  assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "task", "task kind");
+});
+
+test("clicking plan title opens plan detail overlay", async () => {
+  const plan: Plan = { ...FIXTURE_PLAN, tasks: [task({ id: "t1", status: TaskStatus.Pending })] };
+  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />);
+  const title = host.querySelector('[data-testid="plan-board-plan-title"]') as HTMLElement;
+  await act(async () => {
+    title.click();
+  });
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
+  assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "plan", "plan kind");
+});
+
+test("done column collapses to recent N with show-all toggle", async () => {
+  const doneTasks = Array.from({ length: DONE_COLUMN_COLLAPSED_LIMIT + 3 }, (_, i) =>
+    task({ id: `done-${i}`, status: TaskStatus.Done, status_changed_at: 100 - i, name: `Done ${i}` }),
+  );
+  const plan: Plan = { ...FIXTURE_PLAN, tasks: doneTasks };
+  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />);
+  const doneCol = host.querySelector('[data-testid="plan-board-column"][data-column="done"]');
+  const cards = doneCol?.querySelectorAll('[data-testid="plan-board-task-card"]');
+  assert(cards?.length === DONE_COLUMN_COLLAPSED_LIMIT, `collapsed cards=${cards?.length}`);
+  const toggle = doneCol?.querySelector('[data-testid="plan-board-done-toggle"]') as HTMLElement;
+  assert(toggle?.textContent?.includes(`Show all ${doneTasks.length}`), "show all label");
+  await act(async () => {
+    toggle.click();
+  });
+  const expandedCards = doneCol?.querySelectorAll('[data-testid="plan-board-task-card"]');
+  assert(expandedCards?.length === doneTasks.length, `expanded cards=${expandedCards?.length}`);
 });
 
 test("done task card shows historical executor without active executor row", async () => {
