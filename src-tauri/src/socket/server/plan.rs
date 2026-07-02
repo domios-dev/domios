@@ -679,7 +679,7 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             let force = p.and_then(|x| x.get("force")).and_then(|v| v.as_bool()) == Some(true);
             store
-                .ensure_task_creation_allowed(&id, force)
+                .ensure_task_creation_allowed(&id, &kind, force)
                 .map_err(plan_rpc_err)?;
             let has_sections = !section_ids.is_empty();
             let has_model = p

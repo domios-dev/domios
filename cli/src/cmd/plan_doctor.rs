@@ -481,7 +481,13 @@ fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
             "move planning-only policy into spec/plan sections or mem; keep heartbeat for active lanes",
         ));
     }
-    if mode == "planning" && !tasks.is_empty() {
+    // Planning-kind tasks are the planning workflow itself, not premature execution work,
+    // so they never trip the approval gate; only non-planning tasks do.
+    let non_planning_tasks = tasks
+        .iter()
+        .filter(|t| t.get("kind").and_then(Value::as_str) != Some("planning"))
+        .count();
+    if mode == "planning" && non_planning_tasks > 0 {
         findings.push(plan_quality_error(
             path,
             plan,
@@ -959,6 +965,56 @@ mod tests {
         assert!(findings
             .iter()
             .any(|f| f.kind == "planning_mode_no_tasks" && f.severity == "warning"));
+    }
+
+    #[test]
+    fn planning_kind_tasks_do_not_trip_approval_gate() {
+        let plan = json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "mode": "planning",
+            "goal": {"vector": "ship"},
+            "primary_spec_id": "sp_1",
+            "sections": [{"id": "sec_1", "title": "Spec", "body": "WHAT/WHY"}],
+            "tasks": [{
+                "id": "task_1",
+                "name": "Improve task graph",
+                "kind": "planning",
+                "status": "pending",
+                "section_ids": ["sec_1"]
+            }]
+        });
+        let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+        assert!(
+            !findings.iter().any(|f| f.kind == "tasks_before_approval"),
+            "planning-kind tasks must not trip the approval gate"
+        );
+    }
+
+    #[test]
+    fn execution_kind_task_in_planning_mode_trips_approval_gate() {
+        let plan = json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "mode": "planning",
+            "goal": {"vector": "ship"},
+            "primary_spec_id": "sp_1",
+            "sections": [{"id": "sec_1", "title": "Spec", "body": "WHAT/WHY"}],
+            "tasks": [{
+                "id": "task_1",
+                "name": "Build feature",
+                "kind": "implement",
+                "status": "pending",
+                "section_ids": ["sec_1"]
+            }]
+        });
+        let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+        assert!(
+            findings.iter().any(|f| f.kind == "tasks_before_approval"),
+            "execution-kind tasks in planning mode must trip the approval gate"
+        );
     }
 
     #[test]

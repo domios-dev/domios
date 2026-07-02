@@ -168,6 +168,7 @@ impl PlanStore {
     pub fn ensure_task_creation_allowed(
         &self,
         plan_id: &str,
+        kind: &str,
         force: bool,
     ) -> Result<(), PlanError> {
         if force {
@@ -175,6 +176,9 @@ impl PlanStore {
         }
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         match plan.mode {
+            // Planning-kind tasks are the planning workflow itself (improve GOAL/spec/plan/task-graph),
+            // so they are allowed while the plan is still in planning mode without --force.
+            PlanMode::Planning if kind == "planning" => Ok(()),
             PlanMode::Planning | PlanMode::Complete => Err(PlanError::TaskCreationRequiresApproval),
             PlanMode::Approved | PlanMode::Execution => Ok(()),
         }
