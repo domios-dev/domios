@@ -10,6 +10,18 @@ The runtime stores the role as `AgentRole`, with two variants:
 - `Orchestrator`
 - `Worker`
 
+Structural roles are deliberately closed. Behavioral specialization layers on
+top as a **role profile** — a free-form label on the spawn spec/pane that picks
+the onboarding prompt, default model routing, and presence label without
+changing hierarchy semantics. The first named profile is **Planner** (1.6.2): a
+high-reasoning Worker the Orchestrator spawns (`agent spawn claude --model
+fable --role Planner`) to author or refine GOAL/Spec/Plan/Tasks and sequencing
+in the CodeTerm planner, then report back with `in_review`. The Planner never
+spawns agents, assigns panes, or accepts work — execution and acceptance stay
+with the Orchestrator. Per-task free-form role guidance lives on the task
+(`role_guidance`) and is prepended to the worker brief at dispatch; there is no
+persistent custom role-template registry.
+
 ## Role Model
 
 An **Orchestrator** is the top-level coordinator for a user request or an
@@ -136,4 +148,4 @@ Prompt templates compiled into the binary live under `src-tauri/prompts/`:
 
 The Rust loader is `src-tauri/src/prompts.rs`.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
