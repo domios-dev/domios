@@ -31,6 +31,13 @@ function detailTitle(kind: PlanDetailKind, task?: Task, plan?: Plan, spec?: Plan
 }
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input,textarea,select,[tabindex]:not([tabindex="-1"])';
+type DetailKeyEvent = {
+  key: string;
+  shiftKey: boolean;
+  target: EventTarget | null;
+  preventDefault: () => void;
+  stopPropagation: () => void;
+};
 
 export function PlanDetailOverlay({
   kind,
@@ -51,18 +58,22 @@ export function PlanDetailOverlay({
   const tid = (suffix: string) => `${testIdPrefix}-${suffix}`;
 
   const onKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
+    (e: DetailKeyEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
         onClose();
         return;
       }
       if (e.key !== "Tab" || !panelRef.current) return;
-      const items = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null);
+      const items = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true",
+      );
       if (items.length === 0) return;
       const first = items[0];
       const last = items[items.length - 1];
-      const active = document.activeElement as HTMLElement | null;
+      const current = document.activeElement as HTMLElement | null;
+      const target = e.target instanceof HTMLElement ? e.target : null;
+      const active = current && items.includes(current) ? current : target;
       if (e.shiftKey && active === first) {
         e.preventDefault();
         last.focus();
@@ -82,6 +93,14 @@ export function PlanDetailOverlay({
       returnFocusRef.current?.focus?.();
     };
   }, [kind, task?.id, plan?.id, spec?.id]);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    const listener = (event: KeyboardEvent) => onKeyDown(event);
+    panel.addEventListener("keydown", listener);
+    return () => panel.removeEventListener("keydown", listener);
+  }, [onKeyDown]);
 
   const title = detailTitle(kind, task, plan, spec);
   const navPlanId = planId ?? plan?.id ?? spec?.id;
