@@ -960,10 +960,7 @@ impl PlanStore {
     }
 
     /// Like `task_bindings_for_pane` but also returns the task name for error messages.
-    pub fn task_bindings_with_name_for_pane(
-        &self,
-        pane_id: &str,
-    ) -> Vec<(String, String, String)> {
+    pub fn task_bindings_with_name_for_pane(&self, pane_id: &str) -> Vec<(String, String, String)> {
         if pane_id.trim().is_empty() {
             return Vec::new();
         }
