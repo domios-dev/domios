@@ -222,8 +222,8 @@ pub fn create_router(state: AppState) -> Router {
             post(plan_routes::loop_stop),
         )
         .route(
-            "/api/plans/{id}/loops/{lid}/advance",
-            post(plan_routes::loop_advance),
+            "/api/plans/{id}/loops/{lid}/record",
+            post(plan_routes::loop_record),
         )
         .route("/api/plans/{id}/layout", patch(plan_routes::layout_set))
         .route("/api/plans/{id}/notes", post(plan_routes::note_add))

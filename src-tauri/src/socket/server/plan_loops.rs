@@ -115,15 +115,10 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("budget"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(1) as u32;
-            let stages = p
-                .and_then(|x| x.get("stages"))
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_default();
             let lid = store
                 .create_loop(
                     &id,
                     &target,
-                    stages,
                     budget,
                     p.and_then(|x| x.get("stop_when")).and_then(|v| v.as_str()),
                     now,
@@ -157,17 +152,22 @@ pub(super) fn dispatch(
             Ok(serde_json::to_value(spec).unwrap_or_default())
         }
 
-        "plan.loop.advance" => {
+        "plan.loop.record" => {
             let lid = get_string_param(params, "loop_id")?;
-            let made_progress = p
-                .and_then(|x| x.get("made_progress"))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            let spec = store
-                .advance_loop(&lid, made_progress, now)
+            let note = get_string_param(params, "note")?;
+            let result = store
+                .record_loop(
+                    &lid,
+                    &note,
+                    p.and_then(|x| x.get("stop"))
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    p.and_then(|x| x.get("task_id")).and_then(|v| v.as_str()),
+                    now,
+                )
                 .map_err(plan_rpc_err)?;
             emit_loop_plan_changed(app, svc, &lid);
-            Ok(serde_json::to_value(spec).unwrap_or_default())
+            Ok(serde_json::to_value(result).unwrap_or_default())
         }
 
         "plan.loop.stop" => {

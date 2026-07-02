@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{PlanError, PlanStore};
 use crate::plan::{
-    HeartbeatLearning, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus, TaskStatus,
+    HeartbeatLearning, LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus,
+    TaskStatus,
 };
 
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
@@ -56,7 +57,32 @@ fn render_list(items: &[String], out: &mut String) {
     }
 }
 
-fn render_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat) -> String {
+fn render_running_loops(loops: &[LoopSpec], out: &mut String) {
+    let running = loops
+        .iter()
+        .filter(|loop_spec| loop_spec.status == LoopStatus::Running)
+        .collect::<Vec<_>>();
+    if running.is_empty() {
+        return;
+    }
+    out.push_str("Running loops:\n");
+    for loop_spec in running {
+        out.push_str("- ");
+        out.push_str(&loop_spec.id);
+        out.push_str(": ");
+        out.push_str(loop_spec.target.trim());
+        out.push_str(" (");
+        out.push_str(&format!("{}/{}", loop_spec.count, loop_spec.budget));
+        out.push(')');
+        out.push('\n');
+    }
+}
+
+fn render_heartbeat(
+    plan_id: &str,
+    heartbeat: &OrchestratorHeartbeat,
+    loops: &[LoopSpec],
+) -> String {
     let has_focus = heartbeat
         .current_focus
         .as_deref()
@@ -70,7 +96,10 @@ fn render_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat) -> String 
         .learnings
         .iter()
         .any(|learning| !learning.text.trim().is_empty());
-    if !has_focus && !has_lanes && !has_rules && !has_learnings {
+    let has_running_loops = loops
+        .iter()
+        .any(|loop_spec| loop_spec.status == LoopStatus::Running);
+    if !has_focus && !has_lanes && !has_rules && !has_learnings && !has_running_loops {
         return String::new();
     }
     let mut out = format!("<codeterm-orchestrator-heartbeat plan=\"{plan_id}\">\n");
@@ -103,6 +132,7 @@ fn render_heartbeat(plan_id: &str, heartbeat: &OrchestratorHeartbeat) -> String 
             out.push('\n');
         }
     }
+    render_running_loops(loops, &mut out);
     out.push_str("</codeterm-orchestrator-heartbeat>");
     out
 }
@@ -133,10 +163,11 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
 fn prepend_heartbeat(
     plan_id: &str,
     heartbeat: &OrchestratorHeartbeat,
+    loops: &[LoopSpec],
     text: &str,
     pane_id: Option<&str>,
 ) -> String {
-    let block = render_heartbeat(plan_id, heartbeat);
+    let block = render_heartbeat(plan_id, heartbeat, loops);
     let prompt = reconciliation_prompt(plan_id, pane_id);
     let reconciliation = format!(
         "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{prompt}\n</codeterm-state-reconciliation>"
@@ -157,6 +188,7 @@ pub(super) fn prepend_plan_heartbeat(plan: &Plan, text: &str) -> String {
     prepend_heartbeat(
         &plan.id,
         &plan.heartbeat,
+        &plan.loops,
         text,
         plan.owner.pane_id.as_deref(),
     )
@@ -165,9 +197,10 @@ pub(super) fn prepend_plan_heartbeat(plan: &Plan, text: &str) -> String {
 pub(super) fn prepend_heartbeat_snapshot(
     plan_id: &str,
     heartbeat: &OrchestratorHeartbeat,
+    loops: &[LoopSpec],
     text: &str,
 ) -> String {
-    prepend_heartbeat(plan_id, heartbeat, text, None)
+    prepend_heartbeat(plan_id, heartbeat, loops, text, None)
 }
 
 fn has_open_work(plan: &Plan) -> bool {
@@ -340,7 +373,7 @@ impl PlanStore {
         let plan = self.get(&plan_id).ok_or(PlanError::NotFound)?;
         Ok(HeartbeatShowResult {
             plan_id: plan.id.clone(),
-            reinjection: render_heartbeat(&plan.id, &plan.heartbeat),
+            reinjection: render_heartbeat(&plan.id, &plan.heartbeat, &plan.loops),
             heartbeat: plan.heartbeat,
         })
     }

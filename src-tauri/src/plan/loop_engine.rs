@@ -64,13 +64,13 @@ mod tests {
         LoopSpec {
             id: id.into(),
             target: "harden the parser".into(),
-            stages: vec![],
             budget: 0,
             count: 0,
             stop_when: None,
             status: LoopStatus::Running,
             stagnation: 0,
             deviation: None,
+            last_iteration_at: None,
         }
     }
 

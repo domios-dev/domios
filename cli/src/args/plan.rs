@@ -381,11 +381,15 @@ pub enum PlanLoopAction {
     Status { loop_id: String },
     /// Stop a loop (marks it complete)
     Stop { loop_id: String },
-    /// Advance a loop one iteration, recording whether it made progress
-    Advance {
+    /// Record one loop iteration and leave a stride
+    Record {
         loop_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
         #[arg(long, action = clap::ArgAction::Set, default_value_t = false)]
-        progress: bool,
+        stop: bool,
+        #[arg(long, hide = true, env = "CODETERM_TASK_ID")]
+        task: Option<String>,
     },
 }
 

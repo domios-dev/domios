@@ -644,10 +644,20 @@ fn run_plan(
             PlanLoopAction::Stop { loop_id } => {
                 call(client, "plan.loop.stop", json!({ "loop_id": loop_id }))
             }
-            PlanLoopAction::Advance { loop_id, progress } => call(
+            PlanLoopAction::Record {
+                loop_id,
+                note,
+                stop,
+                task,
+            } => call(
                 client,
-                "plan.loop.advance",
-                json!({ "loop_id": loop_id, "made_progress": progress }),
+                "plan.loop.record",
+                json!({
+                    "loop_id": loop_id,
+                    "note": note,
+                    "stop": stop,
+                    "task_id": task,
+                }),
             ),
         },
 

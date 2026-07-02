@@ -52,6 +52,7 @@ pub struct LoopSnapshot {
     pub status: LoopStatus,
     pub stagnation: u32,
     pub deviation: Option<String>,
+    pub last_iteration_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
@@ -286,6 +287,7 @@ pub fn build_plan_state_snapshot(
             status: l.status.clone(),
             stagnation: l.stagnation,
             deviation: l.deviation.clone(),
+            last_iteration_at: l.last_iteration_at,
         })
         .collect();
 
@@ -431,13 +433,13 @@ mod tests {
         p.loops = vec![LoopSpec {
             id: "lp_1".into(),
             target: "harden".into(),
-            stages: vec![],
             budget: 5,
             count: 2,
             stop_when: Some("0 bugs".into()),
             status: LoopStatus::Running,
             stagnation: 0,
             deviation: None,
+            last_iteration_at: Some(300),
         }];
 
         let mut done = task("t_done", TaskStatus::Done, &["s1"]);
