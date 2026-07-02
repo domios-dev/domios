@@ -154,6 +154,19 @@ fn env_default(current: Option<String>, var: &str) -> Option<String> {
     })
 }
 
+fn print_report_notices(json: bool, val: &serde_json::Value) {
+    if json {
+        return;
+    }
+    if let Some(arr) = val.get("notices").and_then(|v| v.as_array()) {
+        for notice in arr {
+            if let Some(s) = notice.as_str() {
+                eprintln!("notice: {}", s);
+            }
+        }
+    }
+}
+
 fn format_agent_models(target: &serde_json::Value, provider: &str) -> String {
     let models = target.get("available_models").and_then(|v| v.as_array());
     let Some(models) = models else {
@@ -476,6 +489,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         err.to_string()
                     }
                 });
+            if let Ok(ref val) = result {
+                print_report_notices(json, val);
+            }
             handle_result(json, result);
         }
         AgentAction::Message {
@@ -822,6 +838,26 @@ mod tests {
             Some("from-env".into())
         );
         std::env::remove_var("CODETERM_TEST_REPORT_DEFAULT");
+    }
+
+    #[test]
+    fn print_report_notices_is_noop_in_json_mode() {
+        // json=true should not print anything (we rely on the JSON output channel)
+        let val = serde_json::json!({ "ok": true, "notices": ["stale plan"] });
+        // No assertion on output — just ensure it doesn't panic
+        print_report_notices(true, &val);
+    }
+
+    #[test]
+    fn print_report_notices_handles_missing_notices_key() {
+        let val = serde_json::json!({ "ok": true, "report_id": "r1" });
+        print_report_notices(false, &val); // must not panic
+    }
+
+    #[test]
+    fn print_report_notices_handles_empty_notices_array() {
+        let val = serde_json::json!({ "ok": true, "notices": [] });
+        print_report_notices(false, &val); // must not panic
     }
 
     #[test]

@@ -552,19 +552,16 @@ fn run_plan(
             steps,
             links,
             key,
-        } => crate::cmd::plan_record::record(
-            client,
-            plan_id,
-            task,
-            upsert_task,
-            name,
-            sections,
-            status,
-            body_file,
-            steps,
-            links,
-            key,
-        ),
+        } => {
+            let plan_id = plan_id.ok_or_else(|| {
+                "plan_id is required: pass it as a positional arg or set $CODETERM_PLAN_ID"
+                    .to_string()
+            })?;
+            crate::cmd::plan_record::record(
+                client, plan_id, task, upsert_task, name, sections, status, body_file, steps,
+                links, key,
+            )
+        }
 
         PlanAction::Ingest { plan_id, markdown } => {
             let markdown = read_path_or_stdin(&markdown)?;

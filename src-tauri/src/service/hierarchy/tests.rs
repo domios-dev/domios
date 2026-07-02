@@ -1,11 +1,13 @@
 use super::{
-    ledger_with_live_children, milestone_text, report_task_status_transition,
+    ledger_with_live_children, milestone_text, report_task_status_transition, resolve_plan_ctx,
     resolve_report_target, worker_death_report, ReportTarget,
 };
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportStatus, ReportStore};
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
+use crate::plan::{OrchestratorRef, Plan};
+use crate::service::plan::{NewTask, PlanStore};
 
 // Enforce report key symmetry: reporter writes and parent query must use the same key.
 // This avoids "report succeeded" with empty parent results.
@@ -145,6 +147,114 @@ fn report_title_uses_user_pinned_pane_identity_not_provider_default() {
         from_title, "Euler",
         "report must carry the tab identity, not the provider default"
     );
+}
+
+// ── resolve_plan_ctx tests ──────────────────────────────────────────────────
+
+fn make_store_with_assigned_task(pane_id: &str) -> (PlanStore, String, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new("Test".into(), "/tmp".into(), OrchestratorRef::from_pane("orch"));
+    store.save(&mut plan, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "my task".into(),
+                kind: "implement".into(),
+                body: "do stuff".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store.assign_task(&plan.id, &task_id, pane_id, None, 3).unwrap();
+    (store, plan.id, task_id)
+}
+
+#[test]
+fn resolve_plan_ctx_uses_provided_valid_plan() {
+    let (store, plan_id, task_id) = make_store_with_assigned_task("pane-x");
+    let mut notices = Vec::new();
+    let (p, t) = resolve_plan_ctx(&store, "pane-x", Some(&plan_id), Some(&task_id), &mut notices)
+        .unwrap();
+    assert_eq!(p.as_deref(), Some(plan_id.as_str()));
+    assert_eq!(t.as_deref(), Some(task_id.as_str()));
+    assert!(notices.is_empty());
+}
+
+#[test]
+fn resolve_plan_ctx_stale_plan_falls_through_to_binding() {
+    let (store, _plan_id, task_id) = make_store_with_assigned_task("pane-y");
+    let mut notices = Vec::new();
+    let (p, t) = resolve_plan_ctx(&store, "pane-y", Some("pl_stale"), None, &mut notices).unwrap();
+    // Should resolve via binding even though stale plan was provided
+    assert!(p.is_some(), "should auto-resolve to bound plan");
+    assert!(t.is_some(), "should auto-resolve to bound task");
+    assert!(!notices.is_empty(), "must emit a notice about the stale plan");
+    assert!(notices[0].contains("pl_stale"));
+    // The resolved task should match what we assigned
+    assert_eq!(t.as_deref(), Some(task_id.as_str()));
+}
+
+#[test]
+fn resolve_plan_ctx_no_plan_hint_uses_binding() {
+    let (store, _plan_id, task_id) = make_store_with_assigned_task("pane-z");
+    let mut notices = Vec::new();
+    let (p, t) = resolve_plan_ctx(&store, "pane-z", None, None, &mut notices).unwrap();
+    assert!(p.is_some());
+    assert_eq!(t.as_deref(), Some(task_id.as_str()));
+    assert!(notices.is_empty(), "no notice when silently auto-resolving");
+}
+
+#[test]
+fn resolve_plan_ctx_unassigned_pane_returns_none() {
+    let (store, _plan_id, _task_id) = make_store_with_assigned_task("pane-a");
+    let mut notices = Vec::new();
+    let (p, t) = resolve_plan_ctx(&store, "pane-not-assigned", None, None, &mut notices).unwrap();
+    assert!(p.is_none());
+    assert!(t.is_none());
+    assert!(notices.is_empty());
+}
+
+#[test]
+fn resolve_plan_ctx_ambiguous_assignment_errors_with_list() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new("Multi".into(), "/tmp".into(), OrchestratorRef::from_pane("orch"));
+    store.save(&mut plan, 1).unwrap();
+    let t1 = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "task alpha".into(),
+                kind: "implement".into(),
+                body: "".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let t2 = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "task beta".into(),
+                kind: "implement".into(),
+                body: "".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store.assign_task(&plan.id, &t1, "pane-multi", None, 3).unwrap();
+    store.assign_task(&plan.id, &t2, "pane-multi", None, 3).unwrap();
+
+    let mut notices = Vec::new();
+    let err = resolve_plan_ctx(&store, "pane-multi", None, None, &mut notices).unwrap_err();
+    assert!(err.contains("ambiguous"), "error must say 'ambiguous': {err}");
+    assert!(err.contains("task alpha") || err.contains(t1.as_str()));
+    assert!(err.contains("task beta") || err.contains(t2.as_str()));
 }
 
 #[test]

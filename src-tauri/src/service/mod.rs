@@ -340,6 +340,8 @@ impl ServiceContext {
 pub struct ReportResult {
     pub report_id: String,
     pub orchestrator_pane_id: String,
+    /// Non-fatal notices from plan/task resolution (stale env ids, auto-resolution).
+    pub notices: Vec<String>,
 }
 
 /// Helper: extract optional string from JSON value.

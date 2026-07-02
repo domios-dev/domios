@@ -184,8 +184,10 @@ pub enum PlanAction {
     Claim { plan_id: String },
     /// Record task progress with one atomic plan write
     Record {
-        plan_id: String,
-        #[arg(long)]
+        /// Plan id (default: $CODETERM_PLAN_ID)
+        #[arg(env = "CODETERM_PLAN_ID")]
+        plan_id: Option<String>,
+        #[arg(long, env = "CODETERM_TASK_ID")]
         task: Option<String>,
         #[arg(long)]
         upsert_task: Option<String>,

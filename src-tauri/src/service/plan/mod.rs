@@ -959,6 +959,28 @@ impl PlanStore {
             .collect()
     }
 
+    /// Like `task_bindings_for_pane` but also returns the task name for error messages.
+    pub fn task_bindings_with_name_for_pane(
+        &self,
+        pane_id: &str,
+    ) -> Vec<(String, String, String)> {
+        if pane_id.trim().is_empty() {
+            return Vec::new();
+        }
+        self.list_full()
+            .into_iter()
+            .filter(|plan| plan.status == PlanStatus::Active)
+            .flat_map(|plan| {
+                let plan_id = plan.id.clone();
+                plan.tasks
+                    .into_iter()
+                    .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+                    .filter(move |task| task.assigned_pane_id.as_deref() == Some(pane_id))
+                    .map(move |task| (plan_id.clone(), task.id, task.name))
+            })
+            .collect()
+    }
+
     pub fn list_index(&self) -> Vec<IndexEntry> {
         self.index.read().values().cloned().collect()
     }

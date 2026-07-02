@@ -11,4 +11,4 @@ CHANGES: files touched or 'none'
 BUILD/TYPECHECK/TESTS: commands run and result, or 'not run'
 FOLLOWUP: anything the Orchestrator should know"
 
-If your pane has CODETERM_PLAN_ID and CODETERM_TASK_ID set, include them in your report: `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID "..."`. This appends a milestone to your task automatically — do not skip it.
+Plan milestone attachment is automatic when your pane is assigned to a task. Just run `codeterm agent report "..."` — the daemon resolves your plan and task from the pane assignment. You do NOT need to pass `--plan`/`--task` manually. If the daemon can't resolve them (unassigned pane, ambiguous assignment), it will tell you what to pass.
