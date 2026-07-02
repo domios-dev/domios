@@ -11,6 +11,13 @@ pub(crate) fn render_plan_markdown(plan: &Value) -> String {
     out.push_str(&format!("# {title} (`{id}`)\n\n"));
     out.push_str("> Exported snapshot. CodeTerm planner state is authoritative; update the plan with `codeterm plan ...`, not by editing this markdown.\n\n");
     out.push_str(&format!("**Status:** {status}\n\n"));
+    if let Some(path) = plan
+        .get("canonical_project_path")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+    {
+        out.push_str(&format!("**Canonical project path:** `{path}`\n\n"));
+    }
     if let Some(goal) = plan.get("goal").filter(|v| !v.is_null()) {
         render_goal_block(goal, &mut out);
     }

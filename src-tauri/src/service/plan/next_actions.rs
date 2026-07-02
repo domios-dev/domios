@@ -143,6 +143,7 @@ mod tests {
             title: "T".into(),
             status: crate::plan::PlanStatus::Active,
             mode: crate::plan::PlanMode::Execution,
+            canonical_project_path: "/repo".into(),
             planning_readiness: Default::default(),
             owner: Default::default(),
             goal: None,

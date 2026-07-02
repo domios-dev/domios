@@ -85,13 +85,13 @@ struct Unit {
 impl super::PlanStore {
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
         let changed = mirror_plan(plan, false)?;
-        index_units_vectors_async(PathBuf::from(&plan.project_path), changed);
+        index_units_vectors_async(plan_project_root(plan).to_path_buf(), changed);
         Ok(())
     }
 
     pub fn mirror_spec_index(&self, spec: &Spec) -> Result<(), String> {
         let changed = mirror_spec(spec, false)?;
-        index_units_vectors_async(PathBuf::from(&spec.project_path), changed);
+        index_units_vectors_async(spec_project_root(spec).to_path_buf(), changed);
         Ok(())
     }
 
@@ -182,15 +182,31 @@ pub fn project_scope(project_root: &Path) -> String {
 }
 
 fn mirror_plan(plan: &Plan, sync_embed: bool) -> Result<Vec<Unit>, String> {
-    let root = Path::new(&plan.project_path);
+    let root = plan_project_root(plan);
     let units = plan_units(plan, &project_scope(root));
     replace_units(root, &format!("planunit_{}_%", plan.id), units, sync_embed)
 }
 
 fn mirror_spec(spec: &Spec, sync_embed: bool) -> Result<Vec<Unit>, String> {
-    let root = Path::new(&spec.project_path);
+    let root = spec_project_root(spec);
     let units = spec_units(spec, &project_scope(root));
     replace_units(root, &format!("planunit_{}_%", spec.id), units, sync_embed)
+}
+
+fn plan_project_root(plan: &Plan) -> &Path {
+    if plan.canonical_project_path.trim().is_empty() {
+        Path::new(&plan.project_path)
+    } else {
+        Path::new(&plan.canonical_project_path)
+    }
+}
+
+fn spec_project_root(spec: &Spec) -> &Path {
+    if spec.canonical_project_path.trim().is_empty() {
+        Path::new(&spec.project_path)
+    } else {
+        Path::new(&spec.canonical_project_path)
+    }
 }
 
 fn index_units_vectors_async(root: PathBuf, units: Vec<Unit>) {

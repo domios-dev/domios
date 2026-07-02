@@ -8,15 +8,6 @@ pub fn project_root(cwd: &Path) -> PathBuf {
     if test_project_root_marker(cwd).is_some() {
         return cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
     }
-    // A linked worktree that carries its OWN .codeterm (plans committed per-branch and
-    // checked out with the branch) owns its plan store; otherwise worktrees fall back to
-    // sharing the main worktree's store. Without this a feature-branch worktree's committed
-    // plans are invisible because resolution jumps to the main worktree (different branch).
-    if let Some(top) = worktree_top(cwd) {
-        if top.join(".codeterm").is_dir() {
-            return top;
-        }
-    }
     if let Some(root) = main_worktree_root(cwd) {
         return root;
     }
@@ -129,6 +120,44 @@ pub fn plan_json_path(
     Ok(plan_dir(project, status, plan_id)?.join("plan.json"))
 }
 
+pub fn plan_sidecar_root(plan: &crate::plan::Plan) -> &Path {
+    if plan.canonical_project_path.trim().is_empty() {
+        Path::new(&plan.project_path)
+    } else {
+        Path::new(&plan.canonical_project_path)
+    }
+}
+
+pub fn spec_sidecar_root(spec: &crate::plan::Spec) -> &Path {
+    if spec.canonical_project_path.trim().is_empty() {
+        Path::new(&spec.project_path)
+    } else {
+        Path::new(&spec.canonical_project_path)
+    }
+}
+
+pub fn normalize_plan_paths(plan: &mut crate::plan::Plan, root_path: &Path) {
+    let root = root_path.display().to_string();
+    plan.project_path = root.clone();
+    if plan.canonical_project_path.trim().is_empty() {
+        plan.canonical_project_path = root;
+    } else {
+        let canonical = project_root(Path::new(&plan.canonical_project_path));
+        plan.canonical_project_path = canonical.display().to_string();
+    }
+}
+
+pub fn normalize_spec_paths(spec: &mut crate::plan::Spec, root_path: &Path) {
+    let root = root_path.display().to_string();
+    spec.project_path = root.clone();
+    if spec.canonical_project_path.trim().is_empty() {
+        spec.canonical_project_path = root;
+    } else {
+        let canonical = project_root(Path::new(&spec.canonical_project_path));
+        spec.canonical_project_path = canonical.display().to_string();
+    }
+}
+
 pub fn plan_bucket(status: &crate::plan::PlanStatus) -> &'static str {
     match status {
         crate::plan::PlanStatus::Archived => "archive",
@@ -189,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn project_root_prefers_linked_worktree_with_own_codeterm() {
+    fn project_root_ignores_linked_worktree_codeterm_for_plan_sidecars() {
         let tmp = tempfile::tempdir().unwrap();
         let main = tmp.path().join("main");
         let linked = tmp.path().join("linked");
@@ -211,9 +240,8 @@ mod tests {
             ],
         );
 
-        // The linked worktree carries its own committed plans -> it owns its plan store.
         std::fs::create_dir_all(linked.join(".codeterm").join("plans")).unwrap();
 
-        assert_eq!(project_root(&linked), linked.canonicalize().unwrap());
+        assert_eq!(project_root(&linked), main.canonicalize().unwrap());
     }
 }

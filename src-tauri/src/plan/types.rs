@@ -472,6 +472,8 @@ pub struct Spec {
     pub id: String,
     pub title: String,
     pub project_path: String,
+    #[serde(default)]
+    pub canonical_project_path: String,
     pub status: PlanStatus,
     #[serde(default)]
     pub sections: Vec<Section>,
@@ -492,6 +494,8 @@ pub struct Plan {
     pub mode: PlanMode,
     pub owner: OrchestratorRef,
     pub project_path: String,
+    #[serde(default)]
+    pub canonical_project_path: String,
     pub created_at: u64,
     pub updated_at: u64,
     #[serde(default)]
@@ -536,7 +540,8 @@ impl Plan {
             status: PlanStatus::Active,
             mode: PlanMode::Planning,
             owner,
-            project_path,
+            project_path: project_path.clone(),
+            canonical_project_path: project_path,
             created_at: 0,
             updated_at: 0,
             milestone_kinds: vec![],
@@ -563,7 +568,8 @@ impl Spec {
         Self {
             id: format!("sp_{}", uuid::Uuid::new_v4().simple()),
             title,
-            project_path,
+            project_path: project_path.clone(),
+            canonical_project_path: project_path,
             status: PlanStatus::Active,
             sections: vec![],
             created_at: 0,
@@ -590,6 +596,7 @@ mod tests {
         let back: Plan = serde_json::from_str(&json).unwrap();
         assert_eq!(back.id, p.id);
         assert_eq!(back.title, "Voice UX");
+        assert_eq!(back.canonical_project_path, "/repo");
     }
 
     #[test]
@@ -628,6 +635,7 @@ mod tests {
         }"#;
         let p: Plan = serde_json::from_str(raw).unwrap();
         assert_eq!(p.id, "pl_old");
+        assert!(p.canonical_project_path.is_empty());
         assert!(p.task_groups.is_empty());
         assert!(p.tag_facets.is_empty());
         assert!(p.links.is_empty());
