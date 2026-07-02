@@ -58,6 +58,7 @@ async function run() {
     const { host, root } = await render(<ComposerPlanActivityStrip activity={ORCH} />);
     const strip = host.querySelector('[data-testid="composer-plan-activity-strip"]');
     ok("orchestrator strip renders", !!strip);
+    ok("chip baseline class", strip?.classList.contains("ct-composer-activity-chip") === true);
     ok("kind attribute", strip?.getAttribute("data-activity-kind") === "orchestrating");
     ok("prefix", host.querySelector('[data-testid="composer-plan-activity-prefix"]')?.textContent === "Orchestrating:");
     ok("primary title", host.querySelector('[data-testid="composer-plan-activity-primary"]')?.textContent?.includes("Canvas v2") === true);

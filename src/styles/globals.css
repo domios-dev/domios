@@ -1429,6 +1429,67 @@ button,
   animation: ct-canvas-pulse 1.4s var(--ct-ease-decel) infinite;
 }
 
+/* Composer plan/activity chip — same h-7 baseline as attachment/model bubbles. */
+.ct-composer-activity-row {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.ct-composer-activity-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  max-width: 100%;
+  padding: 0 0.625rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent);
+  background: color-mix(in srgb, var(--ct-fg, #c9d1d9) 4%, transparent);
+  font-size: 0.75rem;
+  line-height: 1;
+  text-align: left;
+  overflow: hidden;
+}
+.ct-composer-activity-chip__prefix {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: var(--ct-muted-fg, #8b949e);
+}
+.ct-composer-activity-chip__primary {
+  min-width: 0;
+  flex: 1 1 0%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: var(--ct-fg, #c9d1d9);
+}
+.ct-composer-activity-chip__sep {
+  flex-shrink: 0;
+  color: var(--ct-muted-fg, #8b949e);
+}
+.ct-composer-activity-chip__secondary {
+  min-width: 0;
+  flex: 0 1 min(42%, 9rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--ct-fg, #c9d1d9) 68%, transparent);
+}
+.ct-composer-activity-chip__extra {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  color: var(--ct-muted-fg, #8b949e);
+}
+.ct-composer-activity-chip__icon {
+  flex-shrink: 0;
+  margin-left: auto;
+  opacity: 0.45;
+  color: var(--ct-muted-fg, #8b949e);
+}
+
 /* Composer activity bubble spinner. */
 .ct-spin { animation: ct-spin 0.9s linear infinite; }
 @keyframes ct-spin { to { transform: rotate(360deg); } }

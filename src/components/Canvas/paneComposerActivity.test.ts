@@ -97,6 +97,18 @@ test("unrelated pane → null", () => {
   assert(resolvePaneComposerActivity([plan], "stranger", {}) === null, "no activity");
 });
 
+test("task handle fallback when name empty", () => {
+  const task = mkTask("task-1", "in_progress", {
+    name: "  ",
+    handle: "composer-bubble-alignment",
+    assigned_pane_id: "worker-1",
+  });
+  const plan = mkPlan({ tasks: [task] });
+  const activity = resolvePaneComposerActivity([plan], "worker-1", {});
+  assert(activity?.kind === "working", "kind working");
+  assert(activity.taskTitle === "composer-bubble-alignment", "handle not raw id");
+});
+
 async function run() {
   for (const [name, fn] of tests) {
     try {

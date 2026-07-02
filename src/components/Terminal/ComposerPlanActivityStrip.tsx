@@ -34,50 +34,30 @@ export function ComposerPlanActivityStrip({ activity, onOpen }: ComposerPlanActi
       title={title}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onOpen}
-      className="mb-2 flex w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-md border px-2 py-1 text-left transition hover:brightness-110"
-      style={{
-        background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 4%, transparent)",
-        borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 22%, transparent)",
-        cursor: onOpen ? "pointer" : "default",
-      }}
+      className="ct-composer-activity-chip h-7 w-full min-w-0 hover:brightness-110"
+      style={{ cursor: onOpen ? "pointer" : "default" }}
     >
-      <span
-        data-testid="composer-plan-activity-prefix"
-        className="shrink-0 font-medium"
-        style={{ fontSize: "0.72rem", color: "var(--ct-muted-fg, #8b949e)" }}
-      >
+      <span data-testid="composer-plan-activity-prefix" className="ct-composer-activity-chip__prefix">
         {prefix}
       </span>
-      <span
-        data-testid="composer-plan-activity-primary"
-        className="min-w-0 truncate font-medium"
-        style={{ fontSize: "0.74rem", color: "var(--ct-fg, #c9d1d9)" }}
-      >
+      <span data-testid="composer-plan-activity-primary" className="ct-composer-activity-chip__primary">
         {primary}
       </span>
       {secondary && (
         <>
-          <span aria-hidden className="shrink-0" style={{ fontSize: "0.72rem", color: "var(--ct-muted-fg, #8b949e)" }}>·</span>
-          <span
-            data-testid="composer-plan-activity-secondary"
-            className="min-w-0 truncate"
-            style={{ fontSize: "0.72rem", color: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 68%, transparent)" }}
-          >
+          <span aria-hidden className="ct-composer-activity-chip__sep">·</span>
+          <span data-testid="composer-plan-activity-secondary" className="ct-composer-activity-chip__secondary">
             {secondary}
           </span>
         </>
       )}
       {extraPlans > 0 && (
-        <span
-          data-testid="composer-plan-activity-extra-plans"
-          className="shrink-0"
-          style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--ct-muted-fg, #8b949e)" }}
-        >
+        <span data-testid="composer-plan-activity-extra-plans" className="ct-composer-activity-chip__extra">
           +{extraPlans}
         </span>
       )}
       {onOpen && (
-        <Map size={11} aria-hidden className="ml-auto shrink-0 opacity-45" style={{ color: "var(--ct-muted-fg, #8b949e)" }} />
+        <Map size={11} aria-hidden className="ct-composer-activity-chip__icon" />
       )}
     </button>
   );
