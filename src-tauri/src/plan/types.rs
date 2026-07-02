@@ -400,20 +400,9 @@ pub struct Task {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LoopStage {
-    pub key: String,
-    pub role: String,
-    pub model: Option<String>,
-    pub why: Option<String>,
-    pub prompt: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LoopSpec {
     pub id: String,
     pub target: String,
-    #[serde(default)]
-    pub stages: Vec<LoopStage>,
     pub budget: u32,
     #[serde(default)]
     pub count: u32,
@@ -423,6 +412,8 @@ pub struct LoopSpec {
     pub stagnation: u32,
     #[serde(default)]
     pub deviation: Option<String>,
+    #[serde(default)]
+    pub last_iteration_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

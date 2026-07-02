@@ -429,7 +429,7 @@ fn dispatch(
                 "plan.loop.set",
                 "plan.loop.status",
                 "plan.loop.stop",
-                "plan.loop.advance",
+                "plan.loop.record",
                 "plan.layout.set",
                 "plan.note.add",
                 "plan.note.update",

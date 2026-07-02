@@ -135,6 +135,7 @@ mod tests {
             status,
             stagnation: 0,
             deviation: None,
+            last_iteration_at: None,
         }
     }
 

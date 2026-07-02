@@ -1,9 +1,18 @@
+use super::mutations::gen_id;
 use super::{PlanError, PlanStore};
 use crate::plan::loop_engine::{advance, can_advance, record_iteration, stop_for};
-use crate::plan::{LoopSpec, LoopStage, LoopStatus};
+use crate::plan::{AgentRef, LoopSpec, LoopStatus, Milestone, TaskStatus};
+use serde::{Deserialize, Serialize};
 
-fn gen_id(prefix: &str) -> String {
-    format!("{prefix}_{}", uuid::Uuid::new_v4().simple())
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LoopRecordResult {
+    pub plan_id: String,
+    pub loop_id: String,
+    pub task_id: String,
+    pub milestone_id: String,
+    pub count: u32,
+    pub budget: u32,
+    pub status: LoopStatus,
 }
 
 impl PlanStore {
@@ -11,7 +20,6 @@ impl PlanStore {
         &self,
         plan_id: &str,
         target: &str,
-        stages: Vec<LoopStage>,
         budget: u32,
         stop_when: Option<&str>,
         now_ms: u64,
@@ -23,13 +31,13 @@ impl PlanStore {
         let spec = LoopSpec {
             id: lid.clone(),
             target: target.into(),
-            stages,
             budget,
             count: 0,
             stop_when: stop_when.map(|s| s.into()),
             status: LoopStatus::Running,
             stagnation: 0,
             deviation: None,
+            last_iteration_at: None,
         };
         self.with_plan(plan_id, now_ms, |p| {
             p.loops.push(spec);
@@ -119,10 +127,81 @@ impl PlanStore {
             }
             advance(lp);
             record_iteration(lp, made_progress, &goal_vector);
+            lp.last_iteration_at = Some(now_ms);
             updated = Some(lp.clone());
             Ok(())
         })?;
         updated.ok_or(PlanError::NotFound)
+    }
+
+    pub fn record_loop(
+        &self,
+        loop_id: &str,
+        note: &str,
+        stop: bool,
+        preferred_task_id: Option<&str>,
+        now_ms: u64,
+    ) -> Result<LoopRecordResult, PlanError> {
+        let plan_id = self
+            .find_plan_with_loop(loop_id)
+            .ok_or(PlanError::NotFound)?;
+        let mut result = None;
+        self.with_plan(&plan_id, now_ms, |p| {
+            let loop_idx = p
+                .loops
+                .iter()
+                .position(|l| l.id == loop_id)
+                .ok_or(PlanError::NotFound)?;
+            let task_idx = resolve_loop_stride_task_index(p, preferred_task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let milestone_kind = ensure_loop_stride_kind(p);
+            let (recorded_loop_id, iteration, count, budget, status) = {
+                let loop_ref = &mut p.loops[loop_idx];
+                if !can_advance(loop_ref) {
+                    return Err(PlanError::BudgetExhausted {
+                        count: loop_ref.count,
+                        budget: loop_ref.budget,
+                    });
+                }
+                advance(loop_ref);
+                if stop {
+                    stop_for(loop_ref);
+                }
+                loop_ref.last_iteration_at = Some(now_ms);
+                (
+                    loop_ref.id.clone(),
+                    loop_ref.count,
+                    loop_ref.count,
+                    loop_ref.budget,
+                    loop_ref.status.clone(),
+                )
+            };
+            let milestone_id = gen_id("ms");
+            let task_ref = &mut p.tasks[task_idx];
+            task_ref.milestones.push(Milestone {
+                id: milestone_id.clone(),
+                from: AgentRef::from_pane("loop-recorder"),
+                kind: milestone_kind,
+                text: note.trim().to_string(),
+                ts: now_ms,
+                links: vec![],
+                loop_id: Some(recorded_loop_id.clone()),
+                iteration: Some(iteration),
+                canvas: Default::default(),
+            });
+            task_ref.updated_at = now_ms;
+            result = Some(LoopRecordResult {
+                plan_id: p.id.clone(),
+                loop_id: recorded_loop_id,
+                task_id: task_ref.id.clone(),
+                milestone_id,
+                count,
+                budget,
+                status,
+            });
+            Ok(())
+        })?;
+        result.ok_or(PlanError::NotFound)
     }
 
     fn find_plan_with_loop(&self, loop_id: &str) -> Option<String> {
@@ -135,4 +214,55 @@ impl PlanStore {
         }
         None
     }
+}
+
+fn resolve_loop_stride_task_index(
+    plan: &crate::plan::Plan,
+    preferred_task_id: Option<&str>,
+) -> Option<usize> {
+    if let Some(task_id) = preferred_task_id {
+        if let Some(index) = plan
+            .tasks
+            .iter()
+            .position(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        {
+            return Some(index);
+        }
+    }
+
+    plan.tasks
+        .iter()
+        .enumerate()
+        .filter(|(_, task)| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+        .filter(|(_, task)| task.kind == "planning")
+        .max_by_key(|(_, task)| task.updated_at)
+        .map(|(index, _)| index)
+        .or_else(|| {
+            plan.tasks
+                .iter()
+                .enumerate()
+                .filter(|(_, task)| {
+                    !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled)
+                })
+                .max_by_key(|(_, task)| task.updated_at)
+                .map(|(index, _)| index)
+        })
+}
+
+fn ensure_loop_stride_kind(plan: &mut crate::plan::Plan) -> String {
+    for candidate in ["decision", "status_update"] {
+        if plan
+            .milestone_kinds
+            .iter()
+            .any(|kind| kind.key == candidate)
+        {
+            return candidate.to_string();
+        }
+    }
+    plan.milestone_kinds.push(crate::plan::MilestoneKind {
+        key: "status_update".into(),
+        label: "status_update".into(),
+        color: None,
+    });
+    "status_update".into()
 }

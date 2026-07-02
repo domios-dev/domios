@@ -23,7 +23,7 @@ pub use elements::{
     note_update,
 };
 pub use linking::{link, unlink};
-pub use loops::{loop_advance, loop_create, loop_set, loop_status, loop_stop};
+pub use loops::{loop_create, loop_record, loop_set, loop_status, loop_stop};
 pub use milestones::{milestone_add, milestone_rm, milestone_update};
 pub use plans::{
     archive, claim, create, delete_plan, disown, get, kinds_set, list, mode_set, next, reconcile,

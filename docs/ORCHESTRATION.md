@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -479,8 +479,20 @@ codeterm plan loop create PLAN_ID \
 
 codeterm plan loop set LOOP_ID [--budget N] [--stop-when "..."]
 codeterm plan loop status LOOP_ID
+codeterm plan loop record LOOP_ID --note "what changed this iteration" [--stop]
 codeterm plan loop stop LOOP_ID
 ```
+
+Loop iterations are recorded explicitly. `plan loop record` increments the loop
+count, stamps the iteration time, attaches a stride to the current task when one
+is available (otherwise the freshest open planning task, then the freshest open
+task), and flips the loop to `exhausted` at budget or `done` when `--stop` is
+set. This is the durable visibility path used by state/heartbeat/doctor.
+
+`LoopSpec.stages` was removed. It had no CLI surface, no runtime consumer, and
+was dead planner state. If stage-specific execution is needed later, add it back
+with a real command surface and task-routing behavior rather than carrying an
+unused field in persisted plans.
 
 ### Canvas layout
 
