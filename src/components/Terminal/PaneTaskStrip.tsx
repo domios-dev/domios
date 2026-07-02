@@ -1,18 +1,15 @@
 import { useMemo } from "react";
 import { useMultiplexer } from "../../store/multiplexer";
 import { useFullPlans, usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { resolvePaneComposerActivity } from "../Canvas/paneComposerActivity";
 import { findPlanIndexForPane } from "../Canvas/planPaneMatch";
-import { resolvePaneCurrentTask } from "../Canvas/paneCurrentTask";
-import { buildTaskPresence } from "../Canvas/taskPresence";
 import { openPanePlanFocus } from "../Canvas/workspacePlanEntry";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import type { Pane } from "../../lib/types";
-import { WorkerTaskStrip } from "./WorkerTaskStrip";
+import { ComposerPlanActivityStrip } from "./ComposerPlanActivityStrip";
 
-// Above-composer container: a cheap index gate decides whether THIS pane relates to
-// any active plan at all (most panes don't). Only then do we pull full plan bodies
-// to show the concrete task this pane is executing. Plan ownership/progress stays
-// on the canvas and workspace action row, not as a composer bubble.
+// Above-composer context: index gate first (most panes skip full bodies), then a
+// compact human-title strip — orchestrating vs working — with no raw ids in UI.
 export function PaneTaskStrip({ paneId }: { paneId: string }) {
   const { state } = useMultiplexer();
   const { index } = usePlanIndexOptional();
@@ -34,19 +31,19 @@ function ResolvedPaneTaskStrip({
   panes: Record<string, Pane>;
 }) {
   const full = useFullPlans();
-  const resolved = useMemo(() => resolvePaneCurrentTask(full.plans, paneId), [full.plans, paneId]);
-  const taskAgent = useMemo(() => {
-    if (!resolved) return null;
-    return buildTaskPresence(resolved.plan, resolved.task, panes)?.agents[0] ?? null;
-  }, [resolved, panes]);
-
-  if (!resolved) return null;
-  return (
-    <WorkerTaskStrip
-      task={resolved.task}
-      branch={resolved.branch}
-      agent={taskAgent}
-      onOpen={() => openPanePlanFocus(entries, paneId, [resolved.task.id])}
-    />
+  const activity = useMemo(
+    () => resolvePaneComposerActivity(full.plans, paneId, panes),
+    [full.plans, paneId, panes],
   );
+  if (!activity) return null;
+
+  const onOpen = () => {
+    if (activity.kind === "working") {
+      openPanePlanFocus(entries, paneId, [activity.taskId]);
+      return;
+    }
+    openPanePlanFocus(entries, paneId);
+  };
+
+  return <ComposerPlanActivityStrip activity={activity} onOpen={onOpen} />;
 }
