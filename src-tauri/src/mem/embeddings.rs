@@ -129,12 +129,17 @@ pub mod inner {
         };
         let current = std::env::current_exe().map_err(|e| format!("current_exe: {}", e))?;
         let dir = current.parent().ok_or("no parent dir")?;
+        let parent = dir.parent();
 
-        let candidates = [
+        let mut candidates = vec![
             dir.join(exe_name),
             dir.join("codeterm-embed"),
             dir.join("bundled-embed").join(exe_name),
         ];
+        if let Some(parent) = parent {
+            candidates.push(parent.join(exe_name));
+            candidates.push(parent.join("codeterm-embed"));
+        }
         for path in &candidates {
             if path.exists() {
                 return Ok(path.clone());

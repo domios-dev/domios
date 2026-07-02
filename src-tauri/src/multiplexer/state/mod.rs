@@ -134,6 +134,7 @@ impl MultiplexerState {
             session_binding_nonce: None,
             shell_integration_nonce: None,
             role: Some(AgentRole::Orchestrator),
+            role_profile: None,
             parent_pane_id: None,
             can_spawn: true,
             depth: 1,

@@ -134,6 +134,7 @@ export interface Task {
   group?: string | null;
   section_ids: string[];
   body: string;
+  role_guidance?: string | null;
   acceptance_criteria?: string[];
   test_plan?: string;
   /** Correctness vector — what "done right" means (rendered in the READ detail). */

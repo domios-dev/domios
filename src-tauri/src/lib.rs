@@ -710,6 +710,9 @@ pub fn run() {
                 usage_activity: crate::usage::PaneActivity::new(),
                 usage_poller: Arc::new(parking_lot::Mutex::new(None)),
                 plan_watchers: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
+                loaded_plan_projects: Arc::new(parking_lot::Mutex::new(
+                    std::collections::HashSet::new(),
+                )),
             };
             let service_state: ServiceState = Arc::new(svc_ctx);
             // Late-bind the ServiceContext into every loaded plugin's sandbox. Weak so VMs never keep the service alive past teardown.

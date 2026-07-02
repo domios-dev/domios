@@ -1,1 +1,0 @@
-Prefix-builder: close the injected -=- block (delimiter at both ends, wrap in <codeterm>...</codeterm>). Chat renderer: detect+strip these blocks, render meta as a separate chip, so two messages don't merge.

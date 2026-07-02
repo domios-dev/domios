@@ -6,6 +6,8 @@ pub enum SpawnRole {
     Orchestrator,
     #[value(name = "Worker")]
     Worker,
+    #[value(name = "Planner")]
+    Planner,
 }
 
 impl SpawnRole {
@@ -13,6 +15,14 @@ impl SpawnRole {
         match self {
             SpawnRole::Orchestrator => "Orchestrator",
             SpawnRole::Worker => "Worker",
+            SpawnRole::Planner => "Worker",
+        }
+    }
+
+    pub fn role_profile(&self) -> Option<&'static str> {
+        match self {
+            SpawnRole::Planner => Some("planner"),
+            _ => None,
         }
     }
 }
@@ -202,7 +212,7 @@ pub enum AgentAction {
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
-        /// Role: Worker or explicit Orchestrator. Omit for a roleless fresh agent.
+        /// Role: Worker, Orchestrator, or Planner profile sugar.
         #[arg(long)]
         role: Option<SpawnRole>,
         /// Parent pane ID (for Workers)
@@ -404,6 +414,23 @@ mod tests {
                 action: AgentAction::Ledger { pane },
             } => assert!(pane.is_none()),
             _ => panic!("expected agent ledger action"),
+        }
+    }
+
+    #[test]
+    fn spawn_planner_role_maps_to_worker_profile() {
+        let cli =
+            Cli::try_parse_from(["codeterm", "agent", "spawn", "claude", "--role", "Planner"])
+                .expect("planner role parses");
+        match cli.command {
+            crate::Commands::Agent {
+                action: AgentAction::Spawn { role, .. },
+            } => {
+                let role = role.expect("role set");
+                assert_eq!(role.as_str(), "Worker");
+                assert_eq!(role.role_profile(), Some("planner"));
+            }
+            _ => panic!("expected agent spawn"),
         }
     }
 

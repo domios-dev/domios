@@ -496,6 +496,19 @@
         "y": null,
         "collapsed": false
       }
+    },
+    {
+      "id": "sec_382e72ff92814c7ca183df3fb26d05df",
+      "title": "Agent Role UX — explicit Orchestrator promotion",
+      "handle": "agent-role-ux-explicit-orchestrator-promotion",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
     }
   ],
   "status": "active",
@@ -506,7 +519,7 @@
   },
   "project_path": "/Users/rollacode/Developer/codeterm",
   "created_at": 1782278331738,
-  "updated_at": 1782918302142,
+  "updated_at": 1782981377242,
   "milestone_kinds": [
     {
       "key": "status_update",
@@ -12690,6 +12703,611 @@
         "collapsed": false
       },
       "milestones": []
+    },
+    {
+      "id": "task_bbb6d489c1204f1c923763a0bb8cd4c0",
+      "name": "Allow orchestrators to own plans while working a task",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Planner lifecycle correctness: owner-plan and current-task are distinct relations",
+      "acceptance_criteria": [
+        "owned orchestrator task binding gets owner heartbeat, not worker charter",
+        "worker-only task binding still gets worker charter"
+      ],
+      "test_plan": "cargo test --manifest-path src-tauri/Cargo.toml service::hierarchy::plan_reminder_nudge --lib -- --nocapture; cargo test --manifest-path src-tauri/Cargo.toml service::plan::worker_charter --lib -- --nocapture; cargo check --manifest-path src-tauri/Cargo.toml",
+      "correctness": "A pane can simultaneously orchestrate a plan and work/review one task without role confusion",
+      "status": "done",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1782925266357,
+      "updated_at": 1782925511594,
+      "status_changed_at": 1782925511594,
+      "handle": "allow-orchestrators-to-own-plans-while-working-a-task",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_fc49ff86fc134c31ae70352acf8ead1d",
+      "name": "Explain in-review to done lifecycle denial",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "CLI should teach the acceptance workflow instead of surfacing a raw RPC error",
+      "acceptance_criteria": [
+        "InReview -> Done denial gives plan task close command",
+        "Generic transition denial remains actionable"
+      ],
+      "test_plan": "cargo test --manifest-path cli/Cargo.toml cmd::plan::tests::renders_in_review_done_transition_fix -- --nocapture; cargo test --manifest-path cli/Cargo.toml cmd::plan::tests -- --nocapture",
+      "correctness": "The lifecycle rule stays strict while the operator sees the right next command",
+      "status": "done",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1782925281682,
+      "updated_at": 1782925511696,
+      "status_changed_at": 1782925511696,
+      "handle": "explain-in-review-to-done-lifecycle-denial",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_84849ae7e1484352bad6dc13a4097de0",
+      "name": "Audit planner CLI error explanations",
+      "type": "review",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Prevent raw RPC/vague CLI guidance like transition denied from reaching users",
+      "acceptance_criteria": [
+        "all missing/weak planner CLI renderers are listed with file/line and command fix",
+        "known transition_denied issue is evaluated"
+      ],
+      "test_plan": "read-only rg/sed audit; focused renderer tests only if needed",
+      "correctness": "Planner/orchestrator CLI teaches next action instead of exposing backend internals",
+      "status": "done",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1782925391352,
+      "updated_at": 1782925612006,
+      "status_changed_at": 1782925612006,
+      "handle": "audit-planner-cli-error-explanations",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_6d79c39d4d2444979572ea95daccadaf",
+      "name": "Render all structured planner CLI errors",
+      "type": "implementation",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Implement audit findings for planner error rendering before release",
+      "acceptance_criteria": [
+        "bad_mode and bad_priority never print raw RPC",
+        "not_found message matches params for plan/spec/section/loop/heartbeat contexts",
+        "bad_status distinguishes task status from plan status",
+        "io avoids raw RPC and gives handoff-specific guidance where possible",
+        "test proves all current structured PlanError types have renderers"
+      ],
+      "test_plan": "cargo test --manifest-path cli/Cargo.toml cmd::plan::tests -- --nocapture; git diff --check",
+      "correctness": "Planner CLI errors teach recovery commands instead of exposing backend internals",
+      "status": "done",
+      "status_label": "working",
+      "priority": "p1",
+      "created_at": 1782925647332,
+      "updated_at": 1782925927826,
+      "status_changed_at": 1782925927826,
+      "handle": "render-structured-planner-cli-errors",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_94522a3bf01f48369de971ea09ba8c9e",
+      "name": "Wrap orchestrator non-plan RPC errors",
+      "type": "implementation",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Fix remaining raw RPC surfaces in orchestrator lifecycle commands",
+      "acceptance_criteria": [
+        "orchestrator status report-fetch failures do not print raw RPC",
+        "handoff reseed pane lookup/session failures include exact recovery commands"
+      ],
+      "test_plan": "cargo test --manifest-path cli/Cargo.toml orchestrator -- --nocapture or focused extracted tests; git diff --check",
+      "correctness": "Orchestrator lifecycle commands provide operator recovery guidance",
+      "status": "done",
+      "status_label": "working",
+      "priority": "p2",
+      "created_at": 1782925661385,
+      "updated_at": 1782925848535,
+      "status_changed_at": 1782925848535,
+      "handle": "wrap-orchestrator-non-plan-rpc-errors",
+      "tags": [],
+      "section_ids": [
+        "sec_4ad8487989a744a3b673cbe895601e1e"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_2560afbac7e6475ca45f9efc758fc76a",
+      "name": "Explicit pane role model: no default Orchestrator role",
+      "type": "fix",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Backend/state correctness; role inference is a data-model bug.",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782977815332,
+      "updated_at": 1782977815332,
+      "status_changed_at": 1782977815332,
+      "handle": "explicit-pane-role-model-no-default-orchestrator-role",
+      "tags": [],
+      "section_ids": [
+        "sec_382e72ff92814c7ca183df3fb26d05df"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_1710deb8b91c4cc6a6b2bd97d8705cac",
+      "name": "Pane menu Make Orchestrator UX",
+      "type": "implement",
+      "model": "cursor:composer-2.5",
+      "model_rationale": "Bounded UI lane; menu eligibility and tab chrome are frontend-heavy.",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782977816388,
+      "updated_at": 1782977816388,
+      "status_changed_at": 1782977816388,
+      "handle": "pane-menu-make-orchestrator-ux",
+      "tags": [],
+      "section_ids": [
+        "sec_382e72ff92814c7ca183df3fb26d05df"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_b3992552870045ce837c44cfd6ed627a",
+      "name": "Orchestrator promotion onboarding delivery",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Touches backend promotion and message delivery semantics.",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782977817008,
+      "updated_at": 1782977817008,
+      "status_changed_at": 1782977817008,
+      "handle": "orchestrator-promotion-onboarding-delivery",
+      "tags": [],
+      "section_ids": [
+        "sec_382e72ff92814c7ca183df3fb26d05df"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_c1613b8dbae14582b5a101e5a1f37cdc",
+      "name": "Canvas/sidebar role rendering from explicit state only",
+      "type": "fix",
+      "model": "cursor:composer-2.5",
+      "model_rationale": "Frontend rendering and selector cleanup; bounded UI lane.",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782977818166,
+      "updated_at": 1782977818166,
+      "status_changed_at": 1782977818166,
+      "handle": "canvas-sidebar-role-rendering-from-explicit-state-only",
+      "tags": [],
+      "section_ids": [
+        "sec_382e72ff92814c7ca183df3fb26d05df"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_9e83c88e428b4611b64f3516fffcd314",
+      "name": "Review and gate explicit Orchestrator role UX",
+      "type": "review",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Final adversarial pass across backend role state, UI markers, restore, and worker routing.",
+      "acceptance_criteria": [],
+      "test_plan": null,
+      "correctness": null,
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782977818737,
+      "updated_at": 1782977818737,
+      "status_changed_at": 1782977818737,
+      "handle": "review-and-gate-explicit-orchestrator-role-ux",
+      "tags": [],
+      "section_ids": [
+        "sec_382e72ff92814c7ca183df3fb26d05df"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_af699253a25947aa94a8baa36cd55c68",
+      "name": "Shared role descriptor DTO for pane role and task role brief",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Avoid hardcoding Orchestrator/Worker and make roles scalable without a heavy custom-role editor.",
+      "acceptance_criteria": [],
+      "test_plan": "Focused backend role/attachment tests, UI selector tests, dev smoke for fresh agent/promote/spawned worker brief.",
+      "correctness": "Orchestrator role, worker attachment, and task specialization brief are separate concepts.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782978050795,
+      "updated_at": 1782981376538,
+      "status_changed_at": 1782978050795,
+      "handle": "shared-role-descriptor-dto-for-pane-role-and-task-role-brief",
+      "tags": [],
+      "section_ids": [
+        "sec_382e72ff92814c7ca183df3fb26d05df"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_d4fb3abc721648b6a50ed6a1e30a8266",
+      "name": "Task role briefs and CLI planning hints",
+      "type": "implement",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Planning should capture which role/template is needed before dispatch; CLI hints prevent under-specified tasks.",
+      "acceptance_criteria": [],
+      "test_plan": "CLI add/update hint tests, backend save/load tests, spawn prompt test, optional List/Board selector test.",
+      "correctness": "Task specialization is explicit, structured, and independent from pane runtime roles.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782978156563,
+      "updated_at": 1782981377242,
+      "status_changed_at": 1782978156563,
+      "handle": "task-role-briefs-and-cli-planning-hints",
+      "tags": [],
+      "section_ids": [
+        "sec_382e72ff92814c7ca183df3fb26d05df"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
+    },
+    {
+      "id": "task_be4389fdd52f409f9bbbd7aac530ae6a",
+      "name": "Orchestrator docs: generate task role briefs and review lanes",
+      "type": "docs",
+      "model": "codex:gpt-5.5",
+      "model_rationale": "Docs/prompt work should encode the decision without adding product role templates.",
+      "acceptance_criteria": [
+        "Canonical orchestration docs/skill explain explicit Orchestrator role, worker attachment/container semantics, and dynamic task role briefs including reviewer as task pattern."
+      ],
+      "test_plan": "Review docs/prompt diff; run prompt-evaluator if prompt files change; verify no docs claim fresh agents are Orchestrators by default or Worker is a persona role.",
+      "correctness": "Orchestrator prompt teaches dynamic role generation while product state remains minimal.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1782978583573,
+      "updated_at": 1782980028217,
+      "status_changed_at": 1782978583573,
+      "handle": "orchestrator-docs-generate-task-role-briefs-and-review-lanes",
+      "tags": [],
+      "section_ids": [
+        "sec_382e72ff92814c7ca183df3fb26d05df"
+      ],
+      "body": "",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": null,
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": []
     }
   ],
   "task_groups": [],
@@ -12740,7 +13358,7 @@
     "postulates": []
   },
   "heartbeat": {
-    "current_focus": "All 1.6.2 planning/canvas tasks are closed; run final review/release gates before commit/tag.",
+    "current_focus": "Final 1.6.2 planner polish accepted; no active worker lanes.",
     "active_lanes": [],
     "rules": [
       "Do not spam cleanup nudges. Surface worker/lane cleanup through orchestrator status + the single plan heartbeat cleanup step; only ping separately for unsafe stale state or user-visible drift."

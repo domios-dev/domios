@@ -63,6 +63,42 @@ fn call(client: &mut SocketClient, method: &str, params: Value) -> Result<Value,
     call_plan_rpc(client, method, params)
 }
 
+fn default_project_path() -> String {
+    std::env::current_dir()
+        .ok()
+        .map(|path| path.display().to_string())
+        .unwrap_or_default()
+}
+
+fn render_plan_search(value: &Value) -> String {
+    let hits = value
+        .get("hits")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if hits.is_empty() {
+        return "No plan search hits.\n".into();
+    }
+    let mut out = String::new();
+    for hit in hits {
+        let kind = hit.get("kind").and_then(|v| v.as_str()).unwrap_or("unit");
+        let status = hit.get("status").and_then(|v| v.as_str()).unwrap_or("-");
+        let title = hit.get("title").and_then(|v| v.as_str()).unwrap_or("");
+        let unit = hit.get("unit_id").and_then(|v| v.as_str()).unwrap_or("");
+        let body = hit.get("body").and_then(|v| v.as_str()).unwrap_or("");
+        let preview = body
+            .split_whitespace()
+            .take(18)
+            .collect::<Vec<_>>()
+            .join(" ");
+        out.push_str(&format!("- {kind} [{status}] {title} ({unit})\n"));
+        if !preview.is_empty() {
+            out.push_str(&format!("  {preview}\n"));
+        }
+    }
+    out
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lane_params(
     pane_id: Option<String>,
@@ -148,9 +184,7 @@ fn run_plan(
             if let Some(k) = kinds {
                 params["kinds"] = json!(k);
             }
-            if let Some(p) = project {
-                params["project_path"] = json!(p);
-            }
+            params["project_path"] = json!(project.unwrap_or_else(default_project_path));
             if let Some(spec_id) = from_spec {
                 params["from_spec"] = json!(spec_id);
             }
@@ -363,14 +397,42 @@ fn run_plan(
             call(client, "plan.related", json!({ "id": id, "depth": depth }))
         }
 
+        PlanAction::Search {
+            query,
+            project,
+            kind,
+            limit,
+            active: _,
+            archived,
+            all,
+        } => {
+            let project = project.unwrap_or_else(default_project_path);
+            let status = if all {
+                "all"
+            } else if archived {
+                "archived"
+            } else {
+                "active"
+            };
+            let mut params = json!({
+                "q": query,
+                "project": project,
+                "limit": limit,
+                "status": status,
+            });
+            if let Some(kind) = kind {
+                params["kind"] = json!(kind);
+            }
+            let val = call(client, "plan.search", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            print!("{}", render_plan_search(&val));
+            return Ok(None);
+        }
+
         PlanAction::Reindex { project } => {
-            let project = project
-                .or_else(|| {
-                    std::env::current_dir()
-                        .ok()
-                        .map(|path| path.display().to_string())
-                })
-                .unwrap_or_default();
+            let project = project.unwrap_or_else(default_project_path);
             call(client, "plan.reindex", json!({ "project": project }))
         }
 

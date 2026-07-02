@@ -218,6 +218,7 @@ impl MultiplexerState {
             // Re-lock identity so output-based re-detection can't flip the provider before resume kicks in.
             pane.agent_type_locked = record.agent_type.is_some();
             pane.agent_session_id = record.agent_session_id.clone();
+            pane.role_profile = record.role_profile.clone();
             pane.agent_session_model = record.model.clone();
             pane.restored_from_snapshot = true;
             pane.chat_view =

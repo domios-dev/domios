@@ -43,6 +43,8 @@ pub struct ClosedPane {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub role_profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub model: Option<String>,
     #[serde(default)]
     pub chat_view: bool,
@@ -71,6 +73,7 @@ impl From<&Pane> for ClosedPane {
             cwd: pane.cwd.clone(),
             agent_type: pane.agent_type.clone(),
             agent_session_id: pane.agent_session_id.clone(),
+            role_profile: pane.role_profile.clone(),
             model: pane.agent_session_model.clone(),
             chat_view: pane.chat_view,
             closed_at: std::time::SystemTime::now()
@@ -234,6 +237,9 @@ pub struct Pane {
     /// Orchestration role (orchestrator / worker — 2-level, no middle tier).
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub role: Option<AgentRole>,
+    /// Behavioral profile layered on top of the structural role.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub role_profile: Option<String>,
     /// Parent pane ID in the orchestration hierarchy.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub parent_pane_id: Option<String>,
@@ -366,6 +372,7 @@ mod tests {
             session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
+            role_profile: None,
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,

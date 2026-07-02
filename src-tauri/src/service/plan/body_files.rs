@@ -39,7 +39,7 @@ impl BodyKind {
 }
 
 pub fn plan_body_dir(plan: &Plan) -> std::io::Result<PathBuf> {
-    super::paths::plans_dir(Path::new(&plan.project_path)).map(|dir| dir.join(&plan.id))
+    super::paths::plan_dir(Path::new(&plan.project_path), &plan.status, &plan.id)
 }
 
 pub fn section_path(plan: &Plan, section_id: &str) -> std::io::Result<PathBuf> {
@@ -123,21 +123,67 @@ pub fn strip_bodies(plan: &Plan) -> Plan {
 pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     let paths = body_paths(plan)?;
     if let Some(goal) = &plan.goal {
-        write_markdown_atomic(&goal_path(plan)?, &goal.vision)?;
+        write_markdown_atomic(
+            &goal_path(plan)?,
+            &body_with_frontmatter(
+                frontmatter(plan, "goal", &plan.id, "goal", Some("Goal"), None),
+                &[],
+                &goal.vision,
+            ),
+        )?;
     }
     for section in flatten_sections(&plan.sections) {
         let path = section_path(plan, &section.id)?;
-        write_markdown_atomic(&path, &body_with_frontmatter(&section.tags, &section.body))?;
+        write_markdown_atomic(
+            &path,
+            &body_with_frontmatter(
+                frontmatter(
+                    plan,
+                    "section",
+                    &section.id,
+                    &super::tag_model::section_handle(section),
+                    Some(&section.title),
+                    None,
+                ),
+                &section.tags,
+                &section.body,
+            ),
+        )?;
         remove_stale_id_path(plan, BodyKind::Section, &section.id, &path)?;
     }
     for task in &plan.tasks {
         let path = task_path(plan, &task.id)?;
-        write_markdown_atomic(&path, &body_with_frontmatter(&task.tags, &task.body))?;
+        write_markdown_atomic(
+            &path,
+            &body_with_frontmatter(
+                frontmatter(
+                    plan,
+                    "task",
+                    &task.id,
+                    &super::tag_model::task_handle(task),
+                    Some(&task.name),
+                    Some(task_status_str(&task.status)),
+                ),
+                &task.tags,
+                &task.body,
+            ),
+        )?;
         remove_stale_id_path(plan, BodyKind::Task, &task.id, &path)?;
         for milestone in &task.milestones {
             persist_optional_markdown(
                 &milestone_path(plan, task, milestone)?,
-                &milestone.text,
+                &body_with_frontmatter(
+                    frontmatter(
+                        plan,
+                        "milestone",
+                        &milestone.id,
+                        &format!("{}-{}", super::tag_model::task_handle(task), milestone.id),
+                        Some(&milestone.kind),
+                        None,
+                    ),
+                    &[],
+                    &milestone.text,
+                ),
                 should_externalize_markdown(&milestone.text),
             )?;
         }
@@ -150,7 +196,18 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
         if let Some(body) = element_markdown(element) {
             persist_optional_markdown(
                 &element_path(plan, element)?,
-                body,
+                &body_with_frontmatter(
+                    frontmatter(
+                        plan,
+                        "element",
+                        &element.id,
+                        &format!("{}-{}", element.kind, element.id),
+                        Some(&element.kind),
+                        None,
+                    ),
+                    &[],
+                    body,
+                ),
                 should_externalize_markdown(body),
             )?;
         }
@@ -427,7 +484,12 @@ fn element_index_entry(plan: &Plan, element: &CanvasElement) -> std::io::Result<
 
 fn write_index(plan: &Plan) -> std::io::Result<()> {
     let entries = index_entries(plan)?;
-    let mut out = format!("# {}\n\n", plan.title);
+    let mut out = body_with_frontmatter(
+        frontmatter(plan, "index", &plan.id, "index", Some(&plan.title), None),
+        &[],
+        &format!("# {}\n", plan.title),
+    );
+    out.push('\n');
     write_index_group(&mut out, "Goal", &entries, "goal");
     write_index_group(&mut out, "Sections", &entries, "section");
     write_index_group(&mut out, "Tasks", &entries, "task");
@@ -497,7 +559,9 @@ fn hydrate_sections(
 fn hydrate_plain_markdown(path: &Path, body: &mut String) -> std::io::Result<bool> {
     let had_inline_body = !body.is_empty();
     if path.exists() {
-        *body = std::fs::read_to_string(path)?;
+        let text = std::fs::read_to_string(path)?;
+        let (_, stripped) = parse_frontmatter_tags(&text);
+        *body = stripped;
         return Ok(had_inline_body);
     }
     if should_externalize_markdown(body) {
@@ -510,7 +574,9 @@ fn hydrate_plain_markdown(path: &Path, body: &mut String) -> std::io::Result<boo
 fn hydrate_element_markdown(path: &Path, element: &mut CanvasElement) -> std::io::Result<bool> {
     let had_inline_body = should_externalize_element(element);
     if path.exists() {
-        set_element_markdown(element, std::fs::read_to_string(path)?);
+        let text = std::fs::read_to_string(path)?;
+        let (_, stripped) = parse_frontmatter_tags(&text);
+        set_element_markdown(element, stripped);
         return Ok(had_inline_body);
     }
     if let Some(body) = element_markdown(element) {
@@ -544,7 +610,10 @@ fn hydrate_body(
         return Ok(had_inline_body);
     }
     if had_inline_body {
-        write_markdown_atomic(path, &body_with_frontmatter(tags, body))?;
+        write_markdown_atomic(
+            path,
+            &body_with_frontmatter(serde_json::Map::new(), tags, body),
+        )?;
         return Ok(true);
     }
     Ok(false)
@@ -595,7 +664,7 @@ pub fn write_markdown_atomic(path: &Path, body: &str) -> std::io::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let tmp = path.with_extension("md.tmp");
-    std::fs::write(&tmp, body)?;
+    std::fs::write(&tmp, normalize_markdown_eof(body))?;
     std::fs::rename(&tmp, path)?;
     Ok(())
 }
@@ -613,12 +682,56 @@ fn remove_stale_id_path(
     Ok(())
 }
 
-fn body_with_frontmatter(tags: &[String], body: &str) -> String {
-    if tags.is_empty() {
+fn frontmatter(
+    plan: &Plan,
+    kind: &str,
+    id: &str,
+    handle: &str,
+    title: Option<&str>,
+    status: Option<&str>,
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("plan_id".into(), serde_json::Value::String(plan.id.clone()));
+    metadata.insert("kind".into(), serde_json::Value::String(kind.into()));
+    metadata.insert("id".into(), serde_json::Value::String(id.into()));
+    metadata.insert("handle".into(), serde_json::Value::String(handle.into()));
+    if let Some(title) = title {
+        metadata.insert("title".into(), serde_json::Value::String(title.into()));
+    }
+    if let Some(status) = status {
+        metadata.insert("status".into(), serde_json::Value::String(status.into()));
+    }
+    metadata
+}
+
+fn task_status_str(status: &crate::plan::TaskStatus) -> &'static str {
+    match status {
+        crate::plan::TaskStatus::Pending => "pending",
+        crate::plan::TaskStatus::InProgress => "in_progress",
+        crate::plan::TaskStatus::InReview => "in_review",
+        crate::plan::TaskStatus::Blocked => "blocked",
+        crate::plan::TaskStatus::Done => "done",
+        crate::plan::TaskStatus::Cancelled => "cancelled",
+    }
+}
+
+fn body_with_frontmatter(
+    mut metadata: serde_json::Map<String, serde_json::Value>,
+    tags: &[String],
+    body: &str,
+) -> String {
+    if !tags.is_empty() {
+        metadata.insert("tags".into(), serde_json::json!(tags));
+    }
+    if metadata.is_empty() {
         return body.to_string();
     }
-    let yaml = serde_yaml::to_string(&serde_json::json!({ "tags": tags })).unwrap_or_default();
+    let yaml = serde_yaml::to_string(&serde_json::Value::Object(metadata)).unwrap_or_default();
     format!("---\n{}---\n\n{}", yaml, body.trim_start())
+}
+
+fn normalize_markdown_eof(body: &str) -> String {
+    format!("{}\n", body.trim_end_matches([' ', '\t', '\r', '\n']))
 }
 
 fn should_externalize_markdown(text: &str) -> bool {

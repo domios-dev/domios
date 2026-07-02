@@ -120,7 +120,7 @@ Spawn a new agent; roleless unless --role is provided
 - `--parent` — Parent pane ID (for Workers)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--report_to` — Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
-- `--role` — Role: Worker or explicit Orchestrator. Omit for a roleless fresh agent
+- `--role` — Role: Worker, Orchestrator, or Planner profile sugar
 - `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
 - `--task_file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
@@ -1861,6 +1861,8 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `<plan_id>`
 - `--primary`
 - `--priority`
+- `--role_guidance`
+- `--role_guidance_file`
 - `--sections`
 - `--tags`
 - `--test_plan`
@@ -1982,6 +1984,8 @@ Update task metadata, status, quality fields, or lane assignment
 - `<plan_id>`
 - `--primary`
 - `--priority`
+- `--role_guidance`
+- `--role_guidance_file`
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 - `--status_label`

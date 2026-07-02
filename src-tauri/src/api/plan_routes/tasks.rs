@@ -15,6 +15,15 @@ use super::{
     emit_plan_changed, epoch_ms, optional_string_field, plan_err, text_err, PlanRouteResult,
 };
 
+fn planner_role_for_pane(state: &AppState, pane_id: &str) -> Option<&'static str> {
+    state
+        .svc
+        .mux
+        .read()
+        .get_pane(pane_id)
+        .and_then(|pane| (pane.role_profile.as_deref() == Some("planner")).then_some("planner"))
+}
+
 fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
     let Some(lane) = body.get("lane") else {
         return Ok(None);
@@ -66,6 +75,8 @@ pub(crate) struct TaskAddBody {
     correctness: Option<String>,
     #[serde(default)]
     body: Option<String>,
+    #[serde(default)]
+    role_guidance: Option<String>,
     #[serde(default)]
     intent: Option<String>,
     #[serde(default)]
@@ -148,6 +159,7 @@ pub async fn task_add(
                 test_plan: body.test_plan,
                 correctness: body.correctness,
                 body: body.body.unwrap_or_default(),
+                role_guidance: body.role_guidance,
                 intent: body.intent,
                 parent_task_id: body.parent,
                 assigned_pane_id: body.assign_pane,
@@ -235,6 +247,18 @@ pub async fn task_update(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+    if body.get("role_guidance").is_some() {
+        state
+            .svc
+            .plan_store
+            .update_task_role_guidance(
+                &id,
+                &tid,
+                optional_string_field(&body, "role_guidance"),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+    }
     if let Some(lane) = lane {
         state
             .svc
@@ -302,7 +326,14 @@ pub async fn task_assign(
     state
         .svc
         .plan_store
-        .assign_task(&id, &tid, &body.pane, body.peer.as_deref(), epoch_ms())
+        .assign_task_with_role(
+            &id,
+            &tid,
+            &body.pane,
+            body.peer.as_deref(),
+            planner_role_for_pane(&state, &body.pane),
+            epoch_ms(),
+        )
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -383,7 +414,7 @@ pub async fn task_respawn(
             &tid,
             &spawn.pane_id,
             &draft,
-            Some("worker"),
+            planner_role_for_pane(&state, &spawn.pane_id).or(Some("worker")),
             epoch_ms(),
         )
         .map_err(plan_err)?;

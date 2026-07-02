@@ -76,6 +76,7 @@ impl MultiplexerState {
                 agent_type_locked: pane.map(|p| p.agent_type_locked).unwrap_or(false),
                 claude_session_id: pane.and_then(|p| p.agent_session_id.clone()),
                 role: pane.and_then(|p| p.role.map(|r| format!("{:?}", r))),
+                role_profile: pane.and_then(|p| p.role_profile.clone()),
                 parent_pane_id: pane.and_then(|p| p.parent_pane_id.clone()),
                 spawned_by_pane_id: pane.and_then(|p| p.spawned_by_pane_id.clone()),
                 report_target_pane_id: pane.and_then(|p| p.report_target_pane_id.clone()),
@@ -173,6 +174,7 @@ impl MultiplexerState {
                 agent_type_locked,
                 claude_session_id,
                 role,
+                role_profile,
                 parent_pane_id,
                 spawned_by_pane_id,
                 report_target_pane_id,
@@ -265,6 +267,7 @@ impl MultiplexerState {
                     session_binding_nonce: None,
                     shell_integration_nonce: None,
                     role: parsed_role,
+                    role_profile: role_profile.clone(),
                     parent_pane_id: parent_pane_id.clone(),
                     can_spawn: *can_spawn,
                     depth: *depth,
@@ -355,6 +358,7 @@ mod tests {
             agent_type_locked: false,
             claude_session_id: None,
             role: None,
+            role_profile: None,
             parent_pane_id: None,
             spawned_by_pane_id: None,
             report_target_pane_id: None,
@@ -446,6 +450,7 @@ mod tests {
             agent_type_locked: true,
             claude_session_id: Some("c-1".into()),
             role: None,
+            role_profile: None,
             parent_pane_id: None,
             spawned_by_pane_id: None,
             report_target_pane_id: None,
@@ -475,6 +480,7 @@ mod tests {
             agent_type_locked: true,
             claude_session_id: None,
             role: Some("Worker".into()),
+            role_profile: Some("planner".into()),
             parent_pane_id: None,
             spawned_by_pane_id: None,
             report_target_pane_id: None,
@@ -490,6 +496,7 @@ mod tests {
         let state = MultiplexerState::from_session_snapshot(&snapshot_with(leaf));
         let pane = state.panes.get("p-desc").expect("pane restored");
         assert_eq!(pane.description.as_deref(), Some("running focused tests"));
+        assert_eq!(pane.role_profile.as_deref(), Some("planner"));
         assert_eq!(
             state.workspaces[0].tabs[0].description.as_deref(),
             Some("running focused tests")
@@ -522,6 +529,7 @@ mod tests {
             agent_type_locked: true,
             claude_session_id: None,
             role: Some("Worker".into()),
+            role_profile: None,
             parent_pane_id: Some("orch-1".into()),
             spawned_by_pane_id: Some("spawner-1".into()),
             report_target_pane_id: Some("target-1".into()),
@@ -561,6 +569,7 @@ mod tests {
             agent_type_locked: true,
             claude_session_id: None,
             role: Some("Worker".into()),
+            role_profile: None,
             parent_pane_id: None,
             spawned_by_pane_id: None,
             report_target_pane_id: None,
@@ -683,6 +692,7 @@ mod tests {
             agent_type_locked: true,
             claude_session_id: None,
             role: Some("Worker".into()),
+            role_profile: None,
             parent_pane_id: Some("orch".into()),
             spawned_by_pane_id: Some("spawner".into()),
             report_target_pane_id: None,

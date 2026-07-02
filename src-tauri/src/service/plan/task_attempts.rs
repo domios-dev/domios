@@ -171,7 +171,16 @@ fn build_prompt(
     if let Some(model) = model {
         out.push_str(&format!("/{model}"));
     }
-    out.push_str("\n\nOriginal task body:\n");
+    if let Some(guidance) = task
+        .role_guidance
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        out.push_str("\n\nRole guidance:\n");
+        out.push_str(guidance.trim());
+        out.push('\n');
+    }
+    out.push_str("\nOriginal task body:\n");
     if task.body.trim().is_empty() {
         out.push_str("(no body recorded)\n");
     } else {

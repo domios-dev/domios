@@ -6,6 +6,9 @@
 /// Appended to Worker tasks — tells them how to report back.
 pub const WORKER_SUFFIX: &str = include_str!("../prompts/worker_suffix.md");
 
+/// Appended to Planner-profile Worker tasks.
+pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
+
 /// Appended to Orchestrator tasks — no-sleep rule.
 pub const ORCHESTRATOR_SUFFIX: &str = include_str!("../prompts/orchestrator_suffix.md");
 
@@ -111,5 +114,22 @@ mod tests {
         assert!(CODETERM_CLI.contains("Make Orchestrator"));
         assert!(CODETERM_CLI.contains("codeterm docs ORCHESTRATION"));
         assert!(ORCHESTRATOR_SUFFIX.contains("CodeTerm planner is the source of truth"));
+    }
+
+    #[test]
+    fn planner_prompt_and_docs_keep_planner_contract() {
+        const ORCHESTRATION_DOC: &str = include_str!("../../docs/ORCHESTRATION.md");
+
+        assert!(PLANNER_SUFFIX.contains("CodeTerm planner is the source of truth"));
+        assert!(PLANNER_SUFFIX.contains("Do not create standalone markdown implementation plans"));
+        assert!(PLANNER_SUFFIX.contains("Discovery/research is an intermediate wave"));
+        assert!(PLANNER_SUFFIX.contains("autonomously build the remaining implementation"));
+        assert!(PLANNER_SUFFIX.contains("role_guidance"));
+        assert!(PLANNER_SUFFIX.contains("Do not invent a third structural AgentRole"));
+        assert!(ORCHESTRATION_DOC.contains("--role Planner"));
+        assert!(ORCHESTRATION_DOC.contains("--model fable"));
+        assert!(ORCHESTRATION_DOC.contains("fall back to `opus`"));
+        assert!(ORCHESTRATION_DOC.contains("Planner-authored `role_guidance`"));
+        assert!(ORCHESTRATION_DOC.contains("CodeTerm planner"));
     }
 }

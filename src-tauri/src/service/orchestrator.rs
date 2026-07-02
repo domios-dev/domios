@@ -95,6 +95,13 @@ impl ServiceContext {
     fn batch_role(&self, params: &serde_json::Value) -> Result<serde_json::Value, String> {
         let pane_id = json_str(params, "pane_id").ok_or("pane_id required")?;
         let role = json_str(params, "role").ok_or("role required")?;
+        let mut role_probe = SpawnAgentParams {
+            role: Some(role),
+            role_profile: json_str(params, "role_profile"),
+            ..Default::default()
+        };
+        role_probe.normalize_role_profile();
+        let role = role_probe.role.unwrap_or_else(|| "Worker".into());
         let parent = json_str(params, "parent_pane_id");
         let can_spawn = params.get("can_spawn").and_then(|v| v.as_bool());
         let parsed_role = Self::parse_role(&role)?;
@@ -105,6 +112,12 @@ impl ServiceContext {
                 .unwrap_or(false)
         };
         self.set_pane_role(&pane_id, &role, parent.as_deref(), can_spawn)?;
+        if let Some(profile) = role_probe.role_profile {
+            if let Some(pane) = self.mux.write().get_pane_mut(&pane_id) {
+                pane.role_profile = Some(profile);
+            }
+            self.emit_state_changed();
+        }
         if parsed_role == crate::multiplexer::types::AgentRole::Orchestrator {
             self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, was_orchestrator);
         }
@@ -152,6 +165,8 @@ pub struct SpawnResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role_profile: Option<String>,
     /// Warning when agent cwd differs from workspace cwd
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
@@ -166,6 +181,7 @@ pub struct SpawnAgentParams {
     pub title: Option<String>,
     pub description: Option<String>,
     pub role: Option<String>,
+    pub role_profile: Option<String>,
     pub parent_pane_id: Option<String>,
     pub can_spawn: Option<bool>,
     pub task: Option<String>,
@@ -198,44 +214,8 @@ pub struct SpawnAgentParams {
 }
 
 impl SpawnAgentParams {
-    pub fn from_json(params: &serde_json::Value) -> Result<Self, String> {
-        Ok(Self {
-            agent: json_str(params, "agent"),
-            agent_name: json_str(params, "agent_name"),
-            args: params.get("args").and_then(|v| v.as_array()).map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                    .collect()
-            }),
-            cwd: json_str(params, "cwd"),
-            title: super::spawn_title::normalize_agent_title(json_str(params, "title")),
-            description: json_str(params, "description")
-                .map(|s| crate::service::normalize_pane_description(&s))
-                .transpose()?
-                .flatten(),
-            role: json_str(params, "role"),
-            parent_pane_id: json_str(params, "parent_pane_id")
-                .or_else(|| json_str(params, "parent")),
-            can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
-            task: json_str(params, "task"),
-            workspace_id: json_str(params, "workspace_id"),
-            force_tab: params.get("force_tab").and_then(|v| v.as_bool()),
-            // `report_to` is the user-facing alias; it collapses into the report
-            // target pane (local or, with origin_peer, remote). `origin_peer` is
-            // injected by the mesh relay from the authenticated sender.
-            report_target_pane_id: json_str(params, "report_to")
-                .or_else(|| json_str(params, "report_target_pane_id")),
-            report_target_mesh_peer: json_str(params, "origin_peer")
-                .or_else(|| json_str(params, "report_target_mesh_peer")),
-            skip_permissions: params.get("skip_permissions").and_then(|v| v.as_bool()),
-            spawned_by_pane_id: json_str(params, "spawned_by_pane_id"),
-            model: json_str(params, "model"),
-            system_prompt: json_str(params, "system_prompt").or_else(|| json_str(params, "system")),
-            preset: json_str(params, "preset"),
-            resume_session_id: json_str(params, "resume_session_id"),
-            activate: params.get("activate").and_then(|v| v.as_bool()),
-            structured_prompt_server: None,
-        })
+    pub(crate) fn normalize_role_profile(&mut self) {
+        super::role_profile::normalize_spawn_params(self);
     }
 }
 
@@ -298,7 +278,9 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
         params.title = super::spawn_title::normalize_agent_title(params.title.take());
+        params.normalize_role_profile();
         let role = params.role.clone();
+        let role_profile = params.role_profile.clone();
         let agent = params
             .agent
             .clone()
@@ -326,6 +308,7 @@ impl ServiceContext {
             title,
             description: handle.description,
             role,
+            role_profile,
             warning: handle.warning,
         })
     }
@@ -336,6 +319,7 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
         params.title = super::spawn_title::normalize_agent_title(params.title.take());
+        params.normalize_role_profile();
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = params
             .agent
@@ -346,6 +330,7 @@ impl ServiceContext {
         let is_shell = self.classify_spawn_target(&agent_cmd)?;
         if is_shell {
             let role = params.role.clone();
+            let role_profile = params.role_profile.clone();
             let model = params.model.clone();
             let title = params
                 .title
@@ -366,6 +351,7 @@ impl ServiceContext {
                 title,
                 description: handle.description,
                 role,
+                role_profile,
                 warning: handle.warning,
             });
         }
@@ -457,6 +443,9 @@ impl ServiceContext {
                 if let Some(pane) = mux.get_pane_mut(&result.1) {
                     pane.cwd = Some(dir.clone());
                 }
+            }
+            if let Some(pane) = mux.get_pane_mut(&result.1) {
+                pane.role_profile = params.role_profile.clone();
             }
             if params.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result.0);
@@ -581,7 +570,11 @@ impl ServiceContext {
         );
 
         // 5. Launch agent in background thread
-        let bg_task = role_onboarding_task(params.task.as_deref(), params.role.as_deref());
+        let bg_task = role_onboarding_task(
+            params.task.as_deref(),
+            params.role.as_deref(),
+            params.role_profile.as_deref(),
+        );
         // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
         let bg_task = bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
             Some(pfx) => format!("{}{}", pfx, t),
@@ -616,6 +609,7 @@ impl ServiceContext {
             title,
             description: params.description,
             role: params.role,
+            role_profile: params.role_profile,
             warning,
         })
     }
@@ -661,10 +655,17 @@ pub(crate) fn skip_local_worker_role(
         && report_target_mesh_peer.map_or(false, |p| !p.is_empty())
 }
 
-pub(crate) fn role_onboarding_task(task: Option<&str>, role: Option<&str>) -> Option<String> {
-    match role {
-        Some("Worker") => task.map(|t| format!("{}{}", t, crate::prompts::WORKER_SUFFIX)),
-        Some("Orchestrator") => Some(format!(
+pub(crate) fn role_onboarding_task(
+    task: Option<&str>,
+    role: Option<&str>,
+    role_profile: Option<&str>,
+) -> Option<String> {
+    match (role, role_profile) {
+        (Some("Worker"), Some("planner")) => {
+            task.map(|t| format!("{}{}", t, crate::prompts::PLANNER_SUFFIX))
+        }
+        (Some("Worker"), _) => task.map(|t| format!("{}{}", t, crate::prompts::WORKER_SUFFIX)),
+        (Some("Orchestrator"), _) => Some(format!(
             "{}{}",
             task.unwrap_or_default(),
             crate::prompts::ORCHESTRATOR_SUFFIX

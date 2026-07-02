@@ -1,1 +1,0 @@
-Plans on disk were not re-indexed after restart. Added lazy project-dir scan on list, startup scan of open-workspace CWDs, retained watchers for pre-existing dirs, plus a regression test for a directly-dropped plan JSON.

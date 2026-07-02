@@ -1,1 +1,0 @@
-Spec node now renders real spec.sections (done). Remaining: the spec-row edges still assume 1:1 same-section (intraPlan.ts); draw them from the real plan.spec_links (spec_section -> plan_section, M:N). Size/position the spec node by its OWN section count, not the plan flat length.

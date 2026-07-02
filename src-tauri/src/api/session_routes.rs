@@ -216,6 +216,7 @@ pub async fn resume_session_api(
         }),
         description: None,
         role: None,
+        role_profile: None,
         parent_pane_id: None,
         can_spawn: None,
         task: None,

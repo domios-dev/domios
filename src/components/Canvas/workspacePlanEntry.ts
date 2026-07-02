@@ -31,7 +31,8 @@ function planBelongsToWorkspacePath(entry: PlanIndexEntry, workspace: Workspace)
   if (!workspace.cwd) return false;
   const root = normalizePath(workspace.cwd);
   const file = normalizePath(entry.file_path);
-  return file === `${root}/.codeterm/plans/${entry.plan_id}.json`
+  return file === `${root}/.codeterm/plans/active/${entry.plan_id}/plan.json`
+    || file === `${root}/.codeterm/plans/archive/${entry.plan_id}/plan.json`
     || file.startsWith(`${root}/.codeterm/plans/`);
 }
 

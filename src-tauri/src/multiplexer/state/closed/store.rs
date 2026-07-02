@@ -7,7 +7,7 @@ use rusqlite::{params, Connection};
 
 use crate::multiplexer::types::{ClosedPane, PaneBacking};
 
-const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 2;
+const CURRENT_CLOSED_SCHEMA_VERSION: u32 = 3;
 
 /// Per-workspace cap on retained closed panes; oldest fall off once exceeded.
 pub const RECENTLY_CLOSED_CAP: usize = 1000;
@@ -122,6 +122,10 @@ impl ClosedPanesStore {
                     Self::migrate_v2_add_chat_view(conn)?;
                     version = 2;
                 }
+                2 => {
+                    Self::migrate_v3_add_role_profile(conn)?;
+                    version = 3;
+                }
                 CURRENT_CLOSED_SCHEMA_VERSION => return Ok(()),
                 _ => return Err(rusqlite::Error::InvalidQuery),
             }
@@ -152,6 +156,7 @@ impl ClosedPanesStore {
                 cwd              TEXT,
                 agent_type       TEXT,
                 agent_session_id TEXT,
+                role_profile     TEXT,
                 model            TEXT,
                 chat_view        INTEGER NOT NULL DEFAULT 0,
                 workspace_id     TEXT NOT NULL DEFAULT '',
@@ -166,7 +171,7 @@ impl ClosedPanesStore {
             CREATE INDEX IF NOT EXISTS idx_closed_pane_recent
                 ON closed_pane(closed_at DESC);
 
-            PRAGMA user_version = 2;
+            PRAGMA user_version = 3;
             "#,
         )
     }
@@ -176,6 +181,15 @@ impl ClosedPanesStore {
             r#"
             ALTER TABLE closed_pane ADD COLUMN chat_view INTEGER NOT NULL DEFAULT 0;
             PRAGMA user_version = 2;
+            "#,
+        )
+    }
+
+    fn migrate_v3_add_role_profile(conn: &Connection) -> rusqlite::Result<()> {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE closed_pane ADD COLUMN role_profile TEXT;
+            PRAGMA user_version = 3;
             "#,
         )
     }
@@ -222,8 +236,8 @@ impl ClosedPanesStore {
                 r#"
                 INSERT INTO closed_pane
                     (group_id, pane_id, parent_pane_id, title, description, backing_json,
-                     cwd, agent_type, agent_session_id, model, chat_view, workspace_id, workspace_name, closed_at)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                     cwd, agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
                 "#,
                 params![
                     group.group_id,
@@ -235,6 +249,7 @@ impl ClosedPanesStore {
                     pane.cwd,
                     pane.agent_type,
                     pane.agent_session_id,
+                    pane.role_profile,
                     pane.model,
                     if pane.chat_view { 1 } else { 0 },
                     pane.workspace_id,
@@ -320,7 +335,7 @@ impl ClosedPanesStore {
         let mut stmt = match conn.prepare(
             r#"
             SELECT pane_id, parent_pane_id, title, description, backing_json, cwd,
-                   agent_type, agent_session_id, model, chat_view, workspace_id, workspace_name, closed_at
+                   agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
             FROM closed_pane
             WHERE workspace_id = ?1
             ORDER BY closed_at DESC, id DESC
@@ -343,7 +358,7 @@ impl ClosedPanesStore {
         let mut stmt = match conn.prepare(
             r#"
             SELECT p.group_id, g.kind, p.pane_id, p.parent_pane_id, p.title, p.description,
-                   p.backing_json, p.cwd, p.agent_type, p.agent_session_id, p.model, p.chat_view,
+                   p.backing_json, p.cwd, p.agent_type, p.agent_session_id, p.role_profile, p.model, p.chat_view,
                    p.workspace_id, p.workspace_name, p.closed_at
             FROM closed_pane p
             JOIN closed_group g ON g.group_id = p.group_id
@@ -382,7 +397,7 @@ impl ClosedPanesStore {
         conn.query_row(
             r#"
                 SELECT id, pane_id, parent_pane_id, title, description, backing_json, cwd,
-                       agent_type, agent_session_id, model, chat_view, workspace_id, workspace_name, closed_at
+                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
                 FROM closed_pane
                 WHERE workspace_id = ?1
                 ORDER BY closed_at DESC, id DESC
@@ -435,7 +450,7 @@ impl ClosedPanesStore {
         conn.query_row(
             r#"
                 SELECT id, pane_id, parent_pane_id, title, description, backing_json, cwd,
-                       agent_type, agent_session_id, model, chat_view, workspace_id, workspace_name, closed_at
+                       agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
                 FROM closed_pane
                 WHERE pane_id = ?1
                 ORDER BY closed_at DESC, id DESC
@@ -485,7 +500,7 @@ impl ClosedPanesStore {
                 .prepare(
                     r#"
                     SELECT pane_id, parent_pane_id, title, description, backing_json, cwd,
-                           agent_type, agent_session_id, model, chat_view, workspace_id, workspace_name, closed_at
+                           agent_type, agent_session_id, role_profile, model, chat_view, workspace_id, workspace_name, closed_at
                     FROM closed_pane WHERE group_id = ?1
                     ORDER BY closed_at DESC, id DESC
                     "#,
@@ -542,11 +557,12 @@ impl ClosedPanesStore {
             cwd: r.get(base + 5).ok().flatten(),
             agent_type: r.get(base + 6).ok().flatten(),
             agent_session_id: r.get(base + 7).ok().flatten(),
-            model: r.get(base + 8).ok().flatten(),
-            chat_view: r.get::<_, i64>(base + 9).unwrap_or(0) != 0,
-            workspace_id: r.get(base + 10).unwrap_or_default(),
-            workspace_name: r.get(base + 11).unwrap_or_default(),
-            closed_at: r.get::<_, i64>(base + 12).unwrap_or(0) as u64,
+            role_profile: r.get(base + 8).ok().flatten(),
+            model: r.get(base + 9).ok().flatten(),
+            chat_view: r.get::<_, i64>(base + 10).unwrap_or(0) != 0,
+            workspace_id: r.get(base + 11).unwrap_or_default(),
+            workspace_name: r.get(base + 12).unwrap_or_default(),
+            closed_at: r.get::<_, i64>(base + 13).unwrap_or(0) as u64,
         }
     }
 }
@@ -565,6 +581,7 @@ mod tests {
             cwd: None,
             agent_type: None,
             agent_session_id: None,
+            role_profile: None,
             model: None,
             chat_view: false,
             closed_at,

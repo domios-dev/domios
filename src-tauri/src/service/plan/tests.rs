@@ -116,7 +116,7 @@ fn generated_index_regenerates_with_current_titles() {
 
     let index_path = dir
         .path()
-        .join(format!(".codeterm/plans/{}/INDEX.md", plan.id));
+        .join(format!(".codeterm/plans/active/{}/INDEX.md", plan.id));
     let index = std::fs::read_to_string(index_path).unwrap();
     assert!(index.contains("# After"));
     assert!(index.contains("- [new-spec (New Spec)](sections/new-spec.md)"));
@@ -207,17 +207,17 @@ fn plan_file_manifest_lists_index_and_body_paths() {
     let manifest = store.file_manifest(&plan.id).unwrap();
     assert_eq!(
         manifest.index_path,
-        format!(".codeterm/plans/{}/INDEX.md", plan.id)
+        format!(".codeterm/plans/active/{}/INDEX.md", plan.id)
     );
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "section"
             && entry.title == "spec (Spec)"
-            && entry.path == format!(".codeterm/plans/{}/sections/spec.md", plan.id)
+            && entry.path == format!(".codeterm/plans/active/{}/sections/spec.md", plan.id)
     }));
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "task"
             && entry.title == "build (Build)"
-            && entry.path == format!(".codeterm/plans/{}/tasks/build.md", plan.id)
+            && entry.path == format!(".codeterm/plans/active/{}/tasks/build.md", plan.id)
     }));
 }
 
@@ -234,9 +234,10 @@ fn external_section_body_edit_reloads_into_full_plan() {
     let _section_id = store
         .add_section(&plan.id, "Spec", "before", None, &[], None, None, 2)
         .unwrap();
-    let section_path = dir
-        .path()
-        .join(format!(".codeterm/plans/{}/sections/spec.md", plan.id));
+    let section_path = dir.path().join(format!(
+        ".codeterm/plans/active/{}/sections/spec.md",
+        plan.id
+    ));
 
     std::fs::write(&section_path, "after direct edit").unwrap();
     store.reload_from_disk(&plan.id).unwrap();
@@ -292,6 +293,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         tags: vec![],
         section_ids: vec![],
         body: "inline task".into(),
+        role_guidance: None,
         intent: None,
         parent_task_id: None,
         assigned_pane_id: None,
@@ -303,18 +305,19 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         milestones: vec![],
         execution_attempts: vec![],
     });
-    let json_path = plans_dir.join(format!("{}.json", plan.id));
+    let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
     std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
 
     store.scan_project(dir.path()).unwrap();
 
-    let section_path = plans_dir.join(format!("{}/sections/spec.md", plan.id));
-    let task_path = plans_dir.join(format!("{}/tasks/task.md", plan.id));
-    assert_eq!(
-        std::fs::read_to_string(section_path).unwrap(),
-        "inline section"
-    );
-    assert_eq!(std::fs::read_to_string(task_path).unwrap(), "inline task");
+    let section_path = plans_dir.join(format!("active/{}/sections/spec.md", plan.id));
+    let task_path = plans_dir.join(format!("active/{}/tasks/task.md", plan.id));
+    assert!(std::fs::read_to_string(section_path)
+        .unwrap()
+        .ends_with("inline section"));
+    assert!(std::fs::read_to_string(task_path)
+        .unwrap()
+        .ends_with("inline task"));
     let raw_json = std::fs::read_to_string(json_path).unwrap();
     assert!(!raw_json.contains("inline section"));
     assert!(!raw_json.contains("inline task"));
@@ -351,11 +354,10 @@ fn atomic_body_write_leaves_only_final_markdown_file() {
 
     let section_dir = dir
         .path()
-        .join(format!(".codeterm/plans/{}/sections", plan.id));
-    assert_eq!(
-        std::fs::read_to_string(section_dir.join("spec.md")).unwrap(),
-        "replacement"
-    );
+        .join(format!(".codeterm/plans/active/{}/sections", plan.id));
+    assert!(std::fs::read_to_string(section_dir.join("spec.md"))
+        .unwrap()
+        .ends_with("replacement"));
     assert!(!section_dir.join("spec.md.tmp").exists());
 }
 
@@ -898,7 +900,10 @@ fn inbox_plan_is_lazy_and_idempotent() {
     assert_eq!(first.title, crate::plan::INBOX_PLAN_TITLE);
     assert!(first.sections.is_empty());
     assert_eq!(second.created_at, first.created_at);
-    assert!(root.path().join(".codeterm/plans/_inbox.json").exists());
+    assert!(root
+        .path()
+        .join(".codeterm/plans/active/_inbox/plan.json")
+        .exists());
 }
 
 #[test]

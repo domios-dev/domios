@@ -1,1 +1,0 @@
-Playwright bounding-box assertions: no overflow, no overlap, readable at each zoom band; run across zoom levels.

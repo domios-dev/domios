@@ -14,6 +14,7 @@ use super::plan_fields::{
     string_array_field, tag_facets_field,
 };
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
+use super::plan_role_helpers::{assign_task_with_profile, RespawnAttemptRoleExt};
 use super::{get_string_param, JsonRpcError};
 
 fn epoch_ms() -> u64 {
@@ -702,6 +703,10 @@ pub(super) fn dispatch(
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string(),
+                        role_guidance: p
+                            .and_then(|x| x.get("role_guidance"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                         intent: p
                             .and_then(|x| x.get("intent"))
                             .and_then(|v| v.as_str())
@@ -808,6 +813,7 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            super::plan_role_helpers::update_role_guidance_if_present(store, &id, &tid, p, now)?;
             if let Some(lane) = lane {
                 store
                     .update_task_lane(&id, &tid, lane, now)
@@ -871,31 +877,17 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
-
         "plan.task.assign" => {
-            let id = get_string_param(params, "plan_id")?;
-            let tid = get_string_param(params, "task_id")?;
-            let pane = get_string_param(params, "pane")?;
-            store
-                .assign_task(
-                    &id,
-                    &tid,
-                    &pane,
-                    p.and_then(|x| x.get("peer")).and_then(|v| v.as_str()),
-                    now,
-                )
-                .map_err(plan_rpc_err)?;
+            let id = assign_task_with_profile(store, svc, params, p, now)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
-
         "plan.task.attempts" => {
             let id = get_string_param(params, "plan_id")?;
             let tid = get_string_param(params, "task_id")?;
             let attempts = store.list_task_attempts(&id, &tid).map_err(plan_rpc_err)?;
             Ok(json!({ "plan_id": id, "task_id": tid, "attempts": attempts }))
         }
-
         "plan.task.attempt.show" => {
             let id = get_string_param(params, "plan_id")?;
             let tid = get_string_param(params, "task_id")?;
@@ -960,7 +952,14 @@ pub(super) fn dispatch(
                     data: None,
                 })?;
             let created = store
-                .record_task_respawn_attempt(&id, &tid, &spawn.pane_id, &draft, Some("worker"), now)
+                .record_task_respawn_attempt_with_profile(
+                    &id,
+                    &tid,
+                    &spawn.pane_id,
+                    &draft,
+                    svc,
+                    now,
+                )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({

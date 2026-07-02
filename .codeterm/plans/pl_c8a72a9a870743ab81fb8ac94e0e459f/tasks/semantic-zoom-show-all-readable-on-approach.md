@@ -1,1 +1,0 @@
-Replace text-hiding LOD with semantic zoom: all info present, text scales/reflows on approach, A4-ish node sizing, no portyanki, font floor for far-zoom legibility.

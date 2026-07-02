@@ -430,10 +430,11 @@ fn batch_set_goal_persists_goal_sidecar() {
     let sidecar = root
         .join(".codeterm")
         .join("plans")
+        .join("active")
         .join(&plan_id)
         .join("goal.md");
-    assert_eq!(
-        std::fs::read_to_string(sidecar).unwrap(),
-        "# Vision\n\nShip the model first."
-    );
+    let markdown = std::fs::read_to_string(sidecar).unwrap();
+    assert!(markdown.contains(&format!("plan_id: {plan_id}")));
+    assert!(markdown.contains("kind: goal"));
+    assert!(markdown.ends_with("# Vision\n\nShip the model first."));
 }

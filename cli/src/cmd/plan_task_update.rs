@@ -16,6 +16,8 @@ pub(crate) fn run(
     status_label: Option<String>,
     body: Option<String>,
     body_file: Option<String>,
+    role_guidance: Option<String>,
+    role_guidance_file: Option<String>,
     intent: Option<String>,
     intent_file: Option<String>,
     sections: Option<String>,
@@ -40,6 +42,7 @@ pub(crate) fn run(
 ) -> Result<Value, String> {
     let why_text = resolve_text(why, why_file)?;
     let body_text = resolve_text(body, body_file)?;
+    let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
     let intent_text = resolve_text(intent, intent_file)?;
     let mut params = json!({ "plan_id": plan_id, "task_id": task_id });
     if let Some(n) = name {
@@ -62,6 +65,9 @@ pub(crate) fn run(
     }
     if let Some(b) = body_text {
         params["body"] = json!(b);
+    }
+    if let Some(guidance) = role_guidance_text {
+        params["role_guidance"] = json!(guidance);
     }
     if let Some(i) = intent_text {
         params["intent"] = json!(i);

@@ -52,6 +52,20 @@ fn git_worktree_pair() -> (tempfile::TempDir, std::path::PathBuf, std::path::Pat
     (tmp, main, linked)
 }
 
+fn wait_for_vector_count(db: &Path, min_count: i64) -> i64 {
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    loop {
+        let conn = rusqlite::Connection::open(db).unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM mem_vectors", [], |row| row.get(0))
+            .unwrap_or(0);
+        if count >= min_count || std::time::Instant::now() >= deadline {
+            return count;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 #[test]
 fn mirrors_plan_units_into_project_local_mem_db() {
     let (root, store) = store_and_root();
@@ -92,6 +106,15 @@ fn mirrors_plan_units_into_project_local_mem_db() {
 
     let db = project_index_path(&super::super::paths::project_root(root.path()));
     assert!(db.exists());
+    assert!(db.starts_with(crate::paths::data_dir().join("plan-indexes")));
+    assert!(!root.path().join(".codeterm/plan-index.sqlite").exists());
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let fts_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM mem_fts", [], |row| row.get(0))
+        .unwrap();
+    assert!(fts_count > 0);
+    let vector_count = wait_for_vector_count(&db, 1);
+    assert!(vector_count > 0);
     let hits = store
         .search_plan_index(
             root.path(),
@@ -533,8 +556,7 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
     let loaded = store.get(&plan.id).unwrap();
     assert_eq!(loaded.project_path, main_root.display().to_string());
     assert!(main_root
-        .join(".codeterm/plans")
-        .join(format!("{}.json", plan.id))
+        .join(format!(".codeterm/plans/active/{}/plan.json", plan.id))
         .exists());
     assert!(!linked.join(".codeterm/plans").exists());
 
@@ -595,6 +617,7 @@ fn reindex_removes_deleted_units_and_old_text() {
             root.path(),
             &search::SearchQuery {
                 query: "vanishing phrase".into(),
+                kind: Some("task".into()),
                 limit: Some(5),
                 ..Default::default()
             },
@@ -608,6 +631,7 @@ fn reindex_removes_deleted_units_and_old_text() {
             root.path(),
             &search::SearchQuery {
                 query: "vanishing phrase".into(),
+                kind: Some("task".into()),
                 limit: Some(5),
                 ..Default::default()
             },
@@ -707,7 +731,7 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
 }
 
 #[test]
-fn archived_plan_removes_units_from_index() {
+fn archived_plan_stays_searchable_only_when_history_is_requested() {
     let (root, store) = store_and_root();
     let plan = store
         .create_plan(
@@ -754,6 +778,32 @@ fn archived_plan_removes_units_from_index() {
         )
         .unwrap()
         .is_empty());
+    let archived_hits = store
+        .search_plan_index_with_status(
+            root.path(),
+            &search::SearchQuery {
+                query: "archive phrase".into(),
+                limit: Some(5),
+                ..Default::default()
+            },
+            PlanSearchStatus::Archived,
+        )
+        .unwrap();
+    assert!(archived_hits
+        .iter()
+        .any(|hit| hit.status.as_deref() == Some("archived")));
+    let all_hits = store
+        .search_plan_index_with_status(
+            root.path(),
+            &search::SearchQuery {
+                query: "archive phrase".into(),
+                limit: Some(5),
+                ..Default::default()
+            },
+            PlanSearchStatus::All,
+        )
+        .unwrap();
+    assert!(!all_hits.is_empty());
 }
 
 #[test]

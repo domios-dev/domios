@@ -66,6 +66,9 @@ pub enum SplitNodeSnapshot {
         /// Orchestration role.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         role: Option<String>,
+        /// Behavioral role profile, e.g. planner.
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        role_profile: Option<String>,
         /// Parent pane ID in hierarchy.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         parent_pane_id: Option<String>,

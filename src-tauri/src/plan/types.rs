@@ -376,6 +376,8 @@ pub struct Task {
     pub section_ids: Vec<String>,
     #[serde(default)]
     pub body: String,
+    #[serde(default)]
+    pub role_guidance: Option<String>,
     pub intent: Option<String>,
     #[serde(default)]
     pub parent_task_id: Option<String>,

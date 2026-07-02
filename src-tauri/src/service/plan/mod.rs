@@ -49,7 +49,6 @@ mod timestamp_tests;
 use crate::plan::reconcile::DriftKind;
 use crate::plan::{
     OrchestratorRef, Plan, PlanMode, PlanStatus, Spec, TaskLaneMetadata, TaskStatus,
-    INBOX_PLAN_FILE_STEM, INBOX_PLAN_ID,
 };
 use parking_lot::{Mutex, RwLock};
 use serde::Serialize;
@@ -251,6 +250,7 @@ pub struct NewTask {
     pub test_plan: Option<String>,
     pub correctness: Option<String>,
     pub body: String,
+    pub role_guidance: Option<String>,
     pub intent: Option<String>,
     pub parent_task_id: Option<String>,
     pub assigned_pane_id: Option<String>,
@@ -345,17 +345,14 @@ impl PlanStore {
     }
 
     fn file_path(plan: &Plan) -> std::io::Result<PathBuf> {
-        let dir = paths::plans_dir(Path::new(&plan.project_path))?;
-        let stem = if plan.id == INBOX_PLAN_ID {
-            INBOX_PLAN_FILE_STEM
-        } else {
-            &plan.id
-        };
-        Ok(dir.join(format!("{stem}.json")))
+        paths::plan_json_path(Path::new(&plan.project_path), &plan.status, &plan.id)
     }
 
     fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
         let path = Self::file_path(plan)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let tmp = path.with_extension("json.tmp");
         let mut normalized = plan.clone();
         tag_model::normalize_plan(&mut normalized);
@@ -365,7 +362,22 @@ impl PlanStore {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         std::fs::write(&tmp, json)?;
         std::fs::rename(&tmp, &path)?;
+        Self::remove_other_status_dir(plan, &path)?;
         Ok(path)
+    }
+
+    fn remove_other_status_dir(plan: &Plan, written_path: &Path) -> std::io::Result<()> {
+        let project = Path::new(&plan.project_path);
+        for status in [PlanStatus::Active, PlanStatus::Archived] {
+            if paths::plan_bucket(&status) == paths::plan_bucket(&plan.status) {
+                continue;
+            }
+            let dir = paths::plan_dir(project, &status, &plan.id)?;
+            if !written_path.starts_with(&dir) && dir.is_dir() {
+                std::fs::remove_dir_all(dir)?;
+            }
+        }
+        Ok(())
     }
 
     fn spec_file_path(spec: &Spec) -> std::io::Result<PathBuf> {
@@ -581,8 +593,6 @@ impl PlanStore {
             self.note_plan_write(&plan, &path);
         }
         let committed = self.upsert_plan_arc(plan);
-        self.mirror_plan_index(&committed)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_plan_write(&committed, &path);
         let entry = Self::index_entry(&committed, path);
         self.index.write().insert(committed.id.clone(), entry);
@@ -605,8 +615,6 @@ impl PlanStore {
             self.note_spec_write(&spec, &path);
         }
         let committed = self.upsert_spec_arc(spec);
-        self.mirror_spec_index(&committed)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
         self.note_spec_write(&committed, &path);
         let entry = Self::spec_index_entry(&committed, path);
         self.spec_index.write().insert(committed.id.clone(), entry);
@@ -617,17 +625,22 @@ impl PlanStore {
         let project_root = paths::project_root(project_path);
         let plans_dir =
             paths::plans_dir(&project_root).map_err(|e| PlanError::Io(e.to_string()))?;
-        let entries = std::fs::read_dir(&plans_dir).map_err(|e| PlanError::Io(e.to_string()))?;
-        for entry in entries {
-            let Ok(entry) = entry else {
+        for bucket in ["active", "archive"] {
+            let bucket_dir = plans_dir.join(bucket);
+            let Ok(entries) = std::fs::read_dir(&bucket_dir) else {
                 continue;
             };
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            if let Err(e) = self.load_file_into_index(path.clone(), &project_root) {
-                log::warn!("[plan] skip malformed plan {}: {}", path.display(), e);
+            for entry in entries {
+                let Ok(entry) = entry else {
+                    continue;
+                };
+                let path = entry.path().join("plan.json");
+                if !path.is_file() {
+                    continue;
+                }
+                if let Err(e) = self.load_file_into_index(path.clone(), &project_root) {
+                    log::warn!("[plan] skip malformed plan {}: {}", path.display(), e);
+                }
             }
         }
         let specs_dir =

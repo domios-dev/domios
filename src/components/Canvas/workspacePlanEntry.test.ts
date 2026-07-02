@@ -70,7 +70,7 @@ const workspace: Workspace = {
 function indexEntry(overrides: Partial<PlanIndexEntry> = {}): PlanIndexEntry {
   return {
     plan_id: FIXTURE_PLAN.id,
-    file_path: "/repo/hub/.codeterm/plans/plan.json",
+    file_path: "/repo/hub/.codeterm/plans/active/plan/plan.json",
     owner: FIXTURE_PLAN.owner,
     title: FIXTURE_PLAN.title,
     status: "active",
@@ -106,7 +106,7 @@ test("deriveWorkspacePlanEntries ignores archived plans", () => {
 test("deriveWorkspacePlanEntries ignores assigned plans from another project", () => {
   const assigned = indexEntry({
     plan_id: "plan-worker",
-    file_path: "/repo/other/.codeterm/plans/plan-worker.json",
+    file_path: "/repo/other/.codeterm/plans/active/plan-worker/plan.json",
     owner: { pane_id: "other-orch", session_id: null, title: null },
     assigned_pane_ids: ["worker-1"],
   });
@@ -117,7 +117,7 @@ test("deriveWorkspacePlanEntries ignores assigned plans from another project", (
 test("deriveWorkspacePlanEntries does not leak foreign project plans through owner panes", () => {
   const foreign = indexEntry({
     plan_id: "plan-foreign",
-    file_path: "/repo/other/.codeterm/plans/plan-foreign.json",
+    file_path: "/repo/other/.codeterm/plans/active/plan-foreign/plan.json",
     owner: { pane_id: "orch-1", session_id: null, title: null },
     assigned_pane_ids: [],
   });
@@ -128,7 +128,7 @@ test("deriveWorkspacePlanEntries does not leak foreign project plans through own
 test("deriveWorkspacePlanEntries matches project plans even when workspace has no panes", () => {
   const emptyWorkspace = { ...workspace, tabs: [] };
   const entries = deriveWorkspacePlanEntries(
-    [indexEntry({ file_path: `${workspace.cwd}/.codeterm/plans/${FIXTURE_PLAN.id}.json` })],
+    [indexEntry({ file_path: `${workspace.cwd}/.codeterm/plans/active/${FIXTURE_PLAN.id}/plan.json` })],
     emptyWorkspace,
     {},
   );
@@ -140,7 +140,7 @@ test("deriveWorkspacePlanEntries hides empty project plans without pane assignme
   const entries = deriveWorkspacePlanEntries(
     [
       indexEntry({
-        file_path: `${workspace.cwd}/.codeterm/plans/empty.json`,
+        file_path: `${workspace.cwd}/.codeterm/plans/active/empty/plan.json`,
         assigned_pane_ids: [],
         task_count: 0,
         section_count: 0,
@@ -157,7 +157,7 @@ test("deriveWorkspacePlanEntries hides empty project plans without pane assignme
 
 test("deriveWorkspacePlanEntries hides plans outside workspace project path", () => {
   const foreign = indexEntry({
-    file_path: "/other/repo/.codeterm/plans/plan.json",
+    file_path: "/other/repo/.codeterm/plans/active/plan/plan.json",
     owner: { pane_id: "foreign-orch", session_id: null, title: null },
     assigned_pane_ids: [],
   });

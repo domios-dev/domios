@@ -22,6 +22,7 @@ impl MultiplexerState {
             session_binding_nonce: None,
             shell_integration_nonce: None,
             role: None,
+            role_profile: None,
             parent_pane_id: None,
             can_spawn: false,
             depth: 0,
