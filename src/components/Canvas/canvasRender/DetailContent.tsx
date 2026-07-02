@@ -4,8 +4,8 @@ import type { Pane } from "../../../lib/types";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task } from "../types";
-import type { LaidOutNode } from "../layout";
 import type { SectionNavArgs } from "../nodeRegistry";
+import type { PlanDetailKind } from "../planView/PlanDetailOverlay";
 
 // The READ surface body for the detail overlay. Plain (no section tint) — structure
 // + rendered markdown only. Task: description + structured fields. Plan/spec: progress
@@ -13,8 +13,12 @@ import type { SectionNavArgs } from "../nodeRegistry";
 // secondary strip, never the headline.
 
 export interface DetailContentProps {
-  node: LaidOutNode;
-  model: unknown;
+  kind: PlanDetailKind;
+  planId?: string;
+  task?: Task;
+  plan?: Plan;
+  spec?: Plan;
+  specSections?: Section[];
   panes?: Record<string, Pane>;
   onOpenPane?: (paneId: string) => void;
   onSectionClick?: (a: SectionNavArgs) => void;
@@ -67,15 +71,26 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
-function TaskDetail({ task, panes = {} }: { task: Task; panes?: Record<string, Pane> }) {
+function TaskDetail({ task, panes = {}, onOpenPane }: { task: Task; panes?: Record<string, Pane>; onOpenPane?: (paneId: string) => void }) {
   const body = task.body?.trim();
   const historical = historicalExecutorForTask(task, panes, false);
+  const paneId = task.assigned_pane_id?.trim() || null;
   return (
     <div style={wrap} data-testid="canvas-detail-content">
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <Chip label="status" value={task.status_label?.trim() || task.status.replace(/_/g, " ")} color={TASK_STATUS_COLORS[task.status]} />
         {task.priority && <Chip label="priority" value={task.priority.toUpperCase()} />}
         {task.type && <Chip label="type" value={task.type} />}
+        {onOpenPane && paneId && (
+          <button
+            type="button"
+            data-testid="plan-detail-open-pane"
+            onClick={() => onOpenPane(paneId)}
+            style={{ marginLeft: "auto", padding: "4px 10px", borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-accent)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+          >
+            Open pane
+          </button>
+        )}
       </div>
       {historical && (
         <Block label="Execution history">
@@ -202,15 +217,20 @@ function PlanDetail({ plan, variant, onSection }: { plan: Plan; variant: "plan" 
   );
 }
 
-export function DetailContent({ node, model, panes, onSectionFrame }: DetailContentProps) {
-  if (model == null) return null;
-  if (node.kind === "task") {
-    const m = model as { task: Task };
-    return m.task ? <TaskDetail task={m.task} panes={panes} /> : null;
-  }
-  // Click a section → fly/focus its tasks on the canvas (the overlay closes first).
-  const variant = node.kind === "spec" ? "spec" : "plan";
-  const onSection = onSectionFrame ? (sectionId: string) => onSectionFrame({ planId: node.planId, sectionId, variant }) : undefined;
-  if (node.kind === "spec" || node.kind === "plan") return <PlanDetail plan={model as Plan} variant={variant} onSection={onSection} />;
-  return null;
+function resolvePlanModel(kind: PlanDetailKind, plan?: Plan, spec?: Plan, specSections?: Section[]): Plan | null {
+  if (kind === "plan") return plan ?? null;
+  if (kind !== "spec") return null;
+  if (!spec) return null;
+  if (specSections) return { ...spec, sections: specSections, tasks: spec.tasks ?? [] };
+  return spec;
+}
+
+export function DetailContent({ kind, planId, task, plan, spec, specSections, panes, onOpenPane, onSectionFrame }: DetailContentProps) {
+  if (kind === "task") return task ? <TaskDetail task={task} panes={panes} onOpenPane={onOpenPane} /> : null;
+  const displayPlan = resolvePlanModel(kind, plan, spec, specSections);
+  if (!displayPlan) return null;
+  const variant = kind === "spec" ? "spec" : "plan";
+  const navPlanId = planId ?? displayPlan.id;
+  const onSection = onSectionFrame ? (sectionId: string) => onSectionFrame({ planId: navPlanId, sectionId, variant }) : undefined;
+  return <PlanDetail plan={displayPlan} variant={variant} onSection={onSection} />;
 }
