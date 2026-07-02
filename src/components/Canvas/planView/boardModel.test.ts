@@ -9,7 +9,12 @@ import {
   deriveBoardPlanSummary,
   deriveBoardSpecSummary,
   DONE_COLUMN_COLLAPSED_LIMIT,
+  formatRelativeAge,
   groupTasksIntoColumns,
+  orderPlansByActivity,
+  planActivityFreshness,
+  selectDefaultPlanId,
+  type BoardTaskCardModel,
 } from "./boardModel";
 
 type TestFn = () => void;
@@ -27,6 +32,18 @@ const PANES = {
 
 function task(overrides: Partial<Task>): Task {
   return { ...FIXTURE_TASK, ...overrides };
+}
+
+function doneCard(t: Task): BoardTaskCardModel {
+  return {
+    task: t,
+    presenceLabel: null,
+    historicalExecutorSummary: null,
+    roleLabel: null,
+    branch: null,
+    activityHint: null,
+    focusMatch: false,
+  };
 }
 
 test("BOARD_COLUMN_DEFS covers workflow statuses in stable order", () => {
@@ -119,18 +136,7 @@ test("buildBoardPlanModel wires spec + columns", () => {
 test("boundDoneColumnCards keeps newest N when collapsed", () => {
   const cards = Array.from({ length: 8 }, (_, i) =>
     task({ id: `done-${i}`, status: TaskStatus.Done, status_changed_at: 100 - i }),
-  ).map((t) => ({
-    task: t,
-    presenceLabel: null,
-    historicalExecutorSummary: null,
-    roleLabel: null,
-    branch: null,
-    worktree: null,
-    workspaceName: null,
-    latestMilestone: null,
-    latestMilestoneKind: null,
-    focusMatch: false,
-  }));
+  ).map(doneCard);
   const collapsed = boundDoneColumnCards(cards, false);
   assert(collapsed.total === 8, "total count");
   assert(collapsed.hidden === 3, `hidden=${collapsed.hidden}`);
@@ -142,20 +148,80 @@ test("boundDoneColumnCards keeps newest N when collapsed", () => {
 });
 
 test("boundDoneColumnCards passes through small done columns", () => {
-  const cards = [task({ id: "only", status: TaskStatus.Done })].map((t) => ({
-    task: t,
-    presenceLabel: null,
-    historicalExecutorSummary: null,
-    roleLabel: null,
-    branch: null,
-    worktree: null,
-    workspaceName: null,
-    latestMilestone: null,
-    latestMilestoneKind: null,
-    focusMatch: false,
-  }));
+  const cards = [task({ id: "only", status: TaskStatus.Done })].map(doneCard);
   const bounds = boundDoneColumnCards(cards, false);
   assert(bounds.visible.length === 1 && bounds.hidden === 0, "no bounding needed");
+});
+
+test("task card carries branch-only lane + activity hint, never worktree paths", () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({
+        id: "t-lane",
+        status: TaskStatus.InProgress,
+        assigned_pane_id: "pane-worker",
+        lane: { branch: "lane/board-v2", worktree_path: "/tmp/codeterm-board-v2", workspace_name: "board-v2" },
+        milestones: [
+          {
+            id: "ms",
+            from: { pane_id: "pane-worker", session_id: null, title: "Puccini" },
+            kind: "status_update",
+            text: "secret worktree /tmp/codeterm-board-v2 detail",
+            ts: 1_000,
+            links: [],
+            loop_id: null,
+            iteration: null,
+            canvas: { x: null, y: null, collapsed: false },
+          },
+        ],
+      }),
+    ],
+  };
+  const card = groupTasksIntoColumns(plan, PANES, 61_000).columns.find((c) => c.key === "in_progress")!.cards[0]!;
+  assert(card.branch === "lane/board-v2", "branch chip is branch-only");
+  // Derived (renderable) fields must never carry worktree paths or raw milestone text.
+  const { task: _t, ...derived } = card;
+  const serialized = JSON.stringify(derived);
+  assert(!serialized.includes("/tmp/codeterm-board-v2"), "no worktree path in derived card fields");
+  assert(!serialized.includes("secret worktree"), "no raw milestone text in derived card fields");
+  assert(!("worktree" in card) && !("latestMilestone" in card), "no worktree/milestone-text fields");
+  assert(card.activityHint?.kind === "status update", "activity hint kind");
+  assert(card.activityHint?.ageLabel === "1m", `activity age=${card.activityHint?.ageLabel}`);
+});
+
+test("formatRelativeAge buckets seconds/minutes/hours/days", () => {
+  assert(formatRelativeAge(0, 5_000) === "5s", "seconds");
+  assert(formatRelativeAge(0, 120_000) === "2m", "minutes");
+  assert(formatRelativeAge(0, 7_200_000) === "2h", "hours");
+  assert(formatRelativeAge(0, 172_800_000) === "2d", "days");
+});
+
+test("orderPlansByActivity sorts freshest first with deterministic tiebreak", () => {
+  const stale: Plan = { ...FIXTURE_PLAN, id: "p-stale", title: "Stale", updated_at: 10, created_at: 10, tasks: [] };
+  const fresh: Plan = {
+    ...FIXTURE_PLAN,
+    id: "p-fresh",
+    title: "Fresh",
+    updated_at: 20,
+    created_at: 20,
+    tasks: [task({ id: "tf", status: TaskStatus.InProgress, updated_at: 900 })],
+  };
+  const tieB: Plan = { ...FIXTURE_PLAN, id: "p-b", title: "Beta", updated_at: 50, created_at: 50, tasks: [] };
+  const tieA: Plan = { ...FIXTURE_PLAN, id: "p-a", title: "Alpha", updated_at: 50, created_at: 50, tasks: [] };
+  const ordered = orderPlansByActivity([stale, tieB, fresh, tieA]);
+  assert(ordered[0]?.id === "p-fresh", "freshest first");
+  assert(ordered[1]?.id === "p-a" && ordered[2]?.id === "p-b", "equal timestamps break by title");
+  assert(planActivityFreshness(fresh) === 900, "freshness includes task stamps");
+});
+
+test("selectDefaultPlanId honors explicit id, then orchestrator ownership, then freshest", () => {
+  const a: Plan = { ...FIXTURE_PLAN, id: "p-a", title: "Alpha", created_at: 0, updated_at: 5, tasks: [] };
+  const b: Plan = { ...FIXTURE_PLAN, id: "p-b", title: "Beta", created_at: 0, updated_at: 99, tasks: [] };
+  const ordered = orderPlansByActivity([a, b]);
+  assert(selectDefaultPlanId(ordered, {}) === "p-b", "freshest fallback");
+  assert(selectDefaultPlanId(ordered, { planId: "p-a" }) === "p-a", "explicit id wins");
+  assert(selectDefaultPlanId([], {}) === null, "empty -> null");
 });
 
 let passed = 0;

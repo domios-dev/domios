@@ -107,8 +107,50 @@ test("renders board columns with context header and task cards", async () => {
   assert(card, "in-progress card");
   assert(card?.getAttribute("data-task-id") === "task-dante", "task id");
   assert(host.querySelector('[data-testid="plan-board-task-active-executor"]')?.textContent?.includes("Puccini"), "active executor");
-  assert(host.querySelector('[data-testid="plan-board-task-lane"]')?.textContent?.includes("lane/plan-board-view"), "lane");
-  assert(host.querySelector('[data-testid="plan-board-task-milestone"]')?.textContent?.includes("Board model landed"), "milestone");
+  const laneText = host.querySelector('[data-testid="plan-board-task-lane"]')?.textContent ?? "";
+  assert(laneText.includes("lane/plan-board-view"), "branch chip");
+  assert(!host.querySelector('[data-testid="plan-board-task-milestone"]'), "no raw milestone card row");
+  assert(host.querySelector('[data-testid="plan-board-task-activity"]'), "activity hint present");
+  assert(!host.querySelector('[data-testid="plan-board-single"]')?.innerHTML.includes("/tmp/codeterm-plan-board-view"), "no worktree path leaked to DOM");
+});
+
+test("single-plan switcher: no vertical stacking, switch selects one plan", async () => {
+  const planA: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-a",
+    title: "Alpha rollout",
+    created_at: 0,
+    updated_at: 10,
+    tasks: [task({ id: "a1", status: TaskStatus.Pending, name: "Alpha task", created_at: 0, updated_at: 10 })],
+  };
+  const planB: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-b",
+    title: "Beta rollout",
+    created_at: 0,
+    updated_at: 999,
+    tasks: [task({ id: "b1", status: TaskStatus.Pending, name: "Beta task", created_at: 0, updated_at: 999 })],
+  };
+  const { host } = await render(<PlanBoardView mode="workspace" plans={[planA, planB]} panes={PANES} />);
+  const boards = host.querySelectorAll('[data-testid="plan-board-plan"]');
+  assert(boards.length === 1, `single board rendered, got ${boards.length}`);
+  assert(host.querySelector('[data-testid="plan-switcher"]'), "switcher present for >1 plan");
+  assert(host.querySelector('[data-testid="plan-board-plan"]')?.getAttribute("data-plan-id") === "plan-b", "freshest plan default");
+  const options = host.querySelectorAll('[data-testid="plan-switcher-option"]');
+  const alpha = Array.from(options).find((o) => o.getAttribute("data-plan-id") === "plan-a") as HTMLElement;
+  assert(alpha, "alpha option");
+  await act(async () => {
+    alpha.click();
+  });
+  assert(host.querySelector('[data-testid="plan-board-plan"]')?.getAttribute("data-plan-id") === "plan-a", "manual selection applied");
+  assert(host.querySelectorAll('[data-testid="plan-board-plan"]').length === 1, "still single board after switch");
+});
+
+test("switcher hidden for a single plan", async () => {
+  const plan: Plan = { ...FIXTURE_PLAN, tasks: [task({ id: "solo", status: TaskStatus.Pending })] };
+  const { host } = await render(<PlanBoardView mode="workspace" plans={[plan]} panes={PANES} />);
+  assert(!host.querySelector('[data-testid="plan-switcher"]'), "no switcher for single plan");
+  assert(host.querySelectorAll('[data-testid="plan-board-plan"]').length === 1, "single board");
 });
 
 test("clicking a task card opens PlanDetailOverlay", async () => {

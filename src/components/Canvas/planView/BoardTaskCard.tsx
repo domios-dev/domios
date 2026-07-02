@@ -16,7 +16,6 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
   const { task } = card;
   const statusColor = TASK_STATUS_COLORS[task.status];
   const handle = task.handle?.trim() || null;
-  const laneBits = [card.branch, card.worktree, card.workspaceName].filter(Boolean) as string[];
   const interactive = Boolean(onOpen);
 
   const activate = () => onOpen?.();
@@ -77,18 +76,16 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
           <span className="min-w-0 break-words">{card.historicalExecutorSummary}</span>
         </p>
       )}
-      {laneBits.length > 0 && (
+      {card.branch && (
         <p data-testid="plan-board-task-lane" className="plan-board-task-meta plan-board-task-lane">
           <GitBranch size={11} aria-hidden className="shrink-0 opacity-70" />
-          <span className="min-w-0 break-words">{laneBits.join(" · ")}</span>
+          <span className="min-w-0 break-words">{card.branch}</span>
         </p>
       )}
-      {card.latestMilestone && (
-        <p data-testid="plan-board-task-milestone" className="plan-board-task-milestone">
-          {card.latestMilestoneKind && (
-            <span className="plan-board-task-milestone-kind">{card.latestMilestoneKind}</span>
-          )}
-          <span className="min-w-0 break-words">{card.latestMilestone}</span>
+      {card.activityHint && (
+        <p data-testid="plan-board-task-activity" className="plan-board-task-activity">
+          <span className="plan-board-task-activity-kind">{card.activityHint.kind}</span>
+          <span className="plan-board-task-activity-age">{card.activityHint.ageLabel}</span>
         </p>
       )}
     </article>

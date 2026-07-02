@@ -41,16 +41,18 @@ export interface BoardPlanSummary {
   goalVector: string | null;
 }
 
+export interface BoardActivityHint {
+  kind: string;
+  ageLabel: string;
+}
+
 export interface BoardTaskCardModel {
   task: Task;
   presenceLabel: string | null;
   historicalExecutorSummary: string | null;
   roleLabel: string | null;
   branch: string | null;
-  worktree: string | null;
-  workspaceName: string | null;
-  latestMilestone: string | null;
-  latestMilestoneKind: string | null;
+  activityHint: BoardActivityHint | null;
   focusMatch: boolean;
 }
 
@@ -93,15 +95,16 @@ function laneBranch(task: Task): string | null {
   return clean(task.lane?.branch);
 }
 
-function laneWorktree(task: Task): string | null {
-  const path = clean(task.lane?.worktree_path);
-  if (!path) return null;
-  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
-  return parts.length > 2 ? parts.slice(-2).join("/") : path;
-}
-
-function laneWorkspace(task: Task): string | null {
-  return clean(task.lane?.workspace_name);
+export function formatRelativeAge(fromTs: number, now: number = Date.now()): string {
+  const diff = Math.max(0, now - fromTs);
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  return `${d}d`;
 }
 
 function focusMatches(plan: Plan, task: Task, paneId: string | null): boolean {
@@ -121,6 +124,7 @@ function buildTaskCard(
   task: Task,
   panes: Record<string, Pane>,
   exclusivePaneTasks: Map<string, string>,
+  now: number,
 ): BoardTaskCardModel {
   const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
   const historical = historicalExecutorForTask(task, panes, presence != null);
@@ -132,10 +136,9 @@ function buildTaskCard(
     historicalExecutorSummary: historical?.summary ?? null,
     roleLabel: presence ? clean(task.taken_by_role) : historical?.role ?? clean(task.taken_by_role),
     branch: laneBranch(task),
-    worktree: laneWorktree(task),
-    workspaceName: laneWorkspace(task),
-    latestMilestone: milestone ? clean(milestone.text) : null,
-    latestMilestoneKind: milestone ? milestone.kind.replace(/[_-]+/g, " ") : null,
+    activityHint: milestone
+      ? { kind: milestone.kind.replace(/[_-]+/g, " "), ageLabel: formatRelativeAge(milestone.ts, now) }
+      : null,
     focusMatch: focusMatches(plan, task, paneId),
   };
 }
@@ -179,6 +182,7 @@ export function deriveBoardPlanSummary(plan: Plan, panes: Record<string, Pane>):
 export function groupTasksIntoColumns(
   plan: Plan,
   panes: Record<string, Pane>,
+  now: number = Date.now(),
 ): { columns: BoardColumnModel[]; cancelledCount: number } {
   const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
   const byStatus = new Map<TaskStatusType, Task[]>();
@@ -198,7 +202,7 @@ export function groupTasksIntoColumns(
     return {
       key: def.key,
       label: def.label,
-      cards: tasks.map((task) => buildTaskCard(plan, task, panes, exclusivePaneTasks)),
+      cards: tasks.map((task) => buildTaskCard(plan, task, panes, exclusivePaneTasks, now)),
     };
   });
   return { columns, cancelledCount };
@@ -208,8 +212,9 @@ export function buildBoardPlanModel(
   plan: Plan,
   panes: Record<string, Pane>,
   specSections?: Section[],
+  now: number = Date.now(),
 ): BoardPlanModel {
-  const { columns, cancelledCount } = groupTasksIntoColumns(plan, panes);
+  const { columns, cancelledCount } = groupTasksIntoColumns(plan, panes, now);
   return {
     planId: plan.id,
     spec: deriveBoardSpecSummary(plan, specSections),
@@ -219,13 +224,55 @@ export function buildBoardPlanModel(
   };
 }
 
+/** Latest activity timestamp across the plan — plan/task stamps + milestone ts. */
+export function planActivityFreshness(plan: Plan): number {
+  let max = Math.max(plan.updated_at ?? 0, plan.created_at ?? 0);
+  for (const task of plan.tasks) {
+    max = Math.max(max, task.status_changed_at ?? 0, task.updated_at ?? 0, task.created_at ?? 0);
+    for (const m of task.milestones) max = Math.max(max, m.ts ?? 0);
+  }
+  return max;
+}
+
+/** Freshest plan first; deterministic title→id tiebreak for equal timestamps. */
+export function orderPlansByActivity(plans: readonly Plan[]): Plan[] {
+  return [...plans].sort((a, b) => {
+    const diff = planActivityFreshness(b) - planActivityFreshness(a);
+    if (diff !== 0) return diff;
+    const ta = a.title.trim().toLowerCase();
+    const tb = b.title.trim().toLowerCase();
+    if (ta !== tb) return ta < tb ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
+}
+
+/** Default board plan: explicit planId → orchestrator-owned freshest → freshest overall. */
+export function selectDefaultPlanId(
+  orderedPlans: readonly Plan[],
+  opts: { planId?: string; orchestratorPaneId?: string; panes?: Record<string, Pane> },
+): string | null {
+  if (!orderedPlans.length) return null;
+  if (opts.planId && orderedPlans.some((p) => p.id === opts.planId)) return opts.planId;
+  if (opts.orchestratorPaneId && opts.panes) {
+    const owned = filterPlansForCanvas([...orderedPlans], "focus", {
+      orchestratorPaneId: opts.orchestratorPaneId,
+      panes: opts.panes,
+    });
+    const ownedIds = new Set(owned.map((p) => p.id));
+    const first = orderedPlans.find((p) => ownedIds.has(p.id));
+    if (first) return first.id;
+  }
+  return orderedPlans[0].id;
+}
+
 export function buildBoardModels(
   plans: readonly Plan[],
   panes: Record<string, Pane>,
   specSectionsByPlan: ReadonlyMap<string, Section[]> = new Map(),
+  now: number = Date.now(),
 ): BoardPlanModel[] {
   return plans.map((plan) =>
-    buildBoardPlanModel(plan, panes, specSectionsByPlan.get(plan.id)),
+    buildBoardPlanModel(plan, panes, specSectionsByPlan.get(plan.id), now),
   );
 }
 

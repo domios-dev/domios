@@ -5,15 +5,28 @@ import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { Plan, Section, Task } from "../types";
 import {
   boundDoneColumnCards,
-  buildBoardModels,
+  buildBoardPlanModel,
   DONE_COLUMN_COLLAPSED_LIMIT,
   filterPlansForBoard,
+  orderPlansByActivity,
+  selectDefaultPlanId,
   type BoardColumnKey,
   type BoardPlanModel,
 } from "./boardModel";
 import { BoardTaskCard } from "./BoardTaskCard";
 import { PlanContextHeader } from "./PlanContextHeader";
+import { PlanSwitcher } from "./PlanSwitcher";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
+
+const SELECTED_PLAN_STORAGE_KEY = "codeterm.board.selectedPlanId";
+
+function readStoredPlanId(): string | null {
+  try {
+    return window.sessionStorage.getItem(SELECTED_PLAN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
 
 type BoardDetail =
   | { kind: "task"; task: Task; plan: Plan }
@@ -149,41 +162,72 @@ export function PlanBoardView({
     [plans, mode, planId, orchestratorPaneId, panes],
   );
 
-  const plansById = useMemo(() => new Map(filteredPlans.map((p) => [p.id, p])), [filteredPlans]);
+  const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
 
-  const fixtureSpecSections = useMemo(() => fixtureSpecSectionsByPlan(filteredPlans), [filteredPlans]);
+  const defaultPlanId = useMemo(
+    () => selectDefaultPlanId(orderedPlans, { planId, orchestratorPaneId, panes }),
+    [orderedPlans, planId, orchestratorPaneId, panes],
+  );
+
+  const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
+
+  const selectedPlanId = useMemo(() => {
+    if (manualPlanId && orderedPlans.some((p) => p.id === manualPlanId)) return manualPlanId;
+    return defaultPlanId;
+  }, [manualPlanId, orderedPlans, defaultPlanId]);
+
+  const selectedPlan = useMemo(
+    () => orderedPlans.find((p) => p.id === selectedPlanId) ?? null,
+    [orderedPlans, selectedPlanId],
+  );
+
+  const selectPlan = useCallback((id: string) => {
+    setManualPlanId(id);
+    try {
+      window.sessionStorage.setItem(SELECTED_PLAN_STORAGE_KEY, id);
+    } catch {
+      // Session persistence is best-effort; private-mode/quota failures must not block switching.
+    }
+  }, []);
+
+  const fixtureSpecSections = useMemo(
+    () => (selectedPlan ? fixtureSpecSectionsByPlan([selectedPlan]) : new Map<string, Section[]>()),
+    [selectedPlan],
+  );
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
   const [detail, setDetail] = useState<BoardDetail | null>(null);
 
   useEffect(() => {
-    if (!api) return;
+    if (!api || !selectedPlan?.primary_spec_id) return;
+    if (fixtureSpecSections.has(selectedPlan.id)) return;
     let active = true;
-    const targets = filteredPlans.filter((p) => p.primary_spec_id && !fixtureSpecSections.has(p.id));
-    if (!targets.length) return;
-    void Promise.all(
-      targets.map((p) =>
-        fetchSpecSections(api, p.primary_spec_id as string)
-          .then((sections) => [p.id, sections] as const)
-          .catch(() => [p.id, [] as Section[]] as const),
-      ),
-    ).then((pairs) => {
-      if (!active) return;
-      setFetchedSpecSections(new Map(pairs));
-    });
+    const planId = selectedPlan.id;
+    const specId = selectedPlan.primary_spec_id;
+    void fetchSpecSections(api, specId)
+      .then((sections) => (active ? [planId, sections] as const : null))
+      .catch(() => (active ? [planId, [] as Section[]] as const : null))
+      .then((pair) => {
+        if (!active || !pair) return;
+        setFetchedSpecSections((prev) => new Map(prev).set(pair[0], pair[1]));
+      });
     return () => {
       active = false;
     };
-  }, [api, filteredPlans, fixtureSpecSections]);
+  }, [api, selectedPlan, fixtureSpecSections]);
 
-  const specSectionsByPlan = useMemo(() => {
-    const merged = new Map<string, Section[]>(fetchedSpecSections);
-    for (const [id, sections] of fixtureSpecSections) merged.set(id, sections);
-    return merged;
-  }, [fetchedSpecSections, fixtureSpecSections]);
+  const selectedSpecSections = useMemo(() => {
+    if (!selectedPlan) return [] as Section[];
+    return fixtureSpecSections.get(selectedPlan.id) ?? fetchedSpecSections.get(selectedPlan.id) ?? [];
+  }, [selectedPlan, fixtureSpecSections, fetchedSpecSections]);
 
-  const boardModels = useMemo(
-    () => buildBoardModels(filteredPlans, panes, specSectionsByPlan),
-    [filteredPlans, panes, specSectionsByPlan],
+  const boardModel = useMemo(
+    () => (selectedPlan ? buildBoardPlanModel(selectedPlan, panes, selectedSpecSections) : null),
+    [selectedPlan, panes, selectedSpecSections],
+  );
+
+  const switcherOptions = useMemo(
+    () => orderedPlans.map((p) => ({ id: p.id, title: p.title.trim() || "Untitled plan" })),
+    [orderedPlans],
   );
 
   const closeDetail = useCallback(() => setDetail(null), []);
@@ -202,26 +246,20 @@ export function PlanBoardView({
           {error}
         </p>
       )}
-      {!loading && !error && boardModels.length === 0 && (
+      {!loading && !error && !selectedPlan && (
         <p data-testid="plan-board-empty" className="plan-board-state">
           No active plans in this workspace.
         </p>
       )}
-      {!loading && !error && boardModels.length > 0 && (
-        <div data-testid="plan-board-stack" className="plan-board-stack">
-          {boardModels.map((model) => {
-            const plan = plansById.get(model.planId);
-            if (!plan) return null;
-            return (
-              <BoardPlanBoard
-                key={model.planId}
-                model={model}
-                plan={plan}
-                specSections={specSectionsByPlan.get(model.planId) ?? []}
-                onOpenDetail={setDetail}
-              />
-            );
-          })}
+      {!loading && !error && selectedPlan && boardModel && (
+        <div data-testid="plan-board-single" className="plan-board-single">
+          <PlanSwitcher plans={switcherOptions} selectedId={selectedPlan.id} onSelect={selectPlan} />
+          <BoardPlanBoard
+            model={boardModel}
+            plan={selectedPlan}
+            specSections={selectedSpecSections}
+            onOpenDetail={setDetail}
+          />
         </div>
       )}
       {detail && overlayKind && (
