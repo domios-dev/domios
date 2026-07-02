@@ -6,6 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::api::routes::{check_auth, resolve_pane, AppState};
+use crate::multiplexer::types::AgentRole;
 
 pub(crate) fn list_agent_provider_values(
     registry: &crate::provider::ProviderRegistry,
@@ -273,6 +274,14 @@ pub async fn set_pane_role(
     Json(body): Json<SetRoleBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let parsed_role = crate::service::ServiceContext::parse_role(&body.role)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let was_orchestrator = {
+        let mux = state.svc.mux.read();
+        mux.get_pane(&id)
+            .map(|p| p.role == Some(AgentRole::Orchestrator))
+            .unwrap_or(false)
+    };
     state
         .svc
         .set_pane_role(
@@ -282,6 +291,11 @@ pub async fn set_pane_role(
             body.can_spawn,
         )
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if parsed_role == AgentRole::Orchestrator {
+        state
+            .svc
+            .maybe_deliver_orchestrator_promotion_onboarding(&id, was_orchestrator);
+    }
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

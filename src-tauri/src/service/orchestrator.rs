@@ -97,7 +97,17 @@ impl ServiceContext {
         let role = json_str(params, "role").ok_or("role required")?;
         let parent = json_str(params, "parent_pane_id");
         let can_spawn = params.get("can_spawn").and_then(|v| v.as_bool());
+        let parsed_role = Self::parse_role(&role)?;
+        let was_orchestrator = {
+            let mux = self.mux.read();
+            mux.get_pane(&pane_id)
+                .map(|p| p.role == Some(crate::multiplexer::types::AgentRole::Orchestrator))
+                .unwrap_or(false)
+        };
         self.set_pane_role(&pane_id, &role, parent.as_deref(), can_spawn)?;
+        if parsed_role == crate::multiplexer::types::AgentRole::Orchestrator {
+            self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, was_orchestrator);
+        }
         Ok(serde_json::json!({"ok": true}))
     }
 
@@ -532,6 +542,14 @@ impl ServiceContext {
         // Pin agent_type before launch so detect_from_output can start session-id polling.
         // Without this tag, restarts can lose session_id and resume fails silently.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.to_string());
+        if params
+            .role
+            .as_deref()
+            .and_then(|role| Self::parse_role(role).ok())
+            == Some(crate::multiplexer::types::AgentRole::Orchestrator)
+        {
+            self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, false);
+        }
 
         // 4c. Pin agent_session_id for resume up-front: we know the id from the user's request, so don't wait for detect_session_id polling.
         let launch_session_id = if params.resume_session_id.is_none() {
@@ -563,11 +581,7 @@ impl ServiceContext {
         );
 
         // 5. Launch agent in background thread
-        let bg_task = params.task.as_ref().map(|t| match params.role.as_deref() {
-            Some("Worker") => format!("{}{}", t, crate::prompts::WORKER_SUFFIX),
-            Some("Orchestrator") => format!("{}{}", t, crate::prompts::ORCHESTRATOR_SUFFIX),
-            _ => t.clone(),
-        });
+        let bg_task = role_onboarding_task(params.task.as_deref(), params.role.as_deref());
         // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
         let bg_task = bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
             Some(pfx) => format!("{}{}", pfx, t),
@@ -645,6 +659,18 @@ pub(crate) fn skip_local_worker_role(
     matches!(role, crate::multiplexer::types::AgentRole::Worker)
         && parent_pane_id.is_none()
         && report_target_mesh_peer.map_or(false, |p| !p.is_empty())
+}
+
+pub(crate) fn role_onboarding_task(task: Option<&str>, role: Option<&str>) -> Option<String> {
+    match role {
+        Some("Worker") => task.map(|t| format!("{}{}", t, crate::prompts::WORKER_SUFFIX)),
+        Some("Orchestrator") => Some(format!(
+            "{}{}",
+            task.unwrap_or_default(),
+            crate::prompts::ORCHESTRATOR_SUFFIX
+        )),
+        _ => task.map(str::to_string),
+    }
 }
 
 pub(crate) use crate::agent::provider::{AgentLaunchParams, ReadinessStrategy, TaskDelivery};

@@ -188,7 +188,7 @@ pub enum AgentAction {
         /// Provider id (e.g. "claude"). Required.
         provider: String,
     },
-    /// Spawn a new agent (creates tab in workspace, linked in hierarchy)
+    /// Spawn a new agent; roleless unless --role is provided
     Spawn {
         /// Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude.
         #[arg(default_value = "claude")]
@@ -202,7 +202,7 @@ pub enum AgentAction {
         /// Working directory
         #[arg(long)]
         cwd: Option<String>,
-        /// Role: Orchestrator, Worker
+        /// Role: Worker or explicit Orchestrator. Omit for a roleless fresh agent.
         #[arg(long)]
         role: Option<SpawnRole>,
         /// Parent pane ID (for Workers)
@@ -214,7 +214,7 @@ pub enum AgentAction {
         /// to the caller's own pane.
         #[arg(long)]
         report_to: Option<String>,
-        /// Allow spawning children
+        /// Override whether an explicit Orchestrator may spawn children
         #[arg(long)]
         can_spawn: bool,
         /// Task to send after agent starts
