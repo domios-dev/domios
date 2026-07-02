@@ -1,8 +1,8 @@
-export const PLAN_VIEW_MODES = ["canvas", "list", "board"] as const;
+export const PLAN_VIEW_MODES = ["board", "list", "canvas"] as const;
 
 export type PlanViewMode = (typeof PLAN_VIEW_MODES)[number];
 
-export const DEFAULT_PLAN_VIEW_MODE: PlanViewMode = "canvas";
+export const DEFAULT_PLAN_VIEW_MODE: PlanViewMode = "board";
 
 export const PLAN_VIEW_MODE_LABELS: Record<PlanViewMode, string> = {
   canvas: "Canvas",

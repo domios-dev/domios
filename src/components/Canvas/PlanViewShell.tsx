@@ -1,8 +1,12 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { CanvasViewInner, type CanvasViewInnerProps } from "./CanvasView";
 import { PlanViewModeSwitch } from "./PlanViewModeSwitch";
-import { DEFAULT_PLAN_VIEW_MODE, type PlanViewMode } from "./planViewMode";
+import {
+  DEFAULT_PLAN_VIEW_MODE,
+  resolvePlanViewMode,
+  type PlanViewMode,
+} from "./planViewMode";
 import type { PlanViewSurfaceProps } from "./planViewSurfaceProps";
 import { PlanBoardView } from "./planView/PlanBoardView";
 import { PlanListView } from "./planView/PlanListView";
@@ -27,8 +31,33 @@ function toSurfaceProps(props: CanvasViewInnerProps): PlanViewSurfaceProps {
   };
 }
 
+const PLAN_VIEW_MODE_STORAGE_KEY = "codeterm.planViewMode";
+
+function readPersistedPlanViewMode(): PlanViewMode {
+  try {
+    return resolvePlanViewMode(window.localStorage.getItem(PLAN_VIEW_MODE_STORAGE_KEY));
+  } catch {
+    return DEFAULT_PLAN_VIEW_MODE;
+  }
+}
+
+function usePersistedPlanViewMode(): [PlanViewMode, (mode: PlanViewMode) => void] {
+  const [viewMode, setViewModeState] = useState<PlanViewMode>(readPersistedPlanViewMode);
+
+  const setViewMode = useCallback((mode: PlanViewMode) => {
+    setViewModeState(mode);
+    try {
+      window.localStorage.setItem(PLAN_VIEW_MODE_STORAGE_KEY, mode);
+    } catch {
+      // Persistence is best-effort; quota/private-mode failures must not block switching.
+    }
+  }, []);
+
+  return [viewMode, setViewMode];
+}
+
 export function PlanViewShell(props: CanvasViewInnerProps) {
-  const [viewMode, setViewMode] = useState<PlanViewMode>(DEFAULT_PLAN_VIEW_MODE);
+  const [viewMode, setViewMode] = usePersistedPlanViewMode();
   const surfaceProps = useMemo(() => toSurfaceProps(props), [props]);
 
   return (

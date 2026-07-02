@@ -16,6 +16,8 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+const PLAN_VIEW_MODE_STORAGE_KEY = "codeterm.planViewMode";
+
 const STABLE_PANES = {};
 const SHELL_PROPS = {
   mode: "workspace" as const,
@@ -87,18 +89,52 @@ function panelFor(host: HTMLElement, testId: string): HTMLElement | null {
   return host.querySelector(`[data-testid="${testId}"]`)?.parentElement ?? null;
 }
 
-test("PlanViewShell defaults to canvas mode", async () => {
+test("PlanViewShell defaults to board mode", async () => {
+  setupDom();
+  window.localStorage.removeItem(PLAN_VIEW_MODE_STORAGE_KEY);
   const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
   const shell = host.querySelector('[data-testid="plan-view-shell"]');
-  assert(shell?.getAttribute("data-plan-view-mode") === "canvas", "default mode attr");
-  const canvas = host.querySelector('[data-testid="canvas-view"]');
-  assert(canvas && !canvas.hasAttribute("hidden"), "canvas visible");
+  assert(shell?.getAttribute("data-plan-view-mode") === "board", "default mode attr");
+  const board = panelFor(host, "plan-board-view");
+  assert(board && !board.hasAttribute("hidden"), "board visible");
   const list = panelFor(host, "plan-list-view");
   assert(list?.hasAttribute("hidden"), "list hidden");
   await unmount();
 });
 
+test("PlanViewShell restores persisted mode from localStorage", async () => {
+  setupDom();
+  window.localStorage.setItem(PLAN_VIEW_MODE_STORAGE_KEY, "list");
+  const hostEl = document.createElement("div");
+  document.body.appendChild(hostEl);
+  const root: Root = createRoot(hostEl);
+  await act(async () => {
+    root.render(<PlanViewShell {...SHELL_PROPS} />);
+  });
+  const shell = hostEl.querySelector('[data-testid="plan-view-shell"]');
+  assert(shell?.getAttribute("data-plan-view-mode") === "list", "restored mode attr");
+  const list = panelFor(hostEl, "plan-list-view");
+  assert(list && !list.hasAttribute("hidden"), "list visible");
+  await act(async () => {
+    root.unmount();
+  });
+  hostEl.remove();
+});
+
+test("PlanViewShell persists mode changes to localStorage", async () => {
+  setupDom();
+  window.localStorage.removeItem(PLAN_VIEW_MODE_STORAGE_KEY);
+  const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
+  await act(async () => {
+    clickTab(host, "Canvas");
+  });
+  assert(window.localStorage.getItem(PLAN_VIEW_MODE_STORAGE_KEY) === "canvas", "canvas persisted");
+  await unmount();
+});
+
 test("PlanViewShell switches to list and board without losing shell target", async () => {
+  setupDom();
+  window.localStorage.removeItem(PLAN_VIEW_MODE_STORAGE_KEY);
   const { host, unmount } = await render(<PlanViewShell {...SHELL_PROPS} />);
   await act(async () => {
     clickTab(host, "List");
