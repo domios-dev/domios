@@ -1,1 +1,0 @@
-Behind a flag, render N task nodes via the chosen substrate with: single camera zoom, crisp text at 1000%, fixed object size (no snap/wobble), and focus-by-id landing. Measure fps + crispness on THIS machine. No DOM crisp hack.

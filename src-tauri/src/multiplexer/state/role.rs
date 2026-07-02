@@ -30,6 +30,7 @@ impl MultiplexerState {
                     .get_mut(pane_id)
                     .ok_or_else(|| format!("Pane {} not found", pane_id))?;
                 pane.role = Some(AgentRole::Orchestrator);
+                pane.role_profile = None;
                 pane.parent_pane_id = None;
                 pane.can_spawn = true;
                 pane.depth = 1;
@@ -65,6 +66,7 @@ impl MultiplexerState {
                         .get_mut(parent_id)
                         .ok_or_else(|| format!("Parent pane {} not found", parent_id))?;
                     parent.role = Some(AgentRole::Orchestrator);
+                    parent.role_profile = None;
                     parent.parent_pane_id = None;
                     parent.can_spawn = true;
                     if parent.depth == 0 {
@@ -96,6 +98,7 @@ impl MultiplexerState {
             .get_mut(pane_id)
             .ok_or(format!("Pane {} not found", pane_id))?;
         pane.role = None;
+        pane.role_profile = None;
         pane.parent_pane_id = None;
         pane.can_spawn = false;
         pane.depth = 0;
@@ -149,6 +152,7 @@ impl MultiplexerState {
             self.orphan_children(cid);
             if let Some(child) = self.panes.get_mut(cid) {
                 child.role = None;
+                child.role_profile = None;
                 child.parent_pane_id = None;
                 child.can_spawn = false;
                 child.depth = 0;

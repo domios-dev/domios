@@ -85,6 +85,17 @@ fn test_spawn_agent_params_from_json_minimal() {
 }
 
 #[test]
+fn spawn_agent_params_from_json_maps_planner_to_worker_profile() {
+    let params = SpawnAgentParams::from_json(&serde_json::json!({
+        "agent": "claude",
+        "role": "Planner",
+    }))
+    .unwrap();
+    assert_eq!(params.role.as_deref(), Some("Worker"));
+    assert_eq!(params.role_profile.as_deref(), Some("planner"));
+}
+
+#[test]
 fn test_spawn_agent_params_parent_alias() {
     let json = serde_json::json!({"parent": "pane-abc"});
     let params = SpawnAgentParams::from_json(&json).unwrap();

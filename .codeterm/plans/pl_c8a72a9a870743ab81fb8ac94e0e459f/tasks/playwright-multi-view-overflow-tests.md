@@ -1,1 +1,0 @@
-Screenshot + bbox asserts across modes × zoom bands: no overflow, no overlap, every mode legible.

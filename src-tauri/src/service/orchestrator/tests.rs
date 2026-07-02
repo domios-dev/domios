@@ -36,23 +36,30 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
 #[test]
 fn roleless_spawn_task_stays_plain() {
     assert_eq!(
-        role_onboarding_task(Some("inspect"), None).as_deref(),
+        role_onboarding_task(Some("inspect"), None, None).as_deref(),
         Some("inspect")
     );
-    assert_eq!(role_onboarding_task(None, None), None);
+    assert_eq!(role_onboarding_task(None, None, None), None);
 }
 
 #[test]
 fn worker_onboarding_requires_a_task_body() {
-    assert!(role_onboarding_task(Some("fix it"), Some("Worker"))
+    assert!(role_onboarding_task(Some("fix it"), Some("Worker"), None)
         .unwrap()
         .contains(crate::prompts::WORKER_SUFFIX));
-    assert_eq!(role_onboarding_task(None, Some("Worker")), None);
+    assert_eq!(role_onboarding_task(None, Some("Worker"), None), None);
+}
+
+#[test]
+fn planner_profile_uses_planner_suffix() {
+    let task = role_onboarding_task(Some("plan it"), Some("Worker"), Some("planner")).unwrap();
+    assert!(task.contains(crate::prompts::PLANNER_SUFFIX));
+    assert!(!task.contains(crate::prompts::WORKER_SUFFIX));
 }
 
 #[test]
 fn orchestrator_onboarding_is_sent_even_without_task_body() {
-    let task = role_onboarding_task(None, Some("Orchestrator")).unwrap();
+    let task = role_onboarding_task(None, Some("Orchestrator"), None).unwrap();
     assert!(task.contains("CodeTerm planner is the source of truth"));
     assert!(task.contains(crate::prompts::ORCHESTRATOR_SUFFIX));
 }
@@ -67,6 +74,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         title: None,
         description: None,
         role: None,
+        role_profile: None,
         parent_pane_id: None,
         can_spawn: None,
         workspace_id: None,

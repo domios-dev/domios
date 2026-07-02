@@ -24,7 +24,7 @@ fn report_is_pending(status: &TaskStatus) -> bool {
 impl PlanStore {
     /// Resolve the open task assigned to this pane across active plans. Newest
     /// matching active plan wins; unknown panes resolve to None.
-    fn open_task_for_pane(&self, pane_id: &str) -> Option<String> {
+    fn open_task_for_pane(&self, pane_id: &str) -> Option<(String, Option<String>)> {
         if pane_id.trim().is_empty() {
             return None;
         }
@@ -40,7 +40,7 @@ impl PlanStore {
                     && (task.assigned_pane_id.as_deref() == Some(pane_id)
                         || task.lane.pane_id.as_deref() == Some(pane_id))
             }) {
-                return Some(task.id.clone());
+                return Some((task.id.clone(), task.role_guidance.clone()));
             }
         }
         None
@@ -56,10 +56,16 @@ impl PlanStore {
         {
             return text.to_string();
         }
-        let Some(task_id) = self.open_task_for_pane(pane_id) else {
+        let Some((task_id, role_guidance)) = self.open_task_for_pane(pane_id) else {
             return text.to_string();
         };
-        let charter = render_worker_charter(&task_id);
+        let mut charter = render_worker_charter(&task_id);
+        if let Some(guidance) = role_guidance
+            .as_deref()
+            .filter(|guidance| !guidance.trim().is_empty())
+        {
+            charter = format!("Role guidance:\n{}\n\n{charter}", guidance.trim());
+        }
         if text.trim().is_empty() {
             charter
         } else {

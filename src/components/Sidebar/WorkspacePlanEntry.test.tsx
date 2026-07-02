@@ -26,7 +26,7 @@ const PLAN_TITLE = "Canvas rendering substrate — Figma-grade migration";
 function mkEntry(over: Partial<PlanIndexEntry> = {}): PlanIndexEntry {
   return {
     plan_id: "plan-1",
-    file_path: "/repo/hub/.codeterm/plans/plan-1.json",
+    file_path: "/repo/hub/.codeterm/plans/active/plan-1/plan.json",
     owner: { pane_id: "orch-1", session_id: "sess-orch", title: "Orchestrator" },
     title: PLAN_TITLE,
     status: "active",
@@ -101,7 +101,7 @@ test("multiple plans → +N badge and ambiguous (no single plan id)", async () =
   canvasFocusStore.closeWorkspace();
   const index = [
     mkEntry({ plan_id: "quiet", title: "Quiet plan", updated_at: 1 }),
-    mkEntry({ plan_id: "busy", title: "Busy plan", file_path: "/repo/hub/.codeterm/plans/busy.json", updated_at: 999 }),
+    mkEntry({ plan_id: "busy", title: "Busy plan", file_path: "/repo/hub/.codeterm/plans/active/busy/plan.json", updated_at: 999 }),
   ];
   const { host, root } = await render(slot(index));
   const more = host.querySelector('[data-testid="workspace-plan-more"]');

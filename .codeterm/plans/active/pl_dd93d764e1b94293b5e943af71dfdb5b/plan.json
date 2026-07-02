@@ -1,0 +1,963 @@
+{
+  "id": "pl_dd93d764e1b94293b5e943af71dfdb5b",
+  "title": "Plan views UX redesign — Board/List/Canvas",
+  "sections": [
+    {
+      "id": "sec_7d516f98bf6147158acd320e97dd564a",
+      "title": "Planner discovery and task-graph design",
+      "handle": "planner-discovery-task-graph",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_41bc141f58524a3086504f52a429215c",
+      "title": "Wave 1 — View priority and mode persistence",
+      "handle": "w1-priority",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_66fc0b7b0a2b4683a2cb8173216b7144",
+      "title": "Wave 2 — Shared detail surface",
+      "handle": "w2-detail",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_649d5f05b44a40d294c18e03c68dc7ab",
+      "title": "Wave 3 — Board redesign",
+      "handle": "w3-board",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_583167108c604fcdb8b2b95e9c59f8e5",
+      "title": "Wave 4 — List redesign",
+      "handle": "w4-list",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_5912f5ccab8642c9b483a0b8535c485f",
+      "title": "Wave 5 — Canvas simplification and performance",
+      "handle": "w5-canvas",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_85b0ef9d151b47d386a1da4a33e1cc6e",
+      "title": "Wave 6 — Visual and e2e verification gates",
+      "handle": "w6-gates",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_5add1d7ac9ca45af9f9bf13e5e745cd8",
+      "title": "Wave 7 — Integration, adversarial review, approval",
+      "handle": "w7-review",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_0c038de776d041088825dee7e59d8bae",
+      "title": "Wave 8 — Feedback-driven replanning loop",
+      "handle": "w8-replan",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_69fb9e16b4bc48788d1bc03a1e371305",
+      "title": "Wave 2b — Spec presentation redesign",
+      "handle": "w2b-spec",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_e7f3bd47f5fb412182a55045c7fc8b42",
+      "title": "Wave 0 — Planning-kind task support (CLI/backend)",
+      "handle": "w0-planning-kind",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    },
+    {
+      "id": "sec_653cc635579c433fae71b7c94ed36889",
+      "title": "Wave 0b — Task executor-role field (CLI/backend)",
+      "handle": "w0b-role-field",
+      "tags": [],
+      "body": "",
+      "subsections": [],
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      }
+    }
+  ],
+  "status": "active",
+  "mode": "approved",
+  "owner": {
+    "pane_id": "4d479b6c",
+    "session_id": null,
+    "title": null
+  },
+  "project_path": "/Users/rollacode/Developer/codeterm",
+  "created_at": 1783008646086,
+  "updated_at": 1783010270932,
+  "milestone_kinds": [
+    {
+      "key": "decision",
+      "label": "decision",
+      "color": null
+    },
+    {
+      "key": "status_update",
+      "label": "status_update",
+      "color": null
+    }
+  ],
+  "loops": [
+    {
+      "id": "loop_d86006892c13428f905df19eb7b9830e",
+      "target": "User accepts Board/List/Canvas visuals (spec gate 4)",
+      "stages": [],
+      "budget": 3,
+      "count": 0,
+      "stop_when": "User approves screenshots or explicitly ends the effort",
+      "status": "running",
+      "stagnation": 0,
+      "deviation": null
+    }
+  ],
+  "elements": [],
+  "tasks": [
+    {
+      "id": "task_f1b7971f23634d489a91ea8e59ee407a",
+      "name": "Planner: design Board/List/Canvas UX redesign task graph",
+      "type": "planning",
+      "model": "fable",
+      "model_rationale": "Planning depth: reading a large UI surface + authoring a full spec/plan/task graph needs the highest-reasoning model; fable per Planner Profile guidance (fallback opus).",
+      "acceptance_criteria": [
+        "Planner updates GOAL/Spec/Plan/Tasks in CodeTerm planner, not a standalone markdown plan.",
+        "Executable task graph exists with role_guidance, criteria, test plan, correctness for each lane.",
+        "Board-primary/List-second/Canvas-third, done-heavy behavior, detail inspectability, plan/spec context, canvas perf, and spec-entity presentation all addressed."
+      ],
+      "test_plan": "codeterm plan state + codeterm plan doctor --kind quality; Orchestrator reviews graph before dispatch",
+      "correctness": "Orchestrator can dispatch workers from tasks without rereading chat; replanning loop exists for feedback-driven iteration.",
+      "status": "in_progress",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1783009957971,
+      "updated_at": 1783010270932,
+      "status_changed_at": 1783009972653,
+      "handle": "planner-lane",
+      "tags": [],
+      "section_ids": [
+        "sec_7d516f98bf6147158acd320e97dd564a"
+      ],
+      "body": "",
+      "role_guidance": "You are a Planner-profile structural Worker: durable planner state only; no agent spawning, no implementation, no pane assignment; report in_review to the Orchestrator.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": "636d967b",
+      "lane": {
+        "pane_id": "636d967b",
+        "workspace_id": null,
+        "workspace_name": "codeterm",
+        "worktree_path": "/Users/rollacode/Developer/codeterm",
+        "branch": "feat/canvas-updates",
+        "base": null,
+        "destination": null,
+        "cleanup_status": "active",
+        "cleanup_hints": [
+          "Planning-state lane: do not remove project checkout; close planner pane after accepted report."
+        ]
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave-planning",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_de43b7d9efbc41c1a229276bd7546fc5",
+      "name": "Planning-kind tasks: CLI/backend gating + doctor fix",
+      "type": "implement",
+      "model": "opus",
+      "model_rationale": "Rust backend gating + doctor semantics; needs care around plan service invariants but scope is narrow — opus.",
+      "acceptance_criteria": [
+        "plan task add --type planning succeeds on a mode=planning plan without --force; any other kind still errors with TaskCreationRequiresApproval.",
+        "plan doctor --kind quality: no tasks_before_approval for planning-kind tasks; execution-kind in planning mode still errors.",
+        "Doctor body check resolves externalized tasks/*.md bodies (no false 'task is missing body' when a body file exists).",
+        "docs/ORCHESTRATION.md + src-tauri/prompts/orchestration_toolset.md document the planning kind; revision tags bumped."
+      ],
+      "test_plan": "cargo unit tests for gate+doctor (narrowed, single run); ./build.sh check; ./build.sh cli then manual scratch-plan verification on dev",
+      "correctness": "Approval gate not weakened: only kind==planning bypasses; --force semantics unchanged; doctor stays deterministic (no prose heuristics).",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1783010014150,
+      "updated_at": 1783010014150,
+      "status_changed_at": 1783010014150,
+      "handle": "t0-planning-kind",
+      "tags": [],
+      "section_ids": [
+        "sec_e7f3bd47f5fb412182a55045c7fc8b42"
+      ],
+      "body": "",
+      "role_guidance": "You are a Rust backend Worker in src-tauri/src/service/plan only. No frontend changes. Follow lock-ordering rules; run one narrowed cargo test at a time.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave0",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_973127130e8c489586368c955e817fde",
+      "name": "Board-first view order + persisted mode",
+      "type": "implement",
+      "model": "sonnet",
+      "model_rationale": "Mechanical, fully specified change with exact files and tests; no design judgment — sonnet is fast and sufficient.",
+      "acceptance_criteria": [
+        "Opening a plan lands on Board; mode switch shows Board, List, Canvas in that order.",
+        "Chosen mode survives plan close/reopen and app restart (localStorage-backed).",
+        "planViewMode/PlanViewShell unit tests and plan-view-mode.spec.ts updated and green."
+      ],
+      "test_plan": "npm run test:unit; npx playwright test -c tests/playwright --project=golden with dev on 7686",
+      "correctness": "No view renders differently except default/order/persistence; resolvePlanViewMode still falls back safely on invalid stored values.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1783010014240,
+      "updated_at": 1783010014240,
+      "status_changed_at": 1783010014240,
+      "handle": "t1-view-order",
+      "tags": [],
+      "section_ids": [
+        "sec_41bc141f58524a3086504f52a429215c"
+      ],
+      "body": "",
+      "role_guidance": "You are a frontend Worker in src/components/Canvas. Scope is ONLY view-mode order/default/persistence and its tests. Do not restyle views or touch board/list/canvas internals. Report in_review when tests pass.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave1",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_65a11939d78c44a0818030c0b23e7c1e",
+      "name": "Shared PlanDetailOverlay (view-agnostic detail surface)",
+      "type": "implement",
+      "model": "opus",
+      "model_rationale": "Architectural seam extraction (decoupling canvas node types from a shared surface) with regression risk in canvas UX — opus.",
+      "acceptance_criteria": [
+        "PlanDetailOverlay renders task/plan/spec kinds from model-level props with Esc close + focus trap; used by Canvas via a thin adapter.",
+        "No duplicated detail-rendering logic: DetailContent remains the single body renderer.",
+        "Existing canvas overlay behavior unchanged (camera untouched, section nav, open-pane action)."
+      ],
+      "test_plan": "npm run test:unit (new PlanDetailOverlay.test.tsx + existing canvas tests); manual dev check of canvas card expand",
+      "correctness": "Board/List can import and open the overlay without importing canvas layout modules; file sizes stay under 1000 lines.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1783010032020,
+      "updated_at": 1783010032020,
+      "status_changed_at": 1783010032020,
+      "handle": "t2-detail-overlay",
+      "tags": [],
+      "section_ids": [
+        "sec_66fc0b7b0a2b4683a2cb8173216b7144"
+      ],
+      "body": "",
+      "role_guidance": "You are a frontend Worker owning src/components/Canvas/planView + CanvasDetailOverlay/DetailContent. Contract: PlanDetailOverlay takes model-level props only — no LaidOutNode/canvas types may leak into planView/. Canvas expand behavior must remain pixel-identical.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave2",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_8a84597c762c4828b4ae05c5403aecb5",
+      "name": "Spec card + spec read surface redesign",
+      "type": "implement",
+      "model": "opus",
+      "model_rationale": "Canvas render pipeline (cardContent/drawCard) + information design judgment for the spec summary — opus.",
+      "acceptance_criteria": [
+        "Canvas spec card shows title, section count, coverage rollup, readable top-level sections; no identical per-row '-> tasks' chips; no dead space.",
+        "Spec detail (shared overlay) shows the full untruncated section tree with per-section coverage and linked tasks.",
+        "cardContent/drawCard unit tests updated and green."
+      ],
+      "test_plan": "npm run test:unit; manual dev screenshots of spec card at 100% and overview zoom for the report",
+      "correctness": "Spec information is never destroyed by truncation — everything cropped has an expand path; Board/List reach the same spec detail via PlanContextHeader.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1783010032142,
+      "updated_at": 1783010032142,
+      "status_changed_at": 1783010032142,
+      "handle": "t2b-spec-pres",
+      "tags": [],
+      "section_ids": [
+        "sec_69fb9e16b4bc48788d1bc03a1e371305"
+      ],
+      "body": "",
+      "role_guidance": "You are a frontend Worker in src/components/Canvas/canvasRender (+ PlanDetailOverlay spec kind). Kill truncation-noise: no cropped strings without an expand path, no identical per-row chips. Renderer-only; no data-layer changes.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave2",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_e7ef4c2763fd4fd699bbf3a6f525831b",
+      "name": "Board redesign (primary view)",
+      "type": "implement",
+      "model": "opus",
+      "model_rationale": "Primary-surface visual design + interaction + model work; design quality is the whole point — opus with a frontend-design stance.",
+      "acceptance_criteria": [
+        "Plan-context header band (goal/focus/owner/progress/spec) replaces the floating summary cards; click-through opens plan/spec detail.",
+        "Done column collapsed by default (recent 5 + count + Show-all scrolling in-column); page height bounded on the 200-done fixture.",
+        "Cards clickable -> task detail overlay; columns scroll independently with sticky headers; empty columns read cheaply.",
+        "Existing plan-board-* testids preserved; plan-board-done-toggle + plan-context-header added."
+      ],
+      "test_plan": "npm run test:unit (boardModel + PlanBoardView tests); dev visual pass on real plan + done-heavy fixture; 2 screenshots attached to report",
+      "correctness": "No unbounded growth with done count; no per-render fetch regressions; multi-plan workspace stacking still works.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1783010051218,
+      "updated_at": 1783010051218,
+      "status_changed_at": 1783010051218,
+      "handle": "t3-board",
+      "tags": [],
+      "section_ids": [
+        "sec_649d5f05b44a40d294c18e03c68dc7ab"
+      ],
+      "body": "",
+      "role_guidance": "You are a frontend UX Worker owning planView/PlanBoardView, boardModel, BoardTaskCard, PlanContextHeader (new) and .plan-board-* CSS. Design bar: calm, dense, readable; var(--ct-*) tokens only; check both dark and light. PlanContextHeader must be reusable by List. Depends on t1-view-order + t2-detail-overlay.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave3",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_75995d413fab46a69dc1b3fd1df93cfc",
+      "name": "List redesign (secondary view)",
+      "type": "implement",
+      "model": "opus",
+      "model_rationale": "Interaction + collapse-model design decisions affecting readability; same design bar as Board — opus.",
+      "acceptance_criteria": [
+        "Task rows open detail overlay; section rows collapse/expand; done-only sections default collapsed with 'n done' rollups.",
+        "Status filter chips + text filter work; done rows visually quiet; sticky plan header present.",
+        "buildPlanListTree/PlanListView unit tests updated and green; plan-list-collapse-toggle, plan-list-filter, plan-list-done-rollup testids added."
+      ],
+      "test_plan": "npm run test:unit; dev visual pass on normal + done-heavy fixture; 2 screenshots attached to report",
+      "correctness": "List page height bounded on done-heavy fixture; row identity stable so e2e selectors survive; no canvas imports.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1783010051335,
+      "updated_at": 1783010051335,
+      "status_changed_at": 1783010051335,
+      "handle": "t4-list",
+      "tags": [],
+      "section_ids": [
+        "sec_583167108c604fcdb8b2b95e9c59f8e5"
+      ],
+      "body": "",
+      "role_guidance": "You are a frontend UX Worker owning planView/PlanListView + buildPlanListTree (+ optional listViewState). Keep List dense — rows, not cards. Reuse PlanContextHeader from t3-board and PlanDetailOverlay from t2-detail-overlay; do not fork either.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave4",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_3e3c1a9ffb6c4866b4363b3528dd644e",
+      "name": "Canvas legibility + performance (LOD, zoom floor, done compression)",
+      "type": "implement",
+      "model": "opus",
+      "model_rationale": "Canvas render pipeline + perf instrumentation; subtle hit-testing/LOD invariants — opus.",
+      "acceptance_criteria": [
+        "No dot-cloud state exists: below readability threshold the world renders per-section cluster chips with counts/presence.",
+        "Min-zoom clamp in place; done tasks compress into per-section done-stacks at normal zoom.",
+        "Pan/zoom on 200-done+10-active fixture: p95 frame time ~16ms or better, with before/after numbers reported.",
+        "Unit tests updated (drawCard, hitTest, useCanvasViewport); minimap consistent with LOD world."
+      ],
+      "test_plan": "npm run test:unit; ./build.sh dev + manual pan/zoom with useCanvasFrameProbe numbers; watch dev log for LONGTASK",
+      "correctness": "Cluster hit-testing routes clicks correctly (cluster -> section focus, stack -> expand); zero behavior change above the LOD threshold.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1783010071336,
+      "updated_at": 1783010071336,
+      "status_changed_at": 1783010071336,
+      "handle": "t5-canvas",
+      "tags": [],
+      "section_ids": [
+        "sec_5912f5ccab8642c9b483a0b8535c485f"
+      ],
+      "body": "",
+      "role_guidance": "You are a frontend perf Worker in src/components/Canvas/canvasRender + useCanvasViewport + CanvasMinimap. Renderer-only: no REST/data changes, no new canvas features. Every perf claim needs frame-probe numbers in the report.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave5",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_9e88d51dfd0d40aab43dca58d1ed141e",
+      "name": "Playwright visual/e2e gate for plan views",
+      "type": "implement",
+      "model": "sonnet",
+      "model_rationale": "Test authoring against existing Playwright patterns and helpers; well-templated work — sonnet.",
+      "acceptance_criteria": [
+        "plan-view-mode.spec.ts covers Board default, Board/List/Canvas order, persistence across close/reopen.",
+        "Detail overlay open/close verified from Board card, List row, Canvas card, with state restoration.",
+        "Done-heavy fixture assertions: bounded board height, collapsed done column, list rollups.",
+        "Screenshot artifacts for Board/List/Canvas/spec-card/spec-detail on normal + done-heavy fixtures, paths listed in report."
+      ],
+      "test_plan": "npx playwright test -c tests/playwright --project=golden; npm run test:pw:lint",
+      "correctness": "Specs pass deterministically (no arbitrary sleeps); selectors use testids agreed in t3/t4/t5; failures point at the owning wave.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p2",
+      "created_at": 1783010071434,
+      "updated_at": 1783010071434,
+      "status_changed_at": 1783010071434,
+      "handle": "t6-e2e-gate",
+      "tags": [],
+      "section_ids": [
+        "sec_85b0ef9d151b47d386a1da4a33e1cc6e"
+      ],
+      "body": "",
+      "role_guidance": "You are a QA Worker in tests/playwright/suites/13-canvas. Web-mode on macOS against dev 7686. Follow tests/playwright/README.md conventions and tag hygiene. Your screenshots are the user-facing visual evidence — frame them cleanly.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave6",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_53b32413cc504e24aa42d6942d07b3c5",
+      "name": "Adversarial review + integration gate",
+      "type": "implement",
+      "model": "fable",
+      "model_rationale": "Cross-lane adversarial review judging against acceptance gates; highest-leverage quality step — fable (fallback opus).",
+      "acceptance_criteria": [
+        "Per-lens findings delivered (untouched-flow regressions, perf, discipline, contract stability) with file:line references.",
+        "Every acceptance gate from the spec has an explicit pass/fail line with evidence.",
+        "Verdict: approve or a concrete bounce list naming owning task handles."
+      ],
+      "test_plan": "npm run lint; npm run test:unit; bash scripts/check-file-sizes.sh; npx playwright test -c tests/playwright --project=golden; ./build.sh check",
+      "correctness": "No gate is claimed green without command output evidence; visual acceptance explicitly deferred to the user via Orchestrator.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1783010090031,
+      "updated_at": 1783010090031,
+      "status_changed_at": 1783010090031,
+      "handle": "t7-review",
+      "tags": [],
+      "section_ids": [
+        "sec_5add1d7ac9ca45af9f9bf13e5e745cd8"
+      ],
+      "body": "",
+      "role_guidance": "You are an adversarial code-review Worker. You do NOT fix code — you produce findings and a verdict. Review the integrated diff of all lanes against the spec acceptance gates; run every gate command yourself; be specific (file:line).",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave7",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_30b1397607c6454b90973b9db69ee7df",
+      "name": "Replanning checkpoint (standing feedback loop)",
+      "type": "planning",
+      "model": "fable",
+      "model_rationale": "Replanning requires the same planning depth as the original graph — fable Planner (fallback opus). Kind=planning: this is planner-state work, not execution.",
+      "acceptance_criteria": [
+        "Every structural blocker or failed visual gate routes through a Planner revision instead of inline Orchestrator improvisation.",
+        "Each loop iteration ends with re-run plan state + doctor and an explicit dispatch decision.",
+        "Closed only when the user accepts the visuals or ends the effort."
+      ],
+      "test_plan": "Inspect plan strides/handoffs after each iteration: replanning evidence (screenshots, revised sections/tasks) is recorded on the plan",
+      "correctness": "Loop respects budget (3 iterations then mandatory user conversation); tactical fixes stay with workers without a Planner round-trip.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p3",
+      "created_at": 1783010090126,
+      "updated_at": 1783010090126,
+      "status_changed_at": 1783010090126,
+      "handle": "t8-replan-loop",
+      "tags": [],
+      "section_ids": [
+        "sec_0c038de776d041088825dee7e59d8bae"
+      ],
+      "body": "",
+      "role_guidance": "Orchestrator-owned contract task: when triggered, spawn a Planner-profile worker with current screenshots + failing reports + a one-paragraph problem statement; do not improvise large redesigns inline.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave8",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    },
+    {
+      "id": "task_d52b73ff7a704f05a0377c06dd15b647",
+      "name": "Task executor-role field: model + CLI + doctor warning",
+      "type": "implement",
+      "model": "opus",
+      "model_rationale": "Rust model/CLI/doctor change mirroring t0's surface; narrow but touches persistence round-trip — opus; sequence with or after t0-planning-kind (same files, avoid conflict).",
+      "acceptance_criteria": [
+        "plan task add/update accept --role; value persists and round-trips through plan.json/body_files.",
+        "task show, plan get, and plan state open-lanes display executor_role.",
+        "Doctor warns (not errors) on execution-kind tasks missing executor_role; planning-kind exempt.",
+        "All 12 tasks of this plan backfilled with executor_role; docs + agents.md vocabulary updated with revision bumps."
+      ],
+      "test_plan": "narrowed cargo test (single run); ./build.sh check; ./build.sh cli; backfill on this plan + plan state output pasted in report",
+      "correctness": "Structural AgentRole hierarchy untouched (Orchestrator/Worker only); role composes with role_guidance at spawn (role = who, guidance = how); no hard enum blocking future vocabularies.",
+      "status": "pending",
+      "status_label": null,
+      "priority": "p1",
+      "created_at": 1783010241421,
+      "updated_at": 1783010241421,
+      "status_changed_at": 1783010241421,
+      "handle": "t0b-role-field",
+      "tags": [],
+      "section_ids": [
+        "sec_653cc635579c433fae71b7c94ed36889"
+      ],
+      "body": "",
+      "role_guidance": "You are a Rust backend Worker in src-tauri/src/service/plan (+ CLI arg wiring). Coordinate with t0-planning-kind lane — same module; take it in the same worktree/lane if dispatched together. No frontend changes. Loose slug validation only: do NOT create a structural role enum.",
+      "intent": null,
+      "parent_task_id": null,
+      "assigned_pane_id": null,
+      "lane": {
+        "pane_id": null,
+        "workspace_id": null,
+        "workspace_name": null,
+        "worktree_path": null,
+        "branch": null,
+        "base": null,
+        "destination": null,
+        "cleanup_status": null,
+        "cleanup_hints": []
+      },
+      "taken_by_role": null,
+      "peer": null,
+      "group": "wave0",
+      "canvas": {
+        "x": null,
+        "y": null,
+        "collapsed": false
+      },
+      "milestones": [],
+      "execution_attempts": []
+    }
+  ],
+  "task_groups": [],
+  "tag_facets": [],
+  "links": [],
+  "spec_refs": [
+    "sp_d2c70550432f4a829c89cf4a4cb7c3c5"
+  ],
+  "spec_links": [
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_b76d382a3270459db7c154b68d40c085",
+      "plan_section_id": "sec_7d516f98bf6147158acd320e97dd564a"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_109e1c9fa5f84399a38aabf1b4888be5",
+      "plan_section_id": "sec_41bc141f58524a3086504f52a429215c"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_fba2b03be41a424f9d3001347482a137",
+      "plan_section_id": "sec_66fc0b7b0a2b4683a2cb8173216b7144"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_123b7625e1034369a70a32a52fddd9c8",
+      "plan_section_id": "sec_69fb9e16b4bc48788d1bc03a1e371305"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_fba2b03be41a424f9d3001347482a137",
+      "plan_section_id": "sec_69fb9e16b4bc48788d1bc03a1e371305"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_563d44d14c654479aa66ad61705c0eea",
+      "plan_section_id": "sec_649d5f05b44a40d294c18e03c68dc7ab"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_891ece7fd2fc409f95fa7d5ae05a31c6",
+      "plan_section_id": "sec_649d5f05b44a40d294c18e03c68dc7ab"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_22d71cd40bb04899800db257c3c59b0a",
+      "plan_section_id": "sec_649d5f05b44a40d294c18e03c68dc7ab"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_109e1c9fa5f84399a38aabf1b4888be5",
+      "plan_section_id": "sec_649d5f05b44a40d294c18e03c68dc7ab"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_d3e793987d4c431aaf3aaf72e41f3483",
+      "plan_section_id": "sec_583167108c604fcdb8b2b95e9c59f8e5"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_891ece7fd2fc409f95fa7d5ae05a31c6",
+      "plan_section_id": "sec_583167108c604fcdb8b2b95e9c59f8e5"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_22d71cd40bb04899800db257c3c59b0a",
+      "plan_section_id": "sec_583167108c604fcdb8b2b95e9c59f8e5"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_bec5bc7f3b9c4c46bc7952a94bcd95a6",
+      "plan_section_id": "sec_5912f5ccab8642c9b483a0b8535c485f"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_891ece7fd2fc409f95fa7d5ae05a31c6",
+      "plan_section_id": "sec_5912f5ccab8642c9b483a0b8535c485f"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_b7ba5b0e5e4f408f93adebcf8290e348",
+      "plan_section_id": "sec_85b0ef9d151b47d386a1da4a33e1cc6e"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_b76d382a3270459db7c154b68d40c085",
+      "plan_section_id": "sec_85b0ef9d151b47d386a1da4a33e1cc6e"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_b7ba5b0e5e4f408f93adebcf8290e348",
+      "plan_section_id": "sec_5add1d7ac9ca45af9f9bf13e5e745cd8"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_164a9080c02640f1a3505338b2129dbf",
+      "plan_section_id": "sec_5add1d7ac9ca45af9f9bf13e5e745cd8"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_b76d382a3270459db7c154b68d40c085",
+      "plan_section_id": "sec_0c038de776d041088825dee7e59d8bae"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_b7ba5b0e5e4f408f93adebcf8290e348",
+      "plan_section_id": "sec_0c038de776d041088825dee7e59d8bae"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_1820b500279a462f8a816bf0d6c02b93",
+      "plan_section_id": "sec_e7f3bd47f5fb412182a55045c7fc8b42"
+    },
+    {
+      "spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+      "spec_section_id": "sec_e0008eefcdf9481f84f22f5454fb9b79",
+      "plan_section_id": "sec_653cc635579c433fae71b7c94ed36889"
+    }
+  ],
+  "primary_spec_id": "sp_d2c70550432f4a829c89cf4a4cb7c3c5",
+  "lineage": [],
+  "goal": {
+    "vector": "Make the CodeTerm planning workspace visually pleasant, understandable, and efficient, with Board as the primary view, List second, Canvas third; every view must make plan/spec/tasks inspectable without awkward scrolling or hidden context.",
+    "vision": "",
+    "constraints": [
+      "Board is the default/primary planning view; List is second; Canvas is third.",
+      "Task details, plan context, and spec context must be openable from Board and List.",
+      "Done tasks must not create unbounded vertical scroll or visually dominate active work.",
+      "Canvas must avoid laggy tiny unreadable overviews and should degrade gracefully for large plans."
+    ],
+    "postulates": [
+      "This is a UX/UI redesign planning effort first; implementation tasks must be generated by the Planner after studying current UI and screenshots.",
+      "The Orchestrator executes the plan and returns to Planner for replanning when implementation evidence or user feedback shows the plan is weak."
+    ]
+  },
+  "heartbeat": {
+    "current_focus": null,
+    "active_lanes": [],
+    "rules": [],
+    "learnings": []
+  },
+  "canvas": {
+    "viewport": null
+  },
+  "owner_history": []
+}

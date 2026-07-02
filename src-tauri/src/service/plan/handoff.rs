@@ -784,6 +784,7 @@ mod tests {
             dir.path()
                 .join(".codeterm")
                 .join("plans")
+                .join("active")
                 .join(&plan_id)
                 .join("INDEX.md"),
         )

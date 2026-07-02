@@ -64,35 +64,42 @@ fn handle_events(
 
 fn plan_id_from_path(path: &Path) -> Option<String> {
     match path.extension().and_then(|e| e.to_str()) {
-        Some("json") => path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| {
-                if s == crate::plan::INBOX_PLAN_FILE_STEM {
-                    crate::plan::INBOX_PLAN_ID.to_string()
-                } else {
-                    s.to_string()
-                }
-            }),
+        Some("json") => plan_id_from_plan_json_path(path),
         Some("md") => plan_id_from_body_path(path),
         Some("jsonl") => plan_id_from_stride_log_path(path),
         _ => None,
     }
 }
 
+fn plan_id_from_plan_json_path(path: &Path) -> Option<String> {
+    if path.file_name()?.to_str()? != "plan.json" {
+        return None;
+    }
+    plan_id_from_dir(path.parent()?)
+}
+
+fn plan_id_from_dir(dir: &Path) -> Option<String> {
+    let id = dir.file_name()?.to_str()?;
+    if id.is_empty() {
+        return None;
+    }
+    Some(if id == crate::plan::INBOX_PLAN_FILE_STEM {
+        crate::plan::INBOX_PLAN_ID.to_string()
+    } else {
+        id.to_string()
+    })
+}
+
 fn plan_id_from_body_path(path: &Path) -> Option<String> {
     let file_parent = path.parent()?;
     let kind = file_parent.file_name()?.to_str()?;
-    if kind != "sections" && kind != "tasks" {
+    if !matches!(
+        kind,
+        "sections" | "tasks" | "milestones" | "elements" | "handoffs"
+    ) {
         return None;
     }
-    file_parent
-        .parent()?
-        .file_name()
-        .and_then(|s| s.to_str())
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+    plan_id_from_dir(file_parent.parent()?)
 }
 
 fn plan_id_from_stride_log_path(path: &Path) -> Option<String> {
@@ -104,38 +111,16 @@ fn plan_id_from_stride_log_path(path: &Path) -> Option<String> {
     if tasks_dir.file_name()?.to_str()? != "tasks" {
         return None;
     }
-    tasks_dir
-        .parent()?
-        .file_name()
-        .and_then(|s| s.to_str())
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+    plan_id_from_dir(tasks_dir.parent()?)
 }
 
 fn project_from_plan_path(path: &Path) -> Option<std::path::PathBuf> {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("json") => path
-            .parent()?
-            .parent()?
-            .parent()
-            .map(std::path::Path::to_path_buf),
-        Some("md") => path
-            .parent()?
-            .parent()?
-            .parent()?
-            .parent()?
-            .parent()
-            .map(std::path::Path::to_path_buf),
-        Some("jsonl") if plan_id_from_stride_log_path(path).is_some() => path
-            .parent()?
-            .parent()?
-            .parent()?
-            .parent()?
-            .parent()?
-            .parent()
-            .map(std::path::Path::to_path_buf),
-        _ => None,
+    plan_id_from_path(path)?;
+    let mut current = path.parent()?;
+    while current.file_name().and_then(|s| s.to_str()) != Some("plans") {
+        current = current.parent()?;
     }
+    current.parent()?.parent().map(std::path::Path::to_path_buf)
 }
 
 #[cfg(test)]
@@ -146,7 +131,7 @@ mod tests {
     fn plan_id_ignores_non_json_paths() {
         assert_eq!(
             plan_id_from_path(&std::path::PathBuf::from("/tmp/pl_1.json")),
-            Some("pl_1".into())
+            None
         );
         assert_eq!(
             plan_id_from_path(&std::path::PathBuf::from("/tmp/pl_1.tmp")),
@@ -154,25 +139,31 @@ mod tests {
         );
         assert_eq!(
             plan_id_from_path(&std::path::PathBuf::from(
-                "/tmp/project/.codeterm/plans/pl_1/sections/sec_1.md"
+                "/tmp/project/.codeterm/plans/active/pl_1/plan.json"
             )),
             Some("pl_1".into())
         );
         assert_eq!(
             plan_id_from_path(&std::path::PathBuf::from(
-                "/tmp/project/.codeterm/plans/pl_1/tasks/task_1/strides.jsonl"
+                "/tmp/project/.codeterm/plans/active/pl_1/sections/sec_1.md"
             )),
             Some("pl_1".into())
         );
         assert_eq!(
             plan_id_from_path(&std::path::PathBuf::from(
-                "/tmp/project/.codeterm/plans/pl_1/tasks/task_1/other.jsonl"
+                "/tmp/project/.codeterm/plans/active/pl_1/tasks/task_1/strides.jsonl"
+            )),
+            Some("pl_1".into())
+        );
+        assert_eq!(
+            plan_id_from_path(&std::path::PathBuf::from(
+                "/tmp/project/.codeterm/plans/active/pl_1/tasks/task_1/other.jsonl"
             )),
             None
         );
         assert_eq!(
             plan_id_from_path(&std::path::PathBuf::from(
-                "/tmp/project/.codeterm/plans/pl_1/sections/sec_1/strides.jsonl"
+                "/tmp/project/.codeterm/plans/active/pl_1/sections/sec_1/strides.jsonl"
             )),
             None
         );
@@ -182,25 +173,25 @@ mod tests {
     fn project_from_plan_path_walks_out_of_codeterm_plans() {
         assert_eq!(
             project_from_plan_path(&std::path::PathBuf::from(
-                "/tmp/project/.codeterm/plans/pl_1.json"
+                "/tmp/project/.codeterm/plans/active/pl_1/plan.json"
             )),
             Some(std::path::PathBuf::from("/tmp/project"))
         );
         assert_eq!(
             project_from_plan_path(&std::path::PathBuf::from(
-                "/tmp/project/.codeterm/plans/pl_1/tasks/task_1.md"
+                "/tmp/project/.codeterm/plans/archive/pl_1/tasks/task_1.md"
             )),
             Some(std::path::PathBuf::from("/tmp/project"))
         );
         assert_eq!(
             project_from_plan_path(&std::path::PathBuf::from(
-                "/tmp/project/.codeterm/plans/pl_1/tasks/task_1/strides.jsonl"
+                "/tmp/project/.codeterm/plans/active/pl_1/tasks/task_1/strides.jsonl"
             )),
             Some(std::path::PathBuf::from("/tmp/project"))
         );
         assert_eq!(
             project_from_plan_path(&std::path::PathBuf::from(
-                "/tmp/project/.codeterm/plans/pl_1/tasks/task_1/other.jsonl"
+                "/tmp/project/.codeterm/plans/active/pl_1/tasks/task_1/other.jsonl"
             )),
             None
         );

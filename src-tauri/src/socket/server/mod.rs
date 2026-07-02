@@ -22,6 +22,7 @@ mod plan_linking;
 mod plan_loops;
 mod plan_mode;
 mod plan_read;
+mod plan_role_helpers;
 mod services;
 mod spec;
 mod workspace;

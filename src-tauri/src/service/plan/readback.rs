@@ -35,6 +35,7 @@ pub(in crate::service::plan) struct TaskAddExpectation {
     test_plan: Option<String>,
     correctness: Option<String>,
     body: String,
+    role_guidance: Option<String>,
     intent: Option<String>,
     parent_task_id: Option<String>,
     assigned_pane_id: Option<String>,
@@ -75,6 +76,7 @@ impl PlanStore {
             test_plan: task.test_plan.clone(),
             correctness: task.correctness.clone(),
             body: task.body.clone(),
+            role_guidance: task.role_guidance.clone(),
             intent: task.intent.clone(),
             parent_task_id: task.parent_task_id.clone(),
             assigned_pane_id: task.assigned_pane_id.clone(),
@@ -140,6 +142,9 @@ impl PlanStore {
         }
         if task.body != expected.body {
             return Err(fail("body"));
+        }
+        if task.role_guidance != expected.role_guidance {
+            return Err(fail("role_guidance"));
         }
         if task.intent != expected.intent {
             return Err(fail("intent"));

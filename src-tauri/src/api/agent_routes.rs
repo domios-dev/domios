@@ -30,6 +30,7 @@ pub(crate) struct SpawnAgentBody {
     title: Option<String>,
     description: Option<String>,
     role: Option<String>,
+    role_profile: Option<String>,
     parent_pane_id: Option<String>,
     can_spawn: Option<bool>,
     task: Option<String>,
@@ -176,7 +177,13 @@ pub async fn spawn_agent(
     Json(body): Json<SpawnAgentBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    if let Some(ref role) = body.role {
+    let mut role_probe = crate::service::SpawnAgentParams {
+        role: body.role.clone(),
+        role_profile: body.role_profile.clone(),
+        ..Default::default()
+    };
+    role_probe.normalize_role_profile();
+    if let Some(ref role) = role_probe.role {
         crate::service::ServiceContext::parse_role(role)
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
@@ -187,7 +194,8 @@ pub async fn spawn_agent(
         cwd: body.cwd,
         title: body.title,
         description: body.description,
-        role: body.role,
+        role: role_probe.role,
+        role_profile: role_probe.role_profile,
         parent_pane_id: body.parent_pane_id,
         can_spawn: body.can_spawn,
         task: body.task,
@@ -220,6 +228,7 @@ pub async fn spawn_agent(
         "title": result.title,
         "description": result.description,
         "role": result.role,
+        "role_profile": result.role_profile,
     });
     if let Some(ref warning) = result.warning {
         resp["warning"] = serde_json::json!(warning);
@@ -263,6 +272,8 @@ pub async fn batch_commands(
 #[derive(Deserialize)]
 pub(crate) struct SetRoleBody {
     role: String,
+    #[serde(default)]
+    role_profile: Option<String>,
     parent_pane_id: Option<String>,
     can_spawn: Option<bool>,
 }
@@ -274,7 +285,14 @@ pub async fn set_pane_role(
     Json(body): Json<SetRoleBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let parsed_role = crate::service::ServiceContext::parse_role(&body.role)
+    let mut role_probe = crate::service::SpawnAgentParams {
+        role: Some(body.role),
+        role_profile: body.role_profile,
+        ..Default::default()
+    };
+    role_probe.normalize_role_profile();
+    let role = role_probe.role.unwrap_or_else(|| "Worker".into());
+    let parsed_role = crate::service::ServiceContext::parse_role(&role)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let was_orchestrator = {
         let mux = state.svc.mux.read();
@@ -284,13 +302,14 @@ pub async fn set_pane_role(
     };
     state
         .svc
-        .set_pane_role(
-            &id,
-            &body.role,
-            body.parent_pane_id.as_deref(),
-            body.can_spawn,
-        )
+        .set_pane_role(&id, &role, body.parent_pane_id.as_deref(), body.can_spawn)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    if let Some(profile) = role_probe.role_profile {
+        if let Some(pane) = state.svc.mux.write().get_pane_mut(&id) {
+            pane.role_profile = Some(profile);
+        }
+        state.svc.emit_state_changed();
+    }
     if parsed_role == AgentRole::Orchestrator {
         state
             .svc

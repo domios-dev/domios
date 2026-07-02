@@ -1,1 +1,0 @@
-Validate the goal endpoint/CLI (reject malformed/empty, error loudly). Add a recorded goal-change history (Vec<GoalChange{ts,vector_before/after,reason}>) + CLI plan goal amend --reason. Render history later on canvas.

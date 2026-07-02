@@ -658,9 +658,9 @@ mod tests {
     #[test]
     fn detects_malformed_json() {
         let dir = tempfile::tempdir().unwrap();
-        let plans_dir = dir.path().join(".codeterm/plans");
-        std::fs::create_dir_all(&plans_dir).unwrap();
-        std::fs::write(plans_dir.join("pl_bad.json"), "{not json").unwrap();
+        let plan_dir = dir.path().join(".codeterm/plans/active/pl_bad");
+        std::fs::create_dir_all(&plan_dir).unwrap();
+        std::fs::write(plan_dir.join("plan.json"), "{not json").unwrap();
         let report = doctor_report(None, Some(dir.path().display().to_string()), "all").unwrap();
         assert!(!report["ok"].as_bool().unwrap());
         assert!(report["findings"]

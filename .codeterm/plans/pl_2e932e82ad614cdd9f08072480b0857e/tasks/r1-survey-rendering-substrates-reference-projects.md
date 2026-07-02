@@ -1,1 +1,0 @@
-Survey canvas2D/WebGL/SVG/hybrid for an infinite-zoom board with rich cards. Study reference projects (tldraw, Excalidraw, Konva/react-konva, PixiJS/pixi-react, Motion Canvas, react-three-fiber, Figma eng write-ups). Score each against OUR profile: hundreds of nodes, markdown+mermaid content, worlds-LOD, focus-by-id, live updates, weak machine.

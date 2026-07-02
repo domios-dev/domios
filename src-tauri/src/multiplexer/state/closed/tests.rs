@@ -47,6 +47,7 @@ fn close_pane_records_agent_identity() {
     if let Some(p) = state.get_pane_mut(&pane_id) {
         p.agent_type = Some("claude".into());
         p.agent_session_id = Some("sess-42".into());
+        p.role_profile = Some("planner".into());
         p.agent_session_model = Some("Opus".into());
         p.cwd = Some("/tmp/work".into());
     }
@@ -56,6 +57,7 @@ fn close_pane_records_agent_identity() {
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].agent_type.as_deref(), Some("claude"));
     assert_eq!(list[0].agent_session_id.as_deref(), Some("sess-42"));
+    assert_eq!(list[0].role_profile.as_deref(), Some("planner"));
     assert_eq!(list[0].model.as_deref(), Some("Opus"));
     assert_eq!(list[0].cwd.as_deref(), Some("/tmp/work"));
 }

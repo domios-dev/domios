@@ -97,6 +97,45 @@ pub fn plans_dir(project: &Path) -> std::io::Result<PathBuf> {
     Ok(dir)
 }
 
+pub fn plan_bucket_dir(
+    project: &Path,
+    status: &crate::plan::PlanStatus,
+) -> std::io::Result<PathBuf> {
+    let dir = plans_dir(project)?.join(plan_bucket(status));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+pub fn plan_dir(
+    project: &Path,
+    status: &crate::plan::PlanStatus,
+    plan_id: &str,
+) -> std::io::Result<PathBuf> {
+    let stem = if plan_id == crate::plan::INBOX_PLAN_ID {
+        crate::plan::INBOX_PLAN_FILE_STEM
+    } else {
+        plan_id
+    };
+    let dir = plan_bucket_dir(project, status)?.join(stem);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+pub fn plan_json_path(
+    project: &Path,
+    status: &crate::plan::PlanStatus,
+    plan_id: &str,
+) -> std::io::Result<PathBuf> {
+    Ok(plan_dir(project, status, plan_id)?.join("plan.json"))
+}
+
+pub fn plan_bucket(status: &crate::plan::PlanStatus) -> &'static str {
+    match status {
+        crate::plan::PlanStatus::Archived => "archive",
+        _ => "active",
+    }
+}
+
 pub fn specs_dir(project: &Path) -> std::io::Result<PathBuf> {
     let dir = project.join(".codeterm").join("specs");
     std::fs::create_dir_all(&dir)?;

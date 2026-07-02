@@ -325,6 +325,7 @@ mod tests {
             tags: vec!["area:nav".into(), "pan-zoom".into()],
             section_ids: vec![],
             body: String::new(),
+            role_guidance: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: None,

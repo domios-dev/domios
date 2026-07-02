@@ -1,1 +1,0 @@
-Six independent reviews scoring the live board screenshots against the 10-dim rubric, each producing a ranked concrete defect list. Caught over-corrections the builder could not self-see (edges loud↔invisible, spec demoted↔chromeless, coverage tint wall-of-green↔invisible).

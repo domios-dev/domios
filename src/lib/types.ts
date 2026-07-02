@@ -124,6 +124,7 @@ export interface Pane {
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   role?: AgentRole | null;
+  role_profile?: string | null;
   parent_pane_id?: string | null;
   can_spawn?: boolean;
   depth?: number;

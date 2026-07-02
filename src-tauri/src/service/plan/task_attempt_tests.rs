@@ -20,6 +20,7 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
                 kind: "implement".into(),
                 model: Some("codex/gpt-5.5".into()),
                 body: "Fix the task history respawn CLI.".into(),
+                role_guidance: Some("Act as planner; do not implement.".into()),
                 lane: TaskLaneMetadata {
                     worktree_path: Some("/tmp/worktree".into()),
                     branch: Some("lane/retry".into()),
@@ -64,6 +65,14 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
     assert!(draft
         .task_prompt
         .contains("Fix the task history respawn CLI."));
+    assert!(draft.task_prompt.contains("Role guidance:"));
+    assert!(draft
+        .task_prompt
+        .contains("Act as planner; do not implement."));
+    assert!(
+        draft.task_prompt.find("Role guidance:").unwrap()
+            < draft.task_prompt.find("Original task body:").unwrap()
+    );
     assert!(draft.task_prompt.contains("STATUS: blocked"));
     assert!(draft.task_prompt.contains("branch: lane/retry"));
     assert!(draft
@@ -73,6 +82,68 @@ fn task_attempt_history_builds_respawn_prompt_from_prior_attempt() {
         "codeterm agent report --plan {} --task {}",
         p.id, task_id
     )));
+}
+
+#[test]
+fn role_guidance_round_trips_and_worker_charter_prepends_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Guidance".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    p.mode = crate::plan::PlanMode::Execution;
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "guided".into(),
+                kind: "implement".into(),
+                role_guidance: Some("Review only.".into()),
+                assigned_pane_id: Some("pane_guided".into()),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let plan = store.get(&p.id).unwrap();
+    let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
+    assert_eq!(task.role_guidance.as_deref(), Some("Review only."));
+
+    let brief = store.prepend_worker_charter_for_pane("pane_guided", "continue");
+    assert!(brief.starts_with("Role guidance:\nReview only."));
+    assert!(brief.contains("<codeterm-worker-charter"));
+}
+
+#[test]
+fn assignment_attempt_records_planner_role() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut p = Plan::new(
+        "Planner attempt".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("orch"),
+    );
+    store.save(&mut p, 1).unwrap();
+    let task_id = store
+        .add_task(
+            &p.id,
+            NewTask {
+                name: "plan".into(),
+                kind: "plan".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .assign_task_with_role(&p.id, &task_id, "planner-pane", None, Some("planner"), 3)
+        .unwrap();
+
+    let attempt = store.list_task_attempts(&p.id, &task_id).unwrap().remove(0);
+    assert_eq!(attempt.attempt.role.as_deref(), Some("planner"));
 }
 
 #[test]

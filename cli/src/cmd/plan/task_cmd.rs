@@ -145,6 +145,8 @@ pub(super) fn run_task(
             correctness,
             body,
             body_file,
+            role_guidance,
+            role_guidance_file,
             intent,
             intent_file,
             parent,
@@ -167,6 +169,7 @@ pub(super) fn run_task(
         } => {
             let why_text = resolve_text(why, why_file)?;
             let body_text = resolve_text(body, body_file)?;
+            let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
             let has_sections = sections
                 .as_deref()
@@ -204,6 +207,9 @@ pub(super) fn run_task(
             }
             if let Some(b) = body_text {
                 params["body"] = json!(b);
+            }
+            if let Some(guidance) = role_guidance_text {
+                params["role_guidance"] = json!(guidance);
             }
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
@@ -290,6 +296,8 @@ pub(super) fn run_task(
             status_label,
             body,
             body_file,
+            role_guidance,
+            role_guidance_file,
             intent,
             intent_file,
             sections,
@@ -324,6 +332,8 @@ pub(super) fn run_task(
             status_label,
             body,
             body_file,
+            role_guidance,
+            role_guidance_file,
             intent,
             intent_file,
             sections,

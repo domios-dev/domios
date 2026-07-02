@@ -1,1 +1,0 @@
-Historical Worlds v3 implementation track. Active work has moved to the linked substrate/Figma research plan pl_2e932e82, task_efc06368. Do not take new implementation tasks from this section until the architecture research decides the target substrate and first migration slice.

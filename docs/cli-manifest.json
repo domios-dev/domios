@@ -478,7 +478,7 @@
               "positional": false,
               "value_name": "ROLE",
               "default": null,
-              "help": "Role: Worker or explicit Orchestrator. Omit for a roleless fresh agent",
+              "help": "Role: Worker, Orchestrator, or Planner profile sugar",
               "aliases": []
             },
             {
@@ -6942,6 +6942,22 @@
                   "aliases": []
                 },
                 {
+                  "name": "role_guidance",
+                  "positional": false,
+                  "value_name": "ROLE_GUIDANCE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "role_guidance_file",
+                  "positional": false,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "sections",
                   "positional": false,
                   "value_name": "SECTIONS",
@@ -7553,6 +7569,22 @@
                   "name": "priority",
                   "positional": false,
                   "value_name": "PRIORITY",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "role_guidance",
+                  "positional": false,
+                  "value_name": "ROLE_GUIDANCE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "role_guidance_file",
+                  "positional": false,
+                  "value_name": "PATH",
                   "default": null,
                   "help": null,
                   "aliases": []

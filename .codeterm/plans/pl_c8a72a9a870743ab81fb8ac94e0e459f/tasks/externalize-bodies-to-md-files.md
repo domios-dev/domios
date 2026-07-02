@@ -1,1 +1,0 @@
-Move section/task bodies to sibling .md files, hydrate on read / persist on write, watcher reloads on external edit. Per design §17.

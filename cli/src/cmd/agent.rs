@@ -480,6 +480,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(r) = role {
                 body["role"] = serde_json::json!(r.as_str());
+                if let Some(profile) = r.role_profile() {
+                    body["role_profile"] = serde_json::json!(profile);
+                }
             }
             if let Some(p) = parent {
                 body["parent_pane_id"] = serde_json::json!(p);

@@ -66,6 +66,8 @@ pub struct AgentSpawnSpec {
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]
+    pub role_profile: Option<String>,
+    #[serde(default)]
     pub can_spawn: Option<bool>,
     #[serde(default = "default_true")]
     pub auto_approve: bool,
@@ -363,6 +365,9 @@ impl ServiceContext {
                     pane.cwd = Some(dir.clone());
                 }
             }
+            if let Some(pane) = mux.get_pane_mut(&result.1) {
+                pane.role_profile = agent.role_profile.clone();
+            }
             if let Some(ref description) = spec.description {
                 let _ = mux.set_pane_description(&result.1, Some(description.clone()));
             }
@@ -466,6 +471,7 @@ impl ServiceContext {
         let role_suffixed_task = super::orchestrator::role_onboarding_task(
             preamble_wrapped_task.as_deref(),
             agent.role.as_deref(),
+            agent.role_profile.as_deref(),
         );
         // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
         let role_suffixed_task =
@@ -725,6 +731,7 @@ impl ServiceContext {
             if let Some(pane) = mux.get_pane_mut(&result.1) {
                 pane.hidden = true;
                 pane.show_in_tabbar = false;
+                pane.role_profile = agent.role_profile.clone();
                 if let Some(ref wid) = agent.worker_id {
                     pane.worker_id = Some(wid.clone());
                 }

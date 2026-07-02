@@ -1,5 +1,21 @@
 use super::*;
-use crate::plan::{AgentRef, CanvasElement, OrchestratorRef, Plan};
+use crate::plan::{AgentRef, CanvasElement, Goal, OrchestratorRef, Plan};
+
+fn markdown_body(text: &str) -> &str {
+    let Some(rest) = text.strip_prefix("---\n") else {
+        return text;
+    };
+    let Some(end) = rest.find("\n---") else {
+        return text;
+    };
+    rest[end + "\n---".len()..].trim_start_matches('\n')
+}
+
+fn assert_markdown_identity(text: &str, plan_id: &str, kind: &str, id: &str) {
+    assert!(text.contains(&format!("plan_id: {plan_id}")));
+    assert!(text.contains(&format!("kind: {kind}")));
+    assert!(text.contains(&format!("id: {id}")));
+}
 
 #[test]
 fn section_and_task_bodies_roundtrip_through_markdown_files() {
@@ -14,7 +30,7 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
     store
         .add_section(&plan.id, "Spec", "section\nbody", None, &[], None, None, 2)
         .unwrap();
-    store
+    let task_id = store
         .add_task(
             &plan.id,
             NewTask {
@@ -27,28 +43,31 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
         )
         .unwrap();
 
-    let section_path = dir
-        .path()
-        .join(format!(".codeterm/plans/{}/sections/spec.md", plan.id));
-    let task_path = dir
-        .path()
-        .join(format!(".codeterm/plans/{}/tasks/implement.md", plan.id));
+    let section_path = dir.path().join(format!(
+        ".codeterm/plans/active/{}/sections/spec.md",
+        plan.id
+    ));
+    let task_path = dir.path().join(format!(
+        ".codeterm/plans/active/{}/tasks/implement.md",
+        plan.id
+    ));
     let json_path = dir
         .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", plan.id));
+        .join(format!(".codeterm/plans/active/{}/plan.json", plan.id));
     let raw_json = std::fs::read_to_string(&json_path).unwrap();
 
     assert_eq!(
-        std::fs::read_to_string(&section_path).unwrap(),
+        markdown_body(&std::fs::read_to_string(&section_path).unwrap()),
         "section\nbody"
     );
-    assert_eq!(std::fs::read_to_string(&task_path).unwrap(), "task\nbody");
+    let task_markdown = std::fs::read_to_string(&task_path).unwrap();
+    assert_markdown_identity(&task_markdown, &plan.id, "task", &task_id);
+    assert_eq!(markdown_body(&task_markdown), "task\nbody");
     assert!(!raw_json.contains("section\\nbody"));
     assert!(!raw_json.contains("task\\nbody"));
     let index_path = dir
         .path()
-        .join(format!(".codeterm/plans/{}/INDEX.md", plan.id));
+        .join(format!(".codeterm/plans/active/{}/INDEX.md", plan.id));
     let index = std::fs::read_to_string(index_path).unwrap();
     assert!(index.contains("# External"));
     assert!(index.contains("- [spec (Spec)](sections/spec.md)"));
@@ -58,6 +77,56 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
     let loaded = store.get(&plan.id).unwrap();
     assert_eq!(loaded.sections[0].body, "section\nbody");
     assert_eq!(loaded.tasks[0].body, "task\nbody");
+}
+
+#[test]
+fn empty_markdown_sidecars_do_not_end_with_blank_lines() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Empty sidecars".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    store
+        .set_goal(
+            &plan.id,
+            Goal {
+                vector: "Keep empty sidecars tidy".into(),
+                vision: String::new(),
+                constraints: vec![],
+                postulates: vec![],
+            },
+            2,
+        )
+        .unwrap();
+    let section_id = store
+        .add_section(&plan.id, "Empty section", "", None, &[], None, None, 3)
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Empty task".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            4,
+        )
+        .unwrap();
+    let loaded = store.get(&plan.id).unwrap();
+    let paths = [
+        crate::service::plan::body_files::goal_path(&loaded).unwrap(),
+        crate::service::plan::body_files::section_path(&loaded, &section_id).unwrap(),
+        crate::service::plan::body_files::task_path(&loaded, &task_id).unwrap(),
+    ];
+
+    for path in paths {
+        let markdown = std::fs::read_to_string(path).unwrap();
+        assert!(markdown.ends_with("---\n"));
+        assert!(!markdown.ends_with("\n\n"));
+    }
 }
 
 #[test]
@@ -106,23 +175,25 @@ fn milestone_and_note_bodies_roundtrip_through_markdown_files() {
         )
         .unwrap();
 
-    let plan_dir = dir.path().join(format!(".codeterm/plans/{}", plan.id));
+    let plan_dir = dir
+        .path()
+        .join(format!(".codeterm/plans/active/{}", plan.id));
     let milestone_path = plan_dir.join(format!("milestones/build-{}.md", milestone_id));
     let stride_log_path = plan_dir.join("tasks/build/strides.jsonl");
     let note_path = plan_dir.join(format!("elements/note-{}.md", note_id));
-    assert_eq!(
-        std::fs::read_to_string(&milestone_path).unwrap(),
-        milestone_text
-    );
+    let milestone_markdown = std::fs::read_to_string(&milestone_path).unwrap();
+    assert_markdown_identity(&milestone_markdown, &plan.id, "milestone", &milestone_id);
+    assert_eq!(markdown_body(&milestone_markdown), milestone_text);
     let strides = crate::service::plan::stride_log::read_milestones(&stride_log_path).unwrap();
     assert_eq!(strides.len(), 1);
     assert_eq!(strides[0].id, milestone_id);
     assert_eq!(strides[0].text, milestone_text);
-    assert_eq!(std::fs::read_to_string(&note_path).unwrap(), note_text);
+    let note_markdown = std::fs::read_to_string(&note_path).unwrap();
+    assert_markdown_identity(&note_markdown, &plan.id, "element", &note_id);
+    assert_eq!(markdown_body(&note_markdown), note_text);
     let raw_json = std::fs::read_to_string(
         dir.path()
-            .join(".codeterm/plans")
-            .join(format!("{}.json", plan.id)),
+            .join(format!(".codeterm/plans/active/{}/plan.json", plan.id)),
     )
     .unwrap();
     let raw_plan: Plan = serde_json::from_str(&raw_json).unwrap();
@@ -175,8 +246,7 @@ fn task_stride_log_hydrates_when_inline_milestones_are_missing() {
         .unwrap();
     let json_path = dir
         .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", plan.id));
+        .join(format!(".codeterm/plans/active/{}/plan.json", plan.id));
     let mut disk_plan: Plan =
         serde_json::from_str(&std::fs::read_to_string(&json_path).unwrap()).unwrap();
     disk_plan.tasks[0].milestones.clear();
@@ -234,7 +304,7 @@ fn inline_and_stride_log_milestones_dedupe_deterministically() {
     other.text = "other sidecar stride".into();
     other.ts = 20;
     let stride_log_path = dir.path().join(format!(
-        ".codeterm/plans/{}/tasks/build/strides.jsonl",
+        ".codeterm/plans/active/{}/tasks/build/strides.jsonl",
         plan.id
     ));
     crate::service::plan::stride_log::append_milestone(&stride_log_path, &older).unwrap();
@@ -289,7 +359,7 @@ fn save_preserves_existing_sidecar_only_stride_entries() {
     sidecar_only.text = "manual sidecar-only stride".into();
     sidecar_only.ts = 4;
     let stride_log_path = dir.path().join(format!(
-        ".codeterm/plans/{}/tasks/build/strides.jsonl",
+        ".codeterm/plans/active/{}/tasks/build/strides.jsonl",
         plan.id
     ));
     crate::service::plan::stride_log::append_milestone(&stride_log_path, &sidecar_only).unwrap();
@@ -320,8 +390,7 @@ fn save_preserves_existing_sidecar_only_stride_entries() {
     let raw_plan: Plan = serde_json::from_str(
         &std::fs::read_to_string(
             dir.path()
-                .join(".codeterm/plans")
-                .join(format!("{}.json", plan.id)),
+                .join(format!(".codeterm/plans/active/{}/plan.json", plan.id)),
         )
         .unwrap(),
     )
@@ -359,6 +428,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         tags: vec![],
         section_ids: vec![],
         body: String::new(),
+        role_guidance: None,
         intent: None,
         parent_task_id: None,
         assigned_pane_id: None,
@@ -387,18 +457,22 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         content: serde_json::json!({ "body": "legacy discussion\n\nbody" }),
         links: vec![],
     });
-    let json_path = plans_dir.join(format!("{}.json", plan.id));
+    let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
     std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
 
     store.scan_project(dir.path()).unwrap();
 
-    let plan_dir = plans_dir.join(&plan.id);
+    let plan_dir = plans_dir.join("active").join(&plan.id);
+    let milestone_markdown =
+        std::fs::read_to_string(plan_dir.join("milestones/legacy-task-ms_legacy.md")).unwrap();
     assert_eq!(
-        std::fs::read_to_string(plan_dir.join("milestones/legacy-task-ms_legacy.md")).unwrap(),
+        markdown_body(&milestone_markdown),
         "legacy milestone\n\nbody"
     );
+    let discussion_markdown =
+        std::fs::read_to_string(plan_dir.join("elements/discussion-el_discussion.md")).unwrap();
     assert_eq!(
-        std::fs::read_to_string(plan_dir.join("elements/discussion-el_discussion.md")).unwrap(),
+        markdown_body(&discussion_markdown),
         "legacy discussion\n\nbody"
     );
     let raw_json = std::fs::read_to_string(json_path).unwrap();
@@ -422,7 +496,6 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let project = paths::project_root(dir.path());
-    let plans_dir = paths::plans_dir(&project).unwrap();
     let mut plan = Plan::new(
         "Legacy inline strides".into(),
         project.display().to_string(),
@@ -447,6 +520,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         tags: vec![],
         section_ids: vec![],
         body: String::new(),
+        role_guidance: None,
         intent: None,
         parent_task_id: None,
         assigned_pane_id: None,
@@ -468,7 +542,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         }],
         execution_attempts: vec![],
     });
-    let json_path = plans_dir.join(format!("{}.json", plan.id));
+    let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
     std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
 
     store.scan_project(dir.path()).unwrap();
@@ -476,9 +550,8 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
     let loaded = store.get(&plan.id).unwrap();
     assert_eq!(loaded.tasks[0].milestones.len(), 1);
     assert_eq!(loaded.tasks[0].milestones[0].text, "legacy short milestone");
-    let stride_log_path = plans_dir
-        .join(&plan.id)
-        .join("tasks/legacy-task/strides.jsonl");
+    let stride_log_path =
+        crate::service::plan::body_files::task_stride_log_path(&loaded, &loaded.tasks[0]).unwrap();
     assert!(!stride_log_path.exists());
 
     let mut loaded = loaded;
@@ -540,13 +613,17 @@ fn plan_file_manifest_lists_milestone_and_canvas_body_paths() {
     let manifest = store.file_manifest(&plan.id).unwrap();
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "stride_log"
-            && entry.path == format!(".codeterm/plans/{}/tasks/build/strides.jsonl", plan.id)
+            && entry.path
+                == format!(
+                    ".codeterm/plans/active/{}/tasks/build/strides.jsonl",
+                    plan.id
+                )
     }));
     assert!(manifest.entries.iter().any(|entry| {
         entry.kind == "milestone"
             && entry.path
                 == format!(
-                    ".codeterm/plans/{}/milestones/build-{}.md",
+                    ".codeterm/plans/active/{}/milestones/build-{}.md",
                     plan.id, milestone_id
                 )
     }));
@@ -554,13 +631,13 @@ fn plan_file_manifest_lists_milestone_and_canvas_body_paths() {
         entry.kind == "element"
             && entry.path
                 == format!(
-                    ".codeterm/plans/{}/elements/decision-{}.md",
+                    ".codeterm/plans/active/{}/elements/decision-{}.md",
                     plan.id, decision_id
                 )
     }));
     let index = std::fs::read_to_string(
         dir.path()
-            .join(format!(".codeterm/plans/{}/INDEX.md", plan.id)),
+            .join(format!(".codeterm/plans/active/{}/INDEX.md", plan.id)),
     )
     .unwrap();
     assert!(index.contains("## Milestones"));

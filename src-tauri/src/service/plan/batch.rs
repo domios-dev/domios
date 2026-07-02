@@ -399,6 +399,7 @@ impl PlanStore {
                                     tags: vec![],
                                     section_ids: sections,
                                     body: body.unwrap_or_default(),
+                                    role_guidance: None,
                                     intent: None,
                                     parent_task_id: None,
                                     assigned_pane_id: None,
@@ -613,9 +614,11 @@ impl PlanStore {
                             let seq = next_handoff_seq(&working);
                             let body_path = super::body_files::handoff_path(&working, &id)
                                 .map_err(|e| PlanError::Io(e.to_string()))?;
+                            let relative_body_path = body_path
+                                .strip_prefix(std::path::Path::new(&working.project_path))
+                                .map(|path| path.display().to_string())
+                                .unwrap_or_else(|_| body_path.display().to_string());
                             pending_markdown_writes.push((body_path, body));
-                            let relative_body_path =
-                                format!(".codeterm/plans/{}/handoffs/{}.md", working.id, id);
                             if !content.is_object() {
                                 content = serde_json::json!({});
                             }

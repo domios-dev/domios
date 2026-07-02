@@ -382,6 +382,7 @@ impl PlanStore {
             tags: new.tags,
             section_ids: new.section_ids,
             body: new.body,
+            role_guidance: new.role_guidance,
             intent: new.intent,
             parent_task_id: new.parent_task_id,
             assigned_pane_id,
@@ -721,6 +722,27 @@ impl PlanStore {
         )
     }
 
+    pub fn update_task_role_guidance(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        role_guidance: Option<Option<&str>>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            let task = p
+                .tasks
+                .iter_mut()
+                .find(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if let Some(guidance) = role_guidance {
+                task.role_guidance = guidance.map(str::to_string);
+            }
+            task.updated_at = now_ms;
+            Ok(())
+        })
+    }
+
     pub fn update_task_lane(
         &self,
         plan_id: &str,
@@ -795,6 +817,18 @@ impl PlanStore {
         peer: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        self.assign_task_with_role(plan_id, task_id, pane, peer, None, now_ms)
+    }
+
+    pub fn assign_task_with_role(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        pane: &str,
+        peer: Option<&str>,
+        role: Option<&str>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
         let write = self.with_plan(plan_id, now_ms, |p| {
             let task = p
                 .tasks
@@ -803,11 +837,11 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             task.assigned_pane_id = Some(pane.into());
             task.lane.pane_id = Some(pane.into());
-            task.taken_by_role = None;
+            task.taken_by_role = role.map(str::to_string);
             task.peer = peer.map(|s| s.into());
             task.updated_at = now_ms;
             let attempt =
-                super::task_attempts::new_assignment_attempt(task, pane, peer, None, now_ms);
+                super::task_attempts::new_assignment_attempt(task, pane, peer, role, now_ms);
             task.execution_attempts.push(attempt);
             Ok(())
         });

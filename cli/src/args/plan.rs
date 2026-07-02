@@ -97,6 +97,22 @@ pub enum PlanAction {
         #[arg(long, default_value = "1")]
         depth: usize,
     },
+    /// Search synced plan/spec/task/stride history for this project
+    Search {
+        query: String,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long, default_value = "10")]
+        limit: usize,
+        #[arg(long, conflicts_with_all = ["archived", "all"])]
+        active: bool,
+        #[arg(long, conflicts_with_all = ["active", "all"])]
+        archived: bool,
+        #[arg(long, conflicts_with_all = ["active", "archived"])]
+        all: bool,
+    },
     /// Rebuild the project-local plan recall index
     Reindex {
         #[arg(long)]
@@ -408,6 +424,10 @@ pub enum PlanTaskAction {
         #[arg(long, value_name = "PATH")]
         body_file: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
+        role_guidance: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        role_guidance_file: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
@@ -471,6 +491,10 @@ pub enum PlanTaskAction {
         body: Option<String>,
         #[arg(long, value_name = "PATH")]
         body_file: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        role_guidance: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        role_guidance_file: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]

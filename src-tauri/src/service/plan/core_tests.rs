@@ -1,5 +1,10 @@
 use super::*;
-use crate::plan::{OrchestratorRef, Plan, TaskStatus};
+use crate::plan::{OrchestratorRef, Plan, PlanStatus, TaskStatus};
+
+fn plan_path(root: &std::path::Path, plan: &Plan) -> std::path::PathBuf {
+    let project = paths::project_root(root);
+    paths::plan_json_path(&project, &plan.status, &plan.id).unwrap()
+}
 
 #[test]
 fn store_saves_loads_indexes() {
@@ -11,10 +16,7 @@ fn store_saves_loads_indexes() {
         OrchestratorRef::from_pane("abc"),
     );
     store.save(&mut p, 1000).unwrap();
-    let path = dir
-        .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", p.id));
+    let path = plan_path(dir.path(), &p);
     assert!(path.exists());
     let loaded = store.get(&p.id).unwrap();
     assert_eq!(loaded.title, "T");
@@ -33,10 +35,7 @@ fn reload_from_disk_replaces_memory_and_index() {
     );
     store.save(&mut p, 1000).unwrap();
 
-    let path = dir
-        .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", p.id));
+    let path = plan_path(dir.path(), &p);
     let mut edited: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     edited.title = "Edited".into();
     edited.updated_at = 2000;
@@ -171,10 +170,7 @@ fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
     store.save(&mut p, 1000).unwrap();
     let held = store.plans.read().get(&p.id).cloned().unwrap();
 
-    let path = dir
-        .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", p.id));
+    let path = plan_path(dir.path(), &p);
     let mut edited: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     edited.title = "Edited".into();
     edited.updated_at = 2000;
@@ -199,10 +195,7 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
     store.save(&mut p, 1000).unwrap();
     let held = store.plans.read().get(&p.id).cloned().unwrap();
 
-    let path = dir
-        .path()
-        .join(".codeterm/plans")
-        .join(format!("{}.json", p.id));
+    let path = plan_path(dir.path(), &p);
     let mut stale: Plan = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     stale.title = "Stale disk snapshot".into();
     stale.updated_at = 3000;
@@ -239,7 +232,6 @@ fn scan_project_loads_plan_written_directly_to_disk() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let project = paths::project_root(dir.path());
-    let plans_dir = paths::plans_dir(&project).unwrap();
     let mut plan = Plan::new(
         "Persisted".into(),
         project.display().to_string(),
@@ -248,7 +240,7 @@ fn scan_project_loads_plan_written_directly_to_disk() {
     plan.created_at = 1000;
     plan.updated_at = 2000;
     let plan_id = plan.id.clone();
-    let path = plans_dir.join(format!("{plan_id}.json"));
+    let path = paths::plan_json_path(&project, &plan.status, &plan_id).unwrap();
     std::fs::write(&path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
 
     let loaded_project = store.scan_project(dir.path()).unwrap();
@@ -262,4 +254,24 @@ fn scan_project_loads_plan_written_directly_to_disk() {
     assert_eq!(plans.len(), 1);
     assert_eq!(plans[0].id, plan_id);
     assert_eq!(plans[0].title, "Persisted");
+}
+
+#[test]
+fn archive_moves_plan_folder_between_buckets() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut plan = Plan::new(
+        "Move".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::from_pane("abc"),
+    );
+    store.save(&mut plan, 1).unwrap();
+    let active_path = plan_path(dir.path(), &plan);
+    assert!(active_path.exists());
+
+    plan.status = PlanStatus::Archived;
+    store.save(&mut plan, 2).unwrap();
+    let archive_path = plan_path(dir.path(), &plan);
+    assert!(archive_path.exists());
+    assert!(!active_path.exists());
 }

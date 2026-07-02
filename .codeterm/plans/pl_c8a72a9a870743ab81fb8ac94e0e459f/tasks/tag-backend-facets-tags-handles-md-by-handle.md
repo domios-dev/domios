@@ -1,1 +1,0 @@
-Plan.tag_facets, Section.tags/Task.tags (string faceted/topic), PRIMARY = first facet, daemon-generated handle <facet>-<topic> (unique, override), rename externalized .md by handle, front-matter tag parsing, CLI plan tags / section|task update --tag --primary / task show <handle> / canvas filter --facet. Queued AFTER the file-map BE lane (shares plan store).

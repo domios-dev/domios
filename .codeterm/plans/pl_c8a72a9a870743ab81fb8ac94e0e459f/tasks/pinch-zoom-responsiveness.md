@@ -1,1 +1,0 @@
-Raise pinch/cmd-wheel zoom sensitivity ~2-3x, keep smooth; pan unchanged.

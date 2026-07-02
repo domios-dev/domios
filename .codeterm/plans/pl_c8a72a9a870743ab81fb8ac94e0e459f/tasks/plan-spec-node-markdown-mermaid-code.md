@@ -1,1 +1,0 @@
-Plan and Spec become one sectioned node type rendering full RichMarkdown (mermaid + code highlight) per section, block-to-block connected, coverage on both.

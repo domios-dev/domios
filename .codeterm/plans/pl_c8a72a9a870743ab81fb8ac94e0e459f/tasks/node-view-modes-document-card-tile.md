@@ -1,1 +1,0 @@
-Replace continuous counter-scale with 3 discrete designed modes per node, fixed readable text size; mode swaps representation.

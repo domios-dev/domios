@@ -36,6 +36,7 @@ pub mod pty_io;
 pub mod pty_lifecycle;
 pub mod push;
 pub mod remote_workers;
+mod role_profile;
 pub mod smart_add;
 pub mod spawn;
 mod spawn_chatbackend;
@@ -179,6 +180,8 @@ pub struct ServiceContext {
             >,
         >,
     >,
+    pub loaded_plan_projects:
+        Arc<parking_lot::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
     pub plan_turn_counter: Arc<crate::service::plan::reminders::TurnCounter>,
 }
 
@@ -282,7 +285,17 @@ impl ServiceContext {
         &self,
         project_path: &std::path::Path,
     ) -> Result<std::path::PathBuf, crate::service::plan::PlanError> {
-        let project_root = self.plan_store.scan_project(project_path)?;
+        let project_root = crate::service::plan::paths::project_root(project_path);
+        let should_scan = {
+            let loaded = self.loaded_plan_projects.lock();
+            !loaded.contains(&project_root)
+        };
+        if should_scan {
+            self.plan_store.scan_project(&project_root)?;
+            self.loaded_plan_projects
+                .lock()
+                .insert(project_root.clone());
+        }
         let mut watchers = self.plan_watchers.lock();
         if !watchers.contains_key(&project_root) {
             match crate::service::plan::watcher::PlanWatcher::watch_project(

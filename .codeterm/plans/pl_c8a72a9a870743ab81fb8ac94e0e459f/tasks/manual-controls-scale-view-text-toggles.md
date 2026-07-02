@@ -1,1 +1,0 @@
-Zoom in/out/fit/reset buttons; view-mode switch; text on/off toggle; optional auto-by-distance, user-lockable.

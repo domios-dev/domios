@@ -1,1 +1,0 @@
-Frontend §27: render handoff on canvas (mandatory) — orchestrator-reset marker on plan/orchestrator group, expandable to full handoff, multiple = timeline. Unmissable, not dominating. Follows §26 content-LOD.
