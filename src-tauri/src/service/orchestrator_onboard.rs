@@ -27,6 +27,14 @@ pub fn validate_make_orchestrator(pane: &Pane) -> Result<(), String> {
     Ok(())
 }
 
+pub fn should_deliver_orchestrator_onboarding(pane: Option<&Pane>, was_orchestrator: bool) -> bool {
+    if was_orchestrator {
+        return false;
+    }
+    pane.map(|pane| pane.role == Some(AgentRole::Orchestrator) && pane_is_agent_capable(pane))
+        .unwrap_or(false)
+}
+
 pub fn orchestrator_onboarding_body(pane_id: &str) -> String {
     format!(
         "You are now the Orchestrator for this pane (role=Orchestrator, can_spawn=true).\n\
@@ -57,6 +65,42 @@ Spawn workers (2-level hierarchy — Workers report back here):\n\
 }
 
 impl ServiceContext {
+    pub fn deliver_orchestrator_onboarding(&self, pane_id: &str) {
+        let body = orchestrator_onboarding_body(pane_id);
+        let envelope = MessageEnvelope::reminder("CodeTerm", "orchestrator-onboard");
+        if let Err(e) = Messenger::deliver(self, pane_id, envelope, &body) {
+            log::warn!("[orchestrator-onboard] deliver to {pane_id} failed: {e}");
+        }
+    }
+
+    pub fn maybe_deliver_orchestrator_onboarding(&self, pane_id: &str) {
+        let should_deliver = {
+            let mux = self.mux.read();
+            mux.get_pane(pane_id)
+                .map(|pane| {
+                    pane.role == Some(AgentRole::Orchestrator) && pane_is_agent_capable(pane)
+                })
+                .unwrap_or(false)
+        };
+        if should_deliver {
+            self.deliver_orchestrator_onboarding(pane_id);
+        }
+    }
+
+    pub fn maybe_deliver_orchestrator_promotion_onboarding(
+        &self,
+        pane_id: &str,
+        was_orchestrator: bool,
+    ) {
+        let should_deliver = {
+            let mux = self.mux.read();
+            should_deliver_orchestrator_onboarding(mux.get_pane(pane_id), was_orchestrator)
+        };
+        if should_deliver {
+            self.deliver_orchestrator_onboarding(pane_id);
+        }
+    }
+
     pub fn make_orchestrator(&self, pane_id: &str) -> Result<(), String> {
         {
             let mux = self.mux.read();
@@ -67,12 +111,7 @@ impl ServiceContext {
         }
 
         self.set_pane_role(pane_id, "Orchestrator", None, Some(true))?;
-
-        let body = orchestrator_onboarding_body(pane_id);
-        let envelope = MessageEnvelope::reminder("CodeTerm", "orchestrator-onboard");
-        if let Err(e) = Messenger::deliver(self, pane_id, envelope, &body) {
-            log::warn!("[orchestrator-onboard] deliver to {pane_id} failed: {e}");
-        }
+        self.deliver_orchestrator_onboarding(pane_id);
 
         Ok(())
     }
@@ -127,6 +166,7 @@ mod tests {
     #[test]
     fn onboarding_body_lists_canonical_commands() {
         let msg = orchestrator_onboarding_body("pane-abc");
+        assert!(msg.contains("You are now the Orchestrator"));
         assert!(msg.contains("CodeTerm planner is the source of truth"));
         assert!(msg.contains("codeterm mem search \"CodeTerm planner orchestration preferences\""));
         assert!(msg.contains("codeterm doc orchestration"));
@@ -181,5 +221,19 @@ mod tests {
         protected.agent_type = Some("claude".into());
         protected.protected = true;
         assert!(validate_make_orchestrator(&protected).is_err());
+    }
+
+    #[test]
+    fn onboarding_delivery_predicate_requires_first_agent_orchestrator() {
+        let mut pane = mk_pane("agent-1");
+        pane.agent_type = Some("claude".into());
+        pane.role = Some(AgentRole::Orchestrator);
+        assert!(should_deliver_orchestrator_onboarding(Some(&pane), false));
+        assert!(!should_deliver_orchestrator_onboarding(Some(&pane), true));
+
+        let mut shell = mk_pane("shell-1");
+        shell.role = Some(AgentRole::Orchestrator);
+        assert!(!should_deliver_orchestrator_onboarding(Some(&shell), false));
+        assert!(!should_deliver_orchestrator_onboarding(None, false));
     }
 }

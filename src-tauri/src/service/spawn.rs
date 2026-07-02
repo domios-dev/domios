@@ -428,6 +428,14 @@ impl ServiceContext {
         // Pin agent_type before launch so detect_from_output has a durable session-id source.
         // Missing this tag leaves Codex/OpenCode panes unresumable after restart.
         self.set_and_lock_pane_agent_type(&pane_id, agent_cmd.clone());
+        if agent
+            .role
+            .as_deref()
+            .and_then(|role| Self::parse_role(role).ok())
+            == Some(crate::multiplexer::types::AgentRole::Orchestrator)
+        {
+            self.maybe_deliver_orchestrator_promotion_onboarding(&pane_id, false);
+        }
         let launch_session_id = if agent.resume_session_id.is_none() {
             self.agent_registry
                 .with_provider(&agent_cmd, |p| p.session_id_injection())
@@ -448,24 +456,17 @@ impl ServiceContext {
         }
         self.emit_state_changed();
 
-        let role_suffixed_task = agent.task.as_ref().map(|t| {
-            let preamble_wrapped = if let Some(ref preamble) = agent.task_preamble {
+        let preamble_wrapped_task = agent.task.as_ref().map(|t| {
+            if let Some(ref preamble) = agent.task_preamble {
                 format!("{}{}", preamble, t)
             } else {
                 t.clone()
-            };
-            match agent.role.as_deref() {
-                Some("Worker") => format!("{}{}", preamble_wrapped, crate::prompts::WORKER_SUFFIX),
-                Some("Orchestrator") => {
-                    format!(
-                        "{}{}",
-                        preamble_wrapped,
-                        crate::prompts::ORCHESTRATOR_SUFFIX
-                    )
-                }
-                _ => preamble_wrapped,
             }
         });
+        let role_suffixed_task = super::orchestrator::role_onboarding_task(
+            preamble_wrapped_task.as_deref(),
+            agent.role.as_deref(),
+        );
         // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
         let role_suffixed_task =
             role_suffixed_task.map(|t| match self.spawn_task_prefix(&pane_id) {

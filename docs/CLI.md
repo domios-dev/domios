@@ -109,18 +109,18 @@ Mark a pane as orchestrator (top-level, can spawn workers)
 
 #### `codeterm agent spawn`
 
-Spawn a new agent (creates tab in workspace, linked in hierarchy)
+Spawn a new agent; roleless unless --role is provided
 
 - `<agent>` — Agent provider id. Run `codeterm agent providers` to list registered providers (e.g. claude, codex, opencode). Default: claude
 - `--args` — Extra args for the agent
-- `--can_spawn` — Allow spawning children
+- `--can_spawn` — Override whether an explicit Orchestrator may spawn children
 - `--cwd` — Working directory
 - `--description` — Short pane description (max 200 chars)
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--parent` — Parent pane ID (for Workers)
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--report_to` — Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
-- `--role` — Role: Orchestrator, Worker
+- `--role` — Role: Worker or explicit Orchestrator. Omit for a roleless fresh agent
 - `--system_prompt` — Override the shell system prompt when spawning a chatBackend shell
 - `--task` — Task to send after agent starts
 - `--task_file` — Read the task body from a file (or `-` for stdin) instead of --task. Bypasses the caller's shell, so backticks / $(...) in the body are never evaluated. Mutually exclusive with --task
@@ -1755,6 +1755,18 @@ Show structural neighbors for a plan/spec/task/section unit
 
 - `--depth`
 - `--id`
+
+#### `codeterm plan search`
+
+Search synced plan/spec/task/stride history for this project
+
+- `--active`
+- `--all`
+- `--archived`
+- `--kind`
+- `--limit`
+- `--project`
+- `<query>`
 
 #### `codeterm plan section`
 

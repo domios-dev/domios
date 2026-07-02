@@ -33,6 +33,30 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
     ));
 }
 
+#[test]
+fn roleless_spawn_task_stays_plain() {
+    assert_eq!(
+        role_onboarding_task(Some("inspect"), None).as_deref(),
+        Some("inspect")
+    );
+    assert_eq!(role_onboarding_task(None, None), None);
+}
+
+#[test]
+fn worker_onboarding_requires_a_task_body() {
+    assert!(role_onboarding_task(Some("fix it"), Some("Worker"))
+        .unwrap()
+        .contains(crate::prompts::WORKER_SUFFIX));
+    assert_eq!(role_onboarding_task(None, Some("Worker")), None);
+}
+
+#[test]
+fn orchestrator_onboarding_is_sent_even_without_task_body() {
+    let task = role_onboarding_task(None, Some("Orchestrator")).unwrap();
+    assert!(task.contains("CodeTerm planner is the source of truth"));
+    assert!(task.contains(crate::prompts::ORCHESTRATOR_SUFFIX));
+}
+
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
         agent: Some(agent.to_string()),

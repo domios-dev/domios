@@ -398,7 +398,7 @@
         },
         {
           "name": "spawn",
-          "about": "Spawn a new agent (creates tab in workspace, linked in hierarchy)",
+          "about": "Spawn a new agent; roleless unless --role is provided",
           "aliases": [],
           "args": [
             {
@@ -422,7 +422,7 @@
               "positional": false,
               "value_name": "CAN_SPAWN",
               "default": null,
-              "help": "Allow spawning children",
+              "help": "Override whether an explicit Orchestrator may spawn children",
               "aliases": []
             },
             {
@@ -478,7 +478,7 @@
               "positional": false,
               "value_name": "ROLE",
               "default": null,
-              "help": "Role: Orchestrator, Worker",
+              "help": "Role: Worker or explicit Orchestrator. Omit for a roleless fresh agent",
               "aliases": []
             },
             {
@@ -6427,6 +6427,70 @@
               "name": "id",
               "positional": false,
               "value_name": "ID",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "search",
+          "about": "Search synced plan/spec/task/stride history for this project",
+          "aliases": [],
+          "args": [
+            {
+              "name": "active",
+              "positional": false,
+              "value_name": "ACTIVE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "all",
+              "positional": false,
+              "value_name": "ALL",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "archived",
+              "positional": false,
+              "value_name": "ARCHIVED",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "value_name": "KIND",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "limit",
+              "positional": false,
+              "value_name": "LIMIT",
+              "default": "10",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "value_name": "PROJECT",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "query",
+              "positional": true,
+              "value_name": "QUERY",
               "default": null,
               "help": null,
               "aliases": []
