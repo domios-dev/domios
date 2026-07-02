@@ -57,6 +57,7 @@ fn next_interval(base: u32, last_nudge: u32) -> u32 {
 #[derive(Debug, Default)]
 pub struct TurnCounter {
     panes: Mutex<HashMap<String, (u32, u32)>>,
+    timed: Mutex<HashMap<String, u64>>,
 }
 
 impl TurnCounter {
@@ -78,8 +79,25 @@ impl TurnCounter {
         entry.1 = turns;
     }
 
+    pub fn time_nudge_due(&self, pane_id: &str, now_secs: u64, interval_secs: u64) -> bool {
+        if interval_secs == 0 {
+            return false;
+        }
+        let mut timed = self.timed.lock();
+        let Some(last_nudge) = timed.get(pane_id).copied() else {
+            timed.insert(pane_id.to_string(), now_secs);
+            return false;
+        };
+        now_secs.saturating_sub(last_nudge) >= interval_secs
+    }
+
+    pub fn mark_time_nudged(&self, pane_id: &str, now_secs: u64) {
+        self.timed.lock().insert(pane_id.to_string(), now_secs);
+    }
+
     pub fn reset(&self, pane_id: &str) {
         self.panes.lock().insert(pane_id.to_string(), (0, 0));
+        self.timed.lock().remove(pane_id);
     }
 
     pub fn get(&self, pane_id: &str) -> (u32, u32) {
@@ -153,7 +171,12 @@ mod tests {
         assert_eq!(counter.increment("p1"), (2, 0));
         counter.mark_nudged("p1", 2);
         assert_eq!(counter.get("p1"), (2, 2));
+        assert!(!counter.time_nudge_due("p1", 100, 30));
+        assert!(counter.time_nudge_due("p1", 130, 30));
+        counter.mark_time_nudged("p1", 130);
+        assert!(!counter.time_nudge_due("p1", 150, 30));
         counter.reset("p1");
         assert_eq!(counter.get("p1"), (0, 0));
+        assert!(!counter.time_nudge_due("p1", 200, 30));
     }
 }

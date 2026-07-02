@@ -33,6 +33,11 @@ desktop = true
 sound = false
 toast_duration = 5  # seconds
 
+[orchestration]
+plan_reminders = true
+nudge_after_turns = 12
+nudge_interval_secs = 1800  # 30 minutes
+
 [keybindings]
 new_tab = "Ctrl+T"
 close_tab = "Ctrl+W"
@@ -475,4 +480,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Dev config is in `src-tauri/tauri.dev.conf.json`. Both builds can run simultaneously.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

@@ -61,14 +61,17 @@ fn orchestration_plan_reminder_defaults() {
     let cfg: OrchestrationConfig = toml::from_str("").unwrap();
     assert!(cfg.plan_reminders);
     assert_eq!(cfg.nudge_after_turns, 12);
+    assert_eq!(cfg.nudge_interval_secs, 1800);
 }
 
 #[test]
 fn orchestration_plan_reminder_overrides() {
     let cfg: OrchestrationConfig =
-        toml::from_str("plan_reminders = false\nnudge_after_turns = 3").unwrap();
+        toml::from_str("plan_reminders = false\nnudge_after_turns = 3\nnudge_interval_secs = 90")
+            .unwrap();
     assert!(!cfg.plan_reminders);
     assert_eq!(cfg.nudge_after_turns, 3);
+    assert_eq!(cfg.nudge_interval_secs, 90);
 }
 
 #[test]

@@ -371,6 +371,7 @@ fn default_file_sync_interval() -> u64 {
 pub struct OrchestrationConfig {
     pub plan_reminders: bool,
     pub nudge_after_turns: u32,
+    pub nudge_interval_secs: u64,
 }
 
 impl Default for OrchestrationConfig {
@@ -378,6 +379,7 @@ impl Default for OrchestrationConfig {
         Self {
             plan_reminders: true,
             nudge_after_turns: 12,
+            nudge_interval_secs: 1800,
         }
     }
 }

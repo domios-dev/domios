@@ -5,12 +5,16 @@ mod plan_reminder_nudge;
 use serde::Serialize;
 use tauri::Emitter;
 
-use super::{ReportResult, ServiceContext};
+use super::{ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportDetails, ReportStatus};
 use crate::multiplexer::types::AgentRole;
 use crate::plan::AgentRef;
 use tauri::Manager;
+
+pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
+    plan_reminder_nudge::start_plan_reminder_scheduler(svc);
+}
 
 impl ServiceContext {
     pub fn set_pane_role(
