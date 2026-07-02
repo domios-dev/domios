@@ -460,7 +460,7 @@ codeterm task add --name N --type implement [--body "..." | --body-file PATH]
 codeterm canvas focus [--task TASK_ID | --pane PANE_ID | --plan PLAN_ID]
 ```
 
-Workers bound to a task report via env: `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID`. Free-text fields accept `--field-file PATH` or `-` for stdin.
+Workers bound to a task report via `codeterm agent report "..."` — plan/task are auto-resolved from the pane assignment; no `--plan`/`--task` flags needed. Explicit flags override when needed. Free-text fields accept `--field-file PATH` or `-` for stdin.
 
 ## Built-in docs (read on demand, not in prompt)
 

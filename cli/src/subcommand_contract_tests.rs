@@ -165,7 +165,7 @@ fn plan_record_parses_batch_sugar() {
                     ..
                 },
         } => {
-            assert_eq!(plan_id, "pl_1");
+            assert_eq!(plan_id.as_deref(), Some("pl_1"));
             assert_eq!(upsert_task.as_deref(), Some("handoff-cli"));
             assert_eq!(name.as_deref(), Some("Handoff CLI"));
             assert_eq!(sections.as_deref(), Some("cli,backend"));

@@ -2,7 +2,8 @@
 We are DOGFOODING the CodeTerm planning/canvas system AS we build it. You don't just implement —
 you USE it, FILL it, and DEBUG it. This also road-tests the prompts that get hardcoded later.
 1. WORK THROUGH THE PLAN. As you execute, record your real EXECUTION STAGES as milestones on YOUR task:
-   CODETERM_API_PORT=7686 CODETERM_API_TOKEN=f610677d06894648884dd8571c927843 codeterm agent report --plan pl_c8a72a9a870743ab81fb8ac94e0e459f --task <YOUR_TASK_ID> --kind <status_update|decision|testing|review> --text "<what happened at this stage>"
+   codeterm agent report --kind <status_update|decision|testing|review> --text "<what happened at this stage>"
+   Plan/task are resolved automatically from your pane assignment — no `--plan`/`--task` flags needed.
    (use --doc <file.md> to attach a longer discussion/decision doc). Do it at REAL checkpoints, not only at the end.
 2. ATTACH YOUR DESIGN DECISIONS as a 'decision' milestone/doc so PROVENANCE stays — anyone can later review what you decided and WHY.
 3. ALSO REPORT TO ME (your parent) with a plain 'codeterm agent report --status done "<summary + commit>"'. We are still partly bootstrapping on the old flow, so I need the report HERE too. Both, not either.

@@ -93,6 +93,13 @@ impl ServiceContext {
     /// remote mesh target (`report_target_mesh_peer` + pane/alias) →
     /// `parent_pane_id` → `report_target_pane_id` → `spawned_by_pane_id`.
     /// NEVER routes back to the reporter's own pane; errors when none resolve.
+    ///
+    /// Plan/task resolution order:
+    /// 1. Explicit `plan_id`/`task_id` from the caller — validated against live store.
+    /// 2. If provided ids are stale (plan not found) — falls back to pane assignment.
+    /// 3. Daemon-side pane assignment lookup (`task_bindings_with_name_for_pane`).
+    /// 4. Ambiguous (>1 assignment) — errors with candidate list.
+    /// 5. No assignment — proceeds without a plan milestone.
     pub fn submit_report(
         &self,
         pane_id: &str,
@@ -103,11 +110,16 @@ impl ServiceContext {
         milestone_kind: Option<&str>,
     ) -> Result<ReportResult, String> {
         let task_status = report_task_status_transition(details.status)?;
+
+        let mut notices: Vec<String> = Vec::new();
+        let (eff_plan_id, eff_task_id) =
+            resolve_plan_ctx(&self.plan_store, pane_id, plan_id, task_id, &mut notices)?;
+
         let (from_title, default_target_opt, model, from_ref, role) = {
             let mux = self.mux.read();
             let (from_title, target_opt) = match resolve_report_target(&mux, pane_id) {
                 Ok(resolved) => resolved,
-                Err(_) if plan_id.is_some() => (pane_id.to_string(), None),
+                Err(_) if eff_plan_id.is_some() => (pane_id.to_string(), None),
                 Err(e) => return Err(e),
             };
             let pane = mux.get_pane(pane_id);
@@ -123,20 +135,21 @@ impl ServiceContext {
             let role = pane.and_then(|p| p.role);
             (from_title, target_opt, model, from_ref, role)
         };
-        let target_opt = plan_id
+        let target_opt = eff_plan_id
+            .as_deref()
             .and_then(|id| self.plan_store.owner_of(id))
             .and_then(|owner| owner.pane_id)
             .filter(|target| !target.is_empty() && target != pane_id)
             .map(ReportTarget::Local)
             .or(default_target_opt);
 
-        if let Some(plan_id) = plan_id {
-            let task_id = task_id
-                .map(str::to_string)
+        if let Some(ref plan_id) = eff_plan_id {
+            let task_id = eff_task_id
+                .clone()
                 .or_else(|| {
                     self.plan_store.task_binding_for_pane(pane_id).and_then(
                         |(bound_plan, bound_task)| {
-                            if bound_plan == plan_id {
+                            if &bound_plan == plan_id {
                                 Some(bound_task)
                             } else {
                                 None
@@ -243,13 +256,14 @@ impl ServiceContext {
             }
         }
 
-        if plan_id.is_none() {
+        if eff_plan_id.is_none() {
             self.maybe_send_plan_reminder(pane_id, role);
         }
 
         Ok(ReportResult {
             report_id: report.id,
             orchestrator_pane_id: storage_key,
+            notices,
         })
     }
 
@@ -573,6 +587,60 @@ fn resolve_peer_client_by_name(
         .find(|(_, p)| p.instance_name.eq_ignore_ascii_case(name))
         .map(|(id, _)| id.clone())?;
     mesh.client_for(&id)
+}
+
+/// Resolve the effective (plan_id, task_id) for a report, following the priority chain:
+/// 1. Provided `plan_id_hint` validated against live store.
+/// 2. If stale (plan not found), falls back to daemon-side pane assignment.
+/// 3. If no `plan_id_hint`, tries pane assignment directly.
+/// 4. Ambiguous (>1 assignment) — errors with candidate list.
+/// 5. No assignment — returns (None, None) so the report proceeds without a milestone.
+pub(crate) fn resolve_plan_ctx(
+    plan_store: &crate::service::plan::PlanStore,
+    pane_id: &str,
+    plan_id_hint: Option<&str>,
+    task_id_hint: Option<&str>,
+    notices: &mut Vec<String>,
+) -> Result<(Option<String>, Option<String>), String> {
+    let valid_plan = plan_id_hint
+        .filter(|s| !s.trim().is_empty())
+        .and_then(|id| {
+            if plan_store.get(id).is_some() {
+                Some(id.to_string())
+            } else {
+                notices.push(format!(
+                    "plan '{}' not found in active plans — ignoring, checking pane assignment",
+                    id
+                ));
+                None
+            }
+        });
+
+    if valid_plan.is_some() {
+        return Ok((valid_plan, task_id_hint.map(str::to_string)));
+    }
+
+    let bindings = plan_store.task_bindings_with_name_for_pane(pane_id);
+    match bindings.len() {
+        0 => Ok((None, None)),
+        1 => {
+            let (p, t, _name) = bindings.into_iter().next().unwrap();
+            Ok((Some(p), Some(t)))
+        }
+        _ => {
+            let list = bindings
+                .iter()
+                .map(|(p, t, n)| format!("  {t} «{n}» in plan {p}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            Err(format!(
+                "ambiguous: pane {} is assigned to {} tasks — pass --plan and --task to disambiguate:\n{}",
+                pane_id,
+                bindings.len(),
+                list
+            ))
+        }
+    }
 }
 
 /// Whether a dying pane needs a synthetic worker-death report, and to whom — a

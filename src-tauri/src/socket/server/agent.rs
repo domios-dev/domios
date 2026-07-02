@@ -99,10 +99,14 @@ pub(super) fn dispatch(
                     message: e,
                     data: None,
                 })?;
-            Ok(serde_json::json!({
+            let mut resp = serde_json::json!({
                 "ok": true,
                 "report_id": result.report_id,
-            }))
+            });
+            if !result.notices.is_empty() {
+                resp["notices"] = serde_json::json!(result.notices);
+            }
+            Ok(resp)
         }
 
         "agent.reports" => {
