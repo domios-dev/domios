@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 
 export interface ViewportTransform {
   x: number;
@@ -52,18 +53,19 @@ export interface UseCanvasViewportResult {
   transformRef: React.MutableRefObject<ViewportTransform>;
 }
 
-const DEF_MIN_SCALE = 0.45;
-const DEF_MAX_SCALE = 2.5;
+const DEF_MIN_SCALE = DEFAULT_CANVAS_SETTINGS.zoomMinScale;
+const DEF_MAX_SCALE = DEFAULT_CANVAS_SETTINGS.zoomMaxScale;
 const DEF_FIT_PADDING = 28;
 // Fit may zoom IN so a small board fills the viewport, but not past this so a
 // single tiny plan doesn't blow up to fill the screen.
-const FIT_MAX_ZOOM = 3;
+const FIT_MAX_ZOOM = DEFAULT_CANVAS_SETTINGS.zoomMaxScale;
 // Fly-to camera ease: long enough to read as travel, short enough to feel instant.
 const FLY_DURATION_MS = 460;
 const LINE_PX = 16;
 // Pinch / cmd-wheel zoom sensitivity. ~2.5x the old 0.0016 so a pinch feels
 // immediate/Figma-like; the exponential keeps it smooth. Pan path is unchanged.
 export const CANVAS_MIN_SCALE = DEF_MIN_SCALE;
+export const CANVAS_MAX_SCALE = DEF_MAX_SCALE;
 export const CANVAS_ZOOM_INTENSITY = 0.004;
 const ZOOM_INTENSITY = CANVAS_ZOOM_INTENSITY;
 // The layer transform paints every rAF (smooth 60fps camera); the React state

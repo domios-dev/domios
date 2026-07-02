@@ -31,7 +31,7 @@ import type { PlanGhostModel } from "./canvasView/models";
 import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
-import { useCanvasViewport, paintLayer, CANVAS_MIN_SCALE, type ViewportTransform } from "./useCanvasViewport";
+import { useCanvasViewport, paintLayer, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, type ViewportTransform } from "./useCanvasViewport";
 import { buildSectionGroups, resolveSceneLod } from "./canvasRender/sceneLod";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
@@ -197,8 +197,7 @@ export function CanvasViewInner({
     height: size.height,
     panButton: "middle",
     minScale: CANVAS_MIN_SCALE,
-    // §32.10 / worlds-dive: tasks/strides are tiny → deep zoom-drill needs wide range (to 1000%).
-    maxScale: 10,
+    maxScale: CANVAS_MAX_SCALE,
     onPaint: (t) => onPaintImpl.current(t),
   });
   onPaintImpl.current = (t) => {

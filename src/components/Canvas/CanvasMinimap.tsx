@@ -45,6 +45,7 @@ export function CanvasMinimap({ bounds, nodes, transform, viewport, hiddenNodeId
   const vh = viewport.height / transform.scale;
 
   const color = (kind: string) => {
+    if (kind === "section-summary") return "rgba(129,140,248,0.75)";
     if (kind === "section-cluster") return "var(--ct-border-focus)";
     if (kind === "done-stack") return "rgba(82,180,145,0.95)";
     if (kind === "plan") return "var(--ct-border-focus)";
@@ -76,7 +77,7 @@ export function CanvasMinimap({ bounds, nodes, transform, viewport, hiddenNodeId
         {(lodMarkers ?? []).map((m) => (
           <div
             key={m.id}
-            data-testid={m.kind === "done-stack" ? "canvas-minimap-done-stack" : "canvas-minimap-cluster"}
+            data-testid={m.kind === "done-stack" ? "canvas-minimap-done-stack" : m.kind === "section-summary" ? "canvas-minimap-summary" : "canvas-minimap-cluster"}
             style={{
               position: "absolute",
               left: ox + m.box.x * scale,

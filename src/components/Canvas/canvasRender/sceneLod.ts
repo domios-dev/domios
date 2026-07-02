@@ -3,19 +3,26 @@ import { boxCenter, unionBox } from "../layout/geometry";
 import type { PresenceAgent } from "../presence/identity";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import type { Task, TaskStatus } from "../types";
+import { CANVAS_MIN_SCALE } from "../useCanvasViewport";
 
-export const CANVAS_MIN_SCALE = DEFAULT_CANVAS_SETTINGS.zoomFarThreshold;
-export const OVERVIEW_LOD_SCALE = DEFAULT_CANVAS_SETTINGS.zoomFarThreshold;
+export { CANVAS_MIN_SCALE };
+
+export const SUMMARY_LOD_SCALE = DEFAULT_CANVAS_SETTINGS.zoomSummaryThreshold;
+export const CLUSTER_LOD_SCALE = DEFAULT_CANVAS_SETTINGS.zoomClusterThreshold;
 
 const CHIP_SCREEN_W = 148;
 const CHIP_SCREEN_H = 58;
+const SUMMARY_SCREEN_W = 92;
+const SUMMARY_SCREEN_H = 40;
 const DONE_STACK_SCREEN_W = 72;
 const DONE_STACK_SCREEN_H = 36;
 
-export type LodMode = "overview" | "readable";
+export type LodMode = "summary" | "cluster" | "readable";
 
 export function lodMode(scale: number): LodMode {
-  return scale <= OVERVIEW_LOD_SCALE ? "overview" : "readable";
+  if (scale <= SUMMARY_LOD_SCALE) return "summary";
+  if (scale <= CLUSTER_LOD_SCALE) return "cluster";
+  return "readable";
 }
 
 export interface StatusCounts {
@@ -52,7 +59,7 @@ export interface SectionTaskGroup {
 
 export interface LodMarker {
   id: string;
-  kind: "section-cluster" | "done-stack";
+  kind: "section-summary" | "section-cluster" | "done-stack";
   planId: string;
   sectionId: string;
   title: string;
@@ -73,6 +80,10 @@ export function chipWorldBox(anchor: Box, scale: number, screenW: number, screen
   const h = screenH / scale;
   const c = boxCenter(anchor);
   return { x: c.x - w / 2, y: c.y - h / 2, width: w, height: h };
+}
+
+function totalTasks(counts: StatusCounts): number {
+  return counts.pending + counts.in_progress + counts.in_review + counts.blocked + counts.done + counts.cancelled;
 }
 
 export function buildSectionGroups(
@@ -122,6 +133,25 @@ export interface ResolvedSceneLod {
   markers: LodMarker[];
 }
 
+function rollupMarker(
+  g: SectionTaskGroup,
+  scale: number,
+  kind: LodMarker["kind"],
+  screenW: number,
+  screenH: number,
+): LodMarker {
+  return {
+    id: `${kind}:${g.planId}:${g.sectionId}`,
+    kind,
+    planId: g.planId,
+    sectionId: g.sectionId,
+    title: g.title,
+    box: chipWorldBox(g.anchor, scale, screenW, screenH),
+    counts: g.counts,
+    presence: kind === "section-summary" ? [] : g.presence,
+  };
+}
+
 export function resolveSceneLod(
   scale: number,
   groups: readonly SectionTaskGroup[],
@@ -131,20 +161,14 @@ export function resolveSceneLod(
   const hiddenNodeIds = new Set<string>();
   const markers: LodMarker[] = [];
 
-  if (mode === "overview") {
+  if (mode === "summary" || mode === "cluster") {
+    const kind = mode === "summary" ? "section-summary" : "section-cluster";
+    const w = mode === "summary" ? SUMMARY_SCREEN_W : CHIP_SCREEN_W;
+    const h = mode === "summary" ? SUMMARY_SCREEN_H : CHIP_SCREEN_H;
     for (const g of groups) {
       for (const id of g.taskNodeIds) hiddenNodeIds.add(id);
       if (g.taskNodeIds.length === 0) continue;
-      markers.push({
-        id: `cluster:${g.planId}:${g.sectionId}`,
-        kind: "section-cluster",
-        planId: g.planId,
-        sectionId: g.sectionId,
-        title: g.title,
-        box: chipWorldBox(g.anchor, scale, CHIP_SCREEN_W, CHIP_SCREEN_H),
-        counts: g.counts,
-        presence: g.presence,
-      });
+      markers.push(rollupMarker(g, scale, kind, w, h));
     }
     return { mode, hiddenNodeIds, markers };
   }
@@ -183,4 +207,8 @@ export function resolveSceneLod(
 
 export function markerToSyntheticNode(m: LodMarker): SceneLodNode {
   return { id: m.id, kind: m.kind, planId: m.planId, box: m.box };
+}
+
+export function sectionMarkerTaskTotal(marker: LodMarker): number {
+  return totalTasks(marker.counts);
 }

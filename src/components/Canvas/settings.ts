@@ -93,8 +93,11 @@ export interface CanvasLayoutSettings {
   frameGap: number;
   rowMaxWidth: number;
 
-  // LOD + virtualization.
-  zoomFarThreshold: number;
+  // Camera zoom clamps + scene LOD bands (summary → cluster → cards).
+  zoomMinScale: number;
+  zoomMaxScale: number;
+  zoomSummaryThreshold: number;
+  zoomClusterThreshold: number;
   zoomNearThreshold: number;
   focusZoneRadius: number;
   cullPadding: number;
@@ -149,7 +152,7 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
 
   // Gutter rhythm: GUTTER intra-frame (spec→plan, plan→tasks), GUTTER*2 between
   // frames/owner groups, ~GUTTER for group padding. One base, no ad-hoc gaps.
-  columnGapX: 36,
+  columnGapX: 28,
 
   anchorInset: 0,
   edgeCurve: 0.5,
@@ -157,13 +160,16 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   groupPadding: 40,
   groupLabelHeight: 34,
   groupGapX: 96,
-  groupGapY: 120,
+  groupGapY: 88,
 
-  framePadding: 28,
-  frameGap: 96,
+  framePadding: 24,
+  frameGap: 72,
   rowMaxWidth: 9000,
 
-  zoomFarThreshold: 0.45,
+  zoomMinScale: 0.1,
+  zoomMaxScale: 4,
+  zoomSummaryThreshold: 0.2,
+  zoomClusterThreshold: 0.38,
   zoomNearThreshold: 1.1,
   focusZoneRadius: 260,
   cullPadding: 300,
