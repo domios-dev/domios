@@ -88,3 +88,22 @@ fn create_from_linked_worktree_persists_canonical_project_path_and_routes_sideca
         .join(format!(".codeterm/plans/active/{}/plan.json", plan.id))
         .exists());
 }
+
+#[test]
+fn stale_canonical_project_path_falls_back_to_loaded_project_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project = tmp.path().join("main");
+    let deleted = tmp.path().join("deleted-linked");
+    std::fs::create_dir(&project).unwrap();
+
+    let mut plan = crate::plan::Plan::new(
+        "Stale home".into(),
+        deleted.display().to_string(),
+        OrchestratorRef::from_pane("owner"),
+    );
+    plan.canonical_project_path = deleted.display().to_string();
+    paths::normalize_plan_paths(&mut plan, &project);
+
+    assert_eq!(plan.project_path, project.display().to_string());
+    assert_eq!(plan.canonical_project_path, project.display().to_string());
+}

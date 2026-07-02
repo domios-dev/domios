@@ -118,12 +118,12 @@ impl super::PlanStore {
         let plans = self
             .list_full()
             .into_iter()
-            .filter(|plan| plan.project_path == root_text)
+            .filter(|plan| plan_project_root(plan).display().to_string() == root_text)
             .collect::<Vec<_>>();
         let specs = self
             .list_specs_full()
             .into_iter()
-            .filter(|spec| spec.project_path == root_text)
+            .filter(|spec| spec_project_root(spec).display().to_string() == root_text)
             .collect::<Vec<_>>();
         let scope = project_scope(&root);
         delete_units_by_scope(&root, &scope)?;
@@ -268,10 +268,7 @@ fn delete_vectors_for_unit(conn: &Connection, unit_id: &str) {
 }
 
 pub fn delete_plan_units(plan: &Plan) -> Result<(), String> {
-    delete_units(
-        Path::new(&plan.project_path),
-        &format!("planunit_{}_%", plan.id),
-    )
+    delete_units(plan_project_root(plan), &format!("planunit_{}_%", plan.id))
 }
 
 fn open_index(project_root: &Path) -> Result<Connection, String> {
