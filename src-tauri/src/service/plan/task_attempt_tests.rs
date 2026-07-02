@@ -235,6 +235,7 @@ fn terminal_status_update_leaves_history_but_no_active_presence() {
             None,
             None,
             None,
+            None,
             &[],
             None,
             None,

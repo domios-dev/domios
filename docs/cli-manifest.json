@@ -6348,7 +6348,7 @@
               "positional": true,
               "value_name": "PLAN_ID",
               "default": null,
-              "help": null,
+              "help": "Plan id (default: $CODETERM_PLAN_ID)",
               "aliases": []
             },
             {
@@ -6833,6 +6833,14 @@
                   "name": "destination",
                   "positional": false,
                   "value_name": "DESTINATION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "executor_role",
+                  "positional": false,
+                  "value_name": "EXECUTOR_ROLE",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -7473,6 +7481,14 @@
                   "name": "destination",
                   "positional": false,
                   "value_name": "DESTINATION",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "executor_role",
+                  "positional": false,
+                  "value_name": "EXECUTOR_ROLE",
                   "default": null,
                   "help": null,
                   "aliases": []

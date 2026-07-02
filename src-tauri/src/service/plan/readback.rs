@@ -36,6 +36,7 @@ pub(in crate::service::plan) struct TaskAddExpectation {
     correctness: Option<String>,
     body: String,
     role_guidance: Option<String>,
+    executor_role: Option<String>,
     intent: Option<String>,
     parent_task_id: Option<String>,
     assigned_pane_id: Option<String>,
@@ -77,6 +78,7 @@ impl PlanStore {
             correctness: task.correctness.clone(),
             body: task.body.clone(),
             role_guidance: task.role_guidance.clone(),
+            executor_role: task.executor_role.clone(),
             intent: task.intent.clone(),
             parent_task_id: task.parent_task_id.clone(),
             assigned_pane_id: task.assigned_pane_id.clone(),
@@ -145,6 +147,9 @@ impl PlanStore {
         }
         if task.role_guidance != expected.role_guidance {
             return Err(fail("role_guidance"));
+        }
+        if task.executor_role != expected.executor_role {
+            return Err(fail("executor_role"));
         }
         if task.intent != expected.intent {
             return Err(fail("intent"));
@@ -222,6 +227,7 @@ impl PlanStore {
         priority: Option<&str>,
         body: Option<&str>,
         intent: Option<Option<&str>>,
+        executor_role: Option<Option<&str>>,
         section_ids: Option<&[String]>,
         parent_task_id: Option<Option<&str>>,
         group: Option<Option<&str>>,
@@ -266,6 +272,9 @@ impl PlanStore {
         }
         if intent.is_some_and(|expected| task.intent.as_deref() != expected) {
             return Err(fail("intent"));
+        }
+        if executor_role.is_some_and(|expected| task.executor_role.as_deref() != expected) {
+            return Err(fail("executor_role"));
         }
         if section_ids.is_some_and(|expected| task.section_ids != expected) {
             return Err(fail("sections"));

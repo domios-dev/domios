@@ -864,6 +864,7 @@ fn related_traversal_is_dangling_safe() {
             None,
             None,
             None,
+            None,
             &[],
             None,
             None,

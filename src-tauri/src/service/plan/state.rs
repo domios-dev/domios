@@ -65,6 +65,7 @@ pub struct OpenLane {
     pub task_id: String,
     pub name: String,
     pub status: TaskStatus,
+    pub executor_role: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -243,6 +244,7 @@ pub fn build_plan_state_snapshot(
             task_id: t.id.clone(),
             name: t.name.clone(),
             status: t.status.clone(),
+            executor_role: t.executor_role.clone(),
         })
         .collect();
 
@@ -254,6 +256,7 @@ pub fn build_plan_state_snapshot(
             task_id: t.id.clone(),
             name: t.name.clone(),
             status: t.status.clone(),
+            executor_role: t.executor_role.clone(),
         })
         .collect();
 
@@ -402,6 +405,7 @@ mod tests {
             section_ids: sections.iter().map(|s| s.to_string()).collect(),
             body: String::new(),
             role_guidance: None,
+            executor_role: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: None,

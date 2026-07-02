@@ -177,10 +177,17 @@ pub fn render_state(val: &Value) -> String {
         if !lanes.is_empty() {
             out.push_str(&format!("open lanes: {}\n", lanes.len()));
             for l in lanes {
+                let role_part = l
+                    .get("executor_role")
+                    .and_then(|v| v.as_str())
+                    .filter(|v| !v.is_empty())
+                    .map(|r| format!(" role:{r}"))
+                    .unwrap_or_default();
                 out.push_str(&format!(
-                    "  - {} [{}] {}\n",
+                    "  - {} [{}]{} {}\n",
                     s(l, "task_id"),
                     s(l, "status"),
+                    role_part,
                     s(l, "name"),
                 ));
             }

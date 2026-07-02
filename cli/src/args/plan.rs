@@ -430,6 +430,8 @@ pub enum PlanTaskAction {
         #[arg(long, value_name = "PATH")]
         role_guidance_file: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
+        executor_role: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]
         intent_file: Option<String>,
@@ -497,6 +499,8 @@ pub enum PlanTaskAction {
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
         role_guidance_file: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        executor_role: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
         #[arg(long, value_name = "PATH")]

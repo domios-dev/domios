@@ -511,6 +511,13 @@ fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
     findings
 }
 
+fn task_kind_is_planning(task: &Value) -> bool {
+    task.get("type")
+        .and_then(Value::as_str)
+        .map(|k| matches!(k, "planning" | "plan" | "spec" | "design"))
+        .unwrap_or(false)
+}
+
 fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut Vec<Finding>) {
     let task_id = task
         .get("id")
@@ -560,9 +567,26 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             kind: "task_quality_gap",
             plan_id: plan_id(plan, path),
             path: path.display().to_string(),
-            task_id: Some(task_id),
+            task_id: Some(task_id.clone()),
             detail: format!("task is missing {}", missing.join(", ")),
             fix: "update the task with body, section links, criteria, test plan, and correctness before dispatch".into(),
+        });
+    }
+    // executor_role is advisory for execution-kind tasks; planning-kind tasks are exempt
+    if !task_kind_is_planning(task)
+        && task
+            .get("executor_role")
+            .and_then(Value::as_str)
+            .is_none_or(|s| s.trim().is_empty())
+    {
+        findings.push(Finding {
+            severity: "warning",
+            kind: "missing_executor_role",
+            plan_id: plan_id(plan, path),
+            path: path.display().to_string(),
+            task_id: Some(task_id),
+            detail: "execution task has no executor_role; orchestrator cannot route agent personality declaratively".into(),
+            fix: "set --executor-role <slug> (e.g. rust-backend-dev, frontend-dev, code-reviewer) on the task".into(),
         });
     }
 }
@@ -1067,11 +1091,69 @@ mod tests {
                 "body": "Implement the scoped change.",
                 "acceptance_criteria": ["criterion"],
                 "test_plan": "run focused test",
-                "correctness": "matches spec"
+                "correctness": "matches spec",
+                "executor_role": "rust-backend-dev"
             }]
         });
         let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
         assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn quality_warns_for_missing_executor_role_on_execution_task() {
+        let plan = json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "mode": "approved",
+            "goal": {"vector": "ship"},
+            "primary_spec_id": "sp_1",
+            "sections": [{"id": "sec_1", "title": "Execution", "body": "section"}],
+            "tasks": [{
+                "id": "task_1",
+                "name": "Do work",
+                "type": "implement",
+                "status": "pending",
+                "section_ids": ["sec_1"],
+                "body": "body",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "run test",
+                "correctness": "matches spec"
+            }]
+        });
+        let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+        let warn = findings.iter().find(|f| f.kind == "missing_executor_role");
+        assert!(warn.is_some(), "expected missing_executor_role warning");
+        assert_eq!(warn.unwrap().severity, "warning");
+    }
+
+    #[test]
+    fn quality_exempts_planning_kind_from_executor_role_check() {
+        let plan = json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "mode": "approved",
+            "goal": {"vector": "ship"},
+            "primary_spec_id": "sp_1",
+            "sections": [{"id": "sec_1", "title": "Spec", "body": "section"}],
+            "tasks": [{
+                "id": "task_1",
+                "name": "Author spec",
+                "type": "planning",
+                "status": "pending",
+                "section_ids": ["sec_1"],
+                "body": "body",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "n/a",
+                "correctness": "matches spec"
+            }]
+        });
+        let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+        assert!(
+            !findings.iter().any(|f| f.kind == "missing_executor_role"),
+            "planning-kind tasks must be exempt from executor_role check"
+        );
     }
 
     #[test]
@@ -1102,7 +1184,8 @@ mod tests {
                 "body": "",
                 "acceptance_criteria": ["criterion"],
                 "test_plan": "run focused test",
-                "correctness": "matches spec"
+                "correctness": "matches spec",
+                "executor_role": "frontend-dev"
             }]
         });
         let findings = inspect_plan(&plan_path, &plan, "quality");

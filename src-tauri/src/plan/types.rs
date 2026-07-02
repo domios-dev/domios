@@ -378,6 +378,8 @@ pub struct Task {
     pub body: String,
     #[serde(default)]
     pub role_guidance: Option<String>,
+    #[serde(default)]
+    pub executor_role: Option<String>,
     pub intent: Option<String>,
     #[serde(default)]
     pub parent_task_id: Option<String>,
@@ -648,7 +650,38 @@ mod tests {
         assert_eq!(p.tasks[0].handle, None);
         assert!(p.tasks[0].tags.is_empty());
         assert_eq!(p.tasks[0].taken_by_role, None);
+        assert_eq!(p.tasks[0].executor_role, None);
         assert_eq!(p.tasks[0].parent_task_id, None);
+    }
+
+    #[test]
+    fn executor_role_roundtrips() {
+        let raw = r#"{
+            "id": "pl_exec",
+            "title": "Exec",
+            "status": "active",
+            "owner": {},
+            "project_path": "/repo",
+            "created_at": 1,
+            "updated_at": 2,
+            "tasks": [
+                {"id":"task_1","name":"n","type":"implement","model":null,
+                 "model_rationale":null,"status":"pending","status_label":null,
+                 "section_ids":[],"body":"","intent":null,"assigned_pane_id":null,
+                 "peer":null,"executor_role":"rust-backend-dev"}
+            ]
+        }"#;
+        let p: Plan = serde_json::from_str(raw).unwrap();
+        assert_eq!(
+            p.tasks[0].executor_role.as_deref(),
+            Some("rust-backend-dev")
+        );
+        let json = serde_json::to_string(&p).unwrap();
+        let back: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            back.tasks[0].executor_role.as_deref(),
+            Some("rust-backend-dev")
+        );
     }
 
     #[test]

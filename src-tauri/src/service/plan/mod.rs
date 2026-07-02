@@ -253,6 +253,7 @@ pub struct NewTask {
     pub correctness: Option<String>,
     pub body: String,
     pub role_guidance: Option<String>,
+    pub executor_role: Option<String>,
     pub intent: Option<String>,
     pub parent_task_id: Option<String>,
     pub assigned_pane_id: Option<String>,

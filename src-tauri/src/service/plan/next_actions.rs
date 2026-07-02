@@ -121,6 +121,7 @@ mod tests {
             task_id: id.into(),
             name: format!("name-{id}"),
             status,
+            executor_role: None,
         }
     }
 

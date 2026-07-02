@@ -390,6 +390,7 @@ impl PlanStore {
             section_ids: new.section_ids,
             body: new.body,
             role_guidance: new.role_guidance,
+            executor_role: new.executor_role,
             intent: new.intent,
             parent_task_id: new.parent_task_id,
             assigned_pane_id,
@@ -626,6 +627,7 @@ impl PlanStore {
         priority: Option<&str>,
         body: Option<&str>,
         intent: Option<Option<&str>>,
+        executor_role: Option<Option<&str>>,
         section_ids: Option<Vec<String>>,
         parent_task_id: Option<Option<&str>>,
         group: Option<Option<&str>>,
@@ -687,6 +689,9 @@ impl PlanStore {
             if let Some(i) = intent {
                 task.intent = i.map(|s| s.into());
             }
+            if let Some(r) = executor_role {
+                task.executor_role = r.map(|s| s.into());
+            }
             if let Some(ids) = section_ids {
                 task.section_ids = ids;
             }
@@ -720,6 +725,7 @@ impl PlanStore {
                 priority,
                 body,
                 intent,
+                executor_role,
                 expected_sections.as_deref(),
                 parent_task_id,
                 group,

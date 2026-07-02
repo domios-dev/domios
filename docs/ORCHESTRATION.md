@@ -179,10 +179,17 @@ The Planner must hand back:
 - the GOAL it created or refined;
 - Spec sections for WHAT/WHY, constraints, acceptance, and decision vocabulary;
 - Plan sections for HOW, sequencing waves, ownership, approval, and verification;
-- tasks with body, section links, model plus why, `role_guidance` where useful,
-  acceptance criteria, test plan, correctness vector, and report expectations;
+- tasks with body, section links, model plus why, `executor_role` for execution
+  tasks (slug that names the agent personality — e.g. `rust-backend-dev`,
+  `frontend-dev`, `code-reviewer`), `role_guidance` where useful, acceptance
+  criteria, test plan, correctness vector, and report expectations;
 - `codeterm plan state <plan_id>` / quality-doctor status, known gaps, and the
   next concrete Orchestrator action.
+
+`executor_role` is a free-form slug that lets the Orchestrator route agent
+personality per task declaratively, without hard-coding provider IDs in the
+dispatch loop. Execution tasks without `executor_role` are flagged as a quality
+WARNING by `codeterm plan doctor --kind quality`. Planning-kind tasks are exempt.
 
 Planner-authored `role_guidance` is worker onboarding text. When spawning a
 worker from a task, prepend that guidance to the task brief so the worker knows

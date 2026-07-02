@@ -147,6 +147,7 @@ pub(super) fn run_task(
             body_file,
             role_guidance,
             role_guidance_file,
+            executor_role,
             intent,
             intent_file,
             parent,
@@ -210,6 +211,9 @@ pub(super) fn run_task(
             }
             if let Some(guidance) = role_guidance_text {
                 params["role_guidance"] = json!(guidance);
+            }
+            if let Some(role) = executor_role {
+                params["executor_role"] = json!(role);
             }
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
@@ -299,6 +303,7 @@ pub(super) fn run_task(
             body_file,
             role_guidance,
             role_guidance_file,
+            executor_role,
             intent,
             intent_file,
             sections,
@@ -335,6 +340,7 @@ pub(super) fn run_task(
             body_file,
             role_guidance,
             role_guidance_file,
+            executor_role,
             intent,
             intent_file,
             sections,
