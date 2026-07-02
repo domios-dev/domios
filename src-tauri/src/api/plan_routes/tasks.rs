@@ -120,10 +120,15 @@ pub async fn task_add(
         .plan_store
         .resolve_task_section_ids(&id, &requested_sections)
         .map_err(plan_err)?;
+    let kind = if body.kind.is_empty() {
+        "implement".to_string()
+    } else {
+        body.kind.clone()
+    };
     state
         .svc
         .plan_store
-        .ensure_task_creation_allowed(&id, body.force)
+        .ensure_task_creation_allowed(&id, &kind, body.force)
         .map_err(plan_err)?;
     let has_sections = !section_ids.is_empty();
     let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
@@ -147,11 +152,7 @@ pub async fn task_add(
             &id,
             NewTask {
                 name: body.name,
-                kind: if body.kind.is_empty() {
-                    "implement".into()
-                } else {
-                    body.kind
-                },
+                kind,
                 section_ids,
                 model: body.model,
                 model_rationale: body.why,

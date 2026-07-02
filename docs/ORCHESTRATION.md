@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -93,16 +93,20 @@ Good Tasks include body, section links, routing model + why, acceptance
 criteria, test plan, correctness vector, exact commands, and report format.
 Tasks should be small enough that a Worker can execute and report cleanly.
 Execution tasks must not be created while the plan is still in planning mode.
-If the Orchestrator needs a first task to ask a Planner to finish the plan, that
-task's kind is `planning`; the CLI should allow it without `--force` and still
-reject implementation/review/build tasks until approval.
+Planning-kind tasks are the exception and are **first-class**: their job is to
+improve the GOAL / spec / plan / task-graph itself, so `codeterm plan task add
+--type planning` is allowed on a planning-mode plan **without `--force`**. Every
+other kind (implement/review/build/…) still hits the approval gate and requires
+approval or an explicit `--force` draft.
 
 Use `codeterm plan doctor PLAN_ID --kind quality` before approval and again
 before dispatch. It is a structural approval gate: missing goal/spec link,
-task-quality gaps, heartbeat-before-execution state, and tasks created while
-still in planning mode are errors. It deliberately does **not** infer quality
-from prose keywords; if a rule must be machine-enforced, model it as structured
-planner state instead of text heuristics.
+task-quality gaps, heartbeat-before-execution state, and *non-planning* tasks
+created while still in planning mode (`tasks_before_approval`) are errors.
+Planning-kind tasks never trip `tasks_before_approval`; quality checks (missing
+body, criteria, section link) still apply to them. It deliberately does **not**
+infer quality from prose keywords; if a rule must be machine-enforced, model it
+as structured planner state instead of text heuristics.
 
 Heartbeat is runtime execution state, not a planning scratchpad. Plan-owned
 nudges are automatic once an assigned orchestrator owns an execution-mode plan

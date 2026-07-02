@@ -732,12 +732,23 @@ fn task_creation_requires_plan_approval_unless_forced() {
     let id = plan.id.clone();
     store.save(&mut plan, 1).unwrap();
 
-    let err = store.ensure_task_creation_allowed(&id, false).unwrap_err();
+    let err = store
+        .ensure_task_creation_allowed(&id, "implement", false)
+        .unwrap_err();
     assert!(matches!(err, PlanError::TaskCreationRequiresApproval));
-    store.ensure_task_creation_allowed(&id, true).unwrap();
+    store
+        .ensure_task_creation_allowed(&id, "implement", true)
+        .unwrap();
+
+    // Planning-kind tasks are first-class in planning mode: allowed without --force.
+    store
+        .ensure_task_creation_allowed(&id, "planning", false)
+        .unwrap();
 
     store.set_mode(&id, PlanMode::Approved, 2).unwrap();
-    store.ensure_task_creation_allowed(&id, false).unwrap();
+    store
+        .ensure_task_creation_allowed(&id, "implement", false)
+        .unwrap();
 }
 
 #[test]
