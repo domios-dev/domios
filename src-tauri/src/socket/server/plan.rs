@@ -517,7 +517,12 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "section_id": sid }))
+            let caller_pane = p.and_then(|x| x.get("caller_pane_id")).and_then(|v| v.as_str());
+            let mut resp = json!({ "section_id": sid });
+            if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| hints::planner_ownership_nudge(plan, caller_pane)) {
+                resp["_planner_nudge"] = json!(nudge);
+            }
+            Ok(resp)
         }
 
         "plan.section.update" => {
@@ -537,7 +542,12 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            let caller_pane = p.and_then(|x| x.get("caller_pane_id")).and_then(|v| v.as_str());
+            let mut resp = json!({ "ok": true });
+            if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| hints::planner_ownership_nudge(plan, caller_pane)) {
+                resp["_planner_nudge"] = json!(nudge);
+            }
+            Ok(resp)
         }
 
         "plan.section.rm" => {
@@ -763,11 +773,16 @@ pub(super) fn dispatch(
             if let Some(hint) = hints::maybe_orchestration_reminder() {
                 response_hints.push(hint);
             }
-            Ok(json!({
+            let caller_pane = p.and_then(|x| x.get("caller_pane_id")).and_then(|v| v.as_str());
+            let mut resp = json!({
                 "task_id": tid.clone(),
                 "section_ids": linked,
                 "_hints": response_hints
-            }))
+            });
+            if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| hints::planner_ownership_nudge(plan, caller_pane)) {
+                resp["_planner_nudge"] = json!(nudge);
+            }
+            Ok(resp)
         }
 
         "plan.task.update" => {
@@ -832,7 +847,12 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?;
             }
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            let caller_pane = p.and_then(|x| x.get("caller_pane_id")).and_then(|v| v.as_str());
+            let mut resp = json!({ "ok": true });
+            if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| hints::planner_ownership_nudge(plan, caller_pane)) {
+                resp["_planner_nudge"] = json!(nudge);
+            }
+            Ok(resp)
         }
 
         "plan.task.link" => {

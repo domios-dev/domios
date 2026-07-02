@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -205,6 +205,24 @@ Use this loop:
    evidence and asks for a revised task graph.
 5. Repeat until the GOAL and acceptance gates are satisfied; discovery or the
    first planning wave is never considered completion by itself.
+
+### Planning ownership
+
+While a Planner holds an open planning-kind task, the **Orchestrator routes
+planning input to the Planner** — new requirements, discovered blockers,
+implementation evidence, user feedback. The Orchestrator dispatches workers,
+gates their output, integrates results, and may record facts (strides,
+heartbeat updates, lane metadata). It must **not** synthesize graph nodes
+(GOAL edits, new spec/plan sections, new tasks) while a Planner lane is active.
+
+Exceptions (Planner unreachable, emergency structural repair) must be recorded
+as a stride. The **Planner reconciles foreign mutations** on its next run:
+it reviews what changed, decides keep/rewrite/remove, and records a correction
+stride so the plan state remains coherent.
+
+CLI mutation commands (`plan section add/update`, `plan task add/update`,
+`plan goal set`) emit a non-blocking stderr hint when another pane owns the
+active Planner lane, naming the task handle so routing is actionable.
 
 ## Handoffs
 
