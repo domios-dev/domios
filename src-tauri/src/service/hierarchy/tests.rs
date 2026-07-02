@@ -609,3 +609,69 @@ fn storage_keys_distinguish_local_and_mesh() {
         "mesh:Mac-Air/main"
     );
 }
+
+// ── Mesh homing: foreign plan detection ──────────────────────────────────────
+
+#[test]
+fn resolve_plan_ctx_foreign_plan_with_no_binding_returns_none_with_notice() {
+    // A remote worker has no local plan store and no pane binding.
+    // When it passes --plan pl_foreign --task task_yyy, resolve_plan_ctx must
+    // return (None, None) with a notice so the caller can detect the homing case.
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut notices = Vec::new();
+    let (p, t) = resolve_plan_ctx(
+        &store,
+        "pane-remote",
+        Some("pl_foreign"),
+        Some("task_yyy"),
+        &mut notices,
+    )
+    .unwrap();
+    assert!(p.is_none(), "foreign plan → eff_plan_id must be None");
+    assert!(t.is_none(), "no local binding → eff_task_id must be None");
+    assert!(
+        !notices.is_empty(),
+        "must emit a notice that the plan was not found"
+    );
+    assert!(
+        notices[0].contains("pl_foreign"),
+        "notice must name the missing plan"
+    );
+}
+
+#[test]
+fn mesh_peer_extracted_from_default_target_before_or_consumes_it() {
+    // Verify that a Mesh default target exposes a peer name we can use for
+    // homing — this is the detection step that decides whether to relay.
+    let default_target: Option<ReportTarget> = Some(ReportTarget::Mesh {
+        peer: "eight".into(),
+        pane: "orch-99".into(),
+    });
+    let default_mesh_peer = match &default_target {
+        Some(ReportTarget::Mesh { peer, .. }) => Some(peer.clone()),
+        _ => None,
+    };
+    // Simulates the .or(default_target_opt) path in submit_report.
+    let _target_opt: Option<ReportTarget> = None::<ReportTarget>.or(default_target);
+
+    assert_eq!(
+        default_mesh_peer.as_deref(),
+        Some("eight"),
+        "mesh peer must be captured before default_target is consumed"
+    );
+}
+
+#[test]
+fn local_default_target_yields_no_mesh_peer_for_homing() {
+    // A local worker (no mesh peer) must not trigger homing even if plan not found.
+    let default_target: Option<ReportTarget> = Some(ReportTarget::Local("orch-local".into()));
+    let default_mesh_peer = match &default_target {
+        Some(ReportTarget::Mesh { peer, .. }) => Some(peer.clone()),
+        _ => None,
+    };
+    assert!(
+        default_mesh_peer.is_none(),
+        "local target must not produce a mesh peer"
+    );
+}

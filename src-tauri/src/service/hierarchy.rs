@@ -135,6 +135,12 @@ impl ServiceContext {
             let role = pane.and_then(|p| p.role);
             (from_title, target_opt, model, from_ref, role)
         };
+        // Capture mesh peer before default_target_opt is consumed by .or().
+        let default_mesh_peer = match &default_target_opt {
+            Some(ReportTarget::Mesh { peer, .. }) => Some(peer.clone()),
+            _ => None,
+        };
+
         let target_opt = eff_plan_id
             .as_deref()
             .and_then(|id| self.plan_store.owner_of(id))
@@ -142,6 +148,26 @@ impl ServiceContext {
             .filter(|target| !target.is_empty() && target != pane_id)
             .map(ReportTarget::Local)
             .or(default_target_opt);
+
+        // Mesh homing: plan_id hint provided but plan not found locally (remote worker scenario).
+        // Relay plan batch ops (status + milestone) to the owning peer via the mesh.
+        if eff_plan_id.is_none() {
+            if let (Some(h_plan), Some(h_task), Some(peer)) = (
+                plan_id.filter(|s| !s.trim().is_empty()),
+                task_id.filter(|s| !s.trim().is_empty()),
+                default_mesh_peer,
+            ) {
+                self.relay_plan_batch_to_peer(
+                    peer,
+                    h_plan.to_string(),
+                    h_task.to_string(),
+                    from_ref.clone(),
+                    task_status,
+                    milestone_text(message, details.status),
+                    milestone_kind.unwrap_or("status_update").to_string(),
+                );
+            }
+        }
 
         if let Some(ref plan_id) = eff_plan_id {
             let task_id = eff_task_id
@@ -304,6 +330,70 @@ impl ServiceContext {
         let text = self.plan_store.prepend_heartbeat_for_plan(plan_id, &text);
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
         let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
+    }
+
+    /// Fire-and-forget relay of plan batch ops (status update + milestone) to the
+    /// peer that owns the plan. Used when the plan doesn't exist in the local store
+    /// but plan_id + task_id were provided (remote worker mesh homing scenario).
+    fn relay_plan_batch_to_peer(
+        &self,
+        peer: String,
+        plan_id: String,
+        task_id: String,
+        from_ref: AgentRef,
+        task_status: Option<&'static str>,
+        ms_text: String,
+        ms_kind: String,
+    ) {
+        let client = {
+            let mesh_handle = self.app_handle.state::<crate::MeshStateHandle>();
+            let mesh = mesh_handle.lock();
+            resolve_peer_client_by_name(&mesh, &peer)
+        };
+        let Some(client) = client else {
+            log::warn!(
+                "[plan/mesh] no paired peer '{}' — plan batch for {} not relayed",
+                peer,
+                plan_id
+            );
+            return;
+        };
+        let mut ops: Vec<serde_json::Value> = Vec::new();
+        if let Some(status) = task_status {
+            ops.push(serde_json::json!({
+                "op": "set_task_status",
+                "task": task_id,
+                "status": status,
+            }));
+        }
+        ops.push(serde_json::json!({
+            "op": "add_milestone",
+            "client_id": "report",
+            "task": task_id,
+            "kind": ms_kind,
+            "text": ms_text,
+            "from": serde_json::to_value(&from_ref).unwrap_or_default(),
+        }));
+        let body = serde_json::json!({ "ops": ops });
+        let cmd = crate::mesh::types::RelayCommand {
+            method: "POST".into(),
+            path: format!("/api/plans/{}/batch", plan_id),
+            body,
+        };
+        tauri::async_runtime::spawn(async move {
+            match client.send_relay(&cmd).await {
+                Ok(r) if r.ok => {
+                    log::info!("[plan/mesh] batch relayed to {}/{}", peer, plan_id)
+                }
+                Ok(r) => log::warn!(
+                    "[plan/mesh] {} rejected plan batch for {}: {:?}",
+                    peer,
+                    plan_id,
+                    r.error
+                ),
+                Err(e) => log::warn!("[plan/mesh] plan batch relay to {} failed: {}", peer, e),
+            }
+        });
     }
 
     /// Fire-and-forget delivery of a report to a pane (id or `main`/`general`
