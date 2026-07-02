@@ -558,8 +558,17 @@ fn run_plan(
                     .to_string()
             })?;
             crate::cmd::plan_record::record(
-                client, plan_id, task, upsert_task, name, sections, status, body_file, steps,
-                links, key,
+                client,
+                plan_id,
+                task,
+                upsert_task,
+                name,
+                sections,
+                status,
+                body_file,
+                steps,
+                links,
+                key,
             )
         }
 
