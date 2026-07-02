@@ -4,10 +4,12 @@ import type { PresenceAgent } from "../presence/identity";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import type { Task, TaskStatus } from "../types";
 
-export const CANVAS_MIN_SCALE = DEFAULT_CANVAS_SETTINGS.zoomFarThreshold;
-export const OVERVIEW_LOD_SCALE = DEFAULT_CANVAS_SETTINGS.zoomFarThreshold;
+import { CANVAS_MIN_SCALE } from "../useCanvasViewport";
 
-const CHIP_SCREEN_W = 148;
+export { CANVAS_MIN_SCALE };
+
+export const OVERVIEW_LOD_SCALE = DEFAULT_CANVAS_SETTINGS.zoomFarThreshold;
+const CHIP_SCREEN_W = 120;
 const CHIP_SCREEN_H = 58;
 const DONE_STACK_SCREEN_W = 72;
 const DONE_STACK_SCREEN_H = 36;

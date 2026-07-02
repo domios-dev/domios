@@ -136,6 +136,24 @@ export function zoneColor(sectionId: string): string {
   return `hsl(${hue.toFixed(1)} 38% 62%)`;
 }
 
+// Rounded-rect perimeter samples for v3 zone containers (clockwise from top-left).
+export function roundedRectHull(box: Box, radius: number): Point[] {
+  const r = Math.max(0, Math.min(radius, box.width / 2, box.height / 2));
+  const { x, y, width: w, height: h } = box;
+  const pts: Point[] = [];
+  const arc = (cx: number, cy: number, start: number, end: number) => {
+    for (let i = 0; i <= 4; i++) {
+      const a = start + ((end - start) * i) / 4;
+      pts.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+    }
+  };
+  arc(x + r, y + r, Math.PI, Math.PI * 1.5);
+  arc(x + w - r, y + r, Math.PI * 1.5, Math.PI * 2);
+  arc(x + w - r, y + h - r, 0, Math.PI * 0.5);
+  arc(x + r, y + h - r, Math.PI * 0.5, Math.PI);
+  return pts;
+}
+
 export interface ComputedZone {
   hull: Point[];
   labelAnchor: Point;

@@ -93,6 +93,21 @@ export interface CanvasLayoutSettings {
   frameGap: number;
   rowMaxWidth: number;
 
+  // Canvas v3 zone-first task field.
+  zoneTaskW: number;
+  zoneTaskH: number;
+  zoneTaskGap: number;
+  zoneCols: number;
+  zonePad: number;
+  zoneGap: number;
+  zoneLabelGap: number;
+  zoneCornerRadius: number;
+
+  // Camera zoom clamps (fit..400%).
+  zoomMinScale: number;
+  zoomMaxScale: number;
+  zoomFitMargin: number;
+
   // LOD + virtualization.
   zoomFarThreshold: number;
   zoomNearThreshold: number;
@@ -160,10 +175,23 @@ export const DEFAULT_CANVAS_SETTINGS: CanvasLayoutSettings = {
   groupGapY: 120,
 
   framePadding: 28,
-  frameGap: 96,
+  frameGap: 72,
   rowMaxWidth: 9000,
 
-  zoomFarThreshold: 0.45,
+  zoneTaskW: 176,
+  zoneTaskH: 104,
+  zoneTaskGap: 10,
+  zoneCols: 4,
+  zonePad: 14,
+  zoneGap: 20,
+  zoneLabelGap: 8,
+  zoneCornerRadius: 16,
+
+  zoomMinScale: 0.1,
+  zoomMaxScale: 4,
+  zoomFitMargin: 0.1,
+
+  zoomFarThreshold: 0.32,
   zoomNearThreshold: 1.1,
   focusZoneRadius: 260,
   cullPadding: 300,

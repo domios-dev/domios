@@ -31,7 +31,7 @@ import type { PlanGhostModel } from "./canvasView/models";
 import type { OrchestratorRef, Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
-import { useCanvasViewport, paintLayer, CANVAS_MIN_SCALE, type ViewportTransform } from "./useCanvasViewport";
+import { useCanvasViewport, paintLayer, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, type ViewportTransform } from "./useCanvasViewport";
 import { buildSectionGroups, resolveSceneLod } from "./canvasRender/sceneLod";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
@@ -197,8 +197,7 @@ export function CanvasViewInner({
     height: size.height,
     panButton: "middle",
     minScale: CANVAS_MIN_SCALE,
-    // §32.10 / worlds-dive: tasks/strides are tiny → deep zoom-drill needs wide range (to 1000%).
-    maxScale: 10,
+    maxScale: CANVAS_MAX_SCALE,
     onPaint: (t) => onPaintImpl.current(t),
   });
   onPaintImpl.current = (t) => {
@@ -480,8 +479,11 @@ export function CanvasViewInner({
     // frames the active plan (§23.4), not fit-all (which lands at 5% on a big board).
     if (workspaceFocusIds.length) focusOnNodes(workspaceFocusIds);
     else if (paneTaskIds.length) focusOnNodes(paneTaskIds);
-    else if (activePlanId) fitCameraToNodes([activePlanId]);
-    else fitToView(layout.bounds);
+    else if (activePlanId) {
+      const frame = layout.frames.find((f) => f.planId === activePlanId);
+      if (frame) fitToView(frame.box);
+      else fitToView(layout.bounds);
+    } else fitToView(layout.bounds);
   }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, paneTaskIds, activePlanId, size.width, size.height]);
 
   // canvas-focus event (camera + blink). Backends emit {task_id, plan_id, pane_id}
@@ -544,6 +546,16 @@ export function CanvasViewInner({
     }
     return out;
   }, [layout, sectionTitleById]);
+
+  const sectionZones = useMemo(() => {
+    const out: { hull: { x: number; y: number }[]; color: string; box?: { x: number; y: number; width: number; height: number } }[] = [];
+    for (const frame of layout.frames) {
+      for (const z of frame.zones) {
+        out.push({ hull: z.hull, color: z.color, box: z.box });
+      }
+    }
+    return out;
+  }, [layout]);
 
   // Orchestrator avatars + their plan connectors (drawn on the canvas, §32.5).
   const groupGlyphs = useMemo<GroupGlyph[]>(() => {
@@ -804,6 +816,7 @@ export function CanvasViewInner({
             nodeById={lookups.nodeById}
             edges={allEdges}
             zoneLabels={zoneLabels}
+            sectionZones={sectionZones}
             groups={groupGlyphs}
             presenceByNode={presenceByNode}
             resolveModel={resolveModel}

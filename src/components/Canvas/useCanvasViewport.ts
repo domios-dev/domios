@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 
 export interface ViewportTransform {
   x: number;
@@ -52,18 +53,19 @@ export interface UseCanvasViewportResult {
   transformRef: React.MutableRefObject<ViewportTransform>;
 }
 
-const DEF_MIN_SCALE = 0.45;
-const DEF_MAX_SCALE = 2.5;
+const DEF_MIN_SCALE = DEFAULT_CANVAS_SETTINGS.zoomMinScale;
+const DEF_MAX_SCALE = DEFAULT_CANVAS_SETTINGS.zoomMaxScale;
 const DEF_FIT_PADDING = 28;
-// Fit may zoom IN so a small board fills the viewport, but not past this so a
-// single tiny plan doesn't blow up to fill the screen.
-const FIT_MAX_ZOOM = 3;
+const FIT_MAX_ZOOM = DEFAULT_CANVAS_SETTINGS.zoomMaxScale;
+const FIT_MARGIN = DEFAULT_CANVAS_SETTINGS.zoomFitMargin;
 // Fly-to camera ease: long enough to read as travel, short enough to feel instant.
 const FLY_DURATION_MS = 460;
 const LINE_PX = 16;
 // Pinch / cmd-wheel zoom sensitivity. ~2.5x the old 0.0016 so a pinch feels
 // immediate/Figma-like; the exponential keeps it smooth. Pan path is unchanged.
 export const CANVAS_MIN_SCALE = DEF_MIN_SCALE;
+export const CANVAS_MAX_SCALE = DEF_MAX_SCALE;
+export const CANVAS_FIT_MARGIN = FIT_MARGIN;
 export const CANVAS_ZOOM_INTENSITY = 0.004;
 const ZOOM_INTENSITY = CANVAS_ZOOM_INTENSITY;
 // The layer transform paints every rAF (smooth 60fps camera); the React state
@@ -94,6 +96,39 @@ function pixelDelta(value: number, mode: number): number {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+export function computeFitTransform(
+  bounds: ViewportBox,
+  width: number,
+  height: number,
+  opts: { fitPadding?: number; minScale?: number; maxScale?: number } = {},
+): ViewportTransform | null {
+  const fitPadding = opts.fitPadding ?? DEF_FIT_PADDING;
+  const minScale = opts.minScale ?? DEF_MIN_SCALE;
+  const maxScale = opts.maxScale ?? DEF_MAX_SCALE;
+  if (width <= 0 || height <= 0 || bounds.width <= 0 || bounds.height <= 0) return null;
+  const scaleX = (width - fitPadding * 2) / bounds.width;
+  const scaleY = (height - fitPadding * 2) / bounds.height;
+  const raw = Math.min(scaleX, scaleY, FIT_MAX_ZOOM);
+  const scale = clamp(raw, minScale, maxScale);
+  const cx = bounds.x + bounds.width / 2;
+  const cy = bounds.y + bounds.height / 2;
+  return { x: width / 2 - cx * scale, y: height / 2 - cy * scale, scale };
+}
+
+export function fitZoomFloor(fitScale: number, minScale = DEF_MIN_SCALE, margin = FIT_MARGIN): number {
+  return Math.max(minScale, fitScale * (1 - margin));
+}
+
+export function viewportShowsBounds(t: ViewportTransform, bounds: ViewportBox, viewport: { width: number; height: number }): boolean {
+  const vx = -t.x / t.scale;
+  const vy = -t.y / t.scale;
+  const vw = viewport.width / t.scale;
+  const vh = viewport.height / t.scale;
+  const ix = Math.max(0, Math.min(bounds.x + bounds.width, vx + vw) - Math.max(bounds.x, vx));
+  const iy = Math.max(0, Math.min(bounds.y + bounds.height, vy + vh) - Math.max(bounds.y, vy));
+  return ix > 0 && iy > 0;
 }
 
 // Figma-grade pan/zoom (§3): two-finger scroll pans, cmd/ctrl+scroll (and pinch,
@@ -133,6 +168,13 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
   // last wheel tick (to tell a fresh deliberate gesture from a momentum-fling tail).
   const boundaryArmRef = useRef<{ el: HTMLElement; released: boolean } | null>(null);
   const lastWheelTsRef = useRef(0);
+  const fitContentScaleRef = useRef<number | null>(null);
+
+  const zoomFloor = useCallback(() => {
+    const fit = fitContentScaleRef.current;
+    if (fit == null || fit <= 0) return minScale;
+    return fitZoomFloor(fit, minScale, FIT_MARGIN);
+  }, [minScale]);
 
   // Stop any in-flight fly-to. Called whenever the user takes the wheel — a fly
   // must yield to direct manipulation instantly, never fight the pointer.
@@ -182,13 +224,9 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
 
   const fitTransform = useCallback(
     (bounds: ViewportBox): ViewportTransform | null => {
-      if (width <= 0 || height <= 0 || bounds.width <= 0 || bounds.height <= 0) return null;
-      const scaleX = (width - fitPadding * 2) / bounds.width;
-      const scaleY = (height - fitPadding * 2) / bounds.height;
-      const scale = clamp(Math.min(scaleX, scaleY, FIT_MAX_ZOOM), minScale, maxScale);
-      const cx = bounds.x + bounds.width / 2;
-      const cy = bounds.y + bounds.height / 2;
-      return { x: width / 2 - cx * scale, y: height / 2 - cy * scale, scale };
+      const t = computeFitTransform(bounds, width, height, { fitPadding, minScale, maxScale });
+      if (t) fitContentScaleRef.current = t.scale;
+      return t;
     },
     [width, height, fitPadding, minScale, maxScale],
   );
@@ -246,12 +284,13 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
   const zoomAround = useCallback(
     (factor: number, px: number, py: number) => {
       const t = transformRef.current;
-      const nextScale = clamp(t.scale * factor, minScale, maxScale);
+      const floor = zoomFloor();
+      const nextScale = clamp(t.scale * factor, floor, maxScale);
       if (nextScale === t.scale) return;
       const ratio = nextScale / t.scale;
       schedule({ scale: nextScale, x: px - (px - t.x) * ratio, y: py - (py - t.y) * ratio });
     },
-    [minScale, maxScale, schedule],
+    [maxScale, schedule, zoomFloor],
   );
 
   const zoomBy = useCallback(
