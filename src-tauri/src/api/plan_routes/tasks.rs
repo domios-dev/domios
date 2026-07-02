@@ -78,6 +78,8 @@ pub(crate) struct TaskAddBody {
     #[serde(default)]
     role_guidance: Option<String>,
     #[serde(default)]
+    executor_role: Option<String>,
+    #[serde(default)]
     intent: Option<String>,
     #[serde(default)]
     parent: Option<String>,
@@ -161,6 +163,7 @@ pub async fn task_add(
                 correctness: body.correctness,
                 body: body.body.unwrap_or_default(),
                 role_guidance: body.role_guidance,
+                executor_role: body.executor_role,
                 intent: body.intent,
                 parent_task_id: body.parent,
                 assigned_pane_id: body.assign_pane,
@@ -239,6 +242,7 @@ pub async fn task_update(
             body.get("priority").and_then(|v| v.as_str()),
             body.get("body").and_then(|v| v.as_str()),
             optional_string_field(&body, "intent"),
+            optional_string_field(&body, "executor_role"),
             section_ids,
             body.get("parent_task_id").map(|v| v.as_str()),
             optional_string_field(&body, "group"),

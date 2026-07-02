@@ -268,6 +268,7 @@ mod tests {
             section_ids: sections.iter().map(|s| s.to_string()).collect(),
             body: String::new(),
             role_guidance: None,
+            executor_role: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: None,

@@ -78,7 +78,15 @@ fn append_plan_task(
     let name = task.get("name").and_then(|v| v.as_str()).unwrap_or("?");
     let tid = task.get("id").and_then(|v| v.as_str()).unwrap_or("?");
     let st = task.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-    out.push_str(&format!("{indent}- **{name}** (`{tid}`) — {st}\n"));
+    let role_suffix = task
+        .get("executor_role")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(|r| format!(" [role:{r}]"))
+        .unwrap_or_default();
+    out.push_str(&format!(
+        "{indent}- **{name}** (`{tid}`) — {st}{role_suffix}\n"
+    ));
     render_task_lane(task, depth, out);
     render_task_quality(task, depth, out);
     if let Some(id) = task.get("id").and_then(|v| v.as_str()) {

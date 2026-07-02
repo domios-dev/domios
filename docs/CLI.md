@@ -1736,7 +1736,7 @@ Record task progress with one atomic plan write
 - `--key`
 - `--links`
 - `--name`
-- `<plan_id>`
+- `<plan_id>` — Plan id (default: $CODETERM_PLAN_ID)
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 - `--steps`
@@ -1848,6 +1848,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--correctness`
 - `--criterion`
 - `--destination`
+- `--executor_role`
 - `--force`
 - `--group`
 - `--handle`
@@ -1972,6 +1973,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--correctness`
 - `--criterion`
 - `--destination`
+- `--executor_role`
 - `--group`
 - `--handle`
 - `--intent`

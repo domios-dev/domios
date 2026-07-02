@@ -729,6 +729,10 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("role_guidance"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        executor_role: p
+                            .and_then(|x| x.get("executor_role"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string()),
                         intent: p
                             .and_then(|x| x.get("intent"))
                             .and_then(|v| v.as_str())
@@ -836,6 +840,7 @@ pub(super) fn dispatch(
                     p.and_then(|x| x.get("priority")).and_then(|v| v.as_str()),
                     p.and_then(|x| x.get("body")).and_then(|v| v.as_str()),
                     optional_string_field(p, "intent"),
+                    optional_string_field(p, "executor_role"),
                     sections,
                     p.and_then(|x| x.get("parent_task_id").or_else(|| x.get("parent")))
                         .map(|v| v.as_str()),

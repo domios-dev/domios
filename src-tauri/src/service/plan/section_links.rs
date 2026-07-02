@@ -359,6 +359,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some(vec![]),
                 None,
                 None,
