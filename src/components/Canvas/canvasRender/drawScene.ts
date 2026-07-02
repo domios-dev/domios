@@ -8,9 +8,13 @@ import { projectWorldBox } from "../scene";
 import type { ViewportTransform } from "../useCanvasViewport";
 import { buildCardContent, pickLevel } from "./cardContent";
 import type { HitRegion, RegionAction } from "./drawCard";
+import { drawLodMarker, hitTestLodMarker } from "./drawLodMarker";
 import type { NodeBitmapCache } from "./nodeBitmapCache";
 import type { CanvasPalette } from "./palette";
 import { agentInitials, type PresenceAgent } from "../presence/identity";
+import type { ResolvedSceneLod, SectionTaskGroup } from "./sceneLod";
+import { markerToSyntheticNode, resolveSceneLod } from "./sceneLod";
+import type { Task } from "../types";
 
 const FONT = "Inter, -apple-system, BlinkMacSystemFont, system-ui, sans-serif";
 const CULL_MARGIN = 280;
@@ -48,6 +52,9 @@ export interface SceneDrawInput {
   dpr: number;
   width: number;
   height: number;
+  /** Camera-independent section rollups for overview / done-stack LOD. */
+  lodGroups?: readonly SectionTaskGroup[];
+  taskById?: Map<string, Task>;
 }
 
 // Transient interaction/emphasis state — separate from the (camera-decoupled) data so
@@ -63,20 +70,38 @@ export interface SceneExtras {
 function regionRank(a: RegionAction): number {
   if (a.type === "section-button") return 4;
   if (a.type === "expand") return 3;
+  if (a.type === "section-cluster" || a.type === "done-stack") return 3;
   if (a.type === "section") return 2;
   return 0;
+}
+
+function resolveLod(input: SceneDrawInput, t: ViewportTransform): ResolvedSceneLod | null {
+  if (!input.lodGroups?.length || !input.taskById) return null;
+  return resolveSceneLod(t.scale, input.lodGroups, input.taskById);
 }
 
 // Screen point → the most specific node + sub-region under it (smallest node wins, then
 // the highest-rank region inside it). Drives clicks + hover without any DOM hit targets.
 export function hitTestScene(input: SceneDrawInput, t: ViewportTransform, point: Point): { node: LaidOutNode; action: RegionAction } | null {
   const { nodes, cache } = input;
+  const lod = resolveLod(input, t);
+  const hidden = lod?.hiddenNodeIds ?? null;
+  const lodHit = lod?.markers.length ? hitTestLodMarker(lod.markers, t, point) : null;
   let best: { node: LaidOutNode; sx: number; sy: number; sw: number; sh: number } | null = null;
   for (const node of nodes) {
+    if (hidden?.has(node.id)) continue;
     const sb = projectWorldBox(node.box, t);
     if (point.x < sb.x || point.x > sb.x + sb.width || point.y < sb.y || point.y > sb.y + sb.height) continue;
     const area = sb.width * sb.height;
     if (!best || area < best.sw * best.sh) best = { node, sx: sb.x, sy: sb.y, sw: sb.width, sh: sb.height };
+  }
+  if (lodHit) {
+    const marker = lod!.markers.find((m) => m.id === lodHit.markerId) ?? lod!.markers[0];
+    const markerNode = { ...markerToSyntheticNode(marker), iteration: null, manual: false } as LaidOutNode;
+    const markerArea = lodHit.box.width * lodHit.box.height;
+    if (!best || markerArea < best.sw * best.sh) {
+      return { node: markerNode, action: lodHit.action };
+    }
   }
   if (!best) return null;
   let action: RegionAction = { type: "node" };
@@ -121,8 +146,10 @@ function drawEdge(ctx: CanvasRenderingContext2D, a: Point, b: Point): void {
 // a gesture settles (the blit loop scale-blits stale bitmaps during the gesture).
 export function resharpenVisible(input: SceneDrawInput, t: ViewportTransform): Set<string> {
   const { nodes, signatureOf, paintNode, cache, dpr, width, height } = input;
+  const hidden = resolveLod(input, t)?.hiddenNodeIds ?? null;
   const keep = new Set<string>();
   for (const node of nodes) {
+    if (hidden?.has(node.id)) continue;
     const sb = projectWorldBox(node.box, t);
     if (sb.x + sb.width < -CULL_MARGIN || sb.x > width + CULL_MARGIN || sb.y + sb.height < -CULL_MARGIN || sb.y > height + CULL_MARGIN) continue;
     const sig = signatureOf(node);
@@ -149,9 +176,11 @@ export interface RenderReadbackNode {
 
 export function buildReadback(input: SceneDrawInput, t: ViewportTransform): RenderReadbackNode[] {
   const { nodes, resolveModel, width, height } = input;
+  const hidden = resolveLod(input, t)?.hiddenNodeIds ?? null;
   const cull = width > 0 && height > 0;
   const out: RenderReadbackNode[] = [];
   for (const node of nodes) {
+    if (hidden?.has(node.id)) continue;
     const sb = projectWorldBox(node.box, t);
     if (cull && (sb.x + sb.width < -CULL_MARGIN || sb.x > width + CULL_MARGIN || sb.y + sb.height < -CULL_MARGIN || sb.y > height + CULL_MARGIN)) continue;
     const content = buildCardContent(node.kind, resolveModel(node));
@@ -205,6 +234,8 @@ function drawPresence(ctx: CanvasRenderingContext2D, agents: PresenceAgent[], x:
 export function drawScene(ctx: CanvasRenderingContext2D, input: SceneDrawInput, t: ViewportTransform, extras: SceneExtras = {}): void {
   const { nodes, edges, nodeById, zoneLabels, groups, presenceByNode, signatureOf, paintNode, cache, palette, dpr, width, height } = input;
   const { hoveredId, dimIds, highlightIds, blinkIds, dominantId } = extras;
+  const lod = resolveLod(input, t);
+  const hidden = lod?.hiddenNodeIds ?? null;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
@@ -266,6 +297,7 @@ export function drawScene(ctx: CanvasRenderingContext2D, input: SceneDrawInput, 
   // Nodes: blit cached bitmaps + emphasis rings + on-card presence.
   const tagDimActive = dimIds != null;
   for (const node of nodes) {
+    if (hidden?.has(node.id)) continue;
     const sb = projectWorldBox(node.box, t);
     if (sb.x + sb.width < -CULL_MARGIN || sb.x > width + CULL_MARGIN || sb.y + sb.height < -CULL_MARGIN || sb.y > height + CULL_MARGIN) continue;
     if (sb.width < 2 || sb.height < 2) continue;
@@ -285,6 +317,16 @@ export function drawScene(ctx: CanvasRenderingContext2D, input: SceneDrawInput, 
     if (sb.width > 64 && sb.height > 40) {
       const agents = presenceByNode.get(node.id);
       if (agents && agents.length) drawPresence(ctx, agents, sb.x + 10, sb.y + sb.height - 12);
+    }
+  }
+
+  if (lod?.markers.length) {
+    for (const marker of lod.markers) {
+      const sb = projectWorldBox(marker.box, t);
+      if (sb.x + sb.width < -CULL_MARGIN || sb.x > width + CULL_MARGIN || sb.y + sb.height < -CULL_MARGIN || sb.y > height + CULL_MARGIN) continue;
+      drawLodMarker(ctx, marker, sb.x, sb.y, sb.width, sb.height, palette);
+      const lit = marker.id === hoveredId || highlightIds?.has(marker.id);
+      if (lit) strokeRing(ctx, sb.x, sb.y, sb.width, sb.height, palette.borderStrong, 2);
     }
   }
 

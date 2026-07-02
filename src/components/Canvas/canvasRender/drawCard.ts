@@ -22,7 +22,9 @@ export type RegionAction =
   | { type: "node" }
   | { type: "expand" }
   | { type: "section"; sectionId: string }
-  | { type: "section-button"; sectionId: string };
+  | { type: "section-button"; sectionId: string }
+  | { type: "section-cluster"; planId: string; sectionId: string }
+  | { type: "done-stack"; planId: string; sectionId: string };
 
 export interface HitRegion {
   x: number;

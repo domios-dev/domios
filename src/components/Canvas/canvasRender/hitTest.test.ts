@@ -2,8 +2,10 @@
 
 import type { LaidOutNode } from "../layout";
 import type { ViewportTransform } from "../useCanvasViewport";
+import { TaskStatus } from "../types";
 import type { HitRegion } from "./drawCard";
 import { hitTestScene, type SceneDrawInput } from "./drawScene";
+import { buildSectionGroups, resolveSceneLod } from "./sceneLod";
 
 let passed = 0;
 let failed = 0;
@@ -58,6 +60,31 @@ ok("expand box → expand", (() => { const h = at(186, 16); return h?.node.id ==
   ok("section row → section action", h?.action.type === "section" && (h.action as { sectionId: string }).sectionId === "sec-1");
 }
 ok("spec header (no region) → node", at(20, 4)?.action.type === "node");
+
+{
+  const taskById = new Map([
+    ["task-done", { id: "task-done", section_ids: ["sec-1"], status: TaskStatus.Done } as never],
+  ]);
+  const lodNodes = [
+    node("task-done", "task", 300, 300, 80, 50),
+  ];
+  const groups = buildSectionGroups(lodNodes, taskById, () => "Section", new Map());
+  const lodInput = {
+    ...input,
+    nodes: lodNodes,
+    lodGroups: groups,
+    taskById,
+  } as unknown as SceneDrawInput;
+  const readable = resolveSceneLod(1, groups, taskById);
+  const marker = readable.markers[0];
+  ok("done-stack marker exists", !!marker);
+  if (marker) {
+    const cx = marker.box.x * t.scale + t.x + (marker.box.width * t.scale) / 2;
+    const cy = marker.box.y * t.scale + t.y + (marker.box.height * t.scale) / 2;
+    const h = hitTestScene(lodInput, t, { x: cx, y: cy });
+    ok("done-stack hit-test", h?.action.type === "done-stack");
+  }
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
