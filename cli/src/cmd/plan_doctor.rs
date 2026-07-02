@@ -523,6 +523,7 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
         .get("body")
         .and_then(Value::as_str)
         .is_none_or(|s| s.trim().is_empty())
+        && !task_has_body_sidecar(path, task)
     {
         missing.push("body");
     }
@@ -558,6 +559,38 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             fix: "update the task with body, section links, criteria, test plan, and correctness before dispatch".into(),
         });
     }
+}
+
+fn task_has_body_sidecar(plan_path: &Path, task: &Value) -> bool {
+    let Some(plan_dir) = plan_path.parent() else {
+        return false;
+    };
+    let handle = task
+        .get("handle")
+        .and_then(Value::as_str)
+        .or_else(|| task.get("id").and_then(Value::as_str));
+    let Some(handle) = handle else {
+        return false;
+    };
+    let sidecar = plan_dir.join("tasks").join(format!("{handle}.md"));
+    sidecar_body_non_empty(&sidecar)
+}
+
+fn sidecar_body_non_empty(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    !strip_sidecar_frontmatter(&text).trim().is_empty()
+}
+
+fn strip_sidecar_frontmatter(text: &str) -> &str {
+    let Some(rest) = text.strip_prefix("---\n") else {
+        return text;
+    };
+    let Some(end) = rest.find("\n---") else {
+        return text;
+    };
+    rest[end + "\n---".len()..].trim_start_matches('\n')
 }
 
 fn has_spec_source(plan: &Value) -> bool {
@@ -983,5 +1016,73 @@ mod tests {
         });
         let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
         assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn quality_accepts_externalized_task_body_via_sidecar() {
+        let dir = tempfile::tempdir().unwrap();
+        let tasks_dir = dir.path().join("tasks");
+        std::fs::create_dir_all(&tasks_dir).unwrap();
+        std::fs::write(
+            tasks_dir.join("do-work.md"),
+            "---\nplan_id: pl_1\nkind: task\n---\n\nThis is the externalized task body content.\n",
+        )
+        .unwrap();
+        let plan_path = dir.path().join("plan.json");
+        let plan = json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "mode": "approved",
+            "goal": {"vector": "ship"},
+            "primary_spec_id": "sp_1",
+            "sections": [{"id": "sec_1", "title": "Execution", "body": "section body"}],
+            "tasks": [{
+                "id": "task_1",
+                "name": "Do work",
+                "status": "pending",
+                "handle": "do-work",
+                "section_ids": ["sec_1"],
+                "body": "",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "run focused test",
+                "correctness": "matches spec"
+            }]
+        });
+        let findings = inspect_plan(&plan_path, &plan, "quality");
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn quality_errors_for_missing_body_without_sidecar() {
+        let dir = tempfile::tempdir().unwrap();
+        let plan_path = dir.path().join("plan.json");
+        let plan = json!({
+            "id": "pl_1",
+            "title": "Plan",
+            "status": "active",
+            "mode": "approved",
+            "goal": {"vector": "ship"},
+            "primary_spec_id": "sp_1",
+            "sections": [{"id": "sec_1", "title": "Execution", "body": "section body"}],
+            "tasks": [{
+                "id": "task_1",
+                "name": "Do work",
+                "status": "pending",
+                "handle": "do-work",
+                "section_ids": ["sec_1"],
+                "body": "",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "run focused test",
+                "correctness": "matches spec"
+            }]
+        });
+        let findings = inspect_plan(&plan_path, &plan, "quality");
+        assert!(
+            findings.iter().any(|f| f.kind == "task_quality_gap"
+                && f.task_id.as_deref() == Some("task_1")
+                && f.detail.contains("body")),
+            "expected task_quality_gap for missing body: {findings:?}"
+        );
     }
 }
