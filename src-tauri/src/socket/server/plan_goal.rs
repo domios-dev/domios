@@ -66,7 +66,9 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             let caller_pane = body.get("caller_pane_id").and_then(|v| v.as_str());
             let mut resp = json!({ "ok": true });
-            if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| crate::service::plan::hints::planner_ownership_nudge(plan, caller_pane)) {
+            if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| {
+                crate::service::plan::hints::planner_ownership_nudge(plan, caller_pane)
+            }) {
                 resp["_planner_nudge"] = json!(nudge);
             }
             Ok(resp)

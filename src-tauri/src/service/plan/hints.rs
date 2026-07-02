@@ -97,9 +97,9 @@ pub fn planner_ownership_nudge(plan: &Plan, caller_pane_id: Option<&str>) -> Opt
     let task = plan.tasks.iter().find(|t| {
         t.kind == "planning"
             && !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled)
-            && t.assigned_pane_id.as_deref().is_some_and(|pane| {
-                caller_pane_id.map_or(true, |caller| pane != caller)
-            })
+            && t.assigned_pane_id
+                .as_deref()
+                .is_some_and(|pane| caller_pane_id.map_or(true, |caller| pane != caller))
     })?;
     let handle = task
         .handle
@@ -290,11 +290,7 @@ mod tests {
     }
 
     fn make_plan(id: &str, tasks: Vec<crate::plan::Task>) -> Plan {
-        let mut plan = Plan::new(
-            "T".into(),
-            "/tmp/p".into(),
-            Default::default(),
-        );
+        let mut plan = Plan::new("T".into(), "/tmp/p".into(), Default::default());
         plan.id = id.into();
         plan.tasks = tasks;
         plan
@@ -317,7 +313,10 @@ mod tests {
         let hint = hint.unwrap();
         assert!(hint.contains("pl_1"), "should name the plan");
         assert!(hint.contains("plan-wave"), "should use the task handle");
-        assert!(hint.contains("route planning input"), "should be actionable");
+        assert!(
+            hint.contains("route planning input"),
+            "should be actionable"
+        );
     }
 
     #[test]
