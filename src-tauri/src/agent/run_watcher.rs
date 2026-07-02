@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::Deserialize;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 use crate::service::ServiceContext;
 
@@ -410,7 +410,7 @@ fn finish_run(svc: &ServiceContext, state: &RunState, success: bool, summary: St
                     store.unregister_pane(&state.pane_id);
                 }
                 let _ = svc.close_pane(&state.pane_id);
-                let _ = svc.app_handle.emit("cron-state-changed", ());
+                crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
             }
         }
     }

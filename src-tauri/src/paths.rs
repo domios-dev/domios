@@ -38,6 +38,11 @@ pub fn instance_suffix() -> String {
     }
 }
 
+/// True for debug/dev daemons — excluded from cross-machine resume targets.
+pub fn is_dev_instance() -> bool {
+    cfg!(debug_assertions)
+}
+
 /// Directory name for CodeTerm data (`~/.codeterm` or `~/.codeterm-dev[-<slug>]`).
 pub fn dir_name() -> String {
     #[cfg(debug_assertions)]

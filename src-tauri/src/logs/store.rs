@@ -5,7 +5,6 @@ use std::sync::{Arc, OnceLock};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use tauri::Emitter;
 
 const SCHEMA: &str = include_str!("schema.sql");
 const RING_CAP: usize = 1000;
@@ -163,7 +162,7 @@ impl LogStore {
                 "message": pending.message,
                 "context": context,
             });
-            let _ = handle.emit("logs-updated", payload);
+            crate::api::events::emit_everywhere(&handle, "logs-updated", payload);
         }
     }
 

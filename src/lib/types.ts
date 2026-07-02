@@ -153,6 +153,10 @@ export interface MultiplexerState {
    *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
    *  and group metadata. */
   recently_closed?: ClosedPaneView[];
+  /** Aggregate Idle/Working/Waiting/Dead per PTY-backed pane, mirrored from the
+   *  backend's live status tracker so the tab rail hydrates correctly on
+   *  reload instead of staying blank until the next status event. */
+  pane_statuses?: Record<string, PaneStatus>;
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_pane`). */

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use schema::{AppConfig, ThemeConfig};
 
@@ -468,8 +468,7 @@ pub async fn update_config(
     }
 
     // Emit config-changed event for live reload
-    app.emit("config-changed", &resolved)
-        .map_err(|e| format!("Failed to emit config-changed: {}", e))?;
+    crate::api::events::emit_everywhere(&app, "config-changed", &resolved);
     Ok(())
 }
 

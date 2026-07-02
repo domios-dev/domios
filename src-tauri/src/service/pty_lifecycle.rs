@@ -11,7 +11,6 @@
 use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tauri::Emitter;
 use tokio::task::JoinHandle;
 
 use super::ServiceState;
@@ -91,11 +90,6 @@ async fn backend_read_loop(
 ) {
     let mut first_byte_logged = false;
     loop {
-        let ob = svc.output_buf.clone();
-        let ss = svc.screen_state.clone();
-        let svc_for_watcher = svc.clone();
-        let pid = pty_id.clone();
-
         // Blocking read in a dedicated thread — same pattern as read_pty.
         let result = tokio::task::spawn_blocking(move || {
             let mut buf = vec![0u8; 8192];
@@ -104,14 +98,6 @@ async fn backend_read_loop(
                 return Err("EOF".to_string());
             }
             buf.truncate(n);
-
-            // Feed data into shared buffers (same as read_pty).
-            ob.lock().append(&pid, &buf);
-            ss.lock().process(&pid, &buf);
-            // Auto-complete watcher: detects {"type":"result"} events, idle, or timeout.
-            svc_for_watcher
-                .run_watcher
-                .feed(&*svc_for_watcher, &pid, &buf);
 
             Ok((buf, reader))
         })
@@ -154,23 +140,11 @@ async fn backend_read_loop(
                     }
                 }
 
-                let (prev, now) = svc.process_pty_output(&pty_id, &data);
+                let (prev, now) = svc.feed_pty_output(&pty_id, &data);
 
                 let _ = frontend_tx.try_send(data.clone());
 
-                if now != prev {
-                    let pane_id = svc.mux.read().pane_id_for_pty(&pty_id);
-                    if let Some(ref pid) = pane_id {
-                        crate::api::events::emit_everywhere(
-                            &svc.app_handle,
-                            "pane-status-changed",
-                            serde_json::json!({
-                                "pane_id": pid,
-                                "status": format!("{:?}", now),
-                            }),
-                        );
-                    }
-                }
+                svc.emit_pane_status_if_changed(&pty_id, prev, now);
             }
             Ok(Err(_e)) => {
                 // EOF — PTY closed.
@@ -236,7 +210,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str) {
                     job_id,
                     run_id
                 );
-                let _ = svc.app_handle.emit("cron-state-changed", ());
+                crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
             }
         }
 

@@ -71,11 +71,8 @@ export function PaneSessionChat({
   const touchMode = useTouchOptimizedUi();
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
-  const terminalTextRef = useRef<string | null>(null);
-  const terminalActiveTimerRef = useRef<number | null>(null);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
-  const [terminalActive, setTerminalActive] = useState(false);
   const [longIdle, setLongIdle] = useState(false);
   // Shows only when scrolled FAR up — the threshold keeps it clear of the
   // bottom-pinned agent indicator/composer, so it never overlaps streaming output.
@@ -94,6 +91,7 @@ export function PaneSessionChat({
   const paneProvider = pane?.agent_type ?? null;
   const agentSessionId = pane?.agent_session_id ?? null;
   const currentPtyId = pane?.pty_id ?? null;
+  const backendState = pane?.agent_state ?? null;
   const chatBacking = pane?.backing?.kind === "chat_backend" ? pane.backing : null;
   // Derive from live pane state so a restored chatBackend pane with a stale
   // prop (e.g. old snapshot defaulted backing to Pty before chatbackend fields
@@ -232,62 +230,17 @@ export function PaneSessionChat({
     return (paneRef: string): string | undefined => byShort.get(paneRef.slice(0, 8));
   }, [muxState.workspaces, muxState.panes]);
 
-  useEffect(() => {
-    if (!currentPtyId) {
-      terminalTextRef.current = null;
-      setTerminalActive(false);
-      return;
-    }
-    if (!isActive) {
-      setTerminalActive(false);
-      return;
-    }
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const text = await invoke<string>("get_pane_text", { paneId, formatted: false });
-        if (cancelled) return;
-        const previous = terminalTextRef.current;
-        terminalTextRef.current = text;
-        if (previous !== null && previous !== text) {
-          setTerminalActive(true);
-          if (terminalActiveTimerRef.current) {
-            window.clearTimeout(terminalActiveTimerRef.current);
-          }
-          terminalActiveTimerRef.current = window.setTimeout(() => {
-            setTerminalActive(false);
-            terminalActiveTimerRef.current = null;
-          }, 3_000);
-        }
-      } catch {
-        if (!cancelled) setTerminalActive(false);
-      }
-    };
-    void poll();
-    const id = window.setInterval(() => void poll(), 1_500);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-      if (terminalActiveTimerRef.current) {
-        window.clearTimeout(terminalActiveTimerRef.current);
-        terminalActiveTimerRef.current = null;
-      }
-    };
-  }, [currentPtyId, isActive, paneId]);
-
-  // Long-idle ('resting') nuance: once the pane has gone quiet — no terminal
+  // Long-idle ('resting') nuance: once the pane has gone quiet — no agent
   // activity, no open prompt — for a stretch, soften the indicator from
   // 'your turn' to a dormant treatment. Any activity resets it immediately.
   useEffect(() => {
-    if (terminalActive || pendingPrompt) {
+    if (backendState?.state === "working" || pendingPrompt) {
       setLongIdle(false);
       return;
     }
     const id = window.setTimeout(() => setLongIdle(true), 90_000);
     return () => window.clearTimeout(id);
-  }, [terminalActive, pendingPrompt]);
-
-  const backendState = pane?.agent_state ?? null;
+  }, [backendState?.state, pendingPrompt]);
 
   useEffect(() => {
     if (!scrollRef.current) return;
@@ -296,12 +249,10 @@ export function PaneSessionChat({
     }
   }, [allMessages, inlinePrompt?.question, backendState?.state]);
 
-  // Backend state engine is the source of truth (working / idle / question +
-  // subtype). Fall back to the terminal-activity heuristic only until the first
-  // classification arrives. `longIdle` stays frontend-timed and applies only
-  // while idle.
+  // Backend state engine is the sole source of truth (working / idle / question +
+  // subtype); it arrives via the mux snapshot and events, no local polling needed.
   const liveAgentState: AgentState = useMemo(() => {
-    const kind = backendState?.state ?? (terminalActive ? "working" : "idle");
+    const kind = backendState?.state ?? "idle";
     return {
       state: kind,
       subtype: backendState?.subtype,
@@ -309,7 +260,7 @@ export function PaneSessionChat({
       last_turn_summary: backendState?.last_turn_summary,
       phase: backendState?.phase,
       elapsed_ms: backendState?.elapsed_ms,
-      longIdle: kind === "idle" && !terminalActive && longIdle,
+      longIdle: kind === "idle" && longIdle,
     };
   }, [
     backendState?.state,
@@ -318,7 +269,6 @@ export function PaneSessionChat({
     backendState?.phase,
     backendState?.elapsed_ms,
     backendState?.subtype,
-    terminalActive,
     longIdle,
   ]);
 

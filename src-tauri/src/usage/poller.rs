@@ -3,7 +3,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use tauri::Emitter;
 
 use super::probe::UsageProbe;
 use super::store::UsageStoreHandle;
@@ -488,9 +487,7 @@ fn emit_event(svc: &ServiceContext, key: &AccountKey, snapshot_id: i64) {
         "account_id": key.account_id,
         "snapshot_id": snapshot_id,
     });
-    let _ = svc
-        .app_handle
-        .emit("usage-snapshot-updated", payload.clone());
+    crate::api::events::emit_everywhere(&svc.app_handle, "usage-snapshot-updated", &payload);
     svc.events.broadcast("usage-snapshot-updated", payload);
 }
 

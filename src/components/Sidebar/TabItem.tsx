@@ -21,6 +21,7 @@ import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { TabActivityIndicator } from "./TabActivityIndicator";
+import { TabStatusRail } from "./TabStatusRail";
 import { RoleIcon } from "./HierarchyTree";
 import type { PaneTabActivity } from "../Canvas/paneTabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
@@ -191,6 +192,10 @@ function TabItemInner({
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
     >
+      <TabStatusRail
+        status={status}
+        attention={status === "Waiting" || Boolean(pane?.pending_prompt)}
+      />
       {/* Active tab sliding pill indicator */}
       {isActive && (
         <div

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use mdns_sd::ServiceDaemon;
 
@@ -30,6 +31,7 @@ pub struct MeshManager {
     pub disk_persist: bool,
     pub seen_nonces: HashMap<String, u64>,
     pub peer_services: peer_services::PeerServicesCache,
+    pub user_last_activity: Arc<crate::user_last_activity::UserLastActivity>,
 }
 
 impl MeshManager {
@@ -68,6 +70,7 @@ impl MeshManager {
             disk_persist: true,
             seen_nonces: HashMap::new(),
             peer_services: peer_services::PeerServicesCache::default(),
+            user_last_activity: crate::user_last_activity::UserLastActivity::new(),
         }
     }
 
@@ -151,6 +154,8 @@ impl MeshManager {
                 })
                 .cloned()
                 .collect(),
+            local_last_active_ms: self.user_last_activity.read_for_gossip(),
+            local_dev: crate::paths::is_dev_instance(),
         }
     }
 
@@ -294,20 +299,36 @@ impl MeshManager {
 
     // ── Sync & transport ────────────────────────────────────────────
 
-    pub fn build_sync_payload(&self) -> types::MeshSyncPayload {
-        types::MeshSyncPayload {
-            peers: self
-                .paired_peers
-                .values()
-                .map(|p| types::GossipPeerInfo {
-                    instance_id: p.instance_id.clone(),
-                    instance_name: p.instance_name.clone(),
-                    addresses: p.addresses.clone(),
-                    api_port: p.api_port,
-                    dev: false,
-                })
-                .collect(),
+    pub fn apply_gossip_peer_info(&mut self, info: &types::GossipPeerInfo) {
+        if let Some(p) = self.paired_peers.get_mut(&info.instance_id) {
+            p.last_active_ms = if info.dev { None } else { info.last_active_ms };
         }
+    }
+
+    pub fn build_sync_payload(&self) -> types::MeshSyncPayload {
+        let is_dev = crate::paths::is_dev_instance();
+        let self_last = self.user_last_activity.read_for_gossip();
+        let mut peers: Vec<types::GossipPeerInfo> = self
+            .paired_peers
+            .values()
+            .map(|p| types::GossipPeerInfo {
+                instance_id: p.instance_id.clone(),
+                instance_name: p.instance_name.clone(),
+                addresses: p.addresses.clone(),
+                api_port: p.api_port,
+                dev: false,
+                last_active_ms: p.last_active_ms,
+            })
+            .collect();
+        peers.push(types::GossipPeerInfo {
+            instance_id: self.ident.identity.instance_id.clone(),
+            instance_name: self.ident.instance_name.clone(),
+            addresses: self.local_announce_addresses(),
+            api_port: self.api_port,
+            dev: is_dev,
+            last_active_ms: self_last,
+        });
+        types::MeshSyncPayload { peers }
     }
 
     pub fn broadcast_clients(&self) -> Vec<transport::PeerClient> {
@@ -493,7 +514,43 @@ mod liveness_tests {
             version: None,
             https_url: None,
             consecutive_misses: 0,
+            last_active_ms: None,
         }
+    }
+
+    #[test]
+    fn build_sync_payload_includes_self_last_active() {
+        let mesh = MeshManager::new("local".into(), 7685);
+        mesh.user_last_activity.mark();
+        let payload = mesh.build_sync_payload();
+        let self_entry = payload
+            .peers
+            .iter()
+            .find(|p| p.instance_id == mesh.ident.identity.instance_id)
+            .expect("self in gossip");
+        assert!(!self_entry.dev || cfg!(debug_assertions));
+        if cfg!(debug_assertions) {
+            assert_eq!(self_entry.last_active_ms, None);
+        } else {
+            assert!(self_entry.last_active_ms.is_some());
+        }
+    }
+
+    #[test]
+    fn apply_gossip_peer_info_updates_last_active() {
+        let mut mesh = MeshManager::new("local".into(), 7685);
+        mesh.disk_persist = false;
+        mesh.paired_peers
+            .insert("peer-1".into(), paired_peer("peer-1"));
+        mesh.apply_gossip_peer_info(&types::GossipPeerInfo {
+            instance_id: "peer-1".into(),
+            instance_name: "peer".into(),
+            addresses: vec![types::PeerAddress::from_ip("100.64.1.9")],
+            api_port: 7685,
+            dev: false,
+            last_active_ms: Some(42_000),
+        });
+        assert_eq!(mesh.paired_peers["peer-1"].last_active_ms, Some(42_000));
     }
 
     #[test]
@@ -678,6 +735,7 @@ mod tests {
             version: None,
             https_url: None,
             consecutive_misses: 0,
+            last_active_ms: None,
         };
         m.paired_peers.insert(peer_id.into(), peer);
         m
@@ -859,6 +917,7 @@ mod tests {
             version: None,
             https_url: None,
             consecutive_misses: 0,
+            last_active_ms: None,
         };
         m.paired_peers.insert("peer-A".into(), peer);
 

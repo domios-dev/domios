@@ -2,6 +2,7 @@
 
 use super::ServiceContext;
 use crate::multiplexer::types::TitleLevel;
+use crate::service::session_persist::{self, SessionPersistUrgency};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const MAX_PANE_DESCRIPTION_CHARS: usize = 200;
@@ -62,6 +63,7 @@ impl ServiceContext {
         self.mux.write().rename_pane(pane_id, title)?;
         self.emit_pane_title_pinned(pane_id, title);
         self.emit_state_changed();
+        session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(())
     }
 
@@ -83,6 +85,7 @@ impl ServiceContext {
     }
 
     pub fn focus_pane(&self, pane_id: &str) -> Result<(), String> {
+        self.user_last_activity.mark();
         focus_pane_hot_path(
             &self.mux,
             pane_id,

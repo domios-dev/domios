@@ -5,7 +5,7 @@ import type {
   GraphWorkerInfo,
   SpawnWorkerReq,
 } from "../../lib/types";
-import { baseUrl, authHeaders, jsonHeaders, isTauriEnv } from "./memoryApi";
+import { baseUrl, authHeaders, jsonHeaders } from "./memoryApi";
 
 const POLL_INTERVAL_MS = 3000;
 // Safety-net poll for missed worker events (orphan cleanup/races).
@@ -64,31 +64,27 @@ export function useGraphWorkers(api: ApiConfig): UseGraphWorkersResult {
     refresh();
 
     const setup = async () => {
-      if (isTauriEnv()) {
-        try {
-          const names = [
-            "graph-worker-spawned",
-            "graph-worker-progress",
-            "graph-worker-reported",
-            "graph-worker-done",
-          ];
-          for (const name of names) {
-            const fn = await listen<GraphWorkerInfo>(name, (ev) => {
-              if (!activeRef.current) return;
-              upsert(ev.payload);
-            });
-            if (!activeRef.current) {
-              fn();
-              return;
-            }
-            unlisteners.push(fn);
+      try {
+        const names = [
+          "graph-worker-spawned",
+          "graph-worker-progress",
+          "graph-worker-reported",
+          "graph-worker-done",
+        ];
+        for (const name of names) {
+          const fn = await listen<GraphWorkerInfo>(name, (ev) => {
+            if (!activeRef.current) return;
+            upsert(ev.payload);
+          });
+          if (!activeRef.current) {
+            fn();
+            return;
           }
-          // Run safety-net poll even when events are wired — daemon restart orphan cleanup doesn't emit events, missed events happen, etc.
-          startSafetyPolling();
-        } catch {
-          startPolling();
+          unlisteners.push(fn);
         }
-      } else {
+        // Run safety-net poll even when events are wired — daemon restart orphan cleanup doesn't emit events, missed events happen, etc.
+        startSafetyPolling();
+      } catch {
         startPolling();
       }
     };

@@ -5,6 +5,7 @@ import { CloseXIcon } from "../Icons";
 import logoUrl from "../../assets/logo.png";
 
 import { isMac } from "../../lib/keybindings";
+import { IS_WEB } from "../../lib/webApi";
 import { UI_BUTTON, UI_TRAY_DIVIDER } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
@@ -41,7 +42,7 @@ export function Titlebar({
   void _theme;
   void _onToggleSidebar;
   // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
-  const isTauri = "__TAURI_INTERNALS__" in window;
+  const isTauri = !IS_WEB;
   const appWindow = isTauri ? getCurrentWindow() : null;
   const handleMinimize = useCallback(() => appWindow?.minimize(), [appWindow]);
   const handleMaximize = useCallback(() => appWindow?.toggleMaximize(), [appWindow]);
