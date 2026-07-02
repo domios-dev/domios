@@ -583,9 +583,24 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
         .iter()
         .any(|hit| { hit.unit_id == task_id && hit.scope == project_scope(&main) }));
 
+    delete_plan_units(&loaded).unwrap();
+    let deleted_hits = store
+        .search_plan_index(
+            &linked,
+            &search::SearchQuery {
+                query: "unique linked worktree recall phrase".into(),
+                kind: Some("task".into()),
+                limit: Some(5),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(deleted_hits.is_empty());
+
     let reindex = store.reindex_project_index(&linked).unwrap();
     assert_eq!(reindex.project, main_root.display().to_string());
     assert_eq!(reindex.scope, project_scope(&main));
+    assert_eq!(reindex.plans, 1);
 }
 
 #[test]

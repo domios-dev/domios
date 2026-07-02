@@ -142,8 +142,7 @@ pub fn normalize_plan_paths(plan: &mut crate::plan::Plan, root_path: &Path) {
     if plan.canonical_project_path.trim().is_empty() {
         plan.canonical_project_path = root;
     } else {
-        let canonical = project_root(Path::new(&plan.canonical_project_path));
-        plan.canonical_project_path = canonical.display().to_string();
+        plan.canonical_project_path = normalize_canonical_home(&plan.canonical_project_path, &root);
     }
 }
 
@@ -153,8 +152,16 @@ pub fn normalize_spec_paths(spec: &mut crate::plan::Spec, root_path: &Path) {
     if spec.canonical_project_path.trim().is_empty() {
         spec.canonical_project_path = root;
     } else {
-        let canonical = project_root(Path::new(&spec.canonical_project_path));
-        spec.canonical_project_path = canonical.display().to_string();
+        spec.canonical_project_path = normalize_canonical_home(&spec.canonical_project_path, &root);
+    }
+}
+
+fn normalize_canonical_home(raw: &str, fallback: &str) -> String {
+    let path = Path::new(raw);
+    if path.is_dir() {
+        project_root(path).display().to_string()
+    } else {
+        fallback.to_string()
     }
 }
 
