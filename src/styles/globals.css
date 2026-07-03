@@ -2004,13 +2004,6 @@ button,
   flex-shrink: 0;
   color: var(--ct-muted-fg);
 }
-.plan-list-group-glyph {
-  flex-shrink: 0;
-  width: 0.9rem;
-  font-size: 0.7rem;
-  text-align: center;
-  color: var(--ct-muted-fg);
-}
 .plan-list-group-title {
   min-width: 0;
   overflow: hidden;
@@ -2073,14 +2066,30 @@ button,
   font-size: 0.78rem;
   line-height: 1.3;
 }
-.plan-list-status-word {
+.plan-list-belonging-chip {
   flex-shrink: 0;
+  max-width: 9.5rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.06rem 0.35rem;
+  border: 1px solid color-mix(in srgb, var(--ct-border) 45%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
   font-size: 0.64rem;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
   color: var(--ct-muted-fg);
-  opacity: 0.65;
+  opacity: 0.58;
+  cursor: pointer;
+}
+.plan-list-belonging-chip:hover,
+.plan-list-belonging-chip:focus-visible {
+  opacity: 0.9;
+  outline: none;
+  border-color: color-mix(in srgb, var(--ct-border) 80%, transparent);
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
 }
 .plan-list-exec {
   min-width: 0;
