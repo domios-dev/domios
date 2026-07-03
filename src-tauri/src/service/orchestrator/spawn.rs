@@ -1,6 +1,8 @@
-use super::launch::{build_agent_command, launch_agent_in_background, role_onboarding_task, skip_local_worker_role};
+use super::launch::{
+    build_agent_command, launch_agent_in_background, role_onboarding_task, skip_local_worker_role,
+};
 use super::types::{SpawnAgentParams, SpawnResult};
-use super::ServiceContext;
+use crate::service::{spawn_title, ServiceContext};
 use tauri::Manager;
 
 impl ServiceContext {
@@ -61,7 +63,7 @@ impl ServiceContext {
         mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
-        params.title = super::spawn_title::normalize_agent_title(params.title.take());
+        params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile();
         let role = params.role.clone();
         let role_profile = params.role_profile.clone();
@@ -102,7 +104,7 @@ impl ServiceContext {
         mut params: SpawnAgentParams,
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> Result<SpawnResult, String> {
-        params.title = super::spawn_title::normalize_agent_title(params.title.take());
+        params.title = spawn_title::normalize_agent_title(params.title.take());
         params.normalize_role_profile();
         let default_provider = crate::config::default_agent_provider();
         let agent_cmd = params

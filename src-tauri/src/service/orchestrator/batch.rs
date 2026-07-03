@@ -1,5 +1,5 @@
 use super::types::{BatchOp, SpawnAgentParams};
-use super::{json_str, resolve_refs, ServiceContext};
+use crate::service::{json_str, resolve_refs, ServiceContext};
 
 impl ServiceContext {
     /// Execute a batch of commands sequentially. Supports $ref resolution.

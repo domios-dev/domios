@@ -5,11 +5,9 @@ mod launch;
 mod spawn;
 mod types;
 
-pub use launch::{
-    build_agent_command, initial_task_delivery_confirmed, launch_agent_in_background,
-    role_onboarding_task, skip_local_worker_role, AgentLaunchParams, AgentRegistry,
-    ReadinessStrategy, TaskDelivery,
-};
+pub(crate) use launch::{build_agent_command, launch_agent_in_background, role_onboarding_task};
+#[cfg(test)]
+pub(crate) use launch::{initial_task_delivery_confirmed, skip_local_worker_role, AgentRegistry};
 pub use types::{BatchOp, SpawnAgentParams, SpawnResult};
 
 #[cfg(test)]

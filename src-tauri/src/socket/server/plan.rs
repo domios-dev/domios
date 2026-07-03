@@ -1,6 +1,5 @@
 use super::plan_fields::{groups_from_csv, kinds_from_csv, tag_facets_field};
-use super::plan_lane_fields::lane_metadata_field;
-use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
+use super::plan_linking::{owner_from_params, tags_field};
 use super::plan_refs;
 use super::{get_string_param, JsonRpcError};
 use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef};
@@ -181,7 +180,6 @@ pub(super) fn dispatch(
             }
             Ok(json!({ "plans": entries }))
         }
-
 
         "plan.update" => {
             let id = plan_refs::resolve_plan(store, params)?;
@@ -452,7 +450,6 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
-
 
         _ => Err(JsonRpcError {
             code: -32601,

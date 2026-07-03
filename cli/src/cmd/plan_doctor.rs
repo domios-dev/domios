@@ -8,9 +8,9 @@ mod cleanup;
 mod inspect;
 mod quality;
 
-pub(crate) use inspect::inspect_plan;
-pub(crate) use inspect::inspect_stray_sidecars;
-pub(crate) use quality::inspect_task_lifecycle;
+use inspect::inspect_plan;
+use inspect::inspect_stray_sidecars;
+use quality::inspect_task_lifecycle;
 
 // Mirrors src-tauri/src/plan/reconcile.rs PENDING_UNSTAFFED_STALE_MS.
 pub(super) const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
@@ -177,7 +177,6 @@ fn doctor_report(
         "findings": findings.iter().map(Finding::json).collect::<Vec<_>>(),
     }))
 }
-
 
 pub(super) fn plan_id(plan: &Value, path: &Path) -> Option<String> {
     plan_id_from(plan, path)

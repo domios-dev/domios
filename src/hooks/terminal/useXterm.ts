@@ -12,9 +12,10 @@ import { shouldEnableXtermA11yMode } from "./xtermTestMode";
 
 // Playwright harness (`/?a11y=1`) can enable xterm screen-reader mode.
 // Production ignores VITE_CODETERM_TEST to avoid accidental renderer disable.
+const viteEnv = import.meta.env ?? {};
 const E2E_TEST_MODE = shouldEnableXtermA11yMode({
-  isViteDev: import.meta.env.DEV,
-  viteCodeTermTest: import.meta.env.VITE_CODETERM_TEST,
+  isViteDev: viteEnv.DEV,
+  viteCodeTermTest: viteEnv.VITE_CODETERM_TEST,
   locationSearch: typeof window !== "undefined" ? window.location.search : "",
 });
 
