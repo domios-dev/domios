@@ -266,6 +266,8 @@ mod tests {
             test_plan: None,
             correctness: None,
             status,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: crate::plan::TaskPriority::P2,
             created_at: 0,

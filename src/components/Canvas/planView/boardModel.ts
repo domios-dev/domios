@@ -5,6 +5,7 @@ import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import { TaskStatus, type Milestone, type Plan, type Section, type Task, type TaskStatus as TaskStatusType } from "../types";
+import { qaChipText } from "./taskQa";
 
 export const BOARD_COLUMN_DEFS = [
   { key: "pending", label: "Pending", statuses: [TaskStatus.Pending] as TaskStatusType[] },
@@ -53,6 +54,7 @@ export interface BoardTaskCardModel {
   roleLabel: string | null;
   branch: string | null;
   activityHint: BoardActivityHint | null;
+  qaChip: string | null;
   focusMatch: boolean;
 }
 
@@ -139,6 +141,7 @@ function buildTaskCard(
     activityHint: milestone
       ? { kind: milestone.kind.replace(/[_-]+/g, " "), ageLabel: formatRelativeAge(milestone.ts, now) }
       : null,
+    qaChip: qaChipText(plan, task),
     focusMatch: focusMatches(plan, task, paneId),
   };
 }

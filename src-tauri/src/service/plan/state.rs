@@ -4,7 +4,9 @@ use serde::Serialize;
 
 use crate::plan::coverage::{compute_coverage_report, CoverageReport};
 use crate::plan::reconcile::DriftItem;
-use crate::plan::{Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, TaskStatus};
+use crate::plan::{
+    Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, QaState, ReviewStage, TaskStatus,
+};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
@@ -60,6 +62,9 @@ pub struct LoopSnapshot {
 pub struct HeartbeatSnapshot {
     pub current_focus: Option<String>,
     pub active_lanes: Vec<String>,
+    pub qa_queued: usize,
+    pub qa_running_task_id: Option<String>,
+    pub qa_running_age_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -68,6 +73,8 @@ pub struct OpenLane {
     pub name: String,
     pub status: TaskStatus,
     pub executor_role: Option<String>,
+    pub review_stage: ReviewStage,
+    pub qa_state: Option<QaState>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -238,6 +245,7 @@ pub fn build_plan_state_snapshot(
     coverage: CoverageReport,
     drift: Vec<DriftItem>,
     live_agent_panes: &HashSet<String>,
+    now_ms: u64,
 ) -> PlanStateSnapshot {
     let counts = task_counts(plan);
     let pct = percent_done(&counts);
@@ -251,6 +259,8 @@ pub fn build_plan_state_snapshot(
             name: t.name.clone(),
             status: t.status.clone(),
             executor_role: t.executor_role.clone(),
+            review_stage: t.review_stage.clone(),
+            qa_state: t.qa_state.clone(),
         })
         .collect();
 
@@ -263,8 +273,24 @@ pub fn build_plan_state_snapshot(
             name: t.name.clone(),
             status: t.status.clone(),
             executor_role: t.executor_role.clone(),
+            review_stage: t.review_stage.clone(),
+            qa_state: t.qa_state.clone(),
         })
         .collect();
+    let qa_queued = plan
+        .tasks
+        .iter()
+        .filter(|task| {
+            task.status == TaskStatus::InReview
+                && task.review_stage == ReviewStage::Qa
+                && task.qa_state == Some(QaState::Queued)
+        })
+        .count();
+    let qa_running = plan.tasks.iter().find(|task| {
+        task.status == TaskStatus::InReview
+            && task.review_stage == ReviewStage::Qa
+            && task.qa_state == Some(QaState::Running)
+    });
 
     let live_agents = plan
         .tasks
@@ -317,6 +343,9 @@ pub fn build_plan_state_snapshot(
         heartbeat: HeartbeatSnapshot {
             current_focus: plan.heartbeat.current_focus.clone(),
             active_lanes: plan.heartbeat.active_lanes.clone(),
+            qa_queued,
+            qa_running_task_id: qa_running.map(|task| task.id.clone()),
+            qa_running_age_ms: qa_running.map(|task| now_ms.saturating_sub(task.status_changed_at)),
         },
         open_lanes,
         blocked_lanes,
@@ -355,6 +384,7 @@ impl ServiceContext {
             coverage,
             drift,
             &live_panes,
+            now_ms,
         ))
     }
 }
@@ -402,6 +432,8 @@ mod tests {
             test_plan: None,
             correctness: None,
             status,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: Default::default(),
             created_at: 0,
@@ -476,7 +508,7 @@ mod tests {
         }];
         let live: HashSet<String> = ["pane_live".to_string()].into_iter().collect();
 
-        let snap = build_plan_state_snapshot(&plan, coverage, drift, &live);
+        let snap = build_plan_state_snapshot(&plan, coverage, drift, &live, 1);
 
         assert_eq!(snap.task_counts.total, 5);
         assert_eq!(snap.task_counts.done, 1);
@@ -529,7 +561,7 @@ mod tests {
             .map(|i| milestone(&format!("k{i}"), i as u64))
             .collect();
         let coverage = compute_coverage_report(&plan);
-        let snap = build_plan_state_snapshot(&plan, coverage, vec![], &HashSet::new());
+        let snap = build_plan_state_snapshot(&plan, coverage, vec![], &HashSet::new(), 1);
         assert_eq!(snap.recent_strides.len(), RECENT_STRIDE_LIMIT);
         assert_eq!(snap.recent_strides[0].id, "k14");
         assert_eq!(snap.recent_strides[9].id, "k5");
@@ -540,7 +572,7 @@ mod tests {
         let plan = fixture();
         let before = plan.clone();
         let coverage = compute_coverage_report(&plan);
-        let _ = build_plan_state_snapshot(&plan, coverage, vec![], &HashSet::new());
+        let _ = build_plan_state_snapshot(&plan, coverage, vec![], &HashSet::new(), 1);
         assert_eq!(plan, before);
     }
 }

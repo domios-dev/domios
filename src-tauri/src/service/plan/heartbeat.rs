@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::readback::pending_after_readback;
 use super::{PlanError, PlanStore};
 use crate::plan::{
     HeartbeatLearning, LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus,
+    QaState, ReviewStage, TaskStatus,
 };
 
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
@@ -24,6 +26,13 @@ pub struct HeartbeatShowResult {
 
 fn gen_id() -> String {
     crate::plan::ids::short_id("learn")
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or_default()
 }
 
 fn normalized_learning(text: &str) -> String {
@@ -78,11 +87,37 @@ fn render_running_loops(loops: &[LoopSpec], out: &mut String) {
     }
 }
 
-fn render_heartbeat(
-    plan_id: &str,
-    heartbeat: &OrchestratorHeartbeat,
-    loops: &[LoopSpec],
-) -> String {
+fn render_qa_queue(plan: &Plan, out: &mut String) {
+    let queued = plan
+        .tasks
+        .iter()
+        .filter(|task| {
+            task.status == TaskStatus::InReview
+                && task.review_stage == ReviewStage::Qa
+                && task.qa_state == Some(QaState::Queued)
+        })
+        .count();
+    let running = plan.tasks.iter().find(|task| {
+        task.status == TaskStatus::InReview
+            && task.review_stage == ReviewStage::Qa
+            && task.qa_state == Some(QaState::Running)
+    });
+    if queued == 0 && running.is_none() {
+        return;
+    }
+    out.push_str("QA queue:\n");
+    out.push_str(&format!("- queued: {queued}\n"));
+    if let Some(task) = running {
+        let age_ms = now_ms().saturating_sub(task.status_changed_at);
+        out.push_str(&format!(
+            "- running: {} ({}) age_ms={age_ms}\n",
+            task.id, task.name
+        ));
+    }
+}
+
+fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[LoopSpec]) -> String {
+    let plan_id = &plan.id;
     let has_focus = heartbeat
         .current_focus
         .as_deref()
@@ -99,7 +134,12 @@ fn render_heartbeat(
     let has_running_loops = loops
         .iter()
         .any(|loop_spec| loop_spec.status == LoopStatus::Running);
-    if !has_focus && !has_lanes && !has_rules && !has_learnings && !has_running_loops {
+    let has_qa = plan.tasks.iter().any(|task| {
+        task.status == TaskStatus::InReview
+            && task.review_stage == ReviewStage::Qa
+            && task.qa_state.is_some()
+    });
+    if !has_focus && !has_lanes && !has_rules && !has_learnings && !has_running_loops && !has_qa {
         return String::new();
     }
     let mut out = format!("<codeterm-orchestrator-heartbeat plan=\"{plan_id}\">\n");
@@ -132,6 +172,7 @@ fn render_heartbeat(
             out.push('\n');
         }
     }
+    render_qa_queue(plan, &mut out);
     render_running_loops(loops, &mut out);
     out.push_str("</codeterm-orchestrator-heartbeat>");
     out
@@ -153,11 +194,13 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
          - First run `{reports}` and process queued reports before inspecting panes.\n\
          - Pull the full plan-owned snapshot with `{status}`.\n\
          - Reconcile live panes against the plan with `codeterm plan reconcile {plan_id}`.\n\
+         - {} \n\
          - Parallelize independent writer lanes, but serialize broad/heavy gates in one warm integration checkout so worker worktrees do not all rebuild/test at once.\n\
          - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\
          - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
          - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\
-         - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`."
+         - Keep the plan-owned heartbeat current with `codeterm orchestrator heartbeat set --plan {plan_id} --focus \"<now>\" --lane \"<active-lane>\"`.",
+        crate::prompts::QA_PIPELINE_DISCIPLINE.trim()
     )
 }
 
@@ -168,7 +211,13 @@ fn prepend_heartbeat(
     text: &str,
     pane_id: Option<&str>,
 ) -> String {
-    let block = render_heartbeat(plan_id, heartbeat, loops);
+    let plan = Plan {
+        id: plan_id.to_string(),
+        heartbeat: heartbeat.clone(),
+        loops: loops.to_vec(),
+        ..Plan::new(String::new(), String::new(), Default::default())
+    };
+    let block = render_heartbeat(&plan, heartbeat, loops);
     let prompt = reconciliation_prompt(plan_id, pane_id);
     let reconciliation = format!(
         "<codeterm-state-reconciliation plan=\"{plan_id}\">\n{prompt}\n</codeterm-state-reconciliation>"
@@ -186,13 +235,22 @@ fn prepend_heartbeat(
 }
 
 pub(super) fn prepend_plan_heartbeat(plan: &Plan, text: &str) -> String {
-    prepend_heartbeat(
-        &plan.id,
-        &plan.heartbeat,
-        &plan.loops,
-        text,
-        plan.owner.pane_id.as_deref(),
-    )
+    let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops);
+    let prompt = reconciliation_prompt(&plan.id, plan.owner.pane_id.as_deref());
+    let reconciliation = format!(
+        "<codeterm-state-reconciliation plan=\"{}\">\n{prompt}\n</codeterm-state-reconciliation>",
+        plan.id
+    );
+    let prelude = if block.is_empty() {
+        reconciliation
+    } else {
+        format!("{reconciliation}\n\n{block}")
+    };
+    if text.trim().is_empty() {
+        prelude
+    } else {
+        format!("{prelude}\n\n{text}")
+    }
 }
 
 pub(super) fn prepend_heartbeat_snapshot(
@@ -374,7 +432,7 @@ impl PlanStore {
         let plan = self.get(&plan_id).ok_or(PlanError::NotFound)?;
         Ok(HeartbeatShowResult {
             plan_id: plan.id.clone(),
-            reinjection: render_heartbeat(&plan.id, &plan.heartbeat, &plan.loops),
+            reinjection: render_heartbeat(&plan, &plan.heartbeat, &plan.loops),
             heartbeat: plan.heartbeat,
         })
     }

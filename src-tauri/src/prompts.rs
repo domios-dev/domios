@@ -9,8 +9,11 @@ pub const WORKER_SUFFIX: &str = include_str!("../prompts/worker_suffix.md");
 /// Shared worker testing discipline fragment.
 pub const TESTING_DISCIPLINE: &str = include_str!("../prompts/testing_discipline.md");
 
+/// Shared QA queue discipline fragment.
+pub const QA_PIPELINE_DISCIPLINE: &str = include_str!("../prompts/qa_pipeline_discipline.md");
+
 pub fn worker_suffix() -> String {
-    format!("{TESTING_DISCIPLINE}\n{WORKER_SUFFIX}")
+    format!("{TESTING_DISCIPLINE}\n{QA_PIPELINE_DISCIPLINE}\n{WORKER_SUFFIX}")
 }
 
 /// Appended to Planner-profile Worker tasks.
@@ -107,6 +110,7 @@ mod tests {
         assert!(WORKER_SUFFIX.contains("BUILD/TYPECHECK/TESTS:"));
         assert!(!TESTING_DISCIPLINE.trim().is_empty());
         assert!(worker_suffix().contains(TESTING_DISCIPLINE.trim()));
+        assert!(worker_suffix().contains(QA_PIPELINE_DISCIPLINE.trim()));
         assert!(BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("{general_dir}/bootstrap.md"));
         assert!(!BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("rm bootstrap.md"));
         assert!(BRIDGE_MEM.contains("provider skill named `codeterm`"));

@@ -25,6 +25,9 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::TaskCreationRequiresApproval
         | PlanError::HeartbeatRequiresExecution
         | PlanError::ParkRequiresReason
+        | PlanError::QaNoteRequired
+        | PlanError::QaSlotUnavailable
+        | PlanError::QaNotRunning
         | PlanError::UndeclaredKind { .. }
         | PlanError::OpenSubtasks { .. }
         | PlanError::TransitionDenied { .. }

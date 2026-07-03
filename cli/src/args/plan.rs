@@ -245,6 +245,11 @@ pub enum PlanAction {
         #[command(subcommand)]
         action: PlanMilestoneAction,
     },
+    /// Serialized QA queue for in_review tasks
+    Qa {
+        #[command(subcommand)]
+        action: PlanQaAction,
+    },
     /// Canvas layout overrides
     Layout {
         #[command(subcommand)]
@@ -672,6 +677,40 @@ pub enum PlanMilestoneAction {
         plan_id: String,
         task_id: String,
         milestone_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PlanQaAction {
+    /// Show the plan QA queue, or enqueue one in_review task with --task
+    Queue {
+        plan_id: Option<String>,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        note: Option<String>,
+    },
+    /// Show the next queued QA task, or claim it as the running tester
+    Next {
+        plan_id: Option<String>,
+        #[arg(long)]
+        claim: bool,
+        #[arg(long, allow_hyphen_values = true)]
+        note: Option<String>,
+    },
+    /// Mark QA passed and close the task
+    Pass {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
+    },
+    /// Mark QA failed, bounce to in_progress, and nudge the implementer
+    Fail {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
     },
 }
 

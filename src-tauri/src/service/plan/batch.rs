@@ -352,6 +352,7 @@ impl PlanStore {
                                         task.status = status;
                                         task.status_changed_at = now_ms;
                                     }
+                                    super::qa::normalize_task_review_fields(task);
                                 }
                                 if let Some(body) = body {
                                     task.body = body;
@@ -386,6 +387,8 @@ impl PlanStore {
                                         .map(parse_status)
                                         .transpose()?
                                         .unwrap_or(TaskStatus::Pending),
+                                    review_stage: Default::default(),
+                                    qa_state: None,
                                     status_label: None,
                                     priority: priority
                                         .as_deref()
@@ -490,6 +493,7 @@ impl PlanStore {
                                 task.status = parsed;
                                 task.status_changed_at = now_ms;
                             }
+                            super::qa::normalize_task_review_fields(task);
                             task.updated_at = now_ms;
                             if let Some(client_id) = client_id {
                                 result.ids.insert(client_id, task.id.clone());

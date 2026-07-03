@@ -6,6 +6,7 @@ import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { PlanDetailKind } from "../planView/PlanDetailOverlay";
+import { qaChipText, taskStatusText } from "../planView/taskQa";
 import { GLYPH_ACCENT, specCoverage } from "./cardContent";
 
 // The READ surface body for the detail overlay. Plain (no section tint) — structure
@@ -148,10 +149,11 @@ function TaskDetail({
   const historical = historicalExecutorForTask(task, panes, false);
   const paneId = task.assigned_pane_id?.trim() || null;
   const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
+  const qaChip = plan ? qaChipText(plan, task) : task.review_stage === "qa" ? `In QA · ${task.qa_state ?? "queued"}` : null;
   return (
     <div style={wrap} data-testid="canvas-detail-content">
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <Chip label="status" value={task.status_label?.trim() || task.status.replace(/_/g, " ")} color={TASK_STATUS_COLORS[task.status]} />
+        <Chip label="status" value={qaChip ?? (task.status_label?.trim() || task.status.replace(/_/g, " "))} color={TASK_STATUS_COLORS[task.status]} />
         {task.priority && <Chip label="priority" value={task.priority.toUpperCase()} />}
         {task.type && <Chip label="type" value={task.type} />}
         {onOpenPane && paneId && (

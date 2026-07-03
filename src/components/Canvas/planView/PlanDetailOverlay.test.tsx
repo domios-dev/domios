@@ -55,6 +55,15 @@ test("renders task detail body", async () => {
   assert(host.querySelector('[data-testid="canvas-detail-content"]'), "task body");
 });
 
+test("renders in-QA chip in task detail", async () => {
+  const task: Task = { ...FIXTURE_TASK, status: TaskStatus.InReview, review_stage: "qa", qa_state: "queued" };
+  const plan: Plan = { ...FIXTURE_PLAN, tasks: [task] };
+  const { host } = await render(
+    <PlanDetailOverlay kind="task" task={task} plan={plan} onClose={() => {}} />,
+  );
+  assert(host.textContent?.includes("In QA · queued #1"), "qa detail chip");
+});
+
 test("renders plan detail with progress", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,

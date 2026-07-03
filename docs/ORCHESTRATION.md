@@ -141,8 +141,16 @@ reconciliation, handoffs, and cleanup.
 Worker lanes normally end this way:
 
 1. Worker reports `in_review`.
-2. Orchestrator inspects the lane diff and gates it in the integration checkout.
-3. Orchestrator integrates the lane using the smallest history shape that still
+2. Orchestrator enqueues QA when the lane needs serialized verification:
+   `codeterm plan qa queue PLAN_ID --task TASK_ID --note "<scope>"`.
+3. A tester claims exactly one queued item:
+   `codeterm plan qa next PLAN_ID --claim --note "<scope>"`. Claim output
+   includes the task test plan.
+4. The tester records the verdict with evidence:
+   `codeterm plan qa pass PLAN_ID TASK_ID --note "<evidence>"` closes the task;
+   `codeterm plan qa fail PLAN_ID TASK_ID --note "<failure>"` bounces it to
+   `in_progress` and nudges the implementing worker.
+5. Orchestrator integrates the lane using the smallest history shape that still
    preserves useful review context:
    - **Single-task lane, one clean commit:** default to `cherry-pick` onto the
      integration branch. This keeps the main history linear and makes revert
@@ -152,8 +160,15 @@ Worker lanes normally end this way:
      after rebasing it onto the integration head.
    - **Overlapping local edits already exist in the integration checkout:** use a
      careful patch/application flow and inspect every hunk.
-4. Orchestrator marks the task `done`, closes the worker pane, removes the clean
+6. Orchestrator closes the worker pane, removes the clean
    worktree, and sets `--cleanup-status done`.
+
+QA is still part of the `in_review` lifecycle. The persisted task keeps
+`review_stage=qa` plus `qa_state=queued|running` only while its status is
+`in_review`; leaving review clears both fields. Every enqueue, claim, pass, and
+fail writes a `qa` milestone in the same atomic plan write as the state change,
+so there is no stage-without-evidence state. `codeterm plan qa queue PLAN_ID`
+shows the serialized queue.
 
 Do not treat cherry-pick as mandatory. It is the fast path for the common
 one-worker/one-commit lane. Preserve branch history when that history carries
@@ -378,6 +393,10 @@ warm integration checkout, serializes broad gates: repo-wide compile, full test
 suites, UI/e2e sweeps, packaging, release, and any other expensive verification.
 If a lane needs a heavy gate, record it as pending central verification instead
 of making several worktrees verify the whole system at once.
+
+The QA queue is the enforcement mechanism for those central gates. Only one QA
+task runs per plan by default, so the warm checkout stays hot and the machine
+does not thrash across identical broad builds.
 
 ```bash
 codeterm orchestrator heartbeat set \

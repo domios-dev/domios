@@ -4,6 +4,7 @@ import { flattenSections } from "../sectionRows";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import type { Milestone, Plan, Task, TaskStatus } from "../types";
+import { qaChipText } from "./taskQa";
 
 export type PlanListRowKind = "plan-section" | "unsectioned" | "task" | "subtask";
 
@@ -15,6 +16,7 @@ export interface PlanListRow {
   title: string;
   status?: TaskStatus;
   statusLabel?: string;
+  qaChip?: string;
   taskCount?: number;
   doneCount?: number;
   allTasksDone?: boolean;
@@ -84,6 +86,7 @@ function buildTaskRow(
     status: task.status,
     statusLabel: statusText(task),
     sectionTitle: sectionTitle(task, sectionById),
+    qaChip: qaChipText(plan, task) ?? undefined,
     paneLabel: presence?.label ?? undefined,
     historicalExecutorSummary: historical?.summary,
     focus: presence?.focus ?? undefined,
