@@ -73,14 +73,12 @@ export function workspacePlanEntryPrimaryTitle(entries: PlanIndexEntry[]): strin
   return entries[0]?.title.trim() || "Untitled plan";
 }
 
-// Tiny progress hint from the cheap index. DATA-DEP: the index carries no
-// done/total split, so this is a SIZE hint (task/section/element count), not %
-// completion — wire a per-plan progress field to upgrade to "3/12".
 export function workspacePlanEntryHint(entries: PlanIndexEntry[]): string | null {
   const e = entries[0];
   if (!e) return null;
   const count = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
-  if ((e.task_count ?? 0) > 0) return count(e.task_count as number, "task");
+  const openTasks = typeof e.open_task_count === "number" ? e.open_task_count : (e.task_count ?? 0);
+  if (openTasks > 0) return count(openTasks, "task");
   if ((e.section_count ?? 0) > 0) return count(e.section_count as number, "section");
   if ((e.element_count ?? 0) > 0) return count(e.element_count as number, "item");
   return null;

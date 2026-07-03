@@ -13,6 +13,7 @@ export interface PlanIndexEntry {
   updated_at: number;
   assigned_pane_ids: string[];
   task_count?: number;
+  open_task_count?: number;
   section_count?: number;
   element_count?: number;
   loop_count?: number;

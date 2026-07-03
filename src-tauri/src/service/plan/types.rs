@@ -240,6 +240,7 @@ pub struct IndexEntry {
     pub updated_at: u64,
     pub assigned_pane_ids: Vec<String>,
     pub task_count: usize,
+    pub open_task_count: usize,
     pub section_count: usize,
     pub element_count: usize,
     pub loop_count: usize,

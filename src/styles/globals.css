@@ -2019,7 +2019,6 @@ button,
   align-items: center;
   justify-content: space-between;
   gap: 0.35rem;
-  order: 1;
 }
 .plan-board-task-handle {
   display: inline-flex;
@@ -2069,6 +2068,7 @@ button,
 .plan-board-task-lane {
   font-family: var(--ct-font-mono, ui-monospace, monospace);
   color: color-mix(in srgb, var(--ct-accent) 45%, var(--ct-muted-fg));
+  overflow: hidden;
 }
 .plan-board-task-activity {
   display: flex;
