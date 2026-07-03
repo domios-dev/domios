@@ -50,6 +50,19 @@ source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 
 **Run ONE test at a time.** All `cargo test`/`build.sh test` runs share a single `target/.cargo-lock`; launching a second while one is in flight makes them queue (not parallelize) and looks like a multi-minute "hang" — narrow the filter, run it once in the background, wait for it; never fire concurrent runs.
 
+**Pre-push gate is tiered by branch.** The `.githooks/pre-push` hook runs the
+FULL gate (shell guards, `cargo check`, fmt, clippy on both crates) only when
+pushing integration branches (`feat/*`, `develop`, `master`). Pushes of
+`lane/*` branches run LIGHT checks (shell guards + `cargo fmt --check`, zero
+compilation) — worker worktrees are cold, so a compile there is a
+multi-minute full dependency build, and heavy verification is centralized at
+the integration/QA gate anyway. Overrides: `PREPUSH_FULL=1` forces the full
+gate on a lane push; `PREPUSH_LIGHT=1` forces light anywhere. Do not "fix" a
+slow lane push by re-adding compilation to the hook — route heavy checks
+through the integration gate instead. Each worktree executes its own
+checked-out copy of `.githooks/`, so live lanes pick the current hook up on
+their next rebase onto integration.
+
 **Interactive dev restart from inside CodeTerm: prefer a visible pane.** On
 macOS/Tauri, `./build.sh dev --wait` can briefly report healthy and then lose the
 launcher process when the detached PTY goes away. For user-facing dev sessions,
