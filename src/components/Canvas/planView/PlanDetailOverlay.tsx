@@ -87,9 +87,8 @@ export function PlanDetailOverlay({
 
   useEffect(() => {
     returnFocusRef.current = (document.activeElement as HTMLElement | null) ?? null;
-    const id = window.setTimeout(() => panelRef.current?.focus(), 0);
+    panelRef.current?.focus();
     return () => {
-      window.clearTimeout(id);
       returnFocusRef.current?.focus?.();
     };
   }, [kind, task?.id, plan?.id, spec?.id]);

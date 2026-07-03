@@ -1746,48 +1746,31 @@ button,
   outline: none;
 }
 .plan-context-header-secondary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 0.35rem 0.75rem;
-  min-width: 0;
-}
-.plan-context-header-goal {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.25rem 0.45rem;
-  margin: 0;
-  flex: 1;
+  display: block;
   min-width: 0;
   font-size: 0.72rem;
   line-height: 1.45;
+}
+.plan-context-header-goal {
+  display: inline;
+  margin: 0;
+  min-width: 0;
   color: var(--ct-muted-fg);
 }
 .plan-context-header-goal-text {
   min-width: 0;
-  word-break: break-word;
-}
-.plan-context-header-goal-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.15rem;
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  font-size: 0.68rem;
-  font-weight: 600;
-  color: color-mix(in srgb, var(--ct-accent) 70%, var(--ct-fg));
-  cursor: pointer;
+  overflow-wrap: anywhere;
 }
 .plan-context-header-focus {
+  display: inline;
   margin: 0;
-  font-size: 0.72rem;
-  line-height: 1.45;
+  min-width: 0;
   font-style: italic;
   color: color-mix(in srgb, var(--ct-accent) 55%, var(--ct-fg));
-  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.plan-context-header-goal + .plan-context-header-focus::before {
+  content: " ";
 }
 
 /* List v3 — task-first alignment grid */

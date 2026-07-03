@@ -120,7 +120,7 @@ test("open-pane action invokes callback", async () => {
     />,
   );
   const btn = host.querySelector('[data-testid="plan-detail-open-pane"]') as HTMLButtonElement;
-  assert(btn, "open pane button visible");
+  assert(btn?.textContent?.includes("Show agent"), "show agent button visible");
   await act(async () => {
     btn.click();
   });

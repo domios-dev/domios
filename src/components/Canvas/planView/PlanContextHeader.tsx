@@ -1,8 +1,4 @@
-import { useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
 import type { BoardPlanSummary, BoardSpecSummary } from "./boardModel";
-
-const GOAL_TRUNCATE = 120;
 
 export interface PlanContextHeaderProps {
   summary: BoardPlanSummary;
@@ -17,10 +13,7 @@ function progressLabel(done: number, total: number): string {
 }
 
 export function PlanContextHeader({ summary, spec, onOpenPlan, onOpenSpec }: PlanContextHeaderProps) {
-  const [goalExpanded, setGoalExpanded] = useState(false);
   const goal = summary.goalVector?.trim() ?? "";
-  const goalLong = goal.length > GOAL_TRUNCATE;
-  const goalVisible = goal && (goalExpanded || !goalLong) ? goal : goal.slice(0, GOAL_TRUNCATE);
 
   return (
     <header data-testid="plan-context-header" className="plan-context-header">
@@ -59,27 +52,7 @@ export function PlanContextHeader({ summary, spec, onOpenPlan, onOpenSpec }: Pla
         <div className="plan-context-header-secondary">
           {goal && (
             <p data-testid="plan-board-plan-goal" className="plan-context-header-goal">
-              <span className="plan-context-header-goal-text">{goalVisible}{goalLong && !goalExpanded ? "…" : ""}</span>
-              {goalLong && (
-                <button
-                  type="button"
-                  className="plan-context-header-goal-toggle"
-                  aria-expanded={goalExpanded}
-                  onClick={() => setGoalExpanded((v) => !v)}
-                >
-                  {goalExpanded ? (
-                    <>
-                      <ChevronUp size={11} aria-hidden />
-                      Less
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown size={11} aria-hidden />
-                      More
-                    </>
-                  )}
-                </button>
-              )}
+              <span className="plan-context-header-goal-text">{goal}</span>
             </p>
           )}
           {summary.focus && (
