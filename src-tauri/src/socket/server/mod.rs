@@ -18,6 +18,7 @@ mod plan_attachments;
 mod plan_competition;
 mod plan_elements;
 mod plan_fields;
+mod plan_gates;
 mod plan_goal;
 mod plan_handoff;
 mod plan_heartbeat;

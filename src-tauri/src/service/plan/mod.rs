@@ -5,6 +5,7 @@ pub mod canvas_elements;
 pub mod cleanup_debt;
 pub mod competition;
 pub mod element_queries;
+pub mod gates;
 pub mod handoff;
 pub mod heartbeat;
 pub mod hints;

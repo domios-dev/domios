@@ -1,0 +1,176 @@
+use crate::args::plan::PlanDecisionAction;
+use crate::client::SocketClient;
+use serde_json::{json, Value};
+
+use super::{call_plan_rpc, maybe_inject_caller_pane};
+
+pub(super) fn handle(
+    client: &mut SocketClient,
+    json_output: bool,
+    action: PlanDecisionAction,
+) -> Result<Option<Value>, String> {
+    match action {
+        PlanDecisionAction::Ask {
+            plan_id,
+            question,
+            context,
+            blocking_task_ids,
+            asked_by_pane,
+        } => {
+            let mut params = json!({
+                "plan_id": plan_id,
+                "question": question,
+                "context": context,
+                "blocking_task_ids": blocking_task_ids,
+            });
+            if let Some(pane) = asked_by_pane {
+                params["asked_by_pane_id"] = json!(pane);
+            }
+            maybe_inject_caller_pane(&mut params);
+            let gate = call_plan_rpc(client, "plan.decision.ask", params)?;
+            if json_output {
+                return Ok(Some(gate));
+            }
+            println!("{}", render_gate(&gate));
+            Ok(None)
+        }
+
+        PlanDecisionAction::Answer {
+            plan_id,
+            gate_id,
+            answer,
+            answered_by_pane,
+        } => {
+            let mut params = json!({
+                "plan_id": plan_id,
+                "gate_id": gate_id,
+                "answer": answer,
+            });
+            if let Some(pane) = answered_by_pane {
+                params["answered_by_pane_id"] = json!(pane);
+            }
+            maybe_inject_caller_pane(&mut params);
+            let gate = call_plan_rpc(client, "plan.decision.answer", params)?;
+            if json_output {
+                return Ok(Some(gate));
+            }
+            println!("{}", render_gate(&gate));
+            Ok(None)
+        }
+
+        PlanDecisionAction::List { plan_id, open } => {
+            let params = json!({
+                "plan_id": plan_id,
+                "open_only": open,
+            });
+            let gates = call_plan_rpc(client, "plan.decision.list", params)?;
+            if json_output {
+                return Ok(Some(gates));
+            }
+            if let Some(arr) = gates.as_array() {
+                if arr.is_empty() {
+                    println!("No{} decision gates.", if open { " open" } else { "" });
+                } else {
+                    for gate in arr {
+                        println!("{}", render_gate(gate));
+                    }
+                }
+            }
+            Ok(None)
+        }
+
+        PlanDecisionAction::Escalate {
+            plan_id,
+            gate_id,
+            note,
+        } => {
+            let mut params = json!({
+                "plan_id": plan_id,
+                "gate_id": gate_id,
+            });
+            if let Some(note) = note {
+                params["note"] = json!(note);
+            }
+            let gate = call_plan_rpc(client, "plan.decision.escalate", params)?;
+            if json_output {
+                return Ok(Some(gate));
+            }
+            println!("{}", render_gate(&gate));
+            Ok(None)
+        }
+    }
+}
+
+fn render_gate(gate: &Value) -> String {
+    let id = gate.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+    let status = gate
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("open");
+    let question = gate.get("question").and_then(|v| v.as_str()).unwrap_or("");
+    let blocking = gate
+        .get("blocking_task_ids")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let routed = gate
+        .get("routed_to_pane_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unrouted");
+    let mut out = format!("[{id}] {status} blocking:{blocking} routed:{routed}\n  {question}\n");
+    if let Some(ans) = gate.get("answer").filter(|v| !v.is_null()) {
+        let text = ans.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        out.push_str(&format!("  Answer: {text}\n"));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn render_open_gate() {
+        let gate = json!({
+            "id": "gate_abc",
+            "status": "open",
+            "question": "Which auth strategy?",
+            "blocking_task_ids": ["task_1", "task_2"],
+            "routed_to_pane_id": "pane_planner",
+        });
+        let out = render_gate(&gate);
+        assert!(out.contains("[gate_abc]"));
+        assert!(out.contains("open"));
+        assert!(out.contains("blocking:2"));
+        assert!(out.contains("routed:pane_planner"));
+        assert!(out.contains("Which auth strategy?"));
+        assert!(!out.contains("Answer:"));
+    }
+
+    #[test]
+    fn render_answered_gate_includes_answer() {
+        let gate = json!({
+            "id": "gate_xyz",
+            "status": "answered",
+            "question": "Go left or right?",
+            "blocking_task_ids": [],
+            "routed_to_pane_id": null,
+            "answer": { "text": "Go left.", "by_pane_id": "pane_planner", "at": 1000 },
+        });
+        let out = render_gate(&gate);
+        assert!(out.contains("[gate_xyz]"));
+        assert!(out.contains("answered"));
+        assert!(out.contains("blocking:0"));
+        assert!(out.contains("unrouted"));
+        assert!(out.contains("Answer: Go left."));
+    }
+
+    #[test]
+    fn render_gate_missing_fields_fallback() {
+        let out = render_gate(&json!({}));
+        assert!(out.contains("[?]"));
+        assert!(out.contains("blocking:0"));
+        assert!(out.contains("unrouted"));
+    }
+}
