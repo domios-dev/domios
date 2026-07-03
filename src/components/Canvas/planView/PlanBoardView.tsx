@@ -19,6 +19,7 @@ import { listCancelledTasks } from "./cancelledTasks";
 import { PlanContextHeader } from "./PlanContextHeader";
 import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
+import { enrichSwitcherOptions, selectActiveWork } from "./activeWork";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.board.selectedPlanId";
@@ -178,6 +179,15 @@ export function PlanBoardView({
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
+  const activeWork = useMemo(
+    () => selectActiveWork(effectivePlans, panes),
+    [effectivePlans, panes],
+  );
+  const switcherWithInflight = useMemo(
+    () => enrichSwitcherOptions(switcherOptions, activeWork),
+    [switcherOptions, activeWork],
+  );
+
   const filteredPlans = useMemo(
     () => filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes }),
     [effectivePlans, mode, planId, orchestratorPaneId, panes],
@@ -283,7 +293,7 @@ export function PlanBoardView({
       {!loading && !error && selectedPlan && boardModel && (
         <div data-testid="plan-board-single" className="plan-board-single">
           <PlanSwitcher
-            plans={switcherOptions}
+            plans={switcherWithInflight}
             selectedId={selectedPlan.id}
             onSelect={selectPlan}
             onAction={handleAction}

@@ -17,12 +17,13 @@ interface OverlaysDeps {
   lookups: CanvasLookups;
   nodeIds: Set<string>;
   worldByNode: Map<string, World>;
+  staleActiveTaskIds?: ReadonlySet<string>;
 }
 
 // Camera-coupled overlay layers (rich content, presence pins, swarm roster) + the
 // scene readback publish. Each memo keeps its original dep array so it recomputes
 // only on the same triggers as before — swarmRoster stays transform-DECOUPLED.
-export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nodeIds, worldByNode }: OverlaysDeps) {
+export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nodeIds, worldByNode, staleActiveTaskIds = new Set() }: OverlaysDeps) {
   useEffect(
     () => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`),
     [scene, transform, mode, planId],
@@ -51,10 +52,16 @@ export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nod
         : p.latest
           ? `stride · ${p.latest.kindLabel}`
           : null;
-      m.set(id, { agents: p.agents, live: model.task.status === "in_progress", label: p.agents[0]?.label ?? p.label, action });
+      m.set(id, {
+        agents: p.agents,
+        live: model.task.status === "in_progress" && !staleActiveTaskIds.has(id),
+        label: p.agents[0]?.label ?? p.label,
+        action,
+        stale: staleActiveTaskIds.has(id),
+      });
     }
     return demoOn ? rotatePresenceForDemo(m, demoTick) : m;
-  }, [lookups.taskModelById, demoOn, demoTick]);
+  }, [lookups.taskModelById, demoOn, demoTick, staleActiveTaskIds]);
   // Floating presence pins: budget-bounded + viewport-culled → constant pin count on
   // a 20k board, recomputed only when camera/visibility/swarm change (no per-frame O(N)).
   const presenceOverlays = useMemo(

@@ -18,6 +18,8 @@ import { PlanListFilterBar } from "./PlanListFilterBar";
 import { PlanListRowView } from "./PlanListRowView";
 import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
+import { ActiveWorkStrip } from "./ActiveWorkStrip";
+import { enrichSwitcherOptions, selectActiveWork, type ActiveWorkEntry } from "./activeWork";
 import {
   buildVisiblePlanListRows,
   resolveSectionExpanded,
@@ -57,6 +59,15 @@ export function PlanListView({
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
+  const activeWork = useMemo(
+    () => selectActiveWork(effectivePlans, panes),
+    [effectivePlans, panes],
+  );
+  const switcherWithInflight = useMemo(
+    () => enrichSwitcherOptions(switcherOptions, activeWork),
+    [switcherOptions, activeWork],
+  );
+
   const filteredPlans = useMemo(
     () => filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes }),
     [effectivePlans, mode, planId, orchestratorPaneId, panes],
@@ -77,6 +88,11 @@ export function PlanListView({
   const selectedPlan = useMemo(
     () => orderedPlans.find((p) => p.id === selectedPlanId) ?? null,
     [orderedPlans, selectedPlanId],
+  );
+
+  const planActiveWork = useMemo(
+    () => (selectedPlan ? activeWork.byPlanId.get(selectedPlan.id) ?? [] : []),
+    [activeWork, selectedPlan],
   );
 
   const selectPlan = useCallback((id: string) => {
@@ -158,6 +174,14 @@ export function PlanListView({
     },
     [selectedPlan],
   );
+  const openActiveWork = useCallback(
+    (entry: ActiveWorkEntry) => {
+      const plan = orderedPlans.find((p) => p.id === entry.planId);
+      if (!plan) return;
+      setDetail({ kind: "task", task: entry.task, plan });
+    },
+    [orderedPlans],
+  );
   const openBelonging = useCallback(() => {
     if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
   }, [selectedPlan, selectedSpecSections]);
@@ -224,7 +248,7 @@ export function PlanListView({
         <>
           <div className="plan-list-chrome">
             <PlanSwitcher
-              plans={switcherOptions}
+              plans={switcherWithInflight}
               selectedId={selectedPlan.id}
               onSelect={selectPlan}
               onAction={handleAction}
@@ -246,6 +270,7 @@ export function PlanListView({
               onStatusFilter={setStatusFilter}
               onTextQuery={setTextQuery}
             />
+            <ActiveWorkStrip entries={planActiveWork} onOpenTask={openActiveWork} />
           </div>
           <div data-testid="plan-list-scroll" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
             {visibleRows.map((entry) => {

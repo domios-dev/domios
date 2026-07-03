@@ -49,6 +49,7 @@ const WORK: PaneComposerActivity = {
   planTitle: "Canvas v2 — the full build (dogfood)",
   taskId: "task_hidden",
   taskTitle: "Composer plan activity context above input",
+  taskStatus: "in_progress",
 };
 
 async function run() {
@@ -71,7 +72,7 @@ async function run() {
   {
     let clicks = 0;
     const { host, root } = await render(
-      <ComposerPlanActivityStrip activity={WORK} onOpen={() => { clicks += 1; }} />,
+      <ComposerPlanActivityStrip activity={WORK} taskStatus="in_progress" onOpen={() => { clicks += 1; }} />,
     );
     const strip = host.querySelector('[data-testid="composer-plan-activity-strip"]') as HTMLButtonElement | null;
     ok("worker strip renders", !!strip);
@@ -79,6 +80,7 @@ async function run() {
     ok("prefix working", host.querySelector('[data-testid="composer-plan-activity-prefix"]')?.textContent === "Working on:");
     ok("task title shown", host.querySelector('[data-testid="composer-plan-activity-primary"]')?.textContent === "Composer plan activity context above input");
     ok("plan title secondary", host.querySelector('[data-testid="composer-plan-activity-secondary"]')?.textContent?.includes("Canvas v2") === true);
+    ok("status pill", host.querySelector('[data-testid="composer-current-task"]')?.textContent === "in progress");
     ok("no raw ids in visible text", !strip?.textContent?.includes("task_hidden") && !strip?.textContent?.includes("pl_hidden"));
     await act(async () => { strip?.click(); });
     ok("click fires onOpen", clicks === 1);
