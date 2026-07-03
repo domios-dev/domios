@@ -403,12 +403,66 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
     assert(host.querySelector('[data-testid="chatbackend-tool-exec"]'), "expected exec card");
     assertIncludes(host, "npm test -- --runInBand", "exec card command");
     assertIncludes(host, "cwd /repo/app", "exec card cwd");
-    assertIncludes(host, "result", "exec card phase");
     assertIncludes(host, "Tests passed", "exec card result preview");
+    const execCard = host.querySelector('[data-testid="chatbackend-tool-exec"]');
+    assert(execCard, "expected exec card root");
+    const execCardText = execCard.textContent ?? "";
+    assert(!/\b(pending|running|result)\b/i.test(execCardText), "exec card should not show phase badge");
     assert(
       !buttons(host).some((button) => (button.textContent ?? "").includes("Exit code: 0")),
       "paired tool_result should not render as a separate result button",
     );
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("chatBackend curated tool cards hide internal lifecycle phase badges", async () => {
+  const { host, root } = await renderMessages([
+    {
+      id: "cb-pending-exec",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "exec",
+      toolId: "pending-call",
+      toolInput: { cmd: "sleep 1" },
+      toolArgs: JSON.stringify({ cmd: "sleep 1" }),
+    },
+    {
+      id: "cb-running-read",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "read_file",
+      toolId: "running-call",
+      toolInput: { path: "src/status.ts" },
+      toolArgs: JSON.stringify({ path: "src/status.ts" }),
+    },
+    {
+      id: "cb-result-write",
+      provider: "lmstudio",
+      type: "tool_call",
+      content: "",
+      toolName: "write_file",
+      toolId: "result-call",
+      toolInput: { path: "src/done.ts", content: "ok" },
+      toolArgs: JSON.stringify({ path: "src/done.ts" }),
+      toolResult: "written",
+    },
+  ]);
+  try {
+    const cards = Array.from(host.querySelectorAll('[data-testid^="chatbackend-tool-"]'));
+    assert(cards.length === 3, `expected three curated cards, got ${cards.length}`);
+    for (const card of cards) {
+      const label = card.getAttribute("data-testid") ?? "card";
+      const text = card.textContent ?? "";
+      assert(!/\b(pending|running|result)\b/i.test(text), `${label} should not expose lifecycle phase badge`);
+    }
+    assertIncludes(host, "sleep 1", "pending exec still shows command");
+    assertIncludes(host, "src/status.ts", "running read still shows path");
+    assertIncludes(host, "written", "result write still shows attached output");
   } finally {
     await act(async () => root.unmount());
     host.remove();
