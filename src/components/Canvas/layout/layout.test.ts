@@ -240,8 +240,8 @@ console.log("\ninterior steps:");
 console.log("\nsubtasks:");
 {
   const parent = task("tp", ["s"]);
-  const c1 = task("tc1", ["s"], { parent_task_id: "tp" });
-  const c2 = task("tc2", ["s"], { parent_task_id: "tp" });
+  const c1 = task("tc1", ["s"], [], "tp");
+  const c2 = task("tc2", ["s"], [], "tp");
   const psub = plan("psub", "o", 0, [section("s")], [parent, c1, c2]);
   const layout = layoutWorkspace([psub]);
   const frame = layout.frames[0];
@@ -252,7 +252,7 @@ console.log("\nsubtasks:");
   const tp = byId.get("tp")!;
   const tc1 = byId.get("tc1")!;
   const tc2 = byId.get("tc2")!;
-  ok("subtasks share uniform grid cells with parent", tp.box.width === tc1.box.width && tp.box.height === tc1.box.height);
+  ok("subtasks share uniform grid cells with parent", tp.box.width === tc1.box.width && tp.box.height === tc1.box.height && tc1.box.width === tc2.box.width);
   ok("subtasks placed in same section zone", frame.zones.some((z) => z.sectionId === "s" && z.box));
 }
 

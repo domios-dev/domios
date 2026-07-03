@@ -1,6 +1,7 @@
 // Run: npx tsx src/components/Canvas/layout/zoneGrid.test.ts
 
 import { DEFAULT_CANVAS_SETTINGS as S } from "../settings";
+import type { Task } from "../types";
 import { layoutZoneGrid } from "./zoneGrid";
 import { plan, section, task } from "./fixtures";
 import { boxesOverlap } from "./geometry";
@@ -14,7 +15,7 @@ function ok(label: string, cond: unknown) {
 
 {
   const sections = [section("s0"), section("s1")];
-  const tasks = [];
+  const tasks: Task[] = [];
   for (let s = 0; s < 2; s++)
     for (let i = 0; i < 8; i++) tasks.push(task(`s${s}_t${i}`, [`s${s}`], { created_at: s * 10 + i }));
   const grid = layoutZoneGrid(plan("p1", "o", 0, sections, tasks), S, new Map());
