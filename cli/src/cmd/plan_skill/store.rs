@@ -42,15 +42,18 @@ pub fn resolve_plan_dir(
     plan_id: Option<String>,
 ) -> Result<(String, PathBuf), String> {
     let plans = plans_dir(project_root);
-    let requested = plan_id
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| std::env::var("CODETERM_PLAN_ID").ok().filter(|s| !s.trim().is_empty()));
+    let requested = plan_id.filter(|s| !s.trim().is_empty()).or_else(|| {
+        std::env::var("CODETERM_PLAN_ID")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+    });
 
     if let Some(id) = requested {
         let files = plan_files(&plans, Some(&id))?;
-        let path = files.into_iter().next().ok_or_else(|| {
-            format!("plan {id} not found under {}", plans.display())
-        })?;
+        let path = files
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("plan {id} not found under {}", plans.display()))?;
         let dir = path
             .parent()
             .ok_or_else(|| "plan.json has no parent dir".to_string())?

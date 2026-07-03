@@ -106,7 +106,10 @@ fn new_skill(
     }
     let dir = store::skill_dir(&plan_dir, &slug);
     if dir.exists() {
-        return Err(format!("plan skill '{slug}' already exists at {}", dir.display()));
+        return Err(format!(
+            "plan skill '{slug}' already exists at {}",
+            dir.display()
+        ));
     }
     let title = title.unwrap_or_else(|| titleize(&slug));
     let area = area.unwrap_or_else(|| "general".to_string());
@@ -154,7 +157,9 @@ fn edit_skill(
     let slug = store::slugify(&slug);
     let skill_md = store::skill_md_path(&plan_dir, &slug);
     if !skill_md.is_file() {
-        return Err(format!("plan skill '{slug}' not found; run `codeterm plan skill new {slug}`"));
+        return Err(format!(
+            "plan skill '{slug}' not found; run `codeterm plan skill new {slug}`"
+        ));
     }
     if let Some(path) = body_file {
         let body = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
@@ -174,7 +179,10 @@ fn edit_skill(
             "mem_indexed": indexed,
         })));
     }
-    println!("Recorded {} verdict for plan skill '{slug}' (seq {})", entry.verdict, entry.seq);
+    println!(
+        "Recorded {} verdict for plan skill '{slug}' (seq {})",
+        entry.verdict, entry.seq
+    );
     Ok(None)
 }
 
@@ -233,7 +241,9 @@ fn show_skill(json: bool, slug: String, plan: Option<String>) -> Result<Option<V
     for entry in &history {
         println!(
             "  seq {} [{}] {}",
-            entry["seq"], entry["verdict"].as_str().unwrap_or(""), entry["rationale"].as_str().unwrap_or("")
+            entry["seq"],
+            entry["verdict"].as_str().unwrap_or(""),
+            entry["rationale"].as_str().unwrap_or("")
         );
     }
     Ok(None)
