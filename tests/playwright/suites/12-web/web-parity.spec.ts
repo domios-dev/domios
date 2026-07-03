@@ -154,7 +154,7 @@ async function expectSettingsDeepLink(page: Page, section: string): Promise<void
     section === "general" ? "General" : "Agents",
   );
   await page.locator('[data-testid="settings-close"]').click();
-  await expect(page.locator('[data-testid="settings-panel"]')).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.locator('[data-testid="settings-panel"]')).not.toBeVisible({ timeout: 10_000 });
 }
 
 async function expectKeepAwakeRoundTrip(
