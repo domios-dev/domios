@@ -17,6 +17,7 @@ import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
 import { PlanListFilterBar } from "./PlanListFilterBar";
 import { PlanListRowView } from "./PlanListRowView";
 import { PlanSwitcher } from "./PlanSwitcher";
+import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
 import {
   buildVisiblePlanListRows,
   resolveSectionExpanded,
@@ -54,9 +55,11 @@ export function PlanListView({
   api,
   onClose,
 }: PlanViewSurfaceProps) {
+  const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
+
   const filteredPlans = useMemo(
-    () => filterPlansForBoard(plans, mode, { planId, orchestratorPaneId, panes }),
-    [plans, mode, planId, orchestratorPaneId, panes],
+    () => filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes }),
+    [effectivePlans, mode, planId, orchestratorPaneId, panes],
   );
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
 
@@ -133,11 +136,6 @@ export function PlanListView({
     [selectedPlan, panes],
   );
 
-  const switcherOptions = useMemo(
-    () => orderedPlans.map((p) => ({ id: p.id, title: p.title.trim() || "Untitled plan" })),
-    [orderedPlans],
-  );
-
   const visibleRows = useMemo(
     () => buildVisiblePlanListRows(rows, { statusFilter, textQuery, expansionOverrides }),
     [rows, statusFilter, textQuery, expansionOverrides],
@@ -209,7 +207,12 @@ export function PlanListView({
       {!loading && !error && selectedPlan && boardModel && (
         <>
           <div className="plan-list-chrome">
-            <PlanSwitcher plans={switcherOptions} selectedId={selectedPlan.id} onSelect={selectPlan} />
+            <PlanSwitcher
+              plans={switcherOptions}
+              selectedId={selectedPlan.id}
+              onSelect={selectPlan}
+              onAction={handleAction}
+            />
             <PlanContextHeader
               summary={boardModel.planSummary}
               spec={boardModel.spec}

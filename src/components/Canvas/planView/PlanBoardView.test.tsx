@@ -297,6 +297,121 @@ test("empty workspace shows stable empty gate", async () => {
   assert(host.querySelector('[data-testid="plan-board-empty"]'), "empty state");
 });
 
+test("board: archive action removes plan from active switcher and switches selection", async () => {
+  try {
+    window.sessionStorage.removeItem("codeterm.board.selectedPlanId");
+  } catch {
+    // Session persistence is best-effort in tests too.
+  }
+  const planA: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-a",
+    title: "Alpha",
+    status: "active",
+    created_at: 0,
+    updated_at: 10,
+    tasks: [task({ id: "a1", status: TaskStatus.Pending, name: "Alpha task" })],
+  };
+  const planB: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-b",
+    title: "Beta",
+    status: "active",
+    created_at: 0,
+    updated_at: 999,
+    tasks: [task({ id: "b1", status: TaskStatus.Pending, name: "Beta task" })],
+  };
+  const { host } = await render(
+    <PlanBoardView mode="workspace" plans={[planA, planB]} panes={PANES} />,
+  );
+  // Stub confirm on the window created by setupDom (which runs once at module level).
+  (window as unknown as { confirm: () => boolean }).confirm = () => true;
+  // Switcher shows for >1 plan; Beta is default (most recent)
+  assert(host.querySelector('[data-testid="plan-switcher"]'), "switcher visible");
+  assert(
+    host.querySelector('[data-testid="plan-board-plan"]')?.getAttribute("data-plan-id") === "plan-b",
+    "beta selected by default",
+  );
+
+  // Archive plan-b (the selected plan) — selection should fall back to plan-a
+  const kebab = host.querySelector(
+    '[data-testid="plan-switcher-kebab"][data-plan-id="plan-b"]',
+  ) as HTMLElement;
+  await act(async () => { kebab.click(); });
+  const archiveItem = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+    (el) => el.textContent?.includes("Archive"),
+  ) as HTMLElement;
+  await act(async () => { archiveItem.click(); });
+
+  // plan-b should no longer be the board plan (selection fell back to plan-a)
+  await act(async () => { await Promise.resolve(); });
+  assert(
+    host.querySelector('[data-testid="plan-board-plan"]')?.getAttribute("data-plan-id") === "plan-a",
+    "selection fell back to plan-a after archiving plan-b",
+  );
+
+  // plan-b no longer shows as an active switcher pill
+  const activePills = host.querySelectorAll('[data-testid="plan-switcher-option"]');
+  const planBPill = Array.from(activePills).find(
+    (el) => el.getAttribute("data-plan-id") === "plan-b",
+  );
+  assert(!planBPill, "plan-b no longer an active pill");
+
+  // plan-b appears in the archived footer instead
+  const archivedToggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
+  assert(archivedToggle, "archived toggle present after archive");
+  await act(async () => { archivedToggle.click(); });
+  const archivedRow = host.querySelector(
+    '[data-testid="plan-switcher-archived-list"] [data-plan-id="plan-b"]',
+  );
+  assert(archivedRow, "plan-b appears in archived footer");
+});
+
+test("board: unarchive brings plan back to active switcher", async () => {
+  const active: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-active",
+    title: "Active",
+    status: "active",
+    tasks: [task({ id: "t1", status: TaskStatus.Pending })],
+  };
+  const archived: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-arch",
+    title: "Archived",
+    status: "archived",
+    tasks: [],
+  };
+  const { host } = await render(
+    <PlanBoardView mode="workspace" plans={[active, archived]} panes={PANES} />,
+  );
+  // Archived toggle should be present (1 active + 1 archived = switcher shows)
+  const archivedToggle = host.querySelector(
+    '[data-testid="plan-switcher-archived-toggle"]',
+  ) as HTMLElement;
+  assert(archivedToggle, "archived toggle present");
+  await act(async () => { archivedToggle.click(); });
+
+  const kebab = host.querySelector(
+    '[data-testid="plan-switcher-kebab"][data-plan-id="plan-arch"]',
+  ) as HTMLElement;
+  assert(kebab, "kebab on archived plan");
+  await act(async () => { kebab.click(); });
+
+  const unarchive = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+    (el) => el.textContent?.trim() === "Unarchive",
+  ) as HTMLElement;
+  assert(unarchive, "Unarchive menu item");
+  await act(async () => { unarchive.click(); });
+  await act(async () => { await Promise.resolve(); });
+
+  // plan-arch should now appear as an active pill
+  const pill = host.querySelector(
+    '[data-testid="plan-switcher-option"][data-plan-id="plan-arch"]',
+  );
+  assert(pill, "plan-arch is now an active pill after unarchive");
+});
+
 let passed = 0;
 (async () => {
   for (const [name, fn] of tests) {

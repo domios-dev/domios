@@ -28,6 +28,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "HTMLButtonElement", { value: window.HTMLButtonElement, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "PointerEvent", { value: window.PointerEvent, configurable: true });
+  (window as unknown as { confirm: (msg: string) => boolean }).confirm = () => true;
 }
 
 async function render(ui: ReactElement) {
@@ -222,6 +223,101 @@ test("task row is selectable and suppresses open on drag", async () => {
     row.click();
   });
   assert(!host.querySelector('[data-testid="plan-detail-overlay"]'), "drag does not open detail");
+  await unmount();
+});
+
+test("list: archive action removes plan from active switcher and switches selection", async () => {
+  try {
+    window.sessionStorage.removeItem("codeterm.board.selectedPlanId");
+  } catch {
+    // Session persistence is best-effort in tests too.
+  }
+  const planA: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-a",
+    title: "Alpha",
+    status: "active",
+    created_at: 0,
+    updated_at: 10,
+    tasks: [{ ...FIXTURE_TASK, id: "a1", status: TaskStatus.Pending }],
+  };
+  const planB: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-b",
+    title: "Beta",
+    status: "active",
+    created_at: 0,
+    updated_at: 999,
+    tasks: [{ ...FIXTURE_TASK, id: "b1", status: TaskStatus.Pending, name: "Beta task" }],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[planA, planB]} />);
+  assert(host.querySelector('[data-testid="plan-switcher"]'), "switcher visible");
+
+  // Beta is selected (most recent); archive it
+  const kebab = host.querySelector(
+    '[data-testid="plan-switcher-kebab"][data-plan-id="plan-b"]',
+  ) as HTMLElement;
+  await act(async () => { kebab.click(); });
+  const archiveItem = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+    (el) => el.textContent?.includes("Archive"),
+  ) as HTMLElement;
+  await act(async () => { archiveItem.click(); });
+  await act(async () => { await Promise.resolve(); });
+
+  // plan-b is no longer an active pill
+  const activePills = host.querySelectorAll('[data-testid="plan-switcher-option"]');
+  const bPill = Array.from(activePills).find(
+    (el) => el.getAttribute("data-plan-id") === "plan-b",
+  );
+  assert(!bPill, "plan-b no longer active pill");
+
+  // Archived toggle appeared
+  const toggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
+  assert(toggle, "archived toggle appears");
+  assert(toggle.textContent?.includes("1 archived"), "count = 1");
+
+  await unmount();
+});
+
+test("list: unarchive brings plan back to active switcher", async () => {
+  const active: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-active",
+    title: "Active",
+    status: "active",
+    tasks: [{ ...FIXTURE_TASK, id: "t1", status: TaskStatus.Pending }],
+  };
+  const archived: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-arch",
+    title: "Archived",
+    status: "archived",
+    tasks: [],
+  };
+  const { host, unmount } = await render(
+    <PlanListView mode="workspace" plans={[active, archived]} />,
+  );
+  const toggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
+  assert(toggle, "archived toggle present");
+  await act(async () => { toggle.click(); });
+
+  const kebab = host.querySelector(
+    '[data-testid="plan-switcher-kebab"][data-plan-id="plan-arch"]',
+  ) as HTMLElement;
+  assert(kebab, "kebab on archived plan");
+  await act(async () => { kebab.click(); });
+
+  const unarchive = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+    (el) => el.textContent?.trim() === "Unarchive",
+  ) as HTMLElement;
+  await act(async () => { unarchive.click(); });
+  await act(async () => { await Promise.resolve(); });
+
+  const pill = host.querySelector(
+    '[data-testid="plan-switcher-option"][data-plan-id="plan-arch"]',
+  );
+  assert(pill, "plan-arch is now an active pill after unarchive");
+
   await unmount();
 });
 

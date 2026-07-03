@@ -18,6 +18,7 @@ import { CancelledTasksPanel } from "./CancelledTasksPanel";
 import { listCancelledTasks } from "./cancelledTasks";
 import { PlanContextHeader } from "./PlanContextHeader";
 import { PlanSwitcher } from "./PlanSwitcher";
+import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.board.selectedPlanId";
@@ -175,9 +176,11 @@ export function PlanBoardView({
   onOpenPane,
   api,
 }: PlanViewSurfaceProps) {
+  const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
+
   const filteredPlans = useMemo(
-    () => filterPlansForBoard(plans, mode, { planId, orchestratorPaneId, panes }),
-    [plans, mode, planId, orchestratorPaneId, panes],
+    () => filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes }),
+    [effectivePlans, mode, planId, orchestratorPaneId, panes],
   );
 
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
@@ -243,11 +246,6 @@ export function PlanBoardView({
     [selectedPlan, panes, selectedSpecSections],
   );
 
-  const switcherOptions = useMemo(
-    () => orderedPlans.map((p) => ({ id: p.id, title: p.title.trim() || "Untitled plan" })),
-    [orderedPlans],
-  );
-
   const closeDetail = useCallback(() => setDetail(null), []);
 
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
@@ -271,7 +269,12 @@ export function PlanBoardView({
       )}
       {!loading && !error && selectedPlan && boardModel && (
         <div data-testid="plan-board-single" className="plan-board-single">
-          <PlanSwitcher plans={switcherOptions} selectedId={selectedPlan.id} onSelect={selectPlan} />
+          <PlanSwitcher
+            plans={switcherOptions}
+            selectedId={selectedPlan.id}
+            onSelect={selectPlan}
+            onAction={handleAction}
+          />
           <BoardPlanBoard
             model={boardModel}
             plan={selectedPlan}
