@@ -5,11 +5,13 @@ import type { Milestone, Task } from "../types";
 import {
   buildPlanRecentActivity,
   milestoneKindLabel,
+  milestoneTimestampLabel,
   resolveMilestoneAuthor,
   sortMilestonesNewestFirst,
   visibleMilestones,
   VISIBLE_MILESTONE_COLLAPSE,
 } from "./taskActivityModel";
+import { formatTime } from "../../../lib/formatters";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -72,5 +74,15 @@ const recent = buildPlanRecentActivity(plan, 5);
 assert(recent[0]?.milestone.id === "b1", "plan recent activity is newest first");
 assert(recent[0]?.taskLabel === "beta", "plan recent activity uses task handle");
 assert(recent.every((item) => plan.tasks.some((task) => task.id === item.taskId)), "recent activity scoped to plan tasks");
+
+const dayTs = 1_700_000_000_000;
+const sameDayNow = dayTs + 4 * 3_600_000;
+assert(
+  milestoneTimestampLabel(dayTs, sameDayNow) === new Date(dayTs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+  "today entry shortens to time-only",
+);
+const otherDayNow = dayTs + 3 * 86_400_000;
+assert(milestoneTimestampLabel(dayTs, otherDayNow) === formatTime(dayTs), "non-today entry shows absolute date+time");
+assert(milestoneTimestampLabel(dayTs, otherDayNow) !== milestoneTimestampLabel(dayTs, sameDayNow), "same-day and past-day stamps differ");
 
 console.log(`\n✓ taskActivityModel tests passed`);

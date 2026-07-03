@@ -65,3 +65,15 @@ export function milestoneAgeLabel(ts: number, now: number): string {
 export function milestoneAbsoluteTitle(ts: number): string {
   return formatTime(ts);
 }
+
+// Visible absolute stamp: full "Jul 3, 18:42" normally, time-only for entries dated today.
+export function milestoneTimestampLabel(ts: number, now: number): string {
+  const date = new Date(ts);
+  const ref = new Date(now);
+  const sameDay =
+    date.getFullYear() === ref.getFullYear() &&
+    date.getMonth() === ref.getMonth() &&
+    date.getDate() === ref.getDate();
+  if (sameDay) return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return formatTime(ts);
+}
