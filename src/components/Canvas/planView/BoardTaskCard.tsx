@@ -46,16 +46,10 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
           : undefined,
       }}
     >
-      <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
-        {task.name}
-      </h4>
-      <div className="plan-board-task-card-head">
-        {handle && (
-          <span data-testid="plan-board-task-handle" className="plan-board-task-handle">
-            <Hash size={9} strokeWidth={2.5} aria-hidden />
-            {handle}
-          </span>
-        )}
+      <div className="plan-board-task-card-top">
+        <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
+          {task.name}
+        </h4>
         <span
           data-testid="plan-board-task-status"
           className="plan-board-task-status"
@@ -64,6 +58,14 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
           {statusText(task)}
         </span>
       </div>
+      {handle && (
+        <div className="plan-board-task-card-head">
+          <span data-testid="plan-board-task-handle" className="plan-board-task-handle">
+            <Hash size={9} strokeWidth={2.5} aria-hidden />
+            {handle}
+          </span>
+        </div>
+      )}
       {card.presenceLabel && (
         <p data-testid="plan-board-task-active-executor" className="plan-board-task-meta">
           <User size={11} aria-hidden className="shrink-0 opacity-70" />
