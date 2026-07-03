@@ -26,7 +26,10 @@ fn create_edit_list_round_trip() {
     ledger::append_entry(plan_dir, &slug, store::KEEP, "created").unwrap();
 
     assert_eq!(store::list_skills(plan_dir), vec![slug.clone()]);
-    assert_eq!(ledger::latest_verdict(plan_dir, &slug).as_deref(), Some("keep"));
+    assert_eq!(
+        ledger::latest_verdict(plan_dir, &slug).as_deref(),
+        Some("keep")
+    );
 
     // edit -> supersede
     ledger::append_entry(plan_dir, &slug, store::SUPERSEDED, "replaced by v2").unwrap();

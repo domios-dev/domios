@@ -18,7 +18,10 @@ enum HarnessAction {
 fn skill_action(args: &[&str]) -> PlanSkillAction {
     let mut argv = vec!["codeterm", "skill"];
     argv.extend_from_slice(args);
-    match PlanSkillHarness::try_parse_from(argv).expect("parses").action {
+    match PlanSkillHarness::try_parse_from(argv)
+        .expect("parses")
+        .action
+    {
         HarnessAction::Skill { action } => action,
     }
 }

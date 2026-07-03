@@ -762,7 +762,9 @@ fn run_plan(
 
         PlanAction::Decision { action } => return gate_cmd::handle(client, json, action),
 
-        PlanAction::Skill { action } => return crate::cmd::plan_skill::handle(client, json, action),
+        PlanAction::Skill { action } => {
+            return crate::cmd::plan_skill::handle(client, json, action)
+        }
 
         PlanAction::Layout { action } => match action {
             PlanLayoutAction::Set {
