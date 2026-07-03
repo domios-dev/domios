@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
@@ -26,6 +26,7 @@ import {
   resolveSectionExpanded,
   type PlanListStatusFilter,
 } from "./planListModel";
+import { EMPTY_NAV_STACK, navCanGoBack, navPop, navPush, type NavEntry, type NavStack } from "./navStack";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.list.selectedPlanId";
 
@@ -44,6 +45,28 @@ type ListDetail =
 
 function findTask(plan: Plan, taskId: string): Task | undefined {
   return plan.tasks.find((t) => t.id === taskId);
+}
+
+function detailToEntry(detail: ListDetail, scroll?: number): NavEntry {
+  if (detail.kind === "task") {
+    return { surface: "task", id: detail.task.id, planId: detail.plan.id, scroll };
+  }
+  return { surface: detail.kind, id: detail.plan.id, planId: detail.plan.id, scroll };
+}
+
+function entryToDetail(
+  entry: NavEntry,
+  plans: Plan[],
+  specSections: Section[],
+): ListDetail | null {
+  const plan = plans.find((p) => p.id === entry.planId);
+  if (!plan) return null;
+  if (entry.surface === "task") {
+    const task = findTask(plan, entry.id);
+    if (!task) return null;
+    return { kind: "task", task, plan };
+  }
+  return { kind: entry.surface, plan, specSections };
 }
 
 export function PlanListView({
@@ -81,6 +104,9 @@ export function PlanListView({
   );
 
   const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
+  const [navStack, setNavStack] = useState<NavStack>(EMPTY_NAV_STACK);
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
+  const [restoreScroll, setRestoreScroll] = useState<number | undefined>(undefined);
   const selectedPlanId = useMemo(() => {
     if (manualPlanId && orderedPlans.some((p) => p.id === manualPlanId)) return manualPlanId;
     return defaultPlanId;
@@ -114,6 +140,11 @@ export function PlanListView({
   const [textQuery, setTextQuery] = useState("");
   const [expansionOverrides, setExpansionOverrides] = useState<Map<string, boolean>>(new Map());
   const [detail, setDetail] = useState<ListDetail | null>(null);
+
+  useEffect(() => {
+    setNavStack(EMPTY_NAV_STACK);
+    setDetail(null);
+  }, [selectedPlanId]);
 
   useEffect(() => {
     if (!api || !selectedPlan?.primary_spec_id) return;
@@ -192,20 +223,43 @@ export function PlanListView({
     if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
   }, [selectedPlan, selectedSpecSections]);
 
-  const closeDetail = useCallback(() => setDetail(null), []);
+  const closeDetail = useCallback(() => {
+    setDetail(null);
+    setNavStack(EMPTY_NAV_STACK);
+  }, []);
+
+  const pushCurrentDetail = useCallback((next: ListDetail) => {
+    if (detail) {
+      const scroll = bodyScrollRef.current?.scrollTop ?? 0;
+      setNavStack((prev) => navPush(prev, detailToEntry(detail, scroll)));
+    }
+    setRestoreScroll(undefined);
+    setDetail(next);
+  }, [detail]);
+
   const openDetailTask = useCallback((taskId: string) => {
     if (!selectedPlan) return;
     const task = findTask(selectedPlan, taskId);
-    if (task) setDetail({ kind: "task", task, plan: selectedPlan });
-  }, [selectedPlan]);
+    if (task) pushCurrentDetail({ kind: "task", task, plan: selectedPlan });
+  }, [selectedPlan, pushCurrentDetail]);
+
   const openDetailSection = useCallback((args: { variant: "plan" | "spec" }) => {
     if (!selectedPlan) return;
-    if (args.variant === "spec") {
-      setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections });
-      return;
-    }
-    setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
-  }, [selectedPlan, selectedSpecSections]);
+    const next: ListDetail = args.variant === "spec"
+      ? { kind: "spec", plan: selectedPlan, specSections: selectedSpecSections }
+      : { kind: "plan", plan: selectedPlan, specSections: selectedSpecSections };
+    pushCurrentDetail(next);
+  }, [selectedPlan, selectedSpecSections, pushCurrentDetail]);
+
+  const handleBack = useCallback(() => {
+    const { stack, entry } = navPop(navStack);
+    if (!entry) return;
+    const restored = entryToDetail(entry, orderedPlans, selectedSpecSections);
+    if (!restored) return;
+    setNavStack(stack);
+    setRestoreScroll(entry.scroll);
+    setDetail(restored);
+  }, [navStack, orderedPlans, selectedSpecSections]);
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const now = Date.now();
 
@@ -317,6 +371,10 @@ export function PlanListView({
           onOpenTask={openDetailTask}
           onClose={closeDetail}
           onSectionClick={openDetailSection}
+          canGoBack={navCanGoBack(navStack)}
+          onBack={handleBack}
+          restoreScroll={restoreScroll}
+          scrollCaptureRef={bodyScrollRef}
         />
       )}
     </div>
