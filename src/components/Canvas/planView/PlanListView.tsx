@@ -158,6 +158,9 @@ export function PlanListView({
     },
     [selectedPlan],
   );
+  const openBelonging = useCallback(() => {
+    if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan });
+  }, [selectedPlan]);
 
   const closeDetail = useCallback(() => setDetail(null), []);
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
@@ -249,6 +252,7 @@ export function PlanListView({
                     toggleSection(id, targetRow);
                   }}
                   onOpenRow={openRow}
+                  onOpenBelonging={openBelonging}
                 />
               );
             })}
@@ -266,6 +270,9 @@ export function PlanListView({
           panes={panes}
           onOpenPane={onOpenPane}
           onClose={closeDetail}
+          onSectionClick={() => {
+            if (detail.kind === "task") setDetail({ kind: "plan", plan: detail.plan });
+          }}
         />
       )}
     </div>

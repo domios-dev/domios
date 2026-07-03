@@ -1,5 +1,5 @@
 import { RichMarkdown } from "@codeterm/chat-ui";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { Pane } from "../../../lib/types";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import { TASK_STATUS_COLORS } from "../settings";
@@ -24,6 +24,7 @@ export interface DetailContentProps {
   onOpenPane?: (paneId: string) => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
+  renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
 }
 
 // Natural-height content; the overlay BODY wrapper is the scroll container (overflow-y
@@ -72,10 +73,81 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
-function TaskDetail({ task, panes = {}, onOpenPane }: { task: Task; panes?: Record<string, Pane>; onOpenPane?: (paneId: string) => void }) {
+function flattenSections(sections: Section[]): Section[] {
+  return sections.flatMap((section) => [section, ...flattenSections(section.subsections ?? [])]);
+}
+
+function linkedTaskSections(task: Task, plan?: Plan): Section[] {
+  if (!plan || task.section_ids.length === 0) return [];
+  const byId = new Map(flattenSections(plan.sections).map((section) => [section.id, section]));
+  return task.section_ids.map((id) => byId.get(id)).filter((section): section is Section => Boolean(section));
+}
+
+function TaskSectionLinks({
+  task,
+  plan,
+  planId,
+  onSection,
+}: {
+  task: Task;
+  plan?: Plan;
+  planId?: string;
+  onSection?: (a: SectionNavArgs) => void;
+}) {
+  const sections = linkedTaskSections(task, plan);
+  if (sections.length === 0) return null;
+  const navPlanId = planId ?? plan?.id;
+  return (
+    <Block label="Plan sections">
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {sections.map((section) => (
+          <button
+            key={section.id}
+            type="button"
+            data-testid="plan-detail-task-section-link"
+            data-section-id={section.id}
+            onClick={() => navPlanId && onSection?.({ planId: navPlanId, sectionId: section.id, variant: "plan" })}
+            style={{
+              padding: "5px 9px",
+              borderRadius: "var(--ct-radius-sm)",
+              border: "1px solid var(--ct-border-subtle)",
+              background: "color-mix(in srgb, var(--ct-accent) 9%, transparent)",
+              color: "var(--ct-accent)",
+              fontSize: 12,
+              fontWeight: 650,
+              cursor: onSection && navPlanId ? "pointer" : "default",
+              textAlign: "left",
+            }}
+          >
+            {section.title}
+          </button>
+        ))}
+      </div>
+    </Block>
+  );
+}
+
+function TaskDetail({
+  task,
+  plan,
+  planId,
+  panes = {},
+  onOpenPane,
+  onSection,
+  renderTaskAttachmentThumbnails,
+}: {
+  task: Task;
+  plan?: Plan;
+  planId?: string;
+  panes?: Record<string, Pane>;
+  onOpenPane?: (paneId: string) => void;
+  onSection?: (a: SectionNavArgs) => void;
+  renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
+}) {
   const body = task.body?.trim();
   const historical = historicalExecutorForTask(task, panes, false);
   const paneId = task.assigned_pane_id?.trim() || null;
+  const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
   return (
     <div style={wrap} data-testid="canvas-detail-content">
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -93,6 +165,12 @@ function TaskDetail({ task, panes = {}, onOpenPane }: { task: Task; panes?: Reco
           </button>
         )}
       </div>
+      <TaskSectionLinks task={task} plan={plan} planId={planId} onSection={onSection} />
+      {attachmentThumbnails && (
+        <Block label="Attachments">
+          <div data-testid="plan-detail-attachment-thumbnails">{attachmentThumbnails}</div>
+        </Block>
+      )}
       {historical && (
         <Block label="Execution history">
           <div data-testid="canvas-detail-executor-history" style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
@@ -307,8 +385,21 @@ function resolvePlanModel(kind: PlanDetailKind, plan?: Plan, spec?: Plan, specSe
   return spec;
 }
 
-export function DetailContent({ kind, planId, task, plan, spec, specSections, panes, onOpenPane, onSectionFrame }: DetailContentProps) {
-  if (kind === "task") return task ? <TaskDetail task={task} panes={panes} onOpenPane={onOpenPane} /> : null;
+export function DetailContent({ kind, planId, task, plan, spec, specSections, panes, onOpenPane, onSectionClick, onSectionFrame, renderTaskAttachmentThumbnails }: DetailContentProps) {
+  if (kind === "task") {
+    const onSection = onSectionFrame ?? onSectionClick;
+    return task ? (
+      <TaskDetail
+        task={task}
+        plan={plan}
+        planId={planId}
+        panes={panes}
+        onOpenPane={onOpenPane}
+        onSection={onSection}
+        renderTaskAttachmentThumbnails={renderTaskAttachmentThumbnails}
+      />
+    ) : null;
+  }
   const displayPlan = resolvePlanModel(kind, plan, spec, specSections);
   if (!displayPlan) return null;
   const variant = kind === "spec" ? "spec" : "plan";

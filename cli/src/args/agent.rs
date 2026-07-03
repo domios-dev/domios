@@ -66,10 +66,10 @@ pub struct ReportArgs {
     /// Pane ID (default: $CODETERM_PANE_ID or focused pane)
     #[arg(long)]
     pub pane: Option<String>,
-    /// Plan id to append this report to (default: $CODETERM_PLAN_ID)
+    /// Plan id to append this report to (if available)
     #[arg(long, env = "CODETERM_PLAN_ID")]
     pub plan: Option<String>,
-    /// Task id to append this report to (default: $CODETERM_TASK_ID)
+    /// Task id to append this report to (if available)
     #[arg(long, env = "CODETERM_TASK_ID")]
     pub task: Option<String>,
     /// Task outcome: in_review | blocked | partial | done

@@ -66,6 +66,7 @@ test("renders plan root and task rows with stable test ids", async () => {
   const task = host.querySelector('[data-testid="plan-list-task"]');
   assert(task, "task row");
   assert(task?.getAttribute("data-task-id") === FIXTURE_TASK.id, "task id hook");
+  assert(host.querySelector('[data-testid="plan-list-belonging-chip"]')?.textContent === "Authentication", "belonging chip");
   assert(host.textContent?.includes("Auth rollout"), "plan title");
   assert(host.textContent?.includes("Dante"), "task name");
   await unmount();
@@ -166,6 +167,7 @@ test("clicking a task row opens PlanDetailOverlay", async () => {
     row.click();
   });
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]')?.getAttribute("data-detail-mode") === "slide-over", "task uses slide-over");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "task", "task kind");
   await unmount();
 });
@@ -179,6 +181,24 @@ test("clicking context header plan title opens plan detail overlay", async () =>
   const planTitle = host.querySelector('[data-testid="plan-board-plan-title"]') as HTMLElement;
   await act(async () => {
     planTitle.click();
+  });
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]')?.getAttribute("data-detail-mode") === "document", "plan uses document overlay");
+  assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "plan", "plan kind");
+  await unmount();
+});
+
+test("clicking a row belonging chip opens plan detail overlay", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [{ ...FIXTURE_TASK, id: "t-chip", status: TaskStatus.Pending, name: "Chip target" }],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const chip = host.querySelector('[data-testid="plan-list-belonging-chip"]') as HTMLElement;
+  assert(chip, "belonging chip");
+  await act(async () => {
+    chip.click();
   });
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "plan", "plan kind");

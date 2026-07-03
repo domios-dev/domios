@@ -36,7 +36,7 @@ pub fn should_nudge(turns: u32, last_nudge: u32, cfg: &NudgeConfig) -> Option<Nu
 pub fn nudge_text(kind: NudgeKind) -> String {
     match kind {
         NudgeKind::Worker => {
-            "Plan reminder: you are assigned to an active task. Run `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID \"status update\"` so your parent can see progress."
+            "Plan reminder: you are assigned to an active task. Run `codeterm agent report --plan <plan_id> --task <task_id> \"status update\"` so your parent can see progress."
                 .to_string()
         }
         NudgeKind::Orchestrator => format!(

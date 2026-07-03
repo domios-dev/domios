@@ -10,7 +10,9 @@ You are a Worker on task {task_id}. Three rules:\n\
 - Do this ONE task, then run `codeterm agent report` and exit.\n\
 - NEVER spawn agents.\n\
 - Decomposition needed \u{2192} report blocked; the Orchestrator splits it.\n\
-</codeterm-worker-charter>"
+{}\n\
+</codeterm-worker-charter>",
+        crate::prompts::TESTING_DISCIPLINE.trim()
     )
 }
 
@@ -115,6 +117,7 @@ mod tests {
         assert!(out.contains("<codeterm-worker-charter"));
         assert!(out.contains(&task_id));
         assert!(out.contains("NEVER spawn agents"));
+        assert!(out.contains(crate::prompts::TESTING_DISCIPLINE.trim()));
         assert!(out.trim_end().ends_with("continue"));
     }
 

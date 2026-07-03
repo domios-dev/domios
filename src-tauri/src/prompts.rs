@@ -6,6 +6,13 @@
 /// Appended to Worker tasks — tells them how to report back.
 pub const WORKER_SUFFIX: &str = include_str!("../prompts/worker_suffix.md");
 
+/// Shared worker testing discipline fragment.
+pub const TESTING_DISCIPLINE: &str = include_str!("../prompts/testing_discipline.md");
+
+pub fn worker_suffix() -> String {
+    format!("{TESTING_DISCIPLINE}\n{WORKER_SUFFIX}")
+}
+
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");
 
@@ -98,6 +105,8 @@ mod tests {
     fn operational_prompts_keep_clarity_fixes() {
         assert!(WORKER_SUFFIX.contains("STATUS: done | blocked | partial"));
         assert!(WORKER_SUFFIX.contains("BUILD/TYPECHECK/TESTS:"));
+        assert!(!TESTING_DISCIPLINE.trim().is_empty());
+        assert!(worker_suffix().contains(TESTING_DISCIPLINE.trim()));
         assert!(BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("{general_dir}/bootstrap.md"));
         assert!(!BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("rm bootstrap.md"));
         assert!(BRIDGE_MEM.contains("provider skill named `codeterm`"));

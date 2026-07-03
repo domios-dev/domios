@@ -1,6 +1,7 @@
 // Run: npx tsx src/components/Canvas/planView/PlanBoardView.test.tsx
 
 import { act, type ReactElement } from "react";
+import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
@@ -24,6 +25,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
   Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
   Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
+  Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "PointerEvent", { value: window.PointerEvent, configurable: true });
 }
 
@@ -166,7 +168,30 @@ test("clicking a task card opens PlanDetailOverlay", async () => {
     card.click();
   });
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]')?.getAttribute("data-detail-mode") === "slide-over", "task uses slide-over");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "task", "task kind");
+});
+
+test("clicking another task updates the open slide-over panel", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({ id: "task-first", status: TaskStatus.Pending, name: "First task" }),
+      task({ id: "task-second", status: TaskStatus.Pending, name: "Second task" }),
+    ],
+  };
+  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />);
+  const cards = Array.from(host.querySelectorAll('[data-testid="plan-board-task-card"]')) as HTMLElement[];
+  await act(async () => {
+    cards[0]?.click();
+  });
+  const panel = host.querySelector('[data-testid="plan-detail-panel"]');
+  assert(host.querySelector('[data-testid="plan-detail-title"]')?.textContent === "First task", "first task title");
+  await act(async () => {
+    cards[1]?.click();
+  });
+  assert(host.querySelector('[data-testid="plan-detail-panel"]') === panel, "same panel element reused");
+  assert(host.querySelector('[data-testid="plan-detail-title"]')?.textContent === "Second task", "second task title");
 });
 
 test("clicking plan title opens plan detail overlay", async () => {
@@ -177,6 +202,7 @@ test("clicking plan title opens plan detail overlay", async () => {
     title.click();
   });
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]')?.getAttribute("data-detail-mode") === "document", "plan uses document overlay");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "plan", "plan kind");
 });
 
@@ -290,6 +316,45 @@ test("task card: status row precedes branch row, long branch has truncate class"
   assert(statusIdx < laneIdx, `status (idx ${statusIdx}) must precede branch (idx ${laneIdx}) in DOM order`);
   const branchSpan = lane.querySelector("span.truncate");
   assert(branchSpan, "branch text span carries truncate class for ellipsis clipping");
+});
+
+test("task card: title stays primary and does not allow single-letter wrapping", async () => {
+  const longTitle = "zero-flag-plan-context";
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({
+        id: "task-title-primary",
+        status: TaskStatus.InProgress,
+        status_label: "Active: QA Pipeline Mechanics",
+        name: longTitle,
+        handle: "zero-flag-plan-context",
+      }),
+    ],
+  };
+  const { host } = await render(
+    <PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />,
+  );
+  const card = host.querySelector('[data-testid="plan-board-task-card"]');
+  assert(card, "card present");
+  const title = card.querySelector('[data-testid="plan-board-task-title"]') as HTMLElement;
+  const status = card.querySelector('[data-testid="plan-board-task-status"]') as HTMLElement;
+  const handle = card.querySelector('[data-testid="plan-board-task-handle"]') as HTMLElement;
+  assert(title?.textContent === longTitle, "full task title is present");
+  assert(status?.textContent === "Active: QA Pipeline Mechanics", "status label is secondary text");
+  assert(handle?.textContent?.includes("zero-flag-plan-context"), "handle remains visible");
+  assert(
+    Boolean(title.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING),
+    "title must precede the status pill",
+  );
+  assert(
+    Boolean(title.compareDocumentPosition(handle) & Node.DOCUMENT_POSITION_FOLLOWING),
+    "title must precede the handle",
+  );
+  const css = readFileSync("src/styles/globals.css", "utf8");
+  const titleRule = css.match(/\.plan-board-task-title\s*\{[^}]+\}/)?.[0] ?? "";
+  assert(!titleRule.includes("overflow-wrap: anywhere"), "title must not break into single-letter wraps");
+  assert(titleRule.includes("word-break: normal"), "title keeps normal word boundaries");
 });
 
 test("empty workspace shows stable empty gate", async () => {

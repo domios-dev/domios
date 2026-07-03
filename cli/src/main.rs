@@ -848,3 +848,5 @@ mod plan_task_role_guidance_tests;
 mod plugin_cli_tests;
 #[cfg(test)]
 mod subcommand_contract_tests;
+#[cfg(test)]
+mod zero_flag_plan_context_tests;
