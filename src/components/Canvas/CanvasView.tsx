@@ -52,6 +52,7 @@ import { useStableSet } from "./canvasView/useStableSet";
 import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
 import { bumpCanvasChurn } from "./canvasChurn";
 import { PlanViewShell } from "./PlanViewShell";
+import { revealAssignedAgentPane } from "./planRevealAgentPane";
 
 export type { TaskCardModel } from "./canvasView/models";
 
@@ -882,7 +883,16 @@ export interface CanvasViewProps {
 }
 
 export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api, onClose }: CanvasViewProps) {
-  const { state, setFocusedPane } = useMultiplexer();
+  const { state, setFocusedPane, setActiveTab } = useMultiplexer();
+  const onOpenPane = useCallback(
+    (paneId: string) => {
+      revealAssignedAgentPane(
+        { workspaces: state.workspaces, setActiveTab, setFocusedPane },
+        paneId,
+      );
+    },
+    [state.workspaces, setActiveTab, setFocusedPane],
+  );
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
   const workspaceTarget = useCanvasWorkspaceTarget();
@@ -923,7 +933,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
       projectPath={projectPath}
       workspaceTarget={mode === "workspace" ? workspaceTarget : null}
       onClose={onClose}
-      onOpenPane={setFocusedPane}
+      onOpenPane={onOpenPane}
       api={api}
     />
   );
