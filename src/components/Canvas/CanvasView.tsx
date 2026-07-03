@@ -864,6 +864,7 @@ export function CanvasViewInner({
         api={api}
         onClose={() => setDetailNodeId(null)}
         onOpenPane={onOpenPane}
+        onOpenTask={(taskId) => setDetailNodeId(taskId)}
         onCopyLink={onCopyLink}
         onFocusStride={onFocusStride}
         onSectionClick={onSectionClick}

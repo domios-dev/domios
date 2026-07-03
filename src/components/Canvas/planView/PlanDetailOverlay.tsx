@@ -18,6 +18,7 @@ export interface PlanDetailOverlayProps {
   api?: ApiConfig;
   panes?: Record<string, Pane>;
   onOpenPane?: (paneId: string) => void;
+  onOpenTask?: (taskId: string) => void;
   onClose: () => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
@@ -52,6 +53,7 @@ export function PlanDetailOverlay({
   api,
   panes,
   onOpenPane,
+  onOpenTask,
   onClose,
   onSectionClick,
   onSectionFrame,
@@ -201,6 +203,7 @@ export function PlanDetailOverlay({
             specSections={specSections}
             panes={panes}
             onOpenPane={onOpenPane}
+            onOpenTask={onOpenTask}
             onSectionClick={onSectionNavigate}
             onSectionFrame={onSectionNavigate}
             renderTaskAttachmentThumbnails={renderTaskAttachmentThumbnails}
