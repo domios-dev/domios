@@ -47,6 +47,7 @@ function defaultConfig(): AppConfig {
     auto_restart: true,
     max_restart_attempts: 3,
     restart_delay_s: 60,
+    first_run_complete: false,
   },
   memory: {
     extraction_agent: "",

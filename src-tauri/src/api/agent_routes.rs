@@ -629,6 +629,29 @@ pub async fn restart_general_agent(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[derive(serde::Deserialize)]
+pub struct CompleteFirstRunBody {
+    pub provider_id: String,
+}
+
+/// Web-mirror twin of `complete_general_agent_first_run`.
+pub async fn complete_general_agent_first_run(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CompleteFirstRunBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let app = state.svc.app_handle.clone();
+    crate::service::general_agent::complete_first_run_core(
+        &state.svc,
+        &state.config,
+        &app,
+        &body.provider_id,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
 /// Web-mirror twin of `install_provider_in_pane`.
 pub async fn install_provider_in_pane(
     AxumState(state): AxumState<AppState>,

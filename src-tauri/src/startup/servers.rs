@@ -147,7 +147,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     // Start General Agent PTY + launch agent (workspace/pane already created in init_states)
     {
         let config = states.config.lock().general_agent.clone();
-        if config.enabled {
+        if config.enabled && config.first_run_complete {
             let svc = service_state.clone();
             let mux = states.mux.clone();
             let pty = states.pty.clone();

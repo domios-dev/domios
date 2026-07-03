@@ -61,7 +61,10 @@ pub fn start_watchdog(
             std::thread::sleep(check_interval);
 
             let general_config = config.lock().general_agent.clone();
-            if !general_config.enabled || !general_config.auto_restart {
+            if !general_config.enabled
+                || !general_config.auto_restart
+                || !general_config.first_run_complete
+            {
                 continue;
             }
 

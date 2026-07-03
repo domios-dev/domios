@@ -85,6 +85,16 @@ pub fn install_provider_in_pane(
 }
 
 #[tauri::command]
+pub fn complete_general_agent_first_run(
+    svc: State<'_, ServiceState>,
+    config: State<'_, crate::config::ConfigState>,
+    app: tauri::AppHandle,
+    provider_id: String,
+) -> Result<(), String> {
+    crate::service::general_agent::complete_first_run_core(&svc, &config, &app, &provider_id)
+}
+
+#[tauri::command]
 pub fn restart_general_agent(
     svc: State<'_, ServiceState>,
     config: State<'_, crate::config::ConfigState>,

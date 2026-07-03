@@ -6,6 +6,8 @@ import { isPaneVisible } from "../MemoryPanel/workerFocusStore";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { isSessionPickerPane, subscribeSessionPickerPanes } from "../../lib/sessionPickerPanes";
 import { useEffect, useState } from "react";
+import { FirstRunGeneralPicker, isFirstRunGeneralPane } from "../AgentPicker";
+import { useAgentProviders } from "../../hooks/useAgentProviders";
 import type {
   ApiConfig,
   AppConfig,
@@ -64,9 +66,18 @@ export function TabContent({
       setPickerPane(isSessionPickerPane(pane.id));
     });
   }, [pane?.id]);
+  const { providers } = useAgentProviders();
 
   if (!pane) return null;
   if (!isPaneVisible(pane)) return null;
+
+  if (isFirstRunGeneralPane(pane)) {
+    return (
+      <PaneWrapper paneId={pane.id}>
+        <FirstRunGeneralPicker providers={providers} />
+      </PaneWrapper>
+    );
+  }
 
   if (pickerPane && !pane.agent_type) {
     return (

@@ -1,6 +1,20 @@
 //! General workspace + pane setup in [`MultiplexerState`].
 
 use super::{general_dir, GENERAL_ALIAS, GENERAL_PANE_TITLE, GENERAL_WORKSPACE_NAME, MAIN_ALIAS};
+use crate::service::spawn::{should_default_agent_pane_to_chat, PaneVisibility};
+
+const BUNDLED_CHAT_UI_PROVIDERS: &[&str] = &["claude", "codex", "opencode", "cursor"];
+
+pub fn default_chat_view_for_provider(
+    config: &crate::config::schema::AppConfig,
+    provider_id: &str,
+) -> bool {
+    should_default_agent_pane_to_chat(
+        config.ui.default_new_agent_pane_chat,
+        PaneVisibility::Visible,
+        BUNDLED_CHAT_UI_PROVIDERS.contains(&provider_id),
+    )
+}
 
 /// Ensure General workspace + pane exist in MultiplexerState.
 /// Called BEFORE mux is wrapped in Arc<Mutex<>> — no locking needed.

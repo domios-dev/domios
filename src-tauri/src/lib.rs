@@ -175,6 +175,7 @@ pub fn run() {
             commands::get_shell_diagnostics,
             commands::restart_app,
             commands::restart_general_agent,
+            commands::complete_general_agent_first_run,
             commands::get_network_info,
             commands::get_serve_status,
             commands::enable_web_access,
