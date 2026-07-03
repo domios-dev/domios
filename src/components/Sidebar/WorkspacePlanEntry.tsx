@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { Map } from "lucide-react";
 import type { Pane, Workspace } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
+import { ActiveTabPill } from "./ActiveTabPill";
 import { canvasFocusStore, usePlanPulseVersion } from "../Canvas/canvasFocusStore";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { useFullPlansOptional } from "../Canvas/PlansProvider";
@@ -97,15 +98,7 @@ export function WorkspacePlanEntry({
         ${liveExecutor ? "sidebar-workspace-plan-live" : ""}
       `}
     >
-      {isActive && (
-        <div
-          className="absolute inset-y-0 left-0 right-0 pointer-events-none"
-          style={{
-            background: "var(--ct-bg-selected, rgba(99, 102, 241, 0.12))",
-            transition: "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease",
-          }}
-        />
-      )}
+      {isActive && <ActiveTabPill />}
       <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
         <span className={`sidebar-workspace-plan-icon shrink-0 ${iconBox}${liveExecutor ? " sidebar-workspace-plan-icon-live" : ""}`}>
           <Map
