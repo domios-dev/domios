@@ -25,7 +25,10 @@ pub(crate) fn split_provider_model(spec: &str) -> (String, Option<String>) {
         Some((provider, model)) if !model.trim().is_empty() => {
             (provider.trim().to_string(), Some(model.trim().to_string()))
         }
-        _ => (spec.split(':').next().unwrap_or(spec).trim().to_string(), None),
+        _ => (
+            spec.split(':').next().unwrap_or(spec).trim().to_string(),
+            None,
+        ),
     }
 }
 
@@ -102,10 +105,7 @@ mod tests {
 
     #[test]
     fn provider_only_has_no_model() {
-        assert_eq!(
-            split_provider_model("codex"),
-            ("codex".to_string(), None)
-        );
+        assert_eq!(split_provider_model("codex"), ("codex".to_string(), None));
     }
 
     #[test]
