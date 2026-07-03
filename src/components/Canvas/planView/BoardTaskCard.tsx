@@ -2,6 +2,7 @@ import type { KeyboardEvent } from "react";
 import { GitBranch, Hash, History, User } from "lucide-react";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { BoardTaskCardModel } from "./boardModel";
+import { usePlanTaskActivate } from "./planTaskInteraction";
 
 function statusText(task: BoardTaskCardModel["task"]): string {
   return task.status_label?.trim() || task.status.replace(/_/g, " ");
@@ -17,14 +18,13 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
   const statusColor = TASK_STATUS_COLORS[task.status];
   const handle = task.handle?.trim() || null;
   const interactive = Boolean(onOpen);
-
-  const activate = () => onOpen?.();
+  const { onPointerDown, onPointerMove, onClick } = usePlanTaskActivate(onOpen);
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (!onOpen) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
-      activate();
+      onOpen();
     }
   };
 
@@ -33,10 +33,12 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       data-testid="plan-board-task-card"
       data-task-id={task.id}
       data-task-status={task.status}
-      className={`plan-board-task-card${interactive ? " plan-board-task-card-interactive" : ""}`}
+      className={`plan-board-task-card plan-task-selectable${interactive ? " plan-board-task-card-interactive" : ""}`}
       role={interactive ? "button" : undefined}
       tabIndex={interactive ? 0 : undefined}
-      onClick={interactive ? activate : undefined}
+      onPointerDown={interactive ? onPointerDown : undefined}
+      onPointerMove={interactive ? onPointerMove : undefined}
+      onClick={interactive ? onClick : undefined}
       onKeyDown={interactive ? onKeyDown : undefined}
       style={{
         borderColor: card.focusMatch

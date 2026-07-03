@@ -27,6 +27,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
   Object.defineProperty(globalThis, "HTMLButtonElement", { value: window.HTMLButtonElement, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
+  Object.defineProperty(globalThis, "PointerEvent", { value: window.PointerEvent, configurable: true });
 }
 
 async function render(ui: ReactElement) {
@@ -180,6 +181,47 @@ test("clicking context header plan title opens plan detail overlay", async () =>
   });
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "plan", "plan kind");
+  await unmount();
+});
+
+test("cancelled filter chip shows only cancelled tasks", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [
+      { ...FIXTURE_TASK, id: "t-active", status: TaskStatus.InProgress },
+      { ...FIXTURE_TASK, id: "t-cancelled", status: TaskStatus.Cancelled, name: "Dropped work", handle: "drop-it" },
+    ],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const chip = host.querySelector('[data-testid="plan-list-filter-status-cancelled"]') as HTMLElement;
+  assert(chip?.textContent?.includes("Cancelled (1)"), "cancelled chip with count");
+  await act(async () => {
+    chip.click();
+  });
+  const tasks = host.querySelectorAll('[data-testid="plan-list-task"]');
+  assert(tasks.length === 1, `one cancelled task visible, got ${tasks.length}`);
+  assert(tasks[0]?.getAttribute("data-task-id") === "t-cancelled", "cancelled task id");
+  assert(host.textContent?.includes("Dropped work"), "cancelled title visible");
+  await unmount();
+});
+
+test("task row is selectable and suppresses open on drag", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [{ ...FIXTURE_TASK, id: "t-drag", status: TaskStatus.Pending, name: "Drag test" }],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement;
+  assert(row?.getAttribute("role") === "button", "task row remains activatable");
+  assert(row.className.includes("plan-task-selectable"), "selectable class");
+  await act(async () => {
+    row.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, bubbles: true }));
+    row.dispatchEvent(new PointerEvent("pointermove", { clientX: 24, clientY: 0, bubbles: true }));
+    row.click();
+  });
+  assert(!host.querySelector('[data-testid="plan-detail-overlay"]'), "drag does not open detail");
   await unmount();
 });
 

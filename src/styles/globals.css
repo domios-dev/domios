@@ -2093,3 +2093,73 @@ button,
   color: var(--ct-muted-fg);
   opacity: 0.85;
 }
+.plan-board-cancelled-trigger {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.plan-board-cancelled-trigger:hover,
+.plan-board-cancelled-trigger:focus-visible {
+  color: var(--ct-fg);
+  opacity: 1;
+  outline: none;
+  text-decoration: underline;
+}
+.plan-task-selectable,
+.plan-detail-selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+.plan-cancelled-tasks-list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.plan-cancelled-tasks-item {
+  margin: 0;
+}
+.plan-cancelled-task-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.28rem 0.45rem;
+  border: 1px solid color-mix(in srgb, var(--ct-border) 70%, transparent);
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--ct-bg-elev, var(--ct-surface)) 92%, transparent);
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--ct-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.plan-cancelled-task-row:hover,
+.plan-cancelled-task-row:focus-visible {
+  border-color: var(--ct-border);
+  background: color-mix(in srgb, var(--ct-fg) 5%, var(--ct-bg-elev, var(--ct-surface)));
+  outline: none;
+}
+.plan-cancelled-task-handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.12rem;
+  flex-shrink: 0;
+  font-family: var(--ct-font-mono, ui-monospace, monospace);
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ct-fg) 58%, transparent);
+}
+.plan-cancelled-task-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

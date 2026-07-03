@@ -11,6 +11,7 @@ import {
   selectDefaultPlanId,
 } from "./boardModel";
 import { buildPlanListRows, type PlanListRow } from "./buildPlanListTree";
+import { cancelledTaskCount } from "./cancelledTasks";
 import { PlanContextHeader } from "./PlanContextHeader";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
 import { PlanListFilterBar } from "./PlanListFilterBar";
@@ -122,6 +123,11 @@ export function PlanListView({
     [selectedPlan, panes, selectedSpecSections],
   );
 
+  const cancelledCount = useMemo(
+    () => (selectedPlan ? cancelledTaskCount(selectedPlan) : 0),
+    [selectedPlan],
+  );
+
   const rows = useMemo(
     () => (selectedPlan ? buildPlanListRows(selectedPlan, { panes }) : []),
     [selectedPlan, panes],
@@ -217,6 +223,7 @@ export function PlanListView({
             <PlanListFilterBar
               statusFilter={statusFilter}
               textQuery={textQuery}
+              cancelledCount={cancelledCount}
               onStatusFilter={setStatusFilter}
               onTextQuery={setTextQuery}
             />
