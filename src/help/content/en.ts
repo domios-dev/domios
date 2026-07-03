@@ -169,6 +169,8 @@ export const enHelpContent: HelpLocaleContent = {
             { label: "New workspace", source: { kind: "app", id: "new_workspace" } },
             { label: "Settings", source: { kind: "app", id: "settings" } },
             { label: "Toggle sidebar", source: { kind: "app", id: "toggle_sidebar" } },
+            { label: "Next tab / plan entry", source: { kind: "config", key: "next_tab" } },
+            { label: "Previous tab / plan entry", source: { kind: "config", key: "prev_tab" } },
             { label: "Reopen closed tab", source: { kind: "config", key: "reopen_tab" } },
           ],
         },

@@ -379,9 +379,11 @@ export interface NotificationConfig {
 }
 
 export interface KeybindingsConfig {
-  /** Reopen the most-recently-closed tab in the active workspace — the sole
-   *  app-level keybinding. Everything else was removed deliberately. */
   reopen_tab?: string;
+  /** Cycle to the next sidebar item (plan entry or tab) in the active workspace. */
+  next_tab?: string;
+  /** Cycle to the previous sidebar item (plan entry or tab) in the active workspace. */
+  prev_tab?: string;
 }
 
 export interface SocketConfigSettings {
