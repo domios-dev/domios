@@ -21,6 +21,8 @@ import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
 import { enrichSwitcherOptions, selectActiveWork } from "./activeWork";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
+import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./PlanFetchErrorState";
+import { planFetchShowsData } from "./planViewFetchGate";
 import { EMPTY_NAV_STACK, navCanGoBack, navPop, navPush, type NavEntry, type NavStack } from "./navStack";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.board.selectedPlanId";
@@ -196,7 +198,9 @@ export function PlanBoardView({
   mode,
   plans,
   loading = false,
+  reconnecting = false,
   error = null,
+  onRetry,
   planId,
   orchestratorPaneId,
   panes = {},
@@ -329,25 +333,30 @@ export function PlanBoardView({
   }, [navStack, orderedPlans, selectedSpecSections]);
 
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
+  const showsData = planFetchShowsData(loading, error ?? null, plans.length);
 
   return (
     <div data-testid="plan-board-view" className="plan-board-view">
-      {loading && (
-        <p data-testid="plan-board-loading" className="plan-board-state">
-          Loading plans…
-        </p>
-      )}
-      {!loading && error && (
-        <p data-testid="plan-board-error" className="plan-board-state plan-board-error">
-          {error}
-        </p>
-      )}
-      {!loading && !error && !selectedPlan && (
+      <PlanFetchErrorState
+        loading={loading}
+        error={error}
+        itemCount={plans.length}
+        onRetry={onRetry}
+        testId="plan-board"
+        className="plan-board-state"
+      />
+      <PlanFetchReconnectingBanner
+        reconnecting={reconnecting}
+        itemCount={plans.length}
+        testId="plan-board-reconnecting"
+        className="plan-board-state px-3 py-1"
+      />
+      {showsData && !selectedPlan && (
         <p data-testid="plan-board-empty" className="plan-board-state">
           No active plans in this workspace.
         </p>
       )}
-      {!loading && !error && selectedPlan && boardModel && (
+      {showsData && selectedPlan && boardModel && (
         <div data-testid="plan-board-single" className="plan-board-single">
           <PlanSwitcher
             plans={switcherWithInflight}

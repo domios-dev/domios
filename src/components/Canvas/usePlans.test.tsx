@@ -171,6 +171,36 @@ async function main() {
     await act(async () => root.unmount());
   });
 
+  test("usePlans recovers after transient fetch failure", async () => {
+    fetchCalls = 0;
+    let fail = true;
+    const prevFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      fetchCalls++;
+      if (fail) throw new TypeError("Load failed");
+      return prevFetch(input, init);
+    };
+
+    const holder: { current: UsePlansResult | null } = { current: null };
+    const { root } = await renderProbe(usePlans, (state) => {
+      holder.current = state;
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    assert(holder.current?.error?.includes("Reconnecting"), "friendly error on failure");
+    assert(!holder.current?.error?.includes("TypeError"), "no raw TypeError");
+
+    fail = false;
+    await act(async () => {
+      await holder.current!.refetch();
+    });
+    assert(holder.current?.plans.length === 1, "plans loaded after recovery");
+    assert(holder.current?.error === null, "error cleared");
+    globalThis.fetch = prevFetch;
+    await act(async () => root.unmount());
+  });
+
   let failed = 0;
   for (const [name, fn] of tests) {
     try {

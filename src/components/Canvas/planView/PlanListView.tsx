@@ -14,6 +14,8 @@ import { buildPlanListRows, type PlanListRow } from "./buildPlanListTree";
 import { cancelledTaskCount } from "./cancelledTasks";
 import { PlanContextHeader } from "./PlanContextHeader";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
+import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./PlanFetchErrorState";
+import { planFetchShowsData } from "./planViewFetchGate";
 import { PlanListFilterBar } from "./PlanListFilterBar";
 import { PlanListRowView } from "./PlanListRowView";
 import { PlanSwitcher } from "./PlanSwitcher";
@@ -73,7 +75,9 @@ export function PlanListView({
   mode,
   plans,
   loading = false,
+  reconnecting = false,
   error = null,
+  onRetry,
   planId,
   orchestratorPaneId,
   panes = {},
@@ -262,6 +266,7 @@ export function PlanListView({
   }, [navStack, orderedPlans, selectedSpecSections]);
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const now = Date.now();
+  const showsData = planFetchShowsData(loading, error ?? null, plans.length);
 
   return (
     <div
@@ -281,21 +286,22 @@ export function PlanListView({
           <X size={14} />
         </button>
       )}
-      {loading && (
-        <div
-          data-testid="plan-list-loading"
-          className="flex flex-1 items-center justify-center text-sm"
-          style={{ opacity: "var(--ct-text-secondary-opacity)" }}
-        >
-          Loading plans…
-        </div>
-      )}
-      {!loading && error && (
-        <div className="flex flex-1 items-center justify-center px-4 text-center text-sm" style={{ color: "var(--ct-error, #f87171)" }}>
-          {error}
-        </div>
-      )}
-      {!loading && !error && !selectedPlan && (
+      <div className="flex flex-1 flex-col items-center justify-center">
+        <PlanFetchErrorState
+          loading={loading}
+          error={error}
+          itemCount={plans.length}
+          onRetry={onRetry}
+          testId="plan-list"
+        />
+      </div>
+      <PlanFetchReconnectingBanner
+        reconnecting={reconnecting}
+        itemCount={plans.length}
+        testId="plan-list-reconnecting"
+        className="absolute top-2 left-3 z-10"
+      />
+      {showsData && !selectedPlan && (
         <div
           data-testid="plan-list-empty"
           className="flex flex-1 items-center justify-center px-6 text-center text-sm"
@@ -304,7 +310,7 @@ export function PlanListView({
           No active plans to list.
         </div>
       )}
-      {!loading && !error && selectedPlan && boardModel && (
+      {showsData && selectedPlan && boardModel && (
         <>
           <div className="plan-list-chrome">
             <PlanSwitcher

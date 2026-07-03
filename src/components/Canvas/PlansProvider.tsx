@@ -4,22 +4,23 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { listen } from "../../lib/bridge";
+import { useResilientQuery } from "../../lib/useResilientQuery";
 import type { ApiConfig } from "../../lib/types";
 import { fetchPlanIndex, type PlanIndexEntry } from "./plansApi";
 import { usePlans, type UsePlansResult } from "./usePlans";
 
-// ONE shared plan source for the whole app: a single lightweight index fetch +
-// a single plan-changed subscription, consumed by every PlanButton. Full bodies
-// are fetched once (batched) only while a canvas is open (ref-counted).
+const EMPTY_INDEX: PlanIndexEntry[] = [];
+
 interface PlansContextValue {
   index: PlanIndexEntry[];
   indexLoading: boolean;
+  indexReconnecting: boolean;
   indexError: string | null;
+  refetchIndex: () => Promise<void>;
   full: UsePlansResult;
   acquireFull: () => void;
   releaseFull: () => void;
@@ -30,41 +31,21 @@ interface PlansContextValue {
 const PlansContext = createContext<PlansContextValue | null>(null);
 
 export function PlansProvider({ api, children }: { api: ApiConfig; children: ReactNode }) {
-  const [index, setIndex] = useState<PlanIndexEntry[]>([]);
-  const [indexLoading, setIndexLoading] = useState(true);
-  const [indexError, setIndexError] = useState<string | null>(null);
-  const apiRef = useRef(api);
-  apiRef.current = api;
-  const indexCtrl = useRef<AbortController | null>(null);
-
   const [fullRefCount, setFullRefCount] = useState(0);
   const [workspaceFullCount, setWorkspaceFullCount] = useState(0);
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string | null>(null);
   const fullProject = workspaceFullCount > 0 ? workspaceProjectPath : null;
   const full = usePlans(api, { enabled: fullRefCount > 0, project: fullProject });
 
-  const refetchIndex = useCallback(async () => {
-    indexCtrl.current?.abort();
-    const ctrl = new AbortController();
-    indexCtrl.current = ctrl;
-    setIndexError(null);
-    try {
-      const next = await fetchPlanIndex(apiRef.current, ctrl.signal);
-      if (ctrl.signal.aborted) return;
-      setIndex(next);
-    } catch (e) {
-      if (ctrl.signal.aborted || (e instanceof Error && e.name === "AbortError")) return;
-      setIndexError(String(e));
-    } finally {
-      if (!ctrl.signal.aborted) setIndexLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    setIndexLoading(true);
-    void refetchIndex();
-    return () => indexCtrl.current?.abort();
-  }, [api, refetchIndex]);
+  const {
+    data: index,
+    loading: indexLoading,
+    reconnecting: indexReconnecting,
+    error: indexError,
+    refetch: refetchIndex,
+  } = useResilientQuery((signal) => fetchPlanIndex(api, signal), EMPTY_INDEX, {
+    deps: [api],
+  });
 
   useEffect(() => {
     let active = true;
@@ -100,14 +81,27 @@ export function PlansProvider({ api, children }: { api: ApiConfig; children: Rea
     () => ({
       index,
       indexLoading,
+      indexReconnecting,
       indexError,
+      refetchIndex,
       full,
       acquireFull,
       releaseFull,
       acquireWorkspaceFull,
       releaseWorkspaceFull,
     }),
-    [index, indexLoading, indexError, full, acquireFull, releaseFull, acquireWorkspaceFull, releaseWorkspaceFull],
+    [
+      index,
+      indexLoading,
+      indexReconnecting,
+      indexError,
+      refetchIndex,
+      full,
+      acquireFull,
+      releaseFull,
+      acquireWorkspaceFull,
+      releaseWorkspaceFull,
+    ],
   );
 
   return <PlansContext.Provider value={value}>{children}</PlansContext.Provider>;
@@ -122,23 +116,36 @@ function usePlansContext(): PlansContextValue {
 export interface PlanIndexResult {
   index: PlanIndexEntry[];
   loading: boolean;
+  reconnecting: boolean;
   error: string | null;
+  refetch: () => Promise<void>;
 }
 
-// Lightweight consumer for PlanButton: visibility + pulse, no full bodies.
 export function usePlanIndex(): PlanIndexResult {
-  const { index, indexLoading, indexError } = usePlansContext();
-  return { index, loading: indexLoading, error: indexError };
+  const { index, indexLoading, indexReconnecting, indexError, refetchIndex } = usePlansContext();
+  return {
+    index,
+    loading: indexLoading,
+    reconnecting: indexReconnecting,
+    error: indexError,
+    refetch: refetchIndex,
+  };
 }
 
-// Provider-optional index: empty result outside a PlansProvider (never throws).
 export function usePlanIndexOptional(): PlanIndexResult {
   const ctx = useContext(PlansContext);
-  if (!ctx) return { index: [], loading: false, error: null };
-  return { index: ctx.index, loading: ctx.indexLoading, error: ctx.indexError };
+  if (!ctx) {
+    return { index: [], loading: false, reconnecting: false, error: null, refetch: async () => {} };
+  }
+  return {
+    index: ctx.index,
+    loading: ctx.indexLoading,
+    reconnecting: ctx.indexReconnecting,
+    error: ctx.indexError,
+    refetch: ctx.refetchIndex,
+  };
 }
 
-// Full-plan consumer for focus canvas: ref-counts so bodies load only while open.
 export function useFullPlans(): UsePlansResult {
   const { full, acquireFull, releaseFull } = usePlansContext();
   useEffect(() => {
@@ -148,7 +155,6 @@ export function useFullPlans(): UsePlansResult {
   return full;
 }
 
-// Provider-optional full plans: empty outside PlansProvider (sidebar tests, etc.).
 export function useFullPlansOptional(): UsePlansResult {
   const ctx = useContext(PlansContext);
   useEffect(() => {
@@ -157,12 +163,17 @@ export function useFullPlansOptional(): UsePlansResult {
     return ctx.releaseFull;
   }, [ctx]);
   if (!ctx) {
-    return { plans: [], loading: false, error: null, refetch: async () => {} };
+    return {
+      plans: [],
+      loading: false,
+      reconnecting: false,
+      error: null,
+      refetch: async () => {},
+    };
   }
   return ctx.full;
 }
 
-// Workspace or focus canvas: one ref-count path, project-scoped in workspace mode.
 export function useCanvasPlans(mode: "workspace" | "focus", projectPath: string | null): UsePlansResult {
   const { full, acquireFull, releaseFull, acquireWorkspaceFull, releaseWorkspaceFull } =
     usePlansContext();
