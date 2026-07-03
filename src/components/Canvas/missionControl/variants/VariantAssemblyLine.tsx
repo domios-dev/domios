@@ -8,6 +8,7 @@ interface VariantProps {
   snapshot: MissionControlSnapshot;
   lod: MissionControlLodLevel;
   onTaskClick?: (taskId: string) => void;
+  onAgentClick?: (paneId: string) => void;
   dispatchGap?: boolean;
   qaBottleneck?: boolean;
   showEvents?: boolean;
@@ -17,6 +18,7 @@ export function VariantAssemblyLine({
   snapshot,
   lod,
   onTaskClick,
+  onAgentClick,
   dispatchGap,
   qaBottleneck,
   showEvents = true,
@@ -43,18 +45,20 @@ export function VariantAssemblyLine({
           </div>
           <div className="mc-work-floor-grid">
             {snapshot.lanes.map((lane) => (
-              <WorkFloorBay key={lane.id} lane={lane} lod={lod} onTaskClick={onTaskClick} />
+              <WorkFloorBay key={lane.id} lane={lane} lod={lod} onTaskClick={onTaskClick} onAgentClick={onAgentClick} />
             ))}
           </div>
         </section>
-        <QaBay
-          queue={snapshot.qaQueue}
-          running={snapshot.qaRunning}
-          lod={lod}
-          onTaskClick={onTaskClick}
-          bottleneck={qaBottleneck}
-        />
-        <GateDesk tasks={snapshot.gateQueue} lod={lod} onTaskClick={onTaskClick} />
+        <div className="mc-verify-stack">
+          <QaBay
+            queue={snapshot.qaQueue}
+            running={snapshot.qaRunning}
+            lod={lod}
+            onTaskClick={onTaskClick}
+            bottleneck={qaBottleneck}
+          />
+          <GateDesk tasks={snapshot.gateQueue} lod={lod} onTaskClick={onTaskClick} />
+        </div>
         <div className="mc-assembly-tail">
           <DoneShelf count={snapshot.doneCount} recent={snapshot.doneRecent} lod={lod} onTaskClick={onTaskClick} />
           <SideRail title="Parked" tasks={snapshot.parked} lod={lod} onTaskClick={onTaskClick} />

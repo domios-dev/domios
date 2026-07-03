@@ -163,6 +163,7 @@ export function MissionControlPlanSurface({
             panes={panes}
             onTaskClick={openTask}
             onOpenPlan={openPlanDetail}
+            onAgentClick={onOpenPane}
           />
         )}
       </div>

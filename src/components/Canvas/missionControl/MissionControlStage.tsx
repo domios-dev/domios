@@ -9,6 +9,7 @@ export interface MissionControlStageProps {
   qaBottleneck: boolean;
   showEvents: boolean;
   onTaskClick?: (taskId: string) => void;
+  onAgentClick?: (paneId: string) => void;
 }
 
 export const MissionControlStage = memo(function MissionControlStage({
@@ -18,6 +19,7 @@ export const MissionControlStage = memo(function MissionControlStage({
   qaBottleneck,
   showEvents,
   onTaskClick,
+  onAgentClick,
 }: MissionControlStageProps) {
   return (
     <div
@@ -30,6 +32,7 @@ export const MissionControlStage = memo(function MissionControlStage({
         snapshot={snapshot}
         lod={lod}
         onTaskClick={onTaskClick}
+        onAgentClick={onAgentClick}
         dispatchGap={dispatchGap}
         qaBottleneck={qaBottleneck}
         showEvents={showEvents}

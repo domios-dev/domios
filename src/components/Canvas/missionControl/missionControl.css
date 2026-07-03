@@ -154,8 +154,9 @@
 
 .mc-task-title {
   font-weight: 500;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   word-break: normal;
+  hyphens: none;
 }
 
 .mc-task-meta {
@@ -266,9 +267,8 @@
 
 .mc-done-shelf {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .mc-done-count {
@@ -467,11 +467,23 @@
 
 .mc-assembly-grid {
   display: grid;
-  grid-template-columns: minmax(120px, 0.72fr) minmax(280px, 2.4fr) minmax(130px, 0.85fr) minmax(108px, 0.68fr) minmax(100px, 0.62fr);
+  grid-template-columns: minmax(150px, 0.7fr) minmax(300px, 2.5fr) minmax(190px, 0.95fr) minmax(190px, 0.9fr);
   gap: 8px;
   padding: 10px;
   min-height: 0;
   align-items: stretch;
+}
+
+.mc-verify-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.mc-verify-stack > * {
+  flex: 1;
+  min-height: 0;
 }
 
 .mc-work-floor {
@@ -500,6 +512,44 @@
   flex-direction: column;
   gap: 8px;
   min-height: 0;
+  overflow: hidden;
+}
+
+.mc-assembly-tail > .mc-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mc-assembly-tail > .mc-done-shelf {
+  flex: 0 0 auto;
+}
+
+.mc-done-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 4px;
+}
+
+.mc-done-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 8px 8px;
+  min-width: 0;
+}
+
+.mc-avatar-clickable {
+  cursor: pointer;
+  transition: box-shadow 140ms ease, transform 140ms ease;
+}
+
+.mc-avatar-clickable:hover,
+.mc-avatar-clickable:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mc-accent, var(--ct-accent)) 65%, transparent);
+  transform: scale(1.08);
+  outline: none;
 }
 
 .mc-bay-empty,
@@ -551,7 +601,7 @@
 }
 
 .mc-stage[data-lod="far"] .mc-assembly-grid {
-  grid-template-columns: minmax(72px, 0.55fr) minmax(200px, 2.8fr) minmax(72px, 0.55fr) minmax(64px, 0.5fr) minmax(56px, 0.45fr);
+  grid-template-columns: minmax(90px, 0.55fr) minmax(220px, 2.8fr) minmax(100px, 0.6fr) minmax(100px, 0.55fr);
   gap: 6px;
 }
 

@@ -26,9 +26,10 @@ export interface MissionControlLiveViewProps {
   panes?: Record<string, Pane>;
   onTaskClick?: (taskId: string) => void;
   onOpenPlan?: () => void;
+  onAgentClick?: (paneId: string) => void;
 }
 
-export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPlan }: MissionControlLiveViewProps) {
+export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPlan, onAgentClick }: MissionControlLiveViewProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const scaleLabelRef = useRef<HTMLSpanElement | null>(null);
   const lodRef = useRef<MissionControlLodLevel>("close");
@@ -183,6 +184,7 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
             qaBottleneck={health.qaBottleneck}
             showEvents={showEvents}
             onTaskClick={onTaskClick}
+            onAgentClick={onAgentClick}
           />
         </div>
       </div>
