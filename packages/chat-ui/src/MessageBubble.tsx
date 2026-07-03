@@ -6,8 +6,6 @@ import type {
 } from "@codeterm/chat-core";
 import {
   Bot,
-  CheckCircle2,
-  Clock,
   Download, FileText, Image,
   Pencil,
   Search,
@@ -561,7 +559,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const curatedKind = resolveCuratedToolKind(message.toolName);
     if (curatedKind) {
       const input = parsedToolInput(message);
-      const phase = message.toolResult ? "result" : message.toolId ? "running" : "pending";
       const Icon =
         curatedKind === "exec" ? Terminal :
         curatedKind === "read_file" ? FileText :
@@ -569,7 +566,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         curatedKind === "codeterm" ? Terminal :
         curatedKind === "mem_search" ? Search :
         Bot;
-      const PhaseIcon = phase === "result" ? CheckCircle2 : phase === "running" ? Clock : Clock;
       const commandText =
         curatedKind === "exec"
           ? (textArg(input, ["cmd", "command"]) ?? extractCommand(message))
@@ -631,16 +627,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                   {secondary}
                 </span>
               )}
-              <span
-                className="ml-1 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono"
-                style={{
-                  background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 10%, transparent)",
-                  color: phase === "result" ? "var(--ct-green, #3fb950)" : "var(--ct-muted-fg)",
-                }}
-              >
-                <PhaseIcon size={10} strokeWidth={2} />
-                {phase}
-              </span>
               <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
             </button>
 
