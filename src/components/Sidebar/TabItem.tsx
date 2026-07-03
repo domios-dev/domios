@@ -20,6 +20,7 @@ import type { Pane, PaneStatus, Tab } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
+import { ActiveTabPill } from "./ActiveTabPill";
 import { TabActivityIndicator } from "./TabActivityIndicator";
 import { TabStatusRail } from "./TabStatusRail";
 import { RoleIcon } from "./HierarchyTree";
@@ -196,16 +197,7 @@ function TabItemInner({
         status={status}
         attention={status === "Waiting" || Boolean(pane?.pending_prompt)}
       />
-      {/* Active tab sliding pill indicator */}
-      {isActive && (
-        <div
-          className="absolute inset-y-0 left-0 right-0 pointer-events-none"
-          style={{
-            background: "var(--ct-bg-selected, rgba(99, 102, 241, 0.12))",
-            transition: "transform 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease",
-          }}
-        />
-      )}
+      {isActive && <ActiveTabPill />}
       <div className={`flex flex-1 items-center min-w-0 relative z-[1] ${touchMode ? "gap-2.5" : "gap-2"}`}>
         {provider ? (
           // Agent (descriptor) OR chatBackend shell (plugin snapshot) — both
