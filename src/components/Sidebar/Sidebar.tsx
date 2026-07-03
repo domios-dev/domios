@@ -13,6 +13,7 @@ import type { AppConfig } from "../../lib/types";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
+import { markSessionPickerPane } from "../../lib/sessionPickerPanes";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
 import { RecentlyClosed } from "./RecentlyClosed";
@@ -182,6 +183,11 @@ export function Sidebar({
       });
     });
   }, [addNotification, createOrchestrationPair, orchestrationModal]);
+
+  const handleNewSession = useCallback(async (workspaceId: string, workspaceCwd: string | null) => {
+    const tab = await createTab(workspaceId, workspaceCwd ?? undefined);
+    if (tab?.pane_id) markSessionPickerPane(tab.pane_id);
+  }, [createTab]);
 
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(
     () => new Set(state.active_workspace_id ? [state.active_workspace_id] : []),
@@ -579,7 +585,6 @@ export function Sidebar({
                           uiFontScale={uiFontScale}
                           compact={isCompact}
                           sidebarActionText={sidebarActionText}
-                          visibleProviders={visibleProviders}
                           orchestrators={wsOrchestrators}
                           onBeforeOpenPlan={() => {
                             setActiveWorkspace(ws.id);
@@ -591,8 +596,7 @@ export function Sidebar({
                           }}
                           onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
                           onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
-                          onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
-                          onOrchestration={() => setOrchestrationModal({ workspaceId: ws.id })}
+                          onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
                         />
                       </div>
                     </div>

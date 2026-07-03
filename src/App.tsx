@@ -651,6 +651,8 @@ function AppInner() {
               >
                 <MemoizedTabContent
                   pane={state.panes[tab.pane_id]}
+                  workspaceId={ws.id}
+                  tabId={tab.id}
                   isFocused={state.focused_pane_id === tab.pane_id}
                   onFocusPane={setFocusedPane}
                   onPtySpawned={handlePtySpawned}
@@ -664,6 +666,7 @@ function AppInner() {
                   isVisible={isVisible}
                   chatFirst={chatPaneDefault}
                   chatDefaultPrompted={chatDefaultPrompted}
+                  agentsConfig={config.agents}
                 />
               </div>
                 );
