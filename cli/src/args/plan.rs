@@ -271,6 +271,11 @@ pub enum PlanAction {
         #[command(subcommand)]
         action: PlanElementAction,
     },
+    /// Decision gates — structured blocking questions routed to the planner
+    Decision {
+        #[command(subcommand)]
+        action: PlanDecisionAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -849,4 +854,44 @@ pub enum PlanHandoffAction {
     },
     /// List the handoffs attached to a plan
     List { plan_id: String },
+}
+
+#[derive(Subcommand)]
+pub enum PlanDecisionAction {
+    /// Create a decision gate, park blocking tasks, and route the question to the planner
+    Ask {
+        plan_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        question: String,
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
+        context: String,
+        /// Task ids (or handles) to park until this gate is answered
+        #[arg(long = "block")]
+        blocking_task_ids: Vec<String>,
+        #[arg(long)]
+        asked_by_pane: Option<String>,
+    },
+    /// Answer an open gate (immutable audit record, unparks blocked tasks)
+    Answer {
+        plan_id: String,
+        gate_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        answer: String,
+        #[arg(long)]
+        answered_by_pane: Option<String>,
+    },
+    /// List decision gates for a plan
+    List {
+        plan_id: String,
+        /// Show only open gates
+        #[arg(long)]
+        open: bool,
+    },
+    /// Escalate a stale open gate
+    Escalate {
+        plan_id: String,
+        gate_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: Option<String>,
+    },
 }

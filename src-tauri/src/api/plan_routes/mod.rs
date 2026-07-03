@@ -10,6 +10,7 @@ use crate::service::plan::PlanError;
 pub mod attachments;
 pub mod batch;
 pub mod elements;
+pub mod gates;
 pub mod handoff;
 pub mod linking;
 pub mod loops;
@@ -20,6 +21,7 @@ pub mod spec;
 pub mod tasks;
 
 pub use attachments::attachment;
+pub use gates::{gate_answer, gate_ask, gate_escalate, gate_list};
 pub use elements::{
     coverage, element_add, element_rm, element_update, groups_set, layout_set, note_add,
     note_update,
