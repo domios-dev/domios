@@ -1,13 +1,14 @@
 import { RichMarkdown } from "@codeterm/chat-ui";
 import type { CSSProperties, ReactNode } from "react";
 import type { ApiConfig, Pane } from "../../../lib/types";
-import { historicalExecutorForTask } from "../taskExecutorHistory";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { PlanDetailKind } from "../planView/PlanDetailOverlay";
 import { taskStatusText } from "../planView/taskQa";
 import { AttachmentGallery } from "../planView/attachments";
+import { PlanRecentActivityRail } from "../planView/PlanRecentActivityRail.tsx";
+import { TaskActivityTimeline } from "../planView/TaskActivityTimeline.tsx";
 import { GLYPH_ACCENT } from "./cardContent";
 
 // The READ surface body for the detail overlay. Plain (no section tint) — structure
@@ -174,7 +175,6 @@ function TaskDetail({
   renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
 }) {
   const body = task.body?.trim();
-  const historical = historicalExecutorForTask(task, panes, false);
   const paneId = task.assigned_pane_id?.trim() || null;
   const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
   const statusLabel = plan
@@ -205,29 +205,7 @@ function TaskDetail({
           <div data-testid="plan-detail-attachment-thumbnails">{attachmentThumbnails}</div>
         </Block>
       )}
-      {historical && (
-        <Block label="Execution history">
-          <div data-testid="canvas-detail-executor-history" style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
-            {historical.attempts.map((attempt, index) => {
-              const label = attempt.pane_title?.trim()
-                || (attempt.pane_id ? (panes[attempt.pane_id]?.title?.trim() || attempt.pane_id.slice(0, 8)) : "unknown");
-              const bits = [label, attempt.role, attempt.model, attempt.branch, attempt.report_status?.replace(/_/g, " ")]
-                .map((v) => v?.trim())
-                .filter(Boolean);
-              return (
-                <div
-                  key={attempt.id ?? `${attempt.pane_id ?? "attempt"}-${index}`}
-                  data-testid="canvas-detail-executor-attempt"
-                  data-executor-attempt={index + 1}
-                  style={{ color: "color-mix(in srgb, var(--ct-fg) 78%, transparent)" }}
-                >
-                  {bits.join(" · ")}
-                </div>
-              );
-            })}
-          </div>
-        </Block>
-      )}
+      <TaskActivityTimeline task={task} plan={plan} planId={planId} api={api} panes={panes} />
       <Block label="Description">
         {body ? <Markdown text={body} /> : <span style={muted} data-testid="canvas-detail-empty-body">No description</span>}
       </Block>
@@ -245,21 +223,6 @@ function TaskDetail({
         <Block label="Links">
           <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 13 }}>
             {task.links.map((l, i) => <span key={i} style={{ color: "var(--ct-accent)", wordBreak: "break-all" }}>{l}</span>)}
-          </div>
-        </Block>
-      ) : null}
-      {task.milestones.length ? (
-        <Block label={`Strides (${task.milestones.length})`}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {task.milestones.map((m) => (
-              <div key={m.id} style={{ fontSize: 13, lineHeight: 1.45 }}>
-                <span style={{ ...labelStyle, fontSize: 10, marginRight: 6 }}>{m.kind.replace(/[_-]+/g, " ")}</span>
-                {m.text}
-                <div style={{ marginTop: 6 }}>
-                  <AttachmentGallery api={api} planId={planId} attachments={m.attachments} />
-                </div>
-              </div>
-            ))}
           </div>
         </Block>
       ) : null}
@@ -446,6 +409,7 @@ function PlanDetail({
   variant,
   planSections,
   specSections = [],
+  panes = {},
   onSection,
   onOpenTask,
 }: {
@@ -453,6 +417,7 @@ function PlanDetail({
   variant: "plan" | "spec";
   planSections: Section[];
   specSections?: Section[];
+  panes?: Record<string, Pane>;
   onSection?: (sectionId: string, variant: "plan" | "spec") => void;
   onOpenTask?: (taskId: string) => void;
 }) {
@@ -497,6 +462,7 @@ function PlanDetail({
         </div>
       )}
       {variant === "spec" && <SpecCoverageHeader plan={plan} />}
+      {variant === "plan" && <PlanRecentActivityRail plan={plan} panes={panes} onOpenTask={onOpenTask} />}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={labelStyle}>{variant === "spec" ? "Specification" : "Sections"}</div>
         {sections.length
@@ -545,6 +511,7 @@ export function DetailContent({ kind, planId, api, task, plan, spec, specSection
       variant={variant}
       planSections={kind === "spec" ? (spec?.sections ?? []) : displayPlan.sections}
       specSections={specSections ?? (kind === "spec" ? displayPlan.sections : [])}
+      panes={panes}
       onSection={onSection}
       onOpenTask={onOpenTask}
     />
