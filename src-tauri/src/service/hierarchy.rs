@@ -165,6 +165,11 @@ impl ServiceContext {
                     milestone_text(message, details.status),
                     milestone_kind.unwrap_or("status_update").to_string(),
                 );
+                if !details.attachments.is_empty() {
+                    notices.push(
+                        "report attachments were not relayed to the remote owning daemon; mesh plan relay currently carries text/status only".into(),
+                    );
+                }
             }
         }
 
@@ -200,13 +205,32 @@ impl ServiceContext {
                 key: None,
                 links: vec![],
             });
-            self.plan_store
+            let batch_result = self
+                .plan_store
                 .apply_batch(
                     plan_id,
                     crate::service::plan::batch::BatchRequest { key: None, ops },
                     epoch_ms(),
                 )
                 .map_err(|e| e.to_string())?;
+            if !details.attachments.is_empty() {
+                let milestone_id = batch_result
+                    .milestone_ids
+                    .first()
+                    .ok_or_else(|| "report milestone missing for attachments".to_string())?
+                    .clone();
+                for path in &details.attachments {
+                    self.plan_store
+                        .attach_to_milestone(
+                            plan_id,
+                            &task_id,
+                            &milestone_id,
+                            std::path::Path::new(path),
+                            epoch_ms(),
+                        )
+                        .map_err(|e| e.to_string())?;
+                }
+            }
             let _ = self.plan_store.record_task_attempt_report(
                 plan_id,
                 &task_id,

@@ -4,16 +4,18 @@ use serde::Serialize;
 
 use super::ServiceContext;
 use crate::multiplexer::types::AgentRole;
+use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::reconcile::{
     detect_pane_gone, detect_plan_drift, DriftItem, DriftKind, PaneProbe, PaneRole,
     ReconcileConfig, DEFAULT_STALE_REVIEW_MS,
 };
-use crate::service::plan::{PlanError, ReconcileFixResult};
+use crate::service::plan::{cleanup_debt, PlanError, ReconcileFixResult};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ReconcileResult {
     pub plan_id: String,
     pub drift: Vec<DriftItem>,
+    pub cleanup_debt: Vec<CleanupDebtTask>,
     pub counts: HashMap<DriftKind, usize>,
     pub fixed: Vec<ReconcileFixResult>,
     pub accepted_signal: &'static str,
@@ -34,6 +36,9 @@ impl ServiceContext {
             .map(str::to_string)
             .or_else(|| plan.owner.pane_id.clone());
         let drift = detect_plan_drift(&plan, &config, |pane_id| self.pane_probe(pane_id));
+        let cleanup_debt = cleanup_debt::detect_plan_cleanup_debt(&plan, |pane_id| {
+            self.pane_probe(pane_id).exists
+        });
         let counts = drift_counts(&drift);
         let fixed = if fix {
             self.plan_store
@@ -47,6 +52,7 @@ impl ServiceContext {
         Ok(ReconcileResult {
             plan_id: plan_id.into(),
             drift,
+            cleanup_debt,
             counts,
             fixed,
             accepted_signal: "none",

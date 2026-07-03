@@ -33,6 +33,21 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewStage {
+    #[default]
+    Review,
+    Qa,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum QaState {
+    Queued,
+    Running,
+}
+
 impl TaskStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
@@ -119,6 +134,18 @@ pub struct TaskLaneMetadata {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TaskCompetitionMetadata {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub attempts: Option<u32>,
+    #[serde(default)]
+    pub models: Vec<String>,
+    #[serde(default)]
+    pub judge_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TaskExecutionReportSnapshot {
     pub id: String,
     #[serde(default)]
@@ -133,6 +160,8 @@ pub struct TaskExecutionReportSnapshot {
     pub test_result: Option<String>,
     #[serde(default)]
     pub skipped: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -175,6 +204,18 @@ pub struct TaskExecutionAttempt {
     pub reviewed_at: Option<u64>,
     #[serde(default)]
     pub closed_at: Option<u64>,
+    #[serde(default)]
+    pub competition_group_id: Option<String>,
+    #[serde(default)]
+    pub competition_lane: Option<u32>,
+    #[serde(default)]
+    pub judge_verdict: Option<String>,
+    #[serde(default)]
+    pub judge_reason: Option<String>,
+    #[serde(default)]
+    pub judged_at: Option<u64>,
+    #[serde(default)]
+    pub winner: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -347,6 +388,18 @@ pub struct Section {
     pub subsections: Vec<Section>,
     #[serde(default)]
     pub canvas: ElementCanvas,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AttachmentRef {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub media_type: String,
+    pub size_bytes: u64,
+    pub created_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -363,6 +416,8 @@ pub struct Milestone {
     pub iteration: Option<u32>,
     #[serde(default)]
     pub canvas: ElementCanvas,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -378,6 +433,10 @@ pub struct Task {
     pub test_plan: Option<String>,
     pub correctness: Option<String>,
     pub status: TaskStatus,
+    #[serde(default)]
+    pub review_stage: ReviewStage,
+    #[serde(default)]
+    pub qa_state: Option<QaState>,
     pub status_label: Option<String>,
     #[serde(default)]
     pub priority: TaskPriority,
@@ -399,6 +458,8 @@ pub struct Task {
     pub role_guidance: Option<String>,
     #[serde(default)]
     pub executor_role: Option<String>,
+    #[serde(default)]
+    pub competition: Option<TaskCompetitionMetadata>,
     pub intent: Option<String>,
     #[serde(default)]
     pub parent_task_id: Option<String>,
@@ -418,6 +479,8 @@ pub struct Task {
     pub execution_attempts: Vec<TaskExecutionAttempt>,
     #[serde(default)]
     pub park_reason: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

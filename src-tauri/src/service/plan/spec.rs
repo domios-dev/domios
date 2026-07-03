@@ -48,6 +48,7 @@ impl PlanStore {
                         body: String::new(),
                         subsections: mirrored_subsections,
                         canvas: Default::default(),
+                        attachments: vec![],
                     }
                 })
                 .collect()
@@ -146,6 +147,7 @@ impl PlanStore {
             body: body.into(),
             subsections: vec![],
             canvas: Default::default(),
+            attachments: vec![],
         };
         self.with_spec(spec_id, now_ms, |spec| match parent {
             None => {
@@ -363,6 +365,7 @@ mod tests {
                     name: "Do it".into(),
                     kind: "implement".into(),
                     section_ids: vec![plan_sec.clone()],
+                    competition: None,
                     ..Default::default()
                 },
                 14,

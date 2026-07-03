@@ -125,6 +125,41 @@ fn heartbeat_set_writes_focus_lanes_rules_and_reinjects() {
 }
 
 #[test]
+fn heartbeat_renders_live_competitive_attempt_summary() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    let task_id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "competitive lane".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+    store
+        .assign_task(&plan_id, &task_id, "worker-a", None, 21)
+        .unwrap();
+    store
+        .assign_task(&plan_id, &task_id, "worker-b", None, 22)
+        .unwrap();
+
+    let shown = store.show_heartbeat(Some(&plan_id), None, None).unwrap();
+
+    assert!(shown
+        .reinjection
+        .contains(crate::prompts::HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE));
+    assert!(shown
+        .reinjection
+        .contains(&super::heartbeat::competitive_attempt_summary_line(
+            &task_id,
+            "competitive lane",
+            2
+        )));
+}
+
+#[test]
 fn planning_mode_rejects_runtime_heartbeat_state() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
@@ -187,6 +222,7 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
             NewTask {
                 name: "open work".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             21,

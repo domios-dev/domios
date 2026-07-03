@@ -3,7 +3,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
+import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task } from "../types";
 import { PlanDetailOverlay } from "./PlanDetailOverlay";
 
@@ -55,6 +55,17 @@ test("renders task detail body", async () => {
   assert(host.querySelector('[data-testid="canvas-detail-content"]'), "task body");
 });
 
+test("renders canonical status chip in task detail", async () => {
+  const task: Task = { ...FIXTURE_TASK, status: TaskStatus.InReview, review_stage: "qa", qa_state: "queued", status_label: "In QA · queued #1" };
+  const plan: Plan = { ...FIXTURE_PLAN, tasks: [task] };
+  const { host } = await render(
+    <PlanDetailOverlay kind="task" task={task} plan={plan} onClose={() => {}} />,
+  );
+  const chip = host.querySelector('[data-testid="status-chip"]');
+  assert(chip?.textContent?.includes("in review"), "canonical status chip");
+  assert(!host.textContent?.includes("In QA · queued #1"), "status label not in header");
+});
+
 test("renders plan detail with progress", async () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
@@ -80,6 +91,65 @@ test("renders spec detail from specSections", async () => {
   );
   assert(host.querySelector('[data-testid="plan-detail-title"]')?.textContent?.includes("spec"), "spec title");
   assert(host.querySelector('[data-testid="canvas-detail-section"][data-section-id="sec-auth"]'), "spec section");
+});
+
+test("plan document renders relation chips and opens task chips through overlay API", async () => {
+  let openedTaskId: string | null = null;
+  let framedSection: string | null = null;
+  const specSection = {
+    ...FIXTURE_SECTION,
+    id: "spec-auth",
+    title: "OAuth contract",
+    subsections: [],
+  };
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    spec_links: [{ spec_id: "spec-1", spec_section_id: "spec-auth", plan_section_id: "sec-auth" }],
+    tasks: [
+      { ...FIXTURE_TASK, id: "task-linked", name: "Linked task", handle: "linked-task", section_ids: ["sec-auth"] },
+    ],
+  };
+  const { host } = await render(
+    <PlanDetailOverlay
+      kind="plan"
+      plan={plan}
+      specSections={[specSection]}
+      onOpenTask={(taskId) => { openedTaskId = taskId; }}
+      onSectionClick={(a) => { framedSection = `${a.variant}:${a.sectionId}`; }}
+      onClose={() => {}}
+    />,
+  );
+  const specChip = host.querySelector('[data-testid="canvas-detail-spec-section-chip"]') as HTMLButtonElement;
+  assert(specChip?.textContent?.includes("OAuth contract"), "spec section chip uses fetched title");
+  await act(async () => {
+    specChip.click();
+  });
+  assert(framedSection === "spec:spec-auth", "spec chip navigates to spec section");
+  const taskChip = host.querySelector('[data-testid="canvas-detail-task-chip"]') as HTMLButtonElement;
+  assert(taskChip?.textContent === "linked-task", "task chip uses handle");
+  await act(async () => {
+    taskChip.click();
+  });
+  assert(openedTaskId === "task-linked", "task chip opens task through overlay API");
+});
+
+test("spec coverage header matches plan-state task numbers", async () => {
+  const spec: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [],
+    tasks: [
+      { ...FIXTURE_TASK, id: "done", status: TaskStatus.Done },
+      { ...FIXTURE_TASK, id: "active", status: TaskStatus.InProgress },
+      { ...FIXTURE_TASK, id: "cancelled", status: TaskStatus.Cancelled },
+    ],
+  };
+  const { host } = await render(
+    <PlanDetailOverlay kind="spec" spec={spec} specSections={[FIXTURE_SECTION]} onClose={() => {}} />,
+  );
+  assert(host.querySelector('[data-testid="canvas-detail-spec-total"]')?.textContent === "1/2", "cancelled excluded from total");
+  assert(host.querySelector('[data-testid="canvas-detail-spec-covered"]')?.textContent?.includes("1 done"), "done count");
+  assert(host.querySelector('[data-testid="canvas-detail-spec-partial"]')?.textContent?.includes("1 active"), "active count");
+  assert(host.querySelector('[data-testid="canvas-detail-spec-percent"]')?.textContent === "50% done", "task percentage");
 });
 
 test("Esc closes overlay", async () => {
@@ -175,6 +245,59 @@ test("detail body supports text selection", async () => {
   assert(body.className.includes("plan-detail-selectable"), "detail body selectable");
   const title = host.querySelector('[data-testid="plan-detail-title"]') as HTMLElement;
   assert(title.className.includes("plan-task-selectable"), "detail title selectable");
+});
+
+test("task detail renders milestone activity timeline", async () => {
+  const now = Date.now();
+  const task: Task = {
+    ...FIXTURE_TASK,
+    milestones: [{
+      ...FIXTURE_MILESTONE,
+      id: "ms-detail",
+      kind: "decision",
+      ts: now - 60_000,
+      text: "Chose slide-over layout",
+      from: { pane_id: "pane-a", session_id: null, title: "Puccini" },
+    }],
+  };
+  const { host } = await render(
+    <PlanDetailOverlay kind="task" task={task} plan={FIXTURE_PLAN} onClose={() => {}} />,
+  );
+  assert(host.querySelector('[data-testid="plan-task-activity"]'), "activity section");
+  assert(host.querySelector('[data-testid="plan-task-activity-entry"]')?.getAttribute("data-milestone-id") === "ms-detail", "task milestone");
+  assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m", "relative age in detail");
+});
+
+test("plan document renders recent activity rail with click-through", async () => {
+  let openedTaskId: string | null = null;
+  const task: Task = {
+    ...FIXTURE_TASK,
+    id: "task-active",
+    handle: "activity-task",
+    milestones: [{
+      ...FIXTURE_MILESTONE,
+      id: "ms-plan",
+      kind: "status_update",
+      ts: 1_700_000_000_000,
+      text: "Worker reported in_review",
+      from: { pane_id: "pane-a", session_id: null, title: "Puccini" },
+    }],
+  };
+  const plan: Plan = { ...FIXTURE_PLAN, tasks: [task] };
+  const { host } = await render(
+    <PlanDetailOverlay
+      kind="plan"
+      plan={plan}
+      onOpenTask={(taskId) => { openedTaskId = taskId; }}
+      onClose={() => {}}
+    />,
+  );
+  const item = host.querySelector('[data-testid="plan-recent-activity-item"]') as HTMLButtonElement;
+  assert(item?.getAttribute("data-task-id") === "task-active", "recent activity task id");
+  await act(async () => {
+    item.click();
+  });
+  assert(openedTaskId === "task-active", "recent activity opens task");
 });
 
 test("focus return remains on opener after selected task changes", async () => {

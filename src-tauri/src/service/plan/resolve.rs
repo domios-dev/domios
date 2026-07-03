@@ -436,6 +436,7 @@ mod tests {
                     name: name.into(),
                     kind: "task".into(),
                     handle: Some(handle.into()),
+                    competition: None,
                     ..Default::default()
                 },
                 2000,
@@ -454,6 +455,8 @@ mod tests {
             test_plan: None,
             correctness: None,
             status: TaskStatus::Pending,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: TaskPriority::default(),
             created_at: 0,
@@ -470,12 +473,14 @@ mod tests {
             lane: Default::default(),
             taken_by_role: None,
             executor_role: None,
+            competition: None,
             peer: None,
             group: None,
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
             park_reason: None,
+            attachments: vec![],
         }
     }
 

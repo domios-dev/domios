@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::plan::{LoopStatus, PlanMode, TaskStatus};
+use crate::plan::{LoopStatus, PlanMode, QaState, ReviewStage, TaskStatus};
 
 use super::state::{LoopSnapshot, PlanStateSnapshot};
 
@@ -13,6 +13,8 @@ pub enum NextActionKind {
     Reconcile,
     ConsiderStop,
     Dispatch,
+    ClaimQa,
+    SpawnTester,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -50,6 +52,29 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
 
     for lane in &s.open_lanes {
         if lane.status == TaskStatus::InReview {
+            if lane.review_stage == ReviewStage::Qa {
+                let kind = if lane.qa_state == Some(QaState::Queued) {
+                    NextActionKind::ClaimQa
+                } else {
+                    NextActionKind::SpawnTester
+                };
+                let message = if lane.qa_state == Some(QaState::Queued) {
+                    format!(
+                        "claim QA {} ({}) with `codeterm plan qa next {} --claim --note \"<scope>\"`",
+                        lane.task_id, lane.name, s.plan_id
+                    )
+                } else {
+                    format!("QA running for {} ({})", lane.task_id, lane.name)
+                };
+                actions.push(NextAction {
+                    priority: 1,
+                    kind,
+                    task_id: Some(lane.task_id.clone()),
+                    loop_id: None,
+                    message,
+                });
+                continue;
+            }
             actions.push(NextAction {
                 priority: 1,
                 kind: NextActionKind::Gate,
@@ -97,12 +122,23 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
 
     for lane in &s.open_lanes {
         if lane.status == TaskStatus::Pending {
+            let message = if let Some(summary) = lane.competition.as_deref() {
+                format!(
+                    "{} {} ({summary}): plan.task.compete route for plan {} task {}",
+                    crate::service::plan::competition::COMPETITIVE_DISPATCH_NUDGE,
+                    lane.task_id,
+                    s.plan_id,
+                    lane.task_id
+                )
+            } else {
+                format!("dispatch {} ({})", lane.task_id, lane.name)
+            };
             actions.push(NextAction {
                 priority: 5,
                 kind: NextActionKind::Dispatch,
                 task_id: Some(lane.task_id.clone()),
                 loop_id: None,
-                message: format!("dispatch {} ({})", lane.task_id, lane.name),
+                message,
             });
         }
     }
@@ -122,6 +158,10 @@ mod tests {
             name: format!("name-{id}"),
             status,
             executor_role: None,
+            competition: None,
+            live_competition_attempts: 0,
+            review_stage: ReviewStage::Review,
+            qa_state: None,
         }
     }
 
@@ -159,6 +199,7 @@ mod tests {
                 unlinked_tasks: vec![],
             },
             drift: DriftSummary::default(),
+            cleanup_debt: vec![],
             loops: vec![],
             heartbeat: Default::default(),
             open_lanes: vec![],

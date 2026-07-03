@@ -19,6 +19,7 @@ import { listCancelledTasks } from "./cancelledTasks";
 import { PlanContextHeader } from "./PlanContextHeader";
 import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
+import { enrichSwitcherOptions, selectActiveWork } from "./activeWork";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.board.selectedPlanId";
@@ -33,7 +34,7 @@ function readStoredPlanId(): string | null {
 
 type BoardDetail =
   | { kind: "task"; task: Task; plan: Plan }
-  | { kind: "plan"; plan: Plan }
+  | { kind: "plan"; plan: Plan; specSections: Section[] }
   | { kind: "spec"; plan: Plan; specSections: Section[] };
 
 function BoardColumn({
@@ -122,7 +123,7 @@ function BoardPlanBoard({
       <PlanContextHeader
         summary={model.planSummary}
         spec={model.spec}
-        onOpenPlan={() => onOpenDetail({ kind: "plan", plan })}
+        onOpenPlan={() => onOpenDetail({ kind: "plan", plan, specSections })}
         onOpenSpec={
           model.spec
             ? () => onOpenDetail({ kind: "spec", plan, specSections })
@@ -177,6 +178,15 @@ export function PlanBoardView({
   api,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
+
+  const activeWork = useMemo(
+    () => selectActiveWork(effectivePlans, panes),
+    [effectivePlans, panes],
+  );
+  const switcherWithInflight = useMemo(
+    () => enrichSwitcherOptions(switcherOptions, activeWork),
+    [switcherOptions, activeWork],
+  );
 
   const filteredPlans = useMemo(
     () => filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes }),
@@ -247,6 +257,19 @@ export function PlanBoardView({
   );
 
   const closeDetail = useCallback(() => setDetail(null), []);
+  const openDetailTask = useCallback((taskId: string) => {
+    if (!selectedPlan) return;
+    const task = selectedPlan.tasks.find((candidate) => candidate.id === taskId);
+    if (task) setDetail({ kind: "task", task, plan: selectedPlan });
+  }, [selectedPlan]);
+  const openDetailSection = useCallback((args: { variant: "plan" | "spec" }) => {
+    if (!selectedPlan) return;
+    if (args.variant === "spec") {
+      setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections });
+      return;
+    }
+    setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
+  }, [selectedPlan, selectedSpecSections]);
 
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
 
@@ -270,7 +293,7 @@ export function PlanBoardView({
       {!loading && !error && selectedPlan && boardModel && (
         <div data-testid="plan-board-single" className="plan-board-single">
           <PlanSwitcher
-            plans={switcherOptions}
+            plans={switcherWithInflight}
             selectedId={selectedPlan.id}
             onSelect={selectPlan}
             onAction={handleAction}
@@ -289,14 +312,14 @@ export function PlanBoardView({
           task={detail.kind === "task" ? detail.task : undefined}
           plan={detail.kind === "plan" ? detail.plan : detail.kind === "task" ? detail.plan : undefined}
           spec={detail.kind === "spec" ? detail.plan : undefined}
-          specSections={detail.kind === "spec" ? detail.specSections : undefined}
+          specSections={detail.kind === "spec" || detail.kind === "plan" ? detail.specSections : undefined}
           planId={detail.plan.id}
+          api={api}
           panes={panes}
           onOpenPane={onOpenPane}
+          onOpenTask={openDetailTask}
           onClose={closeDetail}
-          onSectionClick={() => {
-            if (detail.kind === "task") setDetail({ kind: "plan", plan: detail.plan });
-          }}
+          onSectionClick={openDetailSection}
         />
       )}
     </div>

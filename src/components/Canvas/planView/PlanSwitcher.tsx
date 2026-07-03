@@ -8,6 +8,10 @@ export interface PlanSwitcherOption {
   archived?: boolean;
   /** Shown as "Open plan document" only when set. */
   docUrl?: string | null;
+  /** In-flight task count for this plan (in_progress / in_review). */
+  inflightCount?: number;
+  /** Tooltip listing active task titles and executors. */
+  inflightTooltip?: string | null;
 }
 
 export type PlanKebabAction =
@@ -181,6 +185,22 @@ function KebabTrigger({
   );
 }
 
+function inflightBadge(plan: PlanSwitcherOption) {
+  const count = plan.inflightCount ?? 0;
+  if (count <= 0) return null;
+  return (
+    <span
+      data-testid="plan-switcher-badge"
+      data-plan-id={plan.id}
+      className="plan-switcher-inflight-badge"
+      title={plan.inflightTooltip ?? `${count} in flight`}
+      aria-label={`${count} in flight`}
+    >
+      {count}
+    </span>
+  );
+}
+
 function SegmentedSwitcher({
   activePlans,
   archivedPlans,
@@ -208,6 +228,7 @@ function SegmentedSwitcher({
   const makePill = (plan: PlanSwitcherOption, isActive: boolean) => {
     const selected = plan.id === selectedId;
     const menuOpen = openMenu?.id === plan.id;
+    const tip = plan.inflightTooltip ? `${plan.title}\n${plan.inflightTooltip}` : plan.title;
 
     return (
       <div
@@ -224,17 +245,19 @@ function SegmentedSwitcher({
             data-active={selected ? "true" : "false"}
             aria-pressed={selected}
             className={`plan-board-switcher-btn${selected ? " plan-board-switcher-btn-active" : ""}`}
-            title={plan.title}
+            title={tip}
             onClick={() => onSelect(plan.id)}
           >
             {plan.title}
+            {inflightBadge(plan)}
           </button>
         ) : (
           <span
             className="plan-board-switcher-btn plan-switcher-archived-label"
-            title={plan.title}
+            title={tip}
           >
             {plan.title}
+            {inflightBadge(plan)}
           </span>
         )}
         <KebabTrigger
@@ -382,10 +405,11 @@ function OverflowSwitcher({
           type="button"
           className="plan-switcher-opt-select"
           disabled={isArchived}
-          title={plan.title}
+          title={plan.inflightTooltip ? `${plan.title}\n${plan.inflightTooltip}` : plan.title}
           onClick={() => !isArchived && selectAndClose(plan.id)}
         >
           {plan.title}
+          {inflightBadge(plan)}
         </button>
         <KebabTrigger
           plan={plan}

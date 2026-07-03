@@ -395,6 +395,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             test_cmd,
             test_result,
             skipped,
+            attachments,
         }) => {
             // Footgun guard: `--pane X` sets the SENDER (you report AS X), NOT the
             // destination. Reports route to your parent automatically. An agent passing
@@ -479,6 +480,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             }
             if let Some(sk) = skipped {
                 body["skipped"] = serde_json::json!(sk);
+            }
+            if !attachments.is_empty() {
+                body["attachments"] = serde_json::json!(attachments);
             }
             let result = client
                 .call_detailed("agent.report", Some(body.clone()))

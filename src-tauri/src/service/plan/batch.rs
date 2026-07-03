@@ -352,6 +352,7 @@ impl PlanStore {
                                         task.status = status;
                                         task.status_changed_at = now_ms;
                                     }
+                                    super::qa::normalize_task_review_fields(task);
                                 }
                                 if let Some(body) = body {
                                     task.body = body;
@@ -386,6 +387,8 @@ impl PlanStore {
                                         .map(parse_status)
                                         .transpose()?
                                         .unwrap_or(TaskStatus::Pending),
+                                    review_stage: Default::default(),
+                                    qa_state: None,
                                     status_label: None,
                                     priority: priority
                                         .as_deref()
@@ -401,6 +404,7 @@ impl PlanStore {
                                     body: body.unwrap_or_default(),
                                     role_guidance: None,
                                     executor_role: None,
+                                    competition: None,
                                     intent: None,
                                     parent_task_id: None,
                                     assigned_pane_id: None,
@@ -412,6 +416,7 @@ impl PlanStore {
                                     milestones: vec![],
                                     execution_attempts: vec![],
                                     park_reason: None,
+                                    attachments: vec![],
                                 };
                                 working.tasks.push(task);
                                 id
@@ -490,6 +495,7 @@ impl PlanStore {
                                 task.status = parsed;
                                 task.status_changed_at = now_ms;
                             }
+                            super::qa::normalize_task_review_fields(task);
                             task.updated_at = now_ms;
                             if let Some(client_id) = client_id {
                                 result.ids.insert(client_id, task.id.clone());
@@ -559,6 +565,7 @@ impl PlanStore {
                                     loop_id: None,
                                     iteration: None,
                                     canvas: Default::default(),
+                                    attachments: vec![],
                                 });
                                 task.updated_at = now_ms;
                                 id
@@ -673,6 +680,7 @@ impl PlanStore {
                                     loop_id: None,
                                     iteration: None,
                                     canvas: Default::default(),
+                                    attachments: vec![],
                                 });
                                 task.updated_at = now_ms;
                                 result.milestone_ids.push(milestone_id);
@@ -752,6 +760,7 @@ impl PlanStore {
                                     body: body.unwrap_or_default(),
                                     subsections: vec![],
                                     canvas: Default::default(),
+                                    attachments: vec![],
                                 });
                                 spec.updated_at = now_ms;
                                 id

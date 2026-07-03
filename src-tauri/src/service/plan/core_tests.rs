@@ -69,6 +69,7 @@ fn in_review_status_persists_and_reloads() {
             NewTask {
                 name: "worker lane".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -131,6 +132,7 @@ fn task_quality_fields_persist_and_reload() {
                         .into(),
                 ),
                 correctness: Some("quality fields round-trip unchanged".into()),
+                competition: None,
                 ..Default::default()
             },
             2,

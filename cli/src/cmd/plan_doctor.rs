@@ -7,19 +7,21 @@ use serde_json::{json, Value};
 
 use crate::cmd::plan_local::{plan_files, plan_id_from, project_root};
 
+mod cleanup;
+
 const STALLED_LOOP_AFTER_MS: u64 = 3 * 24 * 60 * 60 * 1000;
 // Mirrors src-tauri/src/plan/reconcile.rs PENDING_UNSTAFFED_STALE_MS.
 const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
 
 #[derive(Debug, Clone)]
-struct Finding {
-    severity: &'static str,
-    kind: &'static str,
-    plan_id: Option<String>,
-    path: String,
-    task_id: Option<String>,
-    detail: String,
-    fix: String,
+pub(super) struct Finding {
+    pub(super) severity: &'static str,
+    pub(super) kind: &'static str,
+    pub(super) plan_id: Option<String>,
+    pub(super) path: String,
+    pub(super) task_id: Option<String>,
+    pub(super) detail: String,
+    pub(super) fix: String,
 }
 
 impl Finding {
@@ -266,6 +268,7 @@ fn inspect_storage(path: &Path, plan: &Value) -> Vec<Finding> {
     let Some(tasks) = plan.get("tasks").and_then(Value::as_array) else {
         return findings;
     };
+    findings.extend(inspect_orphan_attachment_dirs(path, plan, tasks));
     for task in tasks {
         let task_id = task.get("id").and_then(Value::as_str).map(str::to_string);
         for key in ["id", "name", "type", "status"] {
@@ -300,6 +303,84 @@ fn inspect_storage(path: &Path, plan: &Value) -> Vec<Finding> {
         }
     }
     findings
+}
+
+fn inspect_orphan_attachment_dirs(path: &Path, plan: &Value, tasks: &[Value]) -> Vec<Finding> {
+    let Some(plan_dir) = path.parent() else {
+        return vec![];
+    };
+    let root = plan_dir.join("attachments");
+    if !root.is_dir() {
+        return vec![];
+    }
+    let task_ids = tasks
+        .iter()
+        .filter_map(|task| task.get("id").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    let milestone_ids = tasks
+        .iter()
+        .flat_map(|task| {
+            task.get("milestones")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        })
+        .filter_map(|milestone| {
+            milestone
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect::<HashSet<_>>();
+    let section_ids = collect_section_ids(plan.get("sections").and_then(Value::as_array));
+    let mut findings = vec![];
+    attachment_orphans(path, plan, &root.join("tasks"), &task_ids, &mut findings);
+    attachment_orphans(
+        path,
+        plan,
+        &root.join("sections"),
+        &section_ids,
+        &mut findings,
+    );
+    attachment_orphans(
+        path,
+        plan,
+        &root.join("milestones"),
+        &milestone_ids,
+        &mut findings,
+    );
+    findings
+}
+
+fn attachment_orphans(
+    plan_path: &Path,
+    plan: &Value,
+    dir: &Path,
+    live_ids: &HashSet<String>,
+    findings: &mut Vec<Finding>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_type().map(|ft| !ft.is_dir()).unwrap_or(true) {
+            continue;
+        }
+        let id = entry.file_name().to_string_lossy().to_string();
+        if live_ids.contains(&id) {
+            continue;
+        }
+        findings.push(Finding {
+            severity: "warning",
+            kind: "orphan_attachment_dir",
+            plan_id: plan_id(plan, plan_path),
+            path: entry.path().display().to_string(),
+            task_id: None,
+            detail: format!("attachment directory has no matching live record id '{id}'"),
+            fix: "delete the orphaned attachment directory after confirming the parent was intentionally removed".into(),
+        });
+    }
 }
 
 fn inspect_structure(path: &Path, plan: &Value) -> Vec<Finding> {
@@ -572,6 +653,7 @@ fn inspect_task_lifecycle(
             "dispatch it, park it with a reason, or send it to replanning",
         ));
     }
+    findings.extend(cleanup::cleanup_debt_findings(path, plan, task));
 }
 
 fn plan_warning_task(
@@ -720,11 +802,18 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             kind: "missing_executor_role",
             plan_id: plan_id(plan, path),
             path: path.display().to_string(),
-            task_id: Some(task_id),
+            task_id: Some(task_id.clone()),
             detail: "execution task has no executor_role; orchestrator cannot route agent personality declaratively".into(),
             fix: "set --executor-role <slug> (e.g. rust-backend-dev, frontend-dev, code-reviewer) on the task".into(),
         });
     }
+    crate::cmd::plan_doctor_competition::push_competition_findings(
+        task,
+        plan_id(plan, path),
+        path,
+        task_id,
+        findings,
+    );
 }
 
 fn task_has_body_sidecar(plan_path: &Path, task: &Value) -> bool {

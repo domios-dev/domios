@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{AgentRef, OrchestratorRef, TaskLaneMetadata};
+use crate::plan::{AgentRef, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata};
 use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
 
@@ -56,6 +56,17 @@ fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
     Ok((!update.is_empty()).then_some(update))
 }
 
+fn push_hints(value: &mut Value, hints: Vec<String>) {
+    let hints: Vec<String> = hints
+        .into_iter()
+        .filter(|hint| !hint.trim().is_empty())
+        .collect();
+    if hints.is_empty() {
+        return;
+    }
+    value["_hints"] = serde_json::json!(hints);
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct TaskAddBody {
     name: String,
@@ -79,6 +90,8 @@ pub(crate) struct TaskAddBody {
     role_guidance: Option<String>,
     #[serde(default)]
     executor_role: Option<String>,
+    #[serde(default)]
+    competition: Option<TaskCompetitionMetadata>,
     #[serde(default)]
     intent: Option<String>,
     #[serde(default)]
@@ -164,6 +177,7 @@ pub async fn task_add(
                 body: body.body.unwrap_or_default(),
                 role_guidance: body.role_guidance,
                 executor_role: body.executor_role,
+                competition: body.competition,
                 intent: body.intent,
                 parent_task_id: body.parent,
                 assigned_pane_id: body.assign_pane,
@@ -271,6 +285,15 @@ pub async fn task_update(
             .update_task_lane(&id, &tid, lane, epoch_ms())
             .map_err(plan_err)?;
     }
+    if let Some(value) = body.get("competition") {
+        let update = serde_json::from_value(value.clone())
+            .map_err(|e| text_err(axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
+        state
+            .svc
+            .plan_store
+            .update_task_competition(&id, &tid, update, epoch_ms())
+            .map_err(plan_err)?;
+    }
     // §EFFORT: a task moving to in_review IS the trigger — notify the plan owner
     // (orchestrator) directly, so a separate `agent report` isn't needed.
     if body.get("status").and_then(|v| v.as_str()) == Some("in_review") {
@@ -311,7 +334,20 @@ pub async fn task_close(
         .close_task(&id, &tid, body.result.as_deref(), from, epoch_ms())
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let mut resp = serde_json::json!({ "ok": true });
+    if let Some(plan) = state.svc.plan_store.get(&id) {
+        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |pane| {
+            state.svc.pane_probe(pane).exists
+        });
+        let hints = crate::service::plan::cleanup_debt::cleanup_debt_hints(
+            &cleanup
+                .into_iter()
+                .filter(|item| item.task_id == tid)
+                .collect::<Vec<_>>(),
+        );
+        push_hints(&mut resp, hints);
+    }
+    Ok(Json(resp))
 }
 
 #[derive(Deserialize)]

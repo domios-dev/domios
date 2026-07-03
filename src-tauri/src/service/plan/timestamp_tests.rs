@@ -29,6 +29,7 @@ fn task_timestamps_track_create_update_and_status_transition() {
             NewTask {
                 name: "Timed".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             20,

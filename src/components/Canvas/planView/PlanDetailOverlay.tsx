@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { DetailContent } from "../canvasRender/DetailContent";
-import type { Pane } from "../../../lib/types";
+import type { ApiConfig, Pane } from "../../../lib/types";
 import type { Plan, Section, Task } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
 
@@ -15,8 +15,10 @@ export interface PlanDetailOverlayProps {
   spec?: Plan;
   specSections?: Section[];
   planId?: string;
+  api?: ApiConfig;
   panes?: Record<string, Pane>;
   onOpenPane?: (paneId: string) => void;
+  onOpenTask?: (taskId: string) => void;
   onClose: () => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
@@ -48,8 +50,10 @@ export function PlanDetailOverlay({
   spec,
   specSections,
   planId,
+  api,
   panes,
   onOpenPane,
+  onOpenTask,
   onClose,
   onSectionClick,
   onSectionFrame,
@@ -192,12 +196,14 @@ export function PlanDetailOverlay({
           <DetailContent
             kind={kind}
             planId={navPlanId}
+            api={api}
             task={task}
             plan={plan}
             spec={spec}
             specSections={specSections}
             panes={panes}
             onOpenPane={onOpenPane}
+            onOpenTask={onOpenTask}
             onSectionClick={onSectionNavigate}
             onSectionFrame={onSectionNavigate}
             renderTaskAttachmentThumbnails={renderTaskAttachmentThumbnails}

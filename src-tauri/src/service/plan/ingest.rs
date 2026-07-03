@@ -187,6 +187,7 @@ fn upsert_sections(
                 body: section.body.trim().to_string(),
                 subsections: vec![],
                 canvas: Default::default(),
+                attachments: vec![],
             };
             upsert_sections(&mut new_section.subsections, &section.children, result);
             result.push(IngestedSection {
@@ -255,6 +256,7 @@ mod tests {
             body: String::new(),
             subsections: vec![],
             canvas: Default::default(),
+            attachments: vec![],
         });
         store.save(&mut plan, 1).unwrap();
 

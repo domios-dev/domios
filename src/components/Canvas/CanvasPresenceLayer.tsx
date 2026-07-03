@@ -46,6 +46,7 @@ function PresencePin({
       data-testid="canvas-presence-pin"
       data-task-id={overlay.taskId}
       data-presence-reveal={reveal ? "true" : "false"}
+      data-stale={overlay.stale ? "true" : "false"}
     >
       <span
         ref={pinRef(overlay.taskId)}
@@ -79,6 +80,7 @@ function PresencePin({
           data-testid="canvas-presence-overlay"
           data-presence-world={overlay.world}
           data-presence-live={overlay.live ? "true" : "false"}
+          data-stale={overlay.stale ? "true" : "false"}
           title={rosterTitle(overlay)}
           onMouseEnter={() => setPinHovered(true)}
           onMouseLeave={() => setPinHovered(false)}
@@ -144,7 +146,7 @@ function PresencePin({
           ) : (
             <span
               data-testid="canvas-presence-dot"
-              className={liveRing ? "ct-presence-live" : undefined}
+              className={liveRing ? "ct-presence-live" : overlay.stale ? "ct-presence-stale" : undefined}
               style={{
                 width: 8,
                 height: 8,

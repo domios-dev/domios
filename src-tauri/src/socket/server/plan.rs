@@ -1,14 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use serde_json::{json, Value};
-use tauri::AppHandle;
-
-use crate::plan::{OrchestratorRef, PlanStatus, TaskStatus};
-use crate::service::plan::batch::BatchRequest;
-use crate::service::plan::task_queries::TaskListFilter;
-use crate::service::plan::{hints, NewTask, PlanError};
-use crate::service::ServiceState;
-
 use super::plan_fields::{
     groups_from_csv, kinds_from_csv, optional_string_field, pane_and_ancestors, pane_role,
     string_array_field, tag_facets_field,
@@ -18,15 +7,14 @@ use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;
 use super::plan_role_helpers::{assign_task_with_profile, RespawnAttemptRoleExt};
 use super::{get_string_param, JsonRpcError};
-
-fn epoch_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-fn plan_rpc_err(e: PlanError) -> JsonRpcError {
+use crate::plan::{OrchestratorRef, PlanStatus, TaskStatus};
+use crate::service::plan::batch::BatchRequest;
+use crate::service::plan::task_queries::TaskListFilter;
+use crate::service::plan::{hints, NewTask, PlanError};
+use crate::service::ServiceState;
+use serde_json::{json, Value};
+use tauri::AppHandle;
+pub(super) fn plan_rpc_err(e: PlanError) -> JsonRpcError {
     let data = e.to_json();
     JsonRpcError {
         code: -32603,
@@ -34,10 +22,10 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
         data: Some(data),
     }
 }
-
-fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
+pub(super) fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -53,6 +41,9 @@ pub(super) fn dispatch(
     if method.starts_with("plan.goal.") {
         return super::plan_goal::dispatch(method, params, app, svc);
     }
+    if method.starts_with("plan.qa.") {
+        return super::plan_qa::dispatch(method, params, app, svc);
+    }
     if super::plan_read::handles(method) {
         return super::plan_read::dispatch(method, params, svc);
     }
@@ -65,9 +56,12 @@ pub(super) fn dispatch(
     if super::plan_lifecycle::handles(method) {
         return super::plan_lifecycle::dispatch(method, params, app, svc);
     }
+    if super::plan_attachments::handles(method) {
+        return super::plan_attachments::dispatch(method, params, app, svc);
+    }
     let p = params.as_ref();
     let store = &svc.plan_store;
-    let now = epoch_ms();
+    let now = super::plan_time::epoch_ms();
 
     match method {
         "plan.batch" => {
@@ -335,6 +329,7 @@ pub(super) fn dispatch(
                             .get("intent")
                             .and_then(|v| v.as_str())
                             .map(str::to_string),
+                        competition: super::plan_competition::metadata_field(p)?,
                         assigned_pane_id: assign_pane.clone(),
                         ..Default::default()
                     },
@@ -388,18 +383,8 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
-        "plan.archive" => {
-            let id = plan_refs::resolve_plan(store, params)?;
-            store.archive(&id, now).map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
-        }
-        "plan.unarchive" => {
-            let id = plan_refs::resolve_plan(store, params)?;
-            store.unarchive(&id, now).map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
-        }
+        "plan.archive" => super::plan_archive::archive(store, svc, app, params, now),
+        "plan.unarchive" => super::plan_archive::unarchive(store, app, params, now),
         "plan.delete" => {
             let id = plan_refs::resolve_plan(store, params)?;
             store.delete(&id).map_err(|e| JsonRpcError {
@@ -694,6 +679,7 @@ pub(super) fn dispatch(
                             .and_then(|x| x.get("executor_role"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string()),
+                        competition: super::plan_competition::metadata_field(p)?,
                         intent: p
                             .and_then(|x| x.get("intent"))
                             .and_then(|v| v.as_str())
@@ -815,6 +801,11 @@ pub(super) fn dispatch(
             if let Some(lane) = lane {
                 store
                     .update_task_lane(&id, &tid, lane, now)
+                    .map_err(plan_rpc_err)?;
+            }
+            if let Some(competition) = super::plan_competition::update_field(p)? {
+                store
+                    .update_task_competition(&id, &tid, competition, now)
                     .map_err(plan_rpc_err)?;
             }
             if acceptance_criteria.is_some() || test_plan.is_some() || correctness.is_some() {
@@ -958,6 +949,10 @@ pub(super) fn dispatch(
                 "draft": draft
             }))
         }
+
+        "plan.task.compete" => super::plan_competition::compete(params, app, svc, now),
+
+        "plan.task.judge" => super::plan_competition::judge(params, app, svc, now),
 
         "plan.task.rm" => {
             let all = p.and_then(|x| x.get("all")).and_then(|v| v.as_bool()) == Some(true);

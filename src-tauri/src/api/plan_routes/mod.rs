@@ -7,6 +7,7 @@ use crate::api::routes::AppState;
 use crate::plan::{tag_facets_from_value, MilestoneKind, TaskGroup};
 use crate::service::plan::PlanError;
 
+pub mod attachments;
 pub mod batch;
 pub mod elements;
 pub mod handoff;
@@ -18,6 +19,7 @@ pub mod sections;
 pub mod spec;
 pub mod tasks;
 
+pub use attachments::attachment;
 pub use elements::{
     coverage, element_add, element_rm, element_update, groups_set, layout_set, note_add,
     note_update,

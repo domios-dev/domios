@@ -256,7 +256,9 @@ fn print_task_result(json: bool, val: &Value) {
             .unwrap_or("?");
         println!("{id}\t{status}\t{plan}\t{name}");
         println!("plan: {plan_title} ({plan})");
+        print_competition(task, plan, id);
         print_task_quality(task);
+        print_attachments(task.get("attachments"));
         print_label_list("sections", val.get("sections"));
         print_single_label("parent", val.get("parent"));
         print_label_list("siblings", val.get("siblings"));
@@ -270,6 +272,69 @@ fn print_task_result(json: bool, val: &Value) {
         print_object(val);
     }
     print_hints(&hints);
+}
+
+fn print_attachments(value: Option<&Value>) {
+    let items = value
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if items.is_empty() {
+        println!("attachments: none");
+        return;
+    }
+    println!("attachments:");
+    for item in items {
+        let name = item
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("attachment");
+        let path = item.get("path").and_then(|v| v.as_str()).unwrap_or("?");
+        let media = item
+            .get("media_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let size = item.get("size_bytes").and_then(|v| v.as_u64()).unwrap_or(0);
+        println!("- {name} ({media}, {size} bytes): {path}");
+    }
+}
+
+fn print_competition(task: &Value, plan: &str, task_id: &str) {
+    let Some(competition) = task.get("competition").filter(|v| !v.is_null()) else {
+        return;
+    };
+    if competition.get("enabled").and_then(|v| v.as_bool()) != Some(true) {
+        return;
+    }
+    let attempts = competition
+        .get("attempts")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2)
+        .max(2);
+    let mut parts = vec![format!("{attempts} attempts")];
+    let models = competition
+        .get("models")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    if !models.is_empty() {
+        parts.push(format!("models {models}"));
+    }
+    if let Some(hint) = competition
+        .get("judge_hint")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!("judge: {hint}"));
+    }
+    println!("competition: {}", parts.join("; "));
+    println!("compete: plan.task.compete RPC/API route for {plan} {task_id}");
 }
 
 fn print_task_quality(task: &Value) {

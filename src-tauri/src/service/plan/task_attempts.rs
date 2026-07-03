@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agent::reports::ReportStatus;
 use crate::plan::{
-    AgentRef, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot, TaskLaneMetadata,
+    AgentRef, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot, TaskLaneMetadata, TaskStatus,
 };
 
 use super::{PlanError, PlanStore};
@@ -15,6 +15,15 @@ pub struct TaskRespawnRequest {
     pub parent_pane_id: Option<String>,
     pub workspace_id: Option<String>,
     pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TaskCompeteRequest {
+    pub attempts: Option<u32>,
+    pub provider: Option<String>,
+    pub models: Vec<String>,
+    pub parent_pane_id: Option<String>,
+    pub workspace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +48,22 @@ pub struct TaskRespawnDraft {
     pub plan_id: String,
     pub task_id: String,
     pub source_attempt: TaskExecutionAttempt,
+    pub provider: String,
+    pub model: Option<String>,
+    pub parent_pane_id: Option<String>,
+    pub workspace_id: Option<String>,
+    pub title: String,
+    pub cwd: String,
+    pub task_prompt: String,
+    pub report_command: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskCompeteDraft {
+    pub plan_id: String,
+    pub task_id: String,
+    pub competition_group_id: String,
+    pub lane: u32,
     pub provider: String,
     pub model: Option<String>,
     pub parent_pane_id: Option<String>,
@@ -219,6 +244,66 @@ fn build_prompt(
     out
 }
 
+fn build_compete_prompt(
+    plan_id: &str,
+    task: &Task,
+    group_id: &str,
+    lane: u32,
+    model_label: &str,
+    report_command: &str,
+) -> String {
+    let mut out = String::new();
+    out.push_str(crate::service::plan::competition::COMPETITION_WORKER_ISOLATION_PROMPT);
+    out.push_str("\n\n");
+    out.push_str(&format!("Plan: {plan_id}\nTask: {}\n", task.id));
+    out.push_str(&format!(
+        "Competition group: {group_id}\nAttempt lane: {lane}\n"
+    ));
+    out.push_str(&format!("Model: {model_label}\n"));
+    out.push_str(&format!("Task name: {}\n", task.name));
+    if let Some(guidance) = task
+        .role_guidance
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        out.push_str("\nRole guidance:\n");
+        out.push_str(guidance.trim());
+        out.push('\n');
+    }
+    if let Some(hint) = task
+        .competition
+        .as_ref()
+        .and_then(|competition| competition.judge_hint.as_deref())
+        .filter(|s| !s.trim().is_empty())
+    {
+        out.push_str("\nJudge hint:\n");
+        out.push_str(hint.trim());
+        out.push('\n');
+    }
+    out.push_str("\nTask body:\n");
+    if task.body.trim().is_empty() {
+        out.push_str("(no body recorded)\n");
+    } else {
+        out.push_str(task.body.trim());
+        out.push('\n');
+    }
+    if let Some(intent) = task.intent.as_deref().filter(|s| !s.trim().is_empty()) {
+        out.push_str("\nIntent:\n");
+        out.push_str(intent.trim());
+        out.push('\n');
+    }
+    let lane_lines = lane_lines(&task.lane);
+    if !lane_lines.is_empty() {
+        out.push_str("\nBase lane hints:\n");
+        out.push_str(&lane_lines.join("\n"));
+        out.push('\n');
+    }
+    out.push_str("\nWhen done, run exactly:\n");
+    out.push_str(report_command);
+    out.push('\n');
+    out
+}
+
 pub fn new_assignment_attempt(
     task: &Task,
     pane_id: &str,
@@ -274,6 +359,13 @@ fn provider_name_from_model(value: Option<&str>) -> Option<String> {
     split_provider_model(value).0
 }
 
+pub(super) fn live_attempt_count(task: &Task) -> usize {
+    task.execution_attempts
+        .iter()
+        .filter(|attempt| attempt.closed_at.is_none())
+        .count()
+}
+
 fn find_attempt<'a>(task: &'a Task, attempt_id: &str) -> Option<&'a TaskExecutionAttempt> {
     task.execution_attempts
         .iter()
@@ -300,6 +392,94 @@ fn attempt_view(
 }
 
 impl PlanStore {
+    pub fn build_task_compete_drafts(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        request: TaskCompeteRequest,
+    ) -> Result<Vec<TaskCompeteDraft>, PlanError> {
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let task = plan
+            .tasks
+            .iter()
+            .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+            .ok_or(PlanError::TaskNotFound)?;
+        let (task_provider, task_model) = split_provider_model(task.model.as_deref());
+        let metadata_models = task
+            .competition
+            .as_ref()
+            .map(|competition| competition.models.clone())
+            .unwrap_or_default();
+        let models = if request.models.is_empty() {
+            metadata_models
+        } else {
+            request.models.clone()
+        };
+        let count = request
+            .attempts
+            .or_else(|| {
+                task.competition
+                    .as_ref()
+                    .and_then(|competition| competition.attempts)
+            })
+            .unwrap_or_else(|| models.len().max(2) as u32)
+            .max(2);
+        let group_id = crate::plan::ids::short_id("compete");
+        let report_command = task_report_command(plan_id, &task.id);
+        let cwd = task
+            .lane
+            .worktree_path
+            .clone()
+            .unwrap_or_else(|| plan.project_path.clone());
+        let mut drafts = Vec::new();
+        for index in 0..count {
+            let model_raw = models
+                .get(index as usize)
+                .cloned()
+                .or_else(|| task_model.clone());
+            let (model_provider, model_name) = split_provider_model(model_raw.as_deref());
+            let provider = model_provider
+                .or_else(|| request.provider.clone())
+                .or_else(|| task_provider.clone())
+                .unwrap_or_else(|| "claude".into());
+            let model = model_name.or(model_raw);
+            let model_label = model
+                .as_deref()
+                .map(|m| format!("{provider}/{m}"))
+                .unwrap_or_else(|| provider.clone());
+            let lane = index + 1;
+            let task_prompt = build_compete_prompt(
+                plan_id,
+                task,
+                &group_id,
+                lane,
+                &model_label,
+                &report_command,
+            );
+            drafts.push(TaskCompeteDraft {
+                plan_id: plan.id.clone(),
+                task_id: task.id.clone(),
+                competition_group_id: group_id.clone(),
+                lane,
+                provider,
+                model,
+                parent_pane_id: request
+                    .parent_pane_id
+                    .clone()
+                    .or(plan.owner.pane_id.clone()),
+                workspace_id: request
+                    .workspace_id
+                    .clone()
+                    .or(task.lane.workspace_id.clone()),
+                title: format!("{} attempt {}", task.name, lane),
+                cwd: cwd.clone(),
+                task_prompt,
+                report_command: report_command.clone(),
+            });
+        }
+        Ok(drafts)
+    }
+
     pub fn list_task_attempts(
         &self,
         plan_id: &str,
@@ -445,6 +625,88 @@ impl PlanStore {
             plan_id: plan_id.into(),
             task_id: task_id.into(),
             attempt: created.expect("attempt set before successful write"),
+        })
+    }
+
+    pub fn record_task_compete_attempt(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        pane_id: &str,
+        draft: &TaskCompeteDraft,
+        role: Option<&str>,
+        now_ms: u64,
+    ) -> Result<TaskAttemptCreated, PlanError> {
+        let mut created = None;
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            if task.status == TaskStatus::Pending {
+                task.status = TaskStatus::InProgress;
+                task.status_changed_at = now_ms;
+            }
+            task.status_label = Some("competitive".into());
+            task.updated_at = now_ms;
+            let mut attempt = new_assignment_attempt(task, pane_id, None, role, now_ms);
+            attempt.provider = Some(draft.provider.clone());
+            attempt.agent_type = Some(draft.provider.clone());
+            attempt.model = draft.model.clone();
+            attempt.executor_title = Some(draft.title.clone());
+            attempt.parent_pane_id = draft.parent_pane_id.clone();
+            attempt.competition_group_id = Some(draft.competition_group_id.clone());
+            attempt.competition_lane = Some(draft.lane);
+            task.execution_attempts.push(attempt.clone());
+            created = Some(attempt);
+            Ok(())
+        })?;
+        Ok(TaskAttemptCreated {
+            plan_id: plan_id.into(),
+            task_id: task_id.into(),
+            attempt: created.expect("attempt set before successful write"),
+        })
+    }
+
+    pub fn judge_task_attempt(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        verdict: &str,
+        reason: Option<&str>,
+        winner: bool,
+        now_ms: u64,
+    ) -> Result<TaskAttemptCreated, PlanError> {
+        let mut judged = None;
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+                .ok_or(PlanError::TaskNotFound)?;
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == attempt_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            crate::service::plan::competition::set_attempt_judgement(
+                attempt, verdict, reason, winner, now_ms,
+            );
+            judged = Some(attempt.clone());
+            if winner {
+                task.status = TaskStatus::InReview;
+                task.status_label = Some("judging".into());
+                task.status_changed_at = now_ms;
+            }
+            task.updated_at = now_ms;
+            Ok(())
+        })?;
+        Ok(TaskAttemptCreated {
+            plan_id: plan_id.into(),
+            task_id: task_id.into(),
+            attempt: judged.expect("attempt set before successful write"),
         })
     }
 

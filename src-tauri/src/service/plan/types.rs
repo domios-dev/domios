@@ -29,6 +29,9 @@ pub enum PlanError {
     TaskCreationRequiresApproval,
     HeartbeatRequiresExecution,
     ParkRequiresReason,
+    QaNoteRequired,
+    QaSlotUnavailable,
+    QaNotRunning,
     WritePending {
         operation: String,
         committed: bool,
@@ -102,6 +105,12 @@ impl fmt::Display for PlanError {
                 f,
                 "parking a task requires a reason; run `codeterm plan task park <plan> <task> --reason \"<why>\"`"
             ),
+            PlanError::QaNoteRequired => write!(
+                f,
+                "QA transitions require evidence; pass --note \"<what changed or what was tested>\""
+            ),
+            PlanError::QaSlotUnavailable => write!(f, "QA queue has no available running slot"),
+            PlanError::QaNotRunning => write!(f, "task is not running in QA; claim it first"),
             PlanError::WritePending {
                 operation,
                 committed,
@@ -154,6 +163,9 @@ impl PlanError {
             PlanError::ParkRequiresReason => {
                 serde_json::json!({ "type": "park_requires_reason" })
             }
+            PlanError::QaNoteRequired => serde_json::json!({ "type": "qa_note_required" }),
+            PlanError::QaSlotUnavailable => serde_json::json!({ "type": "qa_slot_unavailable" }),
+            PlanError::QaNotRunning => serde_json::json!({ "type": "qa_not_running" }),
             PlanError::WritePending {
                 operation,
                 committed,
@@ -193,6 +205,7 @@ pub struct NewTask {
     pub body: String,
     pub role_guidance: Option<String>,
     pub executor_role: Option<String>,
+    pub competition: Option<crate::plan::TaskCompetitionMetadata>,
     pub intent: Option<String>,
     pub parent_task_id: Option<String>,
     pub assigned_pane_id: Option<String>,
