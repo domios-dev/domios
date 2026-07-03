@@ -23,6 +23,7 @@
  * (D2 §3) — same frames, same cursor, no relay-specific loss.
  */
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
+import { onResync } from "./resync";
 
 export interface PaneOutputSink {
   onOutput(text: string): void;
@@ -245,6 +246,11 @@ export function pokeOutputStream(): void {
   forceImmediateRetry = true;
   streamAbort?.abort();
 }
+
+// Events-stream overflow (boot restart, ring eviction, broadcast lag) shares the
+// same boot id as this stream (D1 §5 doc above) and may mean our cursor is stale
+// too — force an immediate reconnect rather than waiting out the backoff.
+onResync(() => pokeOutputStream());
 
 /** Tear down (peer switch) — next subscription reconnects to the current host. */
 export function resetOutputStream(): void {
