@@ -1,5 +1,5 @@
-use crate::plan::{OrchestratorRef, PlannerRef};
 use crate::plan::reconcile::PaneProbe;
+use crate::plan::{OrchestratorRef, PlannerRef};
 
 /// Planner owns GOAL, Spec, and Plan structure. The orchestrator defers structural
 /// decisions (sections, tasks, sequencing) to the Planner peer.
@@ -26,9 +26,16 @@ Structural changes require Planner acknowledgment.";
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PlannerResolution {
-    Live { pane_id: String },
-    FallbackOrchestrator { bound_pane_id: String, reason: String },
-    Waived { note: String },
+    Live {
+        pane_id: String,
+    },
+    FallbackOrchestrator {
+        bound_pane_id: String,
+        reason: String,
+    },
+    Waived {
+        note: String,
+    },
     Unset,
 }
 
@@ -54,7 +61,9 @@ where
         Some(PlannerRef::Bound { pane_id, .. }) => {
             let probe = pane_probe(pane_id);
             if probe.live_agent {
-                PlannerResolution::Live { pane_id: pane_id.clone() }
+                PlannerResolution::Live {
+                    pane_id: pane_id.clone(),
+                }
             } else {
                 let reason = if probe.exists {
                     format!("planner pane {pane_id} not live")
@@ -76,11 +85,21 @@ mod tests {
     use crate::plan::reconcile::PaneProbe;
 
     fn live_probe(_: &str) -> PaneProbe {
-        PaneProbe { exists: true, live_agent: true, role: None, parent_pane_id: None }
+        PaneProbe {
+            exists: true,
+            live_agent: true,
+            role: None,
+            parent_pane_id: None,
+        }
     }
 
     fn dead_probe(_: &str) -> PaneProbe {
-        PaneProbe { exists: true, live_agent: false, role: None, parent_pane_id: None }
+        PaneProbe {
+            exists: true,
+            live_agent: false,
+            role: None,
+            parent_pane_id: None,
+        }
     }
 
     fn gone_probe(_: &str) -> PaneProbe {

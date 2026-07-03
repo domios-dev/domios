@@ -256,13 +256,11 @@ pub fn build_plan_state_snapshot(
     live_agent_panes: &HashSet<String>,
     now_ms: u64,
 ) -> PlanStateSnapshot {
-    let planner_resolution = resolve_planner(&plan.planner_ref, &plan.owner, |pane_id| {
-        PaneProbe {
-            exists: true,
-            live_agent: live_agent_panes.contains(pane_id),
-            role: None,
-            parent_pane_id: None,
-        }
+    let planner_resolution = resolve_planner(&plan.planner_ref, &plan.owner, |pane_id| PaneProbe {
+        exists: true,
+        live_agent: live_agent_panes.contains(pane_id),
+        role: None,
+        parent_pane_id: None,
     });
     let counts = task_counts(plan);
     let pct = percent_done(&counts);
