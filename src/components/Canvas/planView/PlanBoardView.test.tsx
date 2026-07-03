@@ -24,6 +24,7 @@ function setupDom() {
   Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
   Object.defineProperty(globalThis, "navigator", { value: window.navigator, configurable: true });
   Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
+  Object.defineProperty(globalThis, "PointerEvent", { value: window.PointerEvent, configurable: true });
 }
 
 setupDom();
@@ -216,6 +217,48 @@ test("done task card shows historical executor without active executor row", asy
   assert(card, "done card");
   assert(!card?.querySelector('[data-testid="plan-board-task-active-executor"]'), "no active executor");
   assert(card?.querySelector('[data-testid="plan-board-task-historical-executor"]')?.textContent?.includes("Puccini"), "historical executor");
+});
+
+test("task card text is selectable and drag does not open detail", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [task({ id: "task-select", status: TaskStatus.Pending, name: "Copy me" })],
+  };
+  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />);
+  const card = host.querySelector('[data-testid="plan-board-task-card"]') as HTMLElement;
+  assert(card.className.includes("plan-task-selectable"), "selectable class");
+
+  await act(async () => {
+    card.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, bubbles: true }));
+    card.dispatchEvent(new PointerEvent("pointermove", { clientX: 20, clientY: 0, bubbles: true }));
+    card.click();
+  });
+  assert(!host.querySelector('[data-testid="plan-detail-overlay"]'), "drag click suppressed");
+});
+
+test("clicking cancelled note reveals cancelled tasks with titles", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({ id: "task-active", status: TaskStatus.Pending, name: "Active" }),
+      task({ id: "task-cancelled", status: TaskStatus.Cancelled, name: "Scrapped auth", handle: "scrap-auth" }),
+    ],
+  };
+  const { host } = await render(<PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />);
+  const note = host.querySelector('[data-testid="plan-board-cancelled-note"]') as HTMLElement;
+  assert(note?.tagName === "BUTTON", "cancelled note is clickable");
+  await act(async () => {
+    note.click();
+  });
+  const row = host.querySelector('[data-testid="plan-cancelled-task-row"]') as HTMLElement;
+  assert(row, "cancelled row visible");
+  assert(row.getAttribute("data-task-id") === "task-cancelled", "task id preserved");
+  assert(host.textContent?.includes("Scrapped auth"), "title shown");
+  assert(host.textContent?.includes("scrap-auth"), "handle shown");
+  await act(async () => {
+    row.click();
+  });
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "cancelled task opens detail");
 });
 
 test("empty workspace shows stable empty gate", async () => {

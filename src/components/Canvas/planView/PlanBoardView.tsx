@@ -14,6 +14,8 @@ import {
   type BoardPlanModel,
 } from "./boardModel";
 import { BoardTaskCard } from "./BoardTaskCard";
+import { CancelledTasksPanel } from "./CancelledTasksPanel";
+import { listCancelledTasks } from "./cancelledTasks";
 import { PlanContextHeader } from "./PlanContextHeader";
 import { PlanSwitcher } from "./PlanSwitcher";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
@@ -111,6 +113,8 @@ function BoardPlanBoard({
   onOpenDetail: (detail: BoardDetail) => void;
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
+  const [cancelledOpen, setCancelledOpen] = useState(false);
+  const cancelledTasks = useMemo(() => listCancelledTasks(plan), [plan]);
 
   return (
     <section data-testid="plan-board-plan" data-plan-id={model.planId} className="plan-board-plan">
@@ -138,9 +142,23 @@ function BoardPlanBoard({
         ))}
       </div>
       {model.cancelledCount > 0 && (
-        <p data-testid="plan-board-cancelled-note" className="plan-board-cancelled-note">
-          {model.cancelledCount} cancelled task{model.cancelledCount === 1 ? "" : "s"} hidden from board
-        </p>
+        <>
+          <button
+            type="button"
+            data-testid="plan-board-cancelled-note"
+            className="plan-board-cancelled-note plan-board-cancelled-trigger"
+            onClick={() => setCancelledOpen((v) => !v)}
+            aria-expanded={cancelledOpen}
+          >
+            {model.cancelledCount} cancelled task{model.cancelledCount === 1 ? "" : "s"} hidden from board
+          </button>
+          {cancelledOpen && (
+            <CancelledTasksPanel
+              tasks={cancelledTasks}
+              onOpenTask={(task) => onOpenDetail({ kind: "task", task, plan })}
+            />
+          )}
+        </>
       )}
     </section>
   );
