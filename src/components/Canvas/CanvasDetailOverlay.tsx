@@ -37,7 +37,11 @@ export function CanvasDetailOverlay({
 
   const kind = node.kind;
   const task = kind === "task" ? (model as TaskCardModel).task : undefined;
-  const plan = kind === "plan" ? (model as Plan) : undefined;
+  const parentPlanNode = kind === "task"
+    ? [...nodeById.values()].find((candidate) => candidate.kind === "plan" && candidate.planId === node.planId)
+    : undefined;
+  const parentPlan = parentPlanNode ? (resolveModel(parentPlanNode) as Plan | null) : null;
+  const plan = kind === "plan" ? (model as Plan) : parentPlan ?? undefined;
   const spec = kind === "spec" ? (model as Plan) : undefined;
 
   return (

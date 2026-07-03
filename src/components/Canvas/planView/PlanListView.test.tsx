@@ -167,6 +167,7 @@ test("clicking a task row opens PlanDetailOverlay", async () => {
     row.click();
   });
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]')?.getAttribute("data-detail-mode") === "slide-over", "task uses slide-over");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "task", "task kind");
   await unmount();
 });
@@ -182,6 +183,7 @@ test("clicking context header plan title opens plan detail overlay", async () =>
     planTitle.click();
   });
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]')?.getAttribute("data-detail-mode") === "document", "plan uses document overlay");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "plan", "plan kind");
   await unmount();
 });
