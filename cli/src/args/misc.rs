@@ -46,6 +46,11 @@ pub enum WorkspaceAction {
 pub enum PaneAction {
     /// List all panes as a workspace-grouped tree. `--agents` filters to
     /// agent panes only.
+    ///
+    /// Each pane carries a `backing.kind`: `pty` panes (terminal agents,
+    /// shells) have a real shell — `send` injects text you can execute.
+    /// `chat_backend` panes (LLM chat via plugin) have NO shell: `send`
+    /// delivers a chat message; never instruct them to run shell commands.
     List {
         /// Show only panes running an agent (have an agent_type).
         #[arg(long)]
