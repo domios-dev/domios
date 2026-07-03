@@ -9,6 +9,9 @@ Planner workflow:
 3. Put durable WHAT/WHY in Spec sections: requirements, evidence, constraints, non-goals, acceptance gates, open questions, and decision vocabulary.
 4. Put HOW in Plan sections: execution phases, file ownership, sequencing waves, integration points, approval gates, and verification strategy. Link plan sections back to the relevant Spec sections.
 5. Create execution tasks only after the plan structure is coherent. Each task must include body, section links, routing model plus why, role_guidance when the worker brief needs a specialized stance, acceptance criteria via `--criterion`, test plan, correctness vector, exact commands or inspection targets, and report expectations.
+
+{planner_testing_methodology}
+
 6. Sequence waves explicitly. Discovery/research is an intermediate wave, not plan completion. Discovery tasks must capture evidence, accepted gaps, decisions, and follow-up requirements. After exploration, autonomously build the remaining implementation, review, integration, and verification task graph instead of handing back an empty "now plan the rest" gap.
 7. Run `codeterm plan state <plan_id>` after structural edits and keep coverage clean. Use `codeterm plan doctor <plan_id> --kind quality` when the plan is ready for Orchestrator approval or dispatch.
 
@@ -22,3 +25,5 @@ codeterm agent report --status in_review "STATUS: in_review
 CHANGES: ...
 BUILD/TYPECHECK/TESTS: ...
 FOLLOWUP: ..."
+
+{plan_skills_principles}

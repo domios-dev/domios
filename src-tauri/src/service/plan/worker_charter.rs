@@ -7,6 +7,7 @@ struct WorkerAssignmentContext {
     role_guidance: Option<String>,
     loop_spec: Option<LoopSpec>,
     live_attempt_count: usize,
+    skill_count: usize,
 }
 
 fn loop_for_task(plan: &Plan, task_id: &str) -> Option<LoopSpec> {
@@ -74,6 +75,7 @@ pub fn render_worker_charter(
     task_id: &str,
     loop_spec: Option<&LoopSpec>,
     live_attempt_count: usize,
+    skill_count: usize,
 ) -> String {
     let mut out = format!(
         "<codeterm-worker-charter task=\"{task_id}\">\n\
@@ -83,7 +85,11 @@ You are a Worker on task {task_id}. Three rules:\n\
 - Decomposition needed \u{2192} report blocked; the Orchestrator splits it.\n\
 ",
     );
-    out.push_str(super::skill_registry::PLAN_SKILL_REGISTRY_POINTER);
+    if skill_count >= 1 {
+        out.push_str(crate::prompts::PLAN_SKILLS_WORKER_LINE);
+    } else {
+        out.push_str(super::skill_registry::PLAN_SKILL_REGISTRY_POINTER);
+    }
     out.push('\n');
     if let Some(loop_spec) = loop_spec {
         out.push_str(&render_loop_context(loop_spec));
@@ -131,6 +137,7 @@ impl PlanStore {
                     role_guidance: task.role_guidance.clone(),
                     loop_spec: loop_for_task(&plan, &task.id),
                     live_attempt_count: super::task_attempts::live_attempt_count(task),
+                    skill_count: super::skill_registry::count_plan_skills_for(&plan),
                 });
             }
         }
@@ -154,6 +161,7 @@ impl PlanStore {
             &context.task_id,
             context.loop_spec.as_ref(),
             context.live_attempt_count,
+            context.skill_count,
         );
         if let Some(guidance) = context
             .role_guidance
@@ -215,6 +223,31 @@ mod tests {
         assert!(out.contains(crate::prompts::TESTING_DISCIPLINE.trim()));
         assert!(out.contains(crate::prompts::QA_PIPELINE_DISCIPLINE.trim()));
         assert!(out.trim_end().ends_with("continue"));
+    }
+
+    #[test]
+    fn charter_uses_generic_pointer_when_plan_has_no_skills() {
+        let (_dir, store, _task_id) = store_with_assigned_task();
+
+        let out = store.prepend_worker_charter_for_pane("worker-pane", "continue");
+
+        assert!(out.contains(super::super::skill_registry::PLAN_SKILL_REGISTRY_POINTER));
+        assert!(!out.contains(crate::prompts::PLAN_SKILLS_WORKER_LINE));
+    }
+
+    #[test]
+    fn charter_appends_worker_line_when_plan_has_skills() {
+        let (dir, store, _task_id) = store_with_assigned_task();
+        let skill_dir = dir
+            .path()
+            .join(".codeterm/plans/active/pl_charter/skills/seed-fixtures");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(skill_dir.join("SKILL.md"), "# Seed fixtures").unwrap();
+
+        let out = store.prepend_worker_charter_for_pane("worker-pane", "continue");
+
+        assert!(out.contains(crate::prompts::PLAN_SKILLS_WORKER_LINE));
+        assert!(!out.contains(super::super::skill_registry::PLAN_SKILL_REGISTRY_POINTER));
     }
 
     #[test]

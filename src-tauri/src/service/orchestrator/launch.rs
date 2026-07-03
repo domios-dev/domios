@@ -23,13 +23,13 @@ pub(crate) fn role_onboarding_task(
 ) -> Option<String> {
     match (role, role_profile) {
         (Some("Worker"), Some("planner")) => {
-            task.map(|t| format!("{}{}", t, crate::prompts::PLANNER_SUFFIX))
+            task.map(|t| format!("{}{}", t, crate::prompts::planner_suffix()))
         }
         (Some("Worker"), _) => task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix())),
         (Some("Orchestrator"), _) => Some(format!(
             "{}{}",
             task.unwrap_or_default(),
-            crate::prompts::ORCHESTRATOR_SUFFIX
+            crate::prompts::orchestrator_suffix()
         )),
         _ => task.map(str::to_string),
     }

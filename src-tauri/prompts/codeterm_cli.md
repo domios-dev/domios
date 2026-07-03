@@ -13,7 +13,7 @@ You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm
 - **Discovery habit: CLI first, always.** For anything CodeTerm-related, run `codeterm <cmd> --help` and `codeterm docs <TOPIC>` BEFORE curling APIs, grepping source, or reading repo/doc files. If a `codeterm` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
 - **Routing: the prefix is the return address.** Reply on the channel named by the `-=-codeterm:...-=-` marker (see the routing table in your rules; depth: `codeterm docs ROUTING`). The CLI command IS the reply — never echo the same content in your pane afterward.
 - **`chat_backend` panes have no shell.** Check `backing.kind` in `pane list` before instructing a pane to run commands; send chat text instead.
-- **Delayed send is not the default.** `codeterm send` is immediate; use `--delay`/`--at` only when the user asked for future delivery.
+- **Delayed send is not the default.** `codeterm send` is immediate; `--delay`/`--at` are delay-only scheduling tools for user-requested future delivery.
 - **Never hardcode model ids.** Discover with `codeterm agent providers` / `codeterm agent models <provider>`.
 - **Version/quota questions:** `codeterm identify` (not `--version`, not curl) and `codeterm usage latest` (never `ccusage` or parsing `~/.claude`).
 - **System sleep:** `codeterm keepawake ...` — never `caffeinate`/`powercfg`/`systemd-inhibit`.
