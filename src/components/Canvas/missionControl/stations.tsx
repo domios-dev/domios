@@ -57,7 +57,7 @@ export function DispatchRail({ title, tasks, onTaskClick, stressed }: DispatchRa
       data-stressed={stressed ? "true" : undefined}
     >
       <div className="mc-panel-title">{title}</div>
-      <div className="mc-queue">
+      <div className="mc-queue" data-canvas-scroll-body>
         {tasks.map((t) => (
           <TaskCard key={t.id} task={t} dense onClick={onTaskClick} />
         ))}
@@ -89,7 +89,7 @@ export function SideRail({ title, tasks, tone, onTaskClick }: SideRailProps) {
         {title}
         <span className="mc-overview-only"> ({tasks.length})</span>
       </div>
-      <div className="mc-queue">
+      <div className="mc-queue" data-canvas-scroll-body>
         {tasks.map((t) => (
           <TaskCard key={t.id} task={t} dense onClick={onTaskClick} />
         ))}
@@ -172,7 +172,7 @@ export function GateDesk({ tasks, onTaskClick }: GateDeskProps) {
   return (
     <section className="mc-panel mc-gate-desk" style={{ display: "flex", flexDirection: "column", minHeight: 0 }} data-testid="gate-desk">
       <div className="mc-panel-title">Gate desk · in review</div>
-      <div className="mc-queue">
+      <div className="mc-queue" data-canvas-scroll-body>
         {tasks.map((t) => (
           <TaskCard key={t.id} task={t} onClick={onTaskClick} />
         ))}
