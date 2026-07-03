@@ -669,7 +669,10 @@ mod tests {
         assert!(plan_level[0].task_id.is_empty());
         // Newest first: plan-level (ts 200) precedes the task milestone (ts 100).
         assert_eq!(snap.recent_strides[0].id, "plan_ms");
-        assert!(snap.recent_strides.iter().any(|s| s.id == "task_ms" && !s.plan_level));
+        assert!(snap
+            .recent_strides
+            .iter()
+            .any(|s| s.id == "task_ms" && !s.plan_level));
     }
 
     #[test]
