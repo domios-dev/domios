@@ -25,6 +25,7 @@ pub mod resolve;
 pub mod search_index;
 pub mod section_links;
 pub mod section_queries;
+pub mod skill_registry;
 pub mod spec;
 pub mod spec_files;
 pub mod state;

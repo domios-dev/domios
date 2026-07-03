@@ -35,6 +35,7 @@ pub mod plan_reconcile;
 pub mod plan_record;
 pub mod plan_render;
 pub mod plan_sections;
+pub mod plan_skill;
 pub mod plan_state;
 pub mod plan_tags;
 pub mod plan_task_retag;
