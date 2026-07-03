@@ -6,7 +6,8 @@ use super::{
 };
 use crate::plan::{
     AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
-    PlannerRef, Section, TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
+    PlannerRef, PlanningAuthor, PlanningState, PlanningTransition, Section, TagFacet, Task,
+    TaskGroup, TaskPriority, TaskStatus, TransferRecord,
 };
 
 pub(super) fn gen_id(prefix: &str) -> String {

@@ -415,6 +415,7 @@ fn dispatch(
                 "plan.tags",
                 "plan.update",
                 "plan.mode.set",
+                "plan.planning.set",
                 "plan.archive",
                 "plan.delete",
                 "plan.transfer",

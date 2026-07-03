@@ -4,6 +4,38 @@
 //! intro line, and the nudge prefix shown while a plan is unpaired.
 
 use crate::plan::peer::PeerResolution;
+use crate::plan::PlanningState;
+
+/// Human label naming the peer that owns structure, derived from the resolved
+/// planner binding. Used wherever we defer structure work "to the planner by name".
+pub fn planner_peer_label(resolution: &PeerResolution) -> String {
+    match resolution {
+        PeerResolution::Planner { pane_id } => format!("the Planner peer (pane {pane_id})"),
+        PeerResolution::OrchestratorFallback { .. } => {
+            "the Planner peer (currently down — respawn it)".into()
+        }
+        PeerResolution::Waived { .. } => "yourself (planner waived — solo)".into(),
+        PeerResolution::Unbound => "the Planner peer (bind or spawn one)".into(),
+    }
+}
+
+/// Structure-deferral nudge shown to an Orchestrator while the plan is not yet
+/// approved. `None` once execution is unlocked (approved) or when the planner is
+/// waived (solo — the orchestrator legitimately owns structure).
+pub fn planning_structure_nudge(
+    planning_state: PlanningState,
+    resolution: &PeerResolution,
+) -> Option<String> {
+    if planning_state.allows_execution_tasks() {
+        return None;
+    }
+    if matches!(resolution, PeerResolution::Waived { .. }) {
+        return None;
+    }
+    Some(crate::prompts::orch_defer_structure_line(&planner_peer_label(
+        resolution,
+    )))
+}
 
 /// The canonical `agent spawn --role Planner --plan <id>` command, filled in
 /// with a real orchestrator pane id when known (falls back to a placeholder
@@ -83,5 +115,31 @@ mod tests {
         assert!(line.contains("pl_123"));
         assert!(line.contains("orch-1"));
         assert!(line.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
+    }
+
+    #[test]
+    fn planner_label_names_the_bound_pane() {
+        let label = planner_peer_label(&PeerResolution::Planner {
+            pane_id: "pane_p".into(),
+        });
+        assert!(label.contains("pane_p"));
+    }
+
+    #[test]
+    fn structure_nudge_fires_only_while_unapproved_and_not_waived() {
+        let live = PeerResolution::Planner {
+            pane_id: "pane_p".into(),
+        };
+        // Unapproved + bound planner → nudge names the planner.
+        let n = planning_structure_nudge(PlanningState::Drafting, &live).unwrap();
+        assert!(n.contains("pane_p"));
+        // Approved → silent (execution unlocked, structure owned).
+        assert!(planning_structure_nudge(PlanningState::Approved, &live).is_none());
+        // Waived → silent even while drafting (orchestrator is solo).
+        assert!(planning_structure_nudge(
+            PlanningState::Drafting,
+            &PeerResolution::Waived { note: "solo".into() }
+        )
+        .is_none());
     }
 }

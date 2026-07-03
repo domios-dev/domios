@@ -12,10 +12,7 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    let mode = plan
-        .get("mode")
-        .and_then(Value::as_str)
-        .unwrap_or("planning");
+    let unlocked = execution_tasks_unlocked(plan);
     if plan
         .get("goal")
         .and_then(|g| g.get("vector"))
@@ -65,12 +62,12 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
         .iter()
         .filter(|t| t.get("kind").and_then(Value::as_str) != Some("planning"))
         .count();
-    if mode == "planning" && non_planning_tasks > 0 {
+    if !unlocked && non_planning_tasks > 0 {
         findings.push(plan_quality_error(
             path,
             plan,
             "tasks_before_approval",
-            "planning-mode plan already has tasks",
+            "unapproved plan already has execution tasks",
             "run the approval gate and `codeterm plan approve <plan>`, or remove draft tasks with `codeterm plan task rm <plan> --all --yes`",
         ));
     }
@@ -89,6 +86,23 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
         inspect_task_lifecycle(path, plan, task, now_ms, &mut findings);
     }
     findings
+}
+
+// Mirror of `Plan::execution_tasks_unlocked` over raw JSON: planning_state is
+// authoritative; an approved/execution lifecycle mode bridges pre-state plans.
+fn execution_tasks_unlocked(plan: &Value) -> bool {
+    let mode = plan
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or("planning");
+    if mode == "complete" {
+        return false;
+    }
+    let planning_state = plan
+        .get("planning_state")
+        .and_then(Value::as_str)
+        .unwrap_or("drafting");
+    planning_state == "approved" || mode == "approved" || mode == "execution"
 }
 
 pub(super) fn inspect_task_lifecycle(

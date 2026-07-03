@@ -1,14 +1,14 @@
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::PlanMode;
+use crate::plan::{PlanMode, PlanningAuthor, PlanningState};
 use crate::service::plan::PlanError;
 use crate::service::ServiceState;
 
 use super::{get_string_param, JsonRpcError};
 
 pub(super) fn handles(method: &str) -> bool {
-    method == "plan.mode.set"
+    matches!(method, "plan.mode.set" | "plan.planning.set")
 }
 
 pub(super) fn dispatch(
@@ -23,11 +23,53 @@ pub(super) fn dispatch(
             let mode = get_string_param(params, "mode")?;
             let mode = serde_json::from_value::<PlanMode>(Value::String(mode))
                 .map_err(|_| plan_rpc_err(PlanError::BadMode))?;
-            svc.plan_store
-                .set_mode(&id, mode, epoch_ms())
-                .map_err(plan_rpc_err)?;
+            let note = optional_string(params, "note");
+            // Planning<->approved is planner state; approve/unapprove advance
+            // planning_state (which mirrors mode). Execution/complete are lifecycle.
+            match mode {
+                PlanMode::Approved => svc
+                    .plan_store
+                    .set_planning_state(
+                        &id,
+                        PlanningState::Approved,
+                        PlanningAuthor::User,
+                        note.as_deref(),
+                        epoch_ms(),
+                    )
+                    .map_err(plan_rpc_err)?,
+                PlanMode::Planning => svc
+                    .plan_store
+                    .set_planning_state(
+                        &id,
+                        PlanningState::StructureReady,
+                        PlanningAuthor::User,
+                        note.as_deref(),
+                        epoch_ms(),
+                    )
+                    .map_err(plan_rpc_err)?,
+                PlanMode::Execution | PlanMode::Complete => svc
+                    .plan_store
+                    .set_mode(&id, mode, epoch_ms())
+                    .map_err(plan_rpc_err)?,
+            }
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
+        }
+        "plan.planning.set" => {
+            let id = super::plan_refs::resolve_plan(&svc.plan_store, params)?;
+            let state = get_string_param(params, "state")?;
+            let state = PlanningState::parse(&state)
+                .ok_or_else(|| plan_rpc_err(PlanError::BadMode))?;
+            let by = match optional_string(params, "by_pane") {
+                Some(pane) => PlanningAuthor::Planner { pane_id: pane },
+                None => PlanningAuthor::User,
+            };
+            let note = optional_string(params, "note");
+            svc.plan_store
+                .set_planning_state(&id, state, by, note.as_deref(), epoch_ms())
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "ok": true, "planning_state": state.as_str() }))
         }
         _ => Err(JsonRpcError {
             code: -32601,
@@ -35,6 +77,16 @@ pub(super) fn dispatch(
             data: None,
         }),
     }
+}
+
+fn optional_string(params: &Option<Value>, key: &str) -> Option<String> {
+    params
+        .as_ref()
+        .and_then(|p| p.get(key))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 fn epoch_ms() -> u64 {
