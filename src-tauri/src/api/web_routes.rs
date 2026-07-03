@@ -14,6 +14,8 @@ use std::time::{Duration, SystemTime};
 
 use crate::api::routes::{check_auth, AppState};
 
+pub use crate::api::web_plugin_routes::plugin_ui;
+
 /// Full multiplexer snapshot — the web bundle's `mux_get_state`.
 pub async fn mux_state(
     AxumState(state): AxumState<AppState>,
@@ -274,7 +276,7 @@ fn get_cookie<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a 
 }
 
 /// Validate a token against the configured local API token.
-fn validate_manifest_token(
+pub(crate) fn validate_manifest_token(
     state: &AppState,
     candidate: &str,
 ) -> Result<bool, (StatusCode, &'static str)> {
@@ -838,118 +840,6 @@ pub async fn open_chat_backend_pane(
         })
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "pane_id": handle.pane_id })))
-}
-
-/// The `ct` bridge shim injected (nonce'd) into every plugin iframe. The iframe's
-/// ONLY channel to the host: postMessage to the parent, which runs the
-/// permission-gated `plugin_view_call`. No direct network (CSP `connect-src 'none'`).
-const PLUGIN_BRIDGE_JS: &str = r#"
-(function(){var p={},s=0;
-window.addEventListener('message',function(e){var m=e.data||{};
- if(m.__ctReply!=null&&p[m.__ctReply]){var d=p[m.__ctReply];delete p[m.__ctReply];
-  m.error?d.reject(new Error(m.error)):d.resolve(m.result);}
- if(m.__ctTheme!=null){document.documentElement.style.cssText=m.__ctTheme;}});
-window.ct={invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
-  p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});},
- close:function(){parent.postMessage({__ctClose:true},'*');}};
-parent.postMessage({__ctReady:true},'*');
-function rz(){if(!document.body)return;var h=document.body.scrollHeight;if(h)parent.postMessage({__ctResize:h},'*');}
-function watch(){if(window.ResizeObserver){new ResizeObserver(rz).observe(document.body);}rz();}
-document.readyState==='loading'?document.addEventListener('DOMContentLoaded',watch):watch();})();
-"#;
-
-#[derive(serde::Deserialize)]
-pub struct PluginUiQuery {
-    pub token: Option<String>,
-}
-
-fn ui_mime(path: &str) -> &'static str {
-    match path.rsplit('.').next() {
-        Some("html") => "text/html; charset=utf-8",
-        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
-        Some("css") => "text/css; charset=utf-8",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
-        Some("woff2") => "font/woff2",
-        Some("json") => "application/json",
-        _ => "application/octet-stream",
-    }
-}
-
-/// Serves a plugin's iframe UI from `plugins/<id>/ui/*`, injecting CSP+nonce and the
-/// bridge shim into `index.html`. Query-token-gated; all power flows through `plugin_view_call`.
-pub async fn plugin_ui(
-    AxumState(state): AxumState<AppState>,
-    axum::extract::Path((id, path)): axum::extract::Path<(String, String)>,
-    Query(q): Query<PluginUiQuery>,
-) -> Result<axum::response::Response, (StatusCode, String)> {
-    let dir = crate::view_host::plugin_ui_dir(&id)
-        .ok_or((StatusCode::NOT_FOUND, format!("no ui for plugin '{id}'")))?;
-    let rel = if path.is_empty() {
-        "index.html"
-    } else {
-        path.as_str()
-    };
-    if rel.contains("..") {
-        return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
-    }
-    // Token-gate only the HTML entry (it carries the nonce + bridge); the iframe loads
-    // the content-hashed assets it references via <script src> with no token.
-    if rel.ends_with(".html") {
-        let ok = q
-            .token
-            .as_deref()
-            .map(|t| validate_manifest_token(&state, t).unwrap_or(false))
-            .unwrap_or(false);
-        if !ok {
-            return Err((StatusCode::UNAUTHORIZED, "bad or missing token".into()));
-        }
-    }
-    let file = dir.join(rel);
-    let bytes = tokio::fs::read(&file)
-        .await
-        .map_err(|_| (StatusCode::NOT_FOUND, "not found".to_string()))?;
-
-    use axum::http::{header, HeaderValue};
-    let mut resp = if rel.ends_with(".html") {
-        let nonce = uuid::Uuid::new_v4().simple().to_string();
-        let raw = String::from_utf8_lossy(&bytes).replace("__CT_NONCE__", &nonce);
-        let bridge = format!("<script nonce=\"{nonce}\">{PLUGIN_BRIDGE_JS}</script>");
-        let html = match raw.find("<head>") {
-            Some(i) => format!("{}{}{}", &raw[..i + 6], bridge, &raw[i + 6..]),
-            None => format!("{bridge}{raw}"),
-        };
-        let csp = format!(
-            "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}' 'unsafe-inline'; \
-             img-src 'self' data:; font-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'"
-        );
-        let mut r = axum::response::Response::new(axum::body::Body::from(html));
-        r.headers_mut().insert(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("text/html; charset=utf-8"),
-        );
-        if let Ok(v) = HeaderValue::from_str(&csp) {
-            r.headers_mut().insert(header::CONTENT_SECURITY_POLICY, v);
-        }
-        r
-    } else {
-        let mut r = axum::response::Response::new(axum::body::Body::from(bytes));
-        r.headers_mut()
-            .insert(header::CONTENT_TYPE, HeaderValue::from_static(ui_mime(rel)));
-        r
-    };
-    // Deliberately NO X-Frame-Options: the app embeds this cross-origin, and SAMEORIGIN
-    // would blank the panel. Framing is safe anyway — sandboxed, CSP-locked, token-gated to an inert document.
-    let cache = if rel.ends_with(".html") {
-        "no-store, must-revalidate"
-    } else {
-        "public, max-age=31536000, immutable"
-    };
-    resp.headers_mut().insert(
-        axum::http::header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static(cache),
-    );
-    Ok(resp)
 }
 
 #[derive(Deserialize)]
