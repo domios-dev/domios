@@ -81,6 +81,33 @@ After approval/execution starts, set heartbeat with:\n\
                 "✗ loop budget {count}/{budget} reached for loop '{loop_id}'; extend with codeterm plan loop set {loop_id} --budget N, or close the plan."
             ))
         }
+        "park_requires_reason" => Some(format!(
+            "✗ park requires a reason.\nfix: codeterm plan task update {plan_id} {} --status parked --note \"<reason>\"",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "qa_note_required" => Some(format!(
+            "✗ QA queue requires a note.\nfix: codeterm plan qa queue --plan {plan_id} --task {} --note \"<what to verify>\"",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "qa_slot_unavailable" => Some(format!(
+            "✗ QA slot is taken — only one task runs QA at a time.\nfix: wait for the current QA run to finish or check the queue:\n  codeterm plan qa queue --plan {plan_id}"
+        )),
+        "qa_not_running" => Some(format!(
+            "✗ no QA is running on this plan.\nfix: queue the task for QA first:\n  codeterm plan qa queue --plan {plan_id} --task {}",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "gate_not_found" => Some(format!(
+            "✗ decision gate not found.\nfix: list open gates:\n  codeterm plan decision list {plan_id}"
+        )),
+        "gate_already_answered" => Some(format!(
+            "✗ this decision gate was already answered.\nfix: list all gates to see the recorded answer:\n  codeterm plan decision list {plan_id}"
+        )),
+        "gate_requires_question" => Some(
+            "✗ decision gate requires a question.\nfix: codeterm plan decision ask <plan_id> \"<question>\"".into()
+        ),
+        "waiting_focus_requires_open_gate" => Some(format!(
+            "✗ waiting_focus status requires an open decision gate.\nfix: ask a gate question first, then set the focus:\n  codeterm plan decision ask {plan_id} \"<question>\"\n  codeterm orchestrator heartbeat set --plan {plan_id} --focus waiting_focus"
+        )),
         "write_pending" => render_write_pending(data, plan_id, task_id),
         "readback_mismatch" => render_readback_mismatch(data, plan_id, task_id),
         "io" => Some(render_io(data, plan_id, params)),
