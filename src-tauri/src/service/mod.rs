@@ -44,7 +44,7 @@ pub mod spawn;
 mod spawn_chatbackend;
 mod spawn_cli;
 mod spawn_params;
-mod spawn_title;
+pub(crate) mod spawn_title;
 pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
