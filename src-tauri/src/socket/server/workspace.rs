@@ -73,7 +73,6 @@ pub(super) fn dispatch(
                         message: e,
                         data: None,
                     })?;
-            let _ = svc.set_pane_role(&pane_id, "Orchestrator", None, Some(true));
             let pty_id = if eager {
                 svc.ensure_pane_pty_for_send(&pane_id)
                     .map_err(|e| JsonRpcError {

@@ -64,6 +64,9 @@ fn test_create_tab() {
     assert!(!tab_id.is_empty());
     assert!(!pane_id.is_empty());
     assert!(state.get_pane(&pane_id).is_some());
+    let pane = state.get_pane(&pane_id).unwrap();
+    assert_eq!(pane.role, None, "user-created tab must start roleless");
+    assert!(!pane.can_spawn, "roleless tab must not inherit can_spawn");
 
     let ws = state.get_workspace(&ws_id).unwrap();
     assert_eq!(ws.tabs.len(), 2);
