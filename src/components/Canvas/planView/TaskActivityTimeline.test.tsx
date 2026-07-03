@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import type { Milestone, Task, TaskExecutionAttempt } from "../types";
 import { TaskActivityTimeline } from "./TaskActivityTimeline.tsx";
+import { milestoneTimestampLabel } from "./taskActivityModel";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -69,6 +70,17 @@ test("renders milestone timeline with kind, age, and author", async () => {
   assert(entry, "timeline entry rendered");
   assert(host.querySelector('[data-testid="plan-task-activity-kind"]')?.textContent?.includes("status update"), "kind chip");
   assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m", "relative age");
+  const stamp = host.querySelector('[data-testid="plan-task-activity-timestamp"]');
+  assert(stamp?.textContent === milestoneTimestampLabel(1_700_000_000_000, now), "absolute date+time stamp");
+  const kindEl = host.querySelector('[data-testid="plan-task-activity-kind"]');
+  const ageEl = host.querySelector('[data-testid="plan-task-activity-age"]');
+  const FOLLOWING = 4;
+  assert(
+    kindEl && stamp && ageEl &&
+      (kindEl.compareDocumentPosition(stamp) & FOLLOWING) !== 0 &&
+      (stamp.compareDocumentPosition(ageEl) & FOLLOWING) !== 0,
+    "meta order: kind → absolute stamp → relative age",
+  );
   assert(host.querySelector('[data-testid="plan-task-activity-author"]')?.textContent === "Puccini", "author label");
   assert(entry?.textContent?.includes("Shipped first pass"), "stride text");
 });
