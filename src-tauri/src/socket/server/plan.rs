@@ -192,6 +192,10 @@ pub(super) fn dispatch(
                 .and_then(|x| x.get("caller_pane_id"))
                 .and_then(|v| v.as_str());
             let mine = p.and_then(|x| x.get("mine")).and_then(|v| v.as_bool()) == Some(true);
+            let require_plan_id = p
+                .and_then(|x| x.get("require_plan_id"))
+                .and_then(|v| v.as_bool())
+                == Some(true);
             let status = p
                 .and_then(|x| x.get("status"))
                 .and_then(|v| v.as_str())
@@ -200,6 +204,13 @@ pub(super) fn dispatch(
                         .map_err(|_| plan_rpc_err(PlanError::BadStatus))
                 })
                 .transpose()?;
+            let plan_id = if require_plan_id {
+                Some(plan_refs::resolve_plan(store, params)?)
+            } else {
+                p.and_then(|x| x.get("plan_id"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            };
             let tasks = store.list_tasks(TaskListFilter {
                 project_path: p
                     .and_then(|x| x.get("project"))
@@ -218,10 +229,7 @@ pub(super) fn dispatch(
                     .and_then(|x| x.get("unassigned"))
                     .and_then(|v| v.as_bool())
                     == Some(true),
-                plan_id: p
-                    .and_then(|x| x.get("plan_id"))
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
+                plan_id,
                 status,
             });
             Ok(json!({ "tasks": tasks }))

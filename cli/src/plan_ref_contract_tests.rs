@@ -28,7 +28,7 @@ fn plan_task_update_accepts_task_ref_alone() {
                         },
                 },
         } => {
-            assert_eq!(plan_id, "auth-login");
+            assert_eq!(plan_id.as_deref(), Some("auth-login"));
             assert_eq!(task_id, None);
             assert_eq!(status.as_deref(), Some("done"));
         }
@@ -52,7 +52,7 @@ fn plan_task_update_accepts_plan_and_task() {
                         },
                 },
         } => {
-            assert_eq!(plan_id, "pl_1");
+            assert_eq!(plan_id.as_deref(), Some("pl_1"));
             assert_eq!(task_id.as_deref(), Some("task_1"));
         }
         _ => panic!("expected plan task update"),
