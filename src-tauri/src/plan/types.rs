@@ -33,6 +33,21 @@ pub enum TaskStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewStage {
+    #[default]
+    Review,
+    Qa,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum QaState {
+    Queued,
+    Running,
+}
+
 impl TaskStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
@@ -378,6 +393,10 @@ pub struct Task {
     pub test_plan: Option<String>,
     pub correctness: Option<String>,
     pub status: TaskStatus,
+    #[serde(default)]
+    pub review_stage: ReviewStage,
+    #[serde(default)]
+    pub qa_state: Option<QaState>,
     pub status_label: Option<String>,
     #[serde(default)]
     pub priority: TaskPriority,

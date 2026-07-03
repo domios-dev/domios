@@ -130,7 +130,7 @@ fn is_terminal_task_status(status: &TaskStatus) -> bool {
     matches!(status, TaskStatus::Done | TaskStatus::Cancelled)
 }
 
-fn clear_task_assignment(task: &mut Task) {
+pub(super) fn clear_task_assignment(task: &mut Task) {
     task.assigned_pane_id = None;
     task.lane.pane_id = None;
 }
@@ -402,6 +402,8 @@ impl PlanStore {
             test_plan: new.test_plan,
             correctness: new.correctness,
             status: TaskStatus::Pending,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: new.priority.unwrap_or_default(),
             created_at: now_ms,
@@ -463,6 +465,7 @@ impl PlanStore {
                 task.status_changed_at = now_ms;
             }
             task.status = TaskStatus::Done;
+            super::qa::normalize_task_review_fields(task);
             let assigned = task.assigned_pane_id.clone();
             super::task_attempts::mark_task_assignment_closed(task, assigned.as_deref(), now_ms);
             clear_task_assignment(task);
@@ -696,6 +699,7 @@ impl PlanStore {
                     task.status = status;
                     task.status_changed_at = now_ms;
                 }
+                super::qa::normalize_task_review_fields(task);
                 if task.status != TaskStatus::Parked {
                     task.park_reason = None;
                 }

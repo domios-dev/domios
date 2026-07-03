@@ -454,6 +454,8 @@ mod tests {
             test_plan: None,
             correctness: None,
             status: TaskStatus::Pending,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: TaskPriority::default(),
             created_at: 0,

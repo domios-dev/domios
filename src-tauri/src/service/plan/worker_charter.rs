@@ -11,8 +11,10 @@ You are a Worker on task {task_id}. Three rules:\n\
 - NEVER spawn agents.\n\
 - Decomposition needed \u{2192} report blocked; the Orchestrator splits it.\n\
 {}\n\
+{}\n\
 </codeterm-worker-charter>",
-        crate::prompts::TESTING_DISCIPLINE.trim()
+        crate::prompts::TESTING_DISCIPLINE.trim(),
+        crate::prompts::QA_PIPELINE_DISCIPLINE.trim()
     )
 }
 
@@ -118,6 +120,7 @@ mod tests {
         assert!(out.contains(&task_id));
         assert!(out.contains("NEVER spawn agents"));
         assert!(out.contains(crate::prompts::TESTING_DISCIPLINE.trim()));
+        assert!(out.contains(crate::prompts::QA_PIPELINE_DISCIPLINE.trim()));
         assert!(out.trim_end().ends_with("continue"));
     }
 

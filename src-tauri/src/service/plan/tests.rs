@@ -286,6 +286,8 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         test_plan: None,
         correctness: None,
         status: TaskStatus::Pending,
+        review_stage: Default::default(),
+        qa_state: None,
         status_label: None,
         priority: Default::default(),
         created_at: 0,

@@ -42,6 +42,7 @@ function doneCard(t: Task): BoardTaskCardModel {
     roleLabel: null,
     branch: null,
     activityHint: null,
+    qaChip: null,
     focusMatch: false,
   };
 }
@@ -100,6 +101,20 @@ test("groupTasksIntoColumns places tasks by status and sorts freshest first", ()
   const live = columns.find((c) => c.key === "in_progress")!;
   assert(live.cards[0]?.presenceLabel === "Puccini", "presence from pane title");
   assert(!live.cards[0]?.historicalExecutorSummary, "active task has no historical summary");
+});
+
+test("groupTasksIntoColumns surfaces in-QA chip for queued review tasks", () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({ id: "qa-one", status: TaskStatus.InReview, review_stage: "qa", qa_state: "running" }),
+      task({ id: "qa-two", status: TaskStatus.InReview, review_stage: "qa", qa_state: "queued" }),
+      task({ id: "qa-three", status: TaskStatus.InReview, review_stage: "qa", qa_state: "queued" }),
+    ],
+  };
+  const cards = groupTasksIntoColumns(plan, PANES).columns.find((c) => c.key === "in_review")!.cards;
+  assert(cards.find((card) => card.task.id === "qa-one")?.qaChip === "In QA · running", "running chip");
+  assert(cards.find((card) => card.task.id === "qa-three")?.qaChip === "In QA · queued #2", "queued position");
 });
 
 test("done task shows historical executor without active presence label", () => {

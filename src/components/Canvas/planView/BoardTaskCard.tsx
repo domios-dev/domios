@@ -54,7 +54,7 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
         className="plan-board-task-status"
         style={{ background: statusColor }}
       >
-        {statusText(task)}
+        {card.qaChip ?? statusText(task)}
       </span>
       {handle && (
         <p data-testid="plan-board-task-handle" className="plan-board-task-meta plan-board-task-handle">
