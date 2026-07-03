@@ -81,7 +81,7 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       {card.branch && (
         <p data-testid="plan-board-task-lane" className="plan-board-task-meta plan-board-task-lane">
           <GitBranch size={11} aria-hidden className="shrink-0 opacity-70" />
-          <span className="min-w-0 break-words">{card.branch}</span>
+          <span className="min-w-0 truncate">{card.branch}</span>
         </p>
       )}
       {card.activityHint && (

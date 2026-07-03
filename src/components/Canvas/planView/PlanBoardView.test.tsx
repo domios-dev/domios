@@ -261,6 +261,37 @@ test("clicking cancelled note reveals cancelled tasks with titles", async () => 
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "cancelled task opens detail");
 });
 
+test("task card: status row precedes branch row, long branch has truncate class", async () => {
+  const longBranch = "feat/very-long-branch-name-that-could-overflow-the-task-card-layout-significantly";
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({
+        id: "task-layout",
+        status: TaskStatus.InProgress,
+        lane: { branch: longBranch, worktree_path: null },
+      }),
+    ],
+  };
+  const { host } = await render(
+    <PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />,
+  );
+  const card = host.querySelector('[data-testid="plan-board-task-card"]');
+  assert(card, "card present");
+  const status = card?.querySelector('[data-testid="plan-board-task-status"]') as Element;
+  const lane = card?.querySelector('[data-testid="plan-board-task-lane"]') as Element;
+  assert(status, "status present");
+  assert(lane, "lane present");
+  assert(lane.textContent?.includes(longBranch), "branch text present in lane");
+  const allWithTestId = Array.from(card!.querySelectorAll("[data-testid]"));
+  const statusIdx = allWithTestId.indexOf(status);
+  const laneIdx = allWithTestId.indexOf(lane);
+  assert(statusIdx !== -1 && laneIdx !== -1, "both elements found in testid scan");
+  assert(statusIdx < laneIdx, `status (idx ${statusIdx}) must precede branch (idx ${laneIdx}) in DOM order`);
+  const branchSpan = lane.querySelector("span.truncate");
+  assert(branchSpan, "branch text span carries truncate class for ellipsis clipping");
+});
+
 test("empty workspace shows stable empty gate", async () => {
   const { host } = await render(<PlanBoardView mode="workspace" plans={[]} />);
   assert(host.querySelector('[data-testid="plan-board-empty"]'), "empty state");
