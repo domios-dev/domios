@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useMultiplexer } from "../../store/multiplexer";
 import { useFullPlans, usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { activeWorkForPane, selectActiveWork } from "../Canvas/planView/activeWork";
 import { resolvePaneComposerActivity } from "../Canvas/paneComposerActivity";
 import { findPlanIndexForPane } from "../Canvas/planPaneMatch";
 import { openPanePlanFocus } from "../Canvas/workspacePlanEntry";
@@ -35,6 +36,10 @@ function ResolvedPaneTaskStrip({
     () => resolvePaneComposerActivity(full.plans, paneId, panes),
     [full.plans, paneId, panes],
   );
+  const paneActiveWork = useMemo(() => {
+    const snapshot = selectActiveWork(full.plans, panes);
+    return activeWorkForPane(snapshot, paneId);
+  }, [full.plans, paneId, panes]);
   if (!activity) return null;
 
   const onOpen = () => {
@@ -47,7 +52,12 @@ function ResolvedPaneTaskStrip({
 
   return (
     <div className="ct-composer-activity-row mb-2 w-full min-w-0 max-w-full">
-      <ComposerPlanActivityStrip activity={activity} onOpen={onOpen} />
+      <ComposerPlanActivityStrip
+        activity={activity}
+        onOpen={onOpen}
+        taskStatus={activity.kind === "working" ? activity.taskStatus : null}
+        stale={paneActiveWork?.stale ?? false}
+      />
     </div>
   );
 }
