@@ -6,6 +6,10 @@ import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import { TaskStatus, type Plan, type Section, type Task, type TaskStatus as TaskStatusType } from "../types";
 import { latestTaskNote } from "./taskStatusLabel";
+import { competitionForTask } from "./competitionForTask";
+import { loopForTask } from "./loopForTask";
+import type { CompetitionForTaskResult } from "./competitionForTask";
+import type { LoopForTaskResult } from "./loopForTask";
 
 export const BOARD_COLUMN_DEFS = [
   { key: "pending", label: "Pending", statuses: [TaskStatus.Pending] as TaskStatusType[] },
@@ -49,6 +53,8 @@ export interface BoardTaskCardModel {
   roleLabel: string | null;
   branch: string | null;
   latestNote: string | null;
+  loopBadge: LoopForTaskResult | null;
+  competeBadge: CompetitionForTaskResult | null;
   focusMatch: boolean;
 }
 
@@ -127,6 +133,8 @@ function buildTaskCard(
     roleLabel: presence ? clean(task.taken_by_role) : historical?.role ?? clean(task.taken_by_role),
     branch: laneBranch(task),
     latestNote: latestTaskNote(task),
+    loopBadge: loopForTask(plan, task.id),
+    competeBadge: competitionForTask(task, panes),
     focusMatch: focusMatches(plan, task, paneId),
   };
 }

@@ -5,6 +5,7 @@ import type { PlanListRow, PlanListRowKind, PlanListVisibleRow } from "./buildPl
 import { isPlanListSectionRow } from "./buildPlanListTree";
 import { formatRelativeAge } from "./planListModel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
+import { TaskExecutionBadges } from "./TaskExecutionBadges";
 
 const TASK_KINDS = new Set<PlanListRowKind>(["task", "subtask"]);
 const TASK_INDENT_STEP = 16;
@@ -126,6 +127,7 @@ export function PlanListRowView({
         <span data-testid="plan-list-title" className="plan-list-title">
           {row.title}
         </span>
+        <TaskExecutionBadges loop={row.loopBadge} competition={row.competeBadge} />
         <button
           type="button"
           data-testid="plan-list-belonging-chip"

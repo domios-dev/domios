@@ -119,6 +119,13 @@ export const TaskPriority = { P0: "p0", P1: "p1", P2: "p2", P3: "p3" } as const 
 export type ReviewStage = "review" | "qa";
 export type QaState = "queued" | "running";
 
+export interface TaskCompetitionMetadata {
+  enabled?: boolean;
+  attempts?: number | null;
+  models?: string[];
+  judge_hint?: string | null;
+}
+
 export interface TaskExecutionAttempt {
   id?: string;
   pane_id: string | null;
@@ -134,6 +141,12 @@ export interface TaskExecutionAttempt {
   reported_at?: number;
   closed_at?: number;
   outcome?: string | null;
+  competition_group_id?: string | null;
+  competition_lane?: number | null;
+  judge_verdict?: string | null;
+  judge_reason?: string | null;
+  judged_at?: number;
+  winner?: boolean;
 }
 
 export interface Task {
@@ -168,6 +181,7 @@ export interface Task {
   lane?: TaskLaneMetadata;
   taken_by_role?: string | null;
   peer: string | null;
+  competition?: TaskCompetitionMetadata | null;
   execution_attempts?: TaskExecutionAttempt[];
   park_reason?: string | null;
   canvas: ElementCanvas;
@@ -186,11 +200,14 @@ export interface LoopStage {
 export interface LoopSpec {
   id: string;
   target: string;
-  stages: LoopStage[];
+  stages?: LoopStage[];
   budget: number;
   count: number;
   stop_when: string | null;
   status: LoopStatus;
+  stagnation?: number;
+  deviation?: string | null;
+  last_iteration_at?: number | null;
 }
 
 export interface CanvasElement {
