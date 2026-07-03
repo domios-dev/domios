@@ -159,6 +159,21 @@ impl MultiplexerState {
         Ok(())
     }
 
+    /// Find an agent pane whose CWD starts with `project_root`. Used by the
+    /// runaway-sweeper to nudge the owning lane pane.
+    pub fn find_agent_pane_for_project(&self, project_root: &str) -> Option<String> {
+        self.panes
+            .values()
+            .find(|p| {
+                p.agent_type.is_some()
+                    && p.cwd
+                        .as_deref()
+                        .map(|cwd| cwd.starts_with(project_root))
+                        .unwrap_or(false)
+            })
+            .map(|p| p.id.clone())
+    }
+
     /// Find which workspace contains a given pane.
     pub fn find_workspace_for_pane(&self, pane_id: &str) -> Option<String> {
         for ws in &self.workspaces {

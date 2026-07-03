@@ -48,6 +48,8 @@ All commands go through `build.sh`. Safe on Windows: never kills production Code
 source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 ```
 
+**Run Rust tests ONLY through `scripts/test-capped.sh`.** A bare `cargo test` in a lane worktree is a violation — the script kills the entire process group (cargo + all spawned `*/target/*/deps/*` test binaries) so no orphans survive a hang. If the 90s cap fires, read the code; do not re-run with a bigger cap.
+
 **Run ONE test at a time.** All `cargo test`/`build.sh test` runs share a single `target/.cargo-lock`; launching a second while one is in flight makes them queue (not parallelize) and looks like a multi-minute "hang" — narrow the filter, run it once in the background, wait for it; never fire concurrent runs.
 
 ## Build speed (worktrees, tests, profiles)

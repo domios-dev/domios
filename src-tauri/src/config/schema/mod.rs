@@ -39,6 +39,8 @@ pub struct AppConfig {
     pub updater: UpdaterConfig,
     #[serde(default)]
     pub ui: UiConfig,
+    #[serde(default)]
+    pub runaway: RunawayConfig,
 }
 
 impl Default for AppConfig {
@@ -61,6 +63,7 @@ impl Default for AppConfig {
             mesh: MeshConfig::default(),
             updater: UpdaterConfig::default(),
             ui: UiConfig::default(),
+            runaway: RunawayConfig::default(),
         }
     }
 }
@@ -807,6 +810,36 @@ pub const BUILTIN_THEMES: &[BuiltinTheme] = &[
         toml_str: include_str!("../../../themes/pip-boy.toml"),
     },
 ];
+
+fn default_runaway_enabled() -> bool {
+    true
+}
+
+fn default_test_binary_max_secs() -> u64 {
+    900
+}
+
+/// Config for the daemon runaway-test-binary sweeper.
+/// Section `[runaway]` in config.toml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RunawayConfig {
+    /// Enable the background sweeper. Default true.
+    #[serde(default = "default_runaway_enabled")]
+    pub enabled: bool,
+    /// Kill test binaries (*/target/*/deps/*) that have been alive longer than this.
+    #[serde(default = "default_test_binary_max_secs")]
+    pub test_binary_max_secs: u64,
+}
+
+impl Default for RunawayConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_runaway_enabled(),
+            test_binary_max_secs: default_test_binary_max_secs(),
+        }
+    }
+}
 
 /// Parse a built-in theme TOML string into a ThemeConfig.
 pub fn parse_builtin_theme(toml_str: &str) -> Result<ThemeConfig, String> {
