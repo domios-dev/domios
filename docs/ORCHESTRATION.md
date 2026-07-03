@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -300,6 +300,31 @@ Allowed checks:
 The correct idle posture is not "wait 30 seconds and poll again"; it is "the
 plan will nudge me when attention is due, and until then I either process another
 ready task or stop talking."
+
+### Focus discipline — the heartbeat amplifies what you write
+
+`current_focus` is prepended to every future nudge, so it must name an action
+YOU own and will execute ("dispatch t7; judge t0b report"), never a wait on
+another agent. A focus like "planner decides what to dispatch next" is an
+ownership inversion — dispatch is never delegable to a Planner — and it turns
+every subsequent nudge into a confirmation of idleness (a real 5-hour stall
+was traced to exactly this). If you are blocked on another agent, phrase the
+focus as the action you will take: "bounce/escalate <agent> about <thing> if
+unchanged at the next nudge."
+
+### Dispatch frontier — re-derive after every gate
+
+Every acceptance/close/integration changes which pending tasks are unblocked.
+Immediately after closing a task or accepting a lane, re-check the frontier:
+any task whose precondition just became true gets dispatched NOW, parked with
+a recorded reason, or routed to replanning. The most common stall: a gating
+task (review/verification) becomes dispatchable at the moment the last lane
+integrates, while the stale focus still describes the finished wave.
+
+A nudge is handled only if it ends in a state change for at least one open
+task: dispatch / park (or a decision stride) / judge a report / bounce a
+worker / hand to replanning. "Waiting" is a valid response only for tasks
+with a live assigned lane.
 
 ```bash
 codeterm orchestrator heartbeat set \

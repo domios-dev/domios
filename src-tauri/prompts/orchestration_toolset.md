@@ -13,3 +13,5 @@ Planning source of truth: CodeTerm GOAL/Spec/Plan/Tasks/Strides. Set GOAL first.
 Planning ownership: while a Planner holds an open planning-kind task, route requirements/blockers/evidence to the Planner instead of mutating graph nodes (goal, sections, tasks) yourself. You may record strides, heartbeat updates, and lane metadata. If you must mutate the plan in an emergency, record it as a stride so the Planner can reconcile it. The CLI will warn you with a one-line hint when the active planner lane belongs to a different pane.
 
 Orchestration *principle* (when to spawn, model routing, discipline) lives in the mem skill `codeterm-orchestrator` — separate from mechanics by design.
+
+Heartbeat: focus names an action YOU own (never a wait on another agent; dispatch is not delegable). After every close/acceptance, re-derive the frontier and dispatch/park/replan newly-unblocked tasks. A handled nudge changes the state of at least one open task.
