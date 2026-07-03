@@ -153,6 +153,12 @@ pub enum PlanAction {
         status: Option<String>,
         #[arg(long)]
         mode: Option<String>,
+        /// Set planner peer: <pane_id> to bind, or "none" to waive (requires --note).
+        #[arg(long)]
+        planner: Option<String>,
+        /// Waiver note (required when --planner none).
+        #[arg(long, allow_hyphen_values = true)]
+        note: Option<String>,
     },
     /// Mark the plan approved for task generation
     Approve { plan_id: String },

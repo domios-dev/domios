@@ -7,7 +7,7 @@ use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;
 use super::plan_role_helpers::{assign_task_with_profile, RespawnAttemptRoleExt};
 use super::{get_string_param, JsonRpcError};
-use crate::plan::{OrchestratorRef, PlanStatus, TaskStatus};
+use crate::plan::{OrchestratorRef, PlanStatus, PlannerRef, TaskStatus};
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError};
@@ -380,6 +380,15 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            if let Some(planner_val) = p.and_then(|x| x.get("planner_ref")) {
+                let planner_ref: Option<PlannerRef> =
+                    serde_json::from_value(planner_val.clone()).map_err(|e| JsonRpcError {
+                        code: -32602,
+                        message: format!("invalid planner_ref: {e}"),
+                        data: None,
+                    })?;
+                store.set_planner_ref(&id, planner_ref, now).map_err(plan_rpc_err)?;
+            }
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
