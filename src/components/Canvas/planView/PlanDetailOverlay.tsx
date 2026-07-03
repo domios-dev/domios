@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import { X } from "lucide-react";
+import { ChevronLeft, X } from "lucide-react";
 import { DetailContent } from "../canvasRender/DetailContent";
 import type { ApiConfig, Pane } from "../../../lib/types";
 import type { Plan, Section, Task } from "../types";
@@ -28,6 +28,13 @@ export interface PlanDetailOverlayProps {
   renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
   /** Preserves canvas Playwright hooks when set to `canvas-detail`. */
   testIdPrefix?: string;
+  /** Show back button and handle keyboard back (Alt/Cmd+Left). */
+  canGoBack?: boolean;
+  onBack?: () => void;
+  /** Scroll the body to this offset after mount/navigation (best-effort). */
+  restoreScroll?: number;
+  /** Ref assigned to the body scroll container so callers can read scrollTop. */
+  scrollCaptureRef?: { current: HTMLDivElement | null };
 }
 
 function detailTitle(kind: PlanDetailKind, task?: Task, plan?: Plan, spec?: Plan): string {
@@ -62,9 +69,28 @@ export function PlanDetailOverlay({
   onSectionFrame,
   renderTaskAttachmentThumbnails,
   testIdPrefix = "plan-detail",
+  canGoBack = false,
+  onBack,
+  restoreScroll,
+  scrollCaptureRef,
 }: PlanDetailOverlayProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+
+  const assignBodyRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      bodyRef.current = el;
+      if (scrollCaptureRef) scrollCaptureRef.current = el;
+    },
+    [scrollCaptureRef],
+  );
+
+  useEffect(() => {
+    if (typeof restoreScroll === "number" && bodyRef.current) {
+      bodyRef.current.scrollTop = restoreScroll;
+    }
+  }, [restoreScroll]);
   const tid = (suffix: string) => `${testIdPrefix}-${suffix}`;
   const isTask = kind === "task";
 
@@ -73,6 +99,13 @@ export function PlanDetailOverlay({
       if (e.key === "Escape") {
         e.stopPropagation();
         onClose();
+        return;
+      }
+      const ke = e as unknown as KeyboardEvent;
+      if (e.key === "ArrowLeft" && (ke.altKey || ke.metaKey) && canGoBack && onBack) {
+        e.preventDefault?.();
+        e.stopPropagation();
+        onBack();
         return;
       }
       if (e.key !== "Tab" || !panelRef.current) return;
@@ -93,7 +126,7 @@ export function PlanDetailOverlay({
         first.focus();
       }
     },
-    [onClose],
+    [onClose, canGoBack, onBack],
   );
 
   useEffect(() => {
@@ -121,6 +154,7 @@ export function PlanDetailOverlay({
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, [onClose]);
+
 
   const title = detailTitle(kind, task, plan, spec);
   const navPlanId = planId ?? plan?.id ?? spec?.id;
@@ -180,6 +214,18 @@ export function PlanDetailOverlay({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px 10px 16px", borderBottom: "1px solid var(--ct-border-subtle)", flexShrink: 0 }}>
+          {canGoBack && (
+            <button
+              type="button"
+              data-testid={tid("back")}
+              title="Back (Alt+Left)"
+              aria-label="Go back"
+              onClick={onBack}
+              style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-fg)", cursor: "pointer", flexShrink: 0 }}
+            >
+              <ChevronLeft size={15} />
+            </button>
+          )}
           <span data-testid={tid("title")} className="plan-task-selectable" style={{ flex: 1, minWidth: 0, fontFamily: "var(--ct-font-ui)", fontWeight: 700, fontSize: "var(--ct-font-size-md, 15px)", color: "var(--ct-fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {title}
           </span>
@@ -200,7 +246,7 @@ export function PlanDetailOverlay({
             <X size={15} />
           </button>
         </div>
-        <div data-testid={tid("body")} className="plan-detail-selectable" style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
+        <div ref={assignBodyRef} data-testid={tid("body")} className="plan-detail-selectable" style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
           <DetailContent
             kind={kind}
             planId={navPlanId}
