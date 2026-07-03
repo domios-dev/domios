@@ -45,11 +45,13 @@ mod tests {
     #[test]
     fn nudge_prefix_fires_only_when_unpaired() {
         assert!(planner_pairing_nudge_prefix(&PeerResolution::Unbound).is_some());
-        assert!(planner_pairing_nudge_prefix(&PeerResolution::OrchestratorFallback {
-            bound_pane_id: "orch-1".into(),
-            reason: "planner pane gone".into(),
-        })
-        .is_some());
+        assert!(
+            planner_pairing_nudge_prefix(&PeerResolution::OrchestratorFallback {
+                bound_pane_id: "orch-1".into(),
+                reason: "planner pane gone".into(),
+            })
+            .is_some()
+        );
         assert!(planner_pairing_nudge_prefix(&PeerResolution::Planner {
             pane_id: "p-1".into()
         })
