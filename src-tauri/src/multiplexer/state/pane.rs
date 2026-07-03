@@ -52,6 +52,16 @@ impl MultiplexerState {
         self.panes.get(id)
     }
 
+    /// `(pane_id, pty_id)` for every pane currently backed by a PTY. Cheap
+    /// id-only clone for the multiplexed web output stream's per-tick sweep —
+    /// avoids the heavy full `snapshot()` on the hot path.
+    pub fn pty_backed_panes(&self) -> Vec<(String, String)> {
+        self.panes
+            .values()
+            .filter_map(|p| p.pty_id.clone().map(|pty| (p.id.clone(), pty)))
+            .collect()
+    }
+
     /// Collect agent_session_ids from all panes except the given one.
     pub fn other_session_ids(&self, exclude_pane_id: &str) -> Vec<String> {
         self.panes
@@ -281,6 +291,54 @@ mod display_label_tests {
         let generated = state.get_pane(&pane_id).unwrap().title.clone();
         assert_ne!(generated, "claude");
         assert_eq!(state.display_label_for_pane(&pane_id), generated);
+    }
+
+    /// Reproduces the web/CLI agent-spawn title decision: `create_tab` picks a
+    /// friendly name, then the spawn path decides whether to override it via
+    /// `creation_title_override`. A no-title, no-agent-name spawn (the "+ New
+    /// session" case that regressed to showing "cursor"/"codex") must keep the
+    /// generated name — never the raw provider id.
+    #[test]
+    fn agent_spawn_with_no_explicit_title_keeps_generated_name() {
+        let (mut state, _root) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let (_tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+        let generated = state.get_pane(&pane_id).unwrap().title.clone();
+
+        let provider_id = "cursor";
+        let override_decision = crate::service::spawn_title::creation_title_override(None, None);
+        assert!(
+            override_decision.is_none(),
+            "no title/agent_name supplied: spawn must not compute a fallback title"
+        );
+        if let Some((title, level)) = override_decision {
+            state.rename_pane_at_level(&pane_id, &title, level).unwrap();
+        }
+
+        let final_title = state.get_pane(&pane_id).unwrap().title.clone();
+        assert_eq!(
+            final_title, generated,
+            "no-title agent spawn must keep the create_tab-generated name"
+        );
+        assert_ne!(
+            final_title, provider_id,
+            "the raw provider id must never become the pane title"
+        );
+    }
+
+    #[test]
+    fn agent_spawn_with_agent_name_overrides_generated_name_at_user_level() {
+        let (mut state, _root) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let (_tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+
+        let (title, level) =
+            crate::service::spawn_title::creation_title_override(None, Some("Watson")).unwrap();
+        state.rename_pane_at_level(&pane_id, &title, level).unwrap();
+
+        let pane = state.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.title, "Watson");
+        assert_eq!(pane.title_level, TitleLevel::User);
     }
 
     #[test]

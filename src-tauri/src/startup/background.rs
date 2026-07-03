@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 use crate::multiplexer::commands::MuxState;
 use crate::session::SessionState;
@@ -147,6 +147,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 let voucher = peer.instance_id.clone();
                                 let mut m = mesh.lock();
                                 for p in their_payload.peers {
+                                    m.apply_gossip_peer_info(&p);
                                     if m.paired_peers.contains_key(&p.instance_id) {
                                         continue;
                                     }
@@ -387,10 +388,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                                 info.current_version,
                                 info.latest_version
                             );
-                            let _ = app_h.emit(
-                                "update-available",
-                                serde_json::to_value(&info).unwrap_or_default(),
-                            );
+                            crate::api::events::emit_everywhere(&app_h, "update-available", &info);
                         }
                         let mut us = update_st.lock();
                         us.last_check = Some(info);

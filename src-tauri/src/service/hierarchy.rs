@@ -3,7 +3,6 @@
 mod plan_reminder_nudge;
 
 use serde::Serialize;
-use tauri::Emitter;
 
 use super::{ReportResult, ServiceContext, ServiceState};
 use crate::agent::ledger::LedgerRow;
@@ -268,7 +267,8 @@ impl ServiceContext {
                 "report": report,
             }),
         );
-        let _ = self.app_handle.emit(
+        crate::api::events::emit_everywhere(
+            &self.app_handle,
             "agent-report",
             serde_json::json!({
                 "target_pane_id": storage_key,

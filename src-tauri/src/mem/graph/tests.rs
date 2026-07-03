@@ -530,11 +530,10 @@ fn add_alias_cleans_alias_vectors() {
         },
     )
     .unwrap();
-    conn.execute(
-        "INSERT INTO mem_vectors VALUES ('alias', X''), ('alias_chunk_1', X''), ('canonical', X'')",
-        [],
-    )
-    .unwrap();
+    // insert_entity() above already auto-embeds real 'alias' and 'canonical' rows;
+    // only add the synthetic chunk row here to exercise the LIKE 'alias_chunk_%' cleanup.
+    conn.execute("INSERT INTO mem_vectors VALUES ('alias_chunk_1', X'')", [])
+        .unwrap();
 
     add_alias(&conn, "alias", "canonical").unwrap();
 

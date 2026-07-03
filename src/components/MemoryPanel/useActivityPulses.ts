@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
-import { baseUrl, authHeaders, isTauriEnv } from "./memoryApi";
+import { baseUrl, authHeaders } from "./memoryApi";
 import { hashString } from "./seedLayout";
 
 export type MemOp =
@@ -115,21 +115,17 @@ export function useActivityPulses(api: ApiConfig): UseActivityPulsesResult {
     };
 
     const setup = async () => {
-      if (isTauriEnv()) {
-        try {
-          const fn = await listen<MemActivityEvent>("mem-activity", (ev) => {
-            if (!active) return;
-            handleEvent(ev.payload);
-          });
-          if (!active) {
-            fn();
-            return;
-          }
-          unlisten = fn;
-        } catch {
-          startPolling();
+      try {
+        const fn = await listen<MemActivityEvent>("mem-activity", (ev) => {
+          if (!active) return;
+          handleEvent(ev.payload);
+        });
+        if (!active) {
+          fn();
+          return;
         }
-      } else {
+        unlisten = fn;
+      } catch {
         startPolling();
       }
     };

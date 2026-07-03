@@ -582,6 +582,45 @@ pub async fn list_agent_providers_public(
     ))))
 }
 
+/// Web-mirror twin of the `restart_general_agent` Tauri command — kills the
+/// protected General Agent pane's PTY and relaunches it. Fire-and-forget,
+/// same as the desktop command.
+pub async fn restart_general_agent(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    let svc = state.svc.clone();
+    let mux = svc.mux.clone();
+    let pty = svc.pty.clone();
+    let screen_state = svc.screen_state.clone();
+    let config = state.config.clone();
+    let app = svc.app_handle.clone();
+    std::thread::spawn(move || {
+        crate::service::general_agent::restart_general_agent(
+            &svc,
+            &mux,
+            &pty,
+            &screen_state,
+            &config,
+            &app,
+        );
+    });
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+/// Web-mirror twin of `install_provider_in_pane`.
+pub async fn install_provider_in_pane(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(provider_id): Path<String>,
+) -> Result<Json<crate::commands::InstallPaneResult>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    crate::commands::install_provider_in_pane_core(&state.svc, provider_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -732,7 +771,9 @@ mod tests {
         );
         assert_eq!(shell["transport"], "chat_backend");
         assert_eq!(shell["display_name"], "Local Shell");
-        assert_eq!(shell["available_models"][0]["id"], "qwen");
+        // describe() is a pure/cheap descriptor and never calls the live
+        // list_models() getter, so this stays empty by design.
+        assert_eq!(shell["available_models"].as_array().unwrap().len(), 0);
     }
 
     #[test]

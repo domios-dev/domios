@@ -50,7 +50,6 @@ export interface ClosedPaneView extends ClosedPane {
 
 export interface Tab {
   id: string;
-  title?: string;
   description?: string | null;
   /** One pane per tab. Split layouts were removed. */
   pane_id: string;
@@ -119,6 +118,13 @@ export interface Pane {
   description?: string | null;
   cwd: string | null;
   title_level?: TitleLevel;
+  /** Frontend-only: true while `title` was set by a local optimistic rename
+   *  not yet confirmed by a backend snapshot. Distinguishes a genuine
+   *  in-flight rename (must survive a tied/stale backend snapshot) from a
+   *  stale title merely carried over from a prior snapshot or cache
+   *  hydration (must yield to the backend on the next tie). Cleared once a
+   *  backend SET_STATE reports a matching title. */
+  title_pending_local?: boolean;
   agent_type?: string | null;
   agent_session_id?: string | null;
   agent_session_name?: string | null;
@@ -153,6 +159,10 @@ export interface MultiplexerState {
    *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
    *  and group metadata. */
   recently_closed?: ClosedPaneView[];
+  /** Aggregate Idle/Working/Waiting/Dead per PTY-backed pane, mirrored from the
+   *  backend's live status tracker so the tab rail hydrates correctly on
+   *  reload instead of staying blank until the next status event. */
+  pane_statuses?: Record<string, PaneStatus>;
 }
 
 /** Result of the one atomic spawn command (`mux_spawn_pane`). */

@@ -5,11 +5,13 @@ import { CloseXIcon } from "../Icons";
 import logoUrl from "../../assets/logo.png";
 
 import { isMac } from "../../lib/keybindings";
+import { IS_WEB } from "../../lib/webApi";
 import { UI_BUTTON, UI_TRAY_DIVIDER } from "../shared/design";
 import { KeepAwakeTray } from "./KeepAwakeTray";
 import { ExtensionsTray } from "./ExtensionsTray";
 import { SettingsMenu } from "./SettingsMenu";
 import { CanvasButton } from "../Canvas/CanvasButton";
+import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
 import type { SectionId } from "../Settings/sections";
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 import type { Notification } from "../../lib/types";
@@ -41,7 +43,7 @@ export function Titlebar({
   void _theme;
   void _onToggleSidebar;
   // Window chrome controls only exist in the Tauri shell; the browser tab owns its own window in web-mirror mode.
-  const isTauri = "__TAURI_INTERNALS__" in window;
+  const isTauri = !IS_WEB;
   const appWindow = isTauri ? getCurrentWindow() : null;
   const handleMinimize = useCallback(() => appWindow?.minimize(), [appWindow]);
   const handleMaximize = useCallback(() => appWindow?.toggleMaximize(), [appWindow]);
@@ -50,17 +52,28 @@ export function Titlebar({
   return (
     <div
       data-testid="titlebar"
-      className="flex items-center h-8 bg-[var(--ct-titlebar-bg)] select-none shrink-0"
-      style={{ boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)" }}
+      className="flex items-center bg-[var(--ct-titlebar-bg)] select-none shrink-0"
+      style={{
+        boxShadow: "inset 0 -0.5px 0 var(--ct-border-subtle)",
+        height: "calc(2rem + var(--ct-safe-top, 0px))",
+        paddingTop: "var(--ct-safe-top, 0px)",
+      }}
       data-tauri-drag-region
     >
       {/* macOS: traffic lights on the left */}
-      {isMac && (
+      {isTauri && isMac && (
         <MacTrafficLights
           onClose={handleClose}
           onMinimize={handleMinimize}
           onMaximize={handleMaximize}
         />
+      )}
+      {/* Web mirror: traffic lights never render (isTauri false above) —
+          the peer picker occupies that same left corner instead. */}
+      {IS_WEB && (
+        <div className="flex items-center h-full pl-2.5">
+          <WebPeerPicker />
+        </div>
       )}
 
       <button
@@ -104,7 +117,7 @@ export function Titlebar({
       </div>
 
       {/* Windows/Linux: controls on the right */}
-      {!isMac && (
+      {isTauri && !isMac && (
         <WindowsControls
           onClose={handleClose}
           onMinimize={handleMinimize}

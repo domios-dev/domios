@@ -134,6 +134,12 @@ impl SessionStore {
         Self { session_dir: dir }
     }
 
+    #[cfg(test)]
+    pub fn for_test_dir(dir: PathBuf) -> Self {
+        let _ = fs::create_dir_all(&dir);
+        Self { session_dir: dir }
+    }
+
     pub fn save(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
         let path = self.session_dir.join("last.json");
         let tmp = self.session_dir.join("last.json.tmp");
@@ -292,9 +298,7 @@ mod tests {
 
     fn fresh_store() -> (SessionStore, TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let store = SessionStore {
-            session_dir: dir.path().to_path_buf(),
-        };
+        let store = SessionStore::for_test_dir(dir.path().to_path_buf());
         (store, dir)
     }
 

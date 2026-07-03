@@ -39,9 +39,39 @@ export type Action =
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
   | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
-  | { type: "SET_TAB_TITLE"; workspaceId: string; tabId: string; title: string }
   | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
-  | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus };
+  | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus }
+  | { type: "RESET_GENERATION" };
+
+/**
+ * Merge a fresh `pane_statuses` snapshot into the known map, then drop the
+ * synthetic "Waiting" the backend derives from a pane's `pending_prompt` once
+ * that prompt is gone and the fresh snapshot doesn't re-affirm any status for
+ * the pane. Plain merging alone leaves "Waiting" stuck forever for a pane
+ * with no attached PTY (nothing for `snapshot_with_status` to report once
+ * `pending_prompt` clears, so the key is simply absent from every future
+ * snapshot) — e.g. a hook-driven attention prompt on a pane that hasn't
+ * opened a real terminal yet. Any OTHER status (real Idle/Working/Dead, or a
+ * re-affirmed "Waiting" from a genuine PTY-detected permission prompt) is
+ * left untouched since the fresh snapshot explicitly carries it.
+ */
+function reconcilePaneStatuses(
+  prev: Record<string, PaneStatus>,
+  incoming: Record<string, PaneStatus> | undefined,
+  panes: Record<string, Pane>,
+): Record<string, PaneStatus> {
+  const merged = incoming ? { ...prev, ...incoming } : { ...prev };
+  for (const id of Object.keys(merged)) {
+    if (
+      merged[id] === "Waiting" &&
+      !panes[id]?.pending_prompt &&
+      !incoming?.[id]
+    ) {
+      delete merged[id];
+    }
+  }
+  return merged;
+}
 
 export function reducer(state: ExtendedState, action: Action): ExtendedState {
   switch (action.type) {
@@ -61,15 +91,24 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         const backendLevel = backendPane.title_level || TitleLevel.Default;
         const frontendLevel = existing?.title_level || TitleLevel.Default;
         const highestLevel = highestTitleLevel(backendLevel, frontendLevel);
+        // Level alone can't tell a genuine in-flight local rename (must win a
+        // tie) from a title merely carried over from a stale snapshot or cache
+        // hydration (must yield to the backend on a tie) — only the former
+        // sets title_pending_local (see SET_PANE_TITLE below).
         const keepFrontendTitle =
           existing &&
+          existing.title_pending_local === true &&
           highestLevel === frontendLevel &&
           frontendLevel !== TitleLevel.Auto;
         const title = keepFrontendTitle ? existing.title : backendPane.title;
+        // Backend has caught up once its title matches what we're keeping;
+        // otherwise the local rename is still in flight.
+        const title_pending_local = keepFrontendTitle && backendPane.title !== existing.title;
         mergedPanes[id] = {
           ...backendPane,
           title_level: highestLevel as TitleLevel,
           title,
+          title_pending_local,
           ...(agentType ? { agent_type: agentType } : {}),
         };
       }
@@ -114,6 +153,13 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         // Backend-authoritative, sqlite-sourced closed-tab history; carry it
         // from the incoming snapshot or the list silently stays empty.
         recently_closed: action.state.recently_closed ?? state.recently_closed,
+        // Seed the tab-rail status from the snapshot so reload doesn't blank
+        // it out while waiting for the next live pane-status-changed event.
+        paneStatuses: reconcilePaneStatuses(
+          state.paneStatuses,
+          action.state.pane_statuses,
+          mergedPanes,
+        ),
         generation:
           typeof incomingGen === "number" ? incomingGen : state.generation,
       };
@@ -351,24 +397,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             ...pane,
             title: action.title,
             title_level: newLevel,
-          },
-        },
-      };
-    }
-
-    case "SET_TAB_TITLE": {
-      const workspace = state.workspaces.find((ws) => ws.id === action.workspaceId);
-      const tab = workspace?.tabs.find((candidate) => candidate.id === action.tabId);
-      const pane = tab ? state.panes[tab.pane_id] : undefined;
-      if (!pane) return state;
-      return {
-        ...state,
-        panes: {
-          ...state.panes,
-          [pane.id]: {
-            ...pane,
-            title: action.title,
-            title_level: TitleLevel.User,
+            title_pending_local: true,
           },
         },
       };
@@ -439,6 +468,14 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           [action.paneId]: action.status,
         },
       };
+
+    // Daemon restart (boot-changed) resets the backend's own generation
+    // counter to a low value; without this, the monotonic guard above would
+    // reject every post-restart snapshot forever since a long-lived client
+    // already holds a higher pre-restart generation. Only fired on a genuine
+    // boot change, so the spawn-blink race guard stays intact otherwise.
+    case "RESET_GENERATION":
+      return state.generation === 0 ? state : { ...state, generation: 0 };
 
     default:
       return state;

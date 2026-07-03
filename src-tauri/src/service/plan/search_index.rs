@@ -84,14 +84,23 @@ struct Unit {
 
 impl super::PlanStore {
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
-        let changed = mirror_plan(plan, false)?;
-        index_units_vectors_async(plan_project_root(plan).to_path_buf(), changed);
+        // Tests embed synchronously: the async path's global background worker
+        // races foreground mirror writes for the same db under the short
+        // test-only busy_timeout, producing spurious "database is locked" errors.
+        let sync_embed = cfg!(test);
+        let changed = mirror_plan(plan, sync_embed)?;
+        if !sync_embed {
+            index_units_vectors_async(plan_project_root(plan).to_path_buf(), changed);
+        }
         Ok(())
     }
 
     pub fn mirror_spec_index(&self, spec: &Spec) -> Result<(), String> {
-        let changed = mirror_spec(spec, false)?;
-        index_units_vectors_async(spec_project_root(spec).to_path_buf(), changed);
+        let sync_embed = cfg!(test);
+        let changed = mirror_spec(spec, sync_embed)?;
+        if !sync_embed {
+            index_units_vectors_async(spec_project_root(spec).to_path_buf(), changed);
+        }
         Ok(())
     }
 

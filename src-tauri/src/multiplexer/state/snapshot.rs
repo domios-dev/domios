@@ -46,7 +46,45 @@ impl MultiplexerState {
             // Bounded indexed query against the local sqlite store — cheap, not
             // the multi-second blocking work the hot-path rule warns about, and
             recently_closed: self.recent_closed_view(),
+            pane_statuses: HashMap::new(),
         }
+    }
+
+    /// Same as `snapshot()`, plus each pane's live aggregate status — the
+    /// snapshot path frontend hydration (`mux_get_state` / `mux_state`) needs
+    /// so status survives a page reload instead of staying blank until the
+    /// next `pane-status-changed` event.
+    ///
+    /// A pane with an active `pending_prompt` hydrates as `Waiting` even
+    /// though the PTY-output tracker (which only ever sees Working/Idle from
+    /// screen-hash churn) never observed it: the live `prompt-state-changed`
+    /// path sets `pending_prompt` directly on the pane and never touches
+    /// `PaneStatusTracker`, so without this override a reload would blank the
+    /// attention rail back to whatever the raw output tracker last saw. Takes
+    /// priority over everything except a PTY the tracker confirmed `Dead` —
+    /// a dead pane can't meaningfully be "waiting".
+    pub fn snapshot_with_status(
+        &self,
+        agent_tracker: &crate::agent::status::PaneStatusTracker,
+    ) -> MultiplexerSnapshot {
+        use crate::agent::status::PaneStatus;
+
+        let mut snap = self.snapshot();
+        snap.pane_statuses = self
+            .panes
+            .iter()
+            .filter_map(|(pane_id, pane)| {
+                let tracked = pane
+                    .pty_id
+                    .as_deref()
+                    .and_then(|pty_id| agent_tracker.get_status_if_tracked(pty_id));
+                if pane.pending_prompt.is_some() && !matches!(tracked, Some(PaneStatus::Dead)) {
+                    return Some((pane_id.clone(), PaneStatus::Waiting));
+                }
+                tracked.map(|status| (pane_id.clone(), status))
+            })
+            .collect();
+        snap
     }
 
     /// Create a session snapshot for persistence.
@@ -677,6 +715,139 @@ mod tests {
         // A Pty backing would fall through to ensure_pane_pty_for_send and fail.
         let routes_to_plugin = matches!(pane.backing, PaneBacking::ChatBackend { .. });
         assert!(routes_to_plugin, "send must route to plugin, not PTY path");
+    }
+
+    #[test]
+    fn snapshot_with_status_mirrors_tracked_pty_status_only() {
+        // Regression for the web reload bug: `mux_get_state`/`mux_state` used to
+        // carry no status at all, so a reload blanked the tab rail for EVERY
+        // status (Working included), not just the pending_prompt/Waiting case.
+        // This proves both a Working pane and a Waiting (pending_prompt) pane
+        // hydrate their correct rail color straight from the snapshot.
+        use crate::agent::status::{PaneStatus, PaneStatusTracker};
+
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = state.list_workspaces()[0].id.clone();
+        let (_tab, waiting_pane) = state.create_tab(&wsid).unwrap();
+        let (_tab2, working_pane) = state.create_tab(&wsid).unwrap();
+        let (_tab3, untracked_pane) = state.create_tab(&wsid).unwrap();
+        state.get_pane_mut(&waiting_pane).unwrap().pty_id = Some("pty-waiting".into());
+        state.get_pane_mut(&working_pane).unwrap().pty_id = Some("pty-working".into());
+        state.get_pane_mut(&untracked_pane).unwrap().pty_id = Some("pty-untracked".into());
+
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-waiting", [1u8; 32]);
+        tracker.set_waiting("pty-waiting");
+        tracker.update_output("pty-working", [2u8; 32]);
+
+        let snap = state.snapshot_with_status(&tracker);
+        assert_eq!(
+            snap.pane_statuses.get(&waiting_pane),
+            Some(&PaneStatus::Waiting),
+            "tracked pending_prompt pty's status must be mirrored into the snapshot"
+        );
+        assert_eq!(
+            snap.pane_statuses.get(&working_pane),
+            Some(&PaneStatus::Working),
+            "tracked working pty's status must be mirrored into the snapshot too"
+        );
+        assert!(
+            !snap.pane_statuses.contains_key(&untracked_pane),
+            "a pty the tracker has never seen must be absent, not defaulted to Dead"
+        );
+    }
+
+    fn test_pending_prompt() -> crate::multiplexer::types::PendingPrompt {
+        crate::multiplexer::types::PendingPrompt {
+            question: "Allow?".into(),
+            options: vec![crate::multiplexer::types::PromptOption {
+                label: "Yes".into(),
+                value: "1".into(),
+            }],
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
+        }
+    }
+
+    #[test]
+    fn snapshot_with_status_derives_waiting_from_pending_prompt_over_working() {
+        // Regression for the attention-after-reload bug: a hook-driven prompt
+        // (POST /hook/permission on a plain shell pane) sets pane.pending_prompt
+        // directly and never calls PaneStatusTracker::set_waiting. If the PTY
+        // keeps producing output (e.g. a shell loop), update_output() forces the
+        // tracker back to Working on every chunk, so a raw tracker mirror alone
+        // shows Working after reload even while a prompt is actively pending.
+        use crate::agent::status::{PaneStatus, PaneStatusTracker};
+
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = state.list_workspaces()[0].id.clone();
+        let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
+        {
+            let pane = state.get_pane_mut(&pane_id).unwrap();
+            pane.pty_id = Some("pty-prompted".into());
+            pane.pending_prompt = Some(test_pending_prompt());
+        }
+
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-prompted", [3u8; 32]);
+        assert_eq!(tracker.get_status("pty-prompted"), PaneStatus::Working);
+
+        let snap = state.snapshot_with_status(&tracker);
+        assert_eq!(
+            snap.pane_statuses.get(&pane_id),
+            Some(&PaneStatus::Waiting),
+            "pending_prompt must win over a raw Working tracker status in the snapshot"
+        );
+    }
+
+    #[test]
+    fn snapshot_with_status_derives_waiting_from_pending_prompt_when_untracked() {
+        // A chatBackend pane (no pty_id) or a pane the tracker has never seen a
+        // chunk from yet must still surface Waiting once pending_prompt is set —
+        // the tracker's silence must not suppress attention.
+        use crate::agent::status::{PaneStatus, PaneStatusTracker};
+
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = state.list_workspaces()[0].id.clone();
+        let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
+        state.get_pane_mut(&pane_id).unwrap().pending_prompt = Some(test_pending_prompt());
+
+        let tracker = PaneStatusTracker::new();
+        let snap = state.snapshot_with_status(&tracker);
+        assert_eq!(
+            snap.pane_statuses.get(&pane_id),
+            Some(&PaneStatus::Waiting),
+            "untracked/no-pty pane with a pending_prompt must still hydrate as Waiting"
+        );
+    }
+
+    #[test]
+    fn snapshot_with_status_keeps_dead_over_stale_pending_prompt() {
+        // A confirmed-Dead pty must not flip back to Waiting because of a
+        // pending_prompt that never got cleared on exit — Dead is terminal.
+        use crate::agent::status::{PaneStatus, PaneStatusTracker};
+
+        let (mut state, _root) = MultiplexerState::new();
+        let wsid = state.list_workspaces()[0].id.clone();
+        let (_tab, pane_id) = state.create_tab(&wsid).unwrap();
+        {
+            let pane = state.get_pane_mut(&pane_id).unwrap();
+            pane.pty_id = Some("pty-dead".into());
+            pane.pending_prompt = Some(test_pending_prompt());
+        }
+
+        let mut tracker = PaneStatusTracker::new();
+        tracker.update_output("pty-dead", [4u8; 32]);
+        tracker.set_dead("pty-dead");
+
+        let snap = state.snapshot_with_status(&tracker);
+        assert_eq!(
+            snap.pane_statuses.get(&pane_id),
+            Some(&PaneStatus::Dead),
+            "a confirmed-dead pty must stay Dead even with a stale pending_prompt"
+        );
     }
 
     #[test]

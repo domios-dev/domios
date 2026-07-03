@@ -399,7 +399,7 @@ fn enqueue_agent_turn(
     }
     info.commands = commands;
     svc.workers.register(info.clone());
-    let _ = tauri::Emitter::emit(&svc.app_handle, "graph-worker-spawned", &info);
+    crate::api::events::emit_everywhere(&svc.app_handle, "graph-worker-spawned", &info);
 
     let svc_task = svc.clone();
     let worker_id_task = worker_id.clone();

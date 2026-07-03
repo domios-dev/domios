@@ -21,6 +21,7 @@ import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { TabActivityIndicator } from "./TabActivityIndicator";
+import { TabStatusRail } from "./TabStatusRail";
 import { RoleIcon } from "./HierarchyTree";
 import type { PaneTabActivity } from "../Canvas/paneTabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
@@ -191,6 +192,10 @@ function TabItemInner({
         ${isActive ? "text-[var(--ct-fg)]" : "sidebar-tab-dimmed hover:bg-[rgba(255,255,255,0.04)]"}
       `}
     >
+      <TabStatusRail
+        status={status}
+        attention={status === "Waiting" || Boolean(pane?.pending_prompt)}
+      />
       {/* Active tab sliding pill indicator */}
       {isActive && (
         <div
@@ -349,7 +354,6 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.uiFontScale !== next.uiFontScale ||
     prev.index !== next.index ||
     prev.tab.id !== next.tab.id ||
-    prev.tab.title !== next.tab.title ||
     prev.tab.description !== next.tab.description
   ) return false;
 
@@ -372,6 +376,10 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
   if (!pp || !np) return false;
   return (
     pp.id === np.id &&
+    // pane.title is the sole title source; omitting these left the tab painting
+    // a stale label after wake/cache-reconcile.
+    pp.title === np.title &&
+    pp.title_level === np.title_level &&
     pp.description === np.description &&
     pp.agent_type === np.agent_type &&
     // backing drives the shell icon/tooltip/model badge + chat gating; the live

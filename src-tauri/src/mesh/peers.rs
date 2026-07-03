@@ -142,6 +142,7 @@ pub fn load_peers() -> HashMap<String, PairedPeer> {
                     version: d.version,
                     https_url: d.https_url,
                     consecutive_misses: 0,
+                    last_active_ms: None,
                 },
             )
         })
