@@ -126,7 +126,7 @@ export function PlanDetailOverlay({
         first.focus();
       }
     },
-    [onClose],
+    [onClose, canGoBack, onBack],
   );
 
   useEffect(() => {
