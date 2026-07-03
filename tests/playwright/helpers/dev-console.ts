@@ -146,7 +146,9 @@ export interface UiSession {
   page: Page;
 }
 
-async function waitForShell(page: Page): Promise<void> {
+// A fresh context has no service-worker controller yet, so the first load can
+// trigger controllerchange -> location.reload() (serviceWorkerRegistration.ts) mid-wait.
+async function waitForShellOnce(page: Page): Promise<void> {
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   await page.evaluate(() => {
     try {
@@ -159,6 +161,16 @@ async function waitForShell(page: Page): Promise<void> {
     .locator('.xterm:visible, [data-testid="chat-composer"]')
     .first()
     .waitFor({ state: "visible", timeout: 90_000 });
+}
+
+async function waitForShell(page: Page): Promise<void> {
+  try {
+    await waitForShellOnce(page);
+  } catch (e) {
+    if (!/Execution context was destroyed|Target closed/.test(String(e))) throw e;
+    await page.waitForLoadState("domcontentloaded");
+    await waitForShellOnce(page);
+  }
 }
 
 async function connectDesktopUi(): Promise<UiSession> {
