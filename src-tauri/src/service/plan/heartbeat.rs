@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use super::{PlanError, PlanStore};
 use crate::plan::{
     HeartbeatLearning, LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus,
-    TaskStatus,
 };
 
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
@@ -206,7 +205,7 @@ pub(super) fn prepend_heartbeat_snapshot(
 fn has_open_work(plan: &Plan) -> bool {
     plan.tasks
         .iter()
-        .any(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+        .any(|task| task.status.counts_as_open_work())
 }
 
 fn owner_matches(plan: &Plan, pane_id: Option<&str>, session_id: Option<&str>) -> bool {

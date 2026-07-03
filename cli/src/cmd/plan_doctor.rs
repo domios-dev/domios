@@ -8,6 +8,8 @@ use serde_json::{json, Value};
 use crate::cmd::plan_local::{plan_files, plan_id_from, project_root};
 
 const STALLED_LOOP_AFTER_MS: u64 = 3 * 24 * 60 * 60 * 1000;
+// Mirrors src-tauri/src/plan/reconcile.rs PENDING_UNSTAFFED_STALE_MS.
+const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
 
 #[derive(Debug, Clone)]
 struct Finding {
@@ -515,8 +517,80 @@ fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
     findings.extend(inspect_loop_quality(path, plan, now_ms));
     for task in &tasks {
         inspect_task_quality(path, plan, task, &mut findings);
+        inspect_task_lifecycle(path, plan, task, now_ms, &mut findings);
     }
     findings
+}
+
+fn inspect_task_lifecycle(
+    path: &Path,
+    plan: &Value,
+    task: &Value,
+    now_ms: u64,
+    findings: &mut Vec<Finding>,
+) {
+    let task_id = task.get("id").and_then(Value::as_str).map(str::to_string);
+    let status = task.get("status").and_then(Value::as_str).unwrap_or("");
+    if status == "parked" {
+        let has_reason = task
+            .get("park_reason")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.trim().is_empty());
+        if !has_reason {
+            findings.push(Finding {
+                severity: "error",
+                kind: "parked_without_reason",
+                plan_id: plan_id(plan, path),
+                path: path.display().to_string(),
+                task_id: task_id.clone(),
+                detail: "task is parked but has no park_reason".into(),
+                fix: "unpark and re-park with a reason: `codeterm plan task park <plan> <task> --reason \"<why>\"`".into(),
+            });
+        }
+    }
+    let staffed = task
+        .get("assigned_pane_id")
+        .and_then(Value::as_str)
+        .is_some_and(|s| !s.trim().is_empty());
+    let changed_at = task
+        .get("status_changed_at")
+        .and_then(Value::as_u64)
+        .filter(|&v| v > 0)
+        .or_else(|| task.get("created_at").and_then(Value::as_u64))
+        .unwrap_or(0);
+    if status == "pending"
+        && !staffed
+        && changed_at > 0
+        && now_ms.saturating_sub(changed_at) > PENDING_UNSTAFFED_STALE_MS
+    {
+        findings.push(plan_warning_task(
+            path,
+            plan,
+            task_id,
+            "aged_unstaffed_task",
+            "pending task has been unstaffed for over 4h",
+            "dispatch it, park it with a reason, or send it to replanning",
+        ));
+    }
+}
+
+fn plan_warning_task(
+    path: &Path,
+    plan: &Value,
+    task_id: Option<String>,
+    kind: &'static str,
+    detail: &str,
+    fix: &str,
+) -> Finding {
+    Finding {
+        severity: "warning",
+        kind,
+        plan_id: plan_id(plan, path),
+        path: path.display().to_string(),
+        task_id,
+        detail: detail.into(),
+        fix: fix.into(),
+    }
 }
 
 fn inspect_loop_quality(path: &Path, plan: &Value, now_ms: u64) -> Vec<Finding> {

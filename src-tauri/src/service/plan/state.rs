@@ -30,6 +30,7 @@ pub struct TaskCounts {
     pub in_progress: usize,
     pub in_review: usize,
     pub blocked: usize,
+    pub parked: usize,
     pub done: usize,
     pub cancelled: usize,
     pub total: usize,
@@ -119,6 +120,7 @@ fn task_counts(plan: &Plan) -> TaskCounts {
             TaskStatus::InProgress => c.in_progress += 1,
             TaskStatus::InReview => c.in_review += 1,
             TaskStatus::Blocked => c.blocked += 1,
+            TaskStatus::Parked => c.parked += 1,
             TaskStatus::Done => c.done += 1,
             TaskStatus::Cancelled => c.cancelled += 1,
         }
@@ -126,9 +128,12 @@ fn task_counts(plan: &Plan) -> TaskCounts {
     c
 }
 
-// Completion over non-cancelled tasks: cancelled work is out of scope, not failed.
+// Completion over non-cancelled, non-parked tasks: both are out of active scope.
 fn percent_done(counts: &TaskCounts) -> f64 {
-    let denom = counts.total.saturating_sub(counts.cancelled);
+    let denom = counts
+        .total
+        .saturating_sub(counts.cancelled)
+        .saturating_sub(counts.parked);
     if denom == 0 {
         0.0
     } else {
@@ -418,6 +423,7 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
+            park_reason: None,
         }
     }
 

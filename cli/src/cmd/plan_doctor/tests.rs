@@ -303,6 +303,73 @@ fn quality_errors_for_underspecified_tasks() {
 }
 
 #[test]
+fn quality_errors_for_parked_without_reason() {
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Execution", "body": "paths, build.sh check"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "Do work",
+            "status": "parked",
+            "section_ids": ["sec_1"],
+            "body": "b",
+            "acceptance_criteria": ["c"],
+            "test_plan": "t",
+            "correctness": "x",
+            "executor_role": "rust-backend-dev"
+        }]
+    });
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(findings.iter().any(|f| f.kind == "parked_without_reason"
+        && f.task_id.as_deref() == Some("task_1")
+        && f.severity == "error"));
+}
+
+#[test]
+fn quality_warns_for_aged_unstaffed_pending_task() {
+    let old = 1_000u64;
+    let now = old + PENDING_UNSTAFFED_STALE_MS + 1;
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "updated_at": now,
+        "sections": [{"id": "sec_1", "title": "Execution", "body": "paths, build.sh check"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "Do work",
+            "status": "pending",
+            "status_changed_at": old,
+            "section_ids": ["sec_1"],
+            "body": "b",
+            "acceptance_criteria": ["c"],
+            "test_plan": "t",
+            "correctness": "x",
+            "executor_role": "rust-backend-dev"
+        }]
+    });
+    let mut findings = Vec::new();
+    inspect_task_lifecycle(
+        Path::new("pl_1.json"),
+        &plan,
+        &plan["tasks"][0],
+        now,
+        &mut findings,
+    );
+    assert!(findings.iter().any(|f| f.kind == "aged_unstaffed_task"
+        && f.task_id.as_deref() == Some("task_1")
+        && f.severity == "warning"));
+}
+
+#[test]
 fn quality_accepts_complete_task_and_plan_scaffold() {
     let plan = json!({
         "id": "pl_1",

@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::{AgentRef, OrchestratorRef, PlanStatus, TaskLaneMetadata, TaskStatus};
+use crate::plan::{OrchestratorRef, PlanStatus, TaskLaneMetadata, TaskStatus};
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::task_queries::TaskListFilter;
 use crate::service::plan::{hints, NewTask, PlanError, TaskLaneUpdate};
@@ -109,6 +109,9 @@ pub(super) fn dispatch(
     }
     if super::plan_loops::handles(method) {
         return super::plan_loops::dispatch(method, params, app, svc);
+    }
+    if super::plan_lifecycle::handles(method) {
+        return super::plan_lifecycle::dispatch(method, params, app, svc);
     }
     let p = params.as_ref();
     let store = &svc.plan_store;
@@ -903,24 +906,6 @@ pub(super) fn dispatch(
             Ok(serde_json::to_value(report).unwrap_or_default())
         }
 
-        "plan.task.close" => {
-            let (id, tid) = plan_refs::resolve_task(store, params)?;
-            let from = p
-                .and_then(|x| x.get("from"))
-                .and_then(|v| serde_json::from_value(v.clone()).ok())
-                .unwrap_or_else(|| AgentRef::from_pane("unknown"));
-            store
-                .close_task(
-                    &id,
-                    &tid,
-                    p.and_then(|x| x.get("result")).and_then(|v| v.as_str()),
-                    from,
-                    now,
-                )
-                .map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
-        }
         "plan.task.assign" => {
             let id = assign_task_with_profile(store, svc, params, p, now)?;
             emit_plan_changed(app, &id);

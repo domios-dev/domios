@@ -176,6 +176,10 @@ pub(super) fn validate_task_status_transition(
             to: next.clone(),
         });
     }
+    // Parking must carry a reason + stride: force `plan task park`, never a bare status set.
+    if matches!(next, TaskStatus::Parked) {
+        return Err(PlanError::ParkRequiresReason);
+    }
     Ok(())
 }
 
@@ -419,6 +423,7 @@ impl PlanStore {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
+            park_reason: None,
         };
         let verify_sections = !task.section_ids.is_empty();
         let expected = Self::task_add_expectation(&task, verify_sections);
@@ -685,6 +690,9 @@ impl PlanStore {
                 if task.status != status {
                     task.status = status;
                     task.status_changed_at = now_ms;
+                }
+                if task.status != TaskStatus::Parked {
+                    task.park_reason = None;
                 }
                 if is_terminal_task_status(&task.status) {
                     let assigned = task.assigned_pane_id.clone();
