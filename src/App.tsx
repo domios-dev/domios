@@ -90,11 +90,17 @@ function AppInner() {
   }, [sidebarOpen]);
 
   // Cross-fade between full-screen views instead of a hard visibility swap.
+  // visibility (not just opacity) drives the inactive state so closed panels drop out of
+  // the tab order / a11y tree and out of "is this on screen" checks — delayed on close so
+  // the opacity fade still plays, applied immediately on open.
   const viewLayerStyle = (active: boolean): React.CSSProperties => ({
     zIndex: active ? 2 : 0,
     opacity: active ? 1 : 0,
+    visibility: active ? "visible" : "hidden",
     pointerEvents: active ? "auto" : "none",
-    transition: "opacity 200ms ease",
+    transition: active
+      ? "opacity 200ms ease, visibility 0ms linear 0ms"
+      : "opacity 200ms ease, visibility 0ms linear 200ms",
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions">("workspace");
