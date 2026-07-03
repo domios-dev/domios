@@ -9,15 +9,12 @@ import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { getAgentProvider } from "../../lib/agentProviders";
 import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
-import type { Tab, PaneStatus, AppConfig } from "../../lib/types";
-import { Plus, Network } from "lucide-react";
+import type { AppConfig } from "../../lib/types";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { WorkspaceItem } from "./WorkspaceItem";
-import { TabItem } from "./TabItem";
 import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
-import { RemoteWorkerRow } from "./RemoteWorkerRow";
 import { RecentlyClosed } from "./RecentlyClosed";
 import { useRemoteWorkers } from "../../hooks/useRemoteWorkers";
 import {
@@ -27,42 +24,20 @@ import {
   verticalListSortingStrategy,
   sortByOrder,
   WS_PREFIX,
-  TAB_PREFIX,
 } from "./sortable";
 import { RemoteFolderPicker } from "../shared/RemoteFolderPicker";
-import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import type { MeshPresence } from "./meshPresenceHeader";
-import {
-  childTabsForParent,
-  collectPaneIds,
-  flattenSidebarTabs,
-  topLevelTabsInWorkspace,
-} from "./workspaceTabs";
+import { flattenSidebarTabs, collectPaneIds } from "./workspaceTabs";
+import { aggregateTabStatus } from "./sidebarTabStatus";
 import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
-import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
-import { buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 import { isWorkspacePlanEntryActive, isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { deriveWorkspacePlanEntries, openWorkspacePlanForEntries } from "../Canvas/workspacePlanEntry";
 import { matchesBinding } from "../../lib/keybindings";
+import { SidebarCollapsedActiveTab, SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
-function aggregateStatus(
-  paneIds: string[],
-  statuses: Record<string, PaneStatus>,
-): PaneStatus | null {
-  const priority: PaneStatus[] = ["Dead", "Waiting", "Working", "Idle"];
-  let worst: PaneStatus | null = null;
-  for (const pid of paneIds) {
-    const s = statuses[pid];
-    if (!s) continue;
-    if (!worst || priority.indexOf(s) < priority.indexOf(worst)) {
-      worst = s;
-    }
-  }
-  return worst;
-}
 
 interface SidebarProps {
   onOpenMemory?: () => void;
@@ -543,7 +518,7 @@ export function Sidebar({
                 {sortedWorkspaces.map((ws) => {
                 const sortedTabs = sortByOrder(ws.tabs);
                 const allPaneIds = sortedTabs.flatMap((t) => collectPaneIds(t, state.panes));
-                const wsStatus = aggregateStatus(allPaneIds, state.paneStatuses);
+                const wsStatus = aggregateTabStatus(allPaneIds, state.paneStatuses);
                 const hasWaiting = allPaneIds.some(
                   (pid) => state.paneStatuses[pid] === "Waiting",
                 );
@@ -586,210 +561,60 @@ export function Sidebar({
                       }}
                     >
                       <div className="overflow-hidden">
-                        <>
-                          {(() => {
-                            const renderTab = (
-                              tab: Tab,
-                              index: number,
-                              depth: number,
-                              group: "tab" | "child",
-                              groupKey: string,
-                              items: string[],
-                              pinnedIds: string[],
-                            ): React.ReactNode => {
-                              const tabPids = collectPaneIds(tab, state.panes);
-                              const firstPane = tabPids[0] ? state.panes[tabPids[0]] : null;
-                              const tabActivity = firstPane
-                                ? resolvePaneTabActivity(planIndex, firstPane.id, state.panes)
-                                : null;
-                              const childTabs = firstPane
-                                ? childTabsForParent(sortedTabs, state.panes, firstPane.id)
-                                : [];
-                              const childIds = childTabs.map((t) => `${TAB_PREFIX}${t.id}`);
-
-                              const isClosing = closingTabs.has(tab.id);
-                              const isAppearing = appearingTabs.has(tab.id);
-
-                              return (
-                                <div key={tab.id} style={depth > 0 ? { paddingLeft: depth * 12 } : undefined}>
-                                  <SortableRow
-                                    id={`${TAB_PREFIX}${tab.id}`}
-                                    disabled={firstPane?.protected}
-                                    data={{ group, groupKey, items, pinnedIds }}
-                                  >
-                                  <TabItem
-                                    tab={tab}
-                                    index={index}
-                                    isActive={isWorkspaceTabActive(
-                                      isActiveVisual,
-                                      workspaceCanvasActive,
-                                      tab.id,
-                                      state.activeTabIds[ws.id],
-                                    )}
-                                    onClick={() => {
-                                      setActiveTab(ws.id, tab.id);
-                                      onNavigateToTab?.();
-                                    }}
-                                    onClose={() => animatedCloseTab(ws.id, tab.id)}
-                                    canClose={true}
-                                    paneCount={tabPids.length}
-                                    workspaceId={ws.id}
-                                    hasAgent={tabPids.some(
-                                      (pid) => !!state.panes[pid]?.agent_type
-                                    )}
-                                    status={aggregateStatus(tabPids, state.paneStatuses)}
-                                    onRename={(title) => {
-                                      setTabTitle(ws.id, tab.id, title);
-                                      invoke("mux_rename_tab", { workspaceId: ws.id, tabId: tab.id, title }).catch(() => {});
-                                    }}
-                                    pane={firstPane}
-                                    orchestrators={wsOrchestrators}
-                                    isAppearing={isAppearing}
-                                    isClosing={isClosing}
-                                    touchMode={touchMode}
-                                    uiFontScale={uiFontScale}
-                                    activity={tabActivity}
-                                  />
-                                  </SortableRow>
-                                  {childTabs.length > 0 && firstPane && (
-                                    firstPane.role === "Orchestrator" ? (
-                                      <HierarchyTree
-                                        nodes={buildHierarchySubtree(firstPane.id, state.panes, state.paneStatuses)}
-                                        depth={depth + 1}
-                                        onJumpToPane={(paneId) => {
-                                          const childTab = sortedTabs.find((t) => t.pane_id === paneId);
-                                          if (childTab) {
-                                            setActiveTab(ws.id, childTab.id);
-                                            onNavigateToTab?.();
-                                          }
-                                        }}
-                                        reportCounts={{}}
-                                        uiFontScale={uiFontScale}
-                                        activeWork={activeWork}
-                                        statuses={state.paneStatuses}
-                                      />
-                                    ) : (
-                                      <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
-                                        {childTabs.map((ct, ci) =>
-                                          renderTab(ct, ci, depth + 1, "child", firstPane.id, childIds, []),
-                                        )}
-                                      </SortableContext>
-                                    )
-                                  )}
-                                  {firstPane &&
-                                    remoteWorkers[firstPane.id]?.map((w) => (
-                                      <RemoteWorkerRow
-                                        key={`${w.peer}/${w.remote_pane}`}
-                                        worker={w}
-                                        depth={depth + 1}
-                                      />
-                                    ))}
-                                </div>
-                              );
-                            };
-                            const topLevel = topLevelTabsInWorkspace(sortedTabs, state.panes);
-                            const topLevelIds = topLevel.map((t) => `${TAB_PREFIX}${t.id}`);
-                            const pinnedTabIds = topLevel
-                              .filter((t) => state.panes[t.pane_id]?.protected)
-                              .map((t) => `${TAB_PREFIX}${t.id}`);
-                            return (
-                              <>
-                                <WorkspacePlanTreeSlot
-                                  workspace={ws}
-                                  panes={state.panes}
-                                  planIndex={planIndex}
-                                  canvasActive={isWorkspacePlanEntryActive(isActiveVisual, workspaceCanvasActive)}
-                                  touchMode={touchMode}
-                                  compact={isCompact}
-                                  uiFontScale={uiFontScale}
-                                  onBeforeOpen={() => {
-                                    setActiveWorkspace(ws.id);
-                                    onNavigateToTab?.();
-                                  }}
-                                />
-                                <SortableContext items={topLevelIds} strategy={verticalListSortingStrategy}>
-                                  {topLevel.map((tab, index) =>
-                                    renderTab(tab, index, 0, "tab", ws.id, topLevelIds, pinnedTabIds),
-                                  )}
-                                </SortableContext>
-                              </>
-                            );
-                          })()}
-                          {(() => {
-                            const newSessionItems: DropdownMenuItem[] = visibleProviders.map((provider) => ({
-                              label: `New ${provider.display_name} Session`,
-                              icon: <AgentIcon providerId={provider.id} className="text-[12px]" />,
-                              onClick: () => handleAgentSpawn(provider.id, ws.id, ws.cwd ?? null),
-                            }));
-                            if (visibleProviders.length > 0) {
-                              newSessionItems.push({
-                                label: "Orchestration",
-                                icon: <Network size={12} strokeWidth={1.5} />,
-                                onClick: () => setOrchestrationModal({ workspaceId: ws.id }),
-                              });
-                            }
-                            const trigger = (
-                              <button
-                                disabled={newSessionItems.length === 0}
-                                className="flex items-center gap-2 min-w-0 max-w-full mx-2 mt-1 mb-0.5 px-3 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-                                title={newSessionItems.length === 0 ? "No visible agent providers" : "New session in this workspace"}
-                              >
-                                <Plus size={10} strokeWidth={1.5} className="shrink-0" />
-                                <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
-                              </button>
-                            );
-                            return newSessionItems.length === 0 ? (
-                              trigger
-                            ) : (
-                              <DropdownMenu
-                                items={newSessionItems}
-                                trigger={trigger}
-                              />
-                            );
-                          })()}
-                        </>
+                        <SidebarWorkspaceTabs
+                          workspace={ws}
+                          activeTabId={state.activeTabIds[ws.id] ?? null}
+                          sortedTabs={sortedTabs}
+                          panes={state.panes}
+                          paneStatuses={state.paneStatuses}
+                          planIndex={planIndex}
+                          plans={fullPlans.plans}
+                          activeWork={activeWork}
+                          remoteWorkers={remoteWorkers}
+                          closingTabIds={new Set(closingTabs.keys())}
+                          appearingTabIds={appearingTabs}
+                          isActiveVisual={isActiveVisual}
+                          workspaceCanvasActive={workspaceCanvasActive}
+                          touchMode={touchMode}
+                          uiFontScale={uiFontScale}
+                          compact={isCompact}
+                          sidebarActionText={sidebarActionText}
+                          visibleProviders={visibleProviders}
+                          orchestrators={wsOrchestrators}
+                          onBeforeOpenPlan={() => {
+                            setActiveWorkspace(ws.id);
+                            onNavigateToTab?.();
+                          }}
+                          onActivateTab={(tabId) => {
+                            setActiveTab(ws.id, tabId);
+                            onNavigateToTab?.();
+                          }}
+                          onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
+                          onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
+                          onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
+                          onOrchestration={() => setOrchestrationModal({ workspaceId: ws.id })}
+                        />
                       </div>
                     </div>
                     {!isExpanded && isActiveVisual && state.activeTabIds[ws.id] ? (
-                      (() => {
-                        const activeTab = ws.tabs.find((t) => t.id === state.activeTabIds[ws.id]);
-                        if (!activeTab) return null;
-                        const atPids = collectPaneIds(activeTab, state.panes);
-                        const atFirstPane = atPids[0] ? state.panes[atPids[0]] : null;
-                        const atActivity = atFirstPane
-                          ? resolvePaneTabActivity(planIndex, atFirstPane.id, state.panes)
-                          : null;
-                        return (
-                          <TabItem
-                            tab={activeTab}
-                            index={0}
-                            isActive={isWorkspaceTabActive(
-                              isActiveVisual,
-                              workspaceCanvasActive,
-                              activeTab.id,
-                              state.activeTabIds[ws.id],
-                            )}
-                            onClick={() => { setActiveTab(ws.id, activeTab.id); onNavigateToTab?.(); }}
-                            onClose={() => animatedCloseTab(ws.id, activeTab.id)}
-                            canClose={true}
-                            paneCount={atPids.length}
-                            workspaceId={ws.id}
-                            hasAgent={atPids.some(
-                              (pid) => !!state.panes[pid]?.agent_type
-                            )}
-                            status={aggregateStatus(atPids, state.paneStatuses)}
-                            onRename={(title) => {
-                              setTabTitle(ws.id, activeTab.id, title);
-                              invoke("mux_rename_tab", { workspaceId: ws.id, tabId: activeTab.id, title }).catch(() => {});
-                            }}
-                            pane={atFirstPane}
-                            orchestrators={wsOrchestrators}
-                            touchMode={touchMode}
-                            uiFontScale={uiFontScale}
-                            activity={atActivity}
-                          />
-                        );
-                      })()
+                      <SidebarCollapsedActiveTab
+                        workspace={ws}
+                        activeTabId={state.activeTabIds[ws.id] ?? null}
+                        panes={state.panes}
+                        paneStatuses={state.paneStatuses}
+                        planIndex={planIndex}
+                        isActiveVisual={isActiveVisual}
+                        workspaceCanvasActive={workspaceCanvasActive}
+                        orchestrators={wsOrchestrators}
+                        touchMode={touchMode}
+                        uiFontScale={uiFontScale}
+                        onActivateTab={(tabId) => {
+                          setActiveTab(ws.id, tabId);
+                          onNavigateToTab?.();
+                        }}
+                        onCloseTab={(tabId) => animatedCloseTab(ws.id, tabId)}
+                        onRenameTab={(tabId, title) => setTabTitle(ws.id, tabId, title)}
+                      />
                     ) : null}
                   </div>
                 );
