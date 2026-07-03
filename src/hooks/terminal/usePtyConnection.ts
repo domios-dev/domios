@@ -2,6 +2,7 @@ import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import type { FitAddon } from "@xterm/addon-fit";
 import { invoke, IS_WEB, isPtyDeadError, resetWebPtyTail, takePtyTruncation } from "../../lib/bridge";
+import { subscribePaneOutput, webOutputStreamActive, type PaneOutputSink } from "../../lib/outputStream";
 import { useMultiplexer } from "../../store/multiplexer";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
@@ -76,13 +77,18 @@ export function usePtyConnection({
     const setupAndConnect = async () => {
       const predictedId = ptyId || uid();
       connectedPtyRef.current = predictedId;
+      // Multiplexed SSE output stream replaces the per-pane long-poll below unless the
+      // user killswitched it back via localStorage `codeterm-web-output-stream=off`.
+      const useOutputStream = webOutputStreamActive();
 
       // Replay scrollback only on first mount — xterm is keep-alive (never destroyed on tab switch),
       // so re-sending up to 2MB of ANSI on every tab activation is wasteful.
       if (ptyId && IS_WEB) {
         if (!webReplayedPtysRef.current.has(ptyId)) {
           webReplayedPtysRef.current.add(ptyId);
-          resetWebPtyTail(ptyId);
+          // Stream mode replays via its own pane-keyed offset tracking (outputStream.ts);
+          // the long-poll tail cursor only matters to the read_pty fallback transport.
+          if (!useOutputStream) resetWebPtyTail(ptyId);
         }
       } else if (ptyId) {
         if (!replayDoneRef.current.has(ptyId)) {
@@ -192,6 +198,31 @@ export function usePtyConnection({
         }
       };
 
+      // Shared by both transports: the long-poll's 404 dead-PTY error and the
+      // multiplexed output stream's `{ended: true}` frame both mean the same thing.
+      const respawnStalePty = async () => {
+        if (staleRespawnStarted) return;
+        staleRespawnStarted = true;
+        reading = false;
+        connectedPtyRef.current = null;
+        term.writeln("\r\n\x1b[90m[PTY disappeared, reconnecting...]\x1b[0m");
+
+        try {
+          const cols = Math.max(term.cols, 80);
+          const rows = Math.max(term.rows, 24);
+          const paneData = state.panes[paneId];
+          const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
+          const spawnedId = await invoke<string>("spawn_pty", { cols, rows, cwd, paneId });
+          if (!disposed) {
+            onPtySpawned?.(paneId, spawnedId);
+            connectedPtyRef.current = null;
+          }
+        } catch (respawnError) {
+          console.warn("Failed to respawn stale PTY:", respawnError);
+          term.writeln("\r\n\x1b[31m[Failed to reconnect PTY]\x1b[0m");
+        }
+      };
+
       const readLoop = async () => {
         while (reading) {
           try {
@@ -219,32 +250,7 @@ export function usePtyConnection({
             if (!reading || disposed) break; // torn down mid-read — silent stop
 
             if (isPtyDeadError(e)) {
-              if (!staleRespawnStarted) {
-                staleRespawnStarted = true;
-                reading = false;
-                connectedPtyRef.current = null;
-                term.writeln("\r\n\x1b[90m[PTY disappeared, reconnecting...]\x1b[0m");
-
-                try {
-                  const cols = Math.max(term.cols, 80);
-                  const rows = Math.max(term.rows, 24);
-                  const paneData = state.panes[paneId];
-                  const cwd = consumePendingCwd(paneId) || paneData?.cwd || undefined;
-                  const spawnedId = await invoke<string>("spawn_pty", {
-                    cols,
-                    rows,
-                    cwd,
-                    paneId,
-                  });
-                  if (!disposed) {
-                    onPtySpawned?.(paneId, spawnedId);
-                    connectedPtyRef.current = null;
-                  }
-                } catch (respawnError) {
-                  console.warn("Failed to respawn stale PTY:", respawnError);
-                  term.writeln("\r\n\x1b[31m[Failed to reconnect PTY]\x1b[0m");
-                }
-              }
+              await respawnStalePty();
               break;
             }
 
@@ -263,7 +269,8 @@ export function usePtyConnection({
 
       // A daemon restart invalidates the boot-scoped byte cursor; drop it so the
       // next read_pty full-replays instead of comparing against a reset ring.
-      if (IS_WEB) {
+      // The output stream tracks its own boot and self-heals on mismatch (outputStream.ts).
+      if (IS_WEB && !useOutputStream) {
         const onBootChanged = () => resetWebPtyTail(predictedId);
         window.addEventListener("codeterm-web-boot-changed", onBootChanged);
         cleanupFns.push(() =>
@@ -315,9 +322,29 @@ export function usePtyConnection({
         });
       }
 
-      readLoop();
+      // Pane output arrives over the single multiplexed SSE connection (subscribePaneOutput,
+      // keyed by pane id — matches the server's output_stream::sweep frame tagging) unless the
+      // killswitch fell back to the per-pane long-poll (readLoop).
+      let unsubscribeOutputStream: (() => void) | null = null;
+      if (useOutputStream) {
+        const sink: PaneOutputSink = {
+          onOutput: (text) => enqueueTermWrite(new TextEncoder().encode(text)),
+          onTruncated: (from) => {
+            term.writeln(
+              `\r\n\x1b[90m[output truncated — resuming from byte ${from}]\x1b[0m`,
+            );
+          },
+          onEnded: () => {
+            void respawnStalePty();
+          },
+        };
+        unsubscribeOutputStream = subscribePaneOutput(paneId, sink);
+      } else {
+        readLoop();
+      }
       cleanupFns.push(() => {
         reading = false;
+        unsubscribeOutputStream?.();
         if (writeFrame != null) {
           cancelAnimationFrame(writeFrame);
           writeFrame = null;

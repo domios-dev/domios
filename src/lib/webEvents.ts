@@ -12,6 +12,7 @@
  * resync instead of guessing what was missed.
  */
 import { apiHost, currentToken, IS_WEB, relayTarget } from "./webApi";
+import { fireResync } from "./resync";
 
 type Handler = (e: { payload: unknown }) => void;
 
@@ -88,9 +89,13 @@ function runFullResync(info: OverflowData): void {
   saveCursor(`${info.boot}:${info.next_seq - 1}`);
   window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
   for (const ev of RESYNC_EVENTS) dispatch(ev, null);
+  // General "any overflow happened, reload yourself" bus (resync.ts) for consumers
+  // with no dedicated event type — e.g. the multiplexed output stream forces an
+  // immediate reconnect here regardless of reason (outputStream.ts).
+  fireResync();
   if (info.reason === "boot-changed") {
-    // PTY-layer seam (task item 2): offsets are boot-scoped and need
-    // revalidation after a restart; no consumer yet, wired in later.
+    // PTY-layer seam: the per-pane long-poll fallback's byte cursor is boot-scoped
+    // and needs revalidation after a daemon restart (usePtyConnection.ts).
     window.dispatchEvent(
       new CustomEvent("codeterm-web-boot-changed", { detail: { boot: info.boot } }),
     );
