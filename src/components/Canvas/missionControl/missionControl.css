@@ -405,6 +405,7 @@
   left: 0;
   top: 0;
   will-change: transform;
+  transform-origin: 0 0;
 }
 
 .mc-live-stage {
@@ -412,16 +413,16 @@
   height: 700px;
 }
 
-.mc-stage[data-lod="far"] {
-  transform: scale(0.48);
+.mc-live-shell .mc-task-card {
+  animation: none;
 }
 
-.mc-stage[data-lod="mid"] {
-  transform: scale(0.72);
+.mc-live-shell .mc-gate-desk {
+  animation: none;
 }
 
-.mc-stage[data-lod="close"] {
-  transform: scale(1);
+.mc-live-shell .mc-avatar[data-state="working"] {
+  animation: none;
 }
 
 .mc-stage[data-lod="far"] .mc-detail-only,

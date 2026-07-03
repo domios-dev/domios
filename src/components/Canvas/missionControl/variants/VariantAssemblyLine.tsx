@@ -49,6 +49,7 @@ export function VariantAssemblyLine({
             overflow: "auto",
           }}
           data-testid="work-floor"
+          data-canvas-scroll-body
           data-empty={dispatchGap ? "true" : undefined}
         >
           <div className="mc-panel-title" style={{ border: "none", padding: 0 }}>
