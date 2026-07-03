@@ -30,47 +30,47 @@ const panes: Record<string, Pane> = {
   },
 };
 
-test("orders sections, tasks, then nested subtasks with no root bands", () => {
+test("orders flat status groups before freshness-sorted task rows", () => {
   const [plan] = bandedSeedPlans();
   const rows = buildPlanListRows(plan, { panes });
   const kinds = rows.map((r) => r.kind as string);
-  const firstSection = kinds.findIndex((k) => k === "plan-section" || k === "unsectioned");
-  const firstTask = kinds.indexOf("task");
-  const firstSubtask = kinds.indexOf("subtask");
-  assert(firstSection >= 0, "section present");
-  assert(firstTask > firstSection, "tasks after a section");
-  assert(firstSubtask > firstTask, "subtasks after parent task");
+  const groupTitles = rows.filter((r) => r.kind === "plan-section" || r.kind === "unsectioned").map((r) => r.title);
+  assert(groupTitles.slice(0, 4).join("|") === "In progress + review|Blocked|Pending|Done", "status group order");
+  const activeStart = rows.findIndex((r) => r.title === "In progress + review");
+  const activeTasks = rows.slice(activeStart + 1, rows.findIndex((r) => r.title === "Blocked")).filter((r) => r.taskId);
+  assert(activeTasks[0]?.taskId === "t_bulk_9", "freshest active task first");
+  assert(activeTasks.some((r) => r.kind === "subtask"), "subtasks still identified");
   assert(!kinds.includes("spec-root"), "no spec root band");
   assert(!kinds.includes("plan-root"), "no plan root band");
   assert(!kinds.includes("spec-section"), "no spec tree in list");
 });
 
-test("nests subtasks under parent task in section", () => {
+test("marks subtasks while keeping flat freshness order", () => {
   const [plan] = bandedSeedPlans();
   const rows = buildPlanListRows(plan, { panes });
   const parentIdx = rows.findIndex((r) => r.taskId === "t_parent");
   const subAIdx = rows.findIndex((r) => r.taskId === "t_sub_a");
-  assert(parentIdx >= 0 && subAIdx > parentIdx, "subtask follows parent");
+  assert(parentIdx >= 0 && subAIdx >= 0, "parent and child present");
   assert(rows[subAIdx].kind === "subtask", "child row kind");
   assert(rows[subAIdx].depth > rows[parentIdx].depth, "subtask indented deeper");
 });
 
-test("lists inbox tasks under their section", () => {
+test("task rows carry belonging section title", () => {
   const [plan] = bandedSeedPlans();
   const rows = buildPlanListRows(plan, { panes });
-  const inboxSection = rows.find((r) => r.kind === "plan-section" && r.title === "sec_inbox");
-  assert(inboxSection, "inbox section row");
   const inbox = rows.find((r) => r.taskId === "t_inbox");
   assert(inbox && inbox.kind === "task", "inbox task listed");
+  assert(inbox.sectionTitle === "sec_inbox", "section chip title");
 });
 
-test("unsectioned bucket for tasks without section_ids", () => {
+test("unsectioned belonging for tasks without section_ids", () => {
   const plan = {
     ...FIXTURE_PLAN,
     tasks: [{ ...FIXTURE_TASK, section_ids: [] }],
   };
   const rows = buildPlanListRows(plan, { panes });
-  assert(rows.some((r) => r.kind === "unsectioned"), "unsectioned header");
+  const taskRow = rows.find((r) => r.taskId === FIXTURE_TASK.id);
+  assert(taskRow?.sectionTitle === "Unsectioned", "unsectioned chip");
 });
 
 test("surfaces pane label and milestone on active assigned task", () => {
@@ -121,9 +121,11 @@ test("task-first list carries plan sections but no spec tree rows", () => {
     ...FIXTURE_PLAN,
     primary_spec_id: "spec-fixture",
     sections: [{ ...FIXTURE_SECTION, id: "plan-sec", title: "Plan section" }],
+    tasks: [{ ...FIXTURE_TASK, section_ids: ["plan-sec"] }],
   };
   const rows = buildPlanListRows(plan, { panes });
-  assert(rows.some((r) => r.kind === "plan-section" && r.title === "Plan section"), "plan section listed");
+  assert(rows.some((r) => r.taskId === FIXTURE_TASK.id && r.sectionTitle === "Plan section"), "plan section carried on task row");
+  assert(!rows.some((r) => r.kind === "plan-section" && r.title === "Plan section"), "no plan section header");
   assert(!rows.some((r) => (r.kind as string) === "spec-section"), "no spec sections in list");
   assert(!rows.some((r) => (r.kind as string) === "spec-root"), "no spec root in list");
 });
@@ -147,19 +149,19 @@ test("section rows carry doneCount and allTasksDone for fully done sections", ()
       { ...FIXTURE_TASK, id: "t2", status: "done" as const, name: "Second", section_ids: ["sec-done"] },
     ],
   };
-  const section = buildPlanListRows(plan, { panes }).find((r) => r.kind === "plan-section");
+  const section = buildPlanListRows(plan, { panes }).find((r) => r.title === "Done");
   assert(section?.doneCount === 2, "done count");
   assert(section?.allTasksDone === true, "all done flag");
   assert(defaultSectionExpanded(section!) === false, "done-only section defaults collapsed");
 });
 
-test("active section defaults expanded", () => {
+test("active status group defaults expanded", () => {
   const plan = {
     ...FIXTURE_PLAN,
     sections: [FIXTURE_SECTION],
     tasks: [{ ...FIXTURE_TASK, status: "in_progress" as const }],
   };
-  const section = buildPlanListRows(plan, { panes }).find((r) => r.kind === "plan-section");
+  const section = buildPlanListRows(plan, { panes }).find((r) => r.title === "In progress + review");
   assert(section && defaultSectionExpanded(section) === true, "active section expanded by default");
 });
 
@@ -180,6 +182,24 @@ test("buildVisiblePlanListRows collapses done-only sections to rollup", () => {
   });
   assert(visible.some((v) => v.type === "done-rollup"), "rollup row");
   assert(!visible.some((v) => v.type === "row" && v.row.taskId === "t1"), "done tasks hidden when collapsed");
+});
+
+test("done filter expands collapsed done group", () => {
+  const plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      { ...FIXTURE_TASK, id: "t1", status: "done" as const },
+      { ...FIXTURE_TASK, id: "t2", status: "done" as const, name: "Second" },
+    ],
+  };
+  const rows = buildPlanListRows(plan, { panes });
+  const visible = buildVisiblePlanListRows(rows, {
+    statusFilter: "done",
+    textQuery: "",
+    expansionOverrides: new Map(),
+  });
+  assert(!visible.some((v) => v.type === "done-rollup"), "no rollup under explicit done filter");
+  assert(visible.some((v) => v.type === "row" && v.row.taskId === "t1"), "done task visible");
 });
 
 test("status filter hides non-matching tasks", () => {
