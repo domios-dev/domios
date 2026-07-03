@@ -14,8 +14,9 @@ pub fn handle(json: bool, action: PlanSkillAction) -> Result<Option<Value>, Stri
             plan,
             title,
             area,
+            check,
             rationale,
-        } => new_skill(json, slug, plan, title, area, rationale),
+        } => new_skill(json, slug, plan, title, area, check, rationale),
         PlanSkillAction::List { plan } => list_skills(json, plan),
         PlanSkillAction::Show { slug, plan } => show_skill(json, slug, plan),
         PlanSkillAction::Edit {
@@ -57,12 +58,14 @@ fn best_effort_index(plan_id: &str, plan_dir: &std::path::Path, slug: &str) -> b
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn new_skill(
     json: bool,
     slug: String,
     plan: Option<String>,
     title: Option<String>,
     area: Option<String>,
+    check: Option<String>,
     rationale: Option<String>,
 ) -> Result<Option<Value>, String> {
     let (plan_id, plan_dir) = resolve(plan)?;
@@ -78,7 +81,11 @@ fn new_skill(
     let area = area.unwrap_or_else(|| "general".to_string());
     std::fs::create_dir_all(dir.join("scripts")).map_err(|e| e.to_string())?;
     let skill_md = store::skill_md_path(&plan_dir, &slug);
-    std::fs::write(&skill_md, store::scaffold(&slug, &title, &area)).map_err(|e| e.to_string())?;
+    std::fs::write(
+        &skill_md,
+        store::scaffold(&slug, &title, &area, check.as_deref()),
+    )
+    .map_err(|e| e.to_string())?;
 
     let rationale = rationale.unwrap_or_else(|| "created".to_string());
     let entry = ledger::append_entry(&plan_dir, &slug, store::KEEP, &rationale)?;

@@ -32,8 +32,11 @@ fn plans_dir(project_root: &Path) -> PathBuf {
     project_root.join(".codeterm").join("plans")
 }
 
-// Resolve a plan sidecar directory. Explicit id -> env CODETERM_PLAN_ID ->
-// the single active plan in the project. Anything else is an error.
+// Resolve a plan sidecar directory. Precedence: explicit --plan id ->
+// $CODETERM_PLAN_ID -> the single active plan on disk. The env var is only a
+// convenience shortcut, never a hard dependency: worker panes without it still
+// resolve via the on-disk single-active-plan fallback. Ambiguous (0 or >1
+// active plans, no id) is an explicit error asking for --plan.
 pub fn resolve_plan_dir(
     project_root: &Path,
     plan_id: Option<String>,
@@ -98,9 +101,19 @@ pub fn skill_md_path(plan_dir: &Path, slug: &str) -> PathBuf {
     skill_dir(plan_dir, slug).join("SKILL.md")
 }
 
-pub fn scaffold(slug: &str, title: &str, area: &str) -> String {
+pub fn scaffold(slug: &str, title: &str, area: &str, check: Option<&str>) -> String {
+    let check_fm = match check {
+        Some(cmd) if !cmd.trim().is_empty() => format!("check: {}\n", cmd.trim()),
+        _ => String::new(),
+    };
+    let check_section = match check {
+        Some(cmd) if !cmd.trim().is_empty() => {
+            format!("\n## Check\n\nVerify with: `{}`\n", cmd.trim())
+        }
+        _ => String::new(),
+    };
     format!(
-        "---\ntitle: {title}\narea: {area}\ntags: [plan-skill]\n---\n\n# {title}\n\n_One-paragraph summary that becomes the search snippet._\n\n## When to use\n\n…\n\n## Steps\n\n1. …\n2. …\n\n## Gotchas\n\n…\n\n## Scripts\n\n- `./scripts/{slug}.sh` — describe what it does\n",
+        "---\ntitle: {title}\narea: {area}\ntags: [plan-skill]\n{check_fm}---\n\n# {title}\n\n_One-paragraph summary that becomes the search snippet._\n\n## When to use\n\n…\n\n## Steps\n\n1. …\n2. …\n\n## Gotchas\n\n…{check_section}\n\n## Scripts\n\n- `./scripts/{slug}.sh` — describe what it does\n",
     )
 }
 
@@ -140,13 +153,23 @@ mod tests {
 
     #[test]
     fn scaffold_has_frontmatter_and_sections() {
-        let md = scaffold("deploy", "Deploy", "infra");
+        let md = scaffold("deploy", "Deploy", "infra", None);
         assert!(md.starts_with("---\n"));
         assert!(md.contains("title: Deploy"));
         assert!(md.contains("area: infra"));
         assert!(md.contains("tags: [plan-skill]"));
         assert!(md.contains("## When to use"));
         assert!(md.contains("./scripts/deploy.sh"));
+        assert!(!md.contains("check:"));
+        assert!(!md.contains("## Check"));
+    }
+
+    #[test]
+    fn scaffold_persists_check_metadata() {
+        let md = scaffold("deploy", "Deploy", "infra", Some("./build.sh check"));
+        assert!(md.contains("check: ./build.sh check"));
+        assert!(md.contains("## Check"));
+        assert!(md.contains("`./build.sh check`"));
     }
 
     fn write_plan(plans: &Path, bucket: &str, id: &str) -> PathBuf {

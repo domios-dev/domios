@@ -306,6 +306,9 @@ pub enum PlanSkillAction {
         title: Option<String>,
         #[arg(long)]
         area: Option<String>,
+        /// Optional verification command persisted in SKILL.md frontmatter
+        #[arg(long, allow_hyphen_values = true)]
+        check: Option<String>,
         /// One-line ledger rationale (default: "created")
         #[arg(long, allow_hyphen_values = true)]
         rationale: Option<String>,
