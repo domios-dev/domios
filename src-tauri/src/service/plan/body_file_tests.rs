@@ -188,7 +188,10 @@ fn milestone_and_note_bodies_roundtrip_through_markdown_files() {
     let normalized_note_text = format!("{}\n", note_text.trim_end());
     let milestone_markdown = std::fs::read_to_string(&milestone_path).unwrap();
     assert_markdown_identity(&milestone_markdown, &plan.id, "milestone", &milestone_id);
-    assert_eq!(markdown_body(&milestone_markdown), normalized_milestone_text);
+    assert_eq!(
+        markdown_body(&milestone_markdown),
+        normalized_milestone_text
+    );
     let strides = crate::service::plan::stride_log::read_milestones(&stride_log_path).unwrap();
     assert_eq!(strides.len(), 1);
     assert_eq!(strides[0].id, milestone_id);

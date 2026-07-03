@@ -314,7 +314,7 @@ mod tests {
         assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
         assert!(is_custom_auth(&Method::POST, "/api/mesh/introduce"));
         assert!(is_custom_auth(&Method::DELETE, "/api/mesh/peers/abc123")); // unpair
-        // Relayed plugin-UI asset proxy: iframe src, handler self-verifies query token.
+                                                                            // Relayed plugin-UI asset proxy: iframe src, handler self-verifies query token.
         assert!(is_custom_auth(
             &Method::GET,
             "/api/mesh/relay-asset/peer1/plugins/foo/ui/index.html"
