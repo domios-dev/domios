@@ -49,6 +49,7 @@ test("renders task detail body", async () => {
     <PlanDetailOverlay kind="task" task={FIXTURE_TASK} onClose={() => {}} />,
   );
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay visible");
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]')?.getAttribute("data-detail-mode") === "slide-over", "task opens as slide-over");
   assert(host.querySelector('[data-testid="plan-detail-title"]')?.textContent === "Dante", "task title");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "task", "task kind");
   assert(host.querySelector('[data-testid="canvas-detail-content"]'), "task body");
@@ -66,6 +67,7 @@ test("renders plan detail with progress", async () => {
   const { host } = await render(
     <PlanDetailOverlay kind="plan" plan={plan} onClose={() => {}} />,
   );
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]')?.getAttribute("data-detail-mode") === "document", "plan opens as document overlay");
   assert(host.querySelector('[data-testid="plan-detail-title"]')?.textContent === "Auth rollout", "plan title");
   assert(host.querySelector('[data-testid="canvas-detail-progress"]'), "plan progress");
   assert(host.querySelector('[data-testid="canvas-detail-section"]'), "plan section");
@@ -127,6 +129,44 @@ test("open-pane action invokes callback", async () => {
   assert(opened === "pane-worker", "onOpenPane called with pane id");
 });
 
+test("task detail renders linked plan sections as navigable links", async () => {
+  let sectionId: string | null = null;
+  let planId: string | null = null;
+  const { host } = await render(
+    <PlanDetailOverlay
+      kind="task"
+      task={FIXTURE_TASK}
+      plan={FIXTURE_PLAN}
+      planId={FIXTURE_PLAN.id}
+      onSectionClick={(a) => {
+        sectionId = a.sectionId;
+        planId = a.planId;
+      }}
+      onClose={() => {}}
+    />,
+  );
+  const link = host.querySelector('[data-testid="plan-detail-task-section-link"]') as HTMLButtonElement;
+  assert(link?.textContent === "Authentication", "linked section title");
+  await act(async () => {
+    link.click();
+  });
+  assert(sectionId === "sec-auth", "section click id");
+  assert(planId === "plan-alpha", "section click plan id");
+});
+
+test("task detail exposes attachment thumbnail slot", async () => {
+  const { host } = await render(
+    <PlanDetailOverlay
+      kind="task"
+      task={FIXTURE_TASK}
+      renderTaskAttachmentThumbnails={() => <button type="button">Preview</button>}
+      onClose={() => {}}
+    />,
+  );
+  const slot = host.querySelector('[data-testid="plan-detail-attachment-thumbnails"]') as HTMLElement;
+  assert(slot?.textContent === "Preview", "attachment slot content");
+});
+
 test("detail body supports text selection", async () => {
   const { host } = await render(
     <PlanDetailOverlay kind="task" task={FIXTURE_TASK} onClose={() => {}} />,
@@ -135,6 +175,32 @@ test("detail body supports text selection", async () => {
   assert(body.className.includes("plan-detail-selectable"), "detail body selectable");
   const title = host.querySelector('[data-testid="plan-detail-title"]') as HTMLElement;
   assert(title.className.includes("plan-task-selectable"), "detail title selectable");
+});
+
+test("focus return remains on opener after selected task changes", async () => {
+  const opener = document.createElement("button");
+  opener.textContent = "Open";
+  document.body.appendChild(opener);
+  opener.focus();
+  const host = document.createElement("div");
+  host.style.width = "1200px";
+  host.style.height = "800px";
+  host.style.position = "relative";
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(<PlanDetailOverlay kind="task" task={FIXTURE_TASK} onClose={() => {}} />);
+  });
+  const secondTask: Task = { ...FIXTURE_TASK, id: "task-2", name: "Virgil" };
+  await act(async () => {
+    root.render(<PlanDetailOverlay kind="task" task={secondTask} onClose={() => {}} />);
+  });
+  await act(async () => {
+    root.unmount();
+  });
+  assert(document.activeElement === opener, "focus returns to initial opener");
+  opener.remove();
+  host.remove();
 });
 
 let passed = 0;
