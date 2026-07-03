@@ -65,6 +65,10 @@ function loadCodexWithHost(host: unknown) {
   return context.module.exports.default;
 }
 
+function fixtureText(name: string): string {
+  return fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", name), "utf8");
+}
+
 const manifestSeed = {
   models: [
     { id: "seed-model", displayName: "Seed Model", description: "Manifest fallback" },
@@ -121,18 +125,10 @@ console.log("\n--- parseUsage (/status screen) ---\n");
 {
   const evp = loadHostPlugin();
   const nowMs = new Date(2026, 5, 14, 12, 0, 0, 0).getTime();
-  const statusScreen = [
-    "OpenAI Codex",
-    "",
-    "5h limit",
-    "████████░░░░░░░░░░░░  58% left (resets 19:59)",
-    "",
-    "Weekly limit",
-    "██████░░░░░░░░░░░░░░  72% left (resets 19:59 on 14 Jun)",
-  ].join("\n");
+  const statusScreen = fixtureText("codex-status-legacy.txt");
   const snap = evp.parseUsage(statusScreen, nowMs) as Record<string, unknown>;
-  eq(snap.session_pct, 42, "session gauge stores % used from % left");
-  eq(snap.weekly_pct, 28, "weekly gauge stores % used from % left");
+  eq(snap.session_pct, 42, "legacy fixture maps % left to % used for 5h limit");
+  eq(snap.weekly_pct, 28, "legacy fixture maps % left to % used for weekly limit");
   assert(snap.session_resets_at_ms != null, "session reset timestamp parsed");
   assert(snap.weekly_resets_at_ms != null, "weekly reset timestamp parsed");
   eq(evp.parseUsage("OpenAI Codex\nloading…", nowMs), null, "parseUsage null without gauges");
@@ -141,31 +137,21 @@ console.log("\n--- parseUsage (/status screen) ---\n");
 console.log("\n--- parseUsage: /status gauges ---\n");
 {
   const p = loadHostPlugin();
-  const now = new Date(2026, 5, 13, 10, 0, 0, 0).getTime();
-  const screen = [
-    "Codex status",
-    "5h limit     █████░░░ 78% left (resets 23:00)",
-    "Weekly limit ███░░░░░ 12.5% used (resets 09:30 on Jun 14)",
-  ].join("\r\n");
+  const now = Date.parse("2026-06-13T10:00:00-04:00");
+  const screen = fixtureText("codex-status-v0-142-4.txt");
   const usage = p.parseUsage(screen, now);
-  eq(usage?.session_pct, 22, "parseUsage converts 5h percent-left to percent-used");
-  eq(usage?.session_resets_at_ms, new Date(2026, 5, 13, 23, 0, 0, 0).getTime(), "parseUsage accepts CRLF session reset time");
-  eq(usage?.weekly_pct, 12.5, "parseUsage accepts weekly percent-used directly");
-  eq(usage?.weekly_resets_at_ms, new Date(2026, 5, 14, 9, 30, 0, 0).getTime(), "parseUsage accepts month-day weekly reset");
-}
-
-{
-  const p = loadHostPlugin();
-  const now = new Date(2026, 5, 13, 10, 0, 0, 0).getTime();
-  const screen = [
-    "Account",
-    "5-hour limit 63% remaining (resets at 14:30)",
-    "weekly limit 44% remaining (resets at 08:15 on 14 June)",
-  ].join("\n");
-  const usage = p.parseUsage(screen, now);
-  eq(usage?.session_pct, 37, "parseUsage accepts 5-hour/remaining label variant");
-  eq(usage?.weekly_pct, 56, "parseUsage converts weekly remaining to used");
-  eq(usage?.weekly_resets_at_ms, new Date(2026, 5, 14, 8, 15, 0, 0).getTime(), "parseUsage accepts day-month weekly reset");
+  eq(usage?.session_pct, 82, "v0.142.4 fixture keeps GENERAL family as session (not model)");
+  eq(usage?.weekly_pct, 56, "v0.142.4 fixture keeps weekly family on explicit label");
+  eq(
+    usage?.session_resets_at_ms,
+    Date.parse("2026-06-13T23:17:00-04:00"),
+    "session reset keeps local timezone converted to UTC instant",
+  );
+  eq(
+    usage?.weekly_resets_at_ms,
+    Date.parse("2026-07-14T07:45:00-04:00"),
+    "weekly reset keeps local day/month mapping",
+  );
 }
 
 console.log("\n--- actions ---\n");

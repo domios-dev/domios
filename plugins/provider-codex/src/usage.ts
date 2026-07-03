@@ -3,42 +3,105 @@ interface CodexGauge {
   resetsMs: number | null;
 }
 
+type CodexFamily = "general" | "legacy-session" | "weekly" | "model";
+
+interface CodexLimitLine {
+  family: CodexFamily;
+  pct: number | null;
+  resetsMs: number | null;
+}
+
 export function parseCodexUsage(rawText: string, nowMs: number): unknown {
   const raw = String(rawText || "");
   if (!raw.trim()) return null;
-  const text = raw.split("\r").join("").split("█").join(" ").split("░").join(" ");
-  const session = codexParseGauge(text, "5\\s*(?:h|hour|hours|-hour)\\s*limit", false, nowMs);
-  const weekly = codexParseGauge(text, "weekly\\s*limit", true, nowMs);
-  if (session.pct === null && weekly.pct === null) return null;
+  const text = raw
+    .split("\r")
+    .join("")
+    .split("\u2588")
+    .join(" ")
+    .split("\u2591")
+    .join(" ");
+
+  const lines = text.split("\n");
+  const limits = parseCodexLimits(lines, nowMs);
+  const session = limits.find((line) => line.family === "general") ?? limits.find((line) => line.family === "legacy-session");
+  const weekly = limits.find((line) => line.family === "weekly");
+
+  if (session === undefined && weekly === undefined) return null;
+
   return {
     provider: "codex",
     account_id: null,
     captured_at_ms: nowMs,
-    session_pct: session.pct,
-    session_resets_at_ms: session.resetsMs,
-    weekly_pct: weekly.pct,
-    weekly_resets_at_ms: weekly.resetsMs,
+    session_pct: session ? session.pct : null,
+    session_resets_at_ms: session ? session.resetsMs : null,
+    weekly_pct: weekly ? weekly.pct : null,
+    weekly_resets_at_ms: weekly ? weekly.resetsMs : null,
     raw_text: raw,
   };
 }
 
-function codexParseGauge(text: string, marker: string, isWeekly: boolean, nowMs: number): CodexGauge {
-  const re = new RegExp(
-    marker + "[\\s\\S]{0,240}?(\\d+(?:\\.\\d+)?)\\s*%\\s*(left|remaining|used)[\\s\\S]{0,180}?\\(\\s*resets?\\s+(?:at\\s+)?([^)]+?)\\)",
-    "i",
-  );
-  const caps = re.exec(text);
-  if (!caps) return { pct: null, resetsMs: null };
+function parseCodexLimits(lines: string[], nowMs: number): CodexLimitLine[] {
+  const out: CodexLimitLine[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = String(lines[i] || "").trim();
+    if (!line) continue;
+    let context = line;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = String(lines[j] || "").trim();
+      if (prev) {
+        context = `${prev} ${line}`;
+        break;
+      }
+    }
+    const gauge = parseCodexGaugeLine(line, context, nowMs);
+    if (gauge.pct === null && gauge.resetsMs === null) continue;
+
+    const family = codexLimitFamily(context);
+    if (family !== "model") {
+      out.push({ family, pct: gauge.pct, resetsMs: gauge.resetsMs });
+    }
+  }
+
+  return out;
+}
+
+function parseCodexGaugeLine(line: string, context: string, nowMs: number): CodexGauge {
+  const re = /(\d+(?:\.\d+)?)\s*%\s*(left|remaining|used)\s*\(\s*resets?\s+(?:at\s+)?([^)]+?)\)/i;
+  const caps = re.exec(line);
+  if (!caps) {
+    return { pct: null, resetsMs: null };
+  }
+
   const value = parseFloat(caps[1]);
-  const mode = (caps[2] || "").toLowerCase();
-  const pct = isNaN(value)
-    ? null
-    : Math.min(100, Math.max(0, mode === "used" ? value : 100 - value));
+  const pct = codexPctToUsed(value, (caps[2] || "").toLowerCase());
   const resetsRaw = (caps[3] || "").trim();
+  const isWeekly = /\bweekly\b/i.test(context);
   const resetsMs = isWeekly
     ? codexParseWeeklyResets(resetsRaw, nowMs)
     : codexParseSessionResets(resetsRaw, nowMs);
   return { pct, resetsMs };
+}
+
+function codexPctToUsed(value: number, mode: string): number | null {
+  if (isNaN(value)) return null;
+  const rawMode = mode === "used" ? "used" : "left";
+  const pct = rawMode === "used" ? value : 100 - value;
+  return Math.min(100, Math.max(0, pct));
+}
+
+function codexLimitFamily(text: string): CodexFamily {
+  const lower = String(text || "").toLowerCase();
+  const hasGeneral = /\bgeneral\b/.test(lower);
+  const hasWeekly = /\bweekly\b/.test(lower);
+  const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
+  const hasModel = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/.test(lower);
+
+  if (hasModel) return "model";
+  if (hasGeneral) return hasWeekly ? "weekly" : "general";
+  if (hasWeekly) return "weekly";
+  if (hasSession) return "legacy-session";
+  return "general";
 }
 
 function codexParseSessionResets(raw: string, nowMs: number): number | null {

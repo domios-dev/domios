@@ -341,33 +341,82 @@ function parseCodexUsage(rawText, nowMs) {
   const raw = String(rawText || "");
   if (!raw.trim()) return null;
   const text = raw.split("\r").join("").split("\u2588").join(" ").split("\u2591").join(" ");
-  const session = codexParseGauge(text, "5\\s*(?:h|hour|hours|-hour)\\s*limit", false, nowMs);
-  const weekly = codexParseGauge(text, "weekly\\s*limit", true, nowMs);
-  if (session.pct === null && weekly.pct === null) return null;
+  const lines = text.split("\n");
+  const limits = parseCodexLimits(lines, nowMs);
+  const session = findLine(limits, "general") || findLine(limits, "legacy-session");
+  const weekly = findLine(limits, "weekly");
+  if (session === void 0 && weekly === void 0) return null;
   return {
     provider: "codex",
     account_id: null,
     captured_at_ms: nowMs,
-    session_pct: session.pct,
-    session_resets_at_ms: session.resetsMs,
-    weekly_pct: weekly.pct,
-    weekly_resets_at_ms: weekly.resetsMs,
+    session_pct: session ? session.pct : null,
+    session_resets_at_ms: session ? session.resetsMs : null,
+    weekly_pct: weekly ? weekly.pct : null,
+    weekly_resets_at_ms: weekly ? weekly.resetsMs : null,
     raw_text: raw
   };
 }
-function codexParseGauge(text, marker, isWeekly, nowMs) {
-  const re = new RegExp(
-    marker + "[\\s\\S]{0,240}?(\\d+(?:\\.\\d+)?)\\s*%\\s*(left|remaining|used)[\\s\\S]{0,180}?\\(\\s*resets?\\s+(?:at\\s+)?([^)]+?)\\)",
-    "i"
-  );
-  const caps = re.exec(text);
+function parseCodexLimits(lines, nowMs) {
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = String(lines[i] || "").trim();
+    if (!line) continue;
+    let context = line;
+    for (let j = i - 1; j >= 0; j--) {
+      const prev = String(lines[j] || "").trim();
+      if (prev) {
+        context = prev + " " + line;
+        break;
+      }
+    }
+    const gauge = parseCodexGaugeLine(line, context, nowMs);
+    if (gauge.pct === null && gauge.resetsMs === null) continue;
+    const family = codexLimitFamily(context);
+    if (family !== "model") {
+      out.push({
+        family,
+        pct: gauge.pct,
+        resetsMs: gauge.resetsMs
+      });
+    }
+  }
+  return out;
+}
+function parseCodexGaugeLine(line, context, nowMs) {
+  const re = /(\d+(?:\.\d+)?)\s*%\s*(left|remaining|used)\s*\(\s*resets?\s+(?:at\s+)?([^)]+?)\)/i;
+  const caps = re.exec(line);
   if (!caps) return { pct: null, resetsMs: null };
   const value = parseFloat(caps[1]);
-  const mode = (caps[2] || "").toLowerCase();
-  const pct = isNaN(value) ? null : Math.min(100, Math.max(0, mode === "used" ? value : 100 - value));
+  const pct = codexPctToUsed(value, (caps[2] || "").toLowerCase());
   const resetsRaw = (caps[3] || "").trim();
+  const isWeekly = /\bweekly\b/i.test(context);
   const resetsMs = isWeekly ? codexParseWeeklyResets(resetsRaw, nowMs) : codexParseSessionResets(resetsRaw, nowMs);
   return { pct, resetsMs };
+}
+function codexPctToUsed(value, mode) {
+  if (isNaN(value)) return null;
+  const rawMode = mode === "used" ? "used" : "left";
+  const pct = rawMode === "used" ? value : 100 - value;
+  return Math.min(100, Math.max(0, pct));
+}
+function codexLimitFamily(text) {
+  const lower = String(text || "").toLowerCase();
+  const hasGeneral = /\bgeneral\b/.test(lower);
+  const hasWeekly = /\bweekly\b/.test(lower);
+  const hasSession = /\b5(?:\s*|-\s*)(?:h|hour|hours)\b/.test(lower);
+  const hasModel = /\b(?:gpt|opus|haiku|sonnet|claude|codex|o\d|gemini)\b.*\d+\.\d+/.test(lower);
+  if (hasModel) return "model";
+  if (hasGeneral) return hasWeekly ? "weekly" : "general";
+  if (hasWeekly) return "weekly";
+  if (hasSession) return "legacy-session";
+  return "general";
+}
+function findLine(lines, family) {
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].family === family) return lines[i];
+  }
+  return void 0;
 }
 function codexParseSessionResets(raw, nowMs) {
   const m = /(\d{1,2}):(\d{2})/.exec(String(raw || "").trim());
