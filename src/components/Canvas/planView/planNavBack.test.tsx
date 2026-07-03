@@ -163,6 +163,30 @@ test("round-trip: back button appears after first jump, disappears after back", 
   await cleanup(root, host);
 });
 
+test("Alt+Left fires onBack after rerender from canGoBack=false to true (stale closure guard)", async () => {
+  let backCalled = false;
+  const onBack = () => { backCalled = true; };
+
+  const { host, root } = await render(
+    <PlanDetailOverlay kind="task" task={FIXTURE_TASK} canGoBack={false} onBack={onBack} onClose={() => {}} />,
+  );
+  assert(host.querySelector('[data-testid="plan-detail-back"]') === null, "no back button initially");
+
+  await act(async () => {
+    root.render(<PlanDetailOverlay kind="task" task={FIXTURE_TASK} canGoBack onBack={onBack} onClose={() => {}} />);
+  });
+  await act(async () => { await Promise.resolve(); });
+
+  assert(host.querySelector('[data-testid="plan-detail-back"]') !== null, "back button appears after rerender");
+
+  const overlay = host.querySelector('[data-testid="plan-detail-overlay"]') as HTMLElement;
+  await act(async () => {
+    overlay.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", altKey: true, bubbles: true, cancelable: true }));
+  });
+  assert(backCalled, "onBack called after canGoBack transitioned false→true (no stale closure)");
+  await cleanup(root, host);
+});
+
 test("scrollCaptureRef is assigned to body element", async () => {
   const captureRef: { current: HTMLDivElement | null } = { current: null };
   const { host, root } = await render(
