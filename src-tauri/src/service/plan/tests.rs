@@ -316,10 +316,10 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
     let task_path = plans_dir.join(format!("active/{}/tasks/task.md", plan.id));
     assert!(std::fs::read_to_string(section_path)
         .unwrap()
-        .ends_with("inline section"));
+        .ends_with("inline section\n"));
     assert!(std::fs::read_to_string(task_path)
         .unwrap()
-        .ends_with("inline task"));
+        .ends_with("inline task\n"));
     let raw_json = std::fs::read_to_string(json_path).unwrap();
     assert!(!raw_json.contains("inline section"));
     assert!(!raw_json.contains("inline task"));
@@ -359,7 +359,7 @@ fn atomic_body_write_leaves_only_final_markdown_file() {
         .join(format!(".codeterm/plans/active/{}/sections", plan.id));
     assert!(std::fs::read_to_string(section_dir.join("spec.md"))
         .unwrap()
-        .ends_with("replacement"));
+        .ends_with("replacement\n"));
     assert!(!section_dir.join("spec.md.tmp").exists());
 }
 

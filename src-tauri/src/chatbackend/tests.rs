@@ -137,6 +137,9 @@ fn no_new_resolve_pty_id_outside_allowlist() {
         // PTY-only / None-safe REST + bridge sites (each guarded or PTY-only).
         // commands/pane.rs: shell_command_snapshot — None-safe (.ok()) pty-keyed read, command sibling of pane_routes.
         "commands/pane.rs",
+        // dev-only (cfg(debug_assertions)) cast-replay injection into a pane's OutputBuffer;
+        // best-effort (if let Ok) PTY resolution for test/verification infra, not a real spawn path.
+        "api/dev_cast_routes.rs",
         "api/pane_routes.rs",
         "api/pane_routes/send.rs",
         "api/mem_routes/items/mod.rs",

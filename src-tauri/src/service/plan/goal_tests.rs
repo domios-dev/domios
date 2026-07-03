@@ -33,7 +33,7 @@ fn goal_persists_and_reloads_from_sidecar() {
     let markdown = std::fs::read_to_string(&goal_path).unwrap();
     assert!(markdown.contains(&format!("plan_id: {}", plan.id)));
     assert!(markdown.contains("kind: goal"));
-    assert!(markdown.ends_with("Long markdown\n\n- detail"));
+    assert!(markdown.ends_with("Long markdown\n\n- detail\n"));
     let raw_json = std::fs::read_to_string(&json_path).unwrap();
     assert!(raw_json.contains("\"goal\""));
     assert!(!raw_json.contains("Long markdown"));
