@@ -247,6 +247,7 @@ pub fn run() {
             commands::plugin_view_call,
             multiplexer::commands::build_agent_launch_command,
             multiplexer::commands::mux_spawn_pane,
+            multiplexer::commands::mux_create_orchestration_pair,
             multiplexer::commands::mux_set_pane_role,
             multiplexer::commands::mux_clear_pane_role,
             multiplexer::commands::mux_make_orchestrator,

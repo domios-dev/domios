@@ -446,6 +446,14 @@ fn main() {
             }
         }
 
+        Commands::Orchestration { action } => {
+            match cmd::orchestration::handle(&mut client, cli.json, action) {
+                Ok(Some(value)) => Ok(value),
+                Ok(None) => return,
+                Err(e) => Err(e),
+            }
+        }
+
         Commands::Pane { action } => {
             cmd::pane::handle_pane(&mut client, cli.json, action);
             return;

@@ -695,3 +695,27 @@ export interface ProviderDescriptor {
   /// support arg-based live model switching.
   model_switch_format?: string | null;
 }
+
+/** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;
+ *  translated to the snake_case wire shape shared by CLI/REST/Tauri. */
+export interface OrchestrationPairInput {
+  orchestratorAgent: string;
+  orchestratorModel?: string;
+  plannerAgent: string;
+  plannerModel?: string;
+  workspaceId?: string;
+  title?: string;
+}
+
+/** Mirrors Rust `OrchestrationPairResult` (task_7e5f9354) — plain snake_case,
+ *  same shape returned by the socket RPC, REST, and Tauri command. Success
+ *  only: a failed Planner spawn rejects with the exact recovery command
+ *  instead of resolving to a half-populated result. */
+export interface OrchestrationPairResult {
+  plan_id: string;
+  orchestrator_pane_id: string;
+  orchestrator_model?: string;
+  planner_pane_id: string;
+  planner_model?: string;
+  warning?: string;
+}

@@ -19,6 +19,7 @@ use super::misc::{
     BridgeAction, ConfigAction, KeepAwakeAction, NotificationAction, PaneAction, PasteAction,
     ThemeAction, WorkspaceAction,
 };
+use super::orchestration::OrchestrationAction;
 use super::orchestrator::OrchestratorAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
@@ -85,6 +86,12 @@ pub enum Commands {
     Orchestrator {
         #[command(subcommand)]
         action: OrchestratorAction,
+    },
+
+    /// Paired creation — spawn an Orchestrator + Planner bound to a fresh plan
+    Orchestration {
+        #[command(subcommand)]
+        action: OrchestrationAction,
     },
 
     /// Pane management

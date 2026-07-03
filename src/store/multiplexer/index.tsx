@@ -27,6 +27,8 @@ import type {
   Notification,
   PaneStatus,
   AtomicSpawn,
+  OrchestrationPairInput,
+  OrchestrationPairResult,
 } from "../../lib/types";
 import {
   type ExtendedState,
@@ -485,6 +487,29 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     spawnAgentTab(workspaceId, defaultSpawnProviderId(), skipPermissions, cwd);
   }, [spawnAgentTab]);
 
+  // Paired creation (task_7e5f9354): one call creates a plan plus an
+  // Orchestrator + Planner pane bound to it. Same wire shape (snake_case)
+  // over REST and Tauri invoke, so CLI/web/desktop all hit the identical
+  // backend service — see `ServiceContext::create_orchestration_pair`.
+  const createOrchestrationPair = useCallback(
+    async (input: OrchestrationPairInput): Promise<OrchestrationPairResult> => {
+      const body = {
+        orchestrator_agent: input.orchestratorAgent,
+        orchestrator_model: input.orchestratorModel,
+        planner_agent: input.plannerAgent,
+        planner_model: input.plannerModel,
+        workspace_id: input.workspaceId,
+        title: input.title,
+      };
+      const result = IS_WEB
+        ? await guardedWebJson<OrchestrationPairResult>("POST", "/api/orchestration/new", body)
+        : await guardedInvoke<OrchestrationPairResult>("mux_create_orchestration_pair", { params: body });
+      refreshFromBackend();
+      return result;
+    },
+    [guardedInvoke, guardedWebJson, refreshFromBackend],
+  );
+
   const closeTab = useCallback(
     (workspaceId: string, tabId: string) => {
       const { workspaces, panes } = stateRef.current;
@@ -662,6 +687,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       updatePaneStatus,
       spawnClaudeTab,
       spawnAgentTab,
+      createOrchestrationPair,
     }),
     [
       state,
@@ -693,6 +719,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       updatePaneStatus,
       spawnClaudeTab,
       spawnAgentTab,
+      createOrchestrationPair,
     ],
   );
 

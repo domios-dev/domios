@@ -13,6 +13,7 @@ pub mod manifest;
 pub mod mem;
 pub mod mem_secret;
 pub mod mesh;
+pub mod orchestration;
 pub mod orchestrator;
 pub mod pane;
 pub mod paste;
