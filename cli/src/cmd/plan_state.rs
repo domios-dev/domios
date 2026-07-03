@@ -280,7 +280,12 @@ pub fn render_state(val: &Value) -> String {
             for m in strides {
                 let text = s(m, "text");
                 let kind = s(m, "kind");
-                out.push_str(&format!("  - [{kind}] {text}\n"));
+                let scope = if m.get("plan_level").and_then(|v| v.as_bool()) == Some(true) {
+                    " (plan)"
+                } else {
+                    ""
+                };
+                out.push_str(&format!("  - [{kind}]{scope} {text}\n"));
             }
         }
     }

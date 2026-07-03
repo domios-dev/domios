@@ -443,6 +443,34 @@ impl PlanStore {
         Ok(mid)
     }
 
+    // Append a plan-level, task-less working point (surfaced in recent_strides).
+    pub fn add_plan_stride(
+        &self,
+        plan_id: &str,
+        kind: &str,
+        text: &str,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        let mid = self.mint_id("ms");
+        self.with_plan(plan_id, now_ms, |p| {
+            p.strides.push(Milestone {
+                id: mid.clone(),
+                from,
+                kind: kind.into(),
+                text: text.into(),
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            Ok(())
+        })?;
+        Ok(mid)
+    }
+
     pub fn archive(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
         self.with_plan(plan_id, now_ms, |p| {
             p.status = PlanStatus::Archived;

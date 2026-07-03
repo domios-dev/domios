@@ -442,6 +442,7 @@ fn dispatch(
                 "plan.milestone.add",
                 "plan.milestone.update",
                 "plan.milestone.rm",
+                "plan.stride.add",
                 "plan.loop.create",
                 "plan.loop.set",
                 "plan.loop.status",

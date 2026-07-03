@@ -1,13 +1,18 @@
 use serde_json::{json, Value};
 
 use crate::args::plan::PlanSkillAction;
+use crate::client::SocketClient;
 use crate::cmd::plan_local::project_root;
 
 pub mod ledger;
 pub mod mem;
 pub mod store;
 
-pub fn handle(json: bool, action: PlanSkillAction) -> Result<Option<Value>, String> {
+pub fn handle(
+    client: &mut SocketClient,
+    json: bool,
+    action: PlanSkillAction,
+) -> Result<Option<Value>, String> {
     match action {
         PlanSkillAction::New {
             slug,
@@ -16,7 +21,7 @@ pub fn handle(json: bool, action: PlanSkillAction) -> Result<Option<Value>, Stri
             area,
             check,
             rationale,
-        } => new_skill(json, slug, plan, title, area, check, rationale),
+        } => new_skill(client, json, slug, plan, title, area, check, rationale),
         PlanSkillAction::List { plan } => list_skills(json, plan),
         PlanSkillAction::Show { slug, plan } => show_skill(json, slug, plan),
         PlanSkillAction::Edit {
@@ -25,7 +30,32 @@ pub fn handle(json: bool, action: PlanSkillAction) -> Result<Option<Value>, Stri
             verdict,
             rationale,
             body_file,
-        } => edit_skill(json, slug, plan, verdict, rationale, body_file),
+        } => edit_skill(client, json, slug, plan, verdict, rationale, body_file),
+    }
+}
+
+// Record the sidecar ledger entry in the plan timeline via a task-less stride.
+// Sidecar write already succeeded; a failure here must be surfaced, not swallowed.
+fn record_stride(
+    client: &mut SocketClient,
+    plan_id: &str,
+    slug: &str,
+    verdict: &str,
+    rationale: &str,
+) -> bool {
+    let text = format!("skill {slug} [{verdict}] {rationale}");
+    let params = json!({
+        "plan_id": plan_id,
+        "kind": "skill",
+        "text": text,
+        "from": { "pane_id": std::env::var("CODETERM_PANE_ID").ok() },
+    });
+    match client.call("plan.stride.add", Some(params)) {
+        Ok(_) => true,
+        Err(e) => {
+            eprintln!("warning: sidecar ledger written but plan-timeline stride failed: {e}");
+            false
+        }
     }
 }
 
@@ -60,6 +90,7 @@ fn best_effort_index(plan_id: &str, plan_dir: &std::path::Path, slug: &str) -> b
 
 #[allow(clippy::too_many_arguments)]
 fn new_skill(
+    client: &mut SocketClient,
     json: bool,
     slug: String,
     plan: Option<String>,
@@ -89,6 +120,7 @@ fn new_skill(
 
     let rationale = rationale.unwrap_or_else(|| "created".to_string());
     let entry = ledger::append_entry(&plan_dir, &slug, store::KEEP, &rationale)?;
+    let timeline = record_stride(client, &plan_id, &slug, store::KEEP, &rationale);
     let indexed = best_effort_index(&plan_id, &plan_dir, &slug);
 
     if json {
@@ -97,6 +129,7 @@ fn new_skill(
             "slug": slug,
             "skill_md": skill_md.display().to_string(),
             "ledger_seq": entry.seq,
+            "timeline_recorded": timeline,
             "mem_indexed": indexed,
         })));
     }
@@ -107,7 +140,9 @@ fn new_skill(
     Ok(None)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn edit_skill(
+    client: &mut SocketClient,
     json: bool,
     slug: String,
     plan: Option<String>,
@@ -126,6 +161,7 @@ fn edit_skill(
         std::fs::write(&skill_md, body).map_err(|e| e.to_string())?;
     }
     let entry = ledger::append_entry(&plan_dir, &slug, &verdict, &rationale)?;
+    let timeline = record_stride(client, &plan_id, &slug, &entry.verdict, &rationale);
     let indexed = best_effort_index(&plan_id, &plan_dir, &slug);
 
     if json {
@@ -134,6 +170,7 @@ fn edit_skill(
             "slug": slug,
             "ledger_seq": entry.seq,
             "verdict": entry.verdict,
+            "timeline_recorded": timeline,
             "mem_indexed": indexed,
         })));
     }
