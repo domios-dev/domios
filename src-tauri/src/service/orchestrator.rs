@@ -183,6 +183,10 @@ pub struct SpawnAgentParams {
     pub role: Option<String>,
     pub role_profile: Option<String>,
     pub parent_pane_id: Option<String>,
+    /// Plan id to bind — when `role_profile` is `planner`, binds
+    /// `Plan.planner` to the spawned pane and delivers the peer prompt
+    /// naming the Orchestrator (task_aa01c0db).
+    pub plan_id: Option<String>,
     pub can_spawn: Option<bool>,
     pub task: Option<String>,
     pub workspace_id: Option<String>,
@@ -566,6 +570,43 @@ impl ServiceContext {
             params.role.as_deref(),
             params.role_profile.as_deref(),
         );
+        // task_aa01c0db: `--role Planner --plan <id>` binds Plan.planner to
+        // this pane and tells the Planner who its Orchestrator peer is.
+        let bg_task = if params.role_profile.as_deref() == Some("planner") {
+            match params.plan_id.as_deref() {
+                Some(plan_id) => {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0);
+                    if let Err(e) = self.plan_store.set_planner_ref(
+                        plan_id,
+                        Some(crate::plan::PlannerRef::Pane {
+                            pane_id: pane_id.clone(),
+                            session_id: None,
+                            title: None,
+                        }),
+                        now_ms,
+                    ) {
+                        log::warn!(
+                            "[spawn] failed to bind planner ref for plan {plan_id}: {e}"
+                        );
+                    }
+                    let orch_pane = self
+                        .plan_store
+                        .owner_of(plan_id)
+                        .and_then(|o| o.pane_id);
+                    let intro = crate::service::plan::peer_mandate::planner_peer_intro_line(
+                        plan_id,
+                        orch_pane.as_deref(),
+                    );
+                    bg_task.map(|t| format!("{intro}\n\n{t}"))
+                }
+                None => bg_task,
+            }
+        } else {
+            bg_task
+        };
         // Tag with the spawner's origin prefix uniformly for every provider; delivery handles the marker per provider (TUI-typed for PtyInput, positional after `--` for inline-flag).
         let bg_task = bg_task.map(|t| match self.spawn_task_prefix(&pane_id) {
             Some(pfx) => format!("{}{}", pfx, t),

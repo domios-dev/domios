@@ -634,6 +634,94 @@ fn quality_accepts_externalized_task_body_via_sidecar() {
     assert!(findings.is_empty(), "{findings:?}");
 }
 
+fn planner_pairing_base_plan(planner: Option<Value>) -> Value {
+    let mut plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "owner": {"pane_id": "orch-1"},
+        "sections": [{"id": "sec_1", "title": "Execution", "body": "section"}],
+        "tasks": []
+    });
+    if let Some(planner) = planner {
+        plan["planner"] = planner;
+    }
+    plan
+}
+
+#[test]
+fn planner_unpaired_warns_when_orchestrator_bound_without_planner() {
+    let plan = planner_pairing_base_plan(None);
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    let finding = findings
+        .iter()
+        .find(|f| f.kind == "planner_unpaired")
+        .expect("expected planner_unpaired finding");
+    assert_eq!(finding.severity, "warning");
+}
+
+#[test]
+fn planner_unpaired_escalates_to_error_at_approval() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
+    std::fs::create_dir_all(&plan_dir).unwrap();
+    let plan = planner_pairing_base_plan(None);
+    std::fs::write(
+        plan_dir.join("plan.json"),
+        serde_json::to_string_pretty(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let report =
+        doctor_report(Some("pl_1".into()), Some(dir.path().display().to_string()), "quality")
+            .unwrap();
+    assert!(report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["kind"] == "planner_unpaired" && f["severity"] == "warning"));
+
+    let mut escalated = report.clone();
+    escalate_planner_unpaired_for_approval(&mut escalated);
+    assert!(!escalated["ok"].as_bool().unwrap());
+    assert!(escalated["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["kind"] == "planner_unpaired" && f["severity"] == "error"));
+}
+
+#[test]
+fn planner_unpaired_clean_when_paired() {
+    let plan = planner_pairing_base_plan(Some(json!({
+        "kind": "pane",
+        "pane_id": "planner-1"
+    })));
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(!findings.iter().any(|f| f.kind == "planner_unpaired"));
+}
+
+#[test]
+fn planner_unpaired_clean_when_waived() {
+    let plan = planner_pairing_base_plan(Some(json!({
+        "kind": "waived",
+        "note": "solo effort"
+    })));
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(!findings.iter().any(|f| f.kind == "planner_unpaired"));
+}
+
+#[test]
+fn planner_unpaired_silent_without_orchestrator() {
+    let mut plan = planner_pairing_base_plan(None);
+    plan["owner"] = json!({});
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(!findings.iter().any(|f| f.kind == "planner_unpaired"));
+}
+
 #[test]
 fn quality_errors_for_missing_body_without_sidecar() {
     let dir = tempfile::tempdir().unwrap();

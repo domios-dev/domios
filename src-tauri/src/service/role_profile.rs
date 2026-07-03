@@ -20,6 +20,7 @@ impl SpawnAgentParams {
             role_profile: json_str(params, "role_profile"),
             parent_pane_id: json_str(params, "parent_pane_id")
                 .or_else(|| json_str(params, "parent")),
+            plan_id: json_str(params, "plan_id").or_else(|| json_str(params, "plan")),
             can_spawn: params.get("can_spawn").and_then(|v| v.as_bool()),
             task: json_str(params, "task"),
             workspace_id: json_str(params, "workspace_id"),

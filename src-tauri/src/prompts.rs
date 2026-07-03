@@ -108,6 +108,11 @@ pub const PEER_WAIVER_HINT: &str = "No planner peer is bound. \
      Bind one with `codeterm plan update --planner <PANE_ID>` or waive with \
      `codeterm plan update --planner none --note <reason>`.";
 
+/// Fills the `{spawn_cmd}` placeholder in [`PEER_PAIRING_MANDATE_BLOCK`].
+pub fn peer_pairing_mandate_block(spawn_cmd: &str) -> String {
+    PEER_PAIRING_MANDATE_BLOCK.replace("{spawn_cmd}", spawn_cmd)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +198,15 @@ mod tests {
         assert!(ORCHESTRATION_DOC.contains("fall back to `opus`"));
         assert!(ORCHESTRATION_DOC.contains("Planner-authored `role_guidance`"));
         assert!(ORCHESTRATION_DOC.contains("CodeTerm planner"));
+    }
+
+    #[test]
+    fn peer_pairing_mandate_block_fills_spawn_cmd_and_carries_charter() {
+        let filled = peer_pairing_mandate_block("codeterm agent spawn claude --role Planner");
+        assert!(filled.contains("codeterm agent spawn claude --role Planner"));
+        assert!(!filled.contains("{spawn_cmd}"));
+        assert!(filled.contains(PEER_PLANNER_CHARTER_LINE));
+        assert!(filled.contains(PEER_ORCH_DEFERENCE_LINE));
+        assert!(PEER_WAIVER_HINT.contains("--planner none --note"));
     }
 }

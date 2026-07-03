@@ -61,11 +61,52 @@ pub fn run(
 }
 
 pub(crate) fn assert_quality_ready(plan_id: &str) -> Result<(), String> {
-    let report = doctor_report(Some(plan_id.to_string()), None, "quality")?;
+    let mut report = doctor_report(Some(plan_id.to_string()), None, "quality")?;
+    escalate_planner_unpaired_for_approval(&mut report);
     if report.get("ok").and_then(Value::as_bool).unwrap_or(false) {
         return Ok(());
     }
     Err(render_quality_approval_error(plan_id, &report))
+}
+
+// task_aa01c0db: an orchestrator without a bound/waived planner peer is only
+// a WARNING day-to-day (`codeterm plan doctor`), but approval is the one
+// hard gate — escalate it to an ERROR here rather than in `inspect_quality`
+// so the ladder doesn't leak into every other `inspect_plan` call site.
+fn escalate_planner_unpaired_for_approval(report: &mut Value) {
+    let Some(findings) = report.get_mut("findings").and_then(Value::as_array_mut) else {
+        return;
+    };
+    let mut escalated = false;
+    for finding in findings.iter_mut() {
+        if finding.get("kind").and_then(Value::as_str) == Some("planner_unpaired")
+            && finding.get("severity").and_then(Value::as_str) == Some("warning")
+        {
+            finding["severity"] = json!("error");
+            escalated = true;
+        }
+    }
+    if !escalated {
+        return;
+    }
+    let findings = report
+        .get("findings")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let error_count = findings
+        .iter()
+        .filter(|f| f.get("severity").and_then(Value::as_str) == Some("error"))
+        .count();
+    let warning_count = findings
+        .iter()
+        .filter(|f| f.get("severity").and_then(Value::as_str) == Some("warning"))
+        .count();
+    if let Some(obj) = report.as_object_mut() {
+        obj.insert("error_count".into(), json!(error_count));
+        obj.insert("warning_count".into(), json!(warning_count));
+        obj.insert("ok".into(), json!(error_count == 0));
+    }
 }
 
 fn render_quality_approval_error(plan_id: &str, report: &Value) -> String {
@@ -554,6 +595,9 @@ fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
             "create/update the spec first, then use codeterm plan create --from-spec or spec link add",
         ));
     }
+    if let Some(finding) = inspect_planner_pairing(path, plan) {
+        findings.push(finding);
+    }
 
     let tasks = plan
         .get("tasks")
@@ -846,6 +890,35 @@ fn strip_sidecar_frontmatter(text: &str) -> &str {
         return text;
     };
     rest[end + "\n---".len()..].trim_start_matches('\n')
+}
+
+// task_aa01c0db: an Orchestrator (owner.pane_id set) works with a Planner
+// peer. Warning day-to-day; `assert_quality_ready` escalates this specific
+// kind to an error at approval time. Silent when no orchestrator is bound
+// yet, or once `planner` is a Pane or Waived ref.
+fn inspect_planner_pairing(path: &Path, plan: &Value) -> Option<Finding> {
+    let has_orchestrator = plan
+        .get("owner")
+        .and_then(|o| o.get("pane_id"))
+        .and_then(Value::as_str)
+        .is_some_and(|s| !s.trim().is_empty());
+    if !has_orchestrator {
+        return None;
+    }
+    let planner_bound = plan.get("planner").is_some_and(|v| !v.is_null());
+    if planner_bound {
+        return None;
+    }
+    let plan_id_str = plan_id(plan, path).unwrap_or_else(|| "<plan>".into());
+    Some(plan_warning(
+        path,
+        plan,
+        "planner_unpaired",
+        "orchestrator has no planner peer paired",
+        &format!(
+            "spawn a planner: codeterm agent spawn claude --model fable --parent <orch-pane> --role Planner --plan {plan_id_str}; or waive: codeterm plan update {plan_id_str} --planner none --note \"<why>\""
+        ),
+    ))
 }
 
 fn has_spec_source(plan: &Value) -> bool {

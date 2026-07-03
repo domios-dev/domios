@@ -211,6 +211,14 @@ impl ServiceContext {
                     text.push_str("\n\n");
                     text.push_str(&named);
                 }
+                let resolution = self
+                    .plan_store
+                    .resolve_planner_pane(plan_id, |pid| self.pane_probe(pid));
+                if let Some(prefix) =
+                    crate::service::plan::peer_mandate::planner_pairing_nudge_prefix(&resolution)
+                {
+                    text = format!("{prefix}\n\n{text}");
+                }
                 self.plan_store.prepend_heartbeat_for_plan(plan_id, &text)
             }
             PlanReminderTarget::Worker => self
