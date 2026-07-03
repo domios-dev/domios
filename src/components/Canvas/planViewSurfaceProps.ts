@@ -7,7 +7,9 @@ export interface PlanViewSurfaceProps {
   mode: "workspace" | "focus";
   plans: Plan[];
   loading?: boolean;
+  reconnecting?: boolean;
   error?: string | null;
+  onRetry?: () => void;
   planId?: string;
   orchestratorPaneId?: string;
   focusPaneId?: string | null;

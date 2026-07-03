@@ -8,6 +8,8 @@ import { usePlanSwitcherActions } from "../planView/usePlanSwitcherActions";
 import { enrichSwitcherOptions, selectActiveWork } from "../planView/activeWork";
 import { orderPlansByActivity, selectDefaultPlanId } from "../planView/boardModel";
 import { PlanDetailOverlay, type PlanDetailKind } from "../planView/PlanDetailOverlay";
+import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "../planView/PlanFetchErrorState";
+import { planFetchShowsData } from "../planView/planViewFetchGate";
 import type { Plan, Section, Task } from "../types";
 import { MissionControlLiveView } from "./MissionControlLiveView";
 
@@ -30,7 +32,9 @@ export function MissionControlPlanSurface({
   mode,
   plans,
   loading = false,
+  reconnecting = false,
   error = null,
+  onRetry,
   planId,
   orchestratorPaneId,
   panes = {},
@@ -125,6 +129,7 @@ export function MissionControlPlanSurface({
   }, [selectedPlan, selectedSpecSections]);
 
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
+  const showsData = planFetchShowsData(loading, error ?? null, plans.length);
 
   return (
     <div data-testid="mission-control-plan-surface" className="flex h-full w-full flex-col overflow-hidden">
@@ -140,24 +145,28 @@ export function MissionControlPlanSurface({
             onAction={handleAction}
           />
         )}
+        <PlanFetchReconnectingBanner
+          reconnecting={reconnecting}
+          itemCount={plans.length}
+          testId="mission-control-reconnecting"
+          className="ml-auto"
+        />
       </header>
       <div className="relative min-h-0 flex-1">
-        {loading && (
-          <p data-testid="mission-control-loading" className="p-4 text-sm" style={{ color: "var(--ct-muted-fg)" }}>
-            Loading plans…
-          </p>
-        )}
-        {!loading && error && (
-          <p data-testid="mission-control-error" className="p-4 text-sm" style={{ color: "var(--ct-error, #f87171)" }}>
-            {error}
-          </p>
-        )}
-        {!loading && !error && !selectedPlan && (
+        <PlanFetchErrorState
+          loading={loading}
+          error={error}
+          itemCount={plans.length}
+          onRetry={onRetry}
+          testId="mission-control"
+          className="p-4"
+        />
+        {showsData && !selectedPlan && (
           <p data-testid="mission-control-empty" className="p-4 text-sm" style={{ color: "var(--ct-muted-fg)" }}>
             No active plans in this workspace.
           </p>
         )}
-        {!loading && !error && selectedPlan && (
+        {showsData && selectedPlan && (
           <MissionControlLiveView
             plan={selectedPlan}
             panes={panes}

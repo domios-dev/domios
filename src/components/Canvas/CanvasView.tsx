@@ -52,6 +52,8 @@ import { useStableSet } from "./canvasView/useStableSet";
 import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
 import { bumpCanvasChurn } from "./canvasChurn";
 import { PlanViewShell } from "./PlanViewShell";
+import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./planView/PlanFetchErrorState";
+import { planFetchShowsData } from "./planView/planViewFetchGate";
 import { revealAssignedAgentPane } from "./planRevealAgentPane";
 import { FlyToActiveControl } from "./FlyToActiveControl";
 import { selectActiveWork } from "./planView/activeWork";
@@ -62,7 +64,9 @@ export interface CanvasViewInnerProps {
   mode: "workspace" | "focus";
   plans: Plan[];
   loading?: boolean;
+  reconnecting?: boolean;
   error?: string | null;
+  onRetry?: () => void;
   planId?: string;
   orchestratorPaneId?: string;
   /** The pane that opened Plan mode — its assigned tasks get the initial camera. */
@@ -92,7 +96,9 @@ export function CanvasViewInner({
   mode,
   plans,
   loading = false,
+  reconnecting = false,
   error = null,
+  onRetry,
   planId,
   orchestratorPaneId,
   focusPaneId = null,
@@ -741,6 +747,8 @@ export function CanvasViewInner({
   );
 
 
+  const showsData = planFetchShowsData(loading, error ?? null, plans.length);
+
   return (
     <div ref={shellRef} className="relative h-full w-full overflow-hidden" data-testid="canvas-view">
       {onClose && (
@@ -769,17 +777,22 @@ export function CanvasViewInner({
           background: "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)",
         }}
       >
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm" style={{ color: "var(--ct-fg)", opacity: "var(--ct-text-secondary-opacity)" }}>
-            Loading plans…
-          </div>
-        )}
-        {!loading && error && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm px-4 text-center" style={{ color: "var(--ct-error, #f87171)" }}>
-            {error}
-          </div>
-        )}
-        {!loading && !error && filteredPlans.length === 0 && (
+        <PlanFetchReconnectingBanner
+          reconnecting={reconnecting}
+          itemCount={plans.length}
+          testId="canvas-reconnecting"
+          className="absolute top-2 left-3 z-30"
+        />
+        <div className="absolute inset-0 flex items-center justify-center">
+          <PlanFetchErrorState
+            loading={loading}
+            error={error}
+            itemCount={plans.length}
+            onRetry={onRetry}
+            testId="canvas-fetch"
+          />
+        </div>
+        {showsData && filteredPlans.length === 0 && (
           <div
             data-testid="canvas-empty"
             className="absolute inset-0 flex flex-col items-center justify-center text-sm px-6 text-center gap-4"
@@ -799,7 +812,7 @@ export function CanvasViewInner({
             <CanvasPresenceLayer overlays={presenceOverlays} emphasisTaskIds={presenceEmphasisIds} onFlyToTask={onFlyToTask} />
           </div>
         )}
-        {!loading && !error && filteredPlans.length > 0 && (
+        {showsData && filteredPlans.length > 0 && (
           <CanvasSwarmCluster roster={swarmRoster} onFlyToTask={onFlyToTask} reserveTopRight={!!onClose} />
         )}
         {!loading && filteredPlans.length > 0 && (
@@ -842,10 +855,10 @@ export function CanvasViewInner({
           />
         ))}
       </div>
-      {!loading && !error && filteredPlans.length > 0 && (
+      {showsData && filteredPlans.length > 0 && (
         <FlyToActiveControl entries={activeWork.entries} onFly={onFlyToTask} />
       )}
-      {!loading && !error && filteredPlans.length > 0 && (
+      {showsData && filteredPlans.length > 0 && (
         <CanvasToolbar
           scale={transform.scale}
           onZoomIn={() => zoomBy(0.2)}
@@ -858,10 +871,10 @@ export function CanvasViewInner({
           minimapOn={minimapOn}
         />
       )}
-      {legendFacets.length > 0 && !loading && !error && filteredPlans.length > 0 && (
+      {legendFacets.length > 0 && showsData && filteredPlans.length > 0 && (
         <CanvasTagLegend facets={legendFacets} filter={tagFilter} onToggleTag={onToggleTagFilter} />
       )}
-      {minimapOn && !loading && !error && filteredPlans.length > 0 && (
+      {minimapOn && showsData && filteredPlans.length > 0 && (
         <CanvasMinimap
           bounds={layout.bounds}
           nodes={[...lookups.nodeById.values()]}
@@ -914,7 +927,7 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
   const activeWs = state.workspaces.find((ws) => ws.id === state.active_workspace_id);
   const projectPath = activeWs?.cwd ?? null;
   const workspaceTarget = useCanvasWorkspaceTarget();
-  const { plans: livePlans, loading, error } = useCanvasPlans(mode, projectPath);
+  const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(mode, projectPath);
   // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
   const perfN = perfFixtureCount();
   const perfProfile = perfFixtureProfile();
@@ -941,7 +954,9 @@ export function CanvasView({ mode, planId, orchestratorPaneId, focusPaneId, api,
       mode={mode}
       plans={plans}
       loading={loading}
+      reconnecting={reconnecting}
       error={error}
+      onRetry={refetch}
       planId={planId}
       orchestratorPaneId={orchestratorPaneId}
       focusPaneId={focusPaneId}
