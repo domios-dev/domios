@@ -463,6 +463,65 @@ test("standalone arrow-only tool result is hidden", async () => {
   }
 });
 
+const PNG_1X1_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+test("generate image tool result renders preview instead of raw base64", async () => {
+  const dataUrl = `data:image/png;base64,${PNG_1X1_BASE64}`;
+  const { host, root } = await renderMessages([
+    {
+      id: "image-tool-call",
+      provider: "cursor",
+      type: "tool_call",
+      content: "",
+      toolName: "GenerateImage",
+      toolId: "call-image",
+      toolArgs: JSON.stringify({ description: "A red dot" }),
+    },
+    {
+      id: "image-tool-result",
+      provider: "cursor",
+      type: "tool_result",
+      content: JSON.stringify([{ type: "image_url", image_url: { url: dataUrl } }]),
+      toolResult: JSON.stringify([{ type: "image_url", image_url: { url: dataUrl } }]),
+      toolId: "call-image",
+    },
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chat-tool-image-preview"]'), "expected image preview card");
+    const img = host.querySelector('[data-testid="chat-tool-image-preview"] img') as HTMLImageElement | null;
+    assert(img, "expected preview img");
+    assert(img.src.startsWith("data:image/png;base64,"), "expected data url src");
+    assertIncludes(host, "Save", "expected save affordance");
+    assert(!textOf(host).includes(PNG_1X1_BASE64.slice(0, 40)), "raw base64 should not render as text");
+    assert(host.querySelector('[data-testid="chat-tool-image-download"]'), "expected download link");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("generate image standalone tool_result renders preview card", async () => {
+  const dataUrl = `data:image/png;base64,${PNG_1X1_BASE64}`;
+  const { host, root } = await renderMessages([
+    {
+      id: "image-only-result",
+      provider: "cursor",
+      type: "tool_result",
+      content: dataUrl,
+      toolResult: dataUrl,
+    },
+  ]);
+  try {
+    assert(host.querySelector('[data-testid="chat-tool-image-preview"]'), "expected standalone image preview");
+    assertIncludes(host, "PNG", "expected format label");
+    assert(!textOf(host).includes(PNG_1X1_BASE64.slice(0, 40)), "standalone result must not leak base64 text");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test("codex sparse tool_call rows between exec commands do not render ghost buttons", async () => {
   const { host, root } = await renderMessages([
     {

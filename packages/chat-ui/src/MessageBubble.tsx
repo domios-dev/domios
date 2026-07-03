@@ -34,7 +34,6 @@ import {
   ImageBadge,
   LongArtifact,
   ModelAvatar,
-  PlainOutput,
   RichMarkdown,
   TEXT_WRAP_CLASS,
   extractCommand,
@@ -45,7 +44,6 @@ import {
   isShellToolName,
   languageForEdits,
   languageFromPath,
-  lastNonEmptyLine,
   renderUserContent,
   shortPath,
 } from "./MarkdownBody";
@@ -53,6 +51,8 @@ import { ToolIcon } from "./toolIcons";
 import { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 import type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 import { pickUiFontScaleValue } from "./uiFontScale";
+import { ToolOutputContent } from "./ToolOutputContent";
+import { isImageOnlyToolOutput, toolResultPreviewLine } from "./toolImageOutput";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -765,7 +765,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
             </button>
 
-            {message.toolResult && !expanded && (
+            {message.toolResult && !expanded && !isImageOnlyToolOutput(message.toolResult) && (
               <button
                 onClick={() => setExpanded(true)}
                 className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
@@ -773,8 +773,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                 title="Show full output"
               >
                 <span className="flex-shrink-0 opacity-40">{"→"}</span>
-                <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{lastNonEmptyLine(message.toolResult)}</span>
+                <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{toolResultPreviewLine(message.toolResult)}</span>
               </button>
+            )}
+            {message.toolResult && !expanded && isImageOnlyToolOutput(message.toolResult) && (
+              <div className="mt-1 pl-2.5">
+                <ToolOutputContent text={message.toolResult} />
+              </div>
             )}
 
             {expanded && (
@@ -797,7 +802,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                     >
                       Result
                     </div>
-                    <PlainOutput text={message.toolResult} maxHeight="12rem" />
+                    <ToolOutputContent text={message.toolResult} maxHeight="12rem" />
                   </div>
                 )}
               </div>
@@ -854,7 +859,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
           {/* Compact inline tail — last line of output, always visible while
               collapsed. Click to reveal the full result under the command. */}
-          {resultText && !expanded && (
+          {resultText && !expanded && !isImageOnlyToolOutput(resultText) && (
             <button
               onClick={() => setExpanded(true)}
               className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
@@ -862,8 +867,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               title="Show full output"
             >
               <span className="flex-shrink-0 opacity-40">{"→"}</span>
-              <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{lastNonEmptyLine(resultText)}</span>
+              <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{toolResultPreviewLine(resultText)}</span>
             </button>
+          )}
+          {resultText && !expanded && isImageOnlyToolOutput(resultText) && (
+            <div className="mt-1 pl-2.5">
+              <ToolOutputContent text={resultText} />
+            </div>
           )}
 
           {expanded && (
@@ -891,7 +901,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                   >
                     Result
                   </div>
-                  <PlainOutput text={resultText} maxHeight="12rem" />
+                  <ToolOutputContent text={resultText} maxHeight="12rem" />
                 </div>
               )}
             </div>
@@ -904,6 +914,14 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   // Tool result — subtle, compact
   if (message.type === "tool_result") {
     if (!hasMeaningfulToolResult(message.content)) return null;
+    const standaloneResult = message.toolResult || message.content;
+    if (isImageOnlyToolOutput(standaloneResult)) {
+      return (
+        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto pl-4">
+          <ToolOutputContent text={standaloneResult} />
+        </div>
+      );
+    }
     if (isLargeArtifact(message.content)) {
       return (
         <LongArtifact
@@ -938,11 +956,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           {hasMore && <ChevronIcon expanded={expanded} className="ml-1 mt-0.5 opacity-40" />}
         </button>
         {expanded && (
-          <div
-            className="mt-1 ml-4 max-w-full min-w-0 rounded-md px-3 py-2 text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto border border-[var(--ct-border)]"
-            style={{ background: "var(--ct-bg)", color: "var(--ct-fg)" }}
-          >
-            <pre className={`${PRE_WRAP_CLASS} m-0`}>{message.content}</pre>
+          <div className="mt-1 ml-4 max-w-full min-w-0">
+            <ToolOutputContent text={standaloneResult} maxHeight="12rem" />
           </div>
         )}
       </div>
