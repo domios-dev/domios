@@ -91,7 +91,7 @@ pub(super) fn inspect_quality(path: &Path, plan: &Value) -> Vec<Finding> {
     findings
 }
 
-pub(crate) fn inspect_task_lifecycle(
+pub(super) fn inspect_task_lifecycle(
     path: &Path,
     plan: &Value,
     task: &Value,

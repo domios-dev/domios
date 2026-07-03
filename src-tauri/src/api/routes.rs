@@ -8,10 +8,10 @@ use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer, co
 
 use super::{
     agent_routes, bridge_routes, clipboard_routes, config_routes, cron_routes, debug_routes,
-    delayed_send_routes, fs_routes, health_routes, hook_routes, logs_routes, mem_routes,
-    mesh_routes, network_routes, notification_routes, output_stream, pane_chat_routes, pane_routes,
-    pasteboard_routes, plan_routes, pty_routes, services_routes, session_routes, task_routes,
-    theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
+    fs_routes, health_routes, logs_routes, mem_routes, mesh_routes, network_routes,
+    notification_routes, output_stream, pane_agent_routes, pane_routes, pasteboard_routes,
+    plan_routes, pty_routes, services_routes, session_routes, task_routes, theme_routes,
+    updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 #[derive(Clone)]
@@ -249,66 +249,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/plans/{id}/elements/{element_id}",
             patch(plan_routes::element_update).delete(plan_routes::element_rm),
         )
-        .route("/api/panes/{id}/send", post(pane_routes::send_text))
-        .route("/api/panes/{id}/stop", post(pane_routes::stop_pane))
-        .route("/api/panes/{id}/focus", post(pane_routes::focus_pane))
-        .route("/api/panes/{id}/close", post(pane_routes::close_pane))
-        .route("/api/panes/{id}/rename", post(pane_routes::rename_pane))
-        .route("/api/panes/{id}/describe", post(pane_routes::describe_pane))
-        .route("/api/panes/{id}/output", get(pane_routes::get_pane_output))
-        .route(
-            "/api/panes/{id}/output/stream",
-            get(pane_routes::stream_pane_output),
-        )
-        .route(
-            "/api/agent-runs/{pane_id}/log",
-            get(pane_routes::agent_run_log),
-        )
-        .route("/api/panes/{id}/text", get(pane_routes::get_pane_text))
-        .route(
-            "/api/panes/{id}/shell-commands",
-            get(pane_routes::shell_command_snapshot),
-        )
-        .route("/api/panes/{id}/usage", get(pane_routes::get_pane_usage))
-        .route("/api/panes/{id}/exec", post(pane_routes::exec_in_pane))
-        .route(
-            "/api/panes/{id}/capture/start",
-            post(pane_routes::start_capture),
-        )
-        .route(
-            "/api/panes/{id}/capture/stop",
-            post(pane_routes::stop_capture),
-        )
-        .route("/api/panes/{id}/resize", post(pane_routes::resize_pane))
-        .route(
-            "/api/panes/{id}/resize-owner",
-            post(pty_routes::claim_resize_owner),
-        )
-        .route("/api/panes/{id}/link-pty", post(pane_routes::link_pty))
-        .route(
-            "/api/agents/providers/{id}/install-in-pane",
-            post(agent_routes::install_provider_in_pane),
-        )
         .route("/api/app/restart", post(network_routes::restart_app))
-        .route("/api/panes/{id}/chat", get(pane_chat_routes::snapshot))
-        .route("/api/panes/{id}/chat/start", post(pane_chat_routes::start))
-        .route("/api/panes/{id}/chat/stop", post(pane_chat_routes::stop))
-        .route(
-            "/api/panes/{id}/chat/backfill",
-            post(pane_chat_routes::backfill),
-        )
-        .route(
-            "/api/panes/{id}/delayed-messages",
-            get(delayed_send_routes::list).post(delayed_send_routes::create),
-        )
-        .route(
-            "/api/delayed-messages/{id}",
-            axum::routing::patch(delayed_send_routes::update).delete(delayed_send_routes::delete),
-        )
-        .route(
-            "/api/delayed-messages/{id}/send-now",
-            post(delayed_send_routes::send_now),
-        )
         .route("/api/serve-file", get(notification_routes::serve_file))
         .route(
             "/api/notifications",
@@ -375,61 +316,12 @@ pub fn create_router(state: AppState) -> Router {
             "/api/setup/hooks/uninstall",
             post(theme_routes::uninstall_hooks_api),
         )
-        .route(
-            "/api/panes/{id}/role",
-            post(agent_routes::set_pane_role).delete(agent_routes::clear_pane_role),
-        )
-        .route(
-            "/api/panes/{id}/make-orchestrator",
-            post(agent_routes::make_orchestrator),
-        )
-        .route("/api/panes/{id}/status", get(agent_routes::get_pane_status))
-        .route("/api/panes/{id}/report", post(agent_routes::submit_report))
-        .route("/api/panes/{id}/reports", get(agent_routes::get_reports))
-        .route(
-            "/api/panes/{id}/can-spawn",
-            post(agent_routes::set_can_spawn),
-        )
-        .route(
-            "/api/panes/{id}/agent/restart",
-            post(agent_routes::agent_restart_handler),
-        )
-        .route(
-            "/api/panes/{id}/agent-type",
-            post(agent_routes::set_agent_type),
-        )
-        .route(
-            "/api/panes/{id}/prompt/respond",
-            post(agent_routes::respond_prompt),
-        )
-        .route(
-            "/api/panes/{id}/prompt/clear",
-            post(agent_routes::clear_prompt),
-        )
-        .route(
-            "/api/panes/{id}/hook/permission",
-            post(hook_routes::hook_permission),
-        )
-        .route("/api/panes/{id}/hook/stop", post(hook_routes::hook_stop))
-        .route(
-            "/api/panes/{id}/hook/session_start",
-            post(hook_routes::hook_session_start),
-        )
-        .route(
-            "/api/agents/providers",
-            get(agent_routes::list_agent_providers),
-        )
-        .route(
-            "/api/remote-workers",
-            get(agent_routes::remote_workers)
-                .post(agent_routes::record_remote_worker)
-                .delete(agent_routes::forget_remote_worker),
-        )
         .route("/api/debug/clock", get(debug_routes::clock_status))
         .route(
             "/api/debug/clock/advance",
             post(debug_routes::clock_advance),
         );
+    let router = pane_agent_routes::mount(router);
     #[cfg(debug_assertions)]
     let router = router.route(
         "/api/dev/inject-cast",

@@ -77,4 +77,3 @@ impl SpawnAgentParams {
         crate::service::role_profile::normalize_spawn_params(self);
     }
 }
-

@@ -158,7 +158,12 @@ impl PlanStore {
         })
     }
 
-    pub(super) fn with_plan<T, F>(&self, id: &str, now_ms: u64, f: F) -> Result<T, PlanError>
+    pub(in crate::service::plan) fn with_plan<T, F>(
+        &self,
+        id: &str,
+        now_ms: u64,
+        f: F,
+    ) -> Result<T, PlanError>
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
@@ -500,3 +505,4 @@ impl PlanStore {
         }
         Ok(())
     }
+}

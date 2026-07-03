@@ -1,6 +1,9 @@
 use super::lane_metadata::{apply_lane_update, normalize_lane_metadata};
 use super::readback::pending_after_verified;
-use super::{NewTask, OpenSubtask, PlanError, PlanStore};
+use super::{
+    plan_index_write_error, qa, section_links, tag_model, task_attempts, NewTask, OpenSubtask,
+    PlanError, PlanStore, TaskLaneUpdate,
+};
 use crate::plan::{
     AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
     PlannerRef, Section, TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
@@ -202,7 +205,6 @@ pub(super) fn validate_task_status_transition(
     }
     Ok(())
 }
-
 
 mod plan_ops;
 mod task_ops;

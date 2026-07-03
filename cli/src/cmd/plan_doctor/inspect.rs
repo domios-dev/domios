@@ -8,7 +8,7 @@ use crate::cmd::plan_local::plan_id_from;
 
 use super::{plan_id, Finding};
 
-pub(crate) fn inspect_stray_sidecars(
+pub(super) fn inspect_stray_sidecars(
     project_root: &Path,
     canonical_path: &Path,
     plan: &Value,
@@ -91,7 +91,7 @@ fn plan_stem(id: &str) -> &str {
     }
 }
 
-pub(crate) fn inspect_plan(path: &Path, plan: &Value, kind: &str) -> Vec<Finding> {
+pub(super) fn inspect_plan(path: &Path, plan: &Value, kind: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
     if matches!(kind, "all" | "storage") {
         findings.extend(inspect_storage(path, plan));

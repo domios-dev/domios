@@ -1,5 +1,5 @@
 use super::types::SpawnAgentParams;
-use super::ServiceContext;
+use crate::service::ServiceContext;
 
 /// A cross-mesh worker (mesh report target set, no local parent) must NOT be
 /// forced into the local Worker hierarchy — it has no local Orchestrator parent,

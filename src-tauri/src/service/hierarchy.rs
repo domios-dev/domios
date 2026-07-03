@@ -407,7 +407,7 @@ impl ServiceContext {
         let gate = plan.gates.iter().find(|g| g.id == gate_id);
         let asker_pane = gate
             .and_then(|g| g.asked_by_pane_id.as_deref())
-            .or_else(|| plan.owner.pane_id.as_deref());
+            .or(plan.owner.pane_id.as_deref());
         let Some(asker) = asker_pane else {
             return;
         };

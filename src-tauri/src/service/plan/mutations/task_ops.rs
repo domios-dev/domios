@@ -1,7 +1,7 @@
 use super::*;
 
 impl PlanStore {
-pub fn update_task(
+    pub fn update_task(
         &self,
         plan_id: &str,
         task_id: &str,
@@ -314,3 +314,4 @@ pub fn update_task(
             Ok(())
         })
     }
+}
