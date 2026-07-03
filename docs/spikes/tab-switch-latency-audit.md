@@ -77,4 +77,50 @@ so it and the broadcast path don't double-fit.
   Before: a `LONGTASK` and a burst of `resize_pty` per switch that grows with pane count.
   After: no `resize_pty` and no fit-driven longtask on a pure switch.
 
-<!-- revision: 1 -->
+## Round 2 — click-to-paint measurement (task_fd79beb6)
+
+Built a dedicated latency oracle rather than relying on inference from the resolver
+audit above: `tests/playwright/suites/13-canvas/tab-switch-latency.spec.ts` drives a
+**warm** session (every tab visited once so it's in `mountedTabIds`, matching the
+mount-once-keep-alive model) with a real workspace containing 20 terminal tabs plus a
+live plan, and toggles the Mission Control workspace-canvas overlay
+(`CanvasButton`/`data-testid="canvas-toolbar-button"`) as the plan/canvas surface. It
+measures every click with the browser's native **Event Timing API**
+(`PerformanceObserver({type:"event"})`) — an interaction entry's `duration` already
+spans input delay + processing + presentation (paint), the same signal behind the
+Interaction-to-Next-Paint web vital, so it is a faithful click-to-first-paint number
+rather than a hand-rolled `requestAnimationFrame` proxy.
+
+Result on eight's dev (post round-1 fix, N=20 mounted panes + 1 plan overlay, 24
+tab-switch clicks + 6-12 canvas-toggle clicks per run, repeated at N=12/18/20/30 for a
+scaling check):
+
+| panes | tab-switch p50 | tab-switch p95/max | canvas-toggle p50/p95/max | LONGTASK/SLOW-IPC |
+|---|---|---|---|---|
+| 12 | 32ms | 40ms | 16ms | none |
+| 18 | 32ms | 32ms | 16ms | none |
+| 20 | 32ms | 32ms | 16ms | none |
+| 30 | 24ms | 40ms | 16ms | none |
+
+Flat across 12→30 mounted panes, comfortably under the 150ms budget, with zero
+`[SLOW-IPC]`/`[LONGTASK]` samples in any run. Round 1's O(N)→O(1) resize/refit fix was
+the only resolver on this path (per the root-cause analysis above); this round confirms
+empirically that fixing it was sufficient — there is no further bottleneck to chase on
+the render/mount path at this scale. `SidebarWorkspaceTabs`/`Sidebar` are unmemoized
+(full re-render on every `mux-state-changed`) but this did not show up as measurable
+cost, because `TabItem`'s custom comparator (`tabItemPropsEqual`,
+`src/components/Sidebar/TabItem.tsx:336`) already bails the two changed rows' children
+from re-rendering; flagged here as a future micro-opt candidate only if a heavier
+Sidebar payload (many workspaces, deep hierarchy trees) is ever shown to move the
+number.
+
+Incidentally hardened `tests/playwright/helpers/dev-console.ts`'s `waitForShell`: a
+fresh Playwright context has no prior service-worker controller, so
+`src/lib/serviceWorkerRegistration.ts`'s `controllerchange` → `location.reload()` can
+fire moments after `#root` attaches, destroying the harness's own execution context.
+This pre-existing race blocked every web-mode UI test (not just this one) after a dev
+restart; `waitForShell` now retries its own sequence once on that specific error.
+
+Verification: `CT_E2E_PORT=7686 npx playwright test -c tests/playwright -g "tab-switch-latency" --workers=1 --project=full`.
+
+<!-- revision: 2 -->
