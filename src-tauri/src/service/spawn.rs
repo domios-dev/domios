@@ -312,12 +312,6 @@ impl ServiceContext {
             self.create_notification(model_fallback_notice_title(notice), None, Some("warning"));
         }
 
-        let title = spec
-            .title
-            .clone()
-            .or_else(|| agent.agent_name.clone())
-            .unwrap_or_else(|| agent_cmd.clone());
-
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
             let id = resolve_spawn_workspace_id(
@@ -398,8 +392,15 @@ impl ServiceContext {
                     pane.chat_view = true;
                 }
             }
-            if let Err(e) = mux.rename_pane(&result.1, &title) {
-                log::warn!("[spawn] rename_pane failed: {}", e);
+            // Keep the create_tab-generated name unless an explicit title or a
+            // real agent name was supplied — the raw provider id is never a title.
+            if let Some((title, level)) = super::spawn_title::creation_title_override(
+                spec.title.as_deref(),
+                agent.agent_name.as_deref(),
+            ) {
+                if let Err(e) = mux.rename_pane_at_level(&result.1, &title, level) {
+                    log::warn!("[spawn] rename_pane failed: {}", e);
+                }
             }
             if agent.activate.unwrap_or(false) {
                 let _ = mux.set_active_tab(&ws_id, &result.0);

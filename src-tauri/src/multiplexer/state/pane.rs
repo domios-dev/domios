@@ -293,6 +293,54 @@ mod display_label_tests {
         assert_eq!(state.display_label_for_pane(&pane_id), generated);
     }
 
+    /// Reproduces the web/CLI agent-spawn title decision: `create_tab` picks a
+    /// friendly name, then the spawn path decides whether to override it via
+    /// `creation_title_override`. A no-title, no-agent-name spawn (the "+ New
+    /// session" case that regressed to showing "cursor"/"codex") must keep the
+    /// generated name — never the raw provider id.
+    #[test]
+    fn agent_spawn_with_no_explicit_title_keeps_generated_name() {
+        let (mut state, _root) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let (_tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+        let generated = state.get_pane(&pane_id).unwrap().title.clone();
+
+        let provider_id = "cursor";
+        let override_decision = crate::service::spawn_title::creation_title_override(None, None);
+        assert!(
+            override_decision.is_none(),
+            "no title/agent_name supplied: spawn must not compute a fallback title"
+        );
+        if let Some((title, level)) = override_decision {
+            state.rename_pane_at_level(&pane_id, &title, level).unwrap();
+        }
+
+        let final_title = state.get_pane(&pane_id).unwrap().title.clone();
+        assert_eq!(
+            final_title, generated,
+            "no-title agent spawn must keep the create_tab-generated name"
+        );
+        assert_ne!(
+            final_title, provider_id,
+            "the raw provider id must never become the pane title"
+        );
+    }
+
+    #[test]
+    fn agent_spawn_with_agent_name_overrides_generated_name_at_user_level() {
+        let (mut state, _root) = MultiplexerState::new();
+        let ws_id = state.workspaces.first().map(|w| w.id.clone()).unwrap();
+        let (_tab_id, pane_id) = state.create_tab(&ws_id).unwrap();
+
+        let (title, level) =
+            crate::service::spawn_title::creation_title_override(None, Some("Watson")).unwrap();
+        state.rename_pane_at_level(&pane_id, &title, level).unwrap();
+
+        let pane = state.get_pane(&pane_id).unwrap();
+        assert_eq!(pane.title, "Watson");
+        assert_eq!(pane.title_level, TitleLevel::User);
+    }
+
     #[test]
     fn display_label_falls_back_to_short_id_when_everything_empty() {
         let (mut state, pane_id) = MultiplexerState::new();
