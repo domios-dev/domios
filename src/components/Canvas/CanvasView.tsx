@@ -3,8 +3,6 @@ import { X } from "lucide-react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig, Pane, Workspace } from "../../lib/types";
 import { useMultiplexer } from "../../store/multiplexer";
-import { CanvasComposer } from "./CanvasComposer";
-import type { OverlayRef } from "./canvasContext";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
 import { CanvasToolbar } from "./CanvasToolbar";
@@ -382,12 +380,6 @@ export function CanvasViewInner({
   // UX-2 READ surface: the node whose fullscreen detail is open (null = none). It
   // OVERLAYS the map without moving the camera, so closing returns to the exact spot.
   const [detailNodeId, setDetailNodeId] = useState<string | null>(null);
-  // The open overlay node, as the floating composer's primary referent (overlay wins).
-  const composerOverlayRef = useMemo<OverlayRef | null>(() => {
-    if (!detailNodeId) return null;
-    const n = lookups.nodeById.get(detailNodeId);
-    return n ? { id: n.id, kind: n.kind, planId: n.planId } : null;
-  }, [detailNodeId, lookups.nodeById]);
   const nav = useCanvasNavHistory();
 
   const {
@@ -609,14 +601,6 @@ export function CanvasViewInner({
   // Fly-arrival blink + off-screen-change plan pulse → one emphasis-ring set on the canvas.
   const blinkSet = useMemo(() => new Set<string>([...blinkIds, ...pulsePlanIds]), [blinkIds, pulsePlanIds]);
   const highlightIds = highlight?.taskIds ?? null;
-
-  const viewportCenter = useMemo(
-    () => ({
-      x: (size.width / 2 - transform.x) / transform.scale,
-      y: (size.height / 2 - transform.y) / transform.scale,
-    }),
-    [size.width, size.height, transform.x, transform.y, transform.scale],
-  );
 
   const fitView = useCallback(() => fitToView(layout.bounds), [fitToView, layout.bounds]);
   const resetView = useCallback(() => {
@@ -868,16 +852,6 @@ export function CanvasViewInner({
           viewport={size}
           hiddenNodeIds={sceneLod.hiddenNodeIds}
           lodMarkers={sceneLod.markers}
-        />
-      )}
-      {api && filteredPlans.length > 0 && (
-        <CanvasComposer
-          api={api}
-          plans={filteredPlans}
-          layout={layout}
-          viewportCenter={viewportCenter}
-          overlay={composerOverlayRef}
-          panes={panes}
         />
       )}
       {api && mode === "workspace" && <CanvasUnownedTray api={api} claimOwner={claimOwner} />}

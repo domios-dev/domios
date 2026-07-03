@@ -1,18 +1,9 @@
 import { baseUrl, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
 
-// Canvas → daemon calls that are NOT plan CRUD (those live in plansApi.ts): sending a
-// message to a pane and spawning an orchestrator agent. One typed boundary so canvas
-// components never hand-roll fetch against the daemon.
-
-export async function sendToPane(api: ApiConfig, paneId: string, text: string): Promise<void> {
-  const res = await fetch(`${baseUrl(api)}/api/panes/${encodeURIComponent(paneId)}/send`, {
-    method: "POST",
-    headers: jsonHeaders(api),
-    body: JSON.stringify({ text, enter: true }),
-  });
-  if (!res.ok) throw new Error(`send failed: ${res.status} ${await res.text()}`);
-}
+// Canvas → daemon calls that are NOT plan CRUD (those live in plansApi.ts): spawning an
+// orchestrator agent. One typed boundary so canvas components never hand-roll fetch
+// against the daemon.
 
 export interface SpawnOrchestratorOptions {
   title?: string;
