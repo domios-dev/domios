@@ -4,6 +4,7 @@ import { WebGate } from "./components/WebGate/WebGate";
 import { isMissionControlPrototypeRoute, MissionControlPrototype } from "./components/Canvas/missionControl";
 import { loadBundledPlugins } from "./lib/plugins/loader";
 import "./styles/globals.css";
+import "./components/Canvas/missionControl/missionControl.css";
 
 const root = document.getElementById("root")!;
 const missionControlPrototype = isMissionControlPrototypeRoute();
