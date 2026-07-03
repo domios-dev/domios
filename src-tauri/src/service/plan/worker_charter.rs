@@ -192,6 +192,7 @@ mod tests {
                     name: "Do the thing".into(),
                     kind: "task".into(),
                     assigned_pane_id: Some("worker-pane".into()),
+                    competition: None,
                     ..Default::default()
                 },
                 2,
@@ -301,6 +302,7 @@ mod tests {
                     name: "Draft task".into(),
                     kind: "task".into(),
                     assigned_pane_id: Some("worker-pane".into()),
+                    competition: None,
                     ..Default::default()
                 },
                 2,
@@ -362,6 +364,7 @@ mod tests {
                 NewTask {
                     name: "Coordinate".into(),
                     kind: "task".into(),
+                    competition: None,
                     ..Default::default()
                 },
                 2,
@@ -383,6 +386,7 @@ mod tests {
                     name: "Assigned task".into(),
                     kind: "task".into(),
                     assigned_pane_id: Some("dual-role-pane".into()),
+                    competition: None,
                     ..Default::default()
                 },
                 4,

@@ -733,6 +733,7 @@ mod tests {
                     name: "Backend".into(),
                     kind: "implement".into(),
                     handle: Some("backend".into()),
+                    competition: None,
                     ..Default::default()
                 },
                 20,

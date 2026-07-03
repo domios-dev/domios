@@ -19,6 +19,7 @@ fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {
             NewTask {
                 name: "first".into(),
                 test_plan: Some("run focused first test".into()),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -30,6 +31,7 @@ fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {
             NewTask {
                 name: "second".into(),
                 test_plan: Some("run focused second test".into()),
+                competition: None,
                 ..Default::default()
             },
             3,

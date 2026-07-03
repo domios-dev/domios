@@ -37,6 +37,7 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
                 name: "Implement".into(),
                 kind: "implement".into(),
                 body: "task\nbody".into(),
+                competition: None,
                 ..Default::default()
             },
             3,
@@ -110,6 +111,7 @@ fn empty_markdown_sidecars_do_not_end_with_blank_lines() {
             NewTask {
                 name: "Empty task".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             4,
@@ -145,6 +147,7 @@ fn milestone_and_note_bodies_roundtrip_through_markdown_files() {
             NewTask {
                 name: "Build".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -228,6 +231,7 @@ fn task_stride_log_hydrates_when_inline_milestones_are_missing() {
             NewTask {
                 name: "Build".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -280,6 +284,7 @@ fn inline_and_stride_log_milestones_dedupe_deterministically() {
             NewTask {
                 name: "Build".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -338,6 +343,7 @@ fn save_preserves_existing_sidecar_only_stride_entries() {
             NewTask {
                 name: "Build".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -432,6 +438,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         body: String::new(),
         role_guidance: None,
         executor_role: None,
+        competition: None,
         intent: None,
         parent_task_id: None,
         assigned_pane_id: None,
@@ -530,6 +537,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         body: String::new(),
         role_guidance: None,
         executor_role: None,
+        competition: None,
         intent: None,
         parent_task_id: None,
         assigned_pane_id: None,
@@ -594,6 +602,7 @@ fn plan_file_manifest_lists_milestone_and_canvas_body_paths() {
             NewTask {
                 name: "Build".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,

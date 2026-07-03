@@ -365,6 +365,7 @@ mod tests {
                     name: "Do it".into(),
                     kind: "implement".into(),
                     section_ids: vec![plan_sec.clone()],
+                    competition: None,
                     ..Default::default()
                 },
                 14,

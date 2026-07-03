@@ -74,6 +74,8 @@ pub struct OpenLane {
     pub name: String,
     pub status: TaskStatus,
     pub executor_role: Option<String>,
+    pub competition: Option<String>,
+    pub live_competition_attempts: usize,
     pub review_stage: ReviewStage,
     pub qa_state: Option<QaState>,
 }
@@ -256,12 +258,19 @@ pub fn build_plan_state_snapshot(
     let open_lanes = plan
         .tasks
         .iter()
-        .filter(|t| matches!(t.status, TaskStatus::Pending | TaskStatus::InReview))
+        .filter(|t| {
+            matches!(
+                t.status,
+                TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::InReview
+            )
+        })
         .map(|t| OpenLane {
             task_id: t.id.clone(),
             name: t.name.clone(),
             status: t.status.clone(),
             executor_role: t.executor_role.clone(),
+            competition: super::competition::competition_summary(t),
+            live_competition_attempts: super::competition::live_competition_attempt_count(t),
             review_stage: t.review_stage.clone(),
             qa_state: t.qa_state.clone(),
         })
@@ -276,6 +285,8 @@ pub fn build_plan_state_snapshot(
             name: t.name.clone(),
             status: t.status.clone(),
             executor_role: t.executor_role.clone(),
+            competition: super::competition::competition_summary(t),
+            live_competition_attempts: super::competition::live_competition_attempt_count(t),
             review_stage: t.review_stage.clone(),
             qa_state: t.qa_state.clone(),
         })
@@ -454,6 +465,7 @@ mod tests {
             body: String::new(),
             role_guidance: None,
             executor_role: None,
+            competition: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: None,

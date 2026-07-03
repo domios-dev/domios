@@ -404,6 +404,7 @@ impl PlanStore {
                                     body: body.unwrap_or_default(),
                                     role_guidance: None,
                                     executor_role: None,
+                                    competition: None,
                                     intent: None,
                                     parent_task_id: None,
                                     assigned_pane_id: None,

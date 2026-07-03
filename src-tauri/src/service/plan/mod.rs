@@ -3,6 +3,7 @@ pub mod batch;
 pub mod body_files;
 pub mod canvas_elements;
 pub mod cleanup_debt;
+pub mod competition;
 pub mod element_queries;
 pub mod handoff;
 pub mod heartbeat;

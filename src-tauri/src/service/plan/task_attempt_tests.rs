@@ -103,6 +103,7 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
                 kind: "implement".into(),
                 role_guidance: Some("Review only.".into()),
                 assigned_pane_id: Some("pane_guided".into()),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -133,6 +134,7 @@ fn assignment_attempt_records_planner_role() {
             NewTask {
                 name: "plan".into(),
                 kind: "plan".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -163,6 +165,7 @@ fn task_attempt_ids_are_stable_distinct_from_executor_pane() {
                 name: "same pane".into(),
                 kind: "implement".into(),
                 body: "Run twice in same pane.".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -211,6 +214,7 @@ fn terminal_status_update_leaves_history_but_no_active_presence() {
                 name: "terminal".into(),
                 kind: "implement".into(),
                 body: "Close me.".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -272,6 +276,7 @@ fn reconcile_assignment_cleanup_closes_live_attempt_history() {
                 name: "reconcile".into(),
                 kind: "implement".into(),
                 body: "Pane vanished.".into(),
+                competition: None,
                 ..Default::default()
             },
             2,

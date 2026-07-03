@@ -183,11 +183,24 @@ pub fn render_state(val: &Value) -> String {
                     .filter(|v| !v.is_empty())
                     .map(|r| format!(" role:{r}"))
                     .unwrap_or_default();
+                let competition_part = l
+                    .get("competition")
+                    .and_then(|v| v.as_str())
+                    .filter(|v| !v.is_empty())
+                    .map(|c| {
+                        let live = l
+                            .get("live_competition_attempts")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0);
+                        format!(" competition:{c} live:{live}")
+                    })
+                    .unwrap_or_default();
                 out.push_str(&format!(
-                    "  - {} [{}]{} {}\n",
+                    "  - {} [{}]{}{} {}\n",
                     s(l, "task_id"),
                     s(l, "status"),
                     role_part,
+                    competition_part,
                     s(l, "name"),
                 ));
             }

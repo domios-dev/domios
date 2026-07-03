@@ -23,6 +23,7 @@ fn task_queries_filter_by_status() {
             NewTask {
                 name: "still-pending".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,

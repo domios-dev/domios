@@ -134,6 +134,18 @@ pub struct TaskLaneMetadata {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TaskCompetitionMetadata {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub attempts: Option<u32>,
+    #[serde(default)]
+    pub models: Vec<String>,
+    #[serde(default)]
+    pub judge_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TaskExecutionReportSnapshot {
     pub id: String,
     #[serde(default)]
@@ -192,6 +204,18 @@ pub struct TaskExecutionAttempt {
     pub reviewed_at: Option<u64>,
     #[serde(default)]
     pub closed_at: Option<u64>,
+    #[serde(default)]
+    pub competition_group_id: Option<String>,
+    #[serde(default)]
+    pub competition_lane: Option<u32>,
+    #[serde(default)]
+    pub judge_verdict: Option<String>,
+    #[serde(default)]
+    pub judge_reason: Option<String>,
+    #[serde(default)]
+    pub judged_at: Option<u64>,
+    #[serde(default)]
+    pub winner: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -434,6 +458,8 @@ pub struct Task {
     pub role_guidance: Option<String>,
     #[serde(default)]
     pub executor_role: Option<String>,
+    #[serde(default)]
+    pub competition: Option<TaskCompetitionMetadata>,
     pub intent: Option<String>,
     #[serde(default)]
     pub parent_task_id: Option<String>,

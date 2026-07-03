@@ -62,6 +62,7 @@ fn create_from_linked_worktree_persists_canonical_project_path_and_routes_sideca
                 name: "Write sidecar".into(),
                 kind: "fix".into(),
                 body: "body".into(),
+                competition: None,
                 ..Default::default()
             },
             2,

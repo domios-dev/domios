@@ -27,6 +27,7 @@ fn store_with_task(kinds: &[&str]) -> (PlanStore, String, String) {
             NewTask {
                 name: "n".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -71,6 +72,7 @@ fn generated_index_regenerates_with_current_titles() {
             NewTask {
                 name: "Old Task".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             3,
@@ -168,6 +170,7 @@ fn plan_spec_markdown_assembles_only_sections() {
                 name: "Implement".into(),
                 kind: "implement".into(),
                 body: "task body".into(),
+                competition: None,
                 ..Default::default()
             },
             4,
@@ -200,6 +203,7 @@ fn plan_file_manifest_lists_index_and_body_paths() {
             NewTask {
                 name: "Build".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             3,
@@ -300,6 +304,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         body: "inline task".into(),
         role_guidance: None,
         executor_role: None,
+        competition: None,
         intent: None,
         parent_task_id: None,
         assigned_pane_id: None,
@@ -379,6 +384,7 @@ fn add_task_supports_many_to_many_sections() {
                 name: "Dante".into(),
                 kind: "implement".into(),
                 section_ids: vec!["s1".into(), "s2".into()],
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -400,6 +406,7 @@ fn show_task_includes_parent_label_for_subtasks() {
                 name: "Child".into(),
                 kind: "implement".into(),
                 parent_task_id: Some(parent_id.clone()),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -421,6 +428,7 @@ fn add_task_persists_parent_task_id() {
                 name: "Child".into(),
                 kind: "implement".into(),
                 parent_task_id: Some(parent_id.clone()),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -440,6 +448,7 @@ fn update_task_sets_and_clears_parent_task_id() {
             NewTask {
                 name: "Child".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -528,6 +537,7 @@ fn update_task_preserves_model_when_patching_parent() {
                 kind: "implement".into(),
                 model: Some("opus".into()),
                 model_rationale: Some("deep reasoning".into()),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -871,6 +881,7 @@ fn list_tasks_is_strictly_project_scoped() {
             NewTask {
                 name: "only-a".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             3,
@@ -882,6 +893,7 @@ fn list_tasks_is_strictly_project_scoped() {
             NewTask {
                 name: "only-b".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             4,
@@ -939,6 +951,7 @@ fn add_inbox_task_lands_in_reserved_plan() {
             NewTask {
                 name: "standalone".into(),
                 kind: "fix".into(),
+                competition: None,
                 ..Default::default()
             },
             3,

@@ -228,6 +228,7 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
                 test_plan: body.test_plan,
                 correctness: body.correctness,
                 body: body.body.unwrap_or_default(),
+                competition: None,
                 intent: body.intent,
                 assigned_pane_id: body.assign_pane,
                 ..Default::default()
