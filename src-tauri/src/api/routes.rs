@@ -597,6 +597,14 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/mesh/relay", post(mesh_routes::mesh_relay))
         .route(
+            "/api/mesh/relay-stream",
+            get(mesh_routes::mesh_relay_stream),
+        )
+        .route(
+            "/api/mesh/relay-asset/{peer}/{*path}",
+            get(mesh_routes::mesh_relay_asset),
+        )
+        .route(
             "/api/mesh/peers/{id}",
             axum::routing::delete(mesh_routes::mesh_unpair),
         )

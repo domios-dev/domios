@@ -22,7 +22,9 @@ pub use introduction::mesh_introduce;
 pub use pairing::{
     mesh_pair_accept, mesh_pair_confirm, mesh_pair_reject, mesh_pair_request, mesh_unpair,
 };
-pub use relay::{mesh_relay, mesh_relay_to_peer, mesh_sync};
+pub use relay::{
+    mesh_relay, mesh_relay_asset, mesh_relay_stream, mesh_relay_to_peer, mesh_sync,
+};
 
 pub async fn mesh_ping() -> Json<serde_json::Value> {
     Json(serde_json::json!({"mesh": true}))

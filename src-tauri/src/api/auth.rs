@@ -55,6 +55,13 @@ fn is_custom_auth(method: &Method, path: &str) -> bool {
     if path == "/api/mesh/relay" || path == "/api/mesh/introduce" {
         return true;
     }
+    // Relayed peer plugin-UI assets: an iframe `src` can't send a Bearer header,
+    // so the handler self-verifies the local token (query) on the .html entry and
+    // is read-only ui/-scoped. A prefix is safe here (unlike /peers/) — a single
+    // proxy handler owns /relay-asset/, no mutating sibling shares it.
+    if path.starts_with("/api/mesh/relay-asset/") {
+        return true;
+    }
     // Unpair: DELETE /api/mesh/peers/{id} — exactly one id segment (4 slashes),
     // distinct from POST /peers/add-manual and the deeper /peers/{id}/… routes.
     method == Method::DELETE
@@ -307,6 +314,13 @@ mod tests {
         assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
         assert!(is_custom_auth(&Method::POST, "/api/mesh/introduce"));
         assert!(is_custom_auth(&Method::DELETE, "/api/mesh/peers/abc123")); // unpair
+        // Relayed plugin-UI asset proxy: iframe src, handler self-verifies query token.
+        assert!(is_custom_auth(
+            &Method::GET,
+            "/api/mesh/relay-asset/peer1/plugins/foo/ui/index.html"
+        ));
+        // The bare route without a peer segment is not the proxy — not exempt.
+        assert!(!is_custom_auth(&Method::GET, "/api/mesh/relay-asset"));
 
         // Regression: these used to be exempted by the prefix match and were
         // therefore fully unauthenticated. They must NOT be custom-auth.
