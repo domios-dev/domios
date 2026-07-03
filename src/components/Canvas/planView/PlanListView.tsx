@@ -322,6 +322,7 @@ export function PlanListView({
                   ? () => setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections })
                   : undefined
               }
+              onOpenPane={onOpenPane}
             />
             <PlanListFilterBar
               statusFilter={statusFilter}

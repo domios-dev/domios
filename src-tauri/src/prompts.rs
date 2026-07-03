@@ -103,6 +103,18 @@ This plan has a Planner peer. Spawn the Planner with `{spawn_cmd}` if it is not 
 The orchestrator is the execution authority; the Planner is the structural authority. \
 Structural changes require Planner acknowledgment.";
 
+/// Planning-phase structure deferral. `{planner}` is filled with the resolved
+/// planner peer label. Shared by next-actions, the plan nudge, and prompts so the
+/// "defer structure to the planner during planning" wording has one source.
+pub const PEER_ORCH_DEFER_STRUCTURE_LINE: &str =
+    "Planning is not approved yet — defer GOAL/spec/plan/task-graph structure to {planner}; \
+     do not author structure or generate execution tasks yourself.";
+
+/// Fills the `{planner}` placeholder in [`PEER_ORCH_DEFER_STRUCTURE_LINE`].
+pub fn orch_defer_structure_line(planner: &str) -> String {
+    PEER_ORCH_DEFER_STRUCTURE_LINE.replace("{planner}", planner)
+}
+
 /// Hint shown when no planner is bound and no waiver is set.
 pub const PEER_WAIVER_HINT: &str = "No planner peer is bound. \
      Bind one with `codeterm plan update --planner <PANE_ID>` or waive with \

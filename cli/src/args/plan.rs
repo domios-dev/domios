@@ -164,6 +164,17 @@ pub enum PlanAction {
     Approve { plan_id: String },
     /// Return an approved/execution plan to planning mode
     Unapprove { plan_id: String },
+    /// Advance planner-owned planning state: drafting | structure_ready | approved
+    PlanningState {
+        plan_id: String,
+        #[arg(long)]
+        set: String,
+        /// Planner pane id advancing the state (records author as planner; omit = user).
+        #[arg(long)]
+        pane: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        note: Option<String>,
+    },
     /// Set explicit effort mode: planning | approved | execution | complete
     Mode {
         plan_id: String,

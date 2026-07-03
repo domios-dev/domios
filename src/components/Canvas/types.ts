@@ -48,6 +48,9 @@ export type PlannerRef =
   | { kind: "pane"; pane_id: string; session_id?: string | null; title?: string | null }
   | { kind: "waived"; note: string };
 
+export type PlanMode = "planning" | "approved" | "execution" | "complete";
+export type PlanningState = "drafting" | "structure_ready" | "approved";
+
 export interface TaskLaneMetadata {
   pane_id?: string | null;
   workspace_id?: string | null;
@@ -271,6 +274,8 @@ export interface Plan {
   title: string;
   sections: Section[];
   status: PlanStatus;
+  mode?: PlanMode;
+  planning_state?: PlanningState;
   owner: OrchestratorRef;
   planner?: PlannerRef | null;
   project_path: string;

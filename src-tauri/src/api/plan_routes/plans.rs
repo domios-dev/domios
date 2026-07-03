@@ -7,7 +7,9 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{OrchestratorRef, PlanMode, PlanStatus, PlannerRef};
+use crate::plan::{
+    OrchestratorRef, PlanMode, PlanStatus, PlannerRef, PlanningAuthor, PlanningState,
+};
 use crate::service::plan::PlanError;
 
 use super::{
@@ -289,11 +291,38 @@ pub async fn mode_set(
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let mode = serde_json::from_value::<PlanMode>(serde_json::Value::String(body.mode))
         .map_err(|_| plan_err(PlanError::BadMode))?;
-    state
-        .svc
-        .plan_store
-        .set_mode(&id, mode, epoch_ms())
-        .map_err(plan_err)?;
+    let now = epoch_ms();
+    // Planning<->approved advances planner state (mirrors mode); execution/complete
+    // are lifecycle. Keeps the single execution-task gate authoritative.
+    match mode {
+        PlanMode::Approved => state
+            .svc
+            .plan_store
+            .set_planning_state(
+                &id,
+                PlanningState::Approved,
+                PlanningAuthor::User,
+                None,
+                now,
+            )
+            .map_err(plan_err)?,
+        PlanMode::Planning => state
+            .svc
+            .plan_store
+            .set_planning_state(
+                &id,
+                PlanningState::StructureReady,
+                PlanningAuthor::User,
+                None,
+                now,
+            )
+            .map_err(plan_err)?,
+        PlanMode::Execution | PlanMode::Complete => state
+            .svc
+            .plan_store
+            .set_mode(&id, mode, now)
+            .map_err(plan_err)?,
+    }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }

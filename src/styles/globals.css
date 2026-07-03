@@ -2192,6 +2192,54 @@ button,
   border-radius: 0.55rem;
   background: color-mix(in srgb, var(--ct-bg) 94%, var(--ct-surface));
 }
+.plan-context-header-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+}
+.plan-context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  border: 1px solid var(--ct-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ct-bg) 88%, var(--ct-surface));
+  color: var(--ct-fg);
+}
+.plan-state-chip {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.plan-state-chip.plan-state-approved {
+  border-color: color-mix(in srgb, var(--ct-success, #3fb950) 60%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-success, #3fb950) 16%, var(--ct-bg));
+}
+.plan-state-chip.plan-state-drafting,
+.plan-state-chip.plan-state-structure_ready {
+  border-color: color-mix(in srgb, var(--ct-warning, #d29922) 55%, var(--ct-border));
+  background: color-mix(in srgb, var(--ct-warning, #d29922) 12%, var(--ct-bg));
+}
+button.plan-peer-chip {
+  cursor: pointer;
+}
+button.plan-peer-chip:hover,
+button.plan-peer-chip:focus-visible {
+  border-color: var(--ct-accent, #58a6ff);
+}
+.plan-peer-chip-role {
+  opacity: 0.65;
+  text-transform: uppercase;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+}
+.plan-peer-chip-static {
+  opacity: 0.85;
+}
 .plan-context-header-primary {
   display: flex;
   flex-wrap: wrap;
