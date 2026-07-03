@@ -39,7 +39,6 @@ export type Action =
   | { type: "CLEAR_NOTIFICATIONS" }
   | { type: "DISMISS_TOAST"; id: string }
   | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
-  | { type: "SET_TAB_TITLE"; workspaceId: string; tabId: string; title: string }
   | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
   | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus }
   | { type: "RESET_GENERATION" };
@@ -95,7 +94,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         // Level alone can't tell a genuine in-flight local rename (must win a
         // tie) from a title merely carried over from a stale snapshot or cache
         // hydration (must yield to the backend on a tie) — only the former
-        // sets title_pending_local (see SET_PANE_TITLE/SET_TAB_TITLE below).
+        // sets title_pending_local (see SET_PANE_TITLE below).
         const keepFrontendTitle =
           existing &&
           existing.title_pending_local === true &&
@@ -398,25 +397,6 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             ...pane,
             title: action.title,
             title_level: newLevel,
-            title_pending_local: true,
-          },
-        },
-      };
-    }
-
-    case "SET_TAB_TITLE": {
-      const workspace = state.workspaces.find((ws) => ws.id === action.workspaceId);
-      const tab = workspace?.tabs.find((candidate) => candidate.id === action.tabId);
-      const pane = tab ? state.panes[tab.pane_id] : undefined;
-      if (!pane) return state;
-      return {
-        ...state,
-        panes: {
-          ...state.panes,
-          [pane.id]: {
-            ...pane,
-            title: action.title,
-            title_level: TitleLevel.User,
             title_pending_local: true,
           },
         },

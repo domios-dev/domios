@@ -354,7 +354,6 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.uiFontScale !== next.uiFontScale ||
     prev.index !== next.index ||
     prev.tab.id !== next.tab.id ||
-    prev.tab.title !== next.tab.title ||
     prev.tab.description !== next.tab.description
   ) return false;
 
@@ -377,9 +376,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
   if (!pp || !np) return false;
   return (
     pp.id === np.id &&
-    // displayTitleForTab prefers pane.title over tab.title, so a rename that
-    // lands only on the pane (resync/reconcile) must re-render — omitting these
-    // left the tab painting a stale title after wake/cache-reconcile.
+    // pane.title is the sole title source; omitting these left the tab painting
+    // a stale label after wake/cache-reconcile.
     pp.title === np.title &&
     pp.title_level === np.title_level &&
     pp.description === np.description &&

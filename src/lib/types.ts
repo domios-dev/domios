@@ -50,7 +50,6 @@ export interface ClosedPaneView extends ClosedPane {
 
 export interface Tab {
   id: string;
-  title?: string;
   description?: string | null;
   /** One pane per tab. Split layouts were removed. */
   pane_id: string;

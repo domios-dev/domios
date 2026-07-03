@@ -457,6 +457,27 @@ test("a genuine pending-local User rename survives an interim snapshot, then con
   );
 });
 
+test("SET_PANE_TITLE at User level pins title for tab rename round-trip", () => {
+  const hydrated = reducer(base(), {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "Tab 3", TitleLevel.Default) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 1,
+    },
+  });
+  const renamed = reducer(hydrated, {
+    type: "SET_PANE_TITLE",
+    paneId: "p1",
+    title: "Renamed Tab",
+    level: TitleLevel.User,
+  });
+  assert(renamed.panes.p1.title === "Renamed Tab", "User rename applied on pane");
+  assert(renamed.panes.p1.title_pending_local === true, "rename marked pending until backend sync");
+});
+
 test("RESET_GENERATION lets a low post-restart snapshot apply over a high stale generation", () => {
   // Regression for the boot-changed / daemon-restart structure-resync bug: a
   // long-lived web client accumulates a high generation, the daemon restarts

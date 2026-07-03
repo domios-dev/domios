@@ -616,7 +616,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setTabTitle = useCallback((workspaceId: string, tabId: string, title: string) => {
-    dispatch({ type: "SET_TAB_TITLE", workspaceId, tabId, title });
+    const workspace = stateRef.current.workspaces.find((ws) => ws.id === workspaceId);
+    const tab = workspace?.tabs.find((candidate) => candidate.id === tabId);
+    const paneId = tab?.pane_id;
+    if (!paneId) return;
+    dispatch({ type: "SET_PANE_TITLE", paneId, title, level: TitleLevel.User });
   }, []);
 
   const setAgentType = useCallback((paneId: string, agentType: string | null) => {
