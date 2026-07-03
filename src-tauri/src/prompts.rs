@@ -98,6 +98,8 @@ mod tests {
     fn operational_prompts_keep_clarity_fixes() {
         assert!(WORKER_SUFFIX.contains("STATUS: done | blocked | partial"));
         assert!(WORKER_SUFFIX.contains("BUILD/TYPECHECK/TESTS:"));
+        assert!(WORKER_SUFFIX.contains("focused, lane-local checks"));
+        assert!(WORKER_SUFFIX.contains("warm integration checkout"));
         assert!(BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("{general_dir}/bootstrap.md"));
         assert!(!BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("rm bootstrap.md"));
         assert!(BRIDGE_MEM.contains("provider skill named `codeterm`"));
@@ -131,5 +133,7 @@ mod tests {
         assert!(ORCHESTRATION_DOC.contains("fall back to `opus`"));
         assert!(ORCHESTRATION_DOC.contains("Planner-authored `role_guidance`"));
         assert!(ORCHESTRATION_DOC.contains("CodeTerm planner"));
+        assert!(ORCHESTRATION_DOC.contains("Parallel writers, serialized gates"));
+        assert!(ORCHESTRATION_DOC.contains("warm integration checkout"));
     }
 }
