@@ -1,5 +1,6 @@
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{Plan, PlanMode, PlanStatus, TaskStatus};
+use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::{ServiceContext, ServiceState};
 use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -297,6 +298,7 @@ fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
     for plan in plans.iter().filter(|plan| {
         plan.status == PlanStatus::Active
             && plan.mode == PlanMode::Execution
+            && !is_plan_complete(plan)
             && plan
                 .tasks
                 .iter()
@@ -311,10 +313,11 @@ fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
             );
         }
     }
-    for plan in plans
-        .iter()
-        .filter(|plan| plan.status == PlanStatus::Active && plan.mode == PlanMode::Execution)
-    {
+    for plan in plans.iter().filter(|plan| {
+        plan.status == PlanStatus::Active
+            && plan.mode == PlanMode::Execution
+            && !is_plan_complete(plan)
+    }) {
         for task in plan.tasks.iter().filter(|task| {
             matches!(
                 task.status,
@@ -593,5 +596,53 @@ mod tests {
         assert!(idle_frontier_for_poke(Some(("plan-1".into(), 0, 0)), 3).is_none());
         assert!(idle_frontier_for_poke(Some(("plan-1".into(), 2, 1)), 0).is_none());
         assert!(idle_frontier_for_poke(None, 3).is_none());
+    }
+
+    #[test]
+    fn timed_targets_silent_for_all_done_and_complete_mode_plans() {
+        // Execution plan where all tasks are Done — no nudges for owner or workers.
+        let all_done = plan(
+            "pl_done",
+            "orch-done",
+            PlanMode::Execution,
+            vec![
+                task("t1", TaskStatus::Done, Some("w1")),
+                task("t2", TaskStatus::Done, Some("w2")),
+                task("t3", TaskStatus::Cancelled, Some("w3")),
+            ],
+        );
+        // Complete mode plan with open-looking task — still silent.
+        let mut complete_mode = plan(
+            "pl_complete",
+            "orch-complete",
+            PlanMode::Execution,
+            vec![task("t4", TaskStatus::Done, None)],
+        );
+        complete_mode.mode = PlanMode::Complete;
+
+        let targets = timed_plan_reminder_targets(&[all_done, complete_mode]);
+        assert!(
+            targets.is_empty(),
+            "complete plans must produce zero timed reminder targets: {targets:?}"
+        );
+    }
+
+    #[test]
+    fn timed_targets_fire_for_in_review_open_work() {
+        // InReview is open work: plan is NOT complete, owner should be nudged.
+        let plans = vec![plan(
+            "pl_review",
+            "orch-review",
+            PlanMode::Execution,
+            vec![
+                task("t_done", TaskStatus::Done, None),
+                task("t_review", TaskStatus::InReview, Some("worker-review")),
+            ],
+        )];
+        let targets = timed_plan_reminder_targets(&plans);
+        assert!(
+            targets.iter().any(|t| t.pane_id == "orch-review"),
+            "in_review open work must keep plan non-complete and owner nudge-eligible"
+        );
     }
 }

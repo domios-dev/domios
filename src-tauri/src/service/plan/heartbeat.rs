@@ -304,6 +304,9 @@ fn prepend_heartbeat(
 }
 
 pub(super) fn prepend_plan_heartbeat(plan: &Plan, text: &str) -> String {
+    if is_plan_complete(plan) {
+        return text.to_string();
+    }
     let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops);
     let prompt = reconciliation_prompt(&plan.id, plan.owner.pane_id.as_deref());
     let reconciliation = format!(
@@ -335,6 +338,17 @@ fn has_open_work(plan: &Plan) -> bool {
     plan.tasks
         .iter()
         .any(|task| task.status.counts_as_open_work())
+}
+
+/// A plan is complete when explicitly marked Complete OR when it is in Execution
+/// mode and every task has finished (no task counts as open work). This is the
+/// single source of truth used to gate ALL orchestrator nudge families: a complete
+/// plan must produce zero reconciliation/reminder injections.
+pub fn is_plan_complete(plan: &Plan) -> bool {
+    plan.mode == PlanMode::Complete
+        || (plan.mode == PlanMode::Execution
+            && !plan.tasks.is_empty()
+            && !has_open_work(plan))
 }
 
 fn owner_matches(plan: &Plan, pane_id: Option<&str>, session_id: Option<&str>) -> bool {
