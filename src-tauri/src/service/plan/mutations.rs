@@ -502,7 +502,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<String, PlanError> {
         let mid = self.mint_id("ms");
-        self.with_plan(plan_id, now_ms, |p| {
+        let write = self.with_plan(plan_id, now_ms, |p| {
             let declared = p.milestone_kinds.iter().any(|k| k.key == kind);
             if !declared {
                 if add_kind {
@@ -534,7 +534,12 @@ impl PlanStore {
                 canvas: Default::default(),
             });
             Ok(())
-        })?;
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_milestone_added(plan_id, task_id, &mid, kind, text),
+            Some(task_id.to_string()),
+        )?;
         Ok(mid)
     }
 
@@ -893,7 +898,7 @@ impl PlanStore {
     }
 
     pub fn rm_task(&self, plan_id: &str, task_id: &str, now_ms: u64) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
+        let write = self.with_plan(plan_id, now_ms, |p| {
             let pos = p
                 .tasks
                 .iter()
@@ -901,7 +906,12 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             p.tasks.remove(pos);
             Ok(())
-        })
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_removed(plan_id, task_id),
+            Some(task_id.to_string()),
+        )
     }
 
     pub fn rm_all_tasks(&self, plan_id: &str, now_ms: u64) -> Result<usize, PlanError> {
