@@ -46,29 +46,29 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
           : undefined,
       }}
     >
-      <div className="plan-board-task-card-top">
-        <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
-          {task.name}
-        </h4>
-        <span
-          data-testid="plan-board-task-status"
-          className="plan-board-task-status"
-          style={{ background: statusColor }}
-        >
-          {statusText(task)}
-        </span>
-      </div>
+      <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
+        {task.name}
+      </h4>
+      <span
+        data-testid="plan-board-task-status"
+        className="plan-board-task-status"
+        style={{ background: statusColor }}
+      >
+        {statusText(task)}
+      </span>
       {handle && (
-        <div className="plan-board-task-card-head">
-          <span data-testid="plan-board-task-handle" className="plan-board-task-handle">
-            <Hash size={9} strokeWidth={2.5} aria-hidden />
-            {handle}
+        <p data-testid="plan-board-task-handle" className="plan-board-task-meta plan-board-task-handle">
+          <span className="plan-board-task-meta-icon" aria-hidden>
+            <Hash size={9} strokeWidth={2.5} />
           </span>
-        </div>
+          <span className="min-w-0 truncate">{handle}</span>
+        </p>
       )}
       {card.presenceLabel && (
         <p data-testid="plan-board-task-active-executor" className="plan-board-task-meta">
-          <User size={11} aria-hidden className="shrink-0 opacity-70" />
+          <span className="plan-board-task-meta-icon" aria-hidden>
+            <User size={11} className="opacity-70" />
+          </span>
           <span className="min-w-0 break-words">
             {[card.presenceLabel, card.roleLabel].filter(Boolean).join(" · ")}
           </span>
@@ -76,20 +76,27 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       )}
       {card.historicalExecutorSummary && !card.presenceLabel && (
         <p data-testid="plan-board-task-historical-executor" className="plan-board-task-meta plan-board-task-historical">
-          <History size={11} aria-hidden className="shrink-0 opacity-60" />
+          <span className="plan-board-task-meta-icon" aria-hidden>
+            <History size={11} className="opacity-60" />
+          </span>
           <span className="min-w-0 break-words">{card.historicalExecutorSummary}</span>
         </p>
       )}
       {card.branch && (
         <p data-testid="plan-board-task-lane" className="plan-board-task-meta plan-board-task-lane">
-          <GitBranch size={11} aria-hidden className="shrink-0 opacity-70" />
+          <span className="plan-board-task-meta-icon" aria-hidden>
+            <GitBranch size={11} className="opacity-70" />
+          </span>
           <span className="min-w-0 truncate">{card.branch}</span>
         </p>
       )}
       {card.activityHint && (
-        <p data-testid="plan-board-task-activity" className="plan-board-task-activity">
-          <span className="plan-board-task-activity-kind">{card.activityHint.kind}</span>
-          <span className="plan-board-task-activity-age">{card.activityHint.ageLabel}</span>
+        <p data-testid="plan-board-task-activity" className="plan-board-task-meta plan-board-task-activity">
+          <span className="plan-board-task-meta-icon" aria-hidden />
+          <span className="plan-board-task-activity-text">
+            <span className="plan-board-task-activity-kind">{card.activityHint.kind}</span>
+            <span className="plan-board-task-activity-age">{card.activityHint.ageLabel}</span>
+          </span>
         </p>
       )}
     </article>
