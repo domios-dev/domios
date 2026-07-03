@@ -1,6 +1,7 @@
 use super::{
-    ledger_with_live_children, milestone_text, report_task_status_transition, resolve_plan_ctx,
-    resolve_report_target, worker_death_report, ReportTarget,
+    is_explicit_plan_foreign, ledger_with_live_children, milestone_text,
+    report_task_status_transition, resolve_plan_ctx, resolve_report_target, worker_death_report,
+    ReportTarget,
 };
 use crate::agent::ledger::LedgerRow;
 use crate::agent::reports::{ReportStatus, ReportStore};
@@ -676,5 +677,72 @@ fn local_default_target_yields_no_mesh_peer_for_homing() {
     assert!(
         default_mesh_peer.is_none(),
         "local target must not produce a mesh peer"
+    );
+}
+
+// ── is_explicit_plan_foreign routing gate ────────────────────────────────────
+
+#[test]
+fn foreign_when_explicit_not_in_store() {
+    // plan_id provided but resolve_plan_ctx couldn't find it — eff is None.
+    assert!(
+        is_explicit_plan_foreign(Some("pl_remote"), None),
+        "explicit plan not found locally must be foreign"
+    );
+}
+
+#[test]
+fn foreign_when_explicit_overridden_by_local_binding() {
+    // resolve_plan_ctx fell through to a local binding — explicit ref must still win.
+    assert!(
+        is_explicit_plan_foreign(Some("pl_remote"), Some("pl_local_binding")),
+        "explicit plan overridden by a different local plan must be foreign"
+    );
+}
+
+#[test]
+fn not_foreign_when_explicit_found_locally() {
+    // resolve_plan_ctx matched the explicit plan id in the local store.
+    assert!(
+        !is_explicit_plan_foreign(Some("pl_local"), Some("pl_local")),
+        "explicit plan found locally is NOT foreign"
+    );
+}
+
+#[test]
+fn not_foreign_when_no_explicit_plan() {
+    // No --plan flag provided — pane-binding auto-resolution, always local.
+    assert!(
+        !is_explicit_plan_foreign(None, Some("pl_auto")),
+        "no explicit plan means no homing needed"
+    );
+}
+
+#[test]
+fn not_foreign_for_empty_explicit_plan() {
+    // Empty/whitespace --plan should be treated as absent.
+    assert!(
+        !is_explicit_plan_foreign(Some("  "), Some("pl_local")),
+        "whitespace-only plan id is not an explicit ref"
+    );
+    assert!(
+        !is_explicit_plan_foreign(Some(""), None),
+        "empty plan id is not an explicit ref"
+    );
+}
+
+#[test]
+fn resolve_plan_ctx_explicit_plan_overridden_by_binding_triggers_foreign() {
+    // Integration-style: resolve_plan_ctx falls through to local binding when
+    // the explicit plan isn't found. is_explicit_plan_foreign must detect this.
+    let (store, _local_plan, _local_task) = make_store_with_assigned_task("pane-q");
+    let mut notices = Vec::new();
+    let (eff, _) =
+        resolve_plan_ctx(&store, "pane-q", Some("pl_foreign_x"), None, &mut notices).unwrap();
+    // eff may be Some (local binding) or None (if no binding) — either way,
+    // is_explicit_plan_foreign must report true since "pl_foreign_x" != eff.
+    assert!(
+        is_explicit_plan_foreign(Some("pl_foreign_x"), eff.as_deref()),
+        "explicit plan overridden by local binding must be detected as foreign"
     );
 }
