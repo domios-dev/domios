@@ -91,13 +91,14 @@ export function toolResultPreviewLine(text: string): string {
     if (!remainder) {
       return images.length === 1 ? `Image (${ext})` : `${images.length} images`;
     }
-    const tail = remainder.split("\n").map((line) => line.trim()).filter(Boolean).at(-1);
+    const lines = remainder.split("\n").map((line) => line.trim()).filter(Boolean);
+    const tail = lines[lines.length - 1];
     if (tail) return tail;
     return images.length === 1 ? `Image (${ext})` : `${images.length} images`;
   }
-  return text
+  const lines = text
     .split("\n")
     .map((line) => line.trim())
-    .filter(Boolean)
-    .at(-1) ?? text;
+    .filter(Boolean);
+  return lines[lines.length - 1] ?? text;
 }

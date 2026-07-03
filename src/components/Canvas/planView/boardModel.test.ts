@@ -42,6 +42,8 @@ function doneCard(t: Task): BoardTaskCardModel {
     roleLabel: null,
     branch: null,
     latestNote: null,
+    loopBadge: null,
+    competeBadge: null,
     focusMatch: false,
   };
 }

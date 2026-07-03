@@ -7,7 +7,7 @@ export interface PaneCurrentTask {
 }
 
 export function isActiveTaskStatus(status: TaskStatusType): boolean {
-  return status !== TaskStatus.Done && status !== TaskStatus.Cancelled;
+  return status !== TaskStatus.Done && status !== TaskStatus.Cancelled && status !== TaskStatus.Parked;
 }
 
 // A worker pane owns its task via either binding: the explicit assignment or the
@@ -25,8 +25,9 @@ const STATUS_RANK: Record<TaskStatusType, number> = {
   [TaskStatus.InReview]: 1,
   [TaskStatus.Blocked]: 2,
   [TaskStatus.Pending]: 3,
-  [TaskStatus.Done]: 4,
-  [TaskStatus.Cancelled]: 5,
+  [TaskStatus.Parked]: 4,
+  [TaskStatus.Done]: 5,
+  [TaskStatus.Cancelled]: 6,
 };
 
 function freshnessOf(task: Task): number {
