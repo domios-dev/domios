@@ -274,6 +274,13 @@ fn provider_name_from_model(value: Option<&str>) -> Option<String> {
     split_provider_model(value).0
 }
 
+pub(super) fn live_attempt_count(task: &Task) -> usize {
+    task.execution_attempts
+        .iter()
+        .filter(|attempt| attempt.closed_at.is_none())
+        .count()
+}
+
 fn find_attempt<'a>(task: &'a Task, attempt_id: &str) -> Option<&'a TaskExecutionAttempt> {
     task.execution_attempts
         .iter()
