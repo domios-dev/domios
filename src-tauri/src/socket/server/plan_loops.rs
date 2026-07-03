@@ -42,7 +42,9 @@ fn emit_loop_plan_changed(app: &AppHandle, svc: &ServiceState, lid: &str) {
 }
 
 pub(super) fn handles(method: &str) -> bool {
-    method.starts_with("plan.loop.") || method.starts_with("plan.milestone.")
+    method.starts_with("plan.loop.")
+        || method.starts_with("plan.milestone.")
+        || method.starts_with("plan.stride.")
 }
 
 pub(super) fn dispatch(
@@ -103,6 +105,24 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
+        }
+
+        "plan.stride.add" => {
+            let id = super::plan_refs::resolve_plan(store, params)?;
+            let kind = get_string_param(params, "kind")?;
+            let text = p
+                .and_then(|x| x.get("text"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let from = p
+                .and_then(|x| x.get("from"))
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_else(|| AgentRef::from_pane("unknown"));
+            let mid = store
+                .add_plan_stride(&id, &kind, text, from, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "stride_id": mid }))
         }
 
         "plan.loop.create" => {

@@ -629,6 +629,9 @@ pub struct Plan {
     pub planning_log: Vec<crate::plan::planning_state::PlanningTransition>,
     #[serde(default)]
     pub gates: Vec<crate::plan::gates::DecisionGate>,
+    // Plan-level, task-less working points (e.g. skill ledger entries). Append-only.
+    #[serde(default)]
+    pub strides: Vec<Milestone>,
 }
 
 impl Plan {
@@ -664,6 +667,7 @@ impl Plan {
             planning_state: crate::plan::planning_state::PlanningState::default(),
             planning_log: vec![],
             gates: vec![],
+            strides: vec![],
         }
     }
 

@@ -92,7 +92,10 @@ pub struct LiveAgent {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct StrideSnapshot {
     pub id: String,
+    // Empty for plan-level (task-less) strides; see `plan_level`.
     pub task_id: String,
+    #[serde(default)]
+    pub plan_level: bool,
     pub kind: String,
     pub text: String,
     pub ts: u64,
@@ -183,6 +186,7 @@ fn recent_strides(plan: &Plan) -> Vec<StrideSnapshot> {
             task.milestones.iter().map(move |m| StrideSnapshot {
                 id: m.id.clone(),
                 task_id: task.id.clone(),
+                plan_level: false,
                 kind: m.kind.clone(),
                 text: m.text.clone(),
                 ts: m.ts,
@@ -191,6 +195,16 @@ fn recent_strides(plan: &Plan) -> Vec<StrideSnapshot> {
             })
         })
         .collect();
+    strides.extend(plan.strides.iter().map(|m| StrideSnapshot {
+        id: m.id.clone(),
+        task_id: String::new(),
+        plan_level: true,
+        kind: m.kind.clone(),
+        text: m.text.clone(),
+        ts: m.ts,
+        loop_id: m.loop_id.clone(),
+        iteration: m.iteration,
+    }));
     strides.sort_by(|a, b| b.ts.cmp(&a.ts));
     strides.truncate(RECENT_STRIDE_LIMIT);
     strides
@@ -633,6 +647,29 @@ mod tests {
         assert_eq!(snap.recent_strides.len(), RECENT_STRIDE_LIMIT);
         assert_eq!(snap.recent_strides[0].id, "k14");
         assert_eq!(snap.recent_strides[9].id, "k5");
+    }
+
+    #[test]
+    fn plan_level_strides_surface_marked_and_task_less() {
+        let mut plan = fixture();
+        for task in &mut plan.tasks {
+            task.milestones.clear();
+        }
+        plan.tasks[0].milestones = vec![milestone("task_ms", 100)];
+        plan.strides = vec![milestone("plan_ms", 200)];
+        let coverage = compute_coverage_report(&plan);
+        let snap = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
+        let plan_level: Vec<_> = snap
+            .recent_strides
+            .iter()
+            .filter(|s| s.plan_level)
+            .collect();
+        assert_eq!(plan_level.len(), 1);
+        assert_eq!(plan_level[0].id, "plan_ms");
+        assert!(plan_level[0].task_id.is_empty());
+        // Newest first: plan-level (ts 200) precedes the task milestone (ts 100).
+        assert_eq!(snap.recent_strides[0].id, "plan_ms");
+        assert!(snap.recent_strides.iter().any(|s| s.id == "task_ms" && !s.plan_level));
     }
 
     #[test]
