@@ -9,8 +9,31 @@ pub const WORKER_SUFFIX: &str = include_str!("../prompts/worker_suffix.md");
 /// Shared worker testing discipline fragment.
 pub const TESTING_DISCIPLINE: &str = include_str!("../prompts/testing_discipline.md");
 
+/// Shared QA queue discipline fragment.
+pub const QA_PIPELINE_DISCIPLINE: &str = include_str!("../prompts/qa_pipeline_discipline.md");
+
+/// Worker charter heading for loop-specific execution context.
+pub const WORKER_LOOP_CONTEXT_TITLE: &str = "Loop context:";
+
+/// Worker charter reminder to report loop iteration evidence explicitly.
+pub const WORKER_LOOP_EVIDENCE_RULE: &str =
+    "When you report, include this iteration's evidence, whether it made progress, and whether the loop should continue or stop.";
+
+/// Worker charter heading for competitive-attempt isolation.
+pub const WORKER_COMPETITIVE_CONTEXT_TITLE: &str = "Competitive context:";
+
+/// Competitive worker-attempt isolation rules shared by charter renderers and tests.
+pub const WORKER_COMPETITIVE_ISOLATION_RULES: [&str; 3] = [
+    "Work only in your own assigned lane, branch, and worktree.",
+    "Do not inspect, tail, or reuse another live attempt's pane, worktree, or branch.",
+    "The Orchestrator compares the attempts and decides the winner or next follow-up.",
+];
+
+/// Orchestrator heartbeat heading for live concurrent attempts.
+pub const HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE: &str = "Competitive attempts:";
+
 pub fn worker_suffix() -> String {
-    format!("{TESTING_DISCIPLINE}\n{WORKER_SUFFIX}")
+    format!("{TESTING_DISCIPLINE}\n{QA_PIPELINE_DISCIPLINE}\n{WORKER_SUFFIX}")
 }
 
 /// Appended to Planner-profile Worker tasks.
@@ -107,6 +130,12 @@ mod tests {
         assert!(WORKER_SUFFIX.contains("BUILD/TYPECHECK/TESTS:"));
         assert!(!TESTING_DISCIPLINE.trim().is_empty());
         assert!(worker_suffix().contains(TESTING_DISCIPLINE.trim()));
+        assert!(worker_suffix().contains(QA_PIPELINE_DISCIPLINE.trim()));
+        assert!(!WORKER_LOOP_EVIDENCE_RULE.trim().is_empty());
+        assert!(WORKER_COMPETITIVE_ISOLATION_RULES
+            .iter()
+            .all(|rule| !rule.trim().is_empty()));
+        assert!(!HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE.trim().is_empty());
         assert!(BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("{general_dir}/bootstrap.md"));
         assert!(!BOOTSTRAP_INSTRUCTIONS_TEMPLATE.contains("rm bootstrap.md"));
         assert!(BRIDGE_MEM.contains("provider skill named `codeterm`"));

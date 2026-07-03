@@ -19,6 +19,8 @@ export interface PresenceSource {
   label: string;
   /** What it's doing right now (current focus / latest stride) — quiet W2 line. */
   action?: string | null;
+  /** In-flight with no recent activity — dimmed pulse / warning tint. */
+  stale?: boolean;
 }
 
 export interface PresenceOverlay {
@@ -28,6 +30,8 @@ export interface PresenceOverlay {
   label: string;
   /** What it's doing right now — surfaced as a quiet truncated line at W2. */
   action: string | null;
+  /** In-flight with no recent activity — dimmed pulse / warning tint. */
+  stale?: boolean;
   world: World;
   /** World-space anchor — the card's top-right corner; parent layer carries the camera. */
   anchor: { x: number; y: number };
@@ -68,6 +72,7 @@ export function buildPresenceOverlays({
       live: src.live,
       label: src.label,
       action: src.action ?? null,
+      stale: src.stale === true,
       world: worldByNode.get(taskId) ?? "W0",
       anchor: { x: node.box.x + node.box.width, y: node.box.y },
       apparentWidth: node.box.width * cameraScale,

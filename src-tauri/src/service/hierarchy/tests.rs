@@ -169,6 +169,7 @@ fn make_store_with_assigned_task(pane_id: &str) -> (PlanStore, String, String) {
                 name: "my task".into(),
                 kind: "implement".into(),
                 body: "do stuff".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -253,6 +254,7 @@ fn resolve_plan_ctx_ambiguous_assignment_errors_with_list() {
                 name: "task alpha".into(),
                 kind: "implement".into(),
                 body: "".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -265,6 +267,7 @@ fn resolve_plan_ctx_ambiguous_assignment_errors_with_list() {
                 name: "task beta".into(),
                 kind: "implement".into(),
                 body: "".into(),
+                competition: None,
                 ..Default::default()
             },
             2,

@@ -16,6 +16,7 @@ fn store_with_task() -> (tempfile::TempDir, PlanStore, String, String) {
             NewTask {
                 name: "worker lane".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,

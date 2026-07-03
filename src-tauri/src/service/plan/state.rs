@@ -2,9 +2,12 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde::Serialize;
 
+use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::coverage::{compute_coverage_report, CoverageReport};
 use crate::plan::reconcile::DriftItem;
-use crate::plan::{Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, TaskStatus};
+use crate::plan::{
+    Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, QaState, ReviewStage, TaskStatus,
+};
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
 
@@ -60,6 +63,9 @@ pub struct LoopSnapshot {
 pub struct HeartbeatSnapshot {
     pub current_focus: Option<String>,
     pub active_lanes: Vec<String>,
+    pub qa_queued: usize,
+    pub qa_running_task_id: Option<String>,
+    pub qa_running_age_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -68,6 +74,10 @@ pub struct OpenLane {
     pub name: String,
     pub status: TaskStatus,
     pub executor_role: Option<String>,
+    pub competition: Option<String>,
+    pub live_competition_attempts: usize,
+    pub review_stage: ReviewStage,
+    pub qa_state: Option<QaState>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -102,6 +112,7 @@ pub struct PlanStateSnapshot {
     pub percent_done: f64,
     pub coverage: CoverageReport,
     pub drift: DriftSummary,
+    pub cleanup_debt: Vec<CleanupDebtTask>,
     pub loops: Vec<LoopSnapshot>,
     pub heartbeat: HeartbeatSnapshot,
     pub open_lanes: Vec<OpenLane>,
@@ -237,7 +248,9 @@ pub fn build_plan_state_snapshot(
     plan: &Plan,
     coverage: CoverageReport,
     drift: Vec<DriftItem>,
+    cleanup_debt: Vec<CleanupDebtTask>,
     live_agent_panes: &HashSet<String>,
+    now_ms: u64,
 ) -> PlanStateSnapshot {
     let counts = task_counts(plan);
     let pct = percent_done(&counts);
@@ -245,12 +258,21 @@ pub fn build_plan_state_snapshot(
     let open_lanes = plan
         .tasks
         .iter()
-        .filter(|t| matches!(t.status, TaskStatus::Pending | TaskStatus::InReview))
+        .filter(|t| {
+            matches!(
+                t.status,
+                TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::InReview
+            )
+        })
         .map(|t| OpenLane {
             task_id: t.id.clone(),
             name: t.name.clone(),
             status: t.status.clone(),
             executor_role: t.executor_role.clone(),
+            competition: super::competition::competition_summary(t),
+            live_competition_attempts: super::competition::live_competition_attempt_count(t),
+            review_stage: t.review_stage.clone(),
+            qa_state: t.qa_state.clone(),
         })
         .collect();
 
@@ -263,8 +285,26 @@ pub fn build_plan_state_snapshot(
             name: t.name.clone(),
             status: t.status.clone(),
             executor_role: t.executor_role.clone(),
+            competition: super::competition::competition_summary(t),
+            live_competition_attempts: super::competition::live_competition_attempt_count(t),
+            review_stage: t.review_stage.clone(),
+            qa_state: t.qa_state.clone(),
         })
         .collect();
+    let qa_queued = plan
+        .tasks
+        .iter()
+        .filter(|task| {
+            task.status == TaskStatus::InReview
+                && task.review_stage == ReviewStage::Qa
+                && task.qa_state == Some(QaState::Queued)
+        })
+        .count();
+    let qa_running = plan.tasks.iter().find(|task| {
+        task.status == TaskStatus::InReview
+            && task.review_stage == ReviewStage::Qa
+            && task.qa_state == Some(QaState::Running)
+    });
 
     let live_agents = plan
         .tasks
@@ -313,10 +353,14 @@ pub fn build_plan_state_snapshot(
         percent_done: pct,
         coverage,
         drift: drift_summary(drift),
+        cleanup_debt,
         loops,
         heartbeat: HeartbeatSnapshot {
             current_focus: plan.heartbeat.current_focus.clone(),
             active_lanes: plan.heartbeat.active_lanes.clone(),
+            qa_queued,
+            qa_running_task_id: qa_running.map(|task| task.id.clone()),
+            qa_running_age_ms: qa_running.map(|task| now_ms.saturating_sub(task.status_changed_at)),
         },
         open_lanes,
         blocked_lanes,
@@ -338,7 +382,9 @@ impl ServiceContext {
     ) -> Result<PlanStateSnapshot, PlanError> {
         let plan = self.plan_store.get(plan_id).ok_or(PlanError::NotFound)?;
         let coverage = compute_coverage_report(&plan);
-        let drift = self.reconcile_plan(plan_id, false, None, now_ms)?.drift;
+        let reconcile = self.reconcile_plan(plan_id, false, None, now_ms)?;
+        let drift = reconcile.drift;
+        let cleanup_debt = reconcile.cleanup_debt;
 
         let mut live_panes: HashSet<String> = HashSet::new();
         let mut probed: HashSet<String> = HashSet::new();
@@ -354,7 +400,9 @@ impl ServiceContext {
             &plan,
             coverage,
             drift,
+            cleanup_debt,
             &live_panes,
+            now_ms,
         ))
     }
 }
@@ -374,6 +422,7 @@ mod tests {
             body: String::new(),
             subsections: vec![],
             canvas: Default::default(),
+            attachments: vec![],
         }
     }
 
@@ -388,6 +437,7 @@ mod tests {
             loop_id: None,
             iteration: None,
             canvas: Default::default(),
+            attachments: vec![],
         }
     }
 
@@ -402,6 +452,8 @@ mod tests {
             test_plan: None,
             correctness: None,
             status,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: Default::default(),
             created_at: 0,
@@ -413,6 +465,7 @@ mod tests {
             body: String::new(),
             role_guidance: None,
             executor_role: None,
+            competition: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: None,
@@ -424,6 +477,7 @@ mod tests {
             milestones: vec![],
             execution_attempts: vec![],
             park_reason: None,
+            attachments: vec![],
         }
     }
 
@@ -476,7 +530,7 @@ mod tests {
         }];
         let live: HashSet<String> = ["pane_live".to_string()].into_iter().collect();
 
-        let snap = build_plan_state_snapshot(&plan, coverage, drift, &live);
+        let snap = build_plan_state_snapshot(&plan, coverage, drift, vec![], &live, 1);
 
         assert_eq!(snap.task_counts.total, 5);
         assert_eq!(snap.task_counts.done, 1);
@@ -529,7 +583,7 @@ mod tests {
             .map(|i| milestone(&format!("k{i}"), i as u64))
             .collect();
         let coverage = compute_coverage_report(&plan);
-        let snap = build_plan_state_snapshot(&plan, coverage, vec![], &HashSet::new());
+        let snap = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
         assert_eq!(snap.recent_strides.len(), RECENT_STRIDE_LIMIT);
         assert_eq!(snap.recent_strides[0].id, "k14");
         assert_eq!(snap.recent_strides[9].id, "k5");
@@ -540,7 +594,7 @@ mod tests {
         let plan = fixture();
         let before = plan.clone();
         let coverage = compute_coverage_report(&plan);
-        let _ = build_plan_state_snapshot(&plan, coverage, vec![], &HashSet::new());
+        let _ = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
         assert_eq!(plan, before);
     }
 }

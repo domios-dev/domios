@@ -4,6 +4,7 @@ import { flattenSections } from "../sectionRows";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import type { Milestone, Plan, Task, TaskStatus } from "../types";
+import { canonicalTaskStatusLabel } from "./taskStatusLabel";
 
 export type PlanListRowKind = "plan-section" | "unsectioned" | "task" | "subtask";
 
@@ -48,7 +49,7 @@ function latestMilestone(task: Task): Milestone | null {
 }
 
 function statusText(task: Task): string {
-  return task.status_label?.trim() || task.status.replace(/_/g, " ");
+  return canonicalTaskStatusLabel(task);
 }
 
 function sectionTitle(task: Task, sectionById: ReadonlyMap<string, string>): string {

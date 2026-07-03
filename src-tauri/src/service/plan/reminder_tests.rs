@@ -23,6 +23,7 @@ fn store_with_task(owner: &str) -> (tempfile::TempDir, PlanStore, String, String
             NewTask {
                 name: "lane".into(),
                 kind: "status_update".into(),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -89,6 +90,7 @@ fn owner_planning_plan_with_open_work_is_not_nudge_eligible() {
             NewTask {
                 name: "draft lane".into(),
                 kind: "status_update".into(),
+                competition: None,
                 ..Default::default()
             },
             20,
@@ -125,6 +127,7 @@ fn worker_planning_plan_binding_does_not_start_report_nudges() {
                 name: "draft lane".into(),
                 kind: "status_update".into(),
                 assigned_pane_id: Some("worker-pane".into()),
+                competition: None,
                 ..Default::default()
             },
             20,

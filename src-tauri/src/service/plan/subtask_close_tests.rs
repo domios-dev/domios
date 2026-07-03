@@ -16,6 +16,7 @@ fn store_with_task() -> (PlanStore, String, String) {
             NewTask {
                 name: "parent".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -32,6 +33,7 @@ fn add_child(store: &PlanStore, plan_id: &str, parent_id: &str) -> String {
                 name: "child".into(),
                 kind: "implement".into(),
                 parent_task_id: Some(parent_id.into()),
+                competition: None,
                 ..Default::default()
             },
             10,

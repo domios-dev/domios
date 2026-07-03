@@ -53,6 +53,8 @@ import { useCanvasFrameProbe } from "./canvasView/useCanvasFrameProbe";
 import { bumpCanvasChurn } from "./canvasChurn";
 import { PlanViewShell } from "./PlanViewShell";
 import { revealAssignedAgentPane } from "./planRevealAgentPane";
+import { FlyToActiveControl } from "./FlyToActiveControl";
+import { selectActiveWork } from "./planView/activeWork";
 
 export type { TaskCardModel } from "./canvasView/models";
 
@@ -121,6 +123,15 @@ export function CanvasViewInner({
   const filteredPlans = useMemo(
     () => filterPlansForCanvas(plans, mode, { planId, orchestratorPaneId, panes }),
     [plans, plansRevision, planFilterRevision, mode, planId, orchestratorPaneId, panes],
+  );
+
+  const activeWork = useMemo(
+    () => selectActiveWork(filteredPlans, panes),
+    [filteredPlans, panes],
+  );
+  const staleActiveTaskIds = useMemo(
+    () => new Set(activeWork.entries.filter((e) => e.stale).map((e) => e.task.id)),
+    [activeWork],
   );
 
   const planById = useMemo(() => new Map(filteredPlans.map((p) => [p.id, p])), [filteredPlans]);
@@ -405,6 +416,7 @@ export function CanvasViewInner({
     lookups,
     nodeIds,
     worldByNode,
+    staleActiveTaskIds,
   });
 
   // §25.3 dominance: a task filling ≳60% of the viewport elevates (emphasis ring).
@@ -431,8 +443,9 @@ export function CanvasViewInner({
     if (detailNodeId) ids.add(detailNodeId);
     if (focusedNodeId) ids.add(focusedNodeId);
     if (dominantNodeId) ids.add(dominantNodeId);
+    for (const entry of activeWork.entries) ids.add(entry.task.id);
     return ids;
-  }, [hoveredNodeId, detailNodeId, focusedNodeId, dominantNodeId]);
+  }, [hoveredNodeId, detailNodeId, focusedNodeId, dominantNodeId, activeWork.entries]);
 
   const { pulsePlanIds, changeMarkers, flyToPlan } = useCanvasChangeSignal({
     filteredPlans,
@@ -830,6 +843,9 @@ export function CanvasViewInner({
         ))}
       </div>
       {!loading && !error && filteredPlans.length > 0 && (
+        <FlyToActiveControl entries={activeWork.entries} onFly={onFlyToTask} />
+      )}
+      {!loading && !error && filteredPlans.length > 0 && (
         <CanvasToolbar
           scale={transform.scale}
           onZoomIn={() => zoomBy(0.2)}
@@ -861,8 +877,10 @@ export function CanvasViewInner({
         nodeById={lookups.nodeById}
         resolveModel={resolveModel}
         panes={panes}
+        api={api}
         onClose={() => setDetailNodeId(null)}
         onOpenPane={onOpenPane}
+        onOpenTask={(taskId) => setDetailNodeId(taskId)}
         onCopyLink={onCopyLink}
         onFocusStride={onFocusStride}
         onSectionClick={onSectionClick}

@@ -18,6 +18,8 @@ import { PlanListFilterBar } from "./PlanListFilterBar";
 import { PlanListRowView } from "./PlanListRowView";
 import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
+import { ActiveWorkStrip } from "./ActiveWorkStrip";
+import { enrichSwitcherOptions, selectActiveWork, type ActiveWorkEntry } from "./activeWork";
 import {
   buildVisiblePlanListRows,
   resolveSectionExpanded,
@@ -36,7 +38,7 @@ function readStoredPlanId(): string | null {
 
 type ListDetail =
   | { kind: "task"; task: Task; plan: Plan }
-  | { kind: "plan"; plan: Plan }
+  | { kind: "plan"; plan: Plan; specSections: Section[] }
   | { kind: "spec"; plan: Plan; specSections: Section[] };
 
 function findTask(plan: Plan, taskId: string): Task | undefined {
@@ -56,6 +58,15 @@ export function PlanListView({
   onClose,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
+
+  const activeWork = useMemo(
+    () => selectActiveWork(effectivePlans, panes),
+    [effectivePlans, panes],
+  );
+  const switcherWithInflight = useMemo(
+    () => enrichSwitcherOptions(switcherOptions, activeWork),
+    [switcherOptions, activeWork],
+  );
 
   const filteredPlans = useMemo(
     () => filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes }),
@@ -77,6 +88,11 @@ export function PlanListView({
   const selectedPlan = useMemo(
     () => orderedPlans.find((p) => p.id === selectedPlanId) ?? null,
     [orderedPlans, selectedPlanId],
+  );
+
+  const planActiveWork = useMemo(
+    () => (selectedPlan ? activeWork.byPlanId.get(selectedPlan.id) ?? [] : []),
+    [activeWork, selectedPlan],
   );
 
   const selectPlan = useCallback((id: string) => {
@@ -158,11 +174,32 @@ export function PlanListView({
     },
     [selectedPlan],
   );
+  const openActiveWork = useCallback(
+    (entry: ActiveWorkEntry) => {
+      const plan = orderedPlans.find((p) => p.id === entry.planId);
+      if (!plan) return;
+      setDetail({ kind: "task", task: entry.task, plan });
+    },
+    [orderedPlans],
+  );
   const openBelonging = useCallback(() => {
-    if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan });
-  }, [selectedPlan]);
+    if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
+  }, [selectedPlan, selectedSpecSections]);
 
   const closeDetail = useCallback(() => setDetail(null), []);
+  const openDetailTask = useCallback((taskId: string) => {
+    if (!selectedPlan) return;
+    const task = findTask(selectedPlan, taskId);
+    if (task) setDetail({ kind: "task", task, plan: selectedPlan });
+  }, [selectedPlan]);
+  const openDetailSection = useCallback((args: { variant: "plan" | "spec" }) => {
+    if (!selectedPlan) return;
+    if (args.variant === "spec") {
+      setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections });
+      return;
+    }
+    setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
+  }, [selectedPlan, selectedSpecSections]);
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const now = Date.now();
 
@@ -211,7 +248,7 @@ export function PlanListView({
         <>
           <div className="plan-list-chrome">
             <PlanSwitcher
-              plans={switcherOptions}
+              plans={switcherWithInflight}
               selectedId={selectedPlan.id}
               onSelect={selectPlan}
               onAction={handleAction}
@@ -219,7 +256,7 @@ export function PlanListView({
             <PlanContextHeader
               summary={boardModel.planSummary}
               spec={boardModel.spec}
-              onOpenPlan={() => setDetail({ kind: "plan", plan: selectedPlan })}
+              onOpenPlan={() => setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections })}
               onOpenSpec={
                 boardModel.spec
                   ? () => setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections })
@@ -233,6 +270,7 @@ export function PlanListView({
               onStatusFilter={setStatusFilter}
               onTextQuery={setTextQuery}
             />
+            <ActiveWorkStrip entries={planActiveWork} onOpenTask={openActiveWork} />
           </div>
           <div data-testid="plan-list-scroll" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
             {visibleRows.map((entry) => {
@@ -265,14 +303,14 @@ export function PlanListView({
           task={detail.kind === "task" ? detail.task : undefined}
           plan={detail.kind === "plan" ? detail.plan : detail.kind === "task" ? detail.plan : undefined}
           spec={detail.kind === "spec" ? detail.plan : undefined}
-          specSections={detail.kind === "spec" ? detail.specSections : undefined}
+          specSections={detail.kind === "spec" || detail.kind === "plan" ? detail.specSections : undefined}
           planId={detail.plan.id}
+          api={api}
           panes={panes}
           onOpenPane={onOpenPane}
+          onOpenTask={openDetailTask}
           onClose={closeDetail}
-          onSectionClick={() => {
-            if (detail.kind === "task") setDetail({ kind: "plan", plan: detail.plan });
-          }}
+          onSectionClick={openDetailSection}
         />
       )}
     </div>

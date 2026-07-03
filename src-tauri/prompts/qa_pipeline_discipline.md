@@ -1,0 +1,1 @@
+QA is serialized per plan: implementation workers stop at in_review, QA testers claim one queued task with `codeterm plan qa next --claim --note "<scope>"`, then pass or fail with evidence. Broad gates run in one warm integration checkout, not in every worker lane.

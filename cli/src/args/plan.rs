@@ -245,6 +245,11 @@ pub enum PlanAction {
         #[command(subcommand)]
         action: PlanMilestoneAction,
     },
+    /// Serialized QA queue for in_review tasks
+    Qa {
+        #[command(subcommand)]
+        action: PlanQaAction,
+    },
     /// Canvas layout overrides
     Layout {
         #[command(subcommand)]
@@ -323,6 +328,13 @@ pub enum PlanSectionAction {
     },
     /// Show one plan section's title, body, tags, and subsections
     Show { plan_id: String, section_id: String },
+    /// Attach a file to a plan section
+    Attach {
+        plan_id: String,
+        section_id: String,
+        #[arg(value_name = "PATH")]
+        file: String,
+    },
     /// Remove a plan section and its subsections
     Rm { plan_id: String, section_id: String },
 }
@@ -433,7 +445,7 @@ pub enum PlanTaskAction {
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
         role_guidance_file: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(long = "executor-role", allow_hyphen_values = true)]
         executor_role: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
@@ -503,7 +515,7 @@ pub enum PlanTaskAction {
         role_guidance: Option<String>,
         #[arg(long, value_name = "PATH")]
         role_guidance_file: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(long = "executor-role", allow_hyphen_values = true)]
         executor_role: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         intent: Option<String>,
@@ -597,6 +609,13 @@ pub enum PlanTaskAction {
         task_id: String,
         attempt_id: String,
     },
+    /// Attach a file to a plan task
+    Attach {
+        plan_id: String,
+        task_id: String,
+        #[arg(value_name = "PATH")]
+        file: String,
+    },
     /// Respawn a worker from one prior execution attempt
     Respawn {
         plan_id: String,
@@ -672,6 +691,40 @@ pub enum PlanMilestoneAction {
         plan_id: String,
         task_id: String,
         milestone_id: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PlanQaAction {
+    /// Show the plan QA queue, or enqueue one in_review task with --task
+    Queue {
+        plan_id: Option<String>,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        note: Option<String>,
+    },
+    /// Show the next queued QA task, or claim it as the running tester
+    Next {
+        plan_id: Option<String>,
+        #[arg(long)]
+        claim: bool,
+        #[arg(long, allow_hyphen_values = true)]
+        note: Option<String>,
+    },
+    /// Mark QA passed and close the task
+    Pass {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
+    },
+    /// Mark QA failed, bounce to in_progress, and nudge the implementer
+    Fail {
+        plan_id: Option<String>,
+        task_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        note: String,
     },
 }
 

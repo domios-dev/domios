@@ -254,7 +254,7 @@
               "positional": false,
               "value_name": "PLAN",
               "default": null,
-              "help": "Plan id to append this report to (default: $CODETERM_PLAN_ID)",
+              "help": "Plan id to append this report to (if available)",
               "aliases": []
             },
             {
@@ -286,7 +286,7 @@
               "positional": false,
               "value_name": "TASK",
               "default": null,
-              "help": "Task id to append this report to (default: $CODETERM_TASK_ID)",
+              "help": "Task id to append this report to (if available)",
               "aliases": []
             },
             {
@@ -5809,30 +5809,6 @@
           "args": [],
           "subcommands": [
             {
-              "name": "advance",
-              "about": "Advance a loop one iteration, recording whether it made progress",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "loop_id",
-                  "positional": true,
-                  "value_name": "LOOP_ID",
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "progress",
-                  "positional": false,
-                  "value_name": "PROGRESS",
-                  "default": "false",
-                  "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
               "name": "create",
               "about": "Declare a self-improving loop with a target and iteration budget",
               "aliases": [],
@@ -5865,6 +5841,46 @@
                   "name": "target",
                   "positional": false,
                   "value_name": "TARGET",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "record",
+              "about": "Record one loop iteration and leave a stride",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "loop_id",
+                  "positional": true,
+                  "value_name": "LOOP_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "stop",
+                  "positional": false,
+                  "value_name": "STOP",
+                  "default": "false",
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task",
+                  "positional": false,
+                  "value_name": "TASK",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -6283,6 +6299,142 @@
           "subcommands": []
         },
         {
+          "name": "qa",
+          "about": "Serialized QA queue for in_review tasks",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "fail",
+              "about": "Mark QA failed, bounce to in_progress, and nudge the implementer",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "next",
+              "about": "Show the next queued QA task, or claim it as the running tester",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "claim",
+                  "positional": false,
+                  "value_name": "CLAIM",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "pass",
+              "about": "Mark QA passed and close the task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "queue",
+              "about": "Show the plan QA queue, or enqueue one in_review task with --task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "note",
+                  "positional": false,
+                  "value_name": "NOTE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task",
+                  "positional": false,
+                  "value_name": "TASK",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "reconcile",
           "about": "Detect plan/task drift and optionally apply conservative fixes",
           "aliases": [],
@@ -6348,7 +6500,7 @@
               "positional": true,
               "value_name": "PLAN_ID",
               "default": null,
-              "help": "Plan id (default: $CODETERM_PLAN_ID)",
+              "help": "Plan id (if available from pane binding or env)",
               "aliases": []
             },
             {
@@ -7233,6 +7385,38 @@
               "subcommands": []
             },
             {
+              "name": "park",
+              "about": "Park a task (defers it out of the heartbeat open-work set; requires --reason)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "value_name": "REASON",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "relink",
               "about": "Preview or apply automatic section links for unlinked tasks (--apply)",
               "aliases": [],
@@ -7401,6 +7585,30 @@
                   "name": "yes",
                   "positional": false,
                   "value_name": "YES",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "unpark",
+              "about": "Unpark a task (returns it to pending)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8187,7 +8395,7 @@
           "positional": false,
           "value_name": "PLAN",
           "default": null,
-          "help": "Plan id to append this report to (default: $CODETERM_PLAN_ID)",
+          "help": "Plan id to append this report to (if available)",
           "aliases": []
         },
         {
@@ -8219,7 +8427,7 @@
           "positional": false,
           "value_name": "TASK",
           "default": null,
-          "help": "Task id to append this report to (default: $CODETERM_TASK_ID)",
+          "help": "Task id to append this report to (if available)",
           "aliases": []
         },
         {
@@ -8259,7 +8467,7 @@
           "positional": false,
           "value_name": "ACTIONS",
           "default": null,
-          "help": "Terminal actions to run after optional text, comma-separated. Examples: enter, esc, up, down, left, right, tab, backspace, ctrl-c, delay:250ms. With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it",
+          "help": "Terminal actions to run after optional text, comma-separated. Full key set: enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it",
           "aliases": []
         },
         {
@@ -8275,7 +8483,7 @@
           "positional": false,
           "value_name": "DELAY",
           "default": null,
-          "help": "Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes",
+          "help": "Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered",
           "aliases": []
         },
         {

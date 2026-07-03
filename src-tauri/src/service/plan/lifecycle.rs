@@ -53,6 +53,7 @@ impl PlanStore {
                 loop_id: None,
                 iteration: None,
                 canvas: Default::default(),
+                attachments: vec![],
             });
             task.updated_at = now_ms;
             Ok(())
@@ -95,6 +96,7 @@ impl PlanStore {
                 loop_id: None,
                 iteration: None,
                 canvas: Default::default(),
+                attachments: vec![],
             });
             task.updated_at = now_ms;
             Ok(())

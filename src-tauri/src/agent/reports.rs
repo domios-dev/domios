@@ -52,6 +52,8 @@ pub struct ReportDetails {
     pub test_result: Option<String>,
     #[serde(default)]
     pub skipped: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +81,8 @@ pub struct AgentReport {
     pub test_result: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skipped: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::plan::AttachmentRef>,
 }
 
 impl AgentReport {
@@ -214,6 +218,7 @@ impl ReportStore {
             test_cmd: details.test_cmd.clone(),
             test_result: details.test_result.clone(),
             skipped: details.skipped.clone(),
+            attachments: Vec::new(),
         };
 
         // Durable truth: UPSERT one row per (orchestrator, worker). Best-effort —
@@ -388,6 +393,7 @@ mod tests {
             test_cmd: Some("cargo test".to_string()),
             test_result: Some("ok".to_string()),
             skipped: Some("e2e".to_string()),
+            attachments: vec![],
         };
         let mut store = ReportStore::new(100);
         let stored = store.add_detailed("orch", "w1", "Worker", "all done", details, None);
@@ -468,6 +474,7 @@ mod tests {
             test_cmd: Some("cargo test".to_string()),
             test_result: Some("42 passed".to_string()),
             skipped: Some("manual UI step".to_string()),
+            attachments: vec![],
         };
         let mut store = ReportStore::new(100);
         let report = store.add_detailed("orch", "w1", "Worker", "the freeform body", details, None);

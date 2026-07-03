@@ -86,6 +86,12 @@ fn render_attempt(value: &Value) -> String {
         "reported_at",
         "reviewed_at",
         "closed_at",
+        "competition_group_id",
+        "competition_lane",
+        "judge_verdict",
+        "judge_reason",
+        "judged_at",
+        "winner",
         "last_report_status",
     ] {
         if let Some(v) = attempt.get(key).filter(|v| !v.is_null()) {
@@ -480,6 +486,16 @@ pub(super) fn run_task(
             print!("{}", render_attempt(&val));
             Ok(None)
         }
+        PlanTaskAction::Attach {
+            plan_id,
+            task_id,
+            file,
+        } => call(
+            client,
+            "plan.task.attach",
+            json!({ "plan_id": plan_id, "task_id": task_id, "path": file }),
+        )
+        .map(Some),
         PlanTaskAction::Respawn {
             plan_id,
             task_id,

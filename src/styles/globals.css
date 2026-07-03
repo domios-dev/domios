@@ -1954,6 +1954,180 @@ button,
   cursor: default;
   user-select: none;
 }
+.plan-switcher-inflight-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  margin-left: 0.35rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ct-bg);
+  background: rgba(129, 140, 248, 0.92);
+}
+
+.active-work-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.45rem 0.65rem 0.55rem;
+  border-bottom: 1px solid var(--ct-border-subtle);
+  background: color-mix(in srgb, var(--ct-titlebar-bg) 55%, transparent);
+}
+.active-work-strip-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ct-muted-fg);
+}
+.active-work-strip-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.active-work-strip-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.28rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--ct-radius-sm);
+  background: transparent;
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: 0.74rem;
+  text-align: left;
+  cursor: pointer;
+}
+.active-work-strip-row:hover,
+.active-work-strip-row:focus-visible {
+  background: color-mix(in srgb, var(--ct-border-focus) 12%, transparent);
+  border-color: color-mix(in srgb, var(--ct-border-default) 70%, transparent);
+}
+.active-work-strip-row-stale {
+  opacity: 0.72;
+  border-color: color-mix(in srgb, rgba(245, 158, 11, 0.92) 35%, transparent);
+}
+.active-work-strip-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.active-work-strip-status {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+}
+.active-work-strip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.active-work-strip-executor,
+.active-work-strip-age {
+  font-size: 0.66rem;
+  color: var(--ct-muted-fg);
+  white-space: nowrap;
+}
+
+.ct-fly-to-active {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 22;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--ct-border-default);
+  background: color-mix(in srgb, var(--ct-titlebar-bg) 92%, transparent);
+  color: var(--ct-fg);
+  font-family: var(--ct-font-ui);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 24px -10px rgba(0, 0, 0, 0.55);
+}
+.ct-fly-to-active:hover,
+.ct-fly-to-active:focus-visible {
+  border-color: var(--ct-border-focus);
+}
+.ct-fly-to-active-stale {
+  border-color: color-mix(in srgb, rgba(245, 158, 11, 0.92) 55%, var(--ct-border-default));
+  color: color-mix(in srgb, rgba(245, 158, 11, 0.92) 85%, var(--ct-fg));
+}
+.ct-fly-to-active-cycle {
+  font-size: 0.62rem;
+  opacity: 0.7;
+}
+
+.sidebar-workspace-plan-inflight-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1rem;
+  height: 1rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ct-bg);
+  background: rgba(129, 140, 248, 0.92);
+  flex-shrink: 0;
+}
+.sidebar-workspace-plan-compact .sidebar-workspace-plan-inflight-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+}
+.sidebar-workspace-plan-compact {
+  position: relative;
+}
+.sidebar-workspace-plan-icon-live::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(82, 180, 145, 0.95);
+  box-shadow: 0 0 0 1px var(--ct-bg);
+}
+.sidebar-workspace-plan-icon {
+  position: relative;
+}
+
+.ct-composer-activity-chip__status {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.ct-composer-activity-chip-stale {
+  opacity: 0.78;
+  border-color: color-mix(in srgb, rgba(245, 158, 11, 0.92) 45%, var(--ct-border-default));
+}
+
+.ct-presence-stale {
+  opacity: 0.55;
+  box-shadow: 0 0 0 2px color-mix(in srgb, rgba(245, 158, 11, 0.92) 65%, transparent) !important;
+}
 
 .plan-board-plan {
   display: flex;
@@ -2383,6 +2557,16 @@ button,
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
 }
+.plan-board-task-latest-note {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.62rem;
+  line-height: 1.35;
+  color: color-mix(in srgb, var(--ct-muted-fg) 88%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .plan-board-cancelled-note {
   margin: 0;
   font-size: 0.66rem;
@@ -2410,6 +2594,154 @@ button,
 .plan-detail-selectable {
   user-select: text;
   -webkit-user-select: text;
+}
+.plan-task-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-task-activity-label,
+.plan-recent-activity-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ct-fg) 52%, transparent);
+}
+.plan-task-activity-subhead {
+  font-size: 11px;
+  font-weight: 650;
+  color: color-mix(in srgb, var(--ct-fg) 58%, transparent);
+  margin-bottom: 4px;
+}
+.plan-task-activity-attempts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plan-task-activity-attempt {
+  font-size: 13px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--ct-fg) 78%, transparent);
+}
+.plan-task-activity-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plan-task-activity-timeline--expanded {
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.plan-task-activity-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ct-border-subtle) 65%, transparent);
+}
+.plan-task-activity-entry:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.plan-task-activity-entry-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.plan-task-activity-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: capitalize;
+  color: color-mix(in srgb, var(--ct-fg) 72%, transparent);
+}
+.plan-task-activity-kind-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.plan-task-activity-age {
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ct-fg) 48%, transparent);
+}
+.plan-task-activity-author,
+.plan-recent-activity-author {
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--ct-fg) 62%, transparent);
+}
+.plan-task-activity-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ct-fg);
+}
+.plan-task-activity-show-all {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ct-accent);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.plan-recent-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.plan-recent-activity-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(28vh, 220px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.plan-recent-activity-item {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) auto auto 1fr;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+button.plan-recent-activity-item {
+  cursor: pointer;
+}
+button.plan-recent-activity-item:hover .plan-recent-activity-task {
+  color: var(--ct-accent);
+}
+.plan-recent-activity-task {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ct-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.plan-recent-activity-snippet {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  line-height: 1.35;
+  color: color-mix(in srgb, var(--ct-fg) 62%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .plan-cancelled-tasks-list {
   list-style: none;

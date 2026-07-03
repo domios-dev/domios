@@ -57,3 +57,49 @@ fn plan_task_add_and_update_parse_role_guidance_flags() {
         _ => panic!("expected plan task update"),
     }
 }
+
+#[test]
+fn plan_task_add_and_update_parse_executor_role_flags() {
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "task",
+        "add",
+        "pl_1",
+        "--name",
+        "Executor lane",
+        "--executor-role",
+        "rust-backend-dev",
+    ])
+    .expect("plan task add parses executor role");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action: crate::args::plan::PlanTaskAction::Add { executor_role, .. },
+                },
+        } => assert_eq!(executor_role.as_deref(), Some("rust-backend-dev")),
+        _ => panic!("expected plan task add"),
+    }
+
+    let parsed = Cli::try_parse_from([
+        "codeterm",
+        "plan",
+        "task",
+        "update",
+        "pl_1",
+        "task_1",
+        "--executor-role",
+        "frontend-dev",
+    ])
+    .expect("plan task update parses executor role");
+    match parsed.command {
+        Commands::Plan {
+            action:
+                PlanAction::Task {
+                    action: crate::args::plan::PlanTaskAction::Update { executor_role, .. },
+                },
+        } => assert_eq!(executor_role.as_deref(), Some("frontend-dev")),
+        _ => panic!("expected plan task update"),
+    }
+}

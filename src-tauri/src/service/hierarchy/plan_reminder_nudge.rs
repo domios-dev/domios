@@ -301,6 +301,8 @@ mod tests {
             test_plan: None,
             correctness: None,
             status,
+            review_stage: Default::default(),
+            qa_state: None,
             status_label: None,
             priority: TaskPriority::P2,
             created_at: 0,
@@ -312,6 +314,7 @@ mod tests {
             body: String::new(),
             role_guidance: None,
             executor_role: None,
+            competition: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: pane_id.map(str::to_string),
@@ -323,6 +326,7 @@ mod tests {
             milestones: vec![],
             execution_attempts: vec![],
             park_reason: None,
+            attachments: vec![],
         }
     }
 

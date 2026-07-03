@@ -41,7 +41,7 @@ function doneCard(t: Task): BoardTaskCardModel {
     historicalExecutorSummary: null,
     roleLabel: null,
     branch: null,
-    activityHint: null,
+    latestNote: null,
     focusMatch: false,
   };
 }
@@ -102,6 +102,37 @@ test("groupTasksIntoColumns places tasks by status and sorts freshest first", ()
   assert(!live.cards[0]?.historicalExecutorSummary, "active task has no historical summary");
 });
 
+test("groupTasksIntoColumns keeps canonical status separate from milestone note", () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({
+        id: "qa-one",
+        status: TaskStatus.InReview,
+        review_stage: "qa",
+        qa_state: "running",
+        status_label: "In QA · running",
+        milestones: [
+          {
+            id: "ms-qa",
+            from: { pane_id: "pane-worker", session_id: null, title: "Puccini" },
+            kind: "decision",
+            text: "Queued behind auth lane",
+            ts: 2_000,
+            links: [],
+            loop_id: null,
+            iteration: null,
+            canvas: { x: null, y: null, collapsed: false },
+          },
+        ],
+      }),
+    ],
+  };
+  const card = groupTasksIntoColumns(plan, PANES).columns.find((c) => c.key === "in_review")!.cards[0]!;
+  assert(card.task.status === TaskStatus.InReview, "status field unchanged");
+  assert(card.latestNote === "Queued behind auth lane", "latest note from milestone text");
+});
+
 test("done task shows historical executor without active presence label", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
@@ -153,7 +184,7 @@ test("boundDoneColumnCards passes through small done columns", () => {
   assert(bounds.visible.length === 1 && bounds.hidden === 0, "no bounding needed");
 });
 
-test("task card carries branch-only lane + activity hint, never worktree paths", () => {
+test("task card carries branch-only lane and latest note, never lane worktree paths", () => {
   const plan: Plan = {
     ...FIXTURE_PLAN,
     tasks: [
@@ -180,14 +211,11 @@ test("task card carries branch-only lane + activity hint, never worktree paths",
   };
   const card = groupTasksIntoColumns(plan, PANES, 61_000).columns.find((c) => c.key === "in_progress")!.cards[0]!;
   assert(card.branch === "lane/board-v2", "branch chip is branch-only");
-  // Derived (renderable) fields must never carry worktree paths or raw milestone text.
   const { task: _t, ...derived } = card;
   const serialized = JSON.stringify(derived);
-  assert(!serialized.includes("/tmp/codeterm-board-v2"), "no worktree path in derived card fields");
-  assert(!serialized.includes("secret worktree"), "no raw milestone text in derived card fields");
-  assert(!("worktree" in card) && !("latestMilestone" in card), "no worktree/milestone-text fields");
-  assert(card.activityHint?.kind === "status update", "activity hint kind");
-  assert(card.activityHint?.ageLabel === "1m", `activity age=${card.activityHint?.ageLabel}`);
+  assert(!serialized.includes("worktree_path"), "lane worktree path not in derived card fields");
+  assert(!("worktree" in card) && !("latestMilestone" in card), "no worktree/milestone object fields");
+  assert(card.latestNote === "secret worktree /tmp/codeterm-board-v2 detail", "latest note carries milestone text");
 });
 
 test("formatRelativeAge buckets seconds/minutes/hours/days", () => {

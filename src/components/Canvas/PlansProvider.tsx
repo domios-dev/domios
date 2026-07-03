@@ -148,6 +148,20 @@ export function useFullPlans(): UsePlansResult {
   return full;
 }
 
+// Provider-optional full plans: empty outside PlansProvider (sidebar tests, etc.).
+export function useFullPlansOptional(): UsePlansResult {
+  const ctx = useContext(PlansContext);
+  useEffect(() => {
+    if (!ctx) return;
+    ctx.acquireFull();
+    return ctx.releaseFull;
+  }, [ctx]);
+  if (!ctx) {
+    return { plans: [], loading: false, error: null, refetch: async () => {} };
+  }
+  return ctx.full;
+}
+
 // Workspace or focus canvas: one ref-count path, project-scoped in workspace mode.
 export function useCanvasPlans(mode: "workspace" | "focus", projectPath: string | null): UsePlansResult {
   const { full, acquireFull, releaseFull, acquireWorkspaceFull, releaseWorkspaceFull } =

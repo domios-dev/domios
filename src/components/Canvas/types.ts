@@ -89,6 +89,7 @@ export interface Section {
   tags?: string[];
   subsections: Section[];
   canvas: ElementCanvas;
+  attachments?: PlanAttachment[];
 }
 
 export interface Milestone {
@@ -101,10 +102,22 @@ export interface Milestone {
   loop_id: string | null;
   iteration: number | null;
   canvas: ElementCanvas;
+  attachments?: PlanAttachment[];
+}
+
+export interface PlanAttachment {
+  id: string;
+  name: string;
+  path: string;
+  media_type: string;
+  size_bytes: number;
+  created_at: number;
 }
 
 export type TaskPriority = "p0" | "p1" | "p2" | "p3"; // p0 = highest
 export const TaskPriority = { P0: "p0", P1: "p1", P2: "p2", P3: "p3" } as const satisfies Record<string, TaskPriority>;
+export type ReviewStage = "review" | "qa";
+export type QaState = "queued" | "running";
 
 export interface TaskExecutionAttempt {
   id?: string;
@@ -130,6 +143,8 @@ export interface Task {
   model: string | null;
   model_rationale: string | null;
   status: TaskStatus;
+  review_stage?: ReviewStage;
+  qa_state?: QaState | null;
   status_label: string | null;
   priority?: TaskPriority;
   created_at?: number;
@@ -157,6 +172,7 @@ export interface Task {
   park_reason?: string | null;
   canvas: ElementCanvas;
   milestones: Milestone[];
+  attachments?: PlanAttachment[];
 }
 
 export interface LoopStage {

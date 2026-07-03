@@ -1,6 +1,6 @@
 # CodeTerm CLI Reference
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
 
 Complete command reference. The section between the markers below is
 auto-generated from the clap command tree by `codeterm cli-manifest --write` —
@@ -76,11 +76,11 @@ Send a report to your parent in the hierarchy
 - `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
-- `--plan` — Plan id to append this report to (default: $CODETERM_PLAN_ID)
+- `--plan` — Plan id to append this report to (if available)
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
 - `--status` — Task outcome: in_review | blocked | partial | done
-- `--task` — Task id to append this report to (default: $CODETERM_TASK_ID)
+- `--task` — Task id to append this report to (if available)
 - `--test_cmd` — Test command that was run
 - `--test_result` — Result of the test command (e.g. "42 passed")
 - `--text` — Report message as a flag, useful when paired with --doc
@@ -1600,13 +1600,6 @@ List plans
 
 Self-improving loops
 
-#### `codeterm plan loop advance`
-
-Advance a loop one iteration, recording whether it made progress
-
-- `<loop_id>`
-- `--progress`
-
 #### `codeterm plan loop create`
 
 Declare a self-improving loop with a target and iteration budget
@@ -1615,6 +1608,15 @@ Declare a self-improving loop with a target and iteration budget
 - `<plan_id>`
 - `--stop_when`
 - `--target`
+
+#### `codeterm plan loop record`
+
+Record one loop iteration and leave a stride
+
+- `<loop_id>`
+- `--note`
+- `--stop`
+- `--task`
 
 #### `codeterm plan loop set`
 
@@ -1721,6 +1723,42 @@ Preview or delete smoke/empty project-local plan files (dry-run by default)
 - `--apply`
 - `--project`
 
+#### `codeterm plan qa`
+
+Serialized QA queue for in_review tasks
+
+#### `codeterm plan qa fail`
+
+Mark QA failed, bounce to in_progress, and nudge the implementer
+
+- `--note`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan qa next`
+
+Show the next queued QA task, or claim it as the running tester
+
+- `--claim`
+- `--note`
+- `<plan_id>`
+
+#### `codeterm plan qa pass`
+
+Mark QA passed and close the task
+
+- `--note`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan qa queue`
+
+Show the plan QA queue, or enqueue one in_review task with --task
+
+- `--note`
+- `<plan_id>`
+- `--task`
+
 #### `codeterm plan reconcile`
 
 Detect plan/task drift and optionally apply conservative fixes
@@ -1736,7 +1774,7 @@ Record task progress with one atomic plan write
 - `--key`
 - `--links`
 - `--name`
-- `<plan_id>` — Plan id (default: $CODETERM_PLAN_ID)
+- `<plan_id>` — Plan id (if available from pane binding or env)
 - `--sections`
 - `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 - `--steps`
@@ -1922,6 +1960,14 @@ List a plan's tasks, optionally filtered by status
 - `<plan_id>`
 - `--status` — Task status: pending | in_progress | in_review | blocked | done | cancelled
 
+#### `codeterm plan task park`
+
+Park a task (defers it out of the heartbeat open-work set; requires --reason)
+
+- `<plan_id>`
+- `--reason`
+- `<task_id>`
+
 #### `codeterm plan task relink`
 
 Preview or apply automatic section links for unlinked tasks (--apply)
@@ -1959,6 +2005,13 @@ Remove a task from the plan, or --all to reset generated tasks
 - `<plan_id>`
 - `<task_id>`
 - `--yes`
+
+#### `codeterm plan task unpark`
+
+Unpark a task (returns it to pending)
+
+- `<plan_id>`
+- `<task_id>`
 
 #### `codeterm plan task update`
 
@@ -2139,11 +2192,11 @@ Report worker progress to the owning orchestrator or plan
 - `--kind` — Milestone kind when writing to --plan/--task
 - `<message>` — Report message (also accepts --message alias)
 - `--pane` — Pane ID (default: $CODETERM_PANE_ID or focused pane)
-- `--plan` — Plan id to append this report to (default: $CODETERM_PLAN_ID)
+- `--plan` — Plan id to append this report to (if available)
 - `--sha` — Commit SHA produced
 - `--skipped` — Anything deliberately skipped
 - `--status` — Task outcome: in_review | blocked | partial | done
-- `--task` — Task id to append this report to (default: $CODETERM_TASK_ID)
+- `--task` — Task id to append this report to (if available)
 - `--test_cmd` — Test command that was run
 - `--test_result` — Result of the test command (e.g. "42 passed")
 - `--text` — Report message as a flag, useful when paired with --doc
@@ -2152,9 +2205,9 @@ Report worker progress to the owning orchestrator or plan
 
 Send text to a pane (default: current pane)
 
-- `--actions` — Terminal actions to run after optional text, comma-separated. Examples: enter, esc, up, down, left, right, tab, backspace, ctrl-c, delay:250ms. With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
+- `--actions` — Terminal actions to run after optional text, comma-separated. Full key set: enter, esc, tab, backspace, delete, up, down, left, right, home, end, pageup, pagedown, space, ctrl-c, plus delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3). With --actions, text is inserted first but not auto-submitted; include enter when you want to submit it
 - `--at` — Queue for an absolute fire time: unix milliseconds, RFC3339, or local YYYY-MM-DDTHH:MM
-- `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes
+- `--delay` — Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d. Bare number means minutes. NOT the normal send path: use only for future delivery the user asked for — plain send is immediate and must never be buffered
 - `--from_file` — Read text from a file instead of the positional arg. Lets you pass payloads that would otherwise be eaten by shell quoting
 - `--pane` — Target pane ID (default: $CODETERM_PANE_ID or focused pane)
 - `--stdin` — Read text from stdin. Pair with a single-quoted heredoc to bypass the shell entirely: codeterm send --pane X --stdin <<'EOF' any `backticks`, $vars, etc — zero interpolation EOF

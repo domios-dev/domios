@@ -110,6 +110,7 @@ mod tests {
                     name: name.into(),
                     kind: "task".into(),
                     handle: Some(handle.into()),
+                    competition: None,
                     ..Default::default()
                 },
                 3,

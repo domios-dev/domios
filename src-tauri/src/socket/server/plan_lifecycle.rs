@@ -53,7 +53,21 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            let mut resp = json!({ "ok": true });
+            if let Some(plan) = store.get(&id) {
+                let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(
+                    &plan,
+                    |pane_id| svc.pane_probe(pane_id).exists,
+                );
+                let hints = crate::service::plan::cleanup_debt::cleanup_debt_hints(
+                    &cleanup
+                        .into_iter()
+                        .filter(|item| item.task_id == tid)
+                        .collect::<Vec<_>>(),
+                );
+                push_hints(&mut resp, hints);
+            }
+            Ok(resp)
         }
         _ => Err(JsonRpcError {
             code: -32601,
@@ -86,4 +100,15 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
+}
+
+fn push_hints(value: &mut Value, hints: Vec<String>) {
+    let hints: Vec<String> = hints
+        .into_iter()
+        .filter(|hint| !hint.trim().is_empty())
+        .collect();
+    if hints.is_empty() {
+        return;
+    }
+    value["_hints"] = json!(hints);
 }
