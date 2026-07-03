@@ -135,12 +135,53 @@ fn render_qa_claim(value: &Value) -> String {
         .and_then(|v| v.as_str())
         .unwrap_or("");
     let mut out = format!("Claimed QA task {task_id}: {name}\n");
-    if let Some(test_plan) = claimed.get("test_plan").and_then(|v| v.as_str()) {
-        if !test_plan.trim().is_empty() {
-            out.push_str("\nTest plan:\n");
-            out.push_str(test_plan.trim());
+    let test_plan = claimed
+        .get("test_plan")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if let Some(test_plan) = test_plan {
+        if crate::cmd::test_plan::test_plan_is_vague(test_plan) {
+            out.push('\n');
+            out.push_str(crate::cmd::test_plan::TEST_PLAN_VAGUE_BANNER);
             out.push('\n');
         }
+        out.push_str("\nTest plan:\n");
+        out.push_str(test_plan);
+        out.push('\n');
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn claim_prepends_banner_for_vague_test_plan() {
+        let value = json!({
+            "claimed": {
+                "task_id": "task_x",
+                "task_name": "Vague one",
+                "test_plan": "component tests; manual check"
+            }
+        });
+        let out = render_qa_claim(&value);
+        assert!(out.contains(crate::cmd::test_plan::TEST_PLAN_VAGUE_BANNER));
+    }
+
+    #[test]
+    fn claim_has_no_banner_for_executable_test_plan() {
+        let value = json!({
+            "claimed": {
+                "task_id": "task_y",
+                "task_name": "Concrete one",
+                "test_plan": "Run `cargo test test_plan_vague` and assert exactly one test_plan_vague finding \
+on the seeded plan; then `codeterm plan doctor <plan> --kind quality` round-trips clean."
+            }
+        });
+        let out = render_qa_claim(&value);
+        assert!(!out.contains(crate::cmd::test_plan::TEST_PLAN_VAGUE_BANNER));
+        assert!(out.contains("Test plan:"));
+    }
 }

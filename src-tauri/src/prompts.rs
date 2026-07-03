@@ -135,6 +135,50 @@ pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
     )
 }
 
+/// Five emergent plan-skill principles. Single source shared by the orchestrator
+/// and planner suffixes (via the `{plan_skills_principles}` placeholder) so the
+/// behavior emerges from why+when phrasing rather than a re-typed checklist.
+pub const PLAN_SKILLS_PRINCIPLES: &str = "\
+Plan skills — the plan's own know-how:
+- Learned something reusable in this effort (a test recipe, a seeding script, a gotcha)? Record it: `codeterm plan skill new <slug>`. Improve an existing skill before writing a new one.
+- A skill names what is FIXED (the oracle: the command or observation that proves success) and what is MUTABLE. Never edit the oracle to make results look better.
+- Prefer skills with a --check command; cite the check when keeping or discarding an approach.
+- Simplicity wins: a marginal gain that adds hacky steps is a loss; a deletion that preserves results is a win.
+- Every skill edit logs keep/discard/superseded + why. Discarded approaches are data, not embarrassment.";
+
+/// Appended to the worker charter only when the plan already carries >=1 skill.
+pub const PLAN_SKILLS_WORKER_LINE: &str = "This plan has skills — procedures earlier agents proved out. Check before inventing: `codeterm plan skill list`. Learned something reusable yourself? `codeterm plan skill new <slug>` — future workers inherit it.";
+
+/// Orchestrator-heartbeat registry line template. `{n}` is the skill count and
+/// `{slug1}, {slug2}, …` is the placeholder slug region, both filled at render.
+pub const PLAN_SKILLS_REGISTRY_LINE: &str =
+    "Plan skills ({n}): {slug1}, {slug2}, … — codeterm plan skill show <slug> | new | edit.";
+
+/// Planner testing methodology, part 1 — oracle-first (inserted after workflow
+/// item 5 via the `{planner_testing_methodology}` placeholder).
+pub const PLANNER_TESTING_ORACLE_FIRST: &str = "Test plans start from the oracle: name the command or observation that PROVES the task done before choosing the method. Then pick the method by the work: TDD for code paths, fixtures for parsers and formats, live dev walkthrough for UX, seeded eval cases for prompt or behavior changes. If the oracle is expensive (full build, broad suite, e2e), route it through the QA queue instead of per-lane gates. A criterion without an oracle is an opinion.";
+
+/// Planner testing methodology, part 2 — executable test plans (extends the
+/// oracle-first paragraph; enforced mechanically by the doctor + QA claim).
+pub const PLANNER_TEST_PLAN_EXECUTABLE: &str = "Test plans are EXECUTABLE, not descriptive. A test plan names: (1) the exact command(s) to run, (2) the exact surfaces touched (testids, selectors, files, endpoints), (3) numbered steps with the observable pass condition for each. If the executing worker would have to invent a selector, a step, or an expected value, the plan is incomplete — write the scenario, not the intention. \"Component tests + manual check\" is not a test plan.";
+
+/// Oracle-first + executable paragraphs, joined — fills `{planner_testing_methodology}`.
+pub fn planner_testing_methodology() -> String {
+    format!("{PLANNER_TESTING_ORACLE_FIRST}\n\n{PLANNER_TEST_PLAN_EXECUTABLE}")
+}
+
+/// Orchestrator suffix with the shared plan-skills principles substituted in.
+pub fn orchestrator_suffix() -> String {
+    ORCHESTRATOR_SUFFIX.replace("{plan_skills_principles}", PLAN_SKILLS_PRINCIPLES)
+}
+
+/// Planner suffix with the testing methodology and plan-skills principles substituted in.
+pub fn planner_suffix() -> String {
+    PLANNER_SUFFIX
+        .replace("{planner_testing_methodology}", &planner_testing_methodology())
+        .replace("{plan_skills_principles}", PLAN_SKILLS_PRINCIPLES)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,5 +281,41 @@ mod tests {
         assert!(!full.contains("{spawn_cmd}"));
         assert!(full.contains(PEER_PLANNER_CHARTER_LINE));
         assert!(full.contains(PEER_ORCH_DEFERENCE_LINE));
+    }
+
+    #[test]
+    fn orchestrator_suffix_carries_plan_skills_principles() {
+        let rendered = orchestrator_suffix();
+        assert!(rendered.contains(PLAN_SKILLS_PRINCIPLES));
+        assert!(!rendered.contains("{plan_skills_principles}"));
+        // Emergent phrasing (why + when), not a bare checklist.
+        assert!(PLAN_SKILLS_PRINCIPLES.contains("the oracle"));
+        assert!(PLAN_SKILLS_PRINCIPLES.contains("codeterm plan skill new"));
+    }
+
+    #[test]
+    fn planner_suffix_carries_testing_methodology_and_principles() {
+        let rendered = planner_suffix();
+        assert!(rendered.contains(PLANNER_TESTING_ORACLE_FIRST));
+        assert!(rendered.contains(PLANNER_TEST_PLAN_EXECUTABLE));
+        assert!(rendered.contains(PLAN_SKILLS_PRINCIPLES));
+        assert!(!rendered.contains("{planner_testing_methodology}"));
+        assert!(!rendered.contains("{plan_skills_principles}"));
+    }
+
+    #[test]
+    fn planner_testing_methodology_is_oracle_first_then_executable() {
+        let methodology = planner_testing_methodology();
+        let oracle = methodology.find(PLANNER_TESTING_ORACLE_FIRST).unwrap();
+        let executable = methodology.find(PLANNER_TEST_PLAN_EXECUTABLE).unwrap();
+        assert!(oracle < executable, "oracle-first paragraph must come first");
+    }
+
+    #[test]
+    fn plan_skills_worker_and_registry_lines_are_pointers() {
+        assert!(PLAN_SKILLS_WORKER_LINE.contains("codeterm plan skill list"));
+        assert!(PLAN_SKILLS_WORKER_LINE.contains("codeterm plan skill new"));
+        assert!(PLAN_SKILLS_REGISTRY_LINE.contains("{n}"));
+        assert!(PLAN_SKILLS_REGISTRY_LINE.contains("codeterm plan skill show <slug> | new | edit."));
     }
 }
