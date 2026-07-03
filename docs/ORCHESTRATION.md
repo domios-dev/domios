@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -142,10 +142,22 @@ Worker lanes normally end this way:
 
 1. Worker reports `in_review`.
 2. Orchestrator inspects the lane diff and gates it in the integration checkout.
-3. Orchestrator integrates the lane (`cherry-pick`, merge, or carefully applied
-   patch when the integration checkout already has related dirty work).
+3. Orchestrator integrates the lane using the smallest history shape that still
+   preserves useful review context:
+   - **Single-task lane, one clean commit:** default to `cherry-pick` onto the
+     integration branch. This keeps the main history linear and makes revert
+     scope obvious.
+   - **Multi-commit lane with meaningful intermediate commits, or a branch that
+     should stay visible as a unit:** merge the lane branch deliberately, usually
+     after rebasing it onto the integration head.
+   - **Overlapping local edits already exist in the integration checkout:** use a
+     careful patch/application flow and inspect every hunk.
 4. Orchestrator marks the task `done`, closes the worker pane, removes the clean
    worktree, and sets `--cleanup-status done`.
+
+Do not treat cherry-pick as mandatory. It is the fast path for the common
+one-worker/one-commit lane. Preserve branch history when that history carries
+review value; otherwise prefer linear integration.
 
 Never remove a worker worktree before its diff is integrated, bounced, or
 explicitly abandoned. Never keep a finished worker visually assigned just to

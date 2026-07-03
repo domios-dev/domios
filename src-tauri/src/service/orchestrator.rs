@@ -664,7 +664,7 @@ pub(crate) fn role_onboarding_task(
         (Some("Worker"), Some("planner")) => {
             task.map(|t| format!("{}{}", t, crate::prompts::PLANNER_SUFFIX))
         }
-        (Some("Worker"), _) => task.map(|t| format!("{}{}", t, crate::prompts::WORKER_SUFFIX)),
+        (Some("Worker"), _) => task.map(|t| format!("{}{}", t, crate::prompts::worker_suffix())),
         (Some("Orchestrator"), _) => Some(format!(
             "{}{}",
             task.unwrap_or_default(),
