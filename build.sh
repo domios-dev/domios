@@ -380,6 +380,8 @@ case "$CMD" in
   dev)
     kill_dev
     ensure_deps
+    # Shared compile cache when available — makes cold worktree builds warm.
+    command -v sccache >/dev/null 2>&1 && export RUSTC_WRAPPER=sccache
     echo "Building CLI..."
     cargo build --release --manifest-path cli/Cargo.toml
     install_cli_to "$HOME/.codeterm/bin"
