@@ -533,6 +533,22 @@ fn run_plan(
             json!({ "plan_id": plan_id, "mode": "planning" }),
         ),
 
+        PlanAction::PlanningState {
+            plan_id,
+            set,
+            pane,
+            note,
+        } => {
+            let mut params = json!({ "plan_id": plan_id, "state": set });
+            if let Some(p) = pane {
+                params["by_pane"] = json!(p);
+            }
+            if let Some(n) = note {
+                params["note"] = json!(n);
+            }
+            call(client, "plan.planning.set", params)
+        }
+
         PlanAction::Mode { plan_id, set } => call(
             client,
             "plan.mode.set",

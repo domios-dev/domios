@@ -19,6 +19,31 @@ pub fn render_state(val: &Value) -> String {
     if !mode.is_empty() {
         out.push_str(&format!("mode: {mode}\n"));
     }
+    let planning_state = s(val, "planning_state");
+    if !planning_state.is_empty() {
+        let unlocked = val
+            .get("execution_tasks_unlocked")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let gate = if unlocked {
+            "execution tasks unlocked"
+        } else {
+            "execution tasks locked until approved"
+        };
+        out.push_str(&format!("planning state: {planning_state} ({gate})\n"));
+        if let Some(blockers) = val
+            .get("planning_approval_blockers")
+            .and_then(|v| v.as_array())
+            .filter(|a| !a.is_empty())
+        {
+            let list = blockers
+                .iter()
+                .filter_map(|b| b.as_str())
+                .collect::<Vec<_>>()
+                .join("; ");
+            out.push_str(&format!("approval blockers: {list}\n"));
+        }
+    }
     let canonical_path = s(val, "canonical_project_path");
     if !canonical_path.is_empty() {
         out.push_str(&format!("canonical project: {canonical_path}\n"));
@@ -83,9 +108,13 @@ pub fn render_state(val: &Value) -> String {
             u(c, "blocked"),
             u(c, "cancelled"),
         ));
-        if total == 0 || mode == "planning" {
+        let unlocked = val
+            .get("execution_tasks_unlocked")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(mode != "planning");
+        if !unlocked {
             out.push_str(
-                "planning: finish spec/plan review before task generation; run `codeterm plan doctor <plan> --kind quality` then `codeterm plan approve <plan>`\n",
+                "planning: defer structure to the Planner peer; run `codeterm plan doctor <plan> --kind quality` then `codeterm plan approve <plan>`\n",
             );
         }
     }
@@ -310,7 +339,7 @@ mod tests {
         });
         let out = render_state(&val);
         assert!(out.contains("mode: planning"));
-        assert!(out.contains("planning: finish spec/plan review"));
+        assert!(out.contains("planning: defer structure to the Planner peer"));
         assert!(out.contains("coverage note: this is task coverage"));
         assert!(out.contains("planning readiness: goal=true"));
     }

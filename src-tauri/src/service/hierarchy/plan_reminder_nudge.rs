@@ -219,6 +219,19 @@ impl ServiceContext {
                 {
                     text = format!("{prefix}\n\n{text}");
                 }
+                // While planning is unapproved, keep pushing structure work to the
+                // planner peer by name (state + binding derived, not pane-guessed).
+                if let Some(planning_state) = self.plan_store.get(plan_id).map(|p| p.planning_state)
+                {
+                    if let Some(defer) =
+                        crate::service::plan::peer_mandate::planning_structure_nudge(
+                            planning_state,
+                            &resolution,
+                        )
+                    {
+                        text = format!("{defer}\n\n{text}");
+                    }
+                }
                 self.plan_store.prepend_heartbeat_for_plan(plan_id, &text)
             }
             PlanReminderTarget::Worker => self

@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -92,17 +92,17 @@ the effort.
 Good Tasks include body, section links, routing model + why, acceptance
 criteria, test plan, correctness vector, exact commands, and report format.
 Tasks should be small enough that a Worker can execute and report cleanly.
-Execution tasks must not be created while the plan is still in planning mode.
+Execution tasks must not be created until planning_state is `approved`.
 Planning-kind tasks are the exception and are **first-class**: their job is to
 improve the GOAL / spec / plan / task-graph itself, so `codeterm plan task add
---type planning` is allowed on a planning-mode plan **without `--force`**. Every
+--type planning` is allowed before approval **without `--force`**. Every
 other kind (implement/review/build/…) still hits the approval gate and requires
-approval or an explicit `--force` draft.
+an `approved` plan or an explicit `--force` draft.
 
 Use `codeterm plan doctor PLAN_ID --kind quality` before approval and again
 before dispatch. It is a structural approval gate: missing goal/spec link,
 task-quality gaps, heartbeat-before-execution state, and *non-planning* tasks
-created while still in planning mode (`tasks_before_approval`) are errors.
+created before approval (`tasks_before_approval`) are errors.
 Planning-kind tasks never trip `tasks_before_approval`; quality checks (missing
 body, criteria, section link) still apply to them. It deliberately does **not**
 infer quality from prose keywords; if a rule must be machine-enforced, model it
@@ -187,6 +187,31 @@ Planner is a profile on a structural Worker: it cannot spawn agents, assign
 panes, accept tasks, or judge final completion. Execution ownership and final
 acceptance stay with the Orchestrator.
 
+### Planning is a plan state, not a bootstrap task
+
+Every plan carries a **planning_state** the Planner advances:
+
+- `drafting` — GOAL/spec/plan skeleton being built.
+- `structure_ready` — structure complete, awaiting approval review.
+- `approved` — approved for execution; **only this state unlocks execution-task
+  creation** (the single gate — `codeterm plan task add` for a non-planning kind
+  is rejected until then; planning-kind tasks and `--force` drafts are exempt).
+
+Promotion and onboarding **do not create a planner bootstrap task** — planning
+progress lives in the plan's own state, advanced by the Planner (or the user):
+
+```bash
+codeterm plan planning-state PLAN_ID --set structure_ready --pane <planner-pane> --note "skeleton done"
+codeterm plan approve PLAN_ID          # user/orchestrator: advances to approved
+```
+
+Only the Planner pane or the user may advance the state; each advance records an
+author and note as a working point in `planning_log`. `codeterm plan approve`
+still runs the quality doctor first, which gates approval on a set GOAL, a linked
+spec, plan sections, and a verification hint. Nudges and `next_actions` derive
+the "defer structure to the Planner peer" prompt from planning_state plus the
+plan's `planner` binding — named by peer, never guessed.
+
 Preferred spawn shape:
 
 ```bash
@@ -236,8 +261,10 @@ Use this loop:
 
 1. Orchestrator creates or updates the effort goal and assigns a Planner task.
 2. Planner writes/repairs Spec, Plan, task briefs, role guidance, and gates.
-3. Orchestrator approves the planning state, switches the plan to execution,
-   dispatches workers, gates their output, and records what happened.
+3. Planner advances planning_state to `structure_ready`; the Orchestrator (or
+   user) runs the quality doctor and `plan approve` to reach `approved`, which
+   unlocks execution-task creation, then dispatches workers, gates their output,
+   and records what happened.
 4. If implementation exposes a blocker, weak UX, missing requirement, or the
    user asks to iterate, Orchestrator creates a Planner replanning task with the
    evidence and asks for a revised task graph.
@@ -246,12 +273,14 @@ Use this loop:
 
 ### Planning ownership
 
-While a Planner holds an open planning-kind task, the **Orchestrator routes
-planning input to the Planner** — new requirements, discovered blockers,
-implementation evidence, user feedback. The Orchestrator dispatches workers,
-gates their output, integrates results, and may record facts (strides,
-heartbeat updates, lane metadata). It must **not** synthesize graph nodes
-(GOAL edits, new spec/plan sections, new tasks) while a Planner lane is active.
+While the plan's planning_state is not `approved` and a Planner peer is bound,
+the **Orchestrator routes planning input to the Planner** — new requirements,
+discovered blockers, implementation evidence, user feedback. The Orchestrator
+dispatches workers, gates their output, integrates results, and may record facts
+(strides, heartbeat updates, lane metadata). It must **not** synthesize graph
+nodes (GOAL edits, new spec/plan sections, new tasks) while structure is the
+Planner's to own. A waived planner (`plan update --planner none --note ...`)
+makes the Orchestrator the solo structural owner and silences these nudges.
 
 Exceptions (Planner unreachable, emergency structural repair) must be recorded
 as a stride. The **Planner reconciles foreign mutations** on its next run:
@@ -259,8 +288,8 @@ it reviews what changed, decides keep/rewrite/remove, and records a correction
 stride so the plan state remains coherent.
 
 CLI mutation commands (`plan section add/update`, `plan task add/update`,
-`plan goal set`) emit a non-blocking stderr hint when another pane owns the
-active Planner lane, naming the task handle so routing is actionable.
+`plan goal set`) emit a non-blocking stderr hint while planning_state is
+unapproved and a Planner peer is bound, naming the peer so routing is actionable.
 
 ## Handoffs
 
@@ -435,6 +464,8 @@ codeterm plan update PLAN_ID \
 codeterm plan approve PLAN_ID
 codeterm plan unapprove PLAN_ID
 codeterm plan mode PLAN_ID --set planning|approved|execution|complete
+codeterm plan planning-state PLAN_ID --set drafting|structure_ready|approved \
+  [--pane PLANNER_PANE] [--note "..."]
 
 codeterm plan state PLAN_ID
 codeterm plan doctor [PLAN_ID] [--kind storage|structure|quality|all]

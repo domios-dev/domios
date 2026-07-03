@@ -131,11 +131,13 @@ function BoardPlanBoard({
   plan,
   specSections,
   onOpenDetail,
+  onOpenPane,
 }: {
   model: BoardPlanModel;
   plan: Plan;
   specSections: Section[];
   onOpenDetail: (detail: BoardDetail) => void;
+  onOpenPane?: (paneId: string) => void;
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
   const [cancelledOpen, setCancelledOpen] = useState(false);
@@ -152,6 +154,7 @@ function BoardPlanBoard({
             ? () => onOpenDetail({ kind: "spec", plan, specSections })
             : undefined
         }
+        onOpenPane={onOpenPane}
       />
       <div data-testid="plan-board-columns" className="plan-board-columns" role="list">
         {model.columns.map((column) => (
@@ -357,6 +360,7 @@ export function PlanBoardView({
             plan={selectedPlan}
             specSections={selectedSpecSections}
             onOpenDetail={setDetail}
+            onOpenPane={onOpenPane}
           />
         </div>
       )}
