@@ -105,6 +105,26 @@ pub(super) fn rm_section_tree(sections: &mut Vec<Section>, id: &str) -> bool {
         .any(|s| rm_section_tree(&mut s.subsections, id))
 }
 
+fn collect_section_tree_ids(sections: &[Section], id: &str, out: &mut Vec<String>) -> bool {
+    for section in sections {
+        if section.id == id || section.handle.as_deref() == Some(id) {
+            collect_all_section_ids(section, out);
+            return true;
+        }
+        if collect_section_tree_ids(&section.subsections, id, out) {
+            return true;
+        }
+    }
+    false
+}
+
+fn collect_all_section_ids(section: &Section, out: &mut Vec<String>) {
+    out.push(section.id.clone());
+    for subsection in &section.subsections {
+        collect_all_section_ids(subsection, out);
+    }
+}
+
 pub(super) fn has_section(sections: &[Section], id: &str) -> bool {
     sections.iter().any(|section| {
         section.id == id
@@ -368,6 +388,7 @@ impl PlanStore {
             body: body.into(),
             subsections: vec![],
             canvas: Default::default(),
+            attachments: vec![],
         };
         self.with_plan(plan_id, now_ms, |p| match parent {
             None => {
@@ -426,6 +447,7 @@ impl PlanStore {
             milestones: vec![],
             execution_attempts: vec![],
             park_reason: None,
+            attachments: vec![],
         };
         let verify_sections = !task.section_ids.is_empty();
         let expected = Self::task_add_expectation(&task, verify_sections);
@@ -482,6 +504,7 @@ impl PlanStore {
                     loop_id: None,
                     iteration: None,
                     canvas: Default::default(),
+                    attachments: vec![],
                 });
             }
             Ok(())
@@ -535,6 +558,7 @@ impl PlanStore {
                 loop_id: None,
                 iteration: None,
                 canvas: Default::default(),
+                attachments: vec![],
             });
             Ok(())
         });
@@ -637,13 +661,20 @@ impl PlanStore {
         section_id: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let mut removed = vec![];
+        collect_section_tree_ids(&plan.sections, section_id, &mut removed);
         self.with_plan(plan_id, now_ms, |p| {
             if rm_section_tree(&mut p.sections, section_id) {
                 Ok(())
             } else {
                 Err(PlanError::NotFound)
             }
-        })
+        })?;
+        for section_id in removed {
+            self.remove_section_attachment_dir(&plan, &section_id)?;
+        }
+        Ok(())
     }
 
     pub fn update_task(
@@ -899,34 +930,6 @@ impl PlanStore {
             self.verify_task_assigned(plan_id, task_id, pane, peer),
             Some(task_id.to_string()),
         )
-    }
-
-    pub fn rm_task(&self, plan_id: &str, task_id: &str, now_ms: u64) -> Result<(), PlanError> {
-        let write = self.with_plan(plan_id, now_ms, |p| {
-            let pos = p
-                .tasks
-                .iter()
-                .position(|t| t.id == task_id || t.handle.as_deref() == Some(task_id))
-                .ok_or(PlanError::TaskNotFound)?;
-            p.tasks.remove(pos);
-            Ok(())
-        });
-        pending_after_verified(
-            write,
-            self.verify_task_removed(plan_id, task_id),
-            Some(task_id.to_string()),
-        )
-    }
-
-    pub fn rm_all_tasks(&self, plan_id: &str, now_ms: u64) -> Result<usize, PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            let count = p.tasks.len();
-            p.tasks.clear();
-            p.heartbeat.current_focus = None;
-            p.heartbeat.active_lanes.clear();
-            p.mode = PlanMode::Planning;
-            Ok(count)
-        })
     }
 
     pub fn update_milestone(

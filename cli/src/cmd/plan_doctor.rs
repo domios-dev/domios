@@ -266,6 +266,7 @@ fn inspect_storage(path: &Path, plan: &Value) -> Vec<Finding> {
     let Some(tasks) = plan.get("tasks").and_then(Value::as_array) else {
         return findings;
     };
+    findings.extend(inspect_orphan_attachment_dirs(path, plan, tasks));
     for task in tasks {
         let task_id = task.get("id").and_then(Value::as_str).map(str::to_string);
         for key in ["id", "name", "type", "status"] {
@@ -300,6 +301,84 @@ fn inspect_storage(path: &Path, plan: &Value) -> Vec<Finding> {
         }
     }
     findings
+}
+
+fn inspect_orphan_attachment_dirs(path: &Path, plan: &Value, tasks: &[Value]) -> Vec<Finding> {
+    let Some(plan_dir) = path.parent() else {
+        return vec![];
+    };
+    let root = plan_dir.join("attachments");
+    if !root.is_dir() {
+        return vec![];
+    }
+    let task_ids = tasks
+        .iter()
+        .filter_map(|task| task.get("id").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect::<HashSet<_>>();
+    let milestone_ids = tasks
+        .iter()
+        .flat_map(|task| {
+            task.get("milestones")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        })
+        .filter_map(|milestone| {
+            milestone
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect::<HashSet<_>>();
+    let section_ids = collect_section_ids(plan.get("sections").and_then(Value::as_array));
+    let mut findings = vec![];
+    attachment_orphans(path, plan, &root.join("tasks"), &task_ids, &mut findings);
+    attachment_orphans(
+        path,
+        plan,
+        &root.join("sections"),
+        &section_ids,
+        &mut findings,
+    );
+    attachment_orphans(
+        path,
+        plan,
+        &root.join("milestones"),
+        &milestone_ids,
+        &mut findings,
+    );
+    findings
+}
+
+fn attachment_orphans(
+    plan_path: &Path,
+    plan: &Value,
+    dir: &Path,
+    live_ids: &HashSet<String>,
+    findings: &mut Vec<Finding>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_type().map(|ft| !ft.is_dir()).unwrap_or(true) {
+            continue;
+        }
+        let id = entry.file_name().to_string_lossy().to_string();
+        if live_ids.contains(&id) {
+            continue;
+        }
+        findings.push(Finding {
+            severity: "warning",
+            kind: "orphan_attachment_dir",
+            plan_id: plan_id(plan, plan_path),
+            path: entry.path().display().to_string(),
+            task_id: None,
+            detail: format!("attachment directory has no matching live record id '{id}'"),
+            fix: "delete the orphaned attachment directory after confirming the parent was intentionally removed".into(),
+        });
+    }
 }
 
 fn inspect_structure(path: &Path, plan: &Value) -> Vec<Finding> {

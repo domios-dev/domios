@@ -70,6 +70,7 @@ fn qa_milestone(id: String, from: AgentRef, note: &str, now_ms: u64) -> Mileston
         text: note.into(),
         ts: now_ms,
         links: vec![],
+        attachments: vec![],
         loop_id: None,
         iteration: None,
         canvas: Default::default(),

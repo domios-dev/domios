@@ -440,6 +440,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         peer: None,
         group: None,
         canvas: Default::default(),
+        attachments: vec![],
         milestones: vec![crate::plan::Milestone {
             id: "ms_legacy".into(),
             from: AgentRef::from_pane("worker"),
@@ -450,6 +451,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
             loop_id: None,
             iteration: None,
             canvas: Default::default(),
+            attachments: vec![],
         }],
         execution_attempts: vec![],
         park_reason: None,
@@ -536,6 +538,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         peer: None,
         group: None,
         canvas: Default::default(),
+        attachments: vec![],
         milestones: vec![crate::plan::Milestone {
             id: "ms_legacy".into(),
             from: AgentRef::from_pane("worker"),
@@ -546,6 +549,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
             loop_id: None,
             iteration: None,
             canvas: Default::default(),
+            attachments: vec![],
         }],
         execution_attempts: vec![],
         park_reason: None,

@@ -275,6 +275,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         body: "inline section".into(),
         subsections: vec![],
         canvas: Default::default(),
+        attachments: vec![],
     });
     plan.tasks.push(crate::plan::Task {
         id: "task_legacy".into(),
@@ -310,6 +311,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         milestones: vec![],
         execution_attempts: vec![],
         park_reason: None,
+        attachments: vec![],
     });
     let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
     std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();

@@ -404,6 +404,7 @@ mod tests {
             body: String::new(),
             subsections: vec![],
             canvas: Default::default(),
+            attachments: vec![],
         }
     }
 
@@ -418,6 +419,7 @@ mod tests {
             loop_id: None,
             iteration: None,
             canvas: Default::default(),
+            attachments: vec![],
         }
     }
 
@@ -456,6 +458,7 @@ mod tests {
             milestones: vec![],
             execution_attempts: vec![],
             park_reason: None,
+            attachments: vec![],
         }
     }
 

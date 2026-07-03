@@ -328,6 +328,13 @@ pub enum PlanSectionAction {
     },
     /// Show one plan section's title, body, tags, and subsections
     Show { plan_id: String, section_id: String },
+    /// Attach a file to a plan section
+    Attach {
+        plan_id: String,
+        section_id: String,
+        #[arg(value_name = "PATH")]
+        file: String,
+    },
     /// Remove a plan section and its subsections
     Rm { plan_id: String, section_id: String },
 }
@@ -601,6 +608,13 @@ pub enum PlanTaskAction {
         plan_id: String,
         task_id: String,
         attempt_id: String,
+    },
+    /// Attach a file to a plan task
+    Attach {
+        plan_id: String,
+        task_id: String,
+        #[arg(value_name = "PATH")]
+        file: String,
     },
     /// Respawn a worker from one prior execution attempt
     Respawn {

@@ -93,6 +93,9 @@ pub struct ReportArgs {
     /// Anything deliberately skipped
     #[arg(long)]
     pub skipped: Option<String>,
+    /// File to attach to the report milestone; repeat for multiple files
+    #[arg(long = "attach", value_name = "PATH")]
+    pub attachments: Vec<String>,
 }
 
 #[derive(Subcommand)]
