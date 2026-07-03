@@ -53,13 +53,15 @@ export function buildHierarchySubtree(
   rootPaneId: string,
   panes: Record<string, Pane>,
   statuses: Record<string, PaneStatus>,
+  excludePaneIds?: ReadonlySet<string>,
 ): HierarchyNodeData[] {
   return Object.values(panes)
     .filter((p) => p.parent_pane_id === rootPaneId)
+    .filter((p) => !excludePaneIds?.has(p.id))
     .map((pane) => ({
       pane,
       status: statuses[pane.id] ?? null,
-      children: buildHierarchySubtree(pane.id, panes, statuses),
+      children: buildHierarchySubtree(pane.id, panes, statuses, excludePaneIds),
     }));
 }
 
