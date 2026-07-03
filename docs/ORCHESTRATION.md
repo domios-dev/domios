@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -497,6 +497,11 @@ codeterm plan section rm PLAN_ID SECTION_ID
 (`codeterm spec section show SPEC_ID SECTION_ID` is the spec-side equivalent.)
 
 ### Tasks
+
+`--name` is the human-readable title shown on board cards and in lists — write
+it as a short sentence ("QA pipeline: In-QA stage + serialized test queue"),
+never a kebab-case slug ("task-review-stage-qa"). Slugs belong to handles and
+branch names, which are derived separately.
 
 ```bash
 codeterm plan task add PLAN_ID --name NAME \
