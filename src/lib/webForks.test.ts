@@ -26,7 +26,7 @@ interface ForkSite {
 }
 
 const INVENTORY: ForkSite[] = [
-  { file: "src/App.tsx", line: 485, cls: "platform-adaptation", note: "web-only floating hamburger to open the sidebar overlay (titlebar has no sidebar toggle)" },
+  { file: "src/App.tsx", line: 491, cls: "platform-adaptation", note: "web-only floating hamburger to open the sidebar overlay (titlebar has no sidebar toggle)" },
   { file: "src/components/MemoryPanel/memoryApi.ts", line: 14, cls: "transport-shim", note: "REST base URL: apiHost() vs configured daemon host" },
   { file: "src/components/MemoryPanel/memoryApi.ts", line: 20, cls: "transport-shim", note: "auth token source: web token store vs ApiConfig.token" },
   { file: "src/components/MeshPanel/MeshPanel.tsx", line: 204, cls: "transport-shim", note: "spawn setup chat via webJson vs local fetch" },
