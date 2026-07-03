@@ -126,7 +126,7 @@ test(
 );
 
 // ---------------------------------------------------------------------------
-// Canvas card → detail overlay (via canvas-detail testIdPrefix)
+// Canvas (mission control) task card → detail overlay
 // ---------------------------------------------------------------------------
 
 test(
@@ -141,49 +141,33 @@ test(
         return;
       }
 
-      // Switch to canvas mode
       const shell = page.locator('[data-testid="plan-view-shell"]');
       const modeSwitch = page.locator('[data-testid="plan-view-mode-switch"]');
       await expect(shell).toBeVisible({ timeout: 30_000 });
       await modeSwitch.getByRole("tab", { name: /canvas/i }).click();
       await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas");
 
-      const canvasView = page.locator('[data-testid="canvas-view"]');
-      await expect(canvasView).toBeVisible({ timeout: 15_000 });
+      const missionControl = page.locator('[data-testid="mission-control-live"]');
+      await expect(missionControl).toBeVisible({ timeout: 15_000 });
 
-      // Try to find a DOM-rendered task card in canvas view
-      const canvasTaskCard = canvasView.locator('[data-testid="canvas-task-card"]').first();
-      const hasCards = await canvasTaskCard.isVisible({ timeout: 10_000 }).catch(() => false);
+      const taskCard = missionControl.locator('[data-testid^="task-"]').first();
+      const hasCards = await taskCard.isVisible({ timeout: 10_000 }).catch(() => false);
       if (!hasCards) {
-        // Canvas uses blit rendering at this zoom level — skip card click test
-        // but still capture a screenshot of the canvas view
         await screenshot(page, "plan-view-canvas-overview");
-        test.skip(true, "no DOM task cards visible at current canvas zoom — blit-rendered");
+        test.skip(true, "no mission-control task cards visible");
         return;
       }
 
       await screenshot(page, "plan-view-canvas-before-detail");
-      await canvasTaskCard.click();
+      await taskCard.click();
 
-      // The canvas detail overlay uses testIdPrefix "canvas-detail"
-      const overlay = page.locator('[data-testid="canvas-detail-overlay"]');
-      if (await overlay.isVisible({ timeout: 5_000 }).catch(() => false)) {
-        await expect(overlay).toBeVisible();
-        await screenshot(page, "plan-view-canvas-detail");
+      const overlay = page.locator('[data-testid="plan-detail-overlay"]');
+      await expect(overlay).toBeVisible({ timeout: 10_000 });
+      await screenshot(page, "plan-view-canvas-detail");
 
-        await page.keyboard.press("Escape");
-        await expect(overlay).toBeHidden({ timeout: 5_000 });
-        await expect(canvasView).toBeVisible();
-      } else {
-        // Fallback: overlay may use plan-detail prefix
-        const fallbackOverlay = page.locator('[data-testid="plan-detail-overlay"]');
-        if (await fallbackOverlay.isVisible({ timeout: 3_000 }).catch(() => false)) {
-          await screenshot(page, "plan-view-canvas-detail");
-          await page.keyboard.press("Escape");
-          await expect(fallbackOverlay).toBeHidden({ timeout: 5_000 });
-        }
-        await expect(canvasView).toBeVisible();
-      }
+      await page.keyboard.press("Escape");
+      await expect(overlay).toBeHidden({ timeout: 5_000 });
+      await expect(missionControl).toBeVisible();
     } finally {
       await canvas.close();
     }

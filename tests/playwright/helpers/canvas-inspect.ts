@@ -21,12 +21,11 @@ export const CANVAS_ART_DIR = path.resolve(__dirname, "..", "artifacts", "canvas
 export const PERF_FIXTURE_KEY = "canvas.perfFixtureN";
 export const SUBSTRATE_V2_KEY = "canvas.substrateV2";
 
-/** Board is ready when the blit canvas, mission-control stage, or legacy DOM plan node is visible. */
+/** Board is ready when the mission-control stage or plan shell is visible. */
 export const MISSION_CONTROL_LIVE_SEL = '[data-testid="mission-control-live"]';
 export const MISSION_CONTROL_PLAN_SURFACE_SEL = '[data-testid="mission-control-plan-surface"]';
-export const LEGACY_CANVAS_VIEW_SEL = '[data-testid="canvas-view"]';
-/** Visible plan canvas: mission-control (default) or legacy section-graph submode. */
-export const PLAN_CANVAS_VISIBLE_SEL = `${MISSION_CONTROL_LIVE_SEL}, ${LEGACY_CANVAS_VIEW_SEL}`;
+/** Visible plan canvas is always mission control. */
+export const PLAN_CANVAS_VISIBLE_SEL = MISSION_CONTROL_LIVE_SEL;
 
 export const CANVAS_BOARD_SEL =
   '[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"], [data-testid="variant-assembly-line"], [data-testid="dispatch-rail"]';
@@ -37,39 +36,17 @@ export const CANVAS_BOARD_OR_EMPTY_SEL =
 const PLAN_SURFACE_OR_EMPTY_SEL =
   `[data-testid="plan-view-shell"], ${CANVAS_BOARD_OR_EMPTY_SEL}, ${MISSION_CONTROL_LIVE_SEL}`;
 
-/** Scope queries to the visible plan canvas — mission-control or legacy section-graph. */
+/** Scope queries to the visible mission-control canvas. */
 export function visibleCanvasScope(page: Page) {
   return page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
 }
 
-export async function waitForVisiblePlanCanvas(
-  page: Page,
-  timeoutMs = 30_000,
-): Promise<"mission-control" | "section-graph"> {
+export async function waitForVisiblePlanCanvas(page: Page, timeoutMs = 30_000): Promise<void> {
   await page.locator(PLAN_CANVAS_VISIBLE_SEL).first().waitFor({ state: "visible", timeout: timeoutMs });
-  if ((await page.locator(`${MISSION_CONTROL_LIVE_SEL}:visible`).count()) > 0) return "mission-control";
-  return "section-graph";
-}
-
-export async function switchPlanCanvasSubmode(
-  page: Page,
-  mode: "mission-control" | "section-graph",
-): Promise<void> {
-  const switcher = page.locator('[data-testid="canvas-sub-mode-switch"]');
-  if (!(await switcher.isVisible().catch(() => false))) return;
-  const label = mode === "mission-control" ? /mission control/i : /section graph/i;
-  await switcher.getByRole("tab", { name: label }).click();
-  if (mode === "mission-control") {
-    await page.locator(MISSION_CONTROL_LIVE_SEL).first().waitFor({ state: "visible", timeout: 15_000 });
-  } else {
-    await page.locator(`${LEGACY_CANVAS_VIEW_SEL}:visible`).first().waitFor({ state: "visible", timeout: 15_000 });
-  }
 }
 
 async function planCanvasPanContainer(page: Page) {
-  const mc = page.locator(`${MISSION_CONTROL_LIVE_SEL} .mc-live-viewport`).first();
-  if (await mc.isVisible().catch(() => false)) return mc;
-  return page.locator(`${LEGACY_CANVAS_VIEW_SEL}:visible`).first().locator("div").first();
+  return page.locator(`${MISSION_CONTROL_LIVE_SEL} .mc-live-viewport`).first();
 }
 
 // Must match useCanvasViewport.ts CANVAS_ZOOM_INTENSITY; scale = exp(-deltaY * INTENSITY).
@@ -396,11 +373,9 @@ export async function panBy(page: Page, dx: number, dy: number): Promise<void> {
 // modifiers, so dispatch a real WheelEvent with ctrlKey on the pan container.
 export async function zoomBy(page: Page, deltaY: number): Promise<void> {
   await page.evaluate((dy) => {
-    const mc = document.querySelector(
+    const target = document.querySelector(
       '[data-testid="mission-control-live"] .mc-live-viewport',
     ) as HTMLElement | null;
-    const legacy = document.querySelector('[data-testid="canvas-view"]')?.querySelector("div") as HTMLElement | null;
-    const target = mc ?? legacy;
     if (!target) return;
     const r = target.getBoundingClientRect();
     target.dispatchEvent(
@@ -423,11 +398,9 @@ export async function zoomBy(page: Page, deltaY: number): Promise<void> {
 // plain viewport-center zoom drifts content off-screen and culls it.
 async function dispatchZoom(page: Page, anchorSel: string | null, deltaY: number): Promise<void> {
   await page.evaluate(({ anchorSel, deltaY }) => {
-    const mc = document.querySelector(
+    const target = document.querySelector(
       '[data-testid="mission-control-live"] .mc-live-viewport',
     ) as HTMLElement | null;
-    const legacy = document.querySelector('[data-testid="canvas-view"]')?.querySelector("div") as HTMLElement | null;
-    const target = mc ?? legacy;
     if (!target) return;
     const anchor = anchorSel ? (document.querySelector(anchorSel) as HTMLElement | null) : null;
     const r = (anchor ?? target).getBoundingClientRect();
@@ -669,13 +642,9 @@ export async function canvasScale(page: Page): Promise<number> {
     if (pct) return Number(pct[1]) / 100;
   }
   return page.evaluate(() => {
-    const mcLayer = document.querySelector(
+    const world = document.querySelector(
       '[data-testid="mission-control-live"] .mc-live-stage-wrap',
     ) as HTMLElement | null;
-    const legacyWorld = Array.from(
-      document.querySelector('[data-testid="canvas-view"]')?.querySelectorAll<HTMLElement>("div") ?? [],
-    ).find((el) => (el.getAttribute("style") ?? "").includes("transform: translate"));
-    const world = mcLayer ?? legacyWorld ?? null;
     const transform = world ? getComputedStyle(world).transform : null;
     if (!transform || transform === "none") return 1;
     const matrix = transform.match(/^matrix\(([^)]+)\)$/);
@@ -693,11 +662,9 @@ export async function setCanvasScale(page: Page, targetScale: number): Promise<v
     const current = await canvasScale(page);
     if (Math.abs(current - targetScale) < 0.015) return;
     await page.evaluate(({ currentScale, nextScale, intensity }) => {
-      const mc = document.querySelector(
+      const target = document.querySelector(
         '[data-testid="mission-control-live"] .mc-live-viewport',
       ) as HTMLElement | null;
-      const legacy = document.querySelector('[data-testid="canvas-view"]')?.querySelector("div") as HTMLElement | null;
-      const target = mc ?? legacy;
       if (!target) return;
       const r = target.getBoundingClientRect();
       const deltaY = -Math.log(nextScale / currentScale) / intensity;

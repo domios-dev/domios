@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import {
-  CANVAS_BOARD_SEL,
   closeWorkspaceTabs,
   expandWorkspaceSidebar,
   openSidebarIfNeeded,
@@ -32,6 +31,7 @@ test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", 
     title: "Entry gate section",
     body: "Workspace plan index needs non-empty plan content.",
   });
+  await api.post(`/plans/${created.plan_id}/mode`, { mode: "approved" });
   await api.post(`/plans/${created.plan_id}/tasks`, {
     name: "Entry gate task",
     type: "research",
@@ -84,8 +84,8 @@ test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", 
     await expect(entry).toHaveText(/Plan/);
     await entry.click();
 
-    await expect(page.locator('[data-testid="canvas-view"]').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.locator(CANVAS_BOARD_SEL).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[data-testid="plan-view-shell"]').first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[data-testid="plan-board-view"]')).toBeVisible({ timeout: 30_000 });
     await expect(entry).toHaveAttribute("data-active", "true");
     await expect(page.getByTitle("Close plan canvas")).toHaveCount(0);
 
@@ -93,7 +93,7 @@ test("@golden @workspace-plan-entry sidebar Plan entry opens workspace canvas", 
     if (pane.tab_id) {
       await page.locator(`[data-testid="tab-item"][data-tab-id="${pane.tab_id}"]`).click({ force: true });
     }
-    await expect(page.locator('[data-testid="canvas-view"]').first()).toBeHidden({ timeout: 30_000 });
+    await expect(page.locator('[data-testid="plan-view-shell"]').first()).toBeHidden({ timeout: 30_000 });
     await expect(entry).toHaveAttribute("data-active", "false");
   } finally {
     await closeCanvasWebSession(session);

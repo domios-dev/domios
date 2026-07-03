@@ -1,10 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CanvasViewInnerProps } from "../CanvasView";
-import {
-  DEFAULT_CANVAS_SUB_MODE,
-  resolveCanvasSubMode,
-  type CanvasSubMode,
-} from "../canvasSubMode";
 import { filterPlansForCanvas } from "../planPaneMatch";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import { fetchSpecSections } from "../plansApi";
@@ -15,30 +9,14 @@ import { enrichSwitcherOptions, selectActiveWork } from "../planView/activeWork"
 import { orderPlansByActivity, selectDefaultPlanId } from "../planView/boardModel";
 import { PlanDetailOverlay, type PlanDetailKind } from "../planView/PlanDetailOverlay";
 import type { Plan, Section, Task } from "../types";
-import { CanvasViewInner } from "../CanvasView";
 import { MissionControlLiveView } from "./MissionControlLiveView";
-import { Segmented, type SegmentedOption } from "../../shared/Segmented";
 
-const CANVAS_SUB_MODE_STORAGE_KEY = "codeterm.canvasSubMode";
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.missionControl.selectedPlanId";
-
-const SUB_MODE_OPTIONS: SegmentedOption<CanvasSubMode>[] = [
-  { value: "mission-control", label: "Mission control" },
-  { value: "section-graph", label: "Section graph" },
-];
 
 type DetailState =
   | { kind: "task"; task: Task; plan: Plan }
   | { kind: "plan"; plan: Plan; specSections: Section[] }
   | { kind: "spec"; plan: Plan; specSections: Section[] };
-
-function readStoredSubMode(): CanvasSubMode {
-  try {
-    return resolveCanvasSubMode(window.localStorage.getItem(CANVAS_SUB_MODE_STORAGE_KEY));
-  } catch {
-    return DEFAULT_CANVAS_SUB_MODE;
-  }
-}
 
 function readStoredPlanId(): string | null {
   try {
@@ -46,10 +24,6 @@ function readStoredPlanId(): string | null {
   } catch {
     return null;
   }
-}
-
-export interface MissionControlPlanSurfaceProps extends PlanViewSurfaceProps {
-  sectionGraphProps: CanvasViewInnerProps;
 }
 
 export function MissionControlPlanSurface({
@@ -62,9 +36,7 @@ export function MissionControlPlanSurface({
   panes = {},
   onOpenPane,
   api,
-  sectionGraphProps,
-}: MissionControlPlanSurfaceProps) {
-  const [subMode, setSubMode] = useState<CanvasSubMode>(readStoredSubMode);
+}: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
   const activeWork = useMemo(() => selectActiveWork(effectivePlans, panes), [effectivePlans, panes]);
@@ -98,15 +70,6 @@ export function MissionControlPlanSurface({
     setManualPlanId(id);
     try {
       window.sessionStorage.setItem(SELECTED_PLAN_STORAGE_KEY, id);
-    } catch {
-      // best-effort
-    }
-  }, []);
-
-  const persistSubMode = useCallback((next: CanvasSubMode) => {
-    setSubMode(next);
-    try {
-      window.localStorage.setItem(CANVAS_SUB_MODE_STORAGE_KEY, next);
     } catch {
       // best-effort
     }
@@ -164,19 +127,12 @@ export function MissionControlPlanSurface({
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
 
   return (
-    <div data-testid="mission-control-plan-surface" data-canvas-sub-mode={subMode} className="flex h-full w-full flex-col overflow-hidden">
+    <div data-testid="mission-control-plan-surface" className="flex h-full w-full flex-col overflow-hidden">
       <header
         className="flex shrink-0 items-center gap-3 border-b px-3 py-1.5"
         style={{ borderColor: "var(--ct-border)", background: "var(--ct-titlebar-bg)" }}
       >
-        <Segmented
-          data-testid="canvas-sub-mode-switch"
-          value={subMode}
-          options={SUB_MODE_OPTIONS}
-          height={24}
-          onChange={persistSubMode}
-        />
-        {selectedPlan && subMode === "mission-control" && (
+        {selectedPlan && (
           <PlanSwitcher
             plans={switcherWithInflight}
             selectedId={selectedPlan.id}
@@ -201,7 +157,7 @@ export function MissionControlPlanSurface({
             No active plans in this workspace.
           </p>
         )}
-        {!loading && !error && selectedPlan && subMode === "mission-control" && (
+        {!loading && !error && selectedPlan && (
           <MissionControlLiveView
             plan={selectedPlan}
             panes={panes}
@@ -209,9 +165,6 @@ export function MissionControlPlanSurface({
             onOpenPlan={openPlanDetail}
           />
         )}
-        <div className="absolute inset-0" hidden={subMode !== "section-graph"} aria-hidden={subMode !== "section-graph"}>
-          <CanvasViewInner {...sectionGraphProps} onClose={undefined} />
-        </div>
       </div>
       {detail && overlayKind && (
         <PlanDetailOverlay

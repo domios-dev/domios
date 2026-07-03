@@ -17,6 +17,7 @@ export function MissionControlPrototype() {
   const [lod, setLod] = useState<MissionControlLod>("detail");
   const snapshot = MISSION_CONTROL_FIXTURE;
   const VariantView = useMemo(() => VARIANT_COMPONENTS[variant], [variant]);
+  const stageLod = lod === "detail" ? "close" : "far";
 
   return (
     <div className="mc-root mc-gallery-shell" data-testid="mission-control-prototype">
@@ -58,7 +59,7 @@ export function MissionControlPrototype() {
       </header>
       <div className="mc-stage-wrap">
         <div className="mc-stage" data-lod={lod} data-variant={variant}>
-          <VariantView snapshot={snapshot} />
+          <VariantView snapshot={snapshot} lod={stageLod} />
         </div>
       </div>
     </div>

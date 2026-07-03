@@ -76,14 +76,10 @@ test(
 
       await screenshot(page, "plan-view-list");
 
-      // Switch to Canvas — default submode is mission-control (section-graph is explicit toggle)
+      // Switch to Canvas — mission control is the only canvas surface
       await modeSwitch.getByRole("tab", { name: /canvas/i }).click();
       await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas");
       await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
-      await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toHaveAttribute(
-        "data-canvas-sub-mode",
-        "mission-control",
-      );
       await expect(page.locator(MISSION_CONTROL_LIVE_SEL)).toBeVisible();
       await expect(page.locator('[data-testid="canvas-view"]:visible')).toHaveCount(0);
       await expect(page.locator('[data-testid="plan-board-view"]')).toBeHidden();
