@@ -292,6 +292,29 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             fix: "update the task with body, section links, criteria, test plan, and correctness before dispatch".into(),
         });
     }
+    // Vague test plan: a present-but-descriptive plan (too short, or naming no
+    // runnable command) lets non-working solutions slip past gates. Structural
+    // predicate only — planning-kind tasks are exempt. A wholly-missing test plan
+    // is already reported by task_quality_gap above.
+    if !task_kind_is_planning(task) {
+        if let Some(test_plan) = task
+            .get("test_plan")
+            .and_then(Value::as_str)
+            .filter(|s| !s.trim().is_empty())
+        {
+            if crate::cmd::test_plan::test_plan_is_vague(test_plan) {
+                findings.push(Finding {
+                    severity: "warning",
+                    kind: "test_plan_vague",
+                    plan_id: plan_id(plan, path),
+                    path: path.display().to_string(),
+                    task_id: Some(task_id.clone()),
+                    detail: "test plan is vague — too short or names no runnable command; workers will fill the gaps with guesses".into(),
+                    fix: "write an executable plan: exact command(s), exact surfaces (testids/selectors/files/endpoints), numbered steps with observable pass conditions".into(),
+                });
+            }
+        }
+    }
     // executor_role is advisory for execution-kind tasks; planning-kind tasks are exempt
     if !task_kind_is_planning(task)
         && task

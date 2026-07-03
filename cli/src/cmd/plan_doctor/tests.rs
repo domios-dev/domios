@@ -461,7 +461,7 @@ fn quality_accepts_complete_task_and_plan_scaffold() {
             "section_ids": ["sec_1"],
             "body": "Implement the scoped change.",
             "acceptance_criteria": ["criterion"],
-            "test_plan": "run focused test",
+            "test_plan": "Run `cargo test plan::scoped_change` and assert the new path is covered; then `codeterm plan doctor pl_1 --kind quality` round-trips with zero findings.",
             "correctness": "matches spec",
             "executor_role": "rust-backend-dev"
         }]
@@ -630,7 +630,7 @@ fn quality_accepts_externalized_task_body_via_sidecar() {
             "section_ids": ["sec_1"],
             "body": "",
             "acceptance_criteria": ["criterion"],
-            "test_plan": "run focused test",
+            "test_plan": "Run `cargo test plan::externalized_body` and assert the sidecar body is read; then `codeterm plan doctor pl_1 --kind quality` round-trips with zero findings.",
             "correctness": "matches spec",
             "executor_role": "frontend-dev"
         }]
@@ -728,6 +728,130 @@ fn planner_unpaired_silent_without_orchestrator() {
     plan["owner"] = json!({});
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
     assert!(!findings.iter().any(|f| f.kind == "planner_unpaired"));
+}
+
+fn task_with_test_plan(kind: &str, test_plan: &str) -> Value {
+    json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Execution", "body": "paths, build.sh check"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "Do work",
+            "type": kind,
+            "status": "pending",
+            "section_ids": ["sec_1"],
+            "body": "body",
+            "acceptance_criteria": ["criterion"],
+            "test_plan": test_plan,
+            "correctness": "matches spec",
+            "executor_role": "rust-backend-dev"
+        }]
+    })
+}
+
+#[test]
+fn quality_warns_on_under_length_test_plan() {
+    let plan = task_with_test_plan("implement", "component tests; manual check");
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(findings
+        .iter()
+        .any(|f| f.kind == "test_plan_vague" && f.severity == "warning"));
+}
+
+#[test]
+fn quality_warns_on_commandless_test_plan() {
+    let wordy = "We will carefully verify the resulting behavior by inspecting the output and \
+confirming that every relevant surface looks correct across the whole flow before sign-off.";
+    let plan = task_with_test_plan("implement", wordy);
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(findings.iter().any(|f| f.kind == "test_plan_vague"));
+}
+
+#[test]
+fn quality_clean_on_executable_test_plan() {
+    let good =
+        "Run `cargo test test_plan_vague` and assert exactly one test_plan_vague finding on \
+the seeded plan; then `codeterm plan doctor pl_1 --kind quality` round-trips clean.";
+    let plan = task_with_test_plan("implement", good);
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(!findings.iter().any(|f| f.kind == "test_plan_vague"));
+}
+
+#[test]
+fn quality_exempts_planning_kind_from_vague_test_plan() {
+    let plan = task_with_test_plan("planning", "n/a");
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(
+        !findings.iter().any(|f| f.kind == "test_plan_vague"),
+        "planning-kind tasks must be exempt from the vague test-plan check"
+    );
+}
+
+#[test]
+fn quality_seeded_plan_flags_exactly_one_vague_test_plan() {
+    let dir = tempfile::tempdir().unwrap();
+    let plan_dir = dir.path().join(".codeterm/plans/active/pl_1");
+    std::fs::create_dir_all(&plan_dir).unwrap();
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "approved",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Execution", "body": "paths, build.sh check"}],
+        "tasks": [
+            {
+                "id": "task_vague",
+                "name": "Vague one",
+                "type": "implement",
+                "status": "pending",
+                "section_ids": ["sec_1"],
+                "body": "body",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "component tests; manual check",
+                "correctness": "matches spec",
+                "executor_role": "rust-backend-dev"
+            },
+            {
+                "id": "task_good",
+                "name": "Concrete one",
+                "type": "implement",
+                "status": "pending",
+                "section_ids": ["sec_1"],
+                "body": "body",
+                "acceptance_criteria": ["criterion"],
+                "test_plan": "Run `cargo test test_plan_vague` and assert exactly one test_plan_vague finding on the seeded plan; then `codeterm plan doctor pl_1 --kind quality` round-trips clean.",
+                "correctness": "matches spec",
+                "executor_role": "rust-backend-dev"
+            }
+        ]
+    });
+    std::fs::write(
+        plan_dir.join("plan.json"),
+        serde_json::to_string_pretty(&plan).unwrap(),
+    )
+    .unwrap();
+
+    let report = doctor_report(
+        Some("pl_1".into()),
+        Some(dir.path().display().to_string()),
+        "quality",
+    )
+    .unwrap();
+    let vague: Vec<&Value> = report["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["kind"] == "test_plan_vague")
+        .collect();
+    assert_eq!(vague.len(), 1, "exactly one vague finding: {vague:?}");
+    assert_eq!(vague[0]["task_id"], "task_vague");
 }
 
 #[test]

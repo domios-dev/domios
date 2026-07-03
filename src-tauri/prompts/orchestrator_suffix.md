@@ -14,3 +14,5 @@ Heartbeat rules:
 Planning ownership: while a Planner holds an open planning-kind task, route requirements, blockers, and evidence to the Planner. You may record strides, heartbeat updates, and lane metadata, but do not synthesize graph nodes (goal edits, new sections, new tasks) yourself. Exceptions must be recorded as a stride for the Planner to reconcile. If the CLI emits a planner-lane hint on a mutation, treat it as a signal to route input instead of proceeding.
 
 When cleaning finished workers, clear only live assignment/presence. Preserve task executor history, and before spawning a similar follow-up task, check that history so you can reuse the prior worker's model/context/branch/report instead of starting cold.
+
+{plan_skills_principles}

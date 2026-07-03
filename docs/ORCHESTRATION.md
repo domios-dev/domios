@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -439,6 +439,83 @@ codeterm --json orchestrator status --plan PLAN_ID       # reports + live_lanes 
 ```
 
 `set` writes only the fields you pass (omitted fields are left intact); `--clear-lanes` / `--clear-rules` empty those lists and cannot be combined with `--lane` / `--rule` in the same command. Plan is resolved from `--plan`/`CODETERM_PLAN_ID`, else the active plan owned by this pane/session. Keep the plan-owned heartbeat current after each state-reconciliation pass — the focus + lanes are what get reinjected.
+
+## Test plans — executable, not descriptive
+
+A task's `test_plan` is a contract with the executing worker, not a note to self.
+It starts from the **oracle**: the exact command or observation that PROVES the
+task done. Then it names the method by the work — TDD for code paths, fixtures
+for parsers and formats, live dev walkthrough for UX, seeded eval cases for
+prompt or behavior changes. If the oracle is expensive (full build, broad suite,
+e2e), route it through the QA queue instead of a per-lane gate. A criterion
+without an oracle is an opinion.
+
+Executable means the plan names:
+
+1. the exact command(s) to run,
+2. the exact surfaces touched (testids, selectors, files, endpoints),
+3. numbered steps, each with the observable pass condition.
+
+If the executing worker would have to invent a selector, a step, or an expected
+value, the plan is incomplete — write the scenario, not the intention.
+`"Component tests + manual check"` is not a test plan.
+
+The reference standard is the picker-v2 task
+(`task_234c14f04d9f4dbfb5a743d50486617d`): numbered Playwright scenarios, exact
+testids, exact pass conditions, cleanup rules, and the exact run command. That
+is the bar.
+
+This is enforced mechanically, not by exhortation:
+
+- **Doctor** emits a `test_plan_vague` warning when a non-planning task's
+  `test_plan` is under ~120 chars OR names no command-like token (backtick,
+  `npx`, `cargo`, `codeterm`, `bash`, `curl`). The predicate is structural
+  (length + command token) — it never judges the prose itself, consistent with
+  doctor philosophy. Planning-kind tasks are exempt.
+- **QA claim** (`codeterm plan qa next --claim`) prepends
+  `TEST PLAN IS VAGUE — bounce to the orchestrator for a concrete plan before
+  verifying.` when the same predicate fires. A vague test plan is itself a
+  bounce reason: return it for a concrete, executable plan before verifying.
+
+## Plan skills — the plan's own know-how
+
+A plan accumulates reusable procedure as it runs: a test recipe, a seeding
+script, a gotcha worked around once. Instead of leaving that in chat where the
+next worker cannot find it, record it as a **plan skill** — org-code that lives
+with the effort and every future lane inherits.
+
+```bash
+codeterm plan skill new <slug>     # scaffold a SKILL.md (+scripts/) in the plan sidecar
+codeterm plan skill list           # browse what earlier lanes proved out
+codeterm plan skill show <slug>    # read one; bodies are never inlined into prompts
+codeterm plan skill edit <slug>    # improve an existing skill before writing a new one
+```
+
+Skills live in the plan sidecar at
+`.codeterm/plans/<bucket>/<plan>/skills/<slug>/SKILL.md`. The registry surfaces
+as a single pointer line in the orchestrator heartbeat and worker charter — a
+count and slug list, never the bodies.
+
+Principles (encoded in the orchestrator and planner suffixes so the behavior
+emerges rather than being a checklist):
+
+- **Org-code, not chat.** Learned something reusable this effort? Record it.
+  Improve an existing skill before writing a new one.
+- **Separate harness from target.** A skill names what is FIXED — the oracle,
+  the command or observation that proves success — and what is MUTABLE. Never
+  edit the oracle to make results look better.
+- **Measurable over vibes.** Prefer a skill with a `--check` command; cite the
+  check when keeping or discarding an approach.
+- **Simplicity is a criterion.** A marginal gain that adds hacky steps is a
+  loss; a deletion that preserves results is a win. Applies to skills and code.
+- **Ledger honesty.** Every skill edit appends to the plan's
+  `skills/ledger.jsonl` — `keep | discard | superseded` plus a one-line why.
+  Discarded approaches are data, not embarrassment.
+
+**Promotion path.** A plan skill that proves generally useful — not specific to
+this effort — graduates to a machine-level mem skill via `codeterm mem skill`,
+so it is available across future plans. Suggest promotion at retrospective time,
+not mid-run.
 
 ## Command Reference
 

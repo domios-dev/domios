@@ -50,6 +50,7 @@ pub mod spec;
 pub mod system;
 pub mod task;
 pub mod task_list_render;
+pub mod test_plan;
 pub mod update;
 pub mod usage;
 pub mod web;
