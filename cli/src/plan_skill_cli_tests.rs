@@ -1,15 +1,25 @@
-use crate::args::cli::{Cli, Commands};
-use crate::args::plan::{PlanAction, PlanSkillAction};
-use clap::Parser;
+use crate::args::plan::PlanSkillAction;
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+struct PlanSkillHarness {
+    #[command(subcommand)]
+    action: HarnessAction,
+}
+
+#[derive(Subcommand)]
+enum HarnessAction {
+    Skill {
+        #[command(subcommand)]
+        action: PlanSkillAction,
+    },
+}
 
 fn skill_action(args: &[&str]) -> PlanSkillAction {
-    let mut argv = vec!["codeterm", "plan", "skill"];
+    let mut argv = vec!["codeterm", "skill"];
     argv.extend_from_slice(args);
-    match Cli::try_parse_from(argv).expect("parses").command {
-        Commands::Plan {
-            action: PlanAction::Skill { action },
-        } => action,
-        _ => panic!("expected plan skill"),
+    match PlanSkillHarness::try_parse_from(argv).expect("parses").action {
+        HarnessAction::Skill { action } => action,
     }
 }
 
@@ -96,6 +106,6 @@ fn edit_accepts_superseded_verdict() {
 
 #[test]
 fn edit_without_rationale_fails() {
-    let err = Cli::try_parse_from(["codeterm", "plan", "skill", "edit", "deploy"]);
+    let err = PlanSkillHarness::try_parse_from(["codeterm", "skill", "edit", "deploy"]);
     assert!(err.is_err(), "rationale is required for edit");
 }
