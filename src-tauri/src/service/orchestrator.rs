@@ -588,14 +588,9 @@ impl ServiceContext {
                         }),
                         now_ms,
                     ) {
-                        log::warn!(
-                            "[spawn] failed to bind planner ref for plan {plan_id}: {e}"
-                        );
+                        log::warn!("[spawn] failed to bind planner ref for plan {plan_id}: {e}");
                     }
-                    let orch_pane = self
-                        .plan_store
-                        .owner_of(plan_id)
-                        .and_then(|o| o.pane_id);
+                    let orch_pane = self.plan_store.owner_of(plan_id).and_then(|o| o.pane_id);
                     let intro = crate::service::plan::peer_mandate::planner_peer_intro_line(
                         plan_id,
                         orch_pane.as_deref(),

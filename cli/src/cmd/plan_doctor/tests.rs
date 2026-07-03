@@ -675,9 +675,12 @@ fn planner_unpaired_escalates_to_error_at_approval() {
     )
     .unwrap();
 
-    let report =
-        doctor_report(Some("pl_1".into()), Some(dir.path().display().to_string()), "quality")
-            .unwrap();
+    let report = doctor_report(
+        Some("pl_1".into()),
+        Some(dir.path().display().to_string()),
+        "quality",
+    )
+    .unwrap();
     assert!(report["findings"]
         .as_array()
         .unwrap()
