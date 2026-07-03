@@ -84,6 +84,30 @@ pub const MEM_RERANK: &str = include_str!("../prompts/mem_rerank.md");
 /// REM-phase dreaming prompt — optimization steps for the headless dream worker. No placeholders.
 pub const DREAMING_REM: &str = include_str!("../prompts/dreaming_rem.md");
 
+/// Planner owns GOAL, Spec, and Plan structure — injected into orchestrator charters.
+pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner owns GOAL, Spec, and Plan structure. \
+     The orchestrator defers structural decisions (sections, tasks, sequencing) \
+     to the Planner peer.";
+
+/// Orchestrator deference rule when a planner peer is bound.
+pub const PEER_ORCH_DEFERENCE_LINE: &str =
+    "As orchestrator, defer to the Planner peer for structural decisions. \
+     Do not add sections, reorganize tasks, or change the plan skeleton \
+     without Planner acknowledgment.";
+
+/// Peer-pairing mandate block. `{spawn_cmd}` is replaced at runtime with the pane-spawn command.
+pub const PEER_PAIRING_MANDATE_BLOCK: &str = "\
+## Peer contract
+
+This plan has a Planner peer. Spawn the Planner with `{spawn_cmd}` if it is not live. \
+The orchestrator is the execution authority; the Planner is the structural authority. \
+Structural changes require Planner acknowledgment.";
+
+/// Hint shown when no planner is bound and no waiver is set.
+pub const PEER_WAIVER_HINT: &str = "No planner peer is bound. \
+     Bind one with `codeterm plan update --planner <PANE_ID>` or waive with \
+     `codeterm plan update --planner none --note <reason>`.";
+
 #[cfg(test)]
 mod tests {
     use super::*;
