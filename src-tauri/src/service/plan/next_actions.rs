@@ -122,12 +122,23 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
 
     for lane in &s.open_lanes {
         if lane.status == TaskStatus::Pending {
+            let message = if let Some(summary) = lane.competition.as_deref() {
+                format!(
+                    "{} {} ({summary}): plan.task.compete route for plan {} task {}",
+                    crate::service::plan::competition::COMPETITIVE_DISPATCH_NUDGE,
+                    lane.task_id,
+                    s.plan_id,
+                    lane.task_id
+                )
+            } else {
+                format!("dispatch {} ({})", lane.task_id, lane.name)
+            };
             actions.push(NextAction {
                 priority: 5,
                 kind: NextActionKind::Dispatch,
                 task_id: Some(lane.task_id.clone()),
                 loop_id: None,
-                message: format!("dispatch {} ({})", lane.task_id, lane.name),
+                message,
             });
         }
     }
@@ -147,6 +158,8 @@ mod tests {
             name: format!("name-{id}"),
             status,
             executor_role: None,
+            competition: None,
+            live_competition_attempts: 0,
             review_stage: ReviewStage::Review,
             qa_state: None,
         }

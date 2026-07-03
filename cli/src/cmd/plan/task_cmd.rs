@@ -86,6 +86,12 @@ fn render_attempt(value: &Value) -> String {
         "reported_at",
         "reviewed_at",
         "closed_at",
+        "competition_group_id",
+        "competition_lane",
+        "judge_verdict",
+        "judge_reason",
+        "judged_at",
+        "winner",
         "last_report_status",
     ] {
         if let Some(v) = attempt.get(key).filter(|v| !v.is_null()) {

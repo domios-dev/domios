@@ -15,6 +15,7 @@ mod pane;
 mod plan;
 mod plan_archive;
 mod plan_attachments;
+mod plan_competition;
 mod plan_elements;
 mod plan_fields;
 mod plan_goal;
@@ -29,6 +30,7 @@ mod plan_qa;
 mod plan_read;
 mod plan_refs;
 mod plan_role_helpers;
+mod plan_time;
 mod services;
 mod spec;
 mod workspace;
@@ -429,6 +431,8 @@ fn dispatch(
                 "plan.task.attempts",
                 "plan.task.attempt.show",
                 "plan.task.respawn",
+                "plan.task.compete",
+                "plan.task.judge",
                 "plan.task.rm",
                 "plan.milestone.add",
                 "plan.milestone.update",

@@ -87,6 +87,7 @@ fn append_plan_task(
     out.push_str(&format!(
         "{indent}- **{name}** (`{tid}`) — {st}{role_suffix}\n"
     ));
+    render_task_competition(task, depth, out);
     render_task_lane(task, depth, out);
     render_task_quality(task, depth, out);
     if let Some(id) = task.get("id").and_then(|v| v.as_str()) {
@@ -96,6 +97,40 @@ fn append_plan_task(
             }
         }
     }
+}
+
+fn render_task_competition(task: &Value, depth: usize, out: &mut String) {
+    let Some(competition) = task.get("competition").filter(|v| !v.is_null()) else {
+        return;
+    };
+    if competition.get("enabled").and_then(|v| v.as_bool()) != Some(true) {
+        return;
+    }
+    let indent = "  ".repeat(depth + 1);
+    let attempts = competition
+        .get("attempts")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2)
+        .max(2);
+    let models = competition
+        .get("models")
+        .and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    let mut parts = vec![format!("{attempts} attempts")];
+    if !models.is_empty() {
+        parts.push(format!("models {models}"));
+    }
+    if let Some(hint) = competition.get("judge_hint").and_then(|v| v.as_str()) {
+        parts.push(format!("judge: {hint}"));
+    }
+    out.push_str(&format!("{indent}- competition: {}\n", parts.join("; ")));
 }
 
 fn render_task_lane(task: &Value, depth: usize, out: &mut String) {

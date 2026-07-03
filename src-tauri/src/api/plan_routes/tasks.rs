@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{AgentRef, OrchestratorRef, TaskLaneMetadata};
+use crate::plan::{AgentRef, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata};
 use crate::service::plan::task_attempts::TaskRespawnRequest;
 use crate::service::plan::{NewTask, TaskLaneUpdate};
 
@@ -90,6 +90,8 @@ pub(crate) struct TaskAddBody {
     role_guidance: Option<String>,
     #[serde(default)]
     executor_role: Option<String>,
+    #[serde(default)]
+    competition: Option<TaskCompetitionMetadata>,
     #[serde(default)]
     intent: Option<String>,
     #[serde(default)]
@@ -175,6 +177,7 @@ pub async fn task_add(
                 body: body.body.unwrap_or_default(),
                 role_guidance: body.role_guidance,
                 executor_role: body.executor_role,
+                competition: body.competition,
                 intent: body.intent,
                 parent_task_id: body.parent,
                 assigned_pane_id: body.assign_pane,
@@ -280,6 +283,15 @@ pub async fn task_update(
             .svc
             .plan_store
             .update_task_lane(&id, &tid, lane, epoch_ms())
+            .map_err(plan_err)?;
+    }
+    if let Some(value) = body.get("competition") {
+        let update = serde_json::from_value(value.clone())
+            .map_err(|e| text_err(axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
+        state
+            .svc
+            .plan_store
+            .update_task_competition(&id, &tid, update, epoch_ms())
             .map_err(plan_err)?;
     }
     // §EFFORT: a task moving to in_review IS the trigger — notify the plan owner

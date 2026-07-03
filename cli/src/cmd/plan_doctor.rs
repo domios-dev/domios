@@ -14,14 +14,14 @@ const STALLED_LOOP_AFTER_MS: u64 = 3 * 24 * 60 * 60 * 1000;
 const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
 
 #[derive(Debug, Clone)]
-struct Finding {
-    severity: &'static str,
-    kind: &'static str,
-    plan_id: Option<String>,
-    path: String,
-    task_id: Option<String>,
-    detail: String,
-    fix: String,
+pub(super) struct Finding {
+    pub(super) severity: &'static str,
+    pub(super) kind: &'static str,
+    pub(super) plan_id: Option<String>,
+    pub(super) path: String,
+    pub(super) task_id: Option<String>,
+    pub(super) detail: String,
+    pub(super) fix: String,
 }
 
 impl Finding {
@@ -802,11 +802,18 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             kind: "missing_executor_role",
             plan_id: plan_id(plan, path),
             path: path.display().to_string(),
-            task_id: Some(task_id),
+            task_id: Some(task_id.clone()),
             detail: "execution task has no executor_role; orchestrator cannot route agent personality declaratively".into(),
             fix: "set --executor-role <slug> (e.g. rust-backend-dev, frontend-dev, code-reviewer) on the task".into(),
         });
     }
+    crate::cmd::plan_doctor_competition::push_competition_findings(
+        task,
+        plan_id(plan, path),
+        path,
+        task_id,
+        findings,
+    );
 }
 
 fn task_has_body_sidecar(plan_path: &Path, task: &Value) -> bool {

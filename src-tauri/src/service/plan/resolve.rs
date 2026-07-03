@@ -436,6 +436,7 @@ mod tests {
                     name: name.into(),
                     kind: "task".into(),
                     handle: Some(handle.into()),
+                    competition: None,
                     ..Default::default()
                 },
                 2000,
@@ -472,6 +473,7 @@ mod tests {
             lane: Default::default(),
             taken_by_role: None,
             executor_role: None,
+            competition: None,
             peer: None,
             group: None,
             canvas: Default::default(),

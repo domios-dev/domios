@@ -222,6 +222,7 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
             NewTask {
                 name: "open work".into(),
                 kind: "implement".into(),
+                competition: None,
                 ..Default::default()
             },
             21,

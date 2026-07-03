@@ -111,6 +111,7 @@ fn mirrors_plan_units_into_project_local_mem_db() {
                 kind: "fix".into(),
                 body: "workspace tab plan button soft-lock".into(),
                 section_ids: vec![section_id],
+                competition: None,
                 ..Default::default()
             },
             3,
@@ -173,6 +174,7 @@ fn add_task_succeeds_when_plan_index_is_locked_after_verified_commit() {
                 name: "Add under contention".into(),
                 kind: "fix".into(),
                 body: "task added while plan index is locked".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -211,6 +213,7 @@ fn close_task_immediate_readback_is_consistent() {
             NewTask {
                 name: "Close me".into(),
                 kind: "fix".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -261,6 +264,7 @@ fn locked_plan_index_does_not_duplicate_task_by_retrying_unsafely() {
             NewTask {
                 name: "Exactly once".into(),
                 kind: "fix".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -300,6 +304,7 @@ fn locked_task_update_succeeds_after_verified_commit() {
                 name: "Update me".into(),
                 kind: "fix".into(),
                 body: "before".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -360,6 +365,7 @@ fn locked_task_lane_update_succeeds_after_verified_commit() {
             NewTask {
                 name: "Lane task".into(),
                 kind: "fix".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -411,6 +417,7 @@ fn locked_task_record_succeeds_after_verified_milestone() {
             NewTask {
                 name: "Record me".into(),
                 kind: "fix".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -464,6 +471,7 @@ fn assign_task_readback_sets_pane_lane_and_peer() {
             NewTask {
                 name: "Assign me".into(),
                 kind: "fix".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -504,6 +512,7 @@ fn locked_task_take_succeeds_after_verified_assignment() {
             NewTask {
                 name: "Take me".into(),
                 kind: "fix".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -582,6 +591,7 @@ fn task_drop_readback_clears_assignment_role_and_peer() {
                 name: "Drop me".into(),
                 kind: "fix".into(),
                 assigned_pane_id: Some("pane_drop".into()),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -632,6 +642,7 @@ fn linked_worktree_uses_main_project_for_listing_search_and_index_scope() {
                 name: "Shared worktree task".into(),
                 kind: "fix".into(),
                 body: "unique linked worktree recall phrase".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -707,6 +718,7 @@ fn reindex_removes_deleted_units_and_old_text() {
                 name: "Old".into(),
                 kind: "fix".into(),
                 body: "vanishing phrase".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -770,6 +782,7 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
                 name: "Workspace plan button soft-lock".into(),
                 kind: "fix".into(),
                 body: "Fix the plan button soft-lock in workspace tabs".into(),
+                competition: None,
                 ..Default::default()
             },
             2,
@@ -791,6 +804,7 @@ fn explicit_reindex_backfills_multiple_plans_for_project_search() {
                 name: "Unrelated task".into(),
                 kind: "fix".into(),
                 body: "Keep another plan in the same project".into(),
+                competition: None,
                 ..Default::default()
             },
             4,
@@ -930,6 +944,7 @@ fn related_traversal_is_dangling_safe() {
                 name: "Task".into(),
                 kind: "fix".into(),
                 section_ids: vec![section_id.clone(), "deleted_section".into()],
+                competition: None,
                 ..Default::default()
             },
             3,

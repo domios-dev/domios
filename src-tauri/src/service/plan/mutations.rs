@@ -436,6 +436,7 @@ impl PlanStore {
             body: new.body,
             role_guidance: new.role_guidance,
             executor_role: new.executor_role,
+            competition: new.competition,
             intent: new.intent,
             parent_task_id: new.parent_task_id,
             assigned_pane_id,

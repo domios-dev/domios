@@ -205,6 +205,7 @@ pub struct NewTask {
     pub body: String,
     pub role_guidance: Option<String>,
     pub executor_role: Option<String>,
+    pub competition: Option<crate::plan::TaskCompetitionMetadata>,
     pub intent: Option<String>,
     pub parent_task_id: Option<String>,
     pub assigned_pane_id: Option<String>,

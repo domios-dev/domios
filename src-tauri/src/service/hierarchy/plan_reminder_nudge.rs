@@ -314,6 +314,7 @@ mod tests {
             body: String::new(),
             role_guidance: None,
             executor_role: None,
+            competition: None,
             intent: None,
             parent_task_id: None,
             assigned_pane_id: pane_id.map(str::to_string),
