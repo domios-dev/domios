@@ -550,12 +550,8 @@ pub async fn mesh_relay_stream(
 
     let client = {
         let mesh = state.mesh.lock();
-        mesh.client_for(&q.peer).ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                format!("Peer {} not paired", q.peer),
-            )
-        })?
+        mesh.client_for(&q.peer)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {} not paired", q.peer)))?
     };
     let resp = client.open_relay_stream(&path).await.map_err(|e| {
         (
@@ -607,12 +603,15 @@ pub async fn mesh_relay_asset(
 
     let (client, signed) = {
         let mesh = state.mesh.lock();
-        let client = mesh.client_for(&peer).ok_or_else(|| {
-            (StatusCode::NOT_FOUND, format!("Peer {peer} not paired"))
+        let client = mesh
+            .client_for(&peer)
+            .ok_or_else(|| (StatusCode::NOT_FOUND, format!("Peer {peer} not paired")))?;
+        let signed = mesh.sign_request().map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Sign failed: {e}"),
+            )
         })?;
-        let signed = mesh
-            .sign_request()
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Sign failed: {e}")))?;
         (client, signed)
     };
     // The peer's plugin_ui gates its .html by a query token; a paired-peer signed
@@ -621,7 +620,10 @@ pub async fn mesh_relay_asset(
     validate_relay_path(&path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     let resp = client.open_relay_stream(&path).await.map_err(|e| {
-        (StatusCode::GATEWAY_TIMEOUT, format!("peer-unreachable: {e}"))
+        (
+            StatusCode::GATEWAY_TIMEOUT,
+            format!("peer-unreachable: {e}"),
+        )
     })?;
     let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let content_type = copy_content_type(&resp, "application/octet-stream");
