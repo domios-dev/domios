@@ -931,6 +931,13 @@ pub fn run() {
             // On any clean process exit (tray-Quit, Cmd+Q after window close, SIGTERM caught by Tauri), checkpoint+truncate the mem WAL so a stale ~4MB
             // log doesn't survive into the next run. The updater's graceful_shutdown already does this on the in-place upgrade path; this catches every other shutdown route.
             if let tauri::RunEvent::Exit = _event {
+                #[cfg(target_os = "macos")]
+                if !crash::shutdown::is_shutting_down() {
+                    log::warn!(
+                        "[shutdown] ignoring unrequested macOS RunEvent::Exit; process remains live"
+                    );
+                    return;
+                }
                 graceful_exit_cleanup(_app);
             }
         });
@@ -941,7 +948,11 @@ pub fn run() {
 /// then best-effort persists session + checkpoints the mem WAL.
 fn graceful_exit_cleanup(app: &tauri::AppHandle) {
     crash::shutdown::mark_shutting_down();
-    keepawake::cleanup_active_children_for_exit();
+    if let Some(state) = app.try_state::<KeepAwakeStateHandle>() {
+        keepawake::cleanup_active_children_for_exit_with_state(&state);
+    } else {
+        keepawake::cleanup_active_children_for_exit();
+    }
     webview2_reap::clear_journal_for_exit();
 
     if let (Some(mux), Some(session)) =
