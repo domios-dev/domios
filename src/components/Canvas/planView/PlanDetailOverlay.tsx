@@ -5,6 +5,9 @@ import { DetailContent } from "../canvasRender/DetailContent";
 import type { ApiConfig, Pane } from "../../../lib/types";
 import type { Plan, Section, Task } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
+import { competitionForTask } from "./competitionForTask";
+import { loopForTask } from "./loopForTask";
+import { TaskExecutionBadges } from "./TaskExecutionBadges";
 
 export type PlanDetailKind = "task" | "plan" | "spec";
 
@@ -121,6 +124,8 @@ export function PlanDetailOverlay({
 
   const title = detailTitle(kind, task, plan, spec);
   const navPlanId = planId ?? plan?.id ?? spec?.id;
+  const loopBadge = isTask && task && plan ? loopForTask(plan, task.id) : null;
+  const competeBadge = isTask && task ? competitionForTask(task, panes) : null;
   const onSectionNavigate = (a: SectionNavArgs) => {
     onClose();
     if (onSectionFrame) {
@@ -178,6 +183,9 @@ export function PlanDetailOverlay({
           <span data-testid={tid("title")} className="plan-task-selectable" style={{ flex: 1, minWidth: 0, fontFamily: "var(--ct-font-ui)", fontWeight: 700, fontSize: "var(--ct-font-size-md, 15px)", color: "var(--ct-fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {title}
           </span>
+          {isTask && (
+            <TaskExecutionBadges loop={loopBadge} competition={competeBadge} className="plan-detail-header-badges" />
+          )}
           <span data-testid={tid("kind")} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "color-mix(in srgb, var(--ct-fg) 55%, transparent)", flexShrink: 0 }}>
             {kind}
           </span>

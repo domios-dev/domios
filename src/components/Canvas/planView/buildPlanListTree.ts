@@ -5,6 +5,10 @@ import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import type { Milestone, Plan, Task, TaskStatus } from "../types";
 import { canonicalTaskStatusLabel } from "./taskStatusLabel";
+import { competitionForTask } from "./competitionForTask";
+import { loopForTask } from "./loopForTask";
+import type { CompetitionForTaskResult } from "./competitionForTask";
+import type { LoopForTaskResult } from "./loopForTask";
 
 export type PlanListRowKind = "plan-section" | "unsectioned" | "task" | "subtask";
 
@@ -27,6 +31,8 @@ export interface PlanListRow {
   milestoneAuthor?: string;
   activityTs?: number;
   taskId?: string;
+  loopBadge?: LoopForTaskResult;
+  competeBadge?: CompetitionForTaskResult;
 }
 
 export type PlanListVisibleRow =
@@ -92,6 +98,8 @@ function buildTaskRow(
     milestoneAuthor: presence?.latest?.authorLabel,
     activityTs: latest?.ts ?? task.status_changed_at ?? task.updated_at ?? task.created_at,
     taskId: task.id,
+    loopBadge: loopForTask(plan, task.id) ?? undefined,
+    competeBadge: competitionForTask(task, panes) ?? undefined,
   };
 }
 

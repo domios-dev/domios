@@ -4,6 +4,7 @@ import { TASK_STATUS_COLORS } from "../settings";
 import type { BoardTaskCardModel } from "./boardModel";
 import { canonicalTaskStatusLabel } from "./taskStatusLabel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
+import { TaskExecutionBadges } from "./TaskExecutionBadges";
 
 export interface BoardTaskCardProps {
   card: BoardTaskCardModel;
@@ -46,6 +47,7 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
       <h4 data-testid="plan-board-task-title" className="plan-board-task-title">
         {task.name}
       </h4>
+      <TaskExecutionBadges loop={card.loopBadge} competition={card.competeBadge} />
       <span
         data-testid="status-chip"
         className="plan-board-task-status"
