@@ -6,6 +6,7 @@ import {
   KeyRound,
   FileText,
   Info,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -16,6 +17,7 @@ export type SectionId =
   | "integrations"
   | "secrets"
   | "logs"
+  | "guide"
   | "about";
 
 export interface SettingsSection {
@@ -34,6 +36,7 @@ export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   integrations: Plug,
   secrets: KeyRound,
   logs: FileText,
+  guide: BookOpen,
   about: Info,
 };
 
@@ -43,6 +46,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "agents", label: "Agents", desc: "General Agent, notifications, and per-provider config", icon: SECTION_ICONS.agents },
   { id: "integrations", label: "Integrations", desc: "Telegram, Discord, external bridges", icon: SECTION_ICONS.integrations },
   { id: "logs", label: "Logs", desc: "App diagnostics — live, filterable, scoped", icon: SECTION_ICONS.logs },
+  { id: "guide", label: "Guide", desc: "What CodeTerm is and how to work with it", icon: SECTION_ICONS.guide },
   { id: "about", label: "Check for updates", desc: "Version, updates, creator", icon: SECTION_ICONS.about },
 ];
 
