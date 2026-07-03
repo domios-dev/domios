@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { DetailContent } from "../canvasRender/DetailContent";
 import type { Pane } from "../../../lib/types";
@@ -19,6 +20,7 @@ export interface PlanDetailOverlayProps {
   onClose: () => void;
   onSectionClick?: (a: SectionNavArgs) => void;
   onSectionFrame?: (a: SectionNavArgs) => void;
+  renderTaskAttachmentThumbnails?: (task: Task) => ReactNode;
   /** Preserves canvas Playwright hooks when set to `canvas-detail`. */
   testIdPrefix?: string;
 }
@@ -51,11 +53,13 @@ export function PlanDetailOverlay({
   onClose,
   onSectionClick,
   onSectionFrame,
+  renderTaskAttachmentThumbnails,
   testIdPrefix = "plan-detail",
 }: PlanDetailOverlayProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const tid = (suffix: string) => `${testIdPrefix}-${suffix}`;
+  const isTask = kind === "task";
 
   const onKeyDown = useCallback(
     (e: DetailKeyEvent) => {
@@ -91,7 +95,7 @@ export function PlanDetailOverlay({
     return () => {
       returnFocusRef.current?.focus?.();
     };
-  }, [kind, task?.id, plan?.id, spec?.id]);
+  }, []);
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -101,27 +105,47 @@ export function PlanDetailOverlay({
     return () => panel.removeEventListener("keydown", listener);
   }, [onKeyDown]);
 
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      onClose();
+    };
+    document.addEventListener("keydown", listener);
+    return () => document.removeEventListener("keydown", listener);
+  }, [onClose]);
+
   const title = detailTitle(kind, task, plan, spec);
   const navPlanId = planId ?? plan?.id ?? spec?.id;
+  const onSectionNavigate = (a: SectionNavArgs) => {
+    onClose();
+    if (onSectionFrame) {
+      onSectionFrame(a);
+      return;
+    }
+    onSectionClick?.(a);
+  };
 
   return (
     <div
       data-testid={tid("overlay")}
       role="dialog"
-      aria-modal="true"
+      aria-modal={isTask ? "false" : "true"}
       aria-label={`${title} — detail`}
       onKeyDown={onKeyDown}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      data-detail-mode={isTask ? "slide-over" : "document"}
+      onMouseDown={(e) => { if (!isTask && e.target === e.currentTarget) onClose(); }}
       style={{
         position: "absolute",
         inset: 0,
         zIndex: 40,
         display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "clamp(12px, 4vh, 56px) clamp(12px, 4vw, 64px)",
-        background: "color-mix(in srgb, var(--ct-bg) 62%, transparent)",
-        backdropFilter: "blur(3px)",
+        alignItems: "stretch",
+        justifyContent: isTask ? "flex-end" : "center",
+        padding: isTask ? "0 0 0 12px" : "clamp(12px, 4vh, 56px) clamp(12px, 4vw, 64px)",
+        background: isTask ? "transparent" : "color-mix(in srgb, var(--ct-bg) 62%, transparent)",
+        backdropFilter: isTask ? "none" : "blur(3px)",
+        pointerEvents: isTask ? "none" : "auto",
       }}
     >
       <div
@@ -130,18 +154,20 @@ export function PlanDetailOverlay({
         data-testid={tid("panel")}
         style={{
           position: "relative",
-          width: "100%",
-          maxWidth: kind === "task" ? 900 : 1180,
+          width: isTask ? "clamp(360px, 43vw, 720px)" : "100%",
+          maxWidth: isTask ? "calc(100% - 12px)" : 1180,
           height: "100%",
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
-          borderRadius: "var(--ct-radius-lg)",
+          borderRadius: isTask ? "var(--ct-radius-lg) 0 0 var(--ct-radius-lg)" : "var(--ct-radius-lg)",
           border: "1px solid var(--ct-border-default)",
+          borderRight: isTask ? "none" : "1px solid var(--ct-border-default)",
           background: "var(--ct-bg)",
           boxShadow: "0 24px 80px -20px color-mix(in srgb, var(--ct-shadow, #000) 65%, transparent)",
           overflow: "hidden",
           outline: "none",
+          pointerEvents: "auto",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px 10px 16px", borderBottom: "1px solid var(--ct-border-subtle)", flexShrink: 0 }}>
@@ -172,8 +198,9 @@ export function PlanDetailOverlay({
             specSections={specSections}
             panes={panes}
             onOpenPane={onOpenPane}
-            onSectionClick={onSectionClick}
-            onSectionFrame={(a) => { onClose(); onSectionFrame?.(a); }}
+            onSectionClick={onSectionNavigate}
+            onSectionFrame={onSectionNavigate}
+            renderTaskAttachmentThumbnails={renderTaskAttachmentThumbnails}
           />
         </div>
       </div>

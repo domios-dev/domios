@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 18 -->
+<!-- revision: 21 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -142,10 +142,22 @@ Worker lanes normally end this way:
 
 1. Worker reports `in_review`.
 2. Orchestrator inspects the lane diff and gates it in the integration checkout.
-3. Orchestrator integrates the lane (`cherry-pick`, merge, or carefully applied
-   patch when the integration checkout already has related dirty work).
+3. Orchestrator integrates the lane using the smallest history shape that still
+   preserves useful review context:
+   - **Single-task lane, one clean commit:** default to `cherry-pick` onto the
+     integration branch. This keeps the main history linear and makes revert
+     scope obvious.
+   - **Multi-commit lane with meaningful intermediate commits, or a branch that
+     should stay visible as a unit:** merge the lane branch deliberately, usually
+     after rebasing it onto the integration head.
+   - **Overlapping local edits already exist in the integration checkout:** use a
+     careful patch/application flow and inspect every hunk.
 4. Orchestrator marks the task `done`, closes the worker pane, removes the clean
    worktree, and sets `--cleanup-status done`.
+
+Do not treat cherry-pick as mandatory. It is the fast path for the common
+one-worker/one-commit lane. Preserve branch history when that history carries
+review value; otherwise prefer linear integration.
 
 Never remove a worker worktree before its diff is integrated, bounced, or
 explicitly abandoned. Never keep a finished worker visually assigned just to
@@ -352,6 +364,21 @@ task: dispatch / park (or a decision stride) / judge a report / bounce a
 worker / hand to replanning. "Waiting" is a valid response only for tasks
 with a live assigned lane.
 
+### Parallel writers, serialized gates
+
+Parallelize independent implementation lanes freely on the same machine: a UI
+lane, a backend lane, a docs lane, and a review lane can all write at once when
+their file ownership is disjoint. The bottleneck is verification, not writing.
+
+Do **not** let every worker run broad verification in its own fresh worktree.
+Fresh worktrees rebuild caches, contend on CPU/IO, and make the machine feel
+stuck. Workers run the smallest meaningful focused checks for their lane and
+report exact commands. The orchestrator, or an explicit test-runner worker in a
+warm integration checkout, serializes broad gates: repo-wide compile, full test
+suites, UI/e2e sweeps, packaging, release, and any other expensive verification.
+If a lane needs a heavy gate, record it as pending central verification instead
+of making several worktrees verify the whole system at once.
+
 ```bash
 codeterm orchestrator heartbeat set \
   --focus "Integrate lane fixes, then cut release" \
@@ -470,6 +497,11 @@ codeterm plan section rm PLAN_ID SECTION_ID
 (`codeterm spec section show SPEC_ID SECTION_ID` is the spec-side equivalent.)
 
 ### Tasks
+
+`--name` is the human-readable title shown on board cards and in lists — write
+it as a short sentence ("QA pipeline: In-QA stage + serialized test queue"),
+never a kebab-case slug ("task-review-stage-qa"). Slugs belong to handles and
+branch names, which are derived separately.
 
 ```bash
 codeterm plan task add PLAN_ID --name NAME \

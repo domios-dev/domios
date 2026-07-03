@@ -46,7 +46,7 @@ pub enum PlanAction {
     },
     /// Render the whole plan as markdown (goal + sections + tasks); --sections for the tree only
     Get {
-        plan_id: String,
+        plan_id: Option<String>,
         #[arg(long)]
         sections: bool,
     },
@@ -57,7 +57,7 @@ pub enum PlanAction {
     /// Show tag facets, counts, topics, and duplicate warnings
     Tags { plan_id: String },
     /// One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)
-    State { plan_id: String },
+    State { plan_id: Option<String> },
     /// Prioritized, advisory next-action guidance computed from plan state
     Next { plan_id: String },
     /// Show section coverage (% + gaps)
@@ -184,7 +184,7 @@ pub enum PlanAction {
     Claim { plan_id: String },
     /// Record task progress with one atomic plan write
     Record {
-        /// Plan id (default: $CODETERM_PLAN_ID)
+        /// Plan id (if available from pane binding or env)
         #[arg(env = "CODETERM_PLAN_ID")]
         plan_id: Option<String>,
         #[arg(long, env = "CODETERM_TASK_ID")]
@@ -397,7 +397,7 @@ pub enum PlanLoopAction {
 pub enum PlanTaskAction {
     /// List a plan's tasks, optionally filtered by status
     List {
-        plan_id: String,
+        plan_id: Option<String>,
         #[arg(
             long,
             help = "Task status: pending | in_progress | in_review | blocked | done | cancelled"
@@ -476,7 +476,7 @@ pub enum PlanTaskAction {
     },
     /// Update task metadata, status, quality fields, or lane assignment
     Update {
-        plan_id: String,
+        plan_id: Option<String>,
         task_id: Option<String>,
         #[arg(long, allow_hyphen_values = true)]
         name: Option<String>,

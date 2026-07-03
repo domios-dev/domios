@@ -14,4 +14,4 @@ Planning ownership: while a Planner holds an open planning-kind task, route requ
 
 Orchestration *principle* (when to spawn, model routing, discipline) lives in the mem skill `codeterm-orchestrator` — separate from mechanics by design.
 
-Heartbeat: focus names an action YOU own (never a wait on another agent; dispatch is not delegable). After every close/acceptance, re-derive the frontier and dispatch/park/replan newly-unblocked tasks. A handled nudge changes the state of at least one open task.
+Heartbeat: focus names an action YOU own (never a wait on another agent; dispatch is not delegable). After every close/acceptance, re-derive the frontier and dispatch/park/replan newly-unblocked tasks. A handled nudge changes the state of at least one open task. Parallelize independent writer lanes, but centralize broad/heavy gates in one warm integration checkout so fresh worker worktrees do not all rebuild/test at once.

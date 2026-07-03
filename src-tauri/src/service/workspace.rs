@@ -279,3 +279,7 @@ impl ServiceContext {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+#[path = "workspace_role_tests.rs"]
+mod workspace_role_tests;

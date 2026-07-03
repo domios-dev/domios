@@ -296,7 +296,7 @@ fn plan_task_list_parses_plan_and_status() {
                     action: crate::args::plan::PlanTaskAction::List { plan_id, status },
                 },
         } => {
-            assert_eq!(plan_id, "pl_1");
+            assert_eq!(plan_id.as_deref(), Some("pl_1"));
             assert_eq!(status.as_deref(), Some("blocked"));
         }
         _ => panic!("expected plan task list"),
@@ -389,7 +389,7 @@ fn plan_get_parses_sections_lookup() {
         Commands::Plan {
             action: PlanAction::Get { plan_id, sections },
         } => {
-            assert_eq!(plan_id, "pl_1");
+            assert_eq!(plan_id.as_deref(), Some("pl_1"));
             assert!(sections);
         }
         _ => panic!("expected plan get"),

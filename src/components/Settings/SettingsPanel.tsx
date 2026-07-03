@@ -27,7 +27,8 @@ import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { PluginsTab } from "./PluginsTab";
-import { UI_PANEL } from "../shared/design";
+import { HelpPanel } from "../../help/HelpPanel";
+import type { HelpSectionId } from "../../help/types";
 import {
   type SectionId,
   SECTION_ICONS,
@@ -35,12 +36,14 @@ import {
   sectionTitle,
   normalizeSection,
 } from "./sections";
+import { UI_PANEL } from "../shared/design";
 
 interface SettingsPanelProps {
   config: AppConfig;
   onUpdateConfig: (config: AppConfig) => Promise<void>;
   onClose: () => void;
   initialSection?: SectionId | "notifications";
+  initialHelpSection?: HelpSectionId;
 }
 
 type Route =
@@ -53,6 +56,7 @@ export function SettingsPanel({
   onUpdateConfig,
   onClose,
   initialSection,
+  initialHelpSection,
 }: SettingsPanelProps) {
   const normalizedInitial = normalizeSection(initialSection);
   const [stack, setStack] = useState<Route[]>(
@@ -459,6 +463,18 @@ export function SettingsPanel({
               <SettingsPage title="Logs" subtitle="App diagnostics from the daemon, mesh, agents, and integrations.">
                 <LogsTab config={localConfig} />
               </SettingsPage>
+            )}
+
+            {top.kind === "section" && top.id === "guide" && (
+              <div className="max-w-5xl mx-auto h-full min-h-[420px] flex flex-col" data-testid="settings-page" data-settings-page="guide">
+                <p className="sr-only">Guide</p>
+                <p className="text-sm text-[var(--ct-muted-fg)] mb-4 shrink-0">
+                  What CodeTerm is and how to work with it.
+                </p>
+                <div className="flex-1 min-h-0">
+                  <HelpPanel config={localConfig} initialSection={initialHelpSection} />
+                </div>
+              </div>
             )}
 
             {top.kind === "section" && top.id === "about" && (

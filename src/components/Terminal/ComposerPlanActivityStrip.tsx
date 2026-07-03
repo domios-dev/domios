@@ -34,7 +34,7 @@ export function ComposerPlanActivityStrip({ activity, onOpen }: ComposerPlanActi
       title={title}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onOpen}
-      className="ct-composer-activity-chip h-7 w-full min-w-0 hover:brightness-110"
+      className="ct-composer-activity-chip h-7 max-w-full min-w-0 hover:brightness-110"
       style={{ cursor: onOpen ? "pointer" : "default" }}
     >
       <span data-testid="composer-plan-activity-prefix" className="ct-composer-activity-chip__prefix">

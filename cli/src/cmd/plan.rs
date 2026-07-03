@@ -244,7 +244,12 @@ fn run_plan(
         }
 
         PlanAction::Get { plan_id, sections } => {
-            let val = call(client, "plan.get", json!({ "plan_id": plan_id }))?;
+            let mut params = json!({});
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            maybe_inject_caller_pane(&mut params);
+            let val = call(client, "plan.get", params)?;
             if json {
                 return Ok(Some(val));
             }
@@ -287,7 +292,12 @@ fn run_plan(
         }
 
         PlanAction::State { plan_id } => {
-            let val = call(client, "plan.state", json!({ "plan_id": plan_id }))?;
+            let mut params = json!({});
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            maybe_inject_caller_pane(&mut params);
+            let val = call(client, "plan.state", params)?;
             if json {
                 return Ok(Some(val));
             }
@@ -562,25 +572,19 @@ fn run_plan(
             steps,
             links,
             key,
-        } => {
-            let plan_id = plan_id.ok_or_else(|| {
-                "plan_id is required: pass it as a positional arg or set $CODETERM_PLAN_ID"
-                    .to_string()
-            })?;
-            crate::cmd::plan_record::record(
-                client,
-                plan_id,
-                task,
-                upsert_task,
-                name,
-                sections,
-                status,
-                body_file,
-                steps,
-                links,
-                key,
-            )
-        }
+        } => crate::cmd::plan_record::record(
+            client,
+            plan_id,
+            task,
+            upsert_task,
+            name,
+            sections,
+            status,
+            body_file,
+            steps,
+            links,
+            key,
+        ),
 
         PlanAction::Ingest { plan_id, markdown } => {
             let markdown = read_path_or_stdin(&markdown)?;

@@ -261,9 +261,6 @@ pub async fn create_tab(
         .svc
         .create_tab_with_activate(&workspace_id, false)
         .map_err(|_| (StatusCode::NOT_FOUND, "Workspace not found"))?;
-    let _ = state
-        .svc
-        .set_pane_role(&pane_id, "Orchestrator", None, Some(true));
     let eager = body.map(|Json(b)| b.eager).unwrap_or(false);
     let pty_id = if eager {
         state

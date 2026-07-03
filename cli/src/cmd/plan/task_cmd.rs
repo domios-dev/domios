@@ -12,10 +12,12 @@ use super::{call, lane_params, maybe_inject_caller_pane, resolve_text};
 
 /// Parent-free addressing: with one positional the ref is the task and the plan is inferred
 /// daemon-side; with two, the first is the plan ref and the second the task ref.
-fn split_task_ref(first: String, second: Option<String>) -> (Option<String>, String) {
-    match second {
-        Some(task) => (Some(first), task),
-        None => (None, first),
+fn split_task_ref(first: Option<String>, second: Option<String>) -> (Option<String>, String) {
+    match (first, second) {
+        (Some(task), None) => (None, task),
+        (Some(plan), Some(task)) => (Some(plan), task),
+        (None, Some(task)) => (None, task),
+        (None, None) => unreachable!("split_task_ref requires at least one task reference"),
     }
 }
 
@@ -128,8 +130,12 @@ pub(super) fn run_task(
                 "active": status.is_none(),
                 "mine": false,
                 "unassigned": false,
-                "plan_id": plan_id,
             });
+            maybe_inject_caller_pane(&mut params);
+            params["require_plan_id"] = json!(true);
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
             if let Some(project) = std::env::current_dir()
                 .ok()
                 .map(|path| path.display().to_string())
@@ -389,7 +395,7 @@ pub(super) fn run_task(
             result_file,
             mesh: _,
         } => {
-            let (plan_ref, task_ref) = split_task_ref(plan_id, task_id);
+            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
             let result_text = resolve_text(result, result_file)?;
             let mut params = json!({ "task_id": task_ref });
             if let Some(pid) = plan_ref {
@@ -405,7 +411,7 @@ pub(super) fn run_task(
             task_id,
             reason,
         } => {
-            let (plan_ref, task_ref) = split_task_ref(plan_id, task_id);
+            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
             let mut params = json!({
                 "task_id": task_ref,
                 "reason": reason,
@@ -417,7 +423,7 @@ pub(super) fn run_task(
             call(client, "plan.task.park", params).map(Some)
         }
         PlanTaskAction::Unpark { plan_id, task_id } => {
-            let (plan_ref, task_ref) = split_task_ref(plan_id, task_id);
+            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
             let mut params = json!({
                 "task_id": task_ref,
                 "from": crate::cmd::plan::owner_from_env(),
@@ -433,7 +439,7 @@ pub(super) fn run_task(
             pane,
             mesh,
         } => {
-            let (plan_ref, task_ref) = split_task_ref(plan_id, task_id);
+            let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
             let mut params = json!({
                 "task_id": task_ref,
                 "pane": pane,
@@ -560,7 +566,7 @@ pub(super) fn run_task(
             if all {
                 params["plan_id"] = json!(plan_id);
             } else {
-                let (plan_ref, task_ref) = split_task_ref(plan_id, task_id);
+                let (plan_ref, task_ref) = split_task_ref(Some(plan_id), task_id);
                 params["task_id"] = json!(task_ref);
                 if let Some(pid) = plan_ref {
                     params["plan_id"] = json!(pid);

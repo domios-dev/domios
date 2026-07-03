@@ -153,6 +153,7 @@ pub(super) fn reconciliation_prompt(plan_id: &str, pane_id: Option<&str>) -> Str
          - First run `{reports}` and process queued reports before inspecting panes.\n\
          - Pull the full plan-owned snapshot with `{status}`.\n\
          - Reconcile live panes against the plan with `codeterm plan reconcile {plan_id}`.\n\
+         - Parallelize independent writer lanes, but serialize broad/heavy gates in one warm integration checkout so worker worktrees do not all rebuild/test at once.\n\
          - Close verified tasks with `codeterm plan task close {plan_id} <task_id>`.\n\
          - Bounce incomplete work with `codeterm send \"<next concrete instruction>\" --pane <worker_pane_id>` and record `codeterm plan record {plan_id} --task <task_id> --step decision:<text>`.\n\
          - Clean finished lane worktrees/branches/dev daemons, then record `codeterm plan task update {plan_id} <task_id> --cleanup-status done` or why cleanup is deferred.\n\

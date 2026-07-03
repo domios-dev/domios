@@ -16,7 +16,7 @@ export const PLAN_LIST_STATUS_FILTERS: ReadonlyArray<{ key: PlanListStatusFilter
 ];
 
 function textHaystack(row: PlanListRow): string {
-  return [row.title, row.focus, row.paneLabel, row.statusLabel, row.historicalExecutorSummary]
+  return [row.title, row.sectionTitle, row.focus, row.paneLabel, row.statusLabel, row.historicalExecutorSummary]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -123,7 +123,8 @@ export function buildVisiblePlanListRows(
       const sectionMatchesText = rowMatchesTextQuery(row, textQuery);
       if (textQuery.trim() && !hasVisibleTasks && !sectionMatchesText) continue;
 
-      const expanded = resolveSectionExpanded(row, expansionOverrides);
+      const forcedOpen = statusFilter !== "all" || textQuery.trim().length > 0;
+      const expanded = forcedOpen || resolveSectionExpanded(row, expansionOverrides);
       out.push({ type: "row", row });
 
       if (!expanded) {

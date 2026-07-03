@@ -7,14 +7,7 @@ import { formatRelativeAge } from "./planListModel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
 
 const TASK_KINDS = new Set<PlanListRowKind>(["task", "subtask"]);
-const STATUS_WORD: Partial<Record<string, string>> = { blocked: "blocked", in_review: "review" };
 const TASK_INDENT_STEP = 16;
-
-const GLYPH: Record<string, string> = {
-  done: "✓",
-  progress: "◐",
-  uncovered: "○",
-};
 
 function rowTestId(kind: PlanListRowKind): string {
   if (kind === "plan-section") return "plan-list-plan-section";
@@ -29,9 +22,17 @@ export interface PlanListRowViewProps {
   sectionExpanded?: boolean;
   onToggleSection?: (sectionId: string) => void;
   onOpenRow?: (row: PlanListRow) => void;
+  onOpenBelonging?: (row: PlanListRow) => void;
 }
 
-export function PlanListRowView({ entry, now, sectionExpanded, onToggleSection, onOpenRow }: PlanListRowViewProps) {
+export function PlanListRowView({
+  entry,
+  now,
+  sectionExpanded,
+  onToggleSection,
+  onOpenRow,
+  onOpenBelonging,
+}: PlanListRowViewProps) {
   if (entry.type === "done-rollup") {
     const { sectionRow, doneCount } = entry;
     return (
@@ -63,11 +64,6 @@ export function PlanListRowView({ entry, now, sectionExpanded, onToggleSection, 
         <span data-testid="plan-list-collapse-toggle" aria-hidden className="plan-list-group-caret">
           {sectionExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
-        {row.sectionGlyph && (
-          <span data-testid="plan-list-section-glyph" aria-hidden className="plan-list-group-glyph">
-            {GLYPH[row.sectionGlyph] ?? "·"}
-          </span>
-        )}
         <span data-testid="plan-list-title" className="plan-list-group-title">
           {row.title}
         </span>
@@ -83,17 +79,26 @@ export function PlanListRowView({ entry, now, sectionExpanded, onToggleSection, 
   const isTask = TASK_KINDS.has(row.kind);
   const isDoneTask = isTask && row.status === "done";
   const dotColor = row.status ? TASK_STATUS_COLORS[row.status] ?? "var(--ct-muted-fg)" : "var(--ct-muted-fg)";
-  const statusWord = row.status ? STATUS_WORD[row.status] : undefined;
   const executor = row.paneLabel ?? row.historicalExecutorSummary ?? "";
   const age = formatRelativeAge(row.activityTs, now ?? 0);
   const titleIndent = Math.max(0, row.depth - 2) * TASK_INDENT_STEP;
+  const chipTitle = onOpenBelonging
+    ? `Open plan document for ${row.sectionTitle ?? "Unsectioned"}`
+    : `Belongs to ${row.sectionTitle ?? "Unsectioned"}`;
 
   const activate = () => onOpenRow?.(row);
+  const openBelonging = () => onOpenBelonging?.(row);
   const { onPointerDown, onPointerMove, onClick } = usePlanTaskActivate(activate);
   const handleKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
     activate();
+  };
+  const handleChipKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.stopPropagation();
+    e.preventDefault();
+    openBelonging();
   };
 
   return (
@@ -121,11 +126,20 @@ export function PlanListRowView({ entry, now, sectionExpanded, onToggleSection, 
         <span data-testid="plan-list-title" className="plan-list-title">
           {row.title}
         </span>
-        {statusWord && (
-          <span data-testid="plan-list-status" className="plan-list-status-word">
-            {statusWord}
-          </span>
-        )}
+        <button
+          type="button"
+          data-testid="plan-list-belonging-chip"
+          className="plan-list-belonging-chip"
+          title={chipTitle}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            openBelonging();
+          }}
+          onKeyDown={handleChipKeyDown}
+        >
+          {row.sectionTitle ?? "Unsectioned"}
+        </button>
       </span>
       <span
         data-testid={row.paneLabel ? "plan-list-active-executor" : "plan-list-historical-executor"}
