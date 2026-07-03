@@ -84,9 +84,9 @@ function RelationChip({ children, onClick, testId }: { children: ReactNode; onCl
   );
 }
 
-function Block({ label, children }: { label: string; children: ReactNode }) {
+function Block({ label, children, testId }: { label: string; children: ReactNode; testId?: string }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div data-testid={testId} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={labelStyle}>{label}</div>
       {children}
     </div>
@@ -201,8 +201,7 @@ function TaskDetail({
           <div data-testid="plan-detail-attachment-thumbnails">{attachmentThumbnails}</div>
         </Block>
       )}
-      <TaskActivityTimeline task={task} plan={plan} planId={planId} api={api} panes={panes} />
-      <Block label="Description">
+      <Block label="Description" testId="canvas-detail-description">
         {body ? <Markdown text={body} /> : <span style={muted} data-testid="canvas-detail-empty-body">No description</span>}
       </Block>
       <AttachmentGallery api={api} planId={planId} attachments={task.attachments} />
@@ -222,6 +221,7 @@ function TaskDetail({
           </div>
         </Block>
       ) : null}
+      <TaskActivityTimeline task={task} plan={plan} planId={planId} api={api} panes={panes} />
     </div>
   );
 }

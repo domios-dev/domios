@@ -8,6 +8,7 @@ import {
   milestoneAbsoluteTitle,
   milestoneAgeLabel,
   milestoneKindLabel,
+  milestoneTimestampLabel,
   resolveMilestoneAuthor,
   taskHasActivity,
   visibleMilestones,
@@ -110,9 +111,15 @@ function TaskActivityTimelineBody({
                 <div className="plan-task-activity-entry-meta">
                   <KindChip label={kind} color={color} />
                   <span
+                    className="plan-task-activity-timestamp"
+                    data-testid="plan-task-activity-timestamp"
+                    title={milestoneAbsoluteTitle(milestone.ts)}
+                  >
+                    {milestoneTimestampLabel(milestone.ts, now)}
+                  </span>
+                  <span
                     className="plan-task-activity-age"
                     data-testid="plan-task-activity-age"
-                    title={milestoneAbsoluteTitle(milestone.ts)}
                   >
                     {milestoneAgeLabel(milestone.ts, now)}
                   </span>

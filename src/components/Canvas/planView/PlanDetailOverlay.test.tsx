@@ -266,6 +266,33 @@ test("task detail renders milestone activity timeline", async () => {
   assert(host.querySelector('[data-testid="plan-task-activity"]'), "activity section");
   assert(host.querySelector('[data-testid="plan-task-activity-entry"]')?.getAttribute("data-milestone-id") === "ms-detail", "task milestone");
   assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m", "relative age in detail");
+  assert(host.querySelector('[data-testid="plan-task-activity-timestamp"]')?.textContent, "absolute timestamp in detail");
+});
+
+test("task detail renders Description above Activity", async () => {
+  const task: Task = {
+    ...FIXTURE_TASK,
+    body: "Reorder the sections",
+    milestones: [{
+      ...FIXTURE_MILESTONE,
+      id: "ms-order",
+      kind: "status_update",
+      ts: Date.now() - 60_000,
+      text: "Working point",
+      from: { pane_id: "pane-a", session_id: null, title: "Puccini" },
+    }],
+  };
+  const { host } = await render(
+    <PlanDetailOverlay kind="task" task={task} plan={FIXTURE_PLAN} onClose={() => {}} />,
+  );
+  const description = host.querySelector('[data-testid="canvas-detail-description"]');
+  const activity = host.querySelector('[data-testid="plan-task-activity"]');
+  assert(description && activity, "both description and activity present");
+  const FOLLOWING = 4;
+  assert(
+    (description!.compareDocumentPosition(activity!) & FOLLOWING) !== 0,
+    "description renders before activity in DOM order",
+  );
 });
 
 test("plan document renders recent activity rail with click-through", async () => {
