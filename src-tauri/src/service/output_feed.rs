@@ -9,7 +9,7 @@ impl ServiceContext {
         }
         self.output_buf.lock().append(pty_id, data);
         self.screen_state.lock().process(pty_id, data);
-        self.run_watcher.feed(&*self, pty_id, data);
+        self.run_watcher.feed(self, pty_id, data);
         self.process_pty_output(pty_id, data)
     }
 
