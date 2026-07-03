@@ -5,7 +5,7 @@ import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { PlanDetailKind } from "../planView/PlanDetailOverlay";
-import { taskStatusText } from "../planView/taskQa";
+import { canonicalTaskStatusLabel } from "../planView/taskStatusLabel";
 import { AttachmentGallery } from "../planView/attachments";
 import { PlanRecentActivityRail } from "../planView/PlanRecentActivityRail.tsx";
 import { TaskActivityTimeline } from "../planView/TaskActivityTimeline.tsx";
@@ -49,9 +49,9 @@ const labelStyle: CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing
 const sectionTitle: CSSProperties = { fontSize: 15, fontWeight: 700, color: "var(--ct-fg)" };
 const muted: CSSProperties = { fontSize: 13, fontStyle: "italic", color: "color-mix(in srgb, var(--ct-fg) 50%, transparent)" };
 
-function Chip({ label, value, color }: { label: string; value: string; color?: string }) {
+function Chip({ label, value, color, testId }: { label: string; value: string; color?: string; testId?: string }) {
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--ct-border-subtle)", fontSize: 12, background: "color-mix(in srgb, var(--ct-fg) 5%, transparent)" }}>
+    <span data-testid={testId} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, border: "1px solid var(--ct-border-subtle)", fontSize: 12, background: "color-mix(in srgb, var(--ct-fg) 5%, transparent)" }}>
       <span style={{ ...labelStyle, fontSize: 10 }}>{label}</span>
       <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 600 }}>
         {color && <span style={{ width: 7, height: 7, borderRadius: "50%", background: color }} />}
@@ -177,15 +177,11 @@ function TaskDetail({
   const body = task.body?.trim();
   const paneId = task.assigned_pane_id?.trim() || null;
   const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
-  const statusLabel = plan
-    ? taskStatusText(plan, task)
-    : task.review_stage === "qa"
-      ? `In QA · ${task.qa_state ?? "queued"}`
-      : task.status_label?.trim() || task.status.replace(/_/g, " ");
+  const statusLabel = canonicalTaskStatusLabel(task);
   return (
     <div style={wrap} data-testid="canvas-detail-content">
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <Chip label="status" value={statusLabel} color={TASK_STATUS_COLORS[task.status]} />
+        <Chip label="status" value={statusLabel} color={TASK_STATUS_COLORS[task.status]} testId="status-chip" />
         {task.priority && <Chip label="priority" value={task.priority.toUpperCase()} />}
         {task.type && <Chip label="type" value={task.type} />}
         {onOpenPane && paneId && (

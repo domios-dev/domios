@@ -97,16 +97,22 @@ test("surfaces pane label and milestone on active assigned task", () => {
   assert(taskRow?.milestoneKind === "status update", "milestone kind label");
 });
 
-test("surfaces in-QA chip on in_review rows", () => {
+test("task rows use canonical status labels", () => {
   const plan = {
     ...FIXTURE_PLAN,
     tasks: [
-      { ...FIXTURE_TASK, id: "qa-a", status: "in_review" as const, review_stage: "qa" as const, qa_state: "queued" as const },
-      { ...FIXTURE_TASK, id: "qa-b", status: "in_review" as const, review_stage: "qa" as const, qa_state: "queued" as const },
+      {
+        ...FIXTURE_TASK,
+        id: "qa-b",
+        status: "in_review" as const,
+        review_stage: "qa" as const,
+        qa_state: "queued" as const,
+        status_label: "In QA · queued #2",
+      },
     ],
   };
   const rows = buildPlanListRows(plan, { panes });
-  assert(rows.find((row) => row.taskId === "qa-b")?.qaChip === "In QA · queued #2", "qa position chip");
+  assert(rows.find((row) => row.taskId === "qa-b")?.statusLabel === "in review", "canonical status label");
 });
 
 test("done task surfaces historical executor instead of active pane label", () => {

@@ -2,11 +2,8 @@ import type { KeyboardEvent } from "react";
 import { GitBranch, Hash, History, User } from "lucide-react";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { BoardTaskCardModel } from "./boardModel";
+import { canonicalTaskStatusLabel } from "./taskStatusLabel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
-
-function statusText(task: BoardTaskCardModel["task"]): string {
-  return task.status_label?.trim() || task.status.replace(/_/g, " ");
-}
 
 export interface BoardTaskCardProps {
   card: BoardTaskCardModel;
@@ -50,11 +47,11 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
         {task.name}
       </h4>
       <span
-        data-testid="plan-board-task-status"
+        data-testid="status-chip"
         className="plan-board-task-status"
         style={{ background: statusColor }}
       >
-        {card.qaChip ?? statusText(task)}
+        {canonicalTaskStatusLabel(task)}
       </span>
       {handle && (
         <p data-testid="plan-board-task-handle" className="plan-board-task-meta plan-board-task-handle">
@@ -90,13 +87,9 @@ export function BoardTaskCard({ card, onOpen }: BoardTaskCardProps) {
           <span className="min-w-0 truncate">{card.branch}</span>
         </p>
       )}
-      {card.activityHint && (
-        <p data-testid="plan-board-task-activity" className="plan-board-task-meta plan-board-task-activity">
-          <span className="plan-board-task-meta-icon" aria-hidden />
-          <span className="plan-board-task-activity-text">
-            <span className="plan-board-task-activity-kind">{card.activityHint.kind}</span>
-            <span className="plan-board-task-activity-age">{card.activityHint.ageLabel}</span>
-          </span>
+      {card.latestNote && (
+        <p data-testid="latest-note" className="plan-board-task-latest-note">
+          {card.latestNote}
         </p>
       )}
     </article>
