@@ -32,6 +32,7 @@ pub mod task_routes;
 pub mod theme_routes;
 pub mod updater_routes;
 pub mod usage_routes;
+pub mod web_plugin_routes;
 pub mod web_routes;
 pub mod webhook_routes;
 pub mod workspace_routes;
