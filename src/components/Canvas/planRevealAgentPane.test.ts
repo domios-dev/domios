@@ -44,14 +44,14 @@ test("revealAssignedAgentPane closes canvas overlays and activates tab", () => {
   canvasFocusStore.openFocus({ planId: "pl-1", focusPaneId: "orch-1" });
   canvasFocusStore.openWorkspace({ planId: "pl-1" });
 
-  let activeTab: { workspaceId: string; tabId: string } | null = null;
+  const activeTabs: Array<{ workspaceId: string; tabId: string }> = [];
   let focused: string | null = null;
 
   const ok = revealAssignedAgentPane(
     {
       workspaces: [workspace],
       setActiveTab: (workspaceId, tabId) => {
-        activeTab = { workspaceId, tabId };
+        activeTabs.push({ workspaceId, tabId });
       },
       setFocusedPane: (paneId) => {
         focused = paneId;
@@ -63,6 +63,8 @@ test("revealAssignedAgentPane closes canvas overlays and activates tab", () => {
   assert(ok, "revealed");
   assert(!canvasFocusStore.isOpen(), "focus canvas closed");
   assert(!canvasFocusStore.isWorkspaceOpen(), "workspace canvas closed");
+  const activeTab = activeTabs[0];
+  assert(activeTab, "tab activated once");
   assert(activeTab?.workspaceId === "ws-1" && activeTab?.tabId === "tab-2", "tab activated");
   assert(focused === "worker-1", "pane focused");
 });

@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { Download } from "lucide-react";
 import { PlainOutput } from "./MarkdownBody";
 import {
@@ -51,7 +51,7 @@ export function ToolOutputContent({
   text: string;
   maxHeight?: string;
 }) {
-  const parsed = useMemo(() => parseToolOutputImages(text), [text]);
+  const parsed = React.useMemo(() => parseToolOutputImages(text), [text]);
   if (parsed.images.length === 0) {
     return <PlainOutput text={text} maxHeight={maxHeight} />;
   }

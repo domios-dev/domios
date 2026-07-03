@@ -146,13 +146,13 @@ test("kebab menu items: Rename, Copy plan ID, Archive", async () => {
 });
 
 test("rename fires onAction with kind=rename", async () => {
-  let action: PlanKebabAction | null = null;
+  const actions: PlanKebabAction[] = [];
   const { host } = await render(
     <PlanSwitcher
       plans={opts(2)}
       selectedId="p-0"
       onSelect={() => {}}
-      onAction={(a) => (action = a)}
+      onAction={(a) => actions.push(a)}
     />,
   );
   const kebab = host.querySelector(
@@ -167,9 +167,10 @@ test("rename fires onAction with kind=rename", async () => {
   await act(async () => {
     rename.click();
   });
+  const action = actions[0];
   assert(action?.kind === "rename", `action=${JSON.stringify(action)}`);
   assert(
-    (action as Extract<PlanKebabAction, { kind: "rename" }>).planId === "p-0",
+    action.planId === "p-0",
     "planId=p-0",
   );
   assert(!host.querySelector('[data-testid="plan-switcher-menu"]'), "menu closes after action");
@@ -177,13 +178,13 @@ test("rename fires onAction with kind=rename", async () => {
 
 test("archive fires onAction and auto-selects next plan when archiving selected", async () => {
   let picked = "";
-  let action: PlanKebabAction | null = null;
+  const actions: PlanKebabAction[] = [];
   const { host } = await render(
     <PlanSwitcher
       plans={opts(3)}
       selectedId="p-0"
       onSelect={(id) => (picked = id)}
-      onAction={(a) => (action = a)}
+      onAction={(a) => actions.push(a)}
     />,
   );
   const kebab = host.querySelector(
@@ -198,9 +199,10 @@ test("archive fires onAction and auto-selects next plan when archiving selected"
   await act(async () => {
     archiveBtn.click();
   });
+  const action = actions[0];
   assert(action?.kind === "archive", `action.kind=${action?.kind}`);
   assert(
-    (action as Extract<PlanKebabAction, { kind: "archive" }>).planId === "p-0",
+    action.planId === "p-0",
     "planId=p-0",
   );
   assert(picked !== "" && picked !== "p-0", `selection fallback applied, picked=${picked}`);
@@ -241,13 +243,13 @@ test("Open plan document appears only when docUrl is provided", async () => {
 });
 
 test("overflow mode: kebab inside listbox fires action without closing listbox", async () => {
-  let action: PlanKebabAction | null = null;
+  const actions: PlanKebabAction[] = [];
   const { host } = await render(
     <PlanSwitcher
       plans={opts(5)}
       selectedId="p-0"
       onSelect={() => {}}
-      onAction={(a) => (action = a)}
+      onAction={(a) => actions.push(a)}
     />,
   );
   const trigger = host.querySelector('[data-testid="plan-switcher-combo-trigger"]') as HTMLElement;
@@ -273,11 +275,12 @@ test("overflow mode: kebab inside listbox fires action without closing listbox",
   await act(async () => {
     rename.click();
   });
+  const action = actions[0];
   assert(action?.kind === "rename", `action.kind=${action?.kind}`);
 });
 
 test("archived plans show toggle in segmented mode; Unarchive fires onAction", async () => {
-  let action: PlanKebabAction | null = null;
+  const actions: PlanKebabAction[] = [];
   const plans: PlanSwitcherOption[] = [
     { id: "p-active", title: "Active Plan" },
     { id: "p-2", title: "Active Plan 2" },
@@ -288,7 +291,7 @@ test("archived plans show toggle in segmented mode; Unarchive fires onAction", a
       plans={plans}
       selectedId="p-active"
       onSelect={() => {}}
-      onAction={(a) => (action = a)}
+      onAction={(a) => actions.push(a)}
     />,
   );
   // No archived plans visible yet
@@ -315,15 +318,16 @@ test("archived plans show toggle in segmented mode; Unarchive fires onAction", a
   await act(async () => {
     unarchive.click();
   });
+  const action = actions[0];
   assert(action?.kind === "unarchive", `action.kind=${action?.kind}`);
   assert(
-    (action as Extract<PlanKebabAction, { kind: "unarchive" }>).planId === "p-archived",
+    action.planId === "p-archived",
     "planId=p-archived",
   );
 });
 
 test("archived plans appear non-selectable in overflow listbox footer with Unarchive", async () => {
-  let action: PlanKebabAction | null = null;
+  const actions: PlanKebabAction[] = [];
   const plans: PlanSwitcherOption[] = [
     { id: "p-0", title: "Active A" },
     { id: "p-1", title: "Active B" },
@@ -336,7 +340,7 @@ test("archived plans appear non-selectable in overflow listbox footer with Unarc
       plans={plans}
       selectedId="p-0"
       onSelect={() => {}}
-      onAction={(a) => (action = a)}
+      onAction={(a) => actions.push(a)}
     />,
   );
   const trigger = host.querySelector('[data-testid="plan-switcher-combo-trigger"]') as HTMLElement;
@@ -362,9 +366,10 @@ test("archived plans appear non-selectable in overflow listbox footer with Unarc
   await act(async () => {
     unarchive.click();
   });
+  const action = actions[0];
   assert(action?.kind === "unarchive", `action.kind=${action?.kind}`);
   assert(
-    (action as Extract<PlanKebabAction, { kind: "unarchive" }>).planId === "p-archived",
+    action.planId === "p-archived",
     "planId=p-archived",
   );
 });
