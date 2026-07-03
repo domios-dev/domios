@@ -148,103 +148,136 @@ impl ServiceContext {
             .map(ReportTarget::Local)
             .or(default_target_opt);
 
-        // Mesh homing: plan_id hint provided but plan not found locally (remote worker scenario).
-        // Relay plan batch ops (status + milestone) to the owning peer via the mesh.
-        if eff_plan_id.is_none() {
-            if let (Some(h_plan), Some(h_task), Some(peer)) = (
-                plan_id.filter(|s| !s.trim().is_empty()),
-                task_id.filter(|s| !s.trim().is_empty()),
-                default_mesh_peer,
-            ) {
-                self.relay_plan_batch_to_peer(
-                    peer,
-                    h_plan.to_string(),
-                    h_task.to_string(),
-                    from_ref.clone(),
-                    task_status,
-                    milestone_text(message, details.status),
-                    milestone_kind.unwrap_or("status_update").to_string(),
-                );
-                if !details.attachments.is_empty() {
-                    notices.push(
-                        "report attachments were not relayed to the remote owning daemon; mesh plan relay currently carries text/status only".into(),
-                    );
+        // Mesh homing: relay plan ops when the plan lives on a remote peer.
+        // Fires on two conditions:
+        //   (a) plan not found locally at all (eff_plan_id is None), or
+        //   (b) explicit plan_id was provided but resolve_plan_ctx silently
+        //       substituted a local binding — the explicit ref must win.
+        // When homing fires, suppress local milestone recording so the milestone
+        // doesn't land on the wrong local plan.
+        let foreign = is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
+        let homed_to_remote = if eff_plan_id.is_none() || foreign {
+            let h_plan = plan_id.map(str::trim).filter(|s| !s.is_empty());
+            let h_task = task_id.map(str::trim).filter(|s| !s.is_empty());
+            match (h_plan, h_task, &default_mesh_peer) {
+                (Some(h_plan), Some(h_task), Some(peer)) => {
+                    if let Err(e) = self.relay_plan_batch_to_peer(
+                        peer.clone(),
+                        h_plan.to_string(),
+                        h_task.to_string(),
+                        from_ref.clone(),
+                        task_status,
+                        milestone_text(message, details.status),
+                        milestone_kind.unwrap_or("status_update").to_string(),
+                    ) {
+                        notices.push(format!(
+                            "plan milestone relay to peer '{}' failed — check mesh pairing with \
+                             `codeterm mesh status`, then retry: {}",
+                            peer, e
+                        ));
+                    }
+                    if !details.attachments.is_empty() {
+                        notices.push(
+                            "report attachments were not relayed to the remote owning daemon; \
+                             mesh plan relay currently carries text/status only"
+                                .into(),
+                        );
+                    }
+                    true
                 }
+                (Some(h_plan), Some(_), None) if foreign => {
+                    // Explicit foreign plan but no mesh peer on this pane.
+                    notices.push(format!(
+                        "plan '{}' is not active on this machine and no mesh homing peer is \
+                         configured; milestone NOT recorded — spawn this worker via \
+                         `codeterm agent spawn --mesh <peer>` so the report homes to the \
+                         plan's owning machine",
+                        h_plan
+                    ));
+                    false
+                }
+                _ => false,
             }
-        }
+        } else {
+            false
+        };
 
         if let Some(ref plan_id) = eff_plan_id {
-            let task_id = eff_task_id
-                .clone()
-                .or_else(|| {
-                    self.plan_store.task_binding_for_pane(pane_id).and_then(
-                        |(bound_plan, bound_task)| {
-                            if &bound_plan == plan_id {
-                                Some(bound_task)
-                            } else {
-                                None
-                            }
-                        },
-                    )
-                })
-                .ok_or_else(|| "task_id required for plan report".to_string())?;
-            let mut ops = Vec::new();
-            if let Some(status) = task_status {
-                ops.push(crate::service::plan::batch::BatchOp::SetTaskStatus {
-                    client_id: None,
-                    task: task_id.clone(),
-                    status: status.into(),
-                });
-            }
-            ops.push(crate::service::plan::batch::BatchOp::AddMilestone {
-                client_id: Some("report".into()),
-                task: task_id.clone(),
-                kind: milestone_kind.unwrap_or("status_update").into(),
-                text: milestone_text(message, details.status),
-                from: Some(from_ref.clone()),
-                key: None,
-                links: vec![],
-            });
-            let batch_result = self
-                .plan_store
-                .apply_batch(
-                    plan_id,
-                    crate::service::plan::batch::BatchRequest { key: None, ops },
-                    epoch_ms(),
-                )
-                .map_err(|e| e.to_string())?;
-            if !details.attachments.is_empty() {
-                let milestone_id = batch_result
-                    .milestone_ids
-                    .first()
-                    .ok_or_else(|| "report milestone missing for attachments".to_string())?
-                    .clone();
-                for path in &details.attachments {
-                    self.plan_store
-                        .attach_to_milestone(
-                            plan_id,
-                            &task_id,
-                            &milestone_id,
-                            std::path::Path::new(path),
-                            epoch_ms(),
+            // Skip local recording when the explicit ref is foreign (whether or not
+            // homing succeeded) — avoids a milestone landing on the wrong local plan.
+            if !homed_to_remote && !foreign {
+                let task_id = eff_task_id
+                    .clone()
+                    .or_else(|| {
+                        self.plan_store.task_binding_for_pane(pane_id).and_then(
+                            |(bound_plan, bound_task)| {
+                                if &bound_plan == plan_id {
+                                    Some(bound_task)
+                                } else {
+                                    None
+                                }
+                            },
                         )
-                        .map_err(|e| e.to_string())?;
+                    })
+                    .ok_or_else(|| "task_id required for plan report".to_string())?;
+                let mut ops = Vec::new();
+                if let Some(status) = task_status {
+                    ops.push(crate::service::plan::batch::BatchOp::SetTaskStatus {
+                        client_id: None,
+                        task: task_id.clone(),
+                        status: status.into(),
+                    });
                 }
+                ops.push(crate::service::plan::batch::BatchOp::AddMilestone {
+                    client_id: Some("report".into()),
+                    task: task_id.clone(),
+                    kind: milestone_kind.unwrap_or("status_update").into(),
+                    text: milestone_text(message, details.status),
+                    from: Some(from_ref.clone()),
+                    key: None,
+                    links: vec![],
+                });
+                let batch_result = self
+                    .plan_store
+                    .apply_batch(
+                        plan_id,
+                        crate::service::plan::batch::BatchRequest { key: None, ops },
+                        epoch_ms(),
+                    )
+                    .map_err(|e| e.to_string())?;
+                if !details.attachments.is_empty() {
+                    let milestone_id = batch_result
+                        .milestone_ids
+                        .first()
+                        .ok_or_else(|| "report milestone missing for attachments".to_string())?
+                        .clone();
+                    for path in &details.attachments {
+                        self.plan_store
+                            .attach_to_milestone(
+                                plan_id,
+                                &task_id,
+                                &milestone_id,
+                                std::path::Path::new(path),
+                                epoch_ms(),
+                            )
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
+                let _ = self.plan_store.record_task_attempt_report(
+                    plan_id,
+                    &task_id,
+                    &from_ref,
+                    message,
+                    details.status,
+                    epoch_ms(),
+                );
+                self.plan_turn_counter.reset(pane_id);
+                crate::api::events::emit_everywhere(
+                    &self.app_handle,
+                    "plan-changed",
+                    serde_json::json!({ "plan_id": plan_id }),
+                );
             }
-            let _ = self.plan_store.record_task_attempt_report(
-                plan_id,
-                &task_id,
-                &from_ref,
-                message,
-                details.status,
-                epoch_ms(),
-            );
-            self.plan_turn_counter.reset(pane_id);
-            crate::api::events::emit_everywhere(
-                &self.app_handle,
-                "plan-changed",
-                serde_json::json!({ "plan_id": plan_id }),
-            );
         }
 
         let target = target_opt.ok_or_else(|| {
@@ -424,9 +457,13 @@ impl ServiceContext {
         let _ = crate::service::messenger::Messenger::deliver(self, asker, envelope, &text);
     }
 
-    /// Fire-and-forget relay of plan batch ops (status update + milestone) to the
-    /// peer that owns the plan. Used when the plan doesn't exist in the local store
-    /// but plan_id + task_id were provided (remote worker mesh homing scenario).
+    /// Relay plan batch ops (status update + milestone) to the peer that owns the
+    /// plan. Used when the plan doesn't exist in the local store but plan_id +
+    /// task_id were provided (remote worker mesh homing scenario).
+    ///
+    /// Returns `Err` immediately when the named peer is not in the paired set so
+    /// the caller can surface a retry hint. The actual HTTP send is async
+    /// fire-and-forget; transport errors are logged but not returned.
     fn relay_plan_batch_to_peer(
         &self,
         peer: String,
@@ -436,19 +473,18 @@ impl ServiceContext {
         task_status: Option<&'static str>,
         ms_text: String,
         ms_kind: String,
-    ) {
+    ) -> Result<(), String> {
         let client = {
             let mesh_handle = self.app_handle.state::<crate::MeshStateHandle>();
             let mesh = mesh_handle.lock();
             resolve_peer_client_by_name(&mesh, &peer)
         };
         let Some(client) = client else {
-            log::warn!(
-                "[plan/mesh] no paired peer '{}' — plan batch for {} not relayed",
-                peer,
-                plan_id
-            );
-            return;
+            return Err(format!(
+                "peer '{}' is not paired — run `codeterm mesh status` to check connectivity, \
+                 then retry",
+                peer
+            ));
         };
         let mut ops: Vec<serde_json::Value> = Vec::new();
         if let Some(status) = task_status {
@@ -486,6 +522,7 @@ impl ServiceContext {
                 Err(e) => log::warn!("[plan/mesh] plan batch relay to {} failed: {}", peer, e),
             }
         });
+        Ok(())
     }
 
     /// Fire-and-forget delivery of a report to a pane (id or `main`/`general`
@@ -696,6 +733,22 @@ impl ReportTarget {
             ReportTarget::Mesh { peer, pane } => format!("mesh:{}/{}", peer, pane),
         }
     }
+}
+
+/// True when the caller passed an explicit plan id that `resolve_plan_ctx` did
+/// NOT resolve to the same local plan — i.e., the plan is on a different peer's
+/// store, or `resolve_plan_ctx` silently substituted a local binding. When this
+/// returns true, report homing should use the explicit hint, NOT the local
+/// substitution.
+pub(crate) fn is_explicit_plan_foreign(
+    explicit_plan_id: Option<&str>,
+    eff_plan_id: Option<&str>,
+) -> bool {
+    explicit_plan_id
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(|p| eff_plan_id.map(str::trim) != Some(p))
+        .unwrap_or(false)
 }
 
 /// Resolve where a report from `pane_id` should be delivered.
