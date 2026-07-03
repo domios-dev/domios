@@ -20,6 +20,7 @@ import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
 import { ActiveWorkStrip } from "./ActiveWorkStrip";
 import { enrichSwitcherOptions, selectActiveWork, type ActiveWorkEntry } from "./activeWork";
+import { activeWorkEntriesForStrip } from "./activeWorkStripVisibility";
 import {
   buildVisiblePlanListRows,
   resolveSectionExpanded,
@@ -157,6 +158,11 @@ export function PlanListView({
     [rows, statusFilter, textQuery, expansionOverrides],
   );
 
+  const stripEntries = useMemo(
+    () => activeWorkEntriesForStrip(planActiveWork, visibleRows),
+    [planActiveWork, visibleRows],
+  );
+
   const toggleSection = useCallback((sectionId: string, sectionRow?: PlanListRow) => {
     setExpansionOverrides((prev) => {
       const next = new Map(prev);
@@ -270,7 +276,7 @@ export function PlanListView({
               onStatusFilter={setStatusFilter}
               onTextQuery={setTextQuery}
             />
-            <ActiveWorkStrip entries={planActiveWork} onOpenTask={openActiveWork} />
+            <ActiveWorkStrip entries={stripEntries} onOpenTask={openActiveWork} />
           </div>
           <div data-testid="plan-list-scroll" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
             {visibleRows.map((entry) => {

@@ -341,6 +341,78 @@ test("list: unarchive brings plan back to active switcher", async () => {
   await unmount();
 });
 
+test("default list hides in-flight strip when status group shows tasks", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [{ ...FIXTURE_TASK, id: "t-wip", status: TaskStatus.InProgress, name: "WIP task" }],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  assert(host.querySelector('[data-testid="plan-list-task"][data-task-id="t-wip"]'), "in-flight task in list");
+  assert(!host.querySelector('[data-testid="active-work-strip"]'), "strip hidden when list shows in-flight");
+  await unmount();
+});
+
+test("done filter shows in-flight strip for hidden active tasks", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [
+      { ...FIXTURE_TASK, id: "t-wip", status: TaskStatus.InProgress, name: "WIP task" },
+      { ...FIXTURE_TASK, id: "t-done", status: TaskStatus.Done, name: "Done task" },
+    ],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const doneChip = host.querySelector('[data-testid="plan-list-filter-status-done"]') as HTMLElement;
+  await act(async () => {
+    doneChip.click();
+  });
+  assert(!host.querySelector('[data-testid="plan-list-task"][data-task-id="t-wip"]'), "wip hidden in list");
+  const stripRow = host.querySelector('[data-testid="active-work-strip-row"][data-task-id="t-wip"]');
+  assert(stripRow, "wip visible in strip");
+  await unmount();
+});
+
+test("collapsed in progress section shows in-flight strip", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [{ ...FIXTURE_TASK, id: "t-wip", status: TaskStatus.InProgress, name: "WIP task" }],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const section = host.querySelector('[data-testid="plan-list-plan-section"]') as HTMLElement;
+  assert(section?.textContent?.includes("In progress + review"), "active status group");
+  await act(async () => {
+    section.click();
+  });
+  assert(!host.querySelector('[data-testid="plan-list-task"][data-task-id="t-wip"]'), "wip hidden when collapsed");
+  assert(host.querySelector('[data-testid="active-work-strip-row"][data-task-id="t-wip"]'), "wip in strip");
+  await unmount();
+});
+
+test("in-flight strip click opens task detail when strip is visible", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [
+      { ...FIXTURE_TASK, id: "t-wip", status: TaskStatus.InProgress, name: "Strip open me" },
+      { ...FIXTURE_TASK, id: "t-done", status: TaskStatus.Done, name: "Done task" },
+    ],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const doneChip = host.querySelector('[data-testid="plan-list-filter-status-done"]') as HTMLElement;
+  await act(async () => {
+    doneChip.click();
+  });
+  const stripRow = host.querySelector('[data-testid="active-work-strip-row"]') as HTMLElement;
+  assert(stripRow, "strip row visible");
+  await act(async () => {
+    stripRow.click();
+  });
+  assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open from strip");
+  assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "task", "task detail");
+  await unmount();
+});
+
 let passed = 0;
 async function main() {
   for (const [name, fn] of tests) {
