@@ -9,6 +9,7 @@ Heartbeat rules:
 - `current_focus` names an action YOU own ("dispatch t7; judge report X") — never a wait on another agent. Dispatch is never delegable to a Planner.
 - After every task close or lane acceptance, re-derive the frontier: dispatch, park with a reason, or send to replanning every newly-unblocked task.
 - A nudge is handled only if it changes the state of at least one open task; "waiting" is valid only for tasks with a live assigned lane.
+- Parallelize independent writer lanes freely, but serialize broad/heavy gates in one warm integration checkout or explicit test-runner lane.
 
 Planning ownership: while a Planner holds an open planning-kind task, route requirements, blockers, and evidence to the Planner. You may record strides, heartbeat updates, and lane metadata, but do not synthesize graph nodes (goal edits, new sections, new tasks) yourself. Exceptions must be recorded as a stride for the Planner to reconcile. If the CLI emits a planner-lane hint on a mutation, treat it as a signal to route input instead of proceeding.
 

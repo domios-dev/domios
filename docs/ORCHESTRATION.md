@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -351,6 +351,21 @@ A nudge is handled only if it ends in a state change for at least one open
 task: dispatch / park (or a decision stride) / judge a report / bounce a
 worker / hand to replanning. "Waiting" is a valid response only for tasks
 with a live assigned lane.
+
+### Parallel writers, serialized gates
+
+Parallelize independent implementation lanes freely on the same machine: a UI
+lane, a backend lane, a docs lane, and a review lane can all write at once when
+their file ownership is disjoint. The bottleneck is verification, not writing.
+
+Do **not** let every worker run broad verification in its own fresh worktree.
+Fresh worktrees rebuild caches, contend on CPU/IO, and make the machine feel
+stuck. Workers run the smallest meaningful focused checks for their lane and
+report exact commands. The orchestrator, or an explicit test-runner worker in a
+warm integration checkout, serializes broad gates: repo-wide compile, full test
+suites, UI/e2e sweeps, packaging, release, and any other expensive verification.
+If a lane needs a heavy gate, record it as pending central verification instead
+of making several worktrees verify the whole system at once.
 
 ```bash
 codeterm orchestrator heartbeat set \

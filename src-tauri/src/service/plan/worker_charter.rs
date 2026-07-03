@@ -10,6 +10,7 @@ You are a Worker on task {task_id}. Three rules:\n\
 - Do this ONE task, then run `codeterm agent report` and exit.\n\
 - NEVER spawn agents.\n\
 - Decomposition needed \u{2192} report blocked; the Orchestrator splits it.\n\
+Testing: focused lane-local checks only unless asked; broad gates are serialized by the Orchestrator or a test-runner in a warm integration checkout.\n\
 </codeterm-worker-charter>"
     )
 }
@@ -115,6 +116,7 @@ mod tests {
         assert!(out.contains("<codeterm-worker-charter"));
         assert!(out.contains(&task_id));
         assert!(out.contains("NEVER spawn agents"));
+        assert!(out.contains("focused lane-local checks"));
         assert!(out.trim_end().ends_with("continue"));
     }
 
