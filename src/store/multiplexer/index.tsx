@@ -224,6 +224,16 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     window.addEventListener("codeterm-refresh-mux-state", refreshMuxState);
     unlisteners.push(() => window.removeEventListener("codeterm-refresh-mux-state", refreshMuxState));
 
+    // Daemon restart: the backend's generation counter restarted too, so the
+    // client's high pre-restart generation must be dropped BEFORE the
+    // refresh-triggered snapshot resolves, or the reducer's monotonic guard
+    // rejects it forever. Fired synchronously alongside (before, in program
+    // order) codeterm-refresh-mux-state's async fetch resolves, so this
+    // always lands first.
+    const onBootChanged = () => dispatch({ type: "RESET_GENERATION" });
+    window.addEventListener("codeterm-web-boot-changed", onBootChanged);
+    unlisteners.push(() => window.removeEventListener("codeterm-web-boot-changed", onBootChanged));
+
     // Backend owns `focused_pane_id`; background events don't emit `pane-focused`.
     // Focus updates come only from CLI/REST or service fallback when the pane closes.
     listen<{ pane_id: string }>("pane-focused", (event) => {
