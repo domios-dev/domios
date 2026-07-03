@@ -81,10 +81,25 @@ export function formatLayerTransform(t: ViewportTransform): string {
   return `translate(${t.x}px, ${t.y}px) scale(${t.scale})`;
 }
 
+const RASTER_SETTLE_MS = 180;
+const rasterSettleTimers = new WeakMap<HTMLElement, number>();
+
 export function paintLayer(el: HTMLElement | null, t: ViewportTransform): void {
   if (!el) return;
   el.style.transform = formatLayerTransform(t);
   el.style.transformOrigin = "0 0";
+  // Composite-promote only while moving; demoting on settle makes WebKit
+  // re-rasterize text at the final scale instead of stretching a 1x bitmap.
+  el.style.willChange = "transform";
+  const prev = rasterSettleTimers.get(el);
+  if (prev !== undefined) window.clearTimeout(prev);
+  rasterSettleTimers.set(
+    el,
+    window.setTimeout(() => {
+      el.style.willChange = "auto";
+      rasterSettleTimers.delete(el);
+    }, RASTER_SETTLE_MS),
+  );
 }
 
 // deltaMode: 0 pixel, 1 line, 2 page → normalize to pixels.

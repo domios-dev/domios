@@ -408,7 +408,6 @@
   position: absolute;
   left: 0;
   top: 0;
-  will-change: transform;
   transform-origin: 0 0;
 }
 
