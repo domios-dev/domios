@@ -7,6 +7,8 @@ use serde_json::{json, Value};
 
 use crate::cmd::plan_local::{plan_files, plan_id_from, project_root};
 
+mod cleanup;
+
 const STALLED_LOOP_AFTER_MS: u64 = 3 * 24 * 60 * 60 * 1000;
 // Mirrors src-tauri/src/plan/reconcile.rs PENDING_UNSTAFFED_STALE_MS.
 const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
@@ -651,6 +653,7 @@ fn inspect_task_lifecycle(
             "dispatch it, park it with a reason, or send it to replanning",
         ));
     }
+    findings.extend(cleanup::cleanup_debt_findings(path, plan, task));
 }
 
 fn plan_warning_task(

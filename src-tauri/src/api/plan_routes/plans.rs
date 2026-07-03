@@ -15,6 +15,17 @@ use super::{
     PlanRouteResult,
 };
 
+fn push_hints(value: &mut Value, hints: Vec<String>) {
+    let hints: Vec<String> = hints
+        .into_iter()
+        .filter(|hint| !hint.trim().is_empty())
+        .collect();
+    if hints.is_empty() {
+        return;
+    }
+    value["_hints"] = serde_json::json!(hints);
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct CreatePlanBody {
     pub(crate) title: String,
@@ -303,7 +314,17 @@ pub async fn archive(
         .archive(&id, epoch_ms())
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let mut resp = serde_json::json!({ "ok": true });
+    if let Some(plan) = state.svc.plan_store.get(&id) {
+        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |pane| {
+            state.svc.pane_probe(pane).exists
+        });
+        push_hints(
+            &mut resp,
+            crate::service::plan::cleanup_debt::cleanup_debt_hints(&cleanup),
+        );
+    }
+    Ok(Json(resp))
 }
 
 pub async fn unarchive(

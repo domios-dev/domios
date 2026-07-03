@@ -56,6 +56,17 @@ fn lane_update_field(body: &Value) -> Result<Option<TaskLaneUpdate>, String> {
     Ok((!update.is_empty()).then_some(update))
 }
 
+fn push_hints(value: &mut Value, hints: Vec<String>) {
+    let hints: Vec<String> = hints
+        .into_iter()
+        .filter(|hint| !hint.trim().is_empty())
+        .collect();
+    if hints.is_empty() {
+        return;
+    }
+    value["_hints"] = serde_json::json!(hints);
+}
+
 #[derive(Deserialize, Default)]
 pub(crate) struct TaskAddBody {
     name: String,
@@ -311,7 +322,20 @@ pub async fn task_close(
         .close_task(&id, &tid, body.result.as_deref(), from, epoch_ms())
         .map_err(plan_err)?;
     emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    let mut resp = serde_json::json!({ "ok": true });
+    if let Some(plan) = state.svc.plan_store.get(&id) {
+        let cleanup = crate::service::plan::cleanup_debt::detect_plan_cleanup_debt(&plan, |pane| {
+            state.svc.pane_probe(pane).exists
+        });
+        let hints = crate::service::plan::cleanup_debt::cleanup_debt_hints(
+            &cleanup
+                .into_iter()
+                .filter(|item| item.task_id == tid)
+                .collect::<Vec<_>>(),
+        );
+        push_hints(&mut resp, hints);
+    }
+    Ok(Json(resp))
 }
 
 #[derive(Deserialize)]

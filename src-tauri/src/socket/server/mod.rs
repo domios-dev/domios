@@ -13,6 +13,7 @@ mod cron;
 mod notification;
 mod pane;
 mod plan;
+mod plan_archive;
 mod plan_attachments;
 mod plan_elements;
 mod plan_fields;
