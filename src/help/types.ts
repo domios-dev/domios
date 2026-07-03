@@ -29,6 +29,7 @@ export type HelpBlock =
   | { type: "list"; items: string[] }
   | { type: "figure"; figureId: HelpFigureId }
   | { type: "tip"; text: string }
+  | { type: "ask"; label: string; question: string }
   | {
       type: "shortcut-table";
       rows: Array<{ label: string; source: HelpShortcutSource }>;

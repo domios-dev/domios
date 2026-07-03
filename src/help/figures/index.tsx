@@ -56,21 +56,31 @@ function Arrow({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: num
 
 function AgentHierarchyFigure() {
   return (
-    <svg viewBox="0 0 360 220" className="w-full max-w-md mx-auto" role="img" aria-label="Agent hierarchy diagram">
+    <svg viewBox="0 0 380 240" className="w-full max-w-md mx-auto" role="img" aria-label="Agent hierarchy diagram">
       <defs>
         <marker id="help-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
           <path d="M0,0 L6,3 L0,6 Z" fill={accent} />
         </marker>
       </defs>
-      <Box x={120} y={8} w={120} h={44} label="General Agent" sub="always on" emphasis />
-      <Arrow x1={180} y1={52} x2={180} y2={68} />
-      <Box x={120} y={68} w={120} h={44} label="Orchestrator" sub="delegates work" emphasis />
-      <Arrow x1={180} y1={112} x2={100} y2={140} />
-      <Arrow x1={180} y1={112} x2={180} y2={140} />
-      <Arrow x1={180} y1={112} x2={260} y2={140} />
-      <Box x={40} y={140} w={88} h={44} label="Worker" sub="task A" />
-      <Box x={136} y={140} w={88} h={44} label="Worker" sub="task B" />
-      <Box x={232} y={140} w={88} h={44} label="Worker" sub="task C" />
+      <Box x={130} y={8} w={120} h={44} label="General Agent" sub="always on" emphasis />
+      <Arrow x1={190} y1={52} x2={190} y2={72} />
+      {/* Peer pair: Planner and Orchestrator on the SAME level, visually linked */}
+      <Box x={22} y={72} w={150} h={48} label="Planner" sub="owns the plan structure" emphasis />
+      <Box x={208} y={72} w={150} h={48} label="Orchestrator" sub="dispatches & gates" emphasis />
+      <line x1={172} y1={90} x2={208} y2={90} stroke={accent} strokeWidth={2} />
+      <line x1={172} y1={100} x2={208} y2={100} stroke={accent} strokeWidth={2} />
+      <text x={190} y={64} textAnchor="middle" fill={muted} fontSize={9}>
+        peers
+      </text>
+      <Arrow x1={283} y1={120} x2={110} y2={160} />
+      <Arrow x1={283} y1={120} x2={190} y2={160} />
+      <Arrow x1={283} y1={120} x2={300} y2={160} />
+      <Box x={60} y={160} w={92} h={44} label="Worker" sub="task A" />
+      <Box x={160} y={160} w={92} h={44} label="Worker" sub="task B" />
+      <Box x={260} y={160} w={92} h={44} label="Worker" sub="task C" />
+      <text x={97} y={135} textAnchor="middle" fill={muted} fontSize={9}>
+        shapes goal / spec / plan / tasks
+      </text>
     </svg>
   );
 }
