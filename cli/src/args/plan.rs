@@ -287,6 +287,52 @@ pub enum PlanAction {
         #[command(subcommand)]
         action: PlanDecisionAction,
     },
+    /// Plan-scoped reusable skills (folder-on-disk, ledgered, mem-indexed)
+    Skill {
+        #[command(subcommand)]
+        action: PlanSkillAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum PlanSkillAction {
+    /// Create a new plan skill folder (SKILL.md + scripts/)
+    New {
+        slug: String,
+        /// Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)
+        #[arg(long)]
+        plan: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        title: Option<String>,
+        #[arg(long)]
+        area: Option<String>,
+        /// One-line ledger rationale (default: "created")
+        #[arg(long, allow_hyphen_values = true)]
+        rationale: Option<String>,
+    },
+    /// List plan skills with their latest ledger verdict
+    List {
+        #[arg(long)]
+        plan: Option<String>,
+    },
+    /// Print a plan skill's SKILL.md and ledger history
+    Show {
+        slug: String,
+        #[arg(long)]
+        plan: Option<String>,
+    },
+    /// Record a keep|discard|superseded ledger entry; --body-file replaces SKILL.md
+    Edit {
+        slug: String,
+        #[arg(long)]
+        plan: Option<String>,
+        #[arg(long, default_value = "keep")]
+        verdict: String,
+        #[arg(long, allow_hyphen_values = true)]
+        rationale: String,
+        #[arg(long, value_name = "PATH")]
+        body_file: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
