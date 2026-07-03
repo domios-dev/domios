@@ -341,6 +341,122 @@ test("SET_PANE_TITLE rejects lower priority overwrite", () => {
   assert(after.panes.p1.title === "Pinned", "User title unchanged");
 });
 
+test("SET_STATE yields to a fresh backend Default rename over a stale carried-over Default title", () => {
+  // Simulates a cache-hydrated (or previously-synced) pane whose title never
+  // went through a local SET_PANE_TITLE dispatch — title_pending_local is
+  // unset, so a level tie must resolve to the backend's authoritative title.
+  const hydrated = reducer(base(), {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "stale-cached-name", TitleLevel.Default) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 1,
+    },
+  });
+  const after = reducer(hydrated, {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "fresh-daemon-name", TitleLevel.Default) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 2,
+    },
+  });
+  assert(
+    after.panes.p1.title === "fresh-daemon-name",
+    "stale cached Default title yields to the backend's fresh Default rename",
+  );
+});
+
+test("SET_STATE yields to a fresh backend User rename over a title held across a reconnect outage", () => {
+  // Same tie (User vs User) as a genuine pending local rename, but here BOTH
+  // titles arrived via SET_STATE (e.g. the second rename happened on the
+  // daemon while this client was disconnected) — neither is locally pending,
+  // so the daemon's later rename must win, not whichever the client saw first.
+  const beforeOutage = reducer(base(), {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "before-outage", TitleLevel.User) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 1,
+    },
+  });
+  const afterReconnect = reducer(beforeOutage, {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "renamed-during-outage", TitleLevel.User) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 2,
+    },
+  });
+  assert(
+    afterReconnect.panes.p1.title === "renamed-during-outage",
+    "title held across a reconnect outage yields to the backend's authoritative rename",
+  );
+});
+
+test("a genuine pending-local User rename survives an interim snapshot, then converges once backend catches up", () => {
+  const hydrated = reducer(base(), {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "Tab 3", TitleLevel.Default) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 1,
+    },
+  });
+  const userPinned = reducer(hydrated, {
+    type: "SET_PANE_TITLE",
+    paneId: "p1",
+    title: "My Worker",
+    level: TitleLevel.User,
+  });
+  const interim = reducer(userPinned, {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "Tab 3", TitleLevel.Default) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 2,
+    },
+  });
+  assert(interim.panes.p1.title === "My Worker", "pending local rename survives an interim backend snapshot");
+  const confirmed = reducer(interim, {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "My Worker", TitleLevel.User) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 3,
+    },
+  });
+  assert(confirmed.panes.p1.title === "My Worker", "title matches once backend catches up");
+  const renamedElsewhere = reducer(confirmed, {
+    type: "SET_STATE",
+    state: {
+      workspaces: [],
+      panes: { p1: paneWithTitle("p1", "Renamed Elsewhere", TitleLevel.User) },
+      active_workspace_id: null,
+      focused_pane_id: null,
+      generation: 4,
+    },
+  });
+  assert(
+    renamedElsewhere.panes.p1.title === "Renamed Elsewhere",
+    "pending flag cleared on confirmation, so a later tie yields to the backend again",
+  );
+});
+
 test("RESET_GENERATION lets a low post-restart snapshot apply over a high stale generation", () => {
   // Regression for the boot-changed / daemon-restart structure-resync bug: a
   // long-lived web client accumulates a high generation, the daemon restarts

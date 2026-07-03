@@ -92,15 +92,24 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         const backendLevel = backendPane.title_level || TitleLevel.Default;
         const frontendLevel = existing?.title_level || TitleLevel.Default;
         const highestLevel = highestTitleLevel(backendLevel, frontendLevel);
+        // Level alone can't tell a genuine in-flight local rename (must win a
+        // tie) from a title merely carried over from a stale snapshot or cache
+        // hydration (must yield to the backend on a tie) — only the former
+        // sets title_pending_local (see SET_PANE_TITLE/SET_TAB_TITLE below).
         const keepFrontendTitle =
           existing &&
+          existing.title_pending_local === true &&
           highestLevel === frontendLevel &&
           frontendLevel !== TitleLevel.Auto;
         const title = keepFrontendTitle ? existing.title : backendPane.title;
+        // Backend has caught up once its title matches what we're keeping;
+        // otherwise the local rename is still in flight.
+        const title_pending_local = keepFrontendTitle && backendPane.title !== existing.title;
         mergedPanes[id] = {
           ...backendPane,
           title_level: highestLevel as TitleLevel,
           title,
+          title_pending_local,
           ...(agentType ? { agent_type: agentType } : {}),
         };
       }
@@ -389,6 +398,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             ...pane,
             title: action.title,
             title_level: newLevel,
+            title_pending_local: true,
           },
         },
       };
@@ -407,6 +417,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
             ...pane,
             title: action.title,
             title_level: TitleLevel.User,
+            title_pending_local: true,
           },
         },
       };

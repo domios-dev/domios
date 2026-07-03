@@ -119,6 +119,13 @@ export interface Pane {
   description?: string | null;
   cwd: string | null;
   title_level?: TitleLevel;
+  /** Frontend-only: true while `title` was set by a local optimistic rename
+   *  not yet confirmed by a backend snapshot. Distinguishes a genuine
+   *  in-flight rename (must survive a tied/stale backend snapshot) from a
+   *  stale title merely carried over from a prior snapshot or cache
+   *  hydration (must yield to the backend on the next tie). Cleared once a
+   *  backend SET_STATE reports a matching title. */
+  title_pending_local?: boolean;
   agent_type?: string | null;
   agent_session_id?: string | null;
   agent_session_name?: string | null;
