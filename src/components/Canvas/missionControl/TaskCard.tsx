@@ -11,6 +11,7 @@ export function TaskCard({ task, dense, onClick }: TaskCardProps) {
     <div
       className="mc-task-card"
       data-status={task.status}
+      data-mc-interactive="true"
       data-testid={`task-${task.id}`}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}

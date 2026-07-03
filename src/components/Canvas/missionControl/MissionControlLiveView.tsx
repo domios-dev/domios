@@ -1,17 +1,26 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Pane } from "../../../lib/types";
 import { flattenSections } from "../sectionRows";
-import { useCanvasViewport, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE } from "../useCanvasViewport";
+import {
+  useCanvasViewport,
+  paintLayer,
+  CANVAS_MIN_SCALE,
+  CANVAS_MAX_SCALE,
+  type ViewportTransform,
+} from "../useCanvasViewport";
 import { FlyToActiveControl } from "../FlyToActiveControl";
 import { selectActiveWork } from "../planView/activeWork";
 import type { Plan } from "../types";
 import { buildMissionControl } from "./missionControl";
 import { missionControlHealth, modelToSnapshot } from "./modelAdapter";
-import { resolveMissionControlLod } from "./missionControlLod";
+import { missionControlInputRevision } from "./missionControlInputRevision";
+import { resolveMissionControlLod, type MissionControlLodLevel } from "./missionControlLod";
+import { MissionControlStage } from "./MissionControlStage";
 import { useReducedMotion } from "./useReducedMotion";
 import type { MissionControlSnapshot } from "./types";
-import { VariantAssemblyLine } from "./variants/VariantAssemblyLine";
 import "./missionControl.css";
+
+import { MC_PAN_IGNORE } from "./missionControlViewport";
 
 export interface MissionControlLiveViewProps {
   plan: Plan;
@@ -22,8 +31,16 @@ export interface MissionControlLiveViewProps {
 
 export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPlan }: MissionControlLiveViewProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const scaleLabelRef = useRef<HTMLSpanElement | null>(null);
+  const lodRef = useRef<MissionControlLodLevel>("close");
   const [size, setSize] = useState({ width: 800, height: 600 });
+  const [lod, setLod] = useState<MissionControlLodLevel>("close");
   const reducedMotion = useReducedMotion();
+
+  const inputRevision = useMemo(
+    () => missionControlInputRevision(plan, panes),
+    [plan, panes],
+  );
 
   const sectionTitleById = useMemo(() => {
     const m = new Map<string, string>();
@@ -32,9 +49,9 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
       if (t) m.set(s.id, t);
     }
     return m;
-  }, [plan.sections, plan.id]);
+  }, [plan.id, inputRevision]);
 
-  const model = useMemo(() => buildMissionControl(plan, panes), [plan, panes, plan.updated_at, plan.tasks.length]);
+  const model = useMemo(() => buildMissionControl(plan, panes), [inputRevision, plan, panes]);
   const snapshot: MissionControlSnapshot = useMemo(
     () =>
       modelToSnapshot({
@@ -43,22 +60,52 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
         panes,
         sectionTitleOf: (id) => sectionTitleById.get(id) ?? null,
       }),
-    [plan, model, panes, sectionTitleById],
+    [inputRevision, plan, model, panes, sectionTitleById],
   );
   const health = useMemo(() => missionControlHealth(snapshot), [snapshot]);
 
-  const activeWork = useMemo(() => selectActiveWork([plan], panes), [plan, panes]);
+  const activeWork = useMemo(() => selectActiveWork([plan], panes), [inputRevision, plan, panes]);
 
-  const { transform, handlers, fitToView, zoomBy, setTransform, isDragging, containerRef } = useCanvasViewport({
+  const syncLod = useCallback((scale: number) => {
+    const next = resolveMissionControlLod(scale);
+    if (next === lodRef.current) return;
+    lodRef.current = next;
+    setLod(next);
+  }, []);
+
+  const onPaint = useCallback(
+    (t: ViewportTransform) => {
+      syncLod(t.scale);
+      const label = scaleLabelRef.current;
+      if (label) label.textContent = `${Math.round(t.scale * 100)}%`;
+    },
+    [syncLod],
+  );
+
+  const {
+    transform,
+    handlers,
+    fitToView,
+    zoomBy,
+    setTransform,
+    isDragging,
+    containerRef,
+    layerRef,
+    transformRef,
+  } = useCanvasViewport({
     width: size.width,
     height: size.height,
     minScale: CANVAS_MIN_SCALE,
     maxScale: CANVAS_MAX_SCALE,
-    wheelBehavior: "zoom",
-    panButton: "middle",
+    panButton: "any",
+    ignoreSelector: MC_PAN_IGNORE,
+    onPaint,
   });
 
-  const lod = useMemo(() => resolveMissionControlLod(transform.scale), [transform.scale]);
+  useLayoutEffect(() => {
+    paintLayer(layerRef.current, transformRef.current);
+    syncLod(transformRef.current.scale);
+  }, [layerRef, transformRef, syncLod]);
 
   useLayoutEffect(() => {
     const el = shellRef.current;
@@ -96,6 +143,8 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
     [snapshot.lanes, reducedMotion],
   );
 
+  const showEvents = !reducedMotion && lod === "close";
+
   return (
     <div
       ref={shellRef}
@@ -110,7 +159,7 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
           <button type="button" className="mc-pill" onClick={() => zoomBy(-0.15)} aria-label="Zoom out">
             −
           </button>
-          <span className="mc-live-scale" data-testid="mission-control-scale">
+          <span ref={scaleLabelRef} className="mc-live-scale" data-testid="mission-control-scale">
             {Math.round(transform.scale * 100)}%
           </span>
           <button type="button" className="mc-pill" onClick={() => zoomBy(0.15)} aria-label="Zoom in">
@@ -125,29 +174,17 @@ export function MissionControlLiveView({ plan, panes = {}, onTaskClick, onOpenPl
         ref={containerRef}
         className="mc-live-viewport"
         onMouseDown={handlers.onMouseDown}
-        style={{ cursor: isDragging ? "grabbing" : "default" }}
+        style={{ cursor: isDragging ? "grabbing" : "grab" }}
       >
-        <div
-          className="mc-stage-wrap mc-live-stage-wrap"
-          style={{
-            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
-            transformOrigin: "0 0",
-          }}
-        >
-          <div
-            className="mc-stage mc-live-stage"
-            data-lod={lod}
-            data-dispatch-gap={health.dispatchGap ? "true" : undefined}
-            data-qa-bottleneck={health.qaBottleneck ? "true" : undefined}
-          >
-            <VariantAssemblyLine
-              snapshot={snapshot}
-              onTaskClick={onTaskClick}
-              dispatchGap={health.dispatchGap}
-              qaBottleneck={health.qaBottleneck}
-              showEvents={!reducedMotion && lod === "close"}
-            />
-          </div>
+        <div ref={layerRef} className="mc-stage-wrap mc-live-stage-wrap">
+          <MissionControlStage
+            snapshot={snapshot}
+            lod={lod}
+            dispatchGap={health.dispatchGap}
+            qaBottleneck={health.qaBottleneck}
+            showEvents={showEvents}
+            onTaskClick={onTaskClick}
+          />
         </div>
       </div>
       <FlyToActiveControl entries={activeWork.entries} onFly={focusTaskBay} />
