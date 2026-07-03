@@ -48,6 +48,15 @@ pub fn nudge_text(kind: NudgeKind) -> String {
     }
 }
 
+pub const IDLE_POKE_QUESTION_TEMPLATES: [&str; 3] = [
+    "You are idle with {pending_tasks} unblocked pending task(s) and {active_lanes} live lane(s). Want to dispatch the next one now?",
+    "Nice and quiet. There are {pending_tasks} frontier task(s) and {active_lanes} active lane(s). Want to poke a task and move it forward?",
+    "Idle checkpoint: {pending_tasks} unblocked pending task(s) against {active_lanes} live lane(s). Want to send one onward?",
+];
+
+const IDLE_POKE_BACKOFF_MAX_STEPS: u32 = 8;
+const SECONDS_PER_DAY: u64 = 86_400;
+
 // Verbatim heartbeat/nudge contract — MUST appear in every open-work nudge.
 pub const CONTRACT: &str = "repeats until every open task is dispatched, parked with a reason, or sent to replanning; silence is not an option.";
 
@@ -62,9 +71,39 @@ fn next_interval(base: u32, last_nudge: u32) -> u32 {
 }
 
 #[derive(Debug, Default)]
+struct IdlePokeState {
+    last_nudge_at_secs: u64,
+    day_bucket: u64,
+    sent_today: u32,
+}
+
+fn day_bucket(timestamp_secs: u64) -> u64 {
+    timestamp_secs / SECONDS_PER_DAY
+}
+
+fn idle_backoff_interval(base: u64, sent_today: u32) -> u64 {
+    if sent_today == 0 {
+        return 0;
+    }
+    let step = sent_today
+        .saturating_sub(1)
+        .min(IDLE_POKE_BACKOFF_MAX_STEPS);
+    base.saturating_mul(1u64 << step)
+}
+
+pub fn idle_poke_text(pending_tasks: usize, active_lanes: usize, phrase_index: u32) -> String {
+    let template =
+        IDLE_POKE_QUESTION_TEMPLATES[(phrase_index as usize) % IDLE_POKE_QUESTION_TEMPLATES.len()];
+    template
+        .replace("{pending_tasks}", &pending_tasks.to_string())
+        .replace("{active_lanes}", &active_lanes.to_string())
+}
+
+#[derive(Debug, Default)]
 pub struct TurnCounter {
     panes: Mutex<HashMap<String, (u32, u32)>>,
     timed: Mutex<HashMap<String, u64>>,
+    idle: Mutex<HashMap<String, IdlePokeState>>,
 }
 
 impl TurnCounter {
@@ -105,6 +144,63 @@ impl TurnCounter {
     pub fn reset(&self, pane_id: &str) {
         self.panes.lock().insert(pane_id.to_string(), (0, 0));
         self.timed.lock().remove(pane_id);
+        self.idle.lock().remove(pane_id);
+    }
+
+    pub fn idle_poke_due(
+        &self,
+        pane_id: &str,
+        now_secs: u64,
+        max_per_day: u32,
+        backoff_base_secs: u64,
+    ) -> bool {
+        if max_per_day == 0 {
+            return false;
+        }
+        let mut idle = self.idle.lock();
+        let day = day_bucket(now_secs);
+        if let std::collections::hash_map::Entry::Vacant(vacant) = idle.entry(pane_id.to_string()) {
+            let _ = vacant.insert(IdlePokeState {
+                last_nudge_at_secs: now_secs,
+                day_bucket: day,
+                sent_today: 0,
+            });
+            return false;
+        }
+        let state = idle.get_mut(pane_id).unwrap_or_else(|| unreachable!());
+        if state.day_bucket != day {
+            state.day_bucket = day;
+            state.sent_today = 0;
+        }
+        if state.sent_today >= max_per_day {
+            return false;
+        }
+        let required_interval = idle_backoff_interval(backoff_base_secs, state.sent_today);
+        now_secs.saturating_sub(state.last_nudge_at_secs) >= required_interval
+    }
+
+    pub fn mark_idle_nudged(&self, pane_id: &str, now_secs: u64) {
+        let mut idle = self.idle.lock();
+        let day = day_bucket(now_secs);
+        let state = idle.entry(pane_id.to_string()).or_insert(IdlePokeState {
+            last_nudge_at_secs: now_secs,
+            day_bucket: day,
+            sent_today: 0,
+        });
+        if state.day_bucket != day {
+            state.day_bucket = day;
+            state.sent_today = 0;
+        }
+        state.last_nudge_at_secs = now_secs;
+        state.sent_today = state.sent_today.saturating_add(1);
+    }
+
+    pub fn idle_phrase_index(&self, pane_id: &str) -> u32 {
+        self.idle
+            .lock()
+            .get(pane_id)
+            .map(|state| state.sent_today)
+            .unwrap_or(0)
     }
 
     pub fn get(&self, pane_id: &str) -> (u32, u32) {
@@ -198,5 +294,55 @@ mod tests {
         counter.reset("p1");
         assert_eq!(counter.get("p1"), (0, 0));
         assert!(!counter.time_nudge_due("p1", 200, 30));
+    }
+
+    #[test]
+    fn idle_poke_phrase_text_is_driven_by_shared_templates() {
+        for (idx, template) in IDLE_POKE_QUESTION_TEMPLATES.iter().enumerate() {
+            let rendered = idle_poke_text(3, 2, idx as u32);
+            let expected = template
+                .replace("{pending_tasks}", "3")
+                .replace("{active_lanes}", "2");
+            assert_eq!(rendered, expected);
+        }
+    }
+
+    #[test]
+    fn idle_poke_due_uses_exponential_backoff() {
+        let counter = TurnCounter::new();
+        assert!(!counter.idle_poke_due("idle-owner", 0, 3, 10));
+        assert!(counter.idle_poke_due("idle-owner", 1, 3, 10));
+        counter.mark_idle_nudged("idle-owner", 1);
+
+        assert!(!counter.idle_poke_due("idle-owner", 10, 3, 10));
+        assert!(counter.idle_poke_due("idle-owner", 11, 3, 10));
+        counter.mark_idle_nudged("idle-owner", 11);
+
+        assert!(!counter.idle_poke_due("idle-owner", 30, 3, 10));
+        assert!(counter.idle_poke_due("idle-owner", 31, 3, 10));
+    }
+
+    #[test]
+    fn idle_poke_respects_daily_cap() {
+        let counter = TurnCounter::new();
+        assert!(!counter.idle_poke_due("daily", 0, 2, 10));
+        assert!(counter.idle_poke_due("daily", 1, 2, 10));
+        counter.mark_idle_nudged("daily", 1);
+
+        assert!(counter.idle_poke_due("daily", 11, 2, 10));
+        counter.mark_idle_nudged("daily", 11);
+
+        assert!(!counter.idle_poke_due("daily", 200, 2, 10));
+    }
+
+    #[test]
+    fn idle_poke_state_resets_with_common_counter_reset() {
+        let counter = TurnCounter::new();
+        assert!(!counter.idle_poke_due("reset", 0, 5, 10));
+        assert!(counter.idle_poke_due("reset", 1, 5, 10));
+        counter.mark_idle_nudged("reset", 1);
+        counter.reset("reset");
+        assert!(!counter.idle_poke_due("reset", 1, 5, 10));
+        assert!(counter.idle_poke_due("reset", 2, 5, 10));
     }
 }

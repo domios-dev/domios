@@ -83,6 +83,52 @@ impl ServiceContext {
         );
     }
 
+    pub(crate) fn maybe_send_idle_plan_poke(&self, pane_id: &str) {
+        let cfg = crate::config::load_config().orchestration;
+        if !cfg.plan_reminders || !cfg.idle_poke.enabled {
+            return;
+        }
+
+        let Some((plan_id, pending_tasks, active_lanes)) = idle_frontier_for_poke(
+            self.plan_store.active_owned_plan_frontier_for_pane(pane_id),
+            cfg.idle_poke.live_lane_cap,
+        ) else {
+            return;
+        };
+
+        let now = current_epoch_secs();
+        if !self
+            .plan_turn_counter
+            .time_nudge_due(pane_id, now, cfg.nudge_interval_secs)
+        {
+            return;
+        }
+        if !self.plan_turn_counter.idle_poke_due(
+            pane_id,
+            now,
+            cfg.idle_poke.max_per_day,
+            cfg.idle_poke.backoff_base_secs,
+        ) {
+            return;
+        }
+
+        let phrase_index = self.plan_turn_counter.idle_phrase_index(pane_id);
+        let text = crate::service::plan::reminders::idle_poke_text(
+            pending_tasks,
+            active_lanes,
+            phrase_index,
+        );
+        let text = self.plan_store.prepend_heartbeat_for_plan(&plan_id, &text);
+        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+        let success =
+            crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok();
+
+        if success {
+            self.plan_turn_counter.mark_time_nudged(pane_id, now);
+            self.plan_turn_counter.mark_idle_nudged(pane_id, now);
+        }
+    }
+
     fn maybe_send_plan_reminder_for(
         &self,
         pane_id: &str,
@@ -266,6 +312,20 @@ fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
         .into_iter()
         .map(|(pane_id, target)| TimedPlanReminderTarget { pane_id, target })
         .collect()
+}
+
+fn idle_frontier_for_poke(
+    frontier: Option<(String, usize, usize)>,
+    live_lane_cap: u32,
+) -> Option<(String, usize, usize)> {
+    if live_lane_cap == 0 {
+        return None;
+    }
+    let (plan_id, pending, active_lanes) = frontier?;
+    if pending == 0 || active_lanes >= live_lane_cap as usize {
+        return None;
+    }
+    Some((plan_id, pending, active_lanes))
 }
 
 fn non_empty(value: Option<&str>) -> Option<&str> {
@@ -496,5 +556,21 @@ mod tests {
         assert!(targets.iter().any(|target| target.pane_id == "p2"));
         assert!(targets.iter().any(|target| target.pane_id == "p3"));
         assert!(!targets.iter().any(|target| target.pane_id == "p4"));
+    }
+
+    #[test]
+    fn idle_frontier_filters_plan_pokes_by_live_lanes() {
+        assert!(idle_frontier_for_poke(Some(("plan-1".into(), 2, 1)), 1).is_none());
+        assert_eq!(
+            idle_frontier_for_poke(Some(("plan-1".into(), 2, 0)), 1),
+            Some(("plan-1".into(), 2, 0))
+        );
+    }
+
+    #[test]
+    fn idle_frontier_blocks_when_no_pending_or_cap_zero() {
+        assert!(idle_frontier_for_poke(Some(("plan-1".into(), 0, 0)), 3).is_none());
+        assert!(idle_frontier_for_poke(Some(("plan-1".into(), 2, 1)), 0).is_none());
+        assert!(idle_frontier_for_poke(None, 3).is_none());
     }
 }
