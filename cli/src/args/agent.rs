@@ -232,6 +232,10 @@ pub enum AgentAction {
         /// Parent pane ID (for Workers)
         #[arg(long)]
         parent: Option<String>,
+        /// Plan id to bind — required for `--role Planner` to auto-bind
+        /// Plan.planner and deliver the peer prompt naming the Orchestrator.
+        #[arg(long, env = "CODETERM_PLAN_ID")]
+        plan: Option<String>,
         /// Where this worker's `agent report` should land. A pane id or
         /// `main`/`general` alias. With `--mesh PEER` it resolves on that peer,
         /// so a remote worker reports back to the spawning orchestrator. Defaults

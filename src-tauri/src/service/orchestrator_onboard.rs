@@ -36,6 +36,12 @@ pub fn should_deliver_orchestrator_onboarding(pane: Option<&Pane>, was_orchestra
 }
 
 pub fn orchestrator_onboarding_body(pane_id: &str) -> String {
+    // No plan is claimed yet at promotion time, so PLAN_ID stays a
+    // placeholder token — consistent with the other PLAN_ID placeholders
+    // below — until the Orchestrator claims/creates a real plan.
+    let spawn_cmd =
+        crate::service::plan::peer_mandate::planner_spawn_cmd_hint(Some(pane_id), "PLAN_ID");
+    let mandate = crate::prompts::peer_pairing_mandate_full(&spawn_cmd);
     format!(
         "You are now the Orchestrator for this pane (role=Orchestrator, can_spawn=true).\n\
 \n\
@@ -44,6 +50,8 @@ First load the orchestration rules and local preferences:\n\
   codeterm mem search \"CodeTerm planner orchestration preferences\"\n\
 \n\
 Planning rule: CodeTerm planner is the source of truth. Set GOAL first; put WHAT/WHY in Spec, HOW in Plan sections, and concrete work in Tasks. Do not create markdown implementation plans as the primary plan unless the user explicitly asks for an export.\n\
+\n\
+{mandate}\n\
 \n\
 Full orchestration toolset reference:\n\
   codeterm doc orchestration\n\
@@ -177,6 +185,15 @@ mod tests {
         assert!(msg.contains("codeterm plan task add PLAN_ID"));
         assert!(msg.contains("codeterm plan task assign PLAN_ID TASK_ID"));
         assert!(msg.contains("codeterm agent spawn --parent pane-abc --role Worker"));
+    }
+
+    #[test]
+    fn onboarding_body_carries_peer_pairing_mandate_with_real_pane_id() {
+        let msg = orchestrator_onboarding_body("pane-abc");
+        assert!(msg.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
+        assert!(msg.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
+        assert!(msg.contains("This plan has a Planner peer"));
+        assert!(msg.contains("--parent pane-abc --role Planner --plan PLAN_ID"));
     }
 
     #[test]

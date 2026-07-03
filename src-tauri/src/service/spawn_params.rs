@@ -90,6 +90,7 @@ impl SpawnPaneSpec {
             role: agent.role.clone(),
             role_profile: agent.role_profile.clone(),
             parent_pane_id: self.parent_pane_id.clone(),
+            plan_id: None,
             can_spawn: agent.can_spawn,
             task: agent.task.clone(),
             workspace_id: self.workspace_id.clone(),
