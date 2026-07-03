@@ -1,7 +1,7 @@
-import { EventStream } from "./EventStream";
-import { PlanHud } from "./PlanHud";
-import { DispatchRail, DoneShelf, GateDesk, QaBay, SideRail, WorkFloorBay } from "./stations";
-import type { MissionControlSnapshot } from "./types";
+import { EventStream } from "../EventStream";
+import { PlanHud } from "../PlanHud";
+import { DispatchRail, DoneShelf, GateDesk, QaBay, SideRail, WorkFloorBay } from "../stations";
+import type { MissionControlSnapshot } from "../types";
 
 interface VariantProps {
   snapshot: MissionControlSnapshot;

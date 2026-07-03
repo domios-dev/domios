@@ -5,9 +5,19 @@ import type { MissionControlSnapshot } from "../types";
 
 interface VariantProps {
   snapshot: MissionControlSnapshot;
+  onTaskClick?: (taskId: string) => void;
+  dispatchGap?: boolean;
+  qaBottleneck?: boolean;
+  showEvents?: boolean;
 }
 
-export function VariantAssemblyLine({ snapshot }: VariantProps) {
+export function VariantAssemblyLine({
+  snapshot,
+  onTaskClick,
+  dispatchGap,
+  qaBottleneck,
+  showEvents = true,
+}: VariantProps) {
   return (
     <div
       data-variant="assembly-line"
@@ -16,6 +26,8 @@ export function VariantAssemblyLine({ snapshot }: VariantProps) {
     >
       <PlanHud planTitle={snapshot.planTitle} goal={snapshot.goal} hud={snapshot.hud} />
       <div
+        className="mc-assembly-grid"
+        data-dispatch-gap={dispatchGap ? "true" : undefined}
         style={{
           display: "grid",
           gridTemplateColumns: "160px 1fr 180px 140px 120px",
@@ -25,9 +37,9 @@ export function VariantAssemblyLine({ snapshot }: VariantProps) {
           alignItems: "stretch",
         }}
       >
-        <DispatchRail title="Frontier" tasks={snapshot.dispatchQueue} />
+        <DispatchRail title="Frontier" tasks={snapshot.dispatchQueue} onTaskClick={onTaskClick} stressed={dispatchGap} />
         <section
-          className="mc-panel"
+          className="mc-panel mc-work-floor"
           style={{
             display: "flex",
             flexDirection: "column",
@@ -37,25 +49,31 @@ export function VariantAssemblyLine({ snapshot }: VariantProps) {
             overflow: "auto",
           }}
           data-testid="work-floor"
+          data-empty={dispatchGap ? "true" : undefined}
         >
           <div className="mc-panel-title" style={{ border: "none", padding: 0 }}>
             Lanes →
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(120px, 1fr))", gap: 6 }}>
             {snapshot.lanes.map((lane) => (
-              <WorkFloorBay key={lane.id} lane={lane} />
+              <WorkFloorBay key={lane.id} lane={lane} onTaskClick={onTaskClick} />
             ))}
           </div>
         </section>
-        <QaBay queue={snapshot.qaQueue} running={snapshot.qaRunning} />
-        <GateDesk tasks={snapshot.gateQueue} />
+        <QaBay
+          queue={snapshot.qaQueue}
+          running={snapshot.qaRunning}
+          onTaskClick={onTaskClick}
+          bottleneck={qaBottleneck}
+        />
+        <GateDesk tasks={snapshot.gateQueue} onTaskClick={onTaskClick} />
         <div style={{ display: "flex", flexDirection: "column", gap: 6, minHeight: 0 }}>
-          <DoneShelf count={snapshot.doneCount} recent={snapshot.doneRecent} />
-          <SideRail title="Parked" tasks={snapshot.parked} />
-          <SideRail title="Blocked" tasks={snapshot.blocked} tone="warn" />
+          <DoneShelf count={snapshot.doneCount} recent={snapshot.doneRecent} onTaskClick={onTaskClick} />
+          <SideRail title="Parked" tasks={snapshot.parked} onTaskClick={onTaskClick} />
+          <SideRail title="Blocked" tasks={snapshot.blocked} tone="warn" onTaskClick={onTaskClick} />
         </div>
       </div>
-      <EventStream events={snapshot.events} />
+      {showEvents && <EventStream events={snapshot.events} />}
     </div>
   );
 }
