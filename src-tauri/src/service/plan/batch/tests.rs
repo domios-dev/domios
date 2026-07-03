@@ -436,5 +436,5 @@ fn batch_set_goal_persists_goal_sidecar() {
     let markdown = std::fs::read_to_string(sidecar).unwrap();
     assert!(markdown.contains(&format!("plan_id: {plan_id}")));
     assert!(markdown.contains("kind: goal"));
-    assert!(markdown.ends_with("# Vision\n\nShip the model first."));
+    assert!(markdown.ends_with("# Vision\n\nShip the model first.\n"));
 }

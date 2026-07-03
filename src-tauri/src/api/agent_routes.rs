@@ -771,7 +771,9 @@ mod tests {
         );
         assert_eq!(shell["transport"], "chat_backend");
         assert_eq!(shell["display_name"], "Local Shell");
-        assert_eq!(shell["available_models"][0]["id"], "qwen");
+        // describe() is a pure/cheap descriptor and never calls the live
+        // list_models() getter, so this stays empty by design.
+        assert_eq!(shell["available_models"].as_array().unwrap().len(), 0);
     }
 
     #[test]

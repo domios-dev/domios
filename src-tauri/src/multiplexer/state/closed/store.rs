@@ -288,6 +288,11 @@ impl ClosedPanesStore {
     }
 
     /// Delete oldest whole groups (and their panes) beyond `cap`.
+    ///
+    /// Ties on `closed_at` (same millisecond) break on `rowid DESC`, matching
+    /// insertion order — `group_id` (a ULID) has a random tail on collision and
+    /// would rank ties differently from `trim_workspace`'s `id DESC` on
+    /// `closed_pane`, letting the two caps disagree on which rows survive.
     fn trim_global_groups(conn: &Connection, cap: usize) -> Result<(), String> {
         conn.execute(
             r#"
@@ -296,7 +301,7 @@ impl ClosedPanesStore {
                 SELECT group_id FROM closed_group
                 WHERE group_id NOT IN (
                     SELECT group_id FROM closed_group
-                    ORDER BY closed_at DESC, group_id DESC
+                    ORDER BY closed_at DESC, rowid DESC
                     LIMIT ?1
                 )
             )
@@ -309,7 +314,7 @@ impl ClosedPanesStore {
             DELETE FROM closed_group
             WHERE group_id NOT IN (
                 SELECT group_id FROM closed_group
-                ORDER BY closed_at DESC, group_id DESC
+                ORDER BY closed_at DESC, rowid DESC
                 LIMIT ?1
             )
             "#,

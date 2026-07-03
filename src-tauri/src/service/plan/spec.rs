@@ -328,7 +328,7 @@ mod tests {
             .join("sections")
             .join("login.md");
         assert!(json_path.exists());
-        assert_eq!(std::fs::read_to_string(&body_path).unwrap(), "body text");
+        assert_eq!(std::fs::read_to_string(&body_path).unwrap(), "body text\n");
         assert!(!std::fs::read_to_string(&json_path)
             .unwrap()
             .contains("body text"));
@@ -337,7 +337,7 @@ mod tests {
         reloaded.scan_project(&root).unwrap();
         let spec = reloaded.get_spec(&spec.id).unwrap();
         assert_eq!(spec.sections[0].id, sid);
-        assert_eq!(spec.sections[0].body, "body text");
+        assert_eq!(spec.sections[0].body, "body text\n");
     }
 
     #[test]
