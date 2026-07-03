@@ -3,6 +3,7 @@
 use super::ServiceContext;
 use crate::multiplexer::state::WorkspaceInfo;
 use crate::multiplexer::types::ClosedPane;
+use crate::service::session_persist::{self, SessionPersistUrgency};
 
 impl ServiceContext {
     pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
@@ -76,12 +77,15 @@ impl ServiceContext {
             .and_then(|w| w.cwd);
         self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
     pub fn rename_workspace(&self, id: &str, name: &str) -> Result<(), String> {
         self.mux.write().rename_workspace(id, name)?;
         self.emit_state_changed();
+        session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(())
     }
 
@@ -109,6 +113,8 @@ impl ServiceContext {
             .write()
             .move_tab(tab_id, from_workspace_id, to_workspace_id)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
@@ -122,6 +128,8 @@ impl ServiceContext {
             .write()
             .reorder_tabs(workspace_id, ordered_tab_ids)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
@@ -135,6 +143,8 @@ impl ServiceContext {
             .write()
             .reorder_children(parent_pane_id, ordered_tab_ids)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
@@ -142,6 +152,8 @@ impl ServiceContext {
     pub fn reorder_workspace(&self, ordered_workspace_ids: &[String]) -> Result<(), String> {
         self.mux.write().reorder_workspaces(ordered_workspace_ids)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
@@ -183,6 +195,8 @@ impl ServiceContext {
     pub fn set_active_tab(&self, workspace_id: &str, tab_id: &str) -> Result<(), String> {
         self.mux.write().set_active_tab(workspace_id, tab_id)?;
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
@@ -199,12 +213,15 @@ impl ServiceContext {
             mux.set_active_tab(workspace_id, tab_id)?;
         }
         self.emit_state_changed();
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Debounced);
         Ok(())
     }
 
     pub fn rename_tab(&self, workspace_id: &str, tab_id: &str, title: &str) -> Result<(), String> {
         self.mux.write().rename_tab(workspace_id, tab_id, title)?;
         self.emit_state_changed();
+        session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt)?;
         Ok(())
     }
 

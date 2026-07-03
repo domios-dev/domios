@@ -372,22 +372,6 @@ impl ServiceContext {
             &agent_cmd,
             params.model.as_deref(),
         )?;
-        let title_explicit = params
-            .title
-            .as_deref()
-            .map(|t| !t.trim().is_empty())
-            .unwrap_or(false)
-            || params
-                .agent_name
-                .as_deref()
-                .map(|t| !t.trim().is_empty())
-                .unwrap_or(false);
-        let title = params
-            .title
-            .clone()
-            .or_else(|| params.agent_name.clone())
-            .unwrap_or_else(|| agent_cmd.clone());
-
         // 1. Find workspace — explicit workspace_id wins over the parent's workspace.
         let (ws_id, ws_cwd) = {
             let mux = self.mux.write();
@@ -520,12 +504,19 @@ impl ServiceContext {
             }
         }
 
-        // 4. Rename pane immediately (metadata only). Explicit title → sync the tab label too; otherwise keep the unique auto-generated tab name and
-        // only label the pane with the provider id (mirrors the CLI spawn path).
-        if title_explicit {
-            self.rename_pane(&pane_id, &title)?;
-        } else {
-            self.set_pane_title(&pane_id, &title)?;
+        // 4. Rename pane immediately (metadata only), but only when an explicit
+        // title or a real agent name was supplied — otherwise the create_tab-
+        // generated name stands. The raw provider id is never a title.
+        if let Some((title, level)) = crate::service::spawn_title::creation_title_override(
+            params.title.as_deref(),
+            params.agent_name.as_deref(),
+        ) {
+            match level {
+                crate::multiplexer::types::TitleLevel::User => {
+                    self.rename_pane(&pane_id, &title)?
+                }
+                _ => self.set_pane_title(&pane_id, &title)?,
+            }
         }
 
         // Pin agent_type before launch so detect_from_output can start session-id polling.
@@ -599,6 +590,16 @@ impl ServiceContext {
         );
 
         // (subscriber already started inside ensure_for_spawn above)
+
+        // Report back whatever title actually landed on the pane (explicit,
+        // agent name, or the create_tab-generated name) — never a recomputed
+        // fallback that could reintroduce the provider-id clobber.
+        let title = self
+            .mux
+            .read()
+            .get_pane(&pane_id)
+            .map(|p| p.title.clone())
+            .unwrap_or_default();
 
         Ok(SpawnResult {
             pane_id,

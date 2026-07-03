@@ -44,6 +44,7 @@ mod startup;
 pub mod transcribe;
 pub mod update;
 pub mod usage;
+pub mod user_last_activity;
 pub mod view;
 pub mod view_host;
 mod webview2_reap;
@@ -395,7 +396,9 @@ pub fn run() {
                 let bridge_registry = agent_registry.clone();
                 tauri::async_runtime::spawn(async move {
                     while let Ok(ev) = sub.recv().await {
-                        if let crate::api::events::SystemEvent::ContributionsChanged { kind } = &ev {
+                        if let crate::api::events::SystemEvent::ContributionsChanged { kind } =
+                            &ev.event
+                        {
                             let _ = bridge_handle.emit(
                                 "contributions-changed",
                                 serde_json::json!({ "kind": kind }),
@@ -432,7 +435,7 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     loop {
                         match sub.recv().await {
-                            Ok(ev) => pm.dispatch_event(&ev),
+                            Ok(ev) => pm.dispatch_event(&ev.event),
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                         }
@@ -638,6 +641,9 @@ pub fn run() {
                 Arc::new(crate::service::plan::reminders::TurnCounter::new());
             plan_store.bind_turn_counter(plan_turn_counter.clone());
 
+            let user_last_activity = crate::user_last_activity::UserLastActivity::new();
+            states.mesh.lock().user_last_activity = user_last_activity.clone();
+
             let svc_ctx = ServiceContext {
                 mux: states.mux.clone(),
                 pty: states.pty.clone(),
@@ -696,6 +702,7 @@ pub fn run() {
                 chat_preprocessor_registry: chat_preprocessor_registry.clone(),
                 agent_command_registry: agent_command_registry.clone(),
                 mux_emit_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                session_persist_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 services_store: Arc::new(
                     crate::service::store::ServicesStore::open(
                         &crate::paths::data_dir().join("services.db"),
@@ -708,6 +715,7 @@ pub fn run() {
                 usage_store: crate::usage::UsageStore::open(&crate::paths::data_dir())
                     .expect("usage.db init"),
                 usage_activity: crate::usage::PaneActivity::new(),
+                user_last_activity,
                 usage_poller: Arc::new(parking_lot::Mutex::new(None)),
                 plan_watchers: Arc::new(parking_lot::Mutex::new(std::collections::HashMap::new())),
                 loaded_plan_projects: Arc::new(parking_lot::Mutex::new(
@@ -845,7 +853,6 @@ pub fn run() {
             // After webview is ready, check for crash reports from a previous session and emit an event the frontend can show as a toast. Delay a tick so
             // the React side has time to attach the listener.
             {
-                use tauri::Emitter;
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -863,7 +870,8 @@ pub fn run() {
                             files.len(),
                             dir.display()
                         );
-                        let _ = app_handle.emit(
+                        crate::api::events::emit_everywhere(
+                            &app_handle,
                             "crash_report_available",
                             serde_json::json!({
                                 "dir": dir.to_string_lossy(),

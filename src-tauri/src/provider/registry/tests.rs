@@ -77,7 +77,9 @@ fn describe_all_tags_chat_backend_transport_and_filters_spawnable() {
         .find(|d| d.id == "shell")
         .expect("spawnable listed");
     assert_eq!(shell.transport, ProviderTransport::ChatBackend);
-    assert_eq!(shell.presets.len(), 1);
+    // describe() is a pure/cheap descriptor and never calls the live
+    // list_presets()/list_models() getters, so this stays empty by design.
+    assert_eq!(shell.presets.len(), 0);
     assert!(shell.supports_chat_ui);
     assert!(
         !descs.iter().any(|d| d.id == "npc"),

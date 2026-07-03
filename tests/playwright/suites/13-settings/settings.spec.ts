@@ -7,7 +7,8 @@ import { expect, test, type ManagedUiSession } from "../../helpers/fixtures";
 
 async function openSettings(ui: ManagedUiSession): Promise<void> {
   await ui.reconnect();
-  await ui.page.locator('[data-testid="nav-settings"]').click();
+  await ui.page.locator('[data-testid="titlebar-settings"]').click();
+  await ui.page.locator('[data-testid="settings-menu-general"]').click();
   await expect(ui.page.locator('[data-testid="settings-panel"]')).toBeVisible();
   const section = ui.page.locator('[data-testid="settings-section-general"]');
   if (await section.isVisible().catch(() => false)) {

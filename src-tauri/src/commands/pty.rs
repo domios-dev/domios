@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::io::Read;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 use crate::multiplexer::commands::MuxState;
 use crate::service::ServiceState;
@@ -8,12 +8,8 @@ use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
 #[tauri::command]
 pub async fn spawn_pty(
-    state: tauri::State<'_, PtyState>,
-    mux_state: tauri::State<'_, crate::multiplexer::commands::MuxState>,
-    screen_state: tauri::State<'_, ScreenStateHandle>,
     config_state: tauri::State<'_, crate::config::ConfigState>,
     svc: tauri::State<'_, ServiceState>,
-    _app: AppHandle,
     command: Option<String>,
     cwd: Option<String>,
     cols: u16,
@@ -21,6 +17,33 @@ pub async fn spawn_pty(
     predicted_id: Option<String>,
     pane_id: Option<String>,
 ) -> Result<String, String> {
+    spawn_pty_core(
+        &svc,
+        &config_state,
+        command,
+        cwd,
+        cols,
+        rows,
+        predicted_id,
+        pane_id,
+    )
+    .await
+}
+
+/// Shared by the Tauri command and the web mirror's POST /api/pty/spawn.
+pub async fn spawn_pty_core(
+    svc: &ServiceState,
+    config_state: &crate::config::ConfigState,
+    command: Option<String>,
+    cwd: Option<String>,
+    cols: u16,
+    rows: u16,
+    predicted_id: Option<String>,
+    pane_id: Option<String>,
+) -> Result<String, String> {
+    let state = &svc.pty;
+    let mux_state = &svc.mux;
+    let screen_state = &svc.screen_state;
     // Protected panes reuse their backend PTY; wait briefly to avoid duplicate launch.
     if let Some(ref pid) = pane_id {
         let (is_protected, existing) = {
@@ -223,8 +246,8 @@ pub async fn spawn_pty(
                 if let Some(cmd) = resume_cmd {
                     let pty_id_for_poll = pty_id.clone();
                     let pty_id_for_launch = pty_id.clone();
-                    let screen_state_clone = screen_state.inner().clone();
-                    let svc_for_launch = svc.inner().clone();
+                    let screen_state_clone = screen_state.clone();
+                    let svc_for_launch = svc.clone();
                     let pane_id_for_boot = pid.clone();
                     let submit_strategy = svc
                         .agent_registry
@@ -322,9 +345,9 @@ pub async fn spawn_pty(
             if let Some(cmd) = launch_cmd {
                 let pty_id_for_poll = pty_id.clone();
                 let pty_id_for_launch = pty_id.clone();
-                let screen_state_clone = screen_state.inner().clone();
+                let screen_state_clone = screen_state.clone();
                 let provider_label = provider_id.clone();
-                let svc_for_launch = svc.inner().clone();
+                let svc_for_launch = svc.clone();
                 let pane_id_for_boot = pid.clone();
                 let submit_strategy = svc
                     .agent_registry
@@ -424,7 +447,6 @@ pub async fn read_pty(
 pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>, String> {
     let state = &svc.pty;
     let output_buf = &svc.output_buf;
-    let screen_state = &svc.screen_state;
     let mux = &svc.mux;
     let tracker = &svc.agent_tracker;
     let app = &svc.app_handle;
@@ -462,8 +484,6 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
         }
     }
 
-    let ob = (*output_buf).clone();
-    let ss = (*screen_state).clone();
     let pid = pty_id.clone();
 
     // One read loop owns the reader; clone fresh via try_clone_reader if taken.
@@ -487,8 +507,6 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             return Err("EOF".to_string());
         }
         buf.truncate(n);
-        ob.lock().append(&pid, &buf);
-        ss.lock().process(&pid, &buf);
 
         Ok((buf, reader_to_use))
     })
@@ -511,23 +529,8 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
             let mut reader_slot = session.reader.lock().unwrap();
             *reader_slot = Some(reader_back);
 
-            // Status tracking + agent event detection (delegated to service layer)
-            let (prev, now) = svc.process_pty_output(&pty_id, &data);
-
-            // Emit status change event to frontend
-            if now != prev {
-                let pane_id = mux.read().pane_id_for_pty(&pty_id);
-                if let Some(ref pid) = pane_id {
-                    crate::api::events::emit_everywhere(
-                        &app,
-                        "pane-status-changed",
-                        serde_json::json!({
-                            "pane_id": pid,
-                            "status": format!("{:?}", now),
-                        }),
-                    );
-                }
-            }
+            let (prev, now) = svc.feed_pty_output(&pty_id, &data);
+            svc.emit_pane_status_if_changed(&pty_id, prev, now);
 
             Ok(data)
         }
@@ -564,7 +567,7 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                         }
                         store.unregister_pane(pid);
                         log::info!("Cron pane exited: job={}, run={}", job_id, run_id);
-                        let _ = app.emit("cron-state-changed", ());
+                        crate::api::events::emit_everywhere(&app, "cron-run-finished", ());
                     }
                 }
             }
@@ -692,6 +695,7 @@ fn mark_user_activity(
     mux: &crate::multiplexer::commands::MuxState,
     pty_id: &str,
 ) {
+    svc.user_last_activity.mark();
     let pane_id = mux.read().pane_id_for_pty(pty_id);
     if let Some(pid) = pane_id {
         svc.usage_activity.mark(&pid);

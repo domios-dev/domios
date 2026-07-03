@@ -16,6 +16,12 @@ enum PanePromptState {
         prompt: PendingPrompt,
         #[allow(dead_code)]
         detected_at: Instant,
+        /// Set by a hook call with no live structured backing (explicit JSON
+        /// body, or screen-parsed hook fallback) rather than the continuous
+        /// structured-handle scan. Such prompts have no per-chunk source to
+        /// reconcile against, so a routine "nothing parsed this chunk" result
+        /// must not clear them — only `/prompt/clear` or `hook_stop` does.
+        explicit: bool,
     },
     /// Suppress re-detection for cooldown_ms after user responds.
     Cooldown {
@@ -136,6 +142,7 @@ impl PromptDetector {
                     PanePromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
+                        explicit: true,
                     },
                 );
                 PromptDecision::PromptUpdated {
@@ -149,6 +156,7 @@ impl PromptDetector {
                     PanePromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
+                        explicit: true,
                     },
                 );
                 PromptDecision::NewPrompt {
@@ -241,33 +249,44 @@ impl PromptDetector {
     fn transition_from_parsed(&mut self, pane_id: &str, parsed: ParsedPrompt) -> PromptDecision {
         match self.states.get(pane_id) {
             Some(PanePromptState::Active {
-                prompt: existing, ..
-            }) => match parsed {
-                Some(new_prompt) => {
-                    if same_prompt(existing, &new_prompt) {
-                        PromptDecision::None
-                    } else {
-                        self.states.insert(
-                            pane_id.to_string(),
-                            PanePromptState::Active {
-                                prompt: new_prompt.clone(),
-                                detected_at: Instant::now(),
-                            },
-                        );
-                        PromptDecision::PromptUpdated {
+                prompt: existing,
+                explicit,
+                ..
+            }) => {
+                let explicit = *explicit;
+                match parsed {
+                    Some(new_prompt) => {
+                        if same_prompt(existing, &new_prompt) {
+                            PromptDecision::None
+                        } else {
+                            self.states.insert(
+                                pane_id.to_string(),
+                                PanePromptState::Active {
+                                    prompt: new_prompt.clone(),
+                                    detected_at: Instant::now(),
+                                    explicit: false,
+                                },
+                            );
+                            PromptDecision::PromptUpdated {
+                                pane_id: pane_id.to_string(),
+                                prompt: new_prompt,
+                            }
+                        }
+                    }
+                    // This path only ever carries a STRUCTURED scan result (see
+                    // output.rs) — an explicit/hook-driven prompt has no live
+                    // source to reconcile against here, so "nothing parsed this
+                    // chunk" must not be read as "the user answered it".
+                    None if explicit => PromptDecision::None,
+                    None => {
+                        self.states
+                            .insert(pane_id.to_string(), PanePromptState::Idle);
+                        PromptDecision::PromptCleared {
                             pane_id: pane_id.to_string(),
-                            prompt: new_prompt,
                         }
                     }
                 }
-                None => {
-                    self.states
-                        .insert(pane_id.to_string(), PanePromptState::Idle);
-                    PromptDecision::PromptCleared {
-                        pane_id: pane_id.to_string(),
-                    }
-                }
-            },
+            }
 
             Some(PanePromptState::Cooldown { responded_at }) => {
                 if responded_at.elapsed().as_millis() < self.cooldown_ms as u128 {
@@ -290,6 +309,7 @@ impl PromptDetector {
                     PanePromptState::Active {
                         prompt: prompt.clone(),
                         detected_at: Instant::now(),
+                        explicit: false,
                     },
                 );
                 PromptDecision::NewPrompt {
@@ -533,6 +553,64 @@ mod tests {
         let mut det = PromptDetector::new();
         let decision = det.hook_detected_parse("pane-1", "proceed", parse_yes_no);
         assert!(matches!(decision, PromptDecision::NewPrompt { .. }));
+    }
+
+    // Regression: a hook-driven explicit prompt (test driver, or a real hook
+    // with no structured backing) has no live source to reconcile against on
+    // the routine per-chunk PTY scan. Before this fix, the very next chunk of
+    // ordinary shell output (e.g. a still-running working loop) would race the
+    // hook and immediately wipe the prompt via the structured-scan-found-none
+    // path, making the attention state flicker away before anything observed
+    // it — the root cause of the RAIL-3 reload flake.
+    #[test]
+    fn test_explicit_prompt_survives_unrelated_pty_output() {
+        let mut det = PromptDetector::new();
+        let prompt = make_prompt("Allow probe?", &[("Yes", "1"), ("No", "2")]);
+        det.hook_detected_explicit("pane-1", prompt);
+        // Structured/raw-output scan finds nothing this chunk (ordinary shell
+        // output, no permission text) — must NOT clear an explicit prompt.
+        let decision = det.evaluate_pty_output("pane-1", true, Some("pw-rail-42"), |_| None);
+        assert!(matches!(decision, PromptDecision::None));
+        assert!(det.active_prompt("pane-1").is_some());
+    }
+
+    // The screen-parsed hook fallback (no JSON body — real agent hook firing)
+    // is equally source-less per chunk, so it gets the same immunity.
+    #[test]
+    fn test_hook_parsed_prompt_survives_unrelated_pty_output() {
+        let mut det = PromptDetector::new();
+        det.hook_detected_parse("pane-1", "proceed", parse_yes_no);
+        let decision = det.evaluate_pty_output("pane-1", true, Some("nothing here"), parse_yes_no);
+        assert!(matches!(decision, PromptDecision::None));
+        assert!(det.active_prompt("pane-1").is_some());
+    }
+
+    // A genuinely structured detection (never hook-driven) must still clear
+    // normally when the source stops reporting it — this is the real "user
+    // answered the actual agent prompt" signal and must not be muted.
+    #[test]
+    fn test_structured_prompt_still_clears_when_gone() {
+        let mut det = PromptDetector::new();
+        det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        let decision =
+            det.evaluate_pty_output("pane-1", true, Some("no prompt here"), parse_yes_no);
+        assert!(matches!(decision, PromptDecision::PromptCleared { .. }));
+        assert!(det.active_prompt("pane-1").is_none());
+    }
+
+    // An explicit prompt IS superseded by a genuine structured detection
+    // (e.g. the real agent surfaces its own prompt right after a test/hook
+    // seeded one) — explicit immunity only blocks "nothing found", not a
+    // real competing prompt.
+    #[test]
+    fn test_structured_prompt_supersedes_explicit() {
+        let mut det = PromptDetector::new();
+        let prompt = make_prompt("Allow probe?", &[("Yes", "1"), ("No", "2")]);
+        det.hook_detected_explicit("pane-1", prompt);
+        let decision = det.evaluate_pty_output("pane-1", true, Some("proceed"), parse_yes_no);
+        assert!(matches!(decision, PromptDecision::PromptUpdated { .. }));
+        let active = det.active_prompt("pane-1").expect("prompt still active");
+        assert_eq!(active.question, "Do you want to proceed?");
     }
 
     #[test]

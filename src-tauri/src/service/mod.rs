@@ -26,6 +26,7 @@ pub mod notification;
 mod orchestrator;
 mod orchestrator_onboard;
 mod output;
+mod output_feed;
 mod pane;
 pub mod pane_chat;
 pub mod pane_transport;
@@ -37,12 +38,13 @@ pub mod pty_lifecycle;
 pub mod push;
 pub mod remote_workers;
 mod role_profile;
+pub mod session_persist;
 pub mod smart_add;
 pub mod spawn;
 mod spawn_chatbackend;
 mod spawn_cli;
 mod spawn_params;
-mod spawn_title;
+pub(crate) mod spawn_title;
 pub mod store;
 pub mod structured_prompt;
 pub mod sync_watcher;
@@ -159,6 +161,8 @@ pub struct ServiceContext {
     pub agent_command_registry: crate::agent_commands::AgentCommandRegistryHandle,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.
     pub mux_emit_pending: Arc<AtomicBool>,
+    /// Coalesces debounced session snapshots — see `schedule_session_persist_debounced`.
+    pub session_persist_pending: Arc<AtomicBool>,
     pub services_store: Arc<crate::service::store::ServicesStore>,
     pub tokens: Arc<crate::service::tokens::TokenStore>,
     /// Ephemeral cross-mesh pastebin. In-memory only; daemon restart wipes
@@ -169,6 +173,7 @@ pub struct ServiceContext {
     pub input_parser: Arc<input_parser::InputParser>,
     pub usage_store: crate::usage::UsageStoreHandle,
     pub usage_activity: crate::usage::PaneActivity,
+    pub user_last_activity: Arc<crate::user_last_activity::UserLastActivity>,
     pub usage_poller: Arc<parking_lot::Mutex<Option<crate::usage::UsagePoller>>>,
     /// Canvas plan store — per-project JSON plans + in-memory index. Sole writer.
     pub plan_store: Arc<crate::service::plan::PlanStore>,
@@ -220,11 +225,16 @@ impl ServiceContext {
         let handle = self.app_handle.clone();
         let pending = self.mux_emit_pending.clone();
         let mux = self.mux.clone();
+        let agent_tracker = self.agent_tracker.clone();
         std::thread::spawn(move || {
             // Snapshot is read AFTER the coalesce window so the emitted payload
             // reflects the latest state — a fast follow-up mutation during the
-            let snapshot =
-                Self::coalesce_snapshot(&mux, &pending, std::time::Duration::from_millis(50));
+            let snapshot = Self::coalesce_snapshot(
+                &mux,
+                &agent_tracker,
+                &pending,
+                std::time::Duration::from_millis(50),
+            );
             let _ = handle.emit("mux-state-changed", &snapshot);
         });
     }
@@ -233,14 +243,22 @@ impl ServiceContext {
     /// flag is cleared BEFORE the read so any mutation landing after this point
     /// opens a new window (its own emit) rather than being swallowed; mutations
     /// that landed during the window are captured by reading last.
+    ///
+    /// Uses `snapshot_with_status` (not the plain `snapshot`) — this is the
+    /// ONLY path that keeps a browser tab's `paneStatuses` fresh between page
+    /// loads. Without it, `pane_statuses` here is always empty and the
+    /// reducer's merge (`incoming ?? keep-stale`) leaves a synthetic `Waiting`
+    /// (set by `/prompt/clear`'s pending_prompt-derived override) stuck
+    /// forever once the underlying PTY stops transitioning Idle/Working.
     fn coalesce_snapshot(
         mux: &MuxState,
+        agent_tracker: &AgentTrackerState,
         pending: &AtomicBool,
         delay: std::time::Duration,
     ) -> crate::multiplexer::state::MultiplexerSnapshot {
         std::thread::sleep(delay);
         pending.store(false, Ordering::Release);
-        mux.read().snapshot()
+        mux.read().snapshot_with_status(&agent_tracker.lock())
     }
 
     pub(crate) fn emit_pane_title_pinned(&self, pane_id: &str, title: &str) {
@@ -315,9 +333,8 @@ impl ServiceContext {
     /// Unified event dispatch — sends to Tauri frontend and external webhooks.
     /// OS notifications are NOT sent here — use in-app toasts only.
     pub fn notify_event(&self, event_type: &str, payload: serde_json::Value) {
-        // 1. Tauri event to frontend (in-app toasts)
-        let _ = self.app_handle.emit(event_type, &payload);
-
+        // 1. Native webview + SSE bus (web mirror) through the single seam.
+        crate::api::events::emit_everywhere(&self.app_handle, event_type, &payload);
         // 2. External webhooks + websockets (Telegram, Discord, etc.)
         self.events.broadcast(event_type, payload);
     }

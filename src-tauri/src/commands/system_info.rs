@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 #[tauri::command]
 pub fn get_windows_build_number() -> u32 {
@@ -253,6 +253,6 @@ pub fn generate_api_token(
     cfg.api.token = Some(token.clone());
     crate::config::save_config_pub(&cfg)?;
     *state.lock() = cfg.clone();
-    app.emit("config-changed", &cfg).ok();
+    crate::api::events::emit_everywhere(&app, "config-changed", &cfg);
     Ok(token)
 }

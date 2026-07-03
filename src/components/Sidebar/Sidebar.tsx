@@ -2,8 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "../../lib/bridge";
 import { open } from "@tauri-apps/plugin-dialog";
 import { IS_WEB } from "../../lib/webApi";
-import { WebPeerPicker } from "../WebPeerPicker/WebPeerPicker";
-import { KeepAwakeTray } from "../Titlebar/KeepAwakeTray";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer } from "../../store/multiplexer";
@@ -13,7 +11,7 @@ import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { Tab, PaneStatus, AppConfig } from "../../lib/types";
 import { Plus } from "lucide-react";
-import { TerminalIcon, FolderIcon, FolderPlusIcon, GearIcon, ExtensionsIcon } from "../Icons";
+import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
@@ -64,7 +62,6 @@ function aggregateStatus(
 }
 
 interface SidebarProps {
-  onOpenSettings?: () => void;
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
   onOpenExtensions?: () => void;
@@ -76,7 +73,6 @@ interface SidebarProps {
 }
 
 export function Sidebar({
-  onOpenSettings,
   onOpenMemory,
   onOpenMesh,
   onOpenExtensions,
@@ -431,16 +427,6 @@ export function Sidebar({
         >
           {!isSidebarCollapsed && (
             <>
-              {/* Web mirror: the titlebar is stripped, so the host picker (with
-                  its online dot) and keep-awake live at the top of the sidebar. */}
-              {IS_WEB && (
-                <div className="flex items-center gap-2 px-2 pt-2 pb-1 border-b border-[var(--ct-border)]">
-                  <WebPeerPicker />
-                  <div className="ml-auto">
-                    <KeepAwakeTray />
-                  </div>
-                </div>
-              )}
               {/* Header row — new-workspace action. Presence moved to the bottom nav. */}
               <div className={`flex items-center ${isCompact ? "justify-center" : "justify-end"} px-3 py-2`}>
                 <div className="flex items-center gap-1">
@@ -899,23 +885,6 @@ export function Sidebar({
                   </div>
                 )}
               </div>
-              {/* Desktop surfaces Settings in the titlebar tray; web mirror has no
-                  titlebar, so the sidebar keeps the entry point there. */}
-              {IS_WEB && (
-                <button
-                  data-testid="nav-settings"
-                  onClick={onOpenSettings}
-                  className={`flex items-center ${isCompact ? "justify-center w-8 h-8" : `gap-2 w-full px-2 ${touchMode ? "py-2.5" : "py-1.5"}`} rounded-md transition-colors ${
-                    mainView === "settings"
-                      ? "bg-[var(--ct-active)] text-[var(--ct-fg)]"
-                      : "text-[var(--ct-muted)] hover:bg-[var(--ct-hover)] hover:text-[var(--ct-fg)]"
-                  }`}
-                  title="Settings (Ctrl+,)"
-                >
-                  <GearIcon size={touchMode ? 18 : 14} className="shrink-0" />
-                  {!isCompact && <span className={touchMode ? sidebarNavTouchText : sidebarNavText}>Settings</span>}
-                </button>
-              )}
             </div>
           </>
         )}

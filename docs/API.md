@@ -298,6 +298,8 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 | POST | `/api/mesh/broadcast/start` | — | Start local discovery broadcast |
 | POST | `/api/mesh/broadcast/stop` | — | Stop local discovery broadcast |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
+| GET | `/api/mesh/relay-stream` | `?peer=<id>&path=<streamable>&since=<cursor>` | Browser→local byte-pipe of a peer's own `/api/events/stream` or `/api/output/stream`, cursor-resumed and un-timed. Peer unreachable → `504` `peer-unreachable`. |
+| GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
 | DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (used internally by disconnect broadcast) |
 | POST | `/api/mesh/refresh` | — | Refresh local addresses and announce them to peers |
 | POST | `/api/mesh/peers/add-manual` | `{address, port}` | Inject a `Manual` discovered peer by Tailscale IP / port (skips mDNS / UDP scan). Returns `{ok, instance_id}` and emits `mesh-state-changed`. |
@@ -311,6 +313,8 @@ Custom themes are stored as `.toml` files in `%APPDATA%/codeterm/themes/` (Windo
 **Mesh-disabled gate (503).** When `config.mesh.enabled = false`, the auth middleware short-circuits every `/api/mesh/*` path other than `/api/mesh/ping` with `503 Mesh networking is disabled`. The same 503 also fires for any caller authenticated via the mesh signed-token path (i.e. another peer relaying to us) — the local Bearer token still works. Toggle the config back on to restore mesh routing without restarting the daemon.
 
 **Peer-ping scheduler.** A background scheduler (`mesh::ping_scheduler`) pings each paired peer's `/api/mesh/ping` every 20 s with a 4 s timeout. On any online/offline transition, the peer record's `online` flag flips, `last_seen` updates on coming back, and `mesh-state-changed` fires so the UI re-renders without polling.
+
+**Relay streaming (`relay-stream` / `relay-asset`).** These let a browser reach a paired peer without knowing its address. `relay-stream` opens a signed mesh request to the peer's own `/api/events/stream` or `/api/output/stream` (the only two whitelisted paths) and copies response bytes straight through — never buffered, filtered, or reordered — so the cursor/overflow contract of the underlying stream carries over unmodified. `relay-asset` is scoped to read-only `plugins/{id}/ui/*` GETs (path traversal rejected) and exists because an `<iframe src>` can't send a `Bearer` header: the `.html` entry self-verifies the caller's LOCAL api token via the `?token=` query — exempted from the normal bearer middleware by an exact prefix allowlist in `auth.rs`'s `is_custom_auth` — and the daemon then reaches the peer with a server-minted signed mesh token that is never serialized back to the browser.
 
 **Tauri IPC (Mesh):**
 | Command | Params | Description |
@@ -691,7 +695,8 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 | POST | `/api/panes/{id}/chat-view` | `{enabled}` | Toggle a pane's chat view flag. |
 | GET | `/api/mesh/peers/{id}/services` | — | Peer services view (same cache+failover as the Mesh tab). |
 | GET | `/api/events/stream` | — | SSE of system events (`data: {event_type, data}`) — mux/mesh/pane-status changes; the web bundle's `listen()`. |
-| GET | `/api/pty/{id}/read` | — | Long-poll one chunk of PTY output (JSON byte array) — the browser terminal's read loop. |
+| GET | `/api/output/stream` | `?since=<b64url cursor>` | Multiplexed SSE: ONE connection carries every pane's PTY output as pane-tagged frames (`{pane_id, output, offset}`, plus per-pane `{truncated, from}` on ring eviction, `{ended}` on genuine PTY death, and a one-shot `{boot_changed, boot}` on daemon restart), replacing the per-pane long-poll below. `since` is a b64url `{boot, panes:{id:offset}}` cursor. Killswitch: browser localStorage `codeterm-web-output-stream=off` falls back to `/api/pty/{id}/read`. With a mesh relay target set, the browser instead streams via `/api/mesh/relay-stream?path=/api/output/stream` — same frames, same cursor. |
+| GET | `/api/pty/{id}/read` | — | Long-poll one chunk of PTY output (JSON byte array) — the browser terminal's read loop; fallback when the output-stream killswitch is off. |
 | POST | `/api/pty/{id}/write` | `{data}` | Write input to a PTY. |
 | POST | `/api/pty/{id}/resize` | `{cols, rows}` | Resize a PTY. |
 
@@ -1257,4 +1262,4 @@ Agent prompt templates are stored as Markdown files in `src-tauri/prompts/` and 
 - **Extra Instructions** (`extra_instructions.md`): Additional context for agent tasks.
 - **Cron Report Hint** (`cron_report_hint.md`): Hint for cron agents to produce structured reports.
 
-<!-- revision: 70 -->
+<!-- revision: 71 -->

@@ -28,10 +28,6 @@ export function jsonHeaders(api: ApiConfig): HeadersInit {
   };
 }
 
-export function isTauriEnv(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
 export async function fetchGraphFull(
   api: ApiConfig,
   signal?: AbortSignal,

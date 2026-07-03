@@ -4,7 +4,6 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use tauri::Emitter;
 
 use crate::api::routes::{check_auth, AppState};
 use crate::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
@@ -113,7 +112,7 @@ pub async fn workers_progress(
             .map_err(|e| (StatusCode::NOT_FOUND, e))?;
     }
     if let Some(info) = state.svc.workers.get(&id) {
-        let _ = state.svc.app_handle.emit("graph-worker-progress", &info);
+        crate::api::events::emit_everywhere(&state.svc.app_handle, "graph-worker-progress", &info);
     }
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -175,7 +174,7 @@ pub async fn workers_report(
         .workers
         .complete(&id, b.summary)
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
-    let _ = state.svc.app_handle.emit("graph-worker-reported", &info);
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "graph-worker-reported", &info);
 
     let svc = state.svc.clone();
     let pane_id = info.pane_id.clone();
@@ -203,7 +202,7 @@ pub async fn workers_kill(
     if let Err(e) = state.svc.close_pane(&info.pane_id) {
         log::warn!("[graph-workers] kill pane {}: {}", info.pane_id, e);
     }
-    let _ = state.svc.app_handle.emit("graph-worker-done", &info);
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "graph-worker-done", &info);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

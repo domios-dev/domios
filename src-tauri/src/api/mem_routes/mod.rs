@@ -1,5 +1,4 @@
 use axum::http::{HeaderMap, StatusCode};
-use tauri::Emitter;
 
 use crate::api::routes::AppState;
 use crate::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
@@ -201,5 +200,5 @@ pub(super) fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem
     };
 
     state.svc.activity.record(event.clone());
-    let _ = state.svc.app_handle.emit("mem-activity", &event);
+    crate::api::events::emit_everywhere(&state.svc.app_handle, "mem-activity", &event);
 }

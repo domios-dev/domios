@@ -8,8 +8,6 @@ use std::sync::Mutex as StdMutex;
 use std::time::Duration;
 use std::time::Instant;
 
-use tauri::Emitter;
-
 use super::ServiceContext;
 use crate::agent::detector::AgentEvent;
 use crate::agent::prompt::PromptDecision;
@@ -342,7 +340,7 @@ impl ServiceContext {
             self.recompute_agent_state(pty_id);
         }
 
-        (prev_status, current_status)
+        (prev_status, self.agent_tracker.lock().get_status(pty_id))
     }
 
     /// Build a pending prompt from the provider's STRUCTURED handle, if it has
@@ -673,7 +671,8 @@ impl ServiceContext {
             }
             pane.pending_prompt = prompt.clone();
         }
-        let _ = self.app_handle.emit(
+        crate::api::events::emit_everywhere(
+            &self.app_handle,
             "prompt-state-changed",
             serde_json::json!({ "pane_id": pane_id, "prompt": prompt }),
         );
@@ -768,7 +767,8 @@ impl ServiceContext {
                     }
                 }
                 // Emit focused event — frontend subscribes directly, no polling needed
-                let _ = self.app_handle.emit(
+                crate::api::events::emit_everywhere(
+                    &self.app_handle,
                     "prompt-state-changed",
                     serde_json::json!({
                         "pane_id": pane_id,
@@ -794,7 +794,8 @@ impl ServiceContext {
                     pane.pending_prompt = None;
                 }
                 drop(mux);
-                let _ = self.app_handle.emit(
+                crate::api::events::emit_everywhere(
+                    &self.app_handle,
                     "prompt-state-changed",
                     serde_json::json!({
                         "pane_id": pane_id,

@@ -4,7 +4,6 @@ use tauri::Manager;
 use tokio::task::JoinSet;
 
 use crate::service::ServiceState;
-use crate::session::SessionState;
 
 const PER_PANE_GRACE: Duration = Duration::from_secs(10);
 const SIGTERM_GRACE: Duration = Duration::from_secs(5);
@@ -205,21 +204,15 @@ fn soft_kill(pty: &crate::PtyState, pty_id: &str) -> Result<(), String> {
 }
 
 pub(crate) fn persist_session(app: &tauri::AppHandle, svc: &ServiceState) -> Result<(), String> {
-    let session = app
-        .try_state::<SessionState>()
-        .ok_or_else(|| "SessionState not registered".to_string())?
-        .inner()
-        .clone();
-    let snapshot = svc.mux.read().to_session_snapshot();
-    session
-        .lock()
-        .save(&snapshot)
-        .map_err(|e| format!("save session: {}", e))?;
-    log::info!(
-        "[updater] session snapshot saved ({} workspaces)",
-        snapshot.workspaces.len()
-    );
-    Ok(())
+    let result = crate::service::session_persist::write_session_snapshot(app, &svc.mux);
+    if result.is_ok() {
+        let snapshot = svc.mux.read().to_session_snapshot();
+        log::info!(
+            "[updater] session snapshot saved ({} workspaces)",
+            snapshot.workspaces.len()
+        );
+    }
+    result
 }
 
 #[cfg(test)]

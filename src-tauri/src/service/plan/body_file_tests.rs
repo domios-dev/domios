@@ -59,11 +59,11 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
 
     assert_eq!(
         markdown_body(&std::fs::read_to_string(&section_path).unwrap()),
-        "section\nbody"
+        "section\nbody\n"
     );
     let task_markdown = std::fs::read_to_string(&task_path).unwrap();
     assert_markdown_identity(&task_markdown, &plan.id, "task", &task_id);
-    assert_eq!(markdown_body(&task_markdown), "task\nbody");
+    assert_eq!(markdown_body(&task_markdown), "task\nbody\n");
     assert!(!raw_json.contains("section\\nbody"));
     assert!(!raw_json.contains("task\\nbody"));
     let index_path = dir
@@ -76,8 +76,8 @@ fn section_and_task_bodies_roundtrip_through_markdown_files() {
 
     store.reload_from_disk(&plan.id).unwrap();
     let loaded = store.get(&plan.id).unwrap();
-    assert_eq!(loaded.sections[0].body, "section\nbody");
-    assert_eq!(loaded.tasks[0].body, "task\nbody");
+    assert_eq!(loaded.sections[0].body, "section\nbody\n");
+    assert_eq!(loaded.tasks[0].body, "task\nbody\n");
 }
 
 #[test]
@@ -184,16 +184,21 @@ fn milestone_and_note_bodies_roundtrip_through_markdown_files() {
     let milestone_path = plan_dir.join(format!("milestones/build-{}.md", milestone_id));
     let stride_log_path = plan_dir.join("tasks/build/strides.jsonl");
     let note_path = plan_dir.join(format!("elements/note-{}.md", note_id));
+    let normalized_milestone_text = format!("{}\n", milestone_text.trim_end());
+    let normalized_note_text = format!("{}\n", note_text.trim_end());
     let milestone_markdown = std::fs::read_to_string(&milestone_path).unwrap();
     assert_markdown_identity(&milestone_markdown, &plan.id, "milestone", &milestone_id);
-    assert_eq!(markdown_body(&milestone_markdown), milestone_text);
+    assert_eq!(
+        markdown_body(&milestone_markdown),
+        normalized_milestone_text
+    );
     let strides = crate::service::plan::stride_log::read_milestones(&stride_log_path).unwrap();
     assert_eq!(strides.len(), 1);
     assert_eq!(strides[0].id, milestone_id);
     assert_eq!(strides[0].text, milestone_text);
     let note_markdown = std::fs::read_to_string(&note_path).unwrap();
     assert_markdown_identity(&note_markdown, &plan.id, "element", &note_id);
-    assert_eq!(markdown_body(&note_markdown), note_text);
+    assert_eq!(markdown_body(&note_markdown), normalized_note_text);
     let raw_json = std::fs::read_to_string(
         dir.path()
             .join(format!(".codeterm/plans/active/{}/plan.json", plan.id)),
@@ -480,13 +485,13 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         std::fs::read_to_string(plan_dir.join("milestones/legacy-task-ms_legacy.md")).unwrap();
     assert_eq!(
         markdown_body(&milestone_markdown),
-        "legacy milestone\n\nbody"
+        "legacy milestone\n\nbody\n"
     );
     let discussion_markdown =
         std::fs::read_to_string(plan_dir.join("elements/discussion-el_discussion.md")).unwrap();
     assert_eq!(
         markdown_body(&discussion_markdown),
-        "legacy discussion\n\nbody"
+        "legacy discussion\n\nbody\n"
     );
     let raw_json = std::fs::read_to_string(json_path).unwrap();
     let raw_plan: Plan = serde_json::from_str(&raw_json).unwrap();

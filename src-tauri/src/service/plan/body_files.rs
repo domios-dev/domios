@@ -141,7 +141,7 @@ pub fn persist_bodies(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
                     plan,
                     "section",
                     &section.id,
-                    &super::tag_model::section_handle(section),
+                    super::tag_model::section_handle(section),
                     Some(&section.title),
                     None,
                 ),
