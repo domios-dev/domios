@@ -87,6 +87,35 @@ fn render_running_loops(loops: &[LoopSpec], out: &mut String) {
     }
 }
 
+pub(super) fn competitive_attempt_summary_line(
+    task_id: &str,
+    task_name: &str,
+    live_attempts: usize,
+) -> String {
+    format!("- {task_id} ({task_name}): {live_attempts} live attempts")
+}
+
+fn render_competitive_attempts(plan: &Plan, out: &mut String) {
+    let summaries = plan
+        .tasks
+        .iter()
+        .filter_map(|task| {
+            let live_attempts = super::task_attempts::live_attempt_count(task);
+            (live_attempts > 1)
+                .then(|| competitive_attempt_summary_line(&task.id, &task.name, live_attempts))
+        })
+        .collect::<Vec<_>>();
+    if summaries.is_empty() {
+        return;
+    }
+    out.push_str(crate::prompts::HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE);
+    out.push('\n');
+    for summary in summaries {
+        out.push_str(&summary);
+        out.push('\n');
+    }
+}
+
 fn render_qa_queue(plan: &Plan, out: &mut String) {
     let queued = plan
         .tasks
@@ -134,12 +163,23 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
     let has_running_loops = loops
         .iter()
         .any(|loop_spec| loop_spec.status == LoopStatus::Running);
+    let has_competitive_attempts = plan
+        .tasks
+        .iter()
+        .any(|task| super::task_attempts::live_attempt_count(task) > 1);
     let has_qa = plan.tasks.iter().any(|task| {
         task.status == TaskStatus::InReview
             && task.review_stage == ReviewStage::Qa
             && task.qa_state.is_some()
     });
-    if !has_focus && !has_lanes && !has_rules && !has_learnings && !has_running_loops && !has_qa {
+    if !has_focus
+        && !has_lanes
+        && !has_rules
+        && !has_learnings
+        && !has_running_loops
+        && !has_competitive_attempts
+        && !has_qa
+    {
         return String::new();
     }
     let mut out = format!("<codeterm-orchestrator-heartbeat plan=\"{plan_id}\">\n");
@@ -173,6 +213,7 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
         }
     }
     render_qa_queue(plan, &mut out);
+    render_competitive_attempts(plan, &mut out);
     render_running_loops(loops, &mut out);
     out.push_str("</codeterm-orchestrator-heartbeat>");
     out
