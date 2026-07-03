@@ -35,6 +35,7 @@ pub mod prompts;
 pub mod provider;
 pub mod pty;
 pub mod resize_owner;
+pub mod runaway_sweeper;
 pub mod secrets;
 pub mod service;
 pub mod session;
