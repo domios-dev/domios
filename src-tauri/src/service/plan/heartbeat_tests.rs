@@ -1,5 +1,5 @@
 use super::{NewTask, PlanStore};
-use crate::plan::{OrchestratorRef, Plan, PlanMode};
+use crate::plan::{AgentRef, OrchestratorRef, Plan, PlanMode};
 
 fn store_with_plan(owner: &str) -> (tempfile::TempDir, PlanStore, String) {
     let dir = tempfile::tempdir().unwrap();
@@ -373,4 +373,131 @@ fn owner_plan_nudge_prepends_heartbeat_and_exact_recovery_commands() {
     assert!(text.contains("<codeterm-orchestrator-heartbeat"));
     assert!(text.contains("Current focus: Review open lanes"));
     assert!(text.contains("Plan reminder: this pane owns unfinished execution-plan work."));
+}
+
+#[test]
+fn all_tasks_done_plan_produces_no_reconciliation_prepend() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    let task_id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "the only task".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+    store
+        .close_task(
+            &plan_id,
+            &task_id,
+            Some("done"),
+            AgentRef::from_pane("orch-a"),
+            30,
+        )
+        .unwrap();
+
+    let nudge_body = "Plan reminder: this pane owns unfinished execution-plan work.";
+    let result = store.prepend_heartbeat_for_plan(&plan_id, nudge_body);
+    assert_eq!(
+        result, nudge_body,
+        "complete plan must not inject reconciliation"
+    );
+    assert!(!result.contains("STATE-RECONCILIATION"));
+    assert!(!result.contains("codeterm-state-reconciliation"));
+
+    let pane_result = store.prepend_heartbeat_for_orchestrator_pane("orch-a", nudge_body);
+    assert_eq!(
+        pane_result, nudge_body,
+        "complete plan must be silent via orchestrator pane path"
+    );
+}
+
+#[test]
+fn explicit_complete_mode_plan_produces_no_reconciliation_prepend() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    store.set_mode(&plan_id, PlanMode::Complete, 20).unwrap();
+
+    let nudge_body = "some message";
+    let result = store.prepend_heartbeat_for_plan(&plan_id, nudge_body);
+    assert_eq!(result, nudge_body);
+    assert!(!result.contains("STATE-RECONCILIATION"));
+}
+
+#[test]
+fn open_work_plan_still_gets_reconciliation_prepend() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "open task".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            20,
+        )
+        .unwrap();
+
+    // Open work (pending) keeps the plan non-complete so reconciliation still fires.
+    let result = store.prepend_heartbeat_for_plan(&plan_id, "text");
+    assert!(
+        result.contains("STATE-RECONCILIATION"),
+        "open work must not be silenced"
+    );
+}
+
+#[test]
+fn is_plan_complete_predicate_covers_execution_all_done_and_explicit_complete() {
+    use super::heartbeat::is_plan_complete;
+
+    // Empty plan in Execution — not "complete" (no tasks done yet, just empty)
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let plan = store
+        .create_plan(
+            "T".into(),
+            dir.path().display().to_string(),
+            OrchestratorRef::from_pane("orch"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    store.set_mode(&plan.id, PlanMode::Execution, 2).unwrap();
+    let empty_plan = store.get(&plan.id).unwrap();
+    assert!(
+        !is_plan_complete(&empty_plan),
+        "empty Execution plan is not complete"
+    );
+
+    // Add a task and close it — now complete
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "t".into(),
+                kind: "impl".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    store
+        .close_task(&plan.id, &task_id, None, AgentRef::from_pane("orch"), 4)
+        .unwrap();
+    let done_plan = store.get(&plan.id).unwrap();
+    assert!(
+        is_plan_complete(&done_plan),
+        "all-done Execution plan is complete"
+    );
+
+    // Explicit Complete mode
+    store.set_mode(&plan.id, PlanMode::Complete, 5).unwrap();
+    let complete_plan = store.get(&plan.id).unwrap();
+    assert!(
+        is_plan_complete(&complete_plan),
+        "Complete mode is always complete"
+    );
 }
