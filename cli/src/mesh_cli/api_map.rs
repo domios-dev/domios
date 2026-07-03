@@ -385,6 +385,7 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 task_file,
                 role,
                 parent,
+                plan,
                 report_to,
                 workspace,
                 can_spawn,
@@ -420,6 +421,9 @@ pub fn cli_command_to_api(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(p) = parent {
                     body["parent_pane_id"] = serde_json::json!(p);
+                }
+                if let Some(pl) = plan {
+                    body["plan_id"] = serde_json::json!(pl);
                 }
                 // Remote worker report target on the ORIGIN peer (this machine).
                 // Default to the caller's pane so a spawned worker reports back to
