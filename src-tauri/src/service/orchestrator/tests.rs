@@ -76,6 +76,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         role: None,
         role_profile: None,
         parent_pane_id: None,
+        plan_id: None,
         can_spawn: None,
         workspace_id: None,
         force_tab: None,

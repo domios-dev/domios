@@ -451,7 +451,7 @@ pub(super) fn dispatch(
                     owner.pane_id.as_deref(),
                     &id,
                 );
-                response_hints.push(crate::prompts::peer_pairing_mandate_block(&spawn_cmd));
+                response_hints.push(crate::prompts::peer_pairing_mandate_full(&spawn_cmd));
             }
             Ok(json!({ "ok": true, "_hints": response_hints }))
         }

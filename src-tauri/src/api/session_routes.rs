@@ -218,6 +218,7 @@ pub async fn resume_session_api(
         role: None,
         role_profile: None,
         parent_pane_id: None,
+        plan_id: None,
         can_spawn: None,
         task: None,
         workspace_id: Some(ws_id.clone()),
