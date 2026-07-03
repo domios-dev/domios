@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import { X } from "lucide-react";
-import { CanvasViewInner, type CanvasViewInnerProps } from "./CanvasView";
+import { type CanvasViewInnerProps } from "./CanvasView";
 import { PlanViewModeSwitch } from "./PlanViewModeSwitch";
+import { MissionControlPlanSurface } from "./missionControl/MissionControlPlanSurface";
 import {
   DEFAULT_PLAN_VIEW_MODE,
   resolvePlanViewMode,
@@ -93,7 +94,7 @@ export function PlanViewShell(props: CanvasViewInnerProps) {
           hidden={viewMode !== "canvas"}
           aria-hidden={viewMode !== "canvas"}
         >
-          <CanvasViewInner {...props} onClose={undefined} />
+          <MissionControlPlanSurface {...surfaceProps} sectionGraphProps={props} />
         </div>
         <div
           className="absolute inset-0"

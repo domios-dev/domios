@@ -26,7 +26,10 @@ export interface MissionLane {
   name: string;
   branch: string;
   agent?: MissionAgent;
+  /** Competition / multi-worker bays surface multiple avatars. */
+  agents?: MissionAgent[];
   activeTask?: MissionTask;
+  activeTasks?: MissionTask[];
 }
 
 export interface PlanHudMetrics {
