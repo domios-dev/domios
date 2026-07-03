@@ -28,8 +28,27 @@ pub enum TaskStatus {
     InProgress,
     InReview,
     Blocked,
+    Parked,
     Done,
     Cancelled,
+}
+
+impl TaskStatus {
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, TaskStatus::Done | TaskStatus::Cancelled)
+    }
+
+    // Single source of truth for the heartbeat / open-work predicate: a task
+    // counts as open work only while it is non-terminal AND not parked.
+    pub fn counts_as_open_work(&self) -> bool {
+        matches!(
+            self,
+            TaskStatus::Pending
+                | TaskStatus::InProgress
+                | TaskStatus::InReview
+                | TaskStatus::Blocked
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -397,6 +416,8 @@ pub struct Task {
     pub milestones: Vec<Milestone>,
     #[serde(default)]
     pub execution_attempts: Vec<TaskExecutionAttempt>,
+    #[serde(default)]
+    pub park_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

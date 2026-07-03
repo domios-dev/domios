@@ -158,9 +158,13 @@ impl ServiceContext {
         target: &PlanReminderTarget,
         kind: crate::service::plan::reminders::NudgeKind,
     ) -> bool {
-        let text = crate::service::plan::reminders::nudge_text(kind);
+        let mut text = crate::service::plan::reminders::nudge_text(kind);
         let text = match target {
             PlanReminderTarget::Owner { plan_id } => {
+                if let Some(named) = self.aged_task_callout(plan_id) {
+                    text.push_str("\n\n");
+                    text.push_str(&named);
+                }
                 self.plan_store.prepend_heartbeat_for_plan(plan_id, &text)
             }
             PlanReminderTarget::Worker => self
@@ -169,6 +173,32 @@ impl ServiceContext {
         };
         let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
         crate::service::messenger::Messenger::deliver(self, pane_id, envelope, &text).is_ok()
+    }
+
+    // Names the aged/stale open tasks driving the escalation so the nudge points
+    // at concrete drift instead of a generic reminder. None when nothing is aged.
+    fn aged_task_callout(&self, plan_id: &str) -> Option<String> {
+        let plan = self.plan_store.get(plan_id)?;
+        let now = current_epoch_secs().saturating_mul(1000);
+        let aged = crate::plan::reconcile::aged_open_tasks(&plan, now);
+        if aged.is_empty() {
+            return None;
+        }
+        let listed = aged
+            .iter()
+            .take(5)
+            .map(|t| {
+                format!(
+                    "- {} \"{}\" ({:?}, aged {}h)",
+                    t.task_id,
+                    t.name,
+                    t.status,
+                    t.age_ms / 3_600_000
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Some(format!("Stale tasks recorded as drift:\n{listed}"))
     }
 }
 
@@ -203,7 +233,7 @@ fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
             && plan
                 .tasks
                 .iter()
-                .any(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+                .any(|task| task.status.counts_as_open_work())
     }) {
         if let Some(pane_id) = non_empty(plan.owner.pane_id.as_deref()) {
             targets.insert(
@@ -292,6 +322,7 @@ mod tests {
             canvas: ElementCanvas::default(),
             milestones: vec![],
             execution_attempts: vec![],
+            park_reason: None,
         }
     }
 

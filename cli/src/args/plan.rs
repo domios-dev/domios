@@ -568,6 +568,18 @@ pub enum PlanTaskAction {
         #[arg(long)]
         mesh: Option<String>,
     },
+    /// Park a task (defers it out of the heartbeat open-work set; requires --reason)
+    Park {
+        plan_id: String,
+        task_id: Option<String>,
+        #[arg(long, allow_hyphen_values = true)]
+        reason: String,
+    },
+    /// Unpark a task (returns it to pending)
+    Unpark {
+        plan_id: String,
+        task_id: Option<String>,
+    },
     /// Assign a task to a pane (exports CODETERM_TASK_ID to that pane)
     Assign {
         plan_id: String,

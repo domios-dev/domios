@@ -7,6 +7,7 @@ pub mod heartbeat;
 pub mod hints;
 pub mod ingest;
 mod lane_metadata;
+pub mod lifecycle;
 pub mod loop_mutations;
 pub mod mutations;
 pub mod next_actions;
@@ -85,6 +86,7 @@ pub enum PlanError {
     BadPriority,
     TaskCreationRequiresApproval,
     HeartbeatRequiresExecution,
+    ParkRequiresReason,
     WritePending {
         operation: String,
         committed: bool,
@@ -154,6 +156,10 @@ impl fmt::Display for PlanError {
                 f,
                 "heartbeat is for active execution; approve the plan or store planning-only policy in spec/plan sections or mem"
             ),
+            PlanError::ParkRequiresReason => write!(
+                f,
+                "parking a task requires a reason; run `codeterm plan task park <plan> <task> --reason \"<why>\"`"
+            ),
             PlanError::WritePending {
                 operation,
                 committed,
@@ -215,6 +221,9 @@ impl PlanError {
             }
             PlanError::HeartbeatRequiresExecution => {
                 serde_json::json!({ "type": "heartbeat_requires_execution" })
+            }
+            PlanError::ParkRequiresReason => {
+                serde_json::json!({ "type": "park_requires_reason" })
             }
             PlanError::WritePending {
                 operation,
@@ -932,11 +941,7 @@ impl PlanStore {
             {
                 continue;
             }
-            if plan
-                .tasks
-                .iter()
-                .any(|t| !matches!(t.status, TaskStatus::Done | TaskStatus::Cancelled))
-            {
+            if plan.tasks.iter().any(|t| t.status.counts_as_open_work()) {
                 return Some(plan.id.clone());
             }
         }
