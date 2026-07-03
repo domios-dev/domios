@@ -44,6 +44,10 @@ export interface OrchestratorRef {
 }
 export type AgentRef = OrchestratorRef;
 
+export type PlannerRef =
+  | { kind: "pane"; pane_id: string; session_id?: string | null; title?: string | null }
+  | { kind: "waived"; note: string };
+
 export interface TaskLaneMetadata {
   pane_id?: string | null;
   workspace_id?: string | null;
@@ -268,6 +272,7 @@ export interface Plan {
   sections: Section[];
   status: PlanStatus;
   owner: OrchestratorRef;
+  planner?: PlannerRef | null;
   project_path: string;
   created_at: number;
   updated_at: number;
