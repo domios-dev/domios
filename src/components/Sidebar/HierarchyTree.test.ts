@@ -67,5 +67,9 @@ assert(
   !source.includes("border-l border-[var(--ct-accent)]"),
   "HierarchyTree must not add colored accent stripes on working rows",
 );
+assert(
+  source.includes("excludePaneIds"),
+  "HierarchyTree buildHierarchySubtree accepts excludePaneIds for planner peers",
+);
 
 console.log("✓ HierarchyTree: row states, task line, sort, variants, no StatusDot clutter");

@@ -6,6 +6,7 @@ import { presenceColor } from "../presence/identity";
 import type { Plan } from "../types";
 import { orderPlansByActivity, selectDefaultPlanId } from "./boardModel";
 import { resolveCompanionPane, type CompanionKind } from "./companionResolver";
+import { resolvePlannerPaneIdFromPlan } from "../../shared/resolvePlanPeerPair";
 
 interface PlanCompanionBubbleProps {
   plans: Plan[];
@@ -83,6 +84,21 @@ export function PlanCompanionBubble({
   const name = pane?.title?.trim() || kindLabel;
   const working = pane?.agent_state?.state === "working";
   const chatBackend = pane?.backing?.kind === "chat_backend";
+  const ownerPaneId = activePlan?.owner.pane_id ?? null;
+  const plannerPaneId = activePlan ? resolvePlannerPaneIdFromPlan(activePlan) : null;
+  const orchestratorName =
+    ownerPaneId && panes[ownerPaneId]?.title?.trim()
+      ? panes[ownerPaneId]!.title!.trim()
+      : "Orchestrator";
+  const plannerName =
+    plannerPaneId && panes[plannerPaneId]?.title?.trim()
+      ? panes[plannerPaneId]!.title!.trim()
+      : "Planner";
+  const peerPairTitle =
+    ownerPaneId && plannerPaneId
+      ? `${orchestratorName} ⟷ ${plannerName}`
+      : null;
+  const bubbleTitle = peerPairTitle ?? `${name} · ${kindLabel}`;
 
   return (
     <div
@@ -152,10 +168,10 @@ export function PlanCompanionBubble({
         type="button"
         data-testid="plan-companion-bubble"
         data-companion-kind={resolution.kind}
-        aria-label={`Talk to ${kindLabel}`}
+        aria-label={peerPairTitle ? `Talk to peer pair (${peerPairTitle})` : `Talk to ${kindLabel}`}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        title={`${name} · ${kindLabel}`}
+        title={bubbleTitle}
         className="pointer-events-auto flex items-center justify-center rounded-full border shadow-lg cursor-pointer transition-transform hover:scale-105"
         style={{
           width: 48,

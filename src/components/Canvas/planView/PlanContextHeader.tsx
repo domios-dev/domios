@@ -1,5 +1,6 @@
 import type { PlanningState } from "../types";
 import type { BoardPlanSummary, BoardSpecSummary } from "./boardModel";
+import { PairAffordance } from "../../shared/PairAffordance";
 
 export interface PlanContextHeaderProps {
   summary: BoardPlanSummary;
@@ -46,17 +47,25 @@ export function PlanContextHeader({
             {stateLabel}
           </span>
         )}
-        <PeerChip
-          role="planner"
-          label={summary.plannerLabel ?? "No planner"}
-          paneId={summary.plannerPaneId}
-          onOpenPane={onOpenPane}
-        />
-        <PeerChip
-          role="orchestrator"
-          label={summary.ownerLabel}
-          paneId={summary.ownerPaneId}
-          onOpenPane={onOpenPane}
+        <PairAffordance
+          layout="chips"
+          data-testid="plan-peer-pair"
+          orchestrator={
+            <PeerChip
+              role="orchestrator"
+              label={summary.ownerLabel}
+              paneId={summary.ownerPaneId}
+              onOpenPane={onOpenPane}
+            />
+          }
+          planner={
+            <PeerChip
+              role="planner"
+              label={summary.plannerLabel ?? "No planner"}
+              paneId={summary.plannerPaneId}
+              onOpenPane={onOpenPane}
+            />
+          }
         />
       </div>
       <div className="plan-context-header-primary">
