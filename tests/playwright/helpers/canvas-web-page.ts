@@ -57,7 +57,9 @@ export async function openCanvasWebPage(browser: Browser, init: CanvasWebInit = 
   await page.goto(`${API_BASE}/#token=${encodeURIComponent(token)}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root > *", { state: "attached", timeout: 90_000 });
   await page
-    .locator('[data-testid="canvas-view"], [data-testid="canvas-empty"], [data-testid="workspace-item"]')
+    .locator(
+      '[data-testid="plan-view-shell"], [data-testid="mission-control-live"], [data-testid="canvas-view"], [data-testid="canvas-empty"], [data-testid="workspace-item"]',
+    )
     .first()
     .waitFor({ state: "visible", timeout: 90_000 });
   return { page, context };

@@ -10,6 +10,8 @@ import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import {
   isEmpty,
+  MISSION_CONTROL_LIVE_SEL,
+  MISSION_CONTROL_PLAN_SURFACE_SEL,
   seedPerfFixtureAndOpenInlineCanvas,
   CANVAS_ART_DIR,
 } from "../../helpers/canvas-inspect";
@@ -74,10 +76,16 @@ test(
 
       await screenshot(page, "plan-view-list");
 
-      // Switch to Canvas
+      // Switch to Canvas — default submode is mission-control (section-graph is explicit toggle)
       await modeSwitch.getByRole("tab", { name: /canvas/i }).click();
       await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas");
-      await expect(page.locator('[data-testid="canvas-view"]')).toBeVisible();
+      await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toBeVisible();
+      await expect(page.locator(MISSION_CONTROL_PLAN_SURFACE_SEL)).toHaveAttribute(
+        "data-canvas-sub-mode",
+        "mission-control",
+      );
+      await expect(page.locator(MISSION_CONTROL_LIVE_SEL)).toBeVisible();
+      await expect(page.locator('[data-testid="canvas-view"]:visible')).toHaveCount(0);
       await expect(page.locator('[data-testid="plan-board-view"]')).toBeHidden();
       await expect(page.locator('[data-testid="plan-list-view"]')).toBeHidden();
 
@@ -126,6 +134,7 @@ test(
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector('[data-testid="plan-view-shell"]', { state: "visible", timeout: 30_000 });
       await expect(shell).toHaveAttribute("data-plan-view-mode", "canvas", { timeout: 15_000 });
+      await expect(page.locator(MISSION_CONTROL_LIVE_SEL)).toBeVisible({ timeout: 15_000 });
     } finally {
       await canvas.close();
     }
