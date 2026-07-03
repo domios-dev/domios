@@ -591,11 +591,7 @@ pub async fn chat_send_text(
 ) -> Result<String, String> {
     // Resolve aliases ("main", "general") so callers can address the General
     // Agent without knowing its pane id — parity with the REST send route.
-    let pane_id = svc
-        .mux
-        .read()
-        .resolve_pane_id(&pane_id)
-        .unwrap_or(pane_id);
+    let pane_id = svc.mux.read().resolve_pane_id(&pane_id).unwrap_or(pane_id);
     let enter = enter.unwrap_or(true);
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, svc.pane_has_agent(&pane_id));
