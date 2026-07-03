@@ -11,6 +11,17 @@ use super::*;
 const CODEX_UUID: &str = "11111111-1111-1111-1111-111111111111";
 const CODEX_STEM: &str = "rollout-2026-05-01T10-00-00-11111111-1111-1111-1111-111111111111";
 
+fn codex_status_fixture() -> String {
+    std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-codex")
+            .join("tests")
+            .join("fixtures")
+            .join("codex-status-v0-142-4.txt"),
+    )
+    .expect("fixture file must exist")
+}
+
 fn codex() -> JsProvider {
     load_js("codex")
 }
@@ -171,6 +182,28 @@ fn parse_session_messages_keeps_only_text_messages() {
         msgs[0].ts.is_some_and(|t| t > 0),
         "ts must parse: {:?}",
         msgs[0].ts
+    );
+}
+
+#[test]
+fn parse_usage_uses_family_labels_for_codex_142_4_status() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = codex();
+    let parser = provider.usage_parser().expect("codex provides parseUsage");
+    let status = codex_status_fixture();
+    let usage = parser.parse(&status).expect("status should parse");
+    assert_eq!(usage.provider, "codex");
+    assert_eq!(usage.session_pct, Some(82.0));
+    assert_eq!(usage.weekly_pct, Some(56.0));
+    assert!(
+        usage.session_resets_at_ms.is_some(),
+        "session reset should parse"
+    );
+    assert!(
+        usage.weekly_resets_at_ms.is_some(),
+        "weekly reset should parse"
     );
 }
 
