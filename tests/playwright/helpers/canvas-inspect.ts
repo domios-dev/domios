@@ -21,19 +21,55 @@ export const CANVAS_ART_DIR = path.resolve(__dirname, "..", "artifacts", "canvas
 export const PERF_FIXTURE_KEY = "canvas.perfFixtureN";
 export const SUBSTRATE_V2_KEY = "canvas.substrateV2";
 
-/** Board is ready when the blit canvas or legacy DOM plan node is visible (not empty). */
+/** Board is ready when the blit canvas, mission-control stage, or legacy DOM plan node is visible. */
+export const MISSION_CONTROL_LIVE_SEL = '[data-testid="mission-control-live"]';
+export const MISSION_CONTROL_PLAN_SURFACE_SEL = '[data-testid="mission-control-plan-surface"]';
+export const LEGACY_CANVAS_VIEW_SEL = '[data-testid="canvas-view"]';
+/** Visible plan canvas: mission-control (default) or legacy section-graph submode. */
+export const PLAN_CANVAS_VISIBLE_SEL = `${MISSION_CONTROL_LIVE_SEL}, ${LEGACY_CANVAS_VIEW_SEL}`;
+
 export const CANVAS_BOARD_SEL =
-  '[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"]';
+  '[data-testid="canvas-plan-node"], [data-testid="canvas-world-canvas"], [data-testid="variant-assembly-line"], [data-testid="dispatch-rail"]';
 
 export const CANVAS_BOARD_OR_EMPTY_SEL =
-  `${CANVAS_BOARD_SEL}, [data-testid="canvas-empty"]`;
+  `${CANVAS_BOARD_SEL}, [data-testid="canvas-empty"], [data-testid="mission-control-empty"]`;
 
 const PLAN_SURFACE_OR_EMPTY_SEL =
-  `[data-testid="plan-view-shell"], ${CANVAS_BOARD_OR_EMPTY_SEL}`;
+  `[data-testid="plan-view-shell"], ${CANVAS_BOARD_OR_EMPTY_SEL}, ${MISSION_CONTROL_LIVE_SEL}`;
 
-/** Scope queries to the visible board — hidden workspace mounts can duplicate presence nodes. */
+/** Scope queries to the visible plan canvas — mission-control or legacy section-graph. */
 export function visibleCanvasScope(page: Page) {
-  return page.locator('[data-testid="canvas-view"]:visible').first();
+  return page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
+}
+
+export async function waitForVisiblePlanCanvas(
+  page: Page,
+  timeoutMs = 30_000,
+): Promise<"mission-control" | "section-graph"> {
+  await page.locator(PLAN_CANVAS_VISIBLE_SEL).first().waitFor({ state: "visible", timeout: timeoutMs });
+  if ((await page.locator(`${MISSION_CONTROL_LIVE_SEL}:visible`).count()) > 0) return "mission-control";
+  return "section-graph";
+}
+
+export async function switchPlanCanvasSubmode(
+  page: Page,
+  mode: "mission-control" | "section-graph",
+): Promise<void> {
+  const switcher = page.locator('[data-testid="canvas-sub-mode-switch"]');
+  if (!(await switcher.isVisible().catch(() => false))) return;
+  const label = mode === "mission-control" ? /mission control/i : /section graph/i;
+  await switcher.getByRole("tab", { name: label }).click();
+  if (mode === "mission-control") {
+    await page.locator(MISSION_CONTROL_LIVE_SEL).first().waitFor({ state: "visible", timeout: 15_000 });
+  } else {
+    await page.locator(`${LEGACY_CANVAS_VIEW_SEL}:visible`).first().waitFor({ state: "visible", timeout: 15_000 });
+  }
+}
+
+async function planCanvasPanContainer(page: Page) {
+  const mc = page.locator(`${MISSION_CONTROL_LIVE_SEL} .mc-live-viewport`).first();
+  if (await mc.isVisible().catch(() => false)) return mc;
+  return page.locator(`${LEGACY_CANVAS_VIEW_SEL}:visible`).first().locator("div").first();
 }
 
 // Must match useCanvasViewport.ts CANVAS_ZOOM_INTENSITY; scale = exp(-deltaY * INTENSITY).
@@ -170,6 +206,8 @@ export async function seedPerfFixtureAndOpenInlineCanvas(
 
 async function waitForBoardSurface(page: Page): Promise<void> {
   await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
+  await waitForVisiblePlanCanvas(page).catch(() => {});
+  await page.locator(CANVAS_BOARD_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForTimeout(450);
 }
 
@@ -249,7 +287,7 @@ export async function openPanePlanCanvas(page: Page, paneId?: string): Promise<v
   const taskStrip = scope.locator('[data-testid="worker-task-strip"]').first();
   await taskStrip.click({ force: true });
   await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
-  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
+  await waitForVisiblePlanCanvas(page);
   await page.locator(CANVAS_BOARD_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
   await page.waitForTimeout(450);
 }
@@ -267,8 +305,8 @@ export async function closePanePlanCanvas(page: Page, _paneId?: string): Promise
 export async function openInlineWorkspaceCanvas(page: Page, workspaceId?: string): Promise<void> {
   await openSidebarIfNeeded(page);
   await expect(page.locator('[data-testid="pane-plan-overlay"]')).toHaveCount(0);
-  const view = page.locator('[data-testid="canvas-view"]').first();
-  if (!(await view.isVisible().catch(() => false))) {
+  const visible = page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
+  if (!(await visible.isVisible().catch(() => false))) {
     if (workspaceId) await expandWorkspaceSidebar(page, workspaceId);
     const entry = workspaceId
       ? page.locator(`div:has([data-workspace-id="${workspaceId}"]) [data-testid="workspace-plan-entry"]`)
@@ -286,7 +324,7 @@ export async function openInlineWorkspaceCanvas(page: Page, workspaceId?: string
   }
   await page.locator(PLAN_SURFACE_OR_EMPTY_SEL).first().waitFor({ state: "visible", timeout: 30_000 });
   await switchPlanSurfaceToCanvas(page);
-  await view.waitFor({ state: "visible", timeout: 30_000 });
+  await waitForVisiblePlanCanvas(page);
   await waitForBoardSurface(page);
 }
 
@@ -295,7 +333,7 @@ export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {
   const btn = page.locator('[data-testid="canvas-toolbar-button"]');
   await btn.waitFor({ state: "visible", timeout: 10_000 });
   if ((await btn.getAttribute("aria-pressed")) !== "true") await btn.click();
-  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 30_000 });
+  await waitForVisiblePlanCanvas(page);
   await waitForBoardSurface(page);
 }
 
@@ -303,8 +341,8 @@ export async function openWorkspaceCanvasOverlay(page: Page): Promise<void> {
 // then fall back to the titlebar canvas button.
 export async function ensureCanvasBoard(page: Page): Promise<void> {
   await openSidebarIfNeeded(page);
-  const view = page.locator('[data-testid="canvas-view"]').first();
-  if (!(await view.isVisible().catch(() => false))) {
+  const visible = page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
+  if (!(await visible.isVisible().catch(() => false))) {
     const workspaces = page.locator('[data-testid="workspace-item"]');
     const wsCount = await workspaces.count();
     for (let i = 0; i < wsCount; i++) {
@@ -323,14 +361,14 @@ export async function ensureCanvasBoard(page: Page): Promise<void> {
       }
     }
   }
-  await view.waitFor({ state: "visible", timeout: 30_000 });
+  await waitForVisiblePlanCanvas(page);
   await waitForBoardSurface(page);
 }
 
 export async function openCanvas(page: Page): Promise<void> {
-  const inlineView = page.locator('[data-testid="canvas-view"]').first();
+  const inlineView = page.locator(`${PLAN_CANVAS_VISIBLE_SEL}:visible`).first();
   if (await inlineView.isVisible().catch(() => false)) {
-    await inlineView.waitFor({ state: "visible", timeout: 30_000 });
+    await waitForVisiblePlanCanvas(page);
   } else {
     await ensureCanvasBoard(page);
     return;
@@ -339,12 +377,15 @@ export async function openCanvas(page: Page): Promise<void> {
 }
 
 export async function isEmpty(page: Page): Promise<boolean> {
-  return (await page.locator('[data-testid="canvas-empty"]').count()) > 0;
+  return (
+    (await page.locator('[data-testid="canvas-empty"]').count()) > 0 ||
+    (await page.locator('[data-testid="mission-control-empty"]').count()) > 0
+  );
 }
 
 // Plain wheel = two-finger pan in the v2 viewport hook.
 export async function panBy(page: Page, dx: number, dy: number): Promise<void> {
-  const box = await page.locator('[data-testid="canvas-view"]').first().boundingBox();
+  const box = await (await planCanvasPanContainer(page)).boundingBox();
   if (!box) return;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.wheel(dx, dy);
@@ -355,8 +396,11 @@ export async function panBy(page: Page, dx: number, dy: number): Promise<void> {
 // modifiers, so dispatch a real WheelEvent with ctrlKey on the pan container.
 export async function zoomBy(page: Page, deltaY: number): Promise<void> {
   await page.evaluate((dy) => {
-    const view = document.querySelector('[data-testid="canvas-view"]');
-    const target = view?.querySelector("div");
+    const mc = document.querySelector(
+      '[data-testid="mission-control-live"] .mc-live-viewport',
+    ) as HTMLElement | null;
+    const legacy = document.querySelector('[data-testid="canvas-view"]')?.querySelector("div") as HTMLElement | null;
+    const target = mc ?? legacy;
     if (!target) return;
     const r = target.getBoundingClientRect();
     target.dispatchEvent(
@@ -379,8 +423,11 @@ export async function zoomBy(page: Page, deltaY: number): Promise<void> {
 // plain viewport-center zoom drifts content off-screen and culls it.
 async function dispatchZoom(page: Page, anchorSel: string | null, deltaY: number): Promise<void> {
   await page.evaluate(({ anchorSel, deltaY }) => {
-    const view = document.querySelector('[data-testid="canvas-view"]');
-    const target = view?.querySelector("div");
+    const mc = document.querySelector(
+      '[data-testid="mission-control-live"] .mc-live-viewport',
+    ) as HTMLElement | null;
+    const legacy = document.querySelector('[data-testid="canvas-view"]')?.querySelector("div") as HTMLElement | null;
+    const target = mc ?? legacy;
     if (!target) return;
     const anchor = anchorSel ? (document.querySelector(anchorSel) as HTMLElement | null) : null;
     const r = (anchor ?? target).getBoundingClientRect();
@@ -480,7 +527,7 @@ export async function fitToView(page: Page): Promise<void> {
   if ((await strip.count()) === 0) return;
   await closePanePlanCanvas(page);
   await strip.click({ force: true });
-  await page.locator('[data-testid="canvas-view"]').first().waitFor({ state: "visible", timeout: 15_000 });
+  await waitForVisiblePlanCanvas(page, 15_000);
   await page.waitForTimeout(400);
 }
 
@@ -595,7 +642,7 @@ export async function findOverflows(page: Page, tolerancePx = 2): Promise<Overfl
 export async function captureBoard(page: Page, label: string): Promise<string> {
   ensureArtDir();
   const file = path.join(CANVAS_ART_DIR, `${label}.png`);
-  await page.locator('[data-testid="canvas-view"]').first().screenshot({ path: file }).catch(async () => {
+  await visibleCanvasScope(page).screenshot({ path: file }).catch(async () => {
     await page.screenshot({ path: file });
   });
   return file;
@@ -615,11 +662,20 @@ export async function captureRegions(page: Page, label: string): Promise<string[
 }
 
 export async function canvasScale(page: Page): Promise<number> {
+  const mcLabel = page.locator('[data-testid="mission-control-scale"]');
+  if (await mcLabel.isVisible().catch(() => false)) {
+    const text = await mcLabel.textContent();
+    const pct = text?.match(/(\d+)\s*%/);
+    if (pct) return Number(pct[1]) / 100;
+  }
   return page.evaluate(() => {
-    const view = document.querySelector('[data-testid="canvas-view"]');
-    const world = Array.from(view?.querySelectorAll<HTMLElement>("div") ?? []).find((el) =>
-      (el.getAttribute("style") ?? "").includes("transform: translate"),
-    );
+    const mcLayer = document.querySelector(
+      '[data-testid="mission-control-live"] .mc-live-stage-wrap',
+    ) as HTMLElement | null;
+    const legacyWorld = Array.from(
+      document.querySelector('[data-testid="canvas-view"]')?.querySelectorAll<HTMLElement>("div") ?? [],
+    ).find((el) => (el.getAttribute("style") ?? "").includes("transform: translate"));
+    const world = mcLayer ?? legacyWorld ?? null;
     const transform = world ? getComputedStyle(world).transform : null;
     if (!transform || transform === "none") return 1;
     const matrix = transform.match(/^matrix\(([^)]+)\)$/);
@@ -637,8 +693,11 @@ export async function setCanvasScale(page: Page, targetScale: number): Promise<v
     const current = await canvasScale(page);
     if (Math.abs(current - targetScale) < 0.015) return;
     await page.evaluate(({ currentScale, nextScale, intensity }) => {
-      const view = document.querySelector('[data-testid="canvas-view"]');
-      const target = view?.querySelector("div");
+      const mc = document.querySelector(
+        '[data-testid="mission-control-live"] .mc-live-viewport',
+      ) as HTMLElement | null;
+      const legacy = document.querySelector('[data-testid="canvas-view"]')?.querySelector("div") as HTMLElement | null;
+      const target = mc ?? legacy;
       if (!target) return;
       const r = target.getBoundingClientRect();
       const deltaY = -Math.log(nextScale / currentScale) / intensity;
