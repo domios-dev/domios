@@ -329,6 +329,9 @@ export function PlanListView({
                   : undefined
               }
               onOpenPane={onOpenPane}
+              planId={selectedPlan.id}
+              plan={selectedPlan}
+              api={api}
             />
             <PlanListFilterBar
               statusFilter={statusFilter}

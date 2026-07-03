@@ -1,4 +1,5 @@
 use super::*;
+use crate::service::plan::retrospective;
 
 impl PlanStore {
     pub fn ensure_task_creation_allowed(
@@ -458,6 +459,51 @@ impl PlanStore {
                 id: mid.clone(),
                 from,
                 kind: kind.into(),
+                text: text.into(),
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            Ok(())
+        })?;
+        Ok(mid)
+    }
+
+    pub fn add_retrospective(
+        &self,
+        plan_id: &str,
+        body: &str,
+        from: AgentRef,
+        now_ms: u64,
+    ) -> Result<String, PlanError> {
+        let text = body.trim();
+        if text.is_empty() {
+            return Err(PlanError::GateRequiresQuestion);
+        }
+        let mid = self.mint_id("ms");
+        let supersede_id = self.mint_id("ms");
+        self.with_plan(plan_id, now_ms, |p| {
+            if retrospective::latest_retrospective(p).is_some() {
+                p.strides.push(Milestone {
+                    id: supersede_id.clone(),
+                    from: from.clone(),
+                    kind: retrospective::RETROSPECTIVE_KIND.into(),
+                    text: retrospective::retrospective_supersede_note().into(),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
+            }
+            p.strides.push(Milestone {
+                id: mid.clone(),
+                from,
+                kind: retrospective::RETROSPECTIVE_KIND.into(),
                 text: text.into(),
                 ts: now_ms,
                 links: vec![],

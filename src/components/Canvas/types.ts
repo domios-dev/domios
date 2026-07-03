@@ -294,4 +294,5 @@ export interface Plan {
   spec_links?: SpecLink[];
   links?: string[];
   lineage?: EffortLink[];
+  strides?: Milestone[];
 }

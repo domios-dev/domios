@@ -197,6 +197,30 @@ impl ServiceContext {
                 self.plan_turn_counter.mark_time_nudged(&timed.pane_id, now);
             }
         }
+        self.send_due_complete_wrapup_reminders(now, cfg.nudge_interval_secs);
+    }
+
+    fn send_due_complete_wrapup_reminders(&self, now: u64, interval_secs: u64) {
+        for (pane_id, plan_id) in complete_wrapup_targets(&self.plan_store.list_full()) {
+            if !self.plan_turn_counter.complete_wrapup_due(&plan_id) {
+                continue;
+            }
+            if !self
+                .plan_turn_counter
+                .time_nudge_due(&pane_id, now, interval_secs)
+            {
+                continue;
+            }
+            let text = crate::service::plan::complete_wrapup::complete_wrapup_message(&plan_id);
+            let envelope =
+                crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "system");
+            if crate::service::messenger::Messenger::deliver(self, &pane_id, envelope, &text)
+                .is_ok()
+            {
+                self.plan_turn_counter.mark_complete_wrapup_sent(&plan_id);
+                self.plan_turn_counter.mark_time_nudged(&pane_id, now);
+            }
+        }
     }
 
     fn deliver_plan_reminder_target(
@@ -355,6 +379,17 @@ fn idle_frontier_for_poke(
 fn non_empty(value: Option<&str>) -> Option<&str> {
     let value = value?.trim();
     (!value.is_empty()).then_some(value)
+}
+
+fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
+    plans
+        .iter()
+        .filter(|plan| crate::service::plan::complete_wrapup::needs_complete_wrapup(plan))
+        .filter_map(|plan| {
+            let pane = non_empty(plan.owner.pane_id.as_deref())?;
+            Some((pane.to_string(), plan.id.clone()))
+        })
+        .collect()
 }
 
 #[cfg(test)]

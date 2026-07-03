@@ -8,6 +8,8 @@ import type { PlanDetailKind } from "../planView/PlanDetailOverlay";
 import { canonicalTaskStatusLabel } from "../planView/taskStatusLabel";
 import { AttachmentGallery } from "../planView/attachments";
 import { PlanRecentActivityRail } from "../planView/PlanRecentActivityRail.tsx";
+import { PlanRetrospectiveBlock } from "../planView/PlanRetrospectiveBlock.tsx";
+import { PlanSkillsSection } from "../planView/PlanSkillsSection.tsx";
 import { TaskActivityTimeline } from "../planView/TaskActivityTimeline.tsx";
 import { GLYPH_ACCENT } from "./cardContent";
 
@@ -406,6 +408,8 @@ function PlanDetail({
   planSections,
   specSections = [],
   panes = {},
+  planId,
+  api,
   onSection,
   onOpenTask,
 }: {
@@ -414,6 +418,8 @@ function PlanDetail({
   planSections: Section[];
   specSections?: Section[];
   panes?: Record<string, Pane>;
+  planId?: string;
+  api?: ApiConfig;
   onSection?: (sectionId: string, variant: "plan" | "spec") => void;
   onOpenTask?: (taskId: string) => void;
 }) {
@@ -441,6 +447,7 @@ function PlanDetail({
 
   return (
     <div style={wrap} data-testid="canvas-detail-content">
+      {variant === "plan" && <PlanRetrospectiveBlock plan={plan} />}
       {variant === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {total > 0 && (
@@ -459,6 +466,9 @@ function PlanDetail({
       )}
       {variant === "spec" && <SpecCoverageHeader plan={plan} />}
       {variant === "plan" && <PlanRecentActivityRail plan={plan} panes={panes} onOpenTask={onOpenTask} />}
+      {variant === "plan" && planId && api && (
+        <PlanSkillsSection planId={planId} plan={plan} api={api} />
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={labelStyle}>{variant === "spec" ? "Specification" : "Sections"}</div>
         {sections.length
@@ -508,6 +518,8 @@ export function DetailContent({ kind, planId, api, task, plan, spec, specSection
       planSections={kind === "spec" ? (spec?.sections ?? []) : displayPlan.sections}
       specSections={specSections ?? (kind === "spec" ? displayPlan.sections : [])}
       panes={panes}
+      planId={navPlanId}
+      api={api}
       onSection={onSection}
       onOpenTask={onOpenTask}
     />

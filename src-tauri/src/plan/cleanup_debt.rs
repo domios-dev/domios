@@ -126,6 +126,7 @@ pub fn detect_cleanup_debt(input: &CleanupDebtInput<'_>) -> Option<CleanupDebtTa
     })
 }
 
+#[allow(dead_code)]
 pub fn render_cleanup_debt_hint(item: &CleanupDebtTask) -> String {
     let intro = if item.deferred {
         format!(

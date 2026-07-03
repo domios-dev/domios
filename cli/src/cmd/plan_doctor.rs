@@ -10,7 +10,6 @@ mod quality;
 
 use inspect::inspect_plan;
 use inspect::inspect_stray_sidecars;
-use quality::inspect_task_lifecycle;
 
 // Mirrors src-tauri/src/plan/reconcile.rs PENDING_UNSTAFFED_STALE_MS.
 pub(super) const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
@@ -115,7 +114,7 @@ fn escalate_planner_unpaired_for_approval(report: &mut Value) {
 fn render_quality_approval_error(plan_id: &str, report: &Value) -> String {
     format!(
         "✗ plan approval blocked by quality doctor\n\n{}fix:\n  codeterm plan doctor {plan_id} --kind quality\n  codeterm plan approve {plan_id}",
-        render_doctor(&report)
+        render_doctor(report)
     )
 }
 
