@@ -44,6 +44,9 @@ pub(super) fn dispatch(
     if method.starts_with("plan.qa.") {
         return super::plan_qa::dispatch(method, params, app, svc);
     }
+    if method.starts_with("plan.decision.") {
+        return super::plan_gates::dispatch(method, params, app, svc);
+    }
     if super::plan_read::handles(method) {
         return super::plan_read::dispatch(method, params, svc);
     }

@@ -145,6 +145,34 @@ fn render_qa_queue(plan: &Plan, out: &mut String) {
     }
 }
 
+fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
+    let open: Vec<_> = plan.gates.iter().filter(|g| g.is_open()).collect();
+    if open.is_empty() {
+        return;
+    }
+    out.push_str("Decision gates:\n");
+    for gate in open {
+        let age_ms = now_ms.saturating_sub(gate.asked_at);
+        let age_h = age_ms / 3_600_000;
+        let age_min = (age_ms % 3_600_000) / 60_000;
+        let age = if age_h > 0 {
+            format!("{age_h}h{age_min}m")
+        } else {
+            format!("{age_min}m")
+        };
+        let blocking = gate.blocking_task_ids.len();
+        let routed = gate
+            .routed_to_pane_id
+            .as_deref()
+            .unwrap_or("unrouted");
+        out.push_str(&format!(
+            "- {} (age:{age} blocking:{blocking} routed:{routed}): {}\n",
+            gate.id,
+            gate.question.chars().take(100).collect::<String>()
+        ));
+    }
+}
+
 fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[LoopSpec]) -> String {
     let plan_id = &plan.id;
     let has_focus = heartbeat
@@ -172,6 +200,7 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
             && task.review_stage == ReviewStage::Qa
             && task.qa_state.is_some()
     });
+    let has_open_gates = plan.gates.iter().any(|g| g.is_open());
     if !has_focus
         && !has_lanes
         && !has_rules
@@ -179,6 +208,7 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
         && !has_running_loops
         && !has_competitive_attempts
         && !has_qa
+        && !has_open_gates
     {
         return String::new();
     }
@@ -215,6 +245,7 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
     render_qa_queue(plan, &mut out);
     render_competitive_attempts(plan, &mut out);
     render_running_loops(loops, &mut out);
+    render_open_gates(plan, now_ms(), &mut out);
     out.push_str("</codeterm-orchestrator-heartbeat>");
     out
 }
@@ -446,6 +477,15 @@ impl PlanStore {
             }
             if let Some(focus) = focus {
                 let focus = focus.trim();
+                if focus.to_ascii_lowercase().starts_with("waiting") {
+                    let names_open_gate = plan
+                        .gates
+                        .iter()
+                        .any(|g| g.is_open() && focus.contains(&g.id));
+                    if !names_open_gate {
+                        return Err(PlanError::WaitingFocusRequiresOpenGate);
+                    }
+                }
                 plan.heartbeat.current_focus = (!focus.is_empty()).then(|| focus.to_string());
             }
             if clear_lanes {

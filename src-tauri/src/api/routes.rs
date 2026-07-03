@@ -213,6 +213,18 @@ pub fn create_router(state: AppState) -> Router {
             "/api/plans/{id}/tasks/{tid}/milestones/{ms_id}",
             patch(plan_routes::milestone_update).delete(plan_routes::milestone_rm),
         )
+        .route(
+            "/api/plans/{id}/decision",
+            post(plan_routes::gate_ask).get(plan_routes::gate_list),
+        )
+        .route(
+            "/api/plans/{id}/decision/{gid}/answer",
+            post(plan_routes::gate_answer),
+        )
+        .route(
+            "/api/plans/{id}/decision/{gid}/escalate",
+            post(plan_routes::gate_escalate),
+        )
         .route("/api/plans/{id}/loops", post(plan_routes::loop_create))
         .route(
             "/api/plans/{id}/loops/{lid}",

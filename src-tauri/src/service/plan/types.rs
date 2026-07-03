@@ -32,6 +32,10 @@ pub enum PlanError {
     QaNoteRequired,
     QaSlotUnavailable,
     QaNotRunning,
+    GateNotFound,
+    GateAlreadyAnswered,
+    GateRequiresQuestion,
+    WaitingFocusRequiresOpenGate,
     WritePending {
         operation: String,
         committed: bool,
@@ -111,6 +115,13 @@ impl fmt::Display for PlanError {
             ),
             PlanError::QaSlotUnavailable => write!(f, "QA queue has no available running slot"),
             PlanError::QaNotRunning => write!(f, "task is not running in QA; claim it first"),
+            PlanError::GateNotFound => write!(f, "decision gate not found"),
+            PlanError::GateAlreadyAnswered => write!(f, "gate is already answered; answers are immutable"),
+            PlanError::GateRequiresQuestion => write!(f, "gate requires a non-empty question"),
+            PlanError::WaitingFocusRequiresOpenGate => write!(
+                f,
+                "waiting-focus requires naming an open gate id; use `codeterm plan decision list <plan>`"
+            ),
             PlanError::WritePending {
                 operation,
                 committed,
@@ -166,6 +177,12 @@ impl PlanError {
             PlanError::QaNoteRequired => serde_json::json!({ "type": "qa_note_required" }),
             PlanError::QaSlotUnavailable => serde_json::json!({ "type": "qa_slot_unavailable" }),
             PlanError::QaNotRunning => serde_json::json!({ "type": "qa_not_running" }),
+            PlanError::GateNotFound => serde_json::json!({ "type": "gate_not_found" }),
+            PlanError::GateAlreadyAnswered => serde_json::json!({ "type": "gate_already_answered" }),
+            PlanError::GateRequiresQuestion => serde_json::json!({ "type": "gate_requires_question" }),
+            PlanError::WaitingFocusRequiresOpenGate => {
+                serde_json::json!({ "type": "waiting_focus_requires_open_gate" })
+            }
             PlanError::WritePending {
                 operation,
                 committed,

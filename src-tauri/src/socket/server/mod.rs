@@ -26,6 +26,7 @@ mod plan_lifecycle;
 mod plan_linking;
 mod plan_loops;
 mod plan_mode;
+mod plan_gates;
 mod plan_qa;
 mod plan_read;
 mod plan_refs;

@@ -356,6 +356,75 @@ impl ServiceContext {
         let _ = crate::service::messenger::Messenger::deliver(self, owner, envelope, &text);
     }
 
+    /// Deliver a decision gate question to the resolved planner/orchestrator pane.
+    /// Uses plan's `planner` field via `resolve_planner_ref`; falls back to owner.
+    /// Returns the pane_id that was delivered to (if any).
+    pub fn deliver_gate_question(
+        &self,
+        plan_id: &str,
+        gate_id: &str,
+        question: &str,
+        asked_by_pane: Option<&str>,
+    ) -> Option<String> {
+        let plan = self.plan_store.get(plan_id)?;
+        let resolution = crate::plan::peer::resolve_planner_ref(
+            &plan.planner,
+            &plan.owner,
+            |pane_id| self.pane_probe(pane_id),
+        );
+        let pane_id = match &resolution {
+            crate::plan::peer::PeerResolution::Planner { pane_id } => pane_id.clone(),
+            crate::plan::peer::PeerResolution::OrchestratorFallback { .. } => {
+                plan.owner.pane_id.clone()?
+            }
+            crate::plan::peer::PeerResolution::Waived { .. } => return None,
+            crate::plan::peer::PeerResolution::Unbound => plan.owner.pane_id.clone()?,
+        };
+        if Some(pane_id.as_str()) == asked_by_pane {
+            return None; // no self-deliver
+        }
+        let who = asked_by_pane.unwrap_or("orchestrator");
+        let text = format!(
+            "[decision gate {gate_id}] '{question}'\nAsked by {who}. Answer with: \
+             codeterm plan decision answer {plan_id} {gate_id} --answer \"<your answer>\""
+        );
+        let text = self.plan_store.prepend_heartbeat_for_plan(plan_id, &text);
+        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
+        let _ = crate::service::messenger::Messenger::deliver(self, &pane_id, envelope, &text);
+        Some(pane_id)
+    }
+
+    /// Nudge the gate asker pane when a gate is answered.
+    pub fn nudge_gate_asker(
+        &self,
+        plan_id: &str,
+        gate_id: &str,
+        answer_text: &str,
+        answered_by_pane: Option<&str>,
+    ) {
+        let Some(plan) = self.plan_store.get(plan_id) else {
+            return;
+        };
+        let gate = plan.gates.iter().find(|g| g.id == gate_id);
+        let asker_pane = gate
+            .and_then(|g| g.asked_by_pane_id.as_deref())
+            .or_else(|| plan.owner.pane_id.as_deref());
+        let Some(asker) = asker_pane else {
+            return;
+        };
+        if Some(asker) == answered_by_pane {
+            return; // no self-notify
+        }
+        let preview = answer_text.chars().take(160).collect::<String>();
+        let text = format!(
+            "[gate answered: {gate_id}] Answer: {preview}\n\
+             Unblocked tasks are now pending. Review with: codeterm plan state {plan_id}"
+        );
+        let text = self.plan_store.prepend_heartbeat_for_plan(plan_id, &text);
+        let envelope = crate::service::messenger::MessageEnvelope::reminder("CodeTerm", "plan");
+        let _ = crate::service::messenger::Messenger::deliver(self, asker, envelope, &text);
+    }
+
     /// Fire-and-forget relay of plan batch ops (status update + milestone) to the
     /// peer that owns the plan. Used when the plan doesn't exist in the local store
     /// but plan_id + task_id were provided (remote worker mesh homing scenario).

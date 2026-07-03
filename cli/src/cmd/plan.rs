@@ -8,6 +8,7 @@ use crate::client::SocketClient;
 use crate::cmd::hints::{plan_create_spec_first_hint, push_hints};
 use crate::cmd::plan_errors::render_plan_call_error;
 
+mod gate_cmd;
 mod qa_cmd;
 mod task_cmd;
 #[cfg(test)]
@@ -742,6 +743,8 @@ fn run_plan(
         },
 
         PlanAction::Qa { action } => return qa_cmd::handle(client, json, action),
+
+        PlanAction::Decision { action } => return gate_cmd::handle(client, json, action),
 
         PlanAction::Layout { action } => match action {
             PlanLayoutAction::Set {
