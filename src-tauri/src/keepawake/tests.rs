@@ -1,5 +1,5 @@
 use super::*;
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex, MutexGuard as StdMutexGuard, OnceLock as StdOnceLock};
 
 fn child(pid: u32, wrapper: bool) -> KeepAwakeChild {
     KeepAwakeChild {
@@ -8,6 +8,27 @@ fn child(pid: u32, wrapper: bool) -> KeepAwakeChild {
         display: false,
         wrapper,
     }
+}
+
+fn active_test_state() -> KeepAwakeState {
+    let (stop_tx, _stop_rx) = std::sync::mpsc::channel();
+    Arc::new(parking_lot::Mutex::new(Some(ActiveSession {
+        stop_tx,
+        display: false,
+        expires_at: None,
+        session_id: 42,
+        gnome_policy: false,
+        system_block: false,
+    })))
+}
+
+fn reset_child_registry(entries: Vec<KeepAwakeChild>) {
+    *child_registry().lock() = entries;
+}
+
+fn registry_test_lock() -> StdMutexGuard<'static, ()> {
+    static LOCK: StdOnceLock<StdMutex<()>> = StdOnceLock::new();
+    LOCK.get_or_init(|| StdMutex::new(())).lock().unwrap()
 }
 
 #[test]
@@ -71,6 +92,57 @@ fn exit_cleanup_attempts_all_registered_children() {
 
     assert_eq!(result, vec![20, 21]);
     assert_eq!(*killed.lock().unwrap(), vec![20, 21]);
+}
+
+#[test]
+fn status_reports_inactive_when_registered_child_is_dead() {
+    let _guard = registry_test_lock();
+    let state = active_test_state();
+    reset_child_registry(vec![child(30, true)]);
+
+    let status = status_with_inspector(&state, |_| None);
+
+    assert!(!status.active);
+    assert!(status
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("not alive")));
+}
+
+#[test]
+fn supervisor_tick_respawns_once_for_active_session_with_dead_child() {
+    let _guard = registry_test_lock();
+    let state = active_test_state();
+    reset_child_registry(vec![child(40, true)]);
+    let respawns = Arc::new(StdMutex::new(0));
+    let respawns_for_closure = Arc::clone(&respawns);
+
+    let outcome = supervisor_tick_with(
+        &state,
+        |_| None,
+        || {
+            *respawns_for_closure.lock().unwrap() += 1;
+            reset_child_registry(vec![child(41, true)]);
+            Ok(())
+        },
+    );
+
+    assert_eq!(outcome, SupervisorTick::Repaired);
+    assert_eq!(*respawns.lock().unwrap(), 1);
+    assert_eq!(*child_registry().lock(), vec![child(41, true)]);
+}
+
+#[test]
+fn exit_cleanup_clears_active_session_state_with_empty_child_registry() {
+    let _guard = registry_test_lock();
+    let state = active_test_state();
+    reset_child_registry(vec![child(50, true)]);
+
+    let killed = cleanup_active_children_with_state(Some(&state), |_| Ok(()));
+
+    assert_eq!(killed, vec![50]);
+    assert!(state.lock().is_none());
+    assert!(child_registry().lock().is_empty());
 }
 
 #[test]

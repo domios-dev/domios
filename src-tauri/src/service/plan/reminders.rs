@@ -39,13 +39,20 @@ pub fn nudge_text(kind: NudgeKind) -> String {
             "Plan reminder: you are assigned to an active task. Run `codeterm agent report --plan $CODETERM_PLAN_ID --task $CODETERM_TASK_ID \"status update\"` so your parent can see progress."
                 .to_string()
         }
-        NudgeKind::Orchestrator => {
-            "Plan reminder: this pane owns unfinished execution-plan work. Read `codeterm docs ORCHESTRATION` if the orchestration loop is unclear, then process reports, reconcile, review, close, or bounce tasks."
-                .to_string()
-        }
-        NudgeKind::Escalated => "UNREPORTED task; your parent is blind until you report.".to_string(),
+        NudgeKind::Orchestrator => format!(
+            "Plan reminder: this pane owns unfinished execution-plan work. This nudge {CONTRACT} Give every open task one of five exits: {EXITS}. Read `codeterm docs ORCHESTRATION` if the orchestration loop is unclear, then process reports, reconcile, review, close, or bounce tasks."
+        ),
+        NudgeKind::Escalated => format!(
+            "ESCALATED plan reminder: open tasks are aging unattended. This nudge {CONTRACT} Give every open task one of five exits: {EXITS}. Workers: an UNREPORTED task leaves your parent blind until you report."
+        ),
     }
 }
+
+// Verbatim heartbeat/nudge contract — MUST appear in every open-work nudge.
+pub const CONTRACT: &str = "repeats until every open task is dispatched, parked with a reason, or sent to replanning; silence is not an option.";
+
+// The five sanctioned exits for an open task.
+pub const EXITS: &str = "(1) dispatch it to a worker, (2) park with a reason (`codeterm plan task park <plan> <task> --reason \"<why>\"`), (3) judge an in_review task to done or bounce it, (4) send it to replanning, (5) escalate to a smarter model";
 
 fn next_interval(base: u32, last_nudge: u32) -> u32 {
     if last_nudge == 0 {
@@ -154,6 +161,19 @@ mod tests {
 
         let worker_text = nudge_text(NudgeKind::Worker);
         assert!(!worker_text.contains("STATE-RECONCILIATION"));
+    }
+
+    #[test]
+    fn open_work_nudges_carry_contract_and_five_exits() {
+        for kind in [NudgeKind::Orchestrator, NudgeKind::Escalated] {
+            let text = nudge_text(kind);
+            assert!(text.contains("repeats until every open task is dispatched, parked with a reason, or sent to replanning; silence is not an option."));
+            assert!(text.contains("dispatch"));
+            assert!(text.contains("park with a reason"));
+            assert!(text.contains("judge"));
+            assert!(text.contains("replanning"));
+            assert!(text.contains("escalate to a smarter model"));
+        }
     }
 
     #[test]

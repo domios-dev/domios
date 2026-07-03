@@ -2,7 +2,7 @@
 // match the JSON wire shape (serde snake_case; Task.type via serde rename).
 
 export type PlanStatus = "active" | "archived";
-export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "done" | "cancelled";
+export type TaskStatus = "pending" | "in_progress" | "in_review" | "blocked" | "parked" | "done" | "cancelled";
 // Value-level mirror of the TaskStatus union — use these in comparisons/switches
 // instead of bare string literals (type + value namespaces merge by design).
 export const TaskStatus = {
@@ -10,11 +10,17 @@ export const TaskStatus = {
   InProgress: "in_progress",
   InReview: "in_review",
   Blocked: "blocked",
+  Parked: "parked",
   Done: "done",
   Cancelled: "cancelled",
 } as const satisfies Record<string, TaskStatus>;
 export type LoopStatus = "running" | "done" | "exhausted" | "stopped";
-export type DriftKind = "in_progress_pane_gone" | "stale_in_review" | "bound_to_closed_pane" | "accepted_but_not_done";
+export type DriftKind =
+  | "in_progress_pane_gone"
+  | "stale_in_review"
+  | "stale_pending_unstaffed"
+  | "bound_to_closed_pane"
+  | "accepted_but_not_done";
 
 export interface DriftItem {
   task_id: string;
@@ -148,6 +154,7 @@ export interface Task {
   taken_by_role?: string | null;
   peer: string | null;
   execution_attempts?: TaskExecutionAttempt[];
+  park_reason?: string | null;
   canvas: ElementCanvas;
   milestones: Milestone[];
 }

@@ -13,6 +13,7 @@ export interface PlanIndexEntry {
   updated_at: number;
   assigned_pane_ids: string[];
   task_count?: number;
+  open_task_count?: number;
   section_count?: number;
   element_count?: number;
   loop_count?: number;
@@ -150,6 +151,24 @@ export async function archivePlan(api: ApiConfig, planId: string): Promise<void>
     body: "{}",
   });
   if (!res.ok) throw new Error(`plan archive failed: ${res.status} ${await res.text()}`);
+}
+
+export async function unarchivePlan(api: ApiConfig, planId: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}/unarchive`, {
+    method: "POST",
+    headers: jsonHeaders(api),
+    body: "{}",
+  });
+  if (!res.ok) throw new Error(`plan unarchive failed: ${res.status} ${await res.text()}`);
+}
+
+export async function renamePlan(api: ApiConfig, planId: string, title: string): Promise<void> {
+  const res = await fetch(`${baseUrl(api)}/api/plans/${encodeURIComponent(planId)}`, {
+    method: "PATCH",
+    headers: jsonHeaders(api),
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error(`plan rename failed: ${res.status} ${await res.text()}`);
 }
 
 export async function claimPlan(

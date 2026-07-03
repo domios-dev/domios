@@ -97,21 +97,41 @@ test("one click opens that plan's canvas", async () => {
   await act(async () => root.unmount());
 });
 
-test("multiple plans → +N badge and ambiguous (no single plan id)", async () => {
+test("multiple plans → no +N badge, still ambiguous (no single plan id)", async () => {
   canvasFocusStore.closeWorkspace();
   const index = [
     mkEntry({ plan_id: "quiet", title: "Quiet plan", updated_at: 1 }),
     mkEntry({ plan_id: "busy", title: "Busy plan", file_path: "/repo/hub/.codeterm/plans/active/busy/plan.json", updated_at: 999 }),
   ];
   const { host, root } = await render(slot(index));
-  const more = host.querySelector('[data-testid="workspace-plan-more"]');
-  assert(more?.textContent === "+1", `+N badge for the extra plan (got ${more?.textContent})`);
+  assert(!host.querySelector('[data-testid="workspace-plan-more"]'), "+N badge removed from UI");
   const title = host.querySelector('[data-testid="workspace-plan-title"]');
   assert(title?.textContent === "Busy plan", `leads with the freshest plan (got ${title?.textContent})`);
   const btn = host.querySelector('[data-testid="workspace-plan-entry"]') as HTMLButtonElement;
   await act(async () => { btn.click(); });
   assert(canvasFocusStore.getWorkspaceTarget()?.planId === undefined, "multi-plan open stays plan-ambiguous");
   canvasFocusStore.closeWorkspace();
+  await act(async () => root.unmount());
+});
+
+test("plan entry shows open task count when available, falls back to total", async () => {
+  const { host: hostOpen, root: rootOpen } = await render(slot([mkEntry({ task_count: 12, open_task_count: 7 })]));
+  const hintOpen = hostOpen.querySelector('[data-testid="workspace-plan-hint"]');
+  assert(hintOpen?.textContent === "7 tasks", `open_task_count shown (got ${hintOpen?.textContent})`);
+  await act(async () => rootOpen.unmount());
+
+  const { host: hostFallback, root: rootFallback } = await render(slot([mkEntry({ task_count: 12 })]));
+  const hintFallback = hostFallback.querySelector('[data-testid="workspace-plan-hint"]');
+  assert(hintFallback?.textContent === "12 tasks", `falls back to task_count (got ${hintFallback?.textContent})`);
+  await act(async () => rootFallback.unmount());
+});
+
+test("plan entry does not show 'Plan' label text", async () => {
+  const { host, root } = await render(slot([mkEntry()]));
+  const entry = host.querySelector('[data-testid="workspace-plan-entry"]');
+  assert(entry, "entry present");
+  const kindSpan = entry?.querySelector(".sidebar-workspace-plan-kind");
+  assert(!kindSpan, "'Plan' kind label span removed from entry");
   await act(async () => root.unmount());
 });
 

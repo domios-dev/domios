@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+use super::readback::pending_after_readback;
 use super::{PlanError, PlanStore};
 use crate::plan::{
     HeartbeatLearning, LoopSpec, LoopStatus, OrchestratorHeartbeat, Plan, PlanMode, PlanStatus,
-    TaskStatus,
 };
 
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
@@ -206,7 +206,7 @@ pub(super) fn prepend_heartbeat_snapshot(
 fn has_open_work(plan: &Plan) -> bool {
     plan.tasks
         .iter()
-        .any(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
+        .any(|task| task.status.counts_as_open_work())
 }
 
 fn owner_matches(plan: &Plan, pane_id: Option<&str>, session_id: Option<&str>) -> bool {
@@ -333,7 +333,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<HeartbeatShowResult, PlanError> {
         let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, pane_id, session_id)?;
-        self.with_plan(&plan_id, now_ms, |plan| {
+        let write = self.with_plan(&plan_id, now_ms, |plan| {
             let writes_runtime_state = focus.is_some()
                 || lanes
                     .as_ref()
@@ -359,8 +359,8 @@ impl PlanStore {
                 plan.heartbeat.rules = clean_list(rules);
             }
             Ok(())
-        })?;
-        self.show_heartbeat(Some(&plan_id), None, None)
+        });
+        pending_after_readback(write, self.show_heartbeat(Some(&plan_id), None, None))
     }
 
     pub fn show_heartbeat(

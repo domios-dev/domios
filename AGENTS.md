@@ -18,7 +18,6 @@
 
 - **English only** in code, comments, commit messages.
 - **No external user base yet** — this is Andrey's personal project. No backward-compat shims, no migration paths. Breaking changes are fine. Delete legacy aggressively. When in doubt, rewrite rather than patch.
-- **Never commit/push without explicit user request.** No auto-commits, no "let me commit this". Wait for "коммить" / "commit" / "запушь".
 - **Never kill prod CodeTerm.** Prod = port 7685, dev = port 7686. See *Process safety* below.
 - **Hot-reload over restart.** Subsystems should support stop/start without restarting the whole daemon when possible.
 

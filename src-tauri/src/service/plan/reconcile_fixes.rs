@@ -1,5 +1,6 @@
 use crate::plan::reconcile::{
     DriftItem, DriftKind, NEEDS_REASSIGN_LABEL, PANE_GONE_LABEL, STALE_REVIEW_LABEL,
+    STALE_UNSTAFFED_LABEL,
 };
 use crate::plan::TaskStatus;
 
@@ -45,6 +46,16 @@ impl PlanStore {
                             item,
                             &task.id,
                             "set_stale_review_label",
+                        ));
+                    }
+                    DriftKind::StalePendingUnstaffed => {
+                        task.status_label = Some(STALE_UNSTAFFED_LABEL.into());
+                        task.updated_at = now_ms;
+                        changed.push(fix_result(
+                            plan_id,
+                            item,
+                            &task.id,
+                            "set_stale_unstaffed_label",
                         ));
                     }
                     DriftKind::BoundToClosedPane => {

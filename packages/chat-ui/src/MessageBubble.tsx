@@ -6,8 +6,6 @@ import type {
 } from "@codeterm/chat-core";
 import {
   Bot,
-  CheckCircle2,
-  Clock,
   Download, FileText, Image,
   Pencil,
   Search,
@@ -34,7 +32,6 @@ import {
   ImageBadge,
   LongArtifact,
   ModelAvatar,
-  PlainOutput,
   RichMarkdown,
   TEXT_WRAP_CLASS,
   extractCommand,
@@ -42,10 +39,8 @@ import {
   extractFilePath,
   inferCodeLanguage,
   isLargeArtifact,
-  isShellToolName,
   languageForEdits,
   languageFromPath,
-  lastNonEmptyLine,
   renderUserContent,
   shortPath,
 } from "./MarkdownBody";
@@ -53,6 +48,20 @@ import { ToolIcon } from "./toolIcons";
 import { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 import type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 import { pickUiFontScaleValue } from "./uiFontScale";
+import { ToolOutputContent } from "./ToolOutputContent";
+import { isImageOnlyToolOutput, toolResultPreviewLine } from "./toolImageOutput";
+import {
+  INBOUND_KIND_LABELS,
+  contentSize,
+  hasMeaningfulToolResult,
+  isRenderableMessage,
+  parsedToolInput,
+  previewLine,
+  resolveCuratedToolKind,
+  structuredInboundFromMessage,
+  textArg,
+  toolDisplayLabel,
+} from "./MessageBubble.helpers";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -79,138 +88,6 @@ interface MessageBubbleProps {
 // Kill switch for interactive AskUserQuestion widgets (all providers). Detection
 // is mistimed — the prompt surfaces AFTER the user has already answered — so the
 const INTERACTIVE_QUESTIONS_ENABLED = false;
-
-type CuratedToolKind = "exec" | "read_file" | "write_file" | "codeterm" | "mem_search" | "spawn_agent";
-type StructuredInboundKind = NonNullable<ChatMessage["inboundKind"]>;
-
-const INBOUND_KIND_LABELS: Record<StructuredInboundKind, string> = {
-  pane: "pane",
-  report: "report",
-  reminder: "reminder",
-  mesh: "mesh",
-  telegram: "telegram",
-};
-
-interface StructuredInbound {
-  origin: ChatOrigin;
-  kind: StructuredInboundKind;
-}
-
-function structuredInboundFromMessage(message: ChatMessage): StructuredInbound | null {
-  const fromLabel = message.fromLabel?.trim();
-  if (!fromLabel) return null;
-  const kind = message.inboundKind ?? (message.fromMesh ? "mesh" : "pane");
-  const title = kind === "mesh" && message.fromMesh
-    ? `${fromLabel}@${message.fromMesh}`
-    : fromLabel;
-  return {
-    kind,
-    origin: {
-      kind: "pane",
-      title,
-      paneIdShort: message.fromPane ?? "",
-      model: message.fromModel,
-      mesh: kind === "mesh" ? undefined : message.fromMesh,
-      report: kind === "report",
-    },
-  };
-}
-
-function parsedToolInput(message: ChatMessage): Record<string, unknown> {
-  if (message.toolInput) return message.toolInput;
-  if (!message.toolArgs) return {};
-  try {
-    const parsed = JSON.parse(message.toolArgs);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function textArg(input: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = input[key];
-    if (typeof value === "string" && value.trim()) return value;
-    if (Array.isArray(value) && value.length > 0) return value.map(String).join(" ");
-  }
-  return null;
-}
-
-function contentSize(content: string): string {
-  const bytes = new TextEncoder().encode(content).length;
-  if (bytes < 1024) return `${bytes} B`;
-  return `${(bytes / 1024).toFixed(1)} KB`;
-}
-
-function previewLine(text: string, max = 90): string {
-  const line = text.replace(/\r/g, "").split("\n").find((part) => part.trim())?.trim() ?? "";
-  return line.length > max ? `${line.slice(0, max)}...` : line;
-}
-
-function curatedToolKind(name: string | undefined): CuratedToolKind | null {
-  const normalized = (name ?? "").trim().toLowerCase();
-  switch (normalized) {
-    case "exec":
-    case "read_file":
-    case "write_file":
-    case "codeterm":
-    case "mem_search":
-    case "spawn_agent":
-      return normalized;
-    default:
-      return null;
-  }
-}
-
-function resolveCuratedToolKind(name: string | undefined): CuratedToolKind | null {
-  const direct = curatedToolKind(name);
-  if (direct) return direct;
-  const normalized = (name ?? "").trim().toLowerCase();
-  if (isShellToolName(name)) return "exec";
-  if (normalized === "read") return "read_file";
-  if (normalized === "write") return "write_file";
-  return null;
-}
-
-function toolDisplayLabel(toolName: string): string {
-  if (isShellToolName(toolName) || toolName === "shell_command" || toolName === "exec_command") {
-    return "shell";
-  }
-  return toolName;
-}
-
-function hasRenderableValue(value: unknown): boolean {
-  if (value == null) return false;
-  if (typeof value === "string") return value.trim().length > 0;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "object") return Object.keys(value).length > 0;
-  return true;
-}
-
-function hasRenderableText(value: string | undefined): boolean {
-  return typeof value === "string" && value.trim().length > 0;
-}
-
-function isRenderableMessage(message: ChatMessage): boolean {
-  if (message.type === "tool_call") {
-    return (
-      hasRenderableText(message.content) ||
-      hasRenderableText(message.toolName) ||
-      hasRenderableText(message.toolArgs) ||
-      hasRenderableText(message.toolResult) ||
-      hasRenderableValue(message.toolInput) ||
-      Boolean(message.interactive?.length)
-    );
-  }
-
-  if (message.type === "tool_result") {
-    return hasRenderableText(message.content) || hasRenderableText(message.toolResult);
-  }
-
-  return true;
-}
 
 export const MessageBubble = React.memo(function MessageBubble({ message, origin, originAvatar, onOriginClick, resolvePaneName, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand }: MessageBubbleProps) {
   // Auto-expand for Write-style tool input (the file body being written) and
@@ -682,7 +559,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
     const curatedKind = resolveCuratedToolKind(message.toolName);
     if (curatedKind) {
       const input = parsedToolInput(message);
-      const phase = message.toolResult ? "result" : message.toolId ? "running" : "pending";
       const Icon =
         curatedKind === "exec" ? Terminal :
         curatedKind === "read_file" ? FileText :
@@ -690,7 +566,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
         curatedKind === "codeterm" ? Terminal :
         curatedKind === "mem_search" ? Search :
         Bot;
-      const PhaseIcon = phase === "result" ? CheckCircle2 : phase === "running" ? Clock : Clock;
       const commandText =
         curatedKind === "exec"
           ? (textArg(input, ["cmd", "command"]) ?? extractCommand(message))
@@ -752,20 +627,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                   {secondary}
                 </span>
               )}
-              <span
-                className="ml-1 inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono"
-                style={{
-                  background: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 10%, transparent)",
-                  color: phase === "result" ? "var(--ct-green, #3fb950)" : "var(--ct-muted-fg)",
-                }}
-              >
-                <PhaseIcon size={10} strokeWidth={2} />
-                {phase}
-              </span>
               <ChevronIcon expanded={expanded} className="ml-1 opacity-50" />
             </button>
 
-            {message.toolResult && !expanded && (
+            {message.toolResult && !expanded && !isImageOnlyToolOutput(message.toolResult) && (
               <button
                 onClick={() => setExpanded(true)}
                 className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
@@ -773,8 +638,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                 title="Show full output"
               >
                 <span className="flex-shrink-0 opacity-40">{"→"}</span>
-                <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{lastNonEmptyLine(message.toolResult)}</span>
+                <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{toolResultPreviewLine(message.toolResult)}</span>
               </button>
+            )}
+            {message.toolResult && !expanded && isImageOnlyToolOutput(message.toolResult) && (
+              <div className="mt-1 pl-2.5">
+                <ToolOutputContent text={message.toolResult} />
+              </div>
             )}
 
             {expanded && (
@@ -797,7 +667,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                     >
                       Result
                     </div>
-                    <PlainOutput text={message.toolResult} maxHeight="12rem" />
+                    <ToolOutputContent text={message.toolResult} maxHeight="12rem" />
                   </div>
                 )}
               </div>
@@ -854,7 +724,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
           {/* Compact inline tail — last line of output, always visible while
               collapsed. Click to reveal the full result under the command. */}
-          {resultText && !expanded && (
+          {resultText && !expanded && !isImageOnlyToolOutput(resultText) && (
             <button
               onClick={() => setExpanded(true)}
               className="mt-0.5 flex min-w-0 items-start gap-1 pl-2.5 text-left text-[11px] font-mono"
@@ -862,8 +732,13 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
               title="Show full output"
             >
               <span className="flex-shrink-0 opacity-40">{"→"}</span>
-              <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{lastNonEmptyLine(resultText)}</span>
+              <span className={`min-w-0 flex-1 ${TEXT_WRAP_CLASS} opacity-70`}>{toolResultPreviewLine(resultText)}</span>
             </button>
+          )}
+          {resultText && !expanded && isImageOnlyToolOutput(resultText) && (
+            <div className="mt-1 pl-2.5">
+              <ToolOutputContent text={resultText} />
+            </div>
           )}
 
           {expanded && (
@@ -891,7 +766,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
                   >
                     Result
                   </div>
-                  <PlainOutput text={resultText} maxHeight="12rem" />
+                  <ToolOutputContent text={resultText} maxHeight="12rem" />
                 </div>
               )}
             </div>
@@ -904,6 +779,14 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
   // Tool result — subtle, compact
   if (message.type === "tool_result") {
     if (!hasMeaningfulToolResult(message.content)) return null;
+    const standaloneResult = message.toolResult || message.content;
+    if (isImageOnlyToolOutput(standaloneResult)) {
+      return (
+        <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto pl-4">
+          <ToolOutputContent text={standaloneResult} />
+        </div>
+      );
+    }
     if (isLargeArtifact(message.content)) {
       return (
         <LongArtifact
@@ -938,11 +821,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
           {hasMore && <ChevronIcon expanded={expanded} className="ml-1 mt-0.5 opacity-40" />}
         </button>
         {expanded && (
-          <div
-            className="mt-1 ml-4 max-w-full min-w-0 rounded-md px-3 py-2 text-xs font-mono overflow-x-auto max-h-48 overflow-y-auto border border-[var(--ct-border)]"
-            style={{ background: "var(--ct-bg)", color: "var(--ct-fg)" }}
-          >
-            <pre className={`${PRE_WRAP_CLASS} m-0`}>{message.content}</pre>
+          <div className="mt-1 ml-4 max-w-full min-w-0">
+            <ToolOutputContent text={standaloneResult} maxHeight="12rem" />
           </div>
         )}
       </div>
@@ -1011,10 +891,3 @@ export const MessageBubble = React.memo(function MessageBubble({ message, origin
 
   return null;
 });
-
-function hasMeaningfulToolResult(content: string): boolean {
-  return content
-    .split("\n")
-    .map((line) => line.trim())
-    .some((line) => line.length > 0 && !/^(?:->|→|⎿)+$/.test(line));
-}

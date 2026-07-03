@@ -4,22 +4,19 @@ use crate::plan::{Task, TaskLaneMetadata, TaskPriority, TaskStatus};
 pub(in crate::service::plan) fn pending_after_verified(
     result: Result<(), PlanError>,
     verified: Result<(), PlanError>,
-    committed_id: Option<String>,
+    _committed_id: Option<String>,
 ) -> Result<(), PlanError> {
+    pending_after_readback(result, verified)
+}
+
+pub(in crate::service::plan) fn pending_after_readback<T>(
+    result: Result<(), PlanError>,
+    readback: Result<T, PlanError>,
+) -> Result<T, PlanError> {
     match result {
-        Ok(()) => verified,
-        Err(PlanError::WritePending {
-            operation,
-            committed,
-            message,
-            ..
-        }) => match verified {
-            Ok(()) => Err(PlanError::WritePending {
-                operation,
-                committed,
-                committed_id,
-                message,
-            }),
+        Ok(()) => readback,
+        Err(PlanError::WritePending { .. }) => match readback {
+            Ok(value) => Ok(value),
             Err(readback) => Err(readback),
         },
         Err(err) => Err(err),
@@ -213,6 +210,40 @@ impl PlanStore {
         Ok(())
     }
 
+    pub(in crate::service::plan) fn verify_task_milestone_added(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        milestone_id: &str,
+        kind: &str,
+        text: &str,
+    ) -> Result<(), PlanError> {
+        let task = self.read_task_for_verification(plan_id, task_id)?;
+        let Some(milestone) = task
+            .milestones
+            .iter()
+            .find(|milestone| milestone.id == milestone_id)
+        else {
+            return Err(Self::task_readback_error(
+                "task_record",
+                format!("missing milestone {milestone_id} for {}", task.id),
+            ));
+        };
+        if milestone.kind != kind {
+            return Err(Self::task_readback_error(
+                "task_record",
+                format!("milestone kind did not match for {}", task.id),
+            ));
+        }
+        if milestone.text != text {
+            return Err(Self::task_readback_error(
+                "task_record",
+                format!("milestone text did not match for {}", task.id),
+            ));
+        }
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(in crate::service::plan) fn verify_task_updated(
         &self,
@@ -364,6 +395,25 @@ impl PlanStore {
             if task.assigned_pane_id.is_none() && expected.is_some() {
                 return Err(fail("assigned_pane_id"));
             }
+        }
+        Ok(())
+    }
+
+    pub(in crate::service::plan) fn verify_task_removed(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+    ) -> Result<(), PlanError> {
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        if plan
+            .tasks
+            .iter()
+            .any(|task| task.id == task_id || task.handle.as_deref() == Some(task_id))
+        {
+            return Err(Self::task_readback_error(
+                "task_remove",
+                format!("task {task_id} still exists after removal"),
+            ));
         }
         Ok(())
     }

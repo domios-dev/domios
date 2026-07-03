@@ -120,11 +120,21 @@ test("open-pane action invokes callback", async () => {
     />,
   );
   const btn = host.querySelector('[data-testid="plan-detail-open-pane"]') as HTMLButtonElement;
-  assert(btn, "open pane button visible");
+  assert(btn?.textContent?.includes("Show agent"), "show agent button visible");
   await act(async () => {
     btn.click();
   });
   assert(opened === "pane-worker", "onOpenPane called with pane id");
+});
+
+test("detail body supports text selection", async () => {
+  const { host } = await render(
+    <PlanDetailOverlay kind="task" task={FIXTURE_TASK} onClose={() => {}} />,
+  );
+  const body = host.querySelector('[data-testid="plan-detail-body"]') as HTMLElement;
+  assert(body.className.includes("plan-detail-selectable"), "detail body selectable");
+  const title = host.querySelector('[data-testid="plan-detail-title"]') as HTMLElement;
+  assert(title.className.includes("plan-task-selectable"), "detail title selectable");
 });
 
 let passed = 0;

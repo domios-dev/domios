@@ -1,6 +1,6 @@
 # Orchestration Toolset — Plans & Canvas
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->
 
 Full mechanical reference for the `codeterm plan` CLI. Mechanics only — the *why* (when to spawn, model routing, discipline) lives in the `codeterm-orchestrator` mem skill.
 
@@ -271,10 +271,36 @@ The orchestrator **heartbeat** is durable state attached to the plan (`current_f
 
 Plan nudges are automatic while an execution-mode plan has unfinished work:
 
-- **Owner orchestrator:** receives a timed reminder while the owned plan has any task that is not `done` or `cancelled`.
+- **Owner orchestrator:** receives a timed reminder while the owned plan has any task that is not `done`, `cancelled`, or `parked`.
 - **Assigned worker:** receives a timed reminder while its task is `pending`, `in_progress`, or `blocked` and it has not reported back.
 - **Event nudges:** pane sends and agent reports still count as activity triggers, but they are not required for the timer to fire.
 - **Cadence:** `[orchestration].nudge_interval_secs` defaults to `1800` (30 minutes). `[orchestration].nudge_after_turns` remains the message-count fallback. `[orchestration].plan_reminders = false` disables both.
+
+### Task lifecycle — PARKED and the relentless nudge contract
+
+The open-work set and the heartbeat-stop condition are the **same predicate**:
+a task counts as open only while it is `pending`, `in_progress`, `in_review`,
+or `blocked`. `done` and `cancelled` are terminal; **`parked`** is a
+non-terminal deferral that is *also* excluded from the open-work set — parked
+tasks do not keep the heartbeat alive and are folded/de-emphasized in read
+models. So there is no nudge dead-zone: while any non-terminal, non-parked task
+is open, the nudge **repeats until every open task is dispatched, parked with a
+reason, or sent to replanning; silence is not an option.**
+
+Every open task must take exactly one of five exits: (1) dispatch it to a
+worker, (2) park with a reason, (3) judge an `in_review` task to done or bounce
+it, (4) send it to replanning, (5) escalate to a smarter model.
+
+- **Park:** `codeterm plan task park <plan> <task> --reason "<why>"` — requires a
+  reason, sets `parked`, clears the lane assignment, and records a working-point
+  stride. Parking with no reason is rejected; a task parked without a reason is a
+  **doctor error** (`parked_without_reason`).
+- **Unpark:** `codeterm plan task unpark <plan> <task>` — returns the task to
+  `pending`, clears `park_reason`, and records a stride.
+- **Age thresholds (drift):** a `pending` task that stays **unstaffed over 4h**,
+  or an `in_review` task that stays **unjudged over 2h**, is recorded as drift
+  and named explicitly in the escalated nudge so stalled work cannot hide. Doctor
+  warns on aged unstaffed open tasks (`aged_unstaffed_task`).
 
 ### Event-driven orchestration: no manual wait loops
 
@@ -300,6 +326,31 @@ Allowed checks:
 The correct idle posture is not "wait 30 seconds and poll again"; it is "the
 plan will nudge me when attention is due, and until then I either process another
 ready task or stop talking."
+
+### Focus discipline — the heartbeat amplifies what you write
+
+`current_focus` is prepended to every future nudge, so it must name an action
+YOU own and will execute ("dispatch t7; judge t0b report"), never a wait on
+another agent. A focus like "planner decides what to dispatch next" is an
+ownership inversion — dispatch is never delegable to a Planner — and it turns
+every subsequent nudge into a confirmation of idleness (a real 5-hour stall
+was traced to exactly this). If you are blocked on another agent, phrase the
+focus as the action you will take: "bounce/escalate <agent> about <thing> if
+unchanged at the next nudge."
+
+### Dispatch frontier — re-derive after every gate
+
+Every acceptance/close/integration changes which pending tasks are unblocked.
+Immediately after closing a task or accepting a lane, re-check the frontier:
+any task whose precondition just became true gets dispatched NOW, parked with
+a recorded reason, or routed to replanning. The most common stall: a gating
+task (review/verification) becomes dispatchable at the moment the last lane
+integrates, while the stale focus still describes the finished wave.
+
+A nudge is handled only if it ends in a state change for at least one open
+task: dispatch / park (or a decision stride) / judge a report / bounce a
+worker / hand to replanning. "Waiting" is a valid response only for tasks
+with a live assigned lane.
 
 ```bash
 codeterm orchestrator heartbeat set \

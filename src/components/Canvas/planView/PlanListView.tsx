@@ -11,11 +11,13 @@ import {
   selectDefaultPlanId,
 } from "./boardModel";
 import { buildPlanListRows, type PlanListRow } from "./buildPlanListTree";
+import { cancelledTaskCount } from "./cancelledTasks";
 import { PlanContextHeader } from "./PlanContextHeader";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
 import { PlanListFilterBar } from "./PlanListFilterBar";
 import { PlanListRowView } from "./PlanListRowView";
 import { PlanSwitcher } from "./PlanSwitcher";
+import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
 import {
   buildVisiblePlanListRows,
   resolveSectionExpanded,
@@ -53,9 +55,11 @@ export function PlanListView({
   api,
   onClose,
 }: PlanViewSurfaceProps) {
+  const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
+
   const filteredPlans = useMemo(
-    () => filterPlansForBoard(plans, mode, { planId, orchestratorPaneId, panes }),
-    [plans, mode, planId, orchestratorPaneId, panes],
+    () => filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes }),
+    [effectivePlans, mode, planId, orchestratorPaneId, panes],
   );
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
 
@@ -122,14 +126,14 @@ export function PlanListView({
     [selectedPlan, panes, selectedSpecSections],
   );
 
+  const cancelledCount = useMemo(
+    () => (selectedPlan ? cancelledTaskCount(selectedPlan) : 0),
+    [selectedPlan],
+  );
+
   const rows = useMemo(
     () => (selectedPlan ? buildPlanListRows(selectedPlan, { panes }) : []),
     [selectedPlan, panes],
-  );
-
-  const switcherOptions = useMemo(
-    () => orderedPlans.map((p) => ({ id: p.id, title: p.title.trim() || "Untitled plan" })),
-    [orderedPlans],
   );
 
   const visibleRows = useMemo(
@@ -203,7 +207,12 @@ export function PlanListView({
       {!loading && !error && selectedPlan && boardModel && (
         <>
           <div className="plan-list-chrome">
-            <PlanSwitcher plans={switcherOptions} selectedId={selectedPlan.id} onSelect={selectPlan} />
+            <PlanSwitcher
+              plans={switcherOptions}
+              selectedId={selectedPlan.id}
+              onSelect={selectPlan}
+              onAction={handleAction}
+            />
             <PlanContextHeader
               summary={boardModel.planSummary}
               spec={boardModel.spec}
@@ -217,6 +226,7 @@ export function PlanListView({
             <PlanListFilterBar
               statusFilter={statusFilter}
               textQuery={textQuery}
+              cancelledCount={cancelledCount}
               onStatusFilter={setStatusFilter}
               onTextQuery={setTextQuery}
             />
