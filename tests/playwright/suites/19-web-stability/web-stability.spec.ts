@@ -248,11 +248,7 @@ test.describe("@golden web stability verification", () => {
       await page.unroute("**/api/output/stream**");
       await page.evaluate(() => window.dispatchEvent(new Event("online")));
       await dispatchPageShow(page, true);
-      try {
-        await expect(tab(page, pane.tab_id)).toContainText(renamed, { timeout: 5_000 });
-      } catch {
-        test.skip(true, "RT-1 feature gap: pane-title rename missed during SSE outage does not resync into the web sidebar without reload");
-      }
+      await expect(tab(page, pane.tab_id)).toContainText(renamed, { timeout: 5_000 });
       await focusTab(page, pane.tab_id);
       await waitDomMarker(page, marker, pane.id, 60_000);
       expect(cast.endOffset).toBeGreaterThan(cast.startOffset);
@@ -367,11 +363,7 @@ test.describe("@golden web stability verification", () => {
       await waitMuxTabTitle(api, pane.tab_id, first);
       await setHidden(page, false);
       await dispatchPageShow(page, true);
-      try {
-        await expect(tab(page, pane.tab_id)).toContainText(first, { timeout: 5_000 });
-      } catch {
-        test.skip(true, "RT-5 feature gap: hidden-page tab rename does not resync into the web sidebar on visibility/pageshow return");
-      }
+      await expect(tab(page, pane.tab_id)).toContainText(first, { timeout: 5_000 });
       await renameTab(api, pane, second);
       await expect(tab(page, pane.tab_id)).toContainText(second, { timeout: 1_000 });
     } finally {
@@ -473,11 +465,7 @@ test.describe("@golden web stability verification", () => {
       } finally {
         await delay.remove();
       }
-      try {
-        await expect(tab(page, pane.tab_id)).toContainText("pw-cache-real", { timeout: 5_000 });
-      } catch {
-        test.skip(true, "CACHE feature gap: poisoned snapshot cache paints but does not reconcile back to daemon tab title after live mux response");
-      }
+      await expect(tab(page, pane.tab_id)).toContainText("pw-cache-real", { timeout: 5_000 });
     } finally {
       await page.context().close();
     }
@@ -542,11 +530,7 @@ test.describe("@golden web stability verification", () => {
 
       await page.reload({ waitUntil: "domcontentloaded" });
       await page.waitForSelector('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]', { timeout: 30_000 });
-      try {
-        await expect(tab(page, pane.tab_id)).toContainText(tabName, { timeout: 5_000 });
-      } catch {
-        test.skip(true, "NAME feature gap: daemon has renamed tab, but web reload hydrates stale cached title instead of daemon truth");
-      }
+      await expect(tab(page, pane.tab_id)).toContainText(tabName, { timeout: 5_000 });
       await expect(workspace(page, ws.id)).toContainText(wsName, { timeout: 20_000 });
     } finally {
       await page.context().close();
