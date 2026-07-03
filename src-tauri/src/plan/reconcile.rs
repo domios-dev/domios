@@ -321,6 +321,7 @@ mod tests {
             milestones: vec![],
             execution_attempts: vec![],
             park_reason: None,
+            attachments: vec![],
         }
     }
 
@@ -432,6 +433,7 @@ mod tests {
             loop_id: None,
             iteration: None,
             canvas: Default::default(),
+            attachments: vec![],
         });
         let items = detect_plan_drift(&plan(vec![t]), &cfg(2), |_| PaneProbe::default());
         assert!(!items

@@ -139,6 +139,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/plans/{id}/reconcile", get(plan_routes::reconcile))
         .route("/api/plans/{id}/state", get(plan_routes::state))
         .route("/api/plans/{id}/next", get(plan_routes::next))
+        .route("/api/plans/{id}/attachments", get(plan_routes::attachment))
         .route("/api/plans/{id}/transfer", post(plan_routes::transfer))
         .route("/api/plans/{id}/disown", post(plan_routes::disown))
         .route("/api/plans/{id}/claim", post(plan_routes::claim))

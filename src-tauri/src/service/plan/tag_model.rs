@@ -340,6 +340,7 @@ mod tests {
             milestones: vec![],
             execution_attempts: vec![],
             park_reason: None,
+            attachments: vec![],
         });
         normalize_plan(&mut plan);
         assert_eq!(plan.tasks[0].handle.as_deref(), Some("nav-pan-zoom"));

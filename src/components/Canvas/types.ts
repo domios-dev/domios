@@ -89,6 +89,7 @@ export interface Section {
   tags?: string[];
   subsections: Section[];
   canvas: ElementCanvas;
+  attachments?: PlanAttachment[];
 }
 
 export interface Milestone {
@@ -101,6 +102,16 @@ export interface Milestone {
   loop_id: string | null;
   iteration: number | null;
   canvas: ElementCanvas;
+  attachments?: PlanAttachment[];
+}
+
+export interface PlanAttachment {
+  id: string;
+  name: string;
+  path: string;
+  media_type: string;
+  size_bytes: number;
+  created_at: number;
 }
 
 export type TaskPriority = "p0" | "p1" | "p2" | "p3"; // p0 = highest
@@ -161,6 +172,7 @@ export interface Task {
   park_reason?: string | null;
   canvas: ElementCanvas;
   milestones: Milestone[];
+  attachments?: PlanAttachment[];
 }
 
 export interface LoopStage {

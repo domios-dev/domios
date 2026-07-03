@@ -71,6 +71,15 @@ pub(crate) fn render_section_show(val: &Value) -> String {
 fn section_mutation(client: &mut SocketClient, action: PlanSectionAction) -> Result<Value, String> {
     match action {
         PlanSectionAction::Show { .. } => unreachable!("Show handled before mutation dispatch"),
+        PlanSectionAction::Attach {
+            plan_id,
+            section_id,
+            file,
+        } => call_plan_rpc(
+            client,
+            "plan.section.attach",
+            json!({ "plan_id": plan_id, "section_id": section_id, "path": file }),
+        ),
         PlanSectionAction::Add {
             plan_id,
             title,

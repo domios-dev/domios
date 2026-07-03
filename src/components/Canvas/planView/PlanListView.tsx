@@ -267,6 +267,7 @@ export function PlanListView({
           spec={detail.kind === "spec" ? detail.plan : undefined}
           specSections={detail.kind === "spec" ? detail.specSections : undefined}
           planId={detail.plan.id}
+          api={api}
           panes={panes}
           onOpenPane={onOpenPane}
           onClose={closeDetail}

@@ -137,6 +137,7 @@ mod tests {
             loop_id: None,
             iteration: None,
             canvas: ElementCanvas::default(),
+            attachments: vec![],
         }
     }
 

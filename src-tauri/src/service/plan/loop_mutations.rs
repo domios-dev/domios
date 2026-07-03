@@ -188,6 +188,7 @@ impl PlanStore {
                 loop_id: Some(recorded_loop_id.clone()),
                 iteration: Some(iteration),
                 canvas: Default::default(),
+                attachments: vec![],
             });
             task_ref.updated_at = now_ms;
             result = Some(LoopRecordResult {

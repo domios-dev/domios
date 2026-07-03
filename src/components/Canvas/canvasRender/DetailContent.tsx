@@ -1,12 +1,13 @@
 import { RichMarkdown } from "@codeterm/chat-ui";
 import type { CSSProperties, ReactNode } from "react";
-import type { Pane } from "../../../lib/types";
+import type { ApiConfig, Pane } from "../../../lib/types";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { Plan, Section, Task } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { PlanDetailKind } from "../planView/PlanDetailOverlay";
-import { qaChipText, taskStatusText } from "../planView/taskQa";
+import { taskStatusText } from "../planView/taskQa";
+import { AttachmentGallery } from "../planView/attachments";
 import { GLYPH_ACCENT, specCoverage } from "./cardContent";
 
 // The READ surface body for the detail overlay. Plain (no section tint) — structure
@@ -17,6 +18,7 @@ import { GLYPH_ACCENT, specCoverage } from "./cardContent";
 export interface DetailContentProps {
   kind: PlanDetailKind;
   planId?: string;
+  api?: ApiConfig;
   task?: Task;
   plan?: Plan;
   spec?: Plan;
@@ -129,6 +131,7 @@ function TaskSectionLinks({
 }
 
 function TaskDetail({
+  api,
   task,
   plan,
   planId,
@@ -137,6 +140,7 @@ function TaskDetail({
   onSection,
   renderTaskAttachmentThumbnails,
 }: {
+  api?: ApiConfig;
   task: Task;
   plan?: Plan;
   planId?: string;
@@ -149,11 +153,15 @@ function TaskDetail({
   const historical = historicalExecutorForTask(task, panes, false);
   const paneId = task.assigned_pane_id?.trim() || null;
   const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
-  const qaChip = plan ? qaChipText(plan, task) : task.review_stage === "qa" ? `In QA · ${task.qa_state ?? "queued"}` : null;
+  const statusLabel = plan
+    ? taskStatusText(plan, task)
+    : task.review_stage === "qa"
+      ? `In QA · ${task.qa_state ?? "queued"}`
+      : task.status_label?.trim() || task.status.replace(/_/g, " ");
   return (
     <div style={wrap} data-testid="canvas-detail-content">
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <Chip label="status" value={qaChip ?? (task.status_label?.trim() || task.status.replace(/_/g, " "))} color={TASK_STATUS_COLORS[task.status]} />
+        <Chip label="status" value={statusLabel} color={TASK_STATUS_COLORS[task.status]} />
         {task.priority && <Chip label="priority" value={task.priority.toUpperCase()} />}
         {task.type && <Chip label="type" value={task.type} />}
         {onOpenPane && paneId && (
@@ -199,6 +207,7 @@ function TaskDetail({
       <Block label="Description">
         {body ? <Markdown text={body} /> : <span style={muted} data-testid="canvas-detail-empty-body">No description</span>}
       </Block>
+      <AttachmentGallery api={api} planId={planId} attachments={task.attachments} />
       {task.acceptance_criteria?.length ? (
         <Block label="Acceptance criteria">
           <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, lineHeight: 1.5, display: "flex", flexDirection: "column", gap: 3 }}>
@@ -222,6 +231,9 @@ function TaskDetail({
               <div key={m.id} style={{ fontSize: 13, lineHeight: 1.45 }}>
                 <span style={{ ...labelStyle, fontSize: 10, marginRight: 6 }}>{m.kind.replace(/[_-]+/g, " ")}</span>
                 {m.text}
+                <div style={{ marginTop: 6 }}>
+                  <AttachmentGallery api={api} planId={planId} attachments={m.attachments} />
+                </div>
               </div>
             ))}
           </div>
@@ -387,11 +399,12 @@ function resolvePlanModel(kind: PlanDetailKind, plan?: Plan, spec?: Plan, specSe
   return spec;
 }
 
-export function DetailContent({ kind, planId, task, plan, spec, specSections, panes, onOpenPane, onSectionClick, onSectionFrame, renderTaskAttachmentThumbnails }: DetailContentProps) {
+export function DetailContent({ kind, planId, api, task, plan, spec, specSections, panes, onOpenPane, onSectionClick, onSectionFrame, renderTaskAttachmentThumbnails }: DetailContentProps) {
   if (kind === "task") {
     const onSection = onSectionFrame ?? onSectionClick;
     return task ? (
       <TaskDetail
+        api={api}
         task={task}
         plan={plan}
         planId={planId}

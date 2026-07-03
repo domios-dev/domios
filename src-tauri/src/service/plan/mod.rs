@@ -1,3 +1,4 @@
+pub mod attachments;
 pub mod batch;
 pub mod body_files;
 pub mod canvas_elements;
@@ -27,6 +28,7 @@ pub mod stride_log;
 pub mod tag_model;
 pub mod task_attempts;
 pub mod task_queries;
+mod task_remove;
 mod types;
 pub mod watcher;
 pub mod worker_charter;

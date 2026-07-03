@@ -148,6 +148,8 @@ pub struct TaskExecutionReportSnapshot {
     pub test_result: Option<String>,
     #[serde(default)]
     pub skipped: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -362,6 +364,18 @@ pub struct Section {
     pub subsections: Vec<Section>,
     #[serde(default)]
     pub canvas: ElementCanvas,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AttachmentRef {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub media_type: String,
+    pub size_bytes: u64,
+    pub created_at: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -378,6 +392,8 @@ pub struct Milestone {
     pub iteration: Option<u32>,
     #[serde(default)]
     pub canvas: ElementCanvas,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -437,6 +453,8 @@ pub struct Task {
     pub execution_attempts: Vec<TaskExecutionAttempt>,
     #[serde(default)]
     pub park_reason: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<AttachmentRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

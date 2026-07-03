@@ -1,4 +1,4 @@
-import type { Pane } from "../../lib/types";
+import type { ApiConfig, Pane } from "../../lib/types";
 import type { LaidOutNode } from "./layout";
 import type { SectionNavArgs } from "./nodeRegistry";
 import type { Plan } from "./types";
@@ -10,6 +10,7 @@ export interface CanvasDetailOverlayProps {
   nodeById: Map<string, LaidOutNode>;
   resolveModel: (node: LaidOutNode) => unknown;
   panes?: Record<string, Pane>;
+  api?: ApiConfig;
   onClose: () => void;
   onOpenPane?: (paneId: string) => void;
   onCopyLink?: (id: string) => void;
@@ -23,6 +24,7 @@ export function CanvasDetailOverlay({
   nodeById,
   resolveModel,
   panes,
+  api,
   onClose,
   onOpenPane,
   onSectionClick,
@@ -51,6 +53,7 @@ export function CanvasDetailOverlay({
       plan={plan}
       spec={spec}
       planId={node.planId}
+      api={api}
       panes={panes}
       onClose={onClose}
       onOpenPane={onOpenPane}

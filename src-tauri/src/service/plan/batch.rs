@@ -415,6 +415,7 @@ impl PlanStore {
                                     milestones: vec![],
                                     execution_attempts: vec![],
                                     park_reason: None,
+                                    attachments: vec![],
                                 };
                                 working.tasks.push(task);
                                 id
@@ -563,6 +564,7 @@ impl PlanStore {
                                     loop_id: None,
                                     iteration: None,
                                     canvas: Default::default(),
+                                    attachments: vec![],
                                 });
                                 task.updated_at = now_ms;
                                 id
@@ -677,6 +679,7 @@ impl PlanStore {
                                     loop_id: None,
                                     iteration: None,
                                     canvas: Default::default(),
+                                    attachments: vec![],
                                 });
                                 task.updated_at = now_ms;
                                 result.milestone_ids.push(milestone_id);
@@ -756,6 +759,7 @@ impl PlanStore {
                                     body: body.unwrap_or_default(),
                                     subsections: vec![],
                                     canvas: Default::default(),
+                                    attachments: vec![],
                                 });
                                 spec.updated_at = now_ms;
                                 id

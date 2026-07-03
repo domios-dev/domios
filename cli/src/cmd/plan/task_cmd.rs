@@ -480,6 +480,16 @@ pub(super) fn run_task(
             print!("{}", render_attempt(&val));
             Ok(None)
         }
+        PlanTaskAction::Attach {
+            plan_id,
+            task_id,
+            file,
+        } => call(
+            client,
+            "plan.task.attach",
+            json!({ "plan_id": plan_id, "task_id": task_id, "path": file }),
+        )
+        .map(Some),
         PlanTaskAction::Respawn {
             plan_id,
             task_id,

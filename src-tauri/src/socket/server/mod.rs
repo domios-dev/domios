@@ -13,6 +13,7 @@ mod cron;
 mod notification;
 mod pane;
 mod plan;
+mod plan_attachments;
 mod plan_elements;
 mod plan_fields;
 mod plan_goal;
@@ -415,11 +416,13 @@ fn dispatch(
                 "plan.ingest",
                 "plan.section.add",
                 "plan.section.update",
+                "plan.section.attach",
                 "plan.section.rm",
                 "plan.kinds.set",
                 "plan.tag_facets.set",
                 "plan.task.add",
                 "plan.task.update",
+                "plan.task.attach",
                 "plan.task.close",
                 "plan.task.assign",
                 "plan.task.attempts",

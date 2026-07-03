@@ -68,6 +68,9 @@ pub(super) fn dispatch(
     if super::plan_lifecycle::handles(method) {
         return super::plan_lifecycle::dispatch(method, params, app, svc);
     }
+    if super::plan_attachments::handles(method) {
+        return super::plan_attachments::dispatch(method, params, app, svc);
+    }
     let p = params.as_ref();
     let store = &svc.plan_store;
     let now = epoch_ms();
