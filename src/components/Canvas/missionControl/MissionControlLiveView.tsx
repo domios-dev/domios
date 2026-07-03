@@ -18,7 +18,6 @@ import { resolveMissionControlLod, type MissionControlLodLevel } from "./mission
 import { MissionControlStage } from "./MissionControlStage";
 import { useReducedMotion } from "./useReducedMotion";
 import type { MissionControlSnapshot } from "./types";
-import "./missionControl.css";
 
 import { MC_PAN_IGNORE } from "./missionControlViewport";
 
