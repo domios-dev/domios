@@ -11,7 +11,6 @@ import { resolveMissionControlLod } from "./missionControlLod";
 import { useReducedMotion } from "./useReducedMotion";
 import type { MissionControlSnapshot } from "./types";
 import { VariantAssemblyLine } from "./variants/VariantAssemblyLine";
-import "./missionControl.css";
 
 export interface MissionControlLiveViewProps {
   plan: Plan;

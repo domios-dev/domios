@@ -3,6 +3,7 @@
 @import "tailwindcss";
 @import "@xterm/xterm/css/xterm.css";
 @import "./agent-state.css";
+@import "../components/Canvas/missionControl/missionControl.css";
 
 :root {
   font-family: var(--ct-font-ui);

@@ -23,6 +23,7 @@ function relayKey(base: string): string {
 }
 
 function migrateRelayFromSessionStorage(): void {
+  if (typeof sessionStorage === "undefined" || typeof localStorage === "undefined") return;
   const legacyId = sessionStorage.getItem(RELAY_PEER_KEY);
   if (!legacyId) return;
   if (!localStorage.getItem(relayKey(RELAY_PEER_KEY))) {

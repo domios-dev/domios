@@ -5,7 +5,6 @@ import { MISSION_CONTROL_VARIANTS, VARIANT_LABELS } from "./types";
 import { VariantAssemblyLine } from "./variants/VariantAssemblyLine";
 import { VariantControlRoom } from "./variants/VariantControlRoom";
 import { VariantHangar } from "./variants/VariantHangar";
-import "./missionControl.css";
 
 const VARIANT_COMPONENTS = {
   hangar: VariantHangar,
