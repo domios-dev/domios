@@ -3,16 +3,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::plan::{OrchestratorRef, PlanStatus, TaskLaneMetadata, TaskStatus};
+use crate::plan::{OrchestratorRef, PlanStatus, TaskStatus};
 use crate::service::plan::batch::BatchRequest;
 use crate::service::plan::task_queries::TaskListFilter;
-use crate::service::plan::{hints, NewTask, PlanError, TaskLaneUpdate};
+use crate::service::plan::{hints, NewTask, PlanError};
 use crate::service::ServiceState;
 
 use super::plan_fields::{
     groups_from_csv, kinds_from_csv, optional_string_field, pane_and_ancestors, pane_role,
     string_array_field, tag_facets_field,
 };
+use super::plan_lane_fields::{lane_metadata_field, lane_update_field};
 use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
 use super::plan_refs;
 use super::plan_role_helpers::{assign_task_with_profile, RespawnAttemptRoleExt};
@@ -37,55 +38,6 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
-fn lane_metadata_field(p: Option<&Value>) -> Result<TaskLaneMetadata, JsonRpcError> {
-    p.and_then(|x| x.get("lane"))
-        .map(|v| {
-            serde_json::from_value(v.clone()).map_err(|e| JsonRpcError {
-                code: -32602,
-                message: format!("invalid lane metadata: {e}"),
-                data: None,
-            })
-        })
-        .transpose()
-        .map(|lane| lane.unwrap_or_default())
-}
-
-fn lane_update_field(p: Option<&Value>) -> Result<Option<TaskLaneUpdate>, JsonRpcError> {
-    let Some(lane) = p.and_then(|x| x.get("lane")) else {
-        return Ok(None);
-    };
-    let mut update = TaskLaneUpdate::default();
-    update.pane_id = lane.get("pane_id").map(|v| v.as_str().map(str::to_string));
-    update.workspace_id = lane
-        .get("workspace_id")
-        .map(|v| v.as_str().map(str::to_string));
-    update.workspace_name = lane
-        .get("workspace_name")
-        .map(|v| v.as_str().map(str::to_string));
-    update.worktree_path = lane
-        .get("worktree_path")
-        .map(|v| v.as_str().map(str::to_string));
-    update.branch = lane.get("branch").map(|v| v.as_str().map(str::to_string));
-    update.base = lane.get("base").map(|v| v.as_str().map(str::to_string));
-    update.destination = lane
-        .get("destination")
-        .map(|v| v.as_str().map(str::to_string));
-    update.cleanup_status = lane
-        .get("cleanup_status")
-        .map(|v| v.as_str().map(str::to_string));
-    if lane.get("cleanup_hints").is_some() {
-        update.cleanup_hints = Some(
-            serde_json::from_value(lane.get("cleanup_hints").cloned().unwrap_or(Value::Null))
-                .map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: format!("invalid cleanup_hints: {e}"),
-                    data: None,
-                })?,
-        );
-    }
-    Ok((!update.is_empty()).then_some(update))
-}
-
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,

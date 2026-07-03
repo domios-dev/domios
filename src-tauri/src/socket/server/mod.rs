@@ -18,6 +18,7 @@ mod plan_fields;
 mod plan_goal;
 mod plan_handoff;
 mod plan_heartbeat;
+mod plan_lane_fields;
 mod plan_lifecycle;
 mod plan_linking;
 mod plan_loops;

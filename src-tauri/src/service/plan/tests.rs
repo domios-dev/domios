@@ -3,6 +3,7 @@ use crate::plan::{AgentRef, MilestoneKind, OrchestratorRef, Plan, PlanStatus, Ta
 use crate::service::plan::task_queries::TaskListFilter;
 
 mod tag_retag;
+mod task_queries;
 
 fn store_with_task(kinds: &[&str]) -> (PlanStore, String, String) {
     let root = tempfile::tempdir().unwrap().keep();
@@ -945,66 +946,4 @@ fn add_inbox_task_lands_in_reserved_plan() {
     assert_eq!(plan.tasks.len(), 1);
     assert_eq!(plan.tasks[0].id, task_id);
     assert_eq!(plan.tasks[0].name, "standalone");
-}
-
-#[test]
-fn task_queries_exclude_archived_plans() {
-    let (store, id, _) = store_with_task(&["status_update"]);
-    store.archive(&id, 99).unwrap();
-
-    let tasks = store.list_tasks(TaskListFilter {
-        active_only: false,
-        ..Default::default()
-    });
-
-    assert!(tasks.is_empty());
-    assert!(store.coverage_report(&id).is_none());
-}
-
-#[test]
-fn task_queries_filter_by_status() {
-    let (store, id, blocked_id) = store_with_task(&["status_update"]);
-    store
-        .add_task(
-            &id,
-            NewTask {
-                name: "still-pending".into(),
-                kind: "implement".into(),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-    store
-        .update_task(
-            &id,
-            &blocked_id,
-            None,
-            None,
-            None,
-            None,
-            Some("blocked"),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            &[],
-            None,
-            None,
-            3,
-        )
-        .unwrap();
-
-    let tasks = store.list_tasks(TaskListFilter {
-        active_only: false,
-        status: Some(TaskStatus::Blocked),
-        ..Default::default()
-    });
-
-    assert_eq!(tasks.len(), 1);
-    assert_eq!(tasks[0].task.id, blocked_id);
 }
