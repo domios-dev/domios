@@ -1090,6 +1090,120 @@ button,
   opacity: 1;
 }
 
+/* Sidebar hierarchy — living subagent tree (HierarchyTree.tsx) */
+.sidebar-hierarchy-level {
+  position: relative;
+}
+
+.sidebar-hierarchy-row-wrap {
+  position: relative;
+}
+
+.sidebar-hierarchy-row {
+  position: relative;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.sidebar-hierarchy-row--dead {
+  opacity: 0.55;
+}
+
+.sidebar-hierarchy-dead-title {
+  color: color-mix(in srgb, var(--ct-red, #f85149) 42%, var(--ct-muted-fg, #8b949e));
+}
+
+/* Working-row treatments — prototype variants (aurora default, drift, halo) */
+.sidebar-hierarchy-row--working::before {
+  content: "";
+  position: absolute;
+  inset: 1px 2px;
+  border-radius: 0.2rem;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.sidebar-hierarchy-row--working > * {
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar-hierarchy-working--aurora::before {
+  background: radial-gradient(
+    ellipse 120% 80% at 30% 50%,
+    color-mix(in srgb, var(--ct-hierarchy-presence, var(--ct-accent)) 7%, transparent),
+    transparent 70%
+  );
+  animation: sidebar-hierarchy-breathe 3s ease-in-out infinite;
+}
+
+.sidebar-hierarchy-working--drift::before {
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    color-mix(in srgb, var(--ct-hierarchy-presence, var(--ct-accent)) 6%, transparent) 45%,
+    transparent 90%
+  );
+  background-size: 200% 100%;
+  animation: sidebar-hierarchy-drift 4.5s ease-in-out infinite;
+}
+
+.sidebar-hierarchy-working--halo::before {
+  box-shadow: inset 0 0 12px color-mix(in srgb, var(--ct-hierarchy-presence, var(--ct-accent)) 8%, transparent);
+  animation: sidebar-hierarchy-breathe 2.8s ease-in-out infinite;
+}
+
+@keyframes sidebar-hierarchy-breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+
+@keyframes sidebar-hierarchy-drift {
+  0%, 100% { background-position: 0% 50%; opacity: 0.5; }
+  50% { background-position: 100% 50%; opacity: 1; }
+}
+
+.sidebar-hierarchy-typing-dots span {
+  display: inline-block;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--ct-muted-fg, #8b949e);
+  animation: sidebar-hierarchy-dot 1.2s ease-in-out infinite;
+}
+
+.sidebar-hierarchy-typing-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.sidebar-hierarchy-typing-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes sidebar-hierarchy-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-1px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-hierarchy-working--aurora::before,
+  .sidebar-hierarchy-working--drift::before,
+  .sidebar-hierarchy-working--halo::before {
+    animation: none;
+    opacity: 0.85;
+  }
+
+  .sidebar-hierarchy-typing-dots span {
+    animation: none;
+    opacity: 0.9;
+  }
+
+  .sidebar-hierarchy-row {
+    transition: none;
+  }
+}
+
 /* Pinned workspace plan action — sits above closable tab rows, not a tab. */
 .sidebar-workspace-plan {
   position: relative;

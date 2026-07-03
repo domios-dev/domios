@@ -39,10 +39,12 @@ import {
   flattenSidebarTabs,
   topLevelTabsInWorkspace,
 } from "./workspaceTabs";
-import { usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { useFullPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
+import { selectActiveWork } from "../Canvas/planView/activeWork";
+import { buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
-export { buildHierarchyTree, HierarchyTree } from "./HierarchyTree";
+export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
 /** Returns the "worst" status among a set of pane statuses. */
 function aggregateStatus(
@@ -119,6 +121,11 @@ export function Sidebar({
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
   const { providers } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
+  const fullPlans = useFullPlansOptional();
+  const activeWork = useMemo(
+    () => selectActiveWork(fullPlans.plans, state.panes),
+    [fullPlans.plans, state.panes],
+  );
   const remoteWorkers = useRemoteWorkers();
   const agentsConfig = config?.agents;
   // Skip-permissions "remember" choice is centralized in backend config so it
@@ -632,11 +639,29 @@ export function Sidebar({
                                   />
                                   </SortableRow>
                                   {childTabs.length > 0 && firstPane && (
-                                    <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
-                                      {childTabs.map((ct, ci) =>
-                                        renderTab(ct, ci, depth + 1, "child", firstPane.id, childIds, []),
-                                      )}
-                                    </SortableContext>
+                                    firstPane.role === "Orchestrator" ? (
+                                      <HierarchyTree
+                                        nodes={buildHierarchySubtree(firstPane.id, state.panes, state.paneStatuses)}
+                                        depth={depth + 1}
+                                        onJumpToPane={(paneId) => {
+                                          const childTab = sortedTabs.find((t) => t.pane_id === paneId);
+                                          if (childTab) {
+                                            setActiveTab(ws.id, childTab.id);
+                                            onNavigateToTab?.();
+                                          }
+                                        }}
+                                        reportCounts={{}}
+                                        uiFontScale={uiFontScale}
+                                        activeWork={activeWork}
+                                        statuses={state.paneStatuses}
+                                      />
+                                    ) : (
+                                      <SortableContext items={childIds} strategy={verticalListSortingStrategy}>
+                                        {childTabs.map((ct, ci) =>
+                                          renderTab(ct, ci, depth + 1, "child", firstPane.id, childIds, []),
+                                        )}
+                                      </SortableContext>
+                                    )
                                   )}
                                   {/* Remote (cross-mesh) workers reporting to this pane — ghost nodes, no local PTY. */}
                                   {firstPane &&
