@@ -440,9 +440,20 @@ pub(super) fn dispatch(
                 .get("owner")
                 .and_then(|v| serde_json::from_value(v.clone()).ok())
                 .unwrap_or_else(|| owner_from_params(&params_val));
-            store.claim(&id, owner, now).map_err(plan_rpc_err)?;
+            store.claim(&id, owner.clone(), now).map_err(plan_rpc_err)?;
             emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
+            let mut response_hints = Vec::new();
+            if matches!(
+                store.resolve_planner_pane(&id, |pid| svc.pane_probe(pid)),
+                crate::plan::peer::PeerResolution::Unbound
+            ) {
+                let spawn_cmd = crate::service::plan::peer_mandate::planner_spawn_cmd_hint(
+                    owner.pane_id.as_deref(),
+                    &id,
+                );
+                response_hints.push(crate::prompts::peer_pairing_mandate_full(&spawn_cmd));
+            }
+            Ok(json!({ "ok": true, "_hints": response_hints }))
         }
 
         "plan.ingest" => {

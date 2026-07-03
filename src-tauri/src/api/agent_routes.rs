@@ -197,6 +197,7 @@ pub async fn spawn_agent(
         role: role_probe.role,
         role_profile: role_probe.role_profile,
         parent_pane_id: body.parent_pane_id,
+        plan_id: None,
         can_spawn: body.can_spawn,
         task: body.task,
         workspace_id: body.workspace_id,

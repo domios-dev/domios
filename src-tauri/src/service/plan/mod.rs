@@ -15,6 +15,7 @@ pub mod loop_mutations;
 pub mod mutations;
 pub mod next_actions;
 pub mod paths;
+pub mod peer_mandate;
 pub mod qa;
 mod readback;
 mod reconcile_fixes;
