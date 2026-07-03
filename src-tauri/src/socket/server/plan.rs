@@ -381,13 +381,15 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             if let Some(planner_val) = p.and_then(|x| x.get("planner_ref")) {
-                let planner_ref: Option<PlannerRef> =
-                    serde_json::from_value(planner_val.clone()).map_err(|e| JsonRpcError {
-                        code: -32602,
-                        message: format!("invalid planner_ref: {e}"),
-                        data: None,
-                    })?;
-                store.set_planner_ref(&id, planner_ref, now).map_err(plan_rpc_err)?;
+                let planner_ref: Option<PlannerRef> = serde_json::from_value(planner_val.clone())
+                    .map_err(|e| JsonRpcError {
+                    code: -32602,
+                    message: format!("invalid planner_ref: {e}"),
+                    data: None,
+                })?;
+                store
+                    .set_planner_ref(&id, planner_ref, now)
+                    .map_err(plan_rpc_err)?;
             }
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
