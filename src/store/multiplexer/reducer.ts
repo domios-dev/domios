@@ -41,7 +41,8 @@ export type Action =
   | { type: "SET_PANE_TITLE"; paneId: string; title: string; level?: TitleLevel }
   | { type: "SET_TAB_TITLE"; workspaceId: string; tabId: string; title: string }
   | { type: "SET_AGENT_TYPE"; paneId: string; agentType: string | null }
-  | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus };
+  | { type: "UPDATE_PANE_STATUS"; paneId: string; status: PaneStatus }
+  | { type: "RESET_GENERATION" };
 
 /**
  * Merge a fresh `pane_statuses` snapshot into the known map, then drop the
@@ -476,6 +477,14 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
           [action.paneId]: action.status,
         },
       };
+
+    // Daemon restart (boot-changed) resets the backend's own generation
+    // counter to a low value; without this, the monotonic guard above would
+    // reject every post-restart snapshot forever since a long-lived client
+    // already holds a higher pre-restart generation. Only fired on a genuine
+    // boot change, so the spawn-blink race guard stays intact otherwise.
+    case "RESET_GENERATION":
+      return state.generation === 0 ? state : { ...state, generation: 0 };
 
     default:
       return state;

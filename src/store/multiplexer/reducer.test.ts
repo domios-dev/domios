@@ -341,5 +341,26 @@ test("SET_PANE_TITLE rejects lower priority overwrite", () => {
   assert(after.panes.p1.title === "Pinned", "User title unchanged");
 });
 
+test("RESET_GENERATION lets a low post-restart snapshot apply over a high stale generation", () => {
+  // Regression for the boot-changed / daemon-restart structure-resync bug: a
+  // long-lived web client accumulates a high generation, the daemon restarts
+  // and its own counter resets to a low value, so without RESET_GENERATION
+  // the monotonic guard would reject every post-restart snapshot forever.
+  const highGen = reducer(base(), { type: "SET_STATE", state: snap(500, "w-old") });
+  assert(highGen.generation === 500, "client accumulated a high generation");
+  const resetted = reducer(highGen, { type: "RESET_GENERATION" });
+  assert(resetted.generation === 0, "generation dropped to 0 on boot-changed");
+  assert(resetted.active_workspace_id === "w-old", "workspace/pane structure untouched by the reset itself");
+  const after = reducer(resetted, { type: "SET_STATE", state: snap(1, "w-post-restart") });
+  assert(after.generation === 1, "low post-restart generation now applies");
+  assert(after.active_workspace_id === "w-post-restart", "post-restart structure replaces stale pre-restart structure");
+});
+
+test("without RESET_GENERATION a low post-restart snapshot would be rejected (sanity check)", () => {
+  const highGen = reducer(base(), { type: "SET_STATE", state: snap(500, "w-old") });
+  const after = reducer(highGen, { type: "SET_STATE", state: snap(1, "w-post-restart") });
+  assert(after === highGen, "monotonic guard still rejects a low generation outside the boot-changed path");
+});
+
 console.log(failures === 0 ? "✓ reducer tests green" : `✗ ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

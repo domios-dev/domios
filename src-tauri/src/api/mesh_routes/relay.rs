@@ -1,6 +1,8 @@
 use axum::{
-    extract::State as AxumState,
-    http::{HeaderMap, StatusCode},
+    body::Body,
+    extract::{Path as AxumPath, Query, State as AxumState},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
+    response::Response,
     Json,
 };
 
@@ -400,6 +402,9 @@ pub async fn mesh_relay(
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
+        // A compromised paired peer must not be able to redirect this proxy
+        // off the whitelisted path — forward the redirect verbatim instead.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .unwrap_or_default();
     let req = match cmd.method.to_uppercase().as_str() {
@@ -466,11 +471,171 @@ pub async fn mesh_relay(
     }))
 }
 
+// ── Relay streaming pass-through (D2 §3 / §4) ─────────────────────────────
+//
+// The local daemon is a dumb byte pipe: it opens a signed request to the
+// peer's REAL endpoint and copies the response body chunks straight to the
+// browser. It never generates, filters, buffers, or reorders frames, so the
+// relayed stream inherits D1's cursor/overflow contract (S2b/S2c) verbatim.
+
+/// The only two cursor'd SSE streams a relay target may serve. Both carry D1
+/// frames unmodified so the browser's `?since=` resume works over the relay.
+fn is_streamable_relay_path(bare: &str) -> bool {
+    matches!(bare, "/api/events/stream" | "/api/output/stream")
+}
+
+/// Read-only plugin-UI asset paths (peer `/api/plugins/{id}/ui/...`). Never a
+/// mutating plugin route — the relay-asset proxy is read-only, ui/-scoped.
+fn is_relay_asset_path(rel: &str) -> bool {
+    !rel.contains("..") && rel.starts_with("plugins/") && rel.contains("/ui/")
+}
+
+/// Constant-time check of the LOCAL daemon api token (the iframe / stream fetch
+/// carries only this — never a peer secret). Mirrors `validate_manifest_token`.
+fn local_token_valid(state: &AppState, candidate: &str) -> bool {
+    if candidate.is_empty() {
+        return false;
+    }
+    match state.config.lock().api.token {
+        Some(ref t) if !t.is_empty() => {
+            crate::service::tokens::constant_time_eq(t.as_bytes(), candidate.as_bytes())
+        }
+        _ => false,
+    }
+}
+
+fn copy_content_type(from: &reqwest::Response, fallback: &'static str) -> HeaderValue {
+    from.headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| HeaderValue::from_str(s).ok())
+        .unwrap_or_else(|| HeaderValue::from_static(fallback))
+}
+
+#[derive(serde::Deserialize)]
+pub struct RelayStreamQuery {
+    pub peer: String,
+    pub path: String,
+    #[serde(default)]
+    pub since: Option<String>,
+}
+
+/// `GET /api/mesh/relay-stream?peer=<id>&path=<streamable>&since=<cursor>` —
+/// browser→local (local token). Opens a signed, un-timed stream to the peer's
+/// own `/api/events|output/stream?since=` and pipes bytes verbatim. Peer
+/// unreachable → 504 `peer-unreachable` so the client shows a banner + backoff,
+/// never a silent poll.
+pub async fn mesh_relay_stream(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<RelayStreamQuery>,
+) -> Result<Response, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+
+    let bare = q.path.split('?').next().unwrap_or(&q.path);
+    if !is_streamable_relay_path(bare) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("Not a streamable relay path: {bare}"),
+        ));
+    }
+    // Cursor chars are URL-safe (`[A-Za-z0-9_:-]` for events, b64url for output),
+    // so a raw append needs no percent-encoding.
+    let mut path = q.path.clone();
+    if let Some(since) = q.since.as_deref().filter(|s| !s.is_empty()) {
+        let sep = if path.contains('?') { '&' } else { '?' };
+        path = format!("{path}{sep}since={since}");
+    }
+    validate_relay_path(&path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    let client = {
+        let mesh = state.mesh.lock();
+        mesh.client_for(&q.peer).ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("Peer {} not paired", q.peer),
+            )
+        })?
+    };
+    let resp = client.open_relay_stream(&path).await.map_err(|e| {
+        (
+            StatusCode::GATEWAY_TIMEOUT,
+            format!("peer-unreachable: {e}"),
+        )
+    })?;
+    if !resp.status().is_success() {
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("peer-unreachable: HTTP {}", resp.status().as_u16()),
+        ));
+    }
+
+    let content_type = copy_content_type(&resp, "text/event-stream");
+    let mut out = Response::new(Body::from_stream(resp.bytes_stream()));
+    out.headers_mut().insert(header::CONTENT_TYPE, content_type);
+    out.headers_mut()
+        .insert("x-accel-buffering", HeaderValue::from_static("no"));
+    Ok(out)
+}
+
+#[derive(serde::Deserialize)]
+pub struct RelayAssetQuery {
+    token: Option<String>,
+}
+
+/// `GET /api/mesh/relay-asset/{peer}/{*path}?token=<LOCAL>` — byte-proxy for a
+/// peer's plugin-UI document + assets (D2 §4). The iframe can't send a Bearer
+/// header, so it self-verifies the LOCAL token in the query; the peer is reached
+/// via a server-minted signed mesh token (never serialized to the browser).
+/// Read-only, whitelisted to `plugins/{id}/ui/...` GETs.
+pub async fn mesh_relay_asset(
+    AxumState(state): AxumState<AppState>,
+    AxumPath((peer, rel)): AxumPath<(String, String)>,
+    Query(q): Query<RelayAssetQuery>,
+) -> Result<Response, (StatusCode, String)> {
+    if !is_relay_asset_path(&rel) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("relay-asset limited to plugins/*/ui/*: {rel}"),
+        ));
+    }
+    // Mirror plugin_ui: token-gate only the .html entry; content-hashed assets
+    // are referenced tokenless by relative <src> and resolve through this proxy.
+    if rel.ends_with(".html") && !local_token_valid(&state, q.token.as_deref().unwrap_or("")) {
+        return Err((StatusCode::UNAUTHORIZED, "bad or missing token".into()));
+    }
+
+    let (client, signed) = {
+        let mesh = state.mesh.lock();
+        let client = mesh.client_for(&peer).ok_or_else(|| {
+            (StatusCode::NOT_FOUND, format!("Peer {peer} not paired"))
+        })?;
+        let signed = mesh
+            .sign_request()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Sign failed: {e}")))?;
+        (client, signed)
+    };
+    // The peer's plugin_ui gates its .html by a query token; a paired-peer signed
+    // token authenticates the read-only hop (see web_routes::validate_manifest_token).
+    let path = format!("/api/{rel}?token={signed}");
+    validate_relay_path(&path).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    let resp = client.open_relay_stream(&path).await.map_err(|e| {
+        (StatusCode::GATEWAY_TIMEOUT, format!("peer-unreachable: {e}"))
+    })?;
+    let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let content_type = copy_content_type(&resp, "application/octet-stream");
+    let mut out = Response::new(Body::from_stream(resp.bytes_stream()));
+    *out.status_mut() = status;
+    out.headers_mut().insert(header::CONTENT_TYPE, content_type);
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        path_requires_full_access, tag_relay_send_source, tag_relay_spawn_source,
-        validate_relay_path,
+        is_relay_asset_path, is_streamable_relay_path, path_requires_full_access,
+        tag_relay_send_source, tag_relay_spawn_source, validate_relay_path,
     };
 
     use super::spawn_registration_from_relay;
@@ -690,6 +855,24 @@ mod tests {
         assert!(path_requires_full_access("POST", "/api/config"));
         assert!(path_requires_full_access("PUT", "/api/config"));
         assert!(!path_requires_full_access("GET", "/api/config"));
+    }
+
+    #[test]
+    fn only_cursor_streams_are_relayable() {
+        assert!(is_streamable_relay_path("/api/events/stream"));
+        assert!(is_streamable_relay_path("/api/output/stream"));
+        assert!(!is_streamable_relay_path("/api/panes/abc/send"));
+        assert!(!is_streamable_relay_path("/api/config"));
+    }
+
+    #[test]
+    fn relay_asset_whitelist_is_ui_scoped() {
+        assert!(is_relay_asset_path("plugins/git/ui/index.html"));
+        assert!(is_relay_asset_path("plugins/git/ui/assets/app.js"));
+        // Not a ui/ path, not a plugin path, or traversal — all rejected.
+        assert!(!is_relay_asset_path("plugins/git/manifest.json"));
+        assert!(!is_relay_asset_path("panes/abc/ui/x"));
+        assert!(!is_relay_asset_path("plugins/git/ui/../../../etc/passwd"));
     }
 
     #[test]
