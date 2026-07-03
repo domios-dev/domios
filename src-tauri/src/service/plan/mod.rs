@@ -216,7 +216,11 @@ impl PlanStore {
                 })
                 .collect(),
             task_count: plan.tasks.len(),
-            open_task_count: plan.tasks.iter().filter(|t| t.status.counts_as_open_work()).count(),
+            open_task_count: plan
+                .tasks
+                .iter()
+                .filter(|t| t.status.counts_as_open_work())
+                .count(),
             section_count: plan.sections.len(),
             element_count: plan.elements.len(),
             loop_count: plan.loops.len(),
