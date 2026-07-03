@@ -10,11 +10,25 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "CodeTerm is a terminal where AI agents live and work. It multiplexes regular shells and AI agent sessions in one window, lets agents coordinate with each other, remember what they learn, and reach across your machines.",
+          text: "CodeTerm is a terminal multiplexer built for AI agents. One window holds your regular shells and your agent sessions side by side: agents run real commands, coordinate with each other, remember what they learn, and reach across your machines.",
         },
         {
           type: "paragraph",
-          text: "Think of it as an operating system for agents: workspaces organize your projects, panes run shells or chats, and the always-on General Agent keeps the machine aware of what is happening.",
+          text: "Think of it as an operating system for agents. Workspaces organize projects. Panes run shells or agent chats. Plans hold multi-step work as durable state. Memory keeps knowledge between sessions. Mesh connects your machines into one private network. And the always-on General Agent is the machine's brain — always one tab away.",
+        },
+        {
+          type: "list",
+          items: [
+            "You stay in control: agents ask before destructive actions, and every plan has explicit review gates.",
+            "Everything agents do is visible — the sidebar shows who works for whom, live.",
+            "Nothing is cloud-locked: providers are pluggable (Claude, Codex, OpenCode, local models).",
+          ],
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: what can you do for me on this machine?",
+          question:
+            "A user is reading the CodeTerm guide and pressed 'Ask the agent' in the overview section. Introduce yourself briefly and show what you can do on this machine right now: 3-5 concrete examples based on the actual workspaces, agents, and integrations you can see. Keep it short and practical.",
         },
       ],
     },
@@ -25,43 +39,65 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "Workspaces group related work — usually one project or effort per workspace. Each workspace has tabs, and each tab holds a pane: a real terminal (PTY) or an agent chat view.",
+          text: "A workspace groups related work — usually one project or one effort. Each workspace holds tabs, and each tab is a pane: a real terminal (PTY) or an agent session. Agent tabs can flip between two faces of the same session: Chat shows the structured conversation, Terminal shows the raw PTY output underneath.",
         },
         {
           type: "list",
           items: [
-            "Split panes side-by-side to compare output or run parallel agents.",
-            "Toggle Chat / Terminal on agent tabs when you want raw PTY output or the structured chat UI.",
-            "Use the sidebar tree to see which agents are active and how they relate.",
+            "New session inside a workspace spawns an agent or a plain shell — your last choice is remembered.",
+            "Split panes side-by-side to compare output or watch two agents at once.",
+            "The sidebar tree is live: working agents rise to the top, their current task shows under the name.",
+            "A workspace with a plan shows the plan entry pinned first — it opens Board, List, and Canvas views.",
           ],
         },
         {
           type: "tip",
-          text: "Press Cmd+K (macOS) or Ctrl+K (Windows/Linux) to open the command palette — jump to tabs, spawn agents, or open settings without leaving the keyboard.",
+          text: "Press Cmd+K (macOS) or Ctrl+K (Windows/Linux) for the command palette — jump to tabs, spawn agents, or open settings without touching the mouse.",
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: how should I organize my projects here?",
+          question:
+            "A user is reading the CodeTerm guide (workspaces section) and pressed 'Ask the agent'. Look at their current workspaces and suggest concretely how to organize their projects in CodeTerm: when to make a new workspace, when to split panes, how to name things. Short, practical, based on what actually exists on this machine.",
         },
       ],
     },
     {
       id: "agents",
       title: "Agents",
-      subtitle: "Spawn, coordinate, and supervise AI workers",
+      subtitle: "The two-headed orchestration system, and the workers under it",
       blocks: [
         {
           type: "paragraph",
-          text: "Spawn agents (Claude, Codex, OpenCode, and other providers) into panes. The always-on General Agent is the machine's brain — it watches workspaces, schedules work, and can delegate when you ask.",
+          text: "Any provider can be spawned into a pane — Claude, Codex, OpenCode, local models — for a quick one-off session. But the real power is the orchestration system, and it has two heads that work as equals.",
         },
         {
           type: "paragraph",
-          text: "For multi-step work, CodeTerm uses a two-level hierarchy: an Orchestrator decomposes goals and spawns Workers; each Worker does one concrete task, reports back, and exits. The sidebar tree shows who is working for whom, live.",
+          text: "The Planner owns the thinking: it turns your goal into a Spec (what and why), a Plan (how, in waves), and Tasks with acceptance criteria. The Orchestrator owns the doing: it dispatches those tasks to Workers, keeps parallel lanes moving, reviews what comes back, and merges the results. Neither is the boss of the other — they are born as a linked pair, each knowing who its peer is, and the sidebar shows them side by side on the same level.",
         },
         { type: "figure", figureId: "agent-hierarchy" },
         {
+          type: "paragraph",
+          text: "Why two heads? Because plans rot when the same mind that wrote them is grinding through execution. The Orchestrator hits a design question — it routes it to the Planner instead of improvising. You give new feedback — the Planner reshapes the plan while the Orchestrator keeps the lanes running. Each head stays sharp at its own job.",
+        },
+        {
           type: "list",
           items: [
-            "Orchestrator — top of the chain; delegates by spawning workers with explicit roles.",
-            "Worker — leaf agent; never spawns other agents; runs codeterm agent report when done.",
-            "General Agent — persistent daemon pane; not a substitute for task-scoped workers.",
+            "Planner — shapes goal, spec, plan, and tasks; brokers decisions that need your input; never runs implementation.",
+            "Orchestrator — dispatches workers in parallel worktree lanes, gates their results, integrates branches; never authors plan structure.",
+            "Worker — does ONE task in its own git worktree, reports back, exits. Never spawns other agents.",
+            "General Agent — the always-on machine brain: answers you anywhere, watches integrations, and can become an Orchestrator when you ask.",
           ],
+        },
+        {
+          type: "tip",
+          text: "New session → Orchestration spawns the pair in one click: pick a provider and model for each head (defaults: Claude Opus orchestrating, Claude Fable planning) — they wake up already knowing each other.",
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: set up an orchestration for my next project",
+          question:
+            "A user is reading the CodeTerm guide (agents section) and pressed 'Ask the agent'. Explain in a few sentences how you would set up a Planner + Orchestrator pair for a new project on this machine, and offer to do it: ask what project or goal they have in mind. Do not spawn anything yet — just offer.",
         },
       ],
     },
@@ -72,22 +108,32 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "Plans capture durable orchestration state: a Goal (north star), a Spec (what and why), a Plan (how, in waves), and Tasks with acceptance criteria and test plans.",
+          text: "A plan is not a chat log — it is durable state that survives restarts, rate limits, and agent handoffs. It has a Goal (the north star), a Spec (what and why), a Plan (how, in waves), and Tasks, each carrying acceptance criteria, a test plan, and a correctness vector. Agents come and go; the plan remembers everything.",
         },
         { type: "figure", figureId: "plan-pipeline" },
         {
           type: "list",
           items: [
-            "Board — columns by task status; good for kanban-style flow.",
-            "List — chronological stream of tasks and milestones.",
-            "Canvas — spatial view linking spec, plan, and tasks on a board.",
+            "Board — columns by status; the fastest way to see where work stands.",
+            "List — a flat stream grouped by status, with an in-flight strip when filters hide active work.",
+            "Canvas — mission control: agents as live presences moving between dispatch, work floor, QA, and the gate desk.",
           ],
         },
         {
           type: "paragraph",
-          text: "Tasks move through a lifecycle: pending → in progress → in review (and QA) → done. Use blocked or parked when work is stuck or deferred. Working points record what happened; loops re-run a task until its stop condition is met.",
+          text: "Tasks move pending → in progress → in review (with an optional QA stage) → done, with blocked and parked for stuck or deferred work. Every step is recorded as a working point — open any task to read its full activity trail: who did what, when, and why. Loops re-run a task until its stop condition holds; competitive tasks run several agents on the same problem and let the Orchestrator judge the winner.",
         },
         { type: "figure", figureId: "task-status-flow" },
+        {
+          type: "tip",
+          text: "Workers cannot mark their own work done — they report in review, and the Orchestrator (or a QA lane) judges it. That gate is why you can trust a green board.",
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: walk me through my current plans",
+          question:
+            "A user is reading the CodeTerm guide (plans section) and pressed 'Ask the agent'. Check what plans exist on this machine (codeterm plan list) and give a short readable summary of each: goal, progress, what is currently in flight. If there are none, explain in two sentences how to start one.",
+        },
       ],
     },
     {
@@ -97,19 +143,26 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "Agents save durable facts, learnings, and skills to mem — CodeTerm's hybrid keyword + semantic memory store. The Memory panel shows indexed items and background workers (Librarian, Dreamer).",
+          text: "Agents forget everything when a session ends — unless they save it to mem, CodeTerm's persistent memory store. It combines keyword search and semantic vectors, so both exact terms and fuzzy meaning find what was saved. Say \"remember this\" to any agent and the fact becomes recallable from every future session, by every agent.",
         },
         {
           type: "list",
           items: [
-            "Ask any agent to remember something — it becomes searchable later.",
-            "Skills live in indexed folders; register project skills with codeterm mem skill add.",
-            "Wake-up recall injects relevant context when a workspace session starts.",
+            "Facts, learnings, and decisions — saved once, found later even with different wording.",
+            "Skills — reusable how-to folders with scripts; agents search them before doing unfamiliar work.",
+            "Background workers enrich saved items: classification, entity extraction, knowledge-graph links, dedup.",
+            "The Memory panel (sidebar) shows what is stored and what the workers are doing.",
           ],
         },
         {
           type: "tip",
-          text: "Use codeterm mem search from the CLI or ask an agent to recall before starting unfamiliar work.",
+          text: "Memory is machine-wide, not per-agent: a fact saved by one agent is recalled by all of them — including agents on other mesh machines when they ask.",
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: what do you remember about me?",
+          question:
+            "A user is reading the CodeTerm guide (memory section) and pressed 'Ask the agent'. Run a memory wake-up / search and summarize in a friendly, short way what you actually remember on this machine: who the user is, key projects, notable facts. If memory is nearly empty, say so and suggest what would be worth saving first.",
         },
       ],
     },
@@ -120,15 +173,22 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "Pair machines into a private mesh: see peers, send messages and tasks to their agents, and share plans across hosts. Enable mesh per machine from the Mesh tab in the sidebar.",
+          text: "Mesh pairs your machines into a private peer network — no cloud in the middle. Every machine runs its own CodeTerm daemon with its own General Agent; pairing lets them see each other, message each other's agents, and hand off work. Delegating a heavy task to your desktop from a laptop is one command.",
         },
         {
           type: "list",
           items: [
-            "Each peer runs its own daemon; pairing is explicit and revocable.",
-            "Remote panes and agent spawns target a chosen peer.",
-            "Health probes and activity logs help you see what is reachable.",
+            "Pairing is explicit and revocable; peers authenticate with tokens, nothing is open by default.",
+            "Send a message or a full task to any pane on any peer — replies route back automatically.",
+            "Plans can span machines: a remote worker's reports flow home to the plan that owns the task.",
+            "The Mesh tab shows peers, health probes, and an activity log of what crossed the wire.",
           ],
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: which machines can you reach right now?",
+          question:
+            "A user is reading the CodeTerm guide (mesh section) and pressed 'Ask the agent'. Check the mesh status and report which peers are currently reachable, what is running on them if visible, and one example of what the user could delegate to another machine. If mesh is off or unpaired, explain in two sentences how to enable it.",
         },
       ],
     },
@@ -139,15 +199,21 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "Bridges such as Telegram route external messages to your agents and send replies back. Configure tokens, routing rules, and notification behavior in Settings → Integrations.",
+          text: "Bridges connect outside channels to your agents. The Telegram bridge is the flagship: message your General Agent from your phone, get answers, voice messages are transcribed before delivery, and agents can push notifications back when something needs you.",
         },
         {
           type: "list",
           items: [
-            "Inbound messages can spawn or resume agent sessions.",
-            "Outbound replies come from the agent that handled the thread.",
-            "Discord and other bridges follow the same pattern when enabled.",
+            "Inbound messages carry a return address — the agent answers in the channel you wrote from, not in the pane.",
+            "Allowed-user lists gate who can talk to your machine; tokens live in the secret store, not in configs.",
+            "Discord and other bridges follow the same pattern when enabled; text hooks let you intercept and route messages programmatically.",
           ],
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: what integrations are live here?",
+          question:
+            "A user is reading the CodeTerm guide (integrations section) and pressed 'Ask the agent'. Check which integrations/bridges are configured and enabled on this machine and summarize their status. If none are set up, recommend which one to start with and where the setup lives in Settings.",
         },
       ],
     },
@@ -158,7 +224,7 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "Most navigation is faster from the command palette (Cmd/Ctrl+K). Configurable keybindings below reflect your current settings; others are fixed app shortcuts.",
+          text: "Most navigation is faster from the command palette (Cmd/Ctrl+K). Configurable keybindings below reflect your current settings; the rest are fixed app shortcuts.",
         },
         {
           type: "shortcut-table",
@@ -177,10 +243,17 @@ export const enHelpContent: HelpLocaleContent = {
         {
           type: "list",
           items: [
-            "Logs — Settings → Logs for daemon, mesh, agent, and integration diagnostics.",
-            "Updates — Settings → Check for updates; dev builds show a git hash in /api/health.",
-            "Esc closes modals including Settings.",
+            "Logs — Settings → Logs streams daemon, mesh, agent, and integration diagnostics, filterable live.",
+            "Updates — Settings → Check for updates; the About row shows exactly what build you run.",
+            "An agent looks stuck? Open its Terminal face — the raw PTY usually shows why.",
+            "Esc closes modals, including this guide.",
           ],
+        },
+        {
+          type: "ask",
+          label: "Ask the General Agent: give me your top tips for this machine",
+          question:
+            "A user is reading the CodeTerm guide (tips section) and pressed 'Ask the agent'. Based on how this machine is actually used (workspaces, plans, integrations you can see), give your top 5 practical CodeTerm tips for THIS user specifically. Short bullets, no generic advice.",
         },
       ],
     },

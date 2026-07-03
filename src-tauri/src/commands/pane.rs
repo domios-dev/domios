@@ -588,7 +588,14 @@ pub async fn chat_send_text(
     pane_id: String,
     text: String,
     enter: Option<bool>,
-) -> Result<(), String> {
+) -> Result<String, String> {
+    // Resolve aliases ("main", "general") so callers can address the General
+    // Agent without knowing its pane id — parity with the REST send route.
+    let pane_id = svc
+        .mux
+        .read()
+        .resolve_pane_id(&pane_id)
+        .unwrap_or(pane_id);
     let enter = enter.unwrap_or(true);
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, svc.pane_has_agent(&pane_id));
@@ -597,7 +604,8 @@ pub async fn chat_send_text(
     } else {
         text
     };
-    svc.send_text_when_ready(&pane_id, &text, enter).await
+    svc.send_text_when_ready(&pane_id, &text, enter).await?;
+    Ok(pane_id)
 }
 
 /// P1: open a non-PTY chatBackend pane driven by `plugin_id` (a plugin declaring

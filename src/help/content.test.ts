@@ -33,6 +33,29 @@ test("content blocks are structured data without JSX copy in renderer paths", ()
   }
 });
 
+test("every section offers an ask-the-agent button with a substantial question", () => {
+  const { sections } = getHelpContent("en");
+  for (const section of sections) {
+    const asks = section.blocks.filter((b) => b.type === "ask");
+    assert(asks.length === 1, `${section.id} must have exactly one ask block, got ${asks.length}`);
+    const ask = asks[0];
+    if (ask.type === "ask") {
+      assert(ask.label.length > 10, `${section.id} ask label too short`);
+      assert(ask.question.length > 60, `${section.id} ask question too short to steer the agent`);
+    }
+  }
+});
+
+test("agents section explains the planner+orchestrator pair as peers", () => {
+  const agents = getHelpContent("en").sections.find((s) => s.id === "agents");
+  assert(!!agents, "agents section missing");
+  const text = agents!.blocks
+    .map((b) => (b.type === "paragraph" || b.type === "tip" ? b.text : b.type === "list" ? b.items.join(" ") : ""))
+    .join(" ");
+  assert(text.includes("Planner") && text.includes("Orchestrator"), "pair not named");
+  assert(/peer|equals|same level/i.test(text), "peer-equality framing missing");
+});
+
 test("plans section includes pipeline and status figures", () => {
   const plans = getHelpContent("en").sections.find((s) => s.id === "plans");
   assert(!!plans, "plans section missing");

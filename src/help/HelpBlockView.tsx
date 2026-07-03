@@ -3,6 +3,7 @@ import { renderKbd } from "../components/Settings/shared";
 import { resolveHelpShortcut } from "./shortcuts";
 import type { HelpBlock } from "./types";
 import { HelpFigure } from "./figures";
+import { AskButton } from "./AskButton";
 
 export function HelpBlockView({ block, config }: { block: HelpBlock; config: AppConfig }) {
   switch (block.type) {
@@ -34,6 +35,8 @@ export function HelpBlockView({ block, config }: { block: HelpBlock; config: App
           {block.text}
         </div>
       );
+    case "ask":
+      return <AskButton label={block.label} question={block.question} />;
     case "shortcut-table":
       return (
         <div
