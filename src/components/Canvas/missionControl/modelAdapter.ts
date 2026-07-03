@@ -109,7 +109,10 @@ function laneDisplayName(station: TaskStation): string {
     const slash = branch.lastIndexOf("/");
     return slash >= 0 ? branch.slice(slash + 1) : branch;
   }
-  return station.presence?.label ?? clean(station.task.taken_by_role) ?? "Lane";
+  const fallback = station.presence?.label ?? clean(station.task.taken_by_role);
+  if (fallback) return fallback;
+  const title = displayTaskTitle(station.task);
+  return title.length > 28 ? `${title.slice(0, 28).trimEnd()}…` : title;
 }
 
 function stationsInZone(model: MissionControlModel, key: MissionZoneKey): TaskStation[] {
@@ -128,7 +131,7 @@ function buildLanes(
     if (!bucket) {
       bucket = {
         name: laneDisplayName(station),
-        branch: clean(station.task.lane?.branch) ?? clean(station.presence?.branch) ?? key,
+        branch: clean(station.task.lane?.branch) ?? clean(station.presence?.branch) ?? "",
         stations: [],
       };
       byKey.set(key, bucket);

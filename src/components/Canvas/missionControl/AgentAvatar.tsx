@@ -3,20 +3,26 @@ import type { MissionAgent } from "./types";
 interface AgentAvatarProps {
   agent: MissionAgent;
   showName?: boolean;
+  onClick?: (paneId: string) => void;
 }
 
-export function AgentAvatar({ agent, showName }: AgentAvatarProps) {
+export function AgentAvatar({ agent, showName, onClick }: AgentAvatarProps) {
   const initials = agent.name.slice(0, 2).toUpperCase();
   const liveClass = agent.state === "working" ? "ct-presence-live" : agent.state === "qa-fail" ? "mc-avatar-qa-fail" : undefined;
   const staleClass = agent.state === "idle" || agent.state === "waiting" ? "ct-presence-stale" : undefined;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <div
-        className={["mc-avatar", liveClass, staleClass].filter(Boolean).join(" ")}
+        className={["mc-avatar", onClick && "mc-avatar-clickable", liveClass, staleClass].filter(Boolean).join(" ")}
         data-state={agent.state}
         data-provider={agent.provider}
-        title={`${agent.name} (${agent.provider})`}
+        data-mc-interactive={onClick ? "true" : undefined}
+        title={onClick ? `${agent.name} (${agent.provider}) — open pane` : `${agent.name} (${agent.provider})`}
         data-testid={`avatar-${agent.id}`}
+        role={onClick ? "button" : undefined}
+        tabIndex={onClick ? 0 : undefined}
+        onClick={onClick ? (e) => { e.stopPropagation(); onClick(agent.id); } : undefined}
+        onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(agent.id); } } : undefined}
       >
         {initials}
       </div>

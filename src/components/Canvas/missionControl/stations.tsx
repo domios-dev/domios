@@ -12,9 +12,10 @@ interface StationProps {
 interface WorkFloorBayProps extends StationProps {
   lane: MissionLane;
   onTaskClick?: (taskId: string) => void;
+  onAgentClick?: (paneId: string) => void;
 }
 
-export function WorkFloorBay({ lane, lod, onTaskClick }: WorkFloorBayProps) {
+export function WorkFloorBay({ lane, lod, onTaskClick, onAgentClick }: WorkFloorBayProps) {
   const tasks = lane.activeTasks ?? (lane.activeTask ? [lane.activeTask] : []);
   const agents = lane.agents ?? (lane.agent ? [lane.agent] : []);
   const idleBay = agents.length > 0 && tasks.length === 0;
@@ -29,12 +30,12 @@ export function WorkFloorBay({ lane, lod, onTaskClick }: WorkFloorBayProps) {
     >
       <div className="mc-bay-header">
         <div style={{ minWidth: 0 }}>
-          <div className="mc-bay-label">{lane.name}</div>
-          <div className="mc-bay-branch mc-detail-only">{lane.branch}</div>
+          <div className="mc-bay-label" title={lane.name}>{lane.name}</div>
+          {lane.branch && <div className="mc-bay-branch mc-detail-only" title={lane.branch}>{lane.branch}</div>}
         </div>
         <div className="mc-bay-avatars" style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {agents.map((agent) => (
-            <AgentAvatar key={agent.id} agent={agent} />
+            <AgentAvatar key={agent.id} agent={agent} onClick={onAgentClick} />
           ))}
         </div>
       </div>
@@ -116,11 +117,11 @@ interface DoneShelfProps extends StationProps {
 export function DoneShelf({ count, recent, lod, onTaskClick }: DoneShelfProps) {
   return (
     <section className="mc-panel mc-done-shelf" data-testid="done-shelf">
-      <div>
+      <div className="mc-done-header">
         <div className="mc-panel-title" style={{ border: "none", padding: 0 }}>Done</div>
         <div className="mc-done-count">{count}</div>
       </div>
-      <div className="mc-detail-only" style={{ display: "flex", flexDirection: "column", gap: 4, flex: 1, minWidth: 0 }}>
+      <div className="mc-detail-only mc-done-recent">
         {recent.slice(0, 2).map((t) => (
           <TaskCard key={t.id} task={t} dense lod={lod} onClick={onTaskClick} />
         ))}
