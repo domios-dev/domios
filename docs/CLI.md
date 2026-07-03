@@ -70,6 +70,7 @@ List available agent providers (claude, codex, ...) with their display names, de
 
 Send a report to your parent in the hierarchy
 
+- `--attachments` — File to attach to the report milestone; repeat for multiple files
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone
@@ -118,6 +119,7 @@ Spawn a new agent; roleless unless --role is provided
 - `--description` — Short pane description (max 200 chars)
 - `--model` — Model selector (e.g. "github-copilot/claude-haiku-4.5", "gpt-5"). The provider knows whether to emit `-m X` or `--model X` — caller passes the model string opaque. Run `codeterm agent models <provider>` to see what's available
 - `--parent` — Parent pane ID (for Workers)
+- `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--preset` — Select a chatBackend shell preset. Omit to use the plugin default preset
 - `--report_to` — Where this worker's `agent report` should land. A pane id or `main`/`general` alias. With `--mesh PEER` it resolves on that peer, so a remote worker reports back to the spawning orchestrator. Defaults to the caller's own pane
 - `--role` — Role: Worker, Orchestrator, or Planner profile sugar
@@ -1134,6 +1136,19 @@ Send a notification
 - `--level` — Notification level: info, warning, error
 - `<title>` — Notification title
 
+#### `codeterm orchestration`
+
+Paired creation — spawn an Orchestrator + Planner bound to a fresh plan
+
+#### `codeterm orchestration new`
+
+Create an Orchestrator + Planner pair bound to a fresh plan in one action
+
+- `--orchestrator` — Orchestrator provider, optionally with a model (`provider[:model]`)
+- `--planner` — Planner provider, optionally with a model (`provider[:model]`)
+- `--title`
+- `--workspace`
+
 #### `codeterm orchestrator`
 
 Orchestrator helpers
@@ -1823,6 +1838,14 @@ Add a plan section (execution phase), optionally nested under --parent
 - `--tags`
 - `--title`
 
+#### `codeterm plan section attach`
+
+Attach a file to a plan section
+
+- `<file>`
+- `<plan_id>`
+- `<section_id>`
+
 #### `codeterm plan section rm`
 
 Remove a plan section and its subsections
@@ -1917,6 +1940,14 @@ Assign a task to a pane (exports CODETERM_TASK_ID to that pane)
 
 - `--mesh`
 - `--pane`
+- `<plan_id>`
+- `<task_id>`
+
+#### `codeterm plan task attach`
+
+Attach a file to a plan task
+
+- `<file>`
 - `<plan_id>`
 - `<task_id>`
 
@@ -2085,7 +2116,9 @@ Remove a plan link
 Update plan metadata
 
 - `--mode`
+- `--note` — Waiver note (required when --planner none)
 - `<plan_id>`
+- `--planner` — Set planner peer: <pane_id> to bind, or "none" to waive (requires --note)
 - `--spec`
 - `--spec_file`
 - `--status`
@@ -2186,6 +2219,7 @@ Update bundled system provider plugins from the official plugin channel
 
 Report worker progress to the owning orchestrator or plan
 
+- `--attachments` — File to attach to the report milestone; repeat for multiple files
 - `--branch` — Git branch the work landed on
 - `--changed_files` — Changed files (comma-separated or repeat the flag)
 - `--doc` — Markdown document to append to the report milestone

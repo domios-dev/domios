@@ -1,6 +1,11 @@
 import { createContext, useContext } from "react";
 import { TitleLevel } from "../../lib/types";
-import type { Notification, PaneStatus } from "../../lib/types";
+import type {
+  Notification,
+  PaneStatus,
+  OrchestrationPairInput,
+  OrchestrationPairResult,
+} from "../../lib/types";
 import type { ExtendedState } from "./tree";
 
 export interface MultiplexerContextType {
@@ -40,6 +45,9 @@ export interface MultiplexerContextType {
   updatePaneStatus: (paneId: string, status: PaneStatus) => void;
   spawnClaudeTab: (workspaceId: string, skipPermissions: boolean, cwd?: string) => void;
   spawnAgentTab: (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => void;
+  /** Paired creation (task_7e5f9354): create a plan plus an Orchestrator +
+   *  Planner pane bound to it, in one call. */
+  createOrchestrationPair: (input: OrchestrationPairInput) => Promise<OrchestrationPairResult>;
 }
 
 export const MultiplexerContext = createContext<MultiplexerContextType | null>(null);

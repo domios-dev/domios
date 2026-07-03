@@ -11,6 +11,7 @@ mod bridge;
 mod canvas;
 mod cron;
 mod notification;
+mod orchestration;
 mod pane;
 mod plan;
 mod plan_archive;
@@ -398,6 +399,7 @@ fn dispatch(
                 "agent.link",
                 "agent.report",
                 "agent.reports",
+                "orchestration.new",
                 "plan.create",
                 "plan.batch",
                 "plan.handoff.create",
@@ -516,6 +518,7 @@ fn dispatch(
         "pane" | "agents" | "browser" => pane::dispatch(method, &params, mux, app, svc),
         "notification" => notification::dispatch(method, &params, notif, app),
         "agent" => agent::dispatch(method, &params, app, svc),
+        "orchestration" => orchestration::dispatch(method, &params, app, svc),
         "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, app, svc),
         "plan" | "task" => plan::dispatch(method, &params, app, svc),
         "canvas" => canvas::dispatch(method, &params, app),

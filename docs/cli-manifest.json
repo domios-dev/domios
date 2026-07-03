@@ -202,6 +202,14 @@
           "aliases": [],
           "args": [
             {
+              "name": "attachments",
+              "positional": false,
+              "value_name": "PATH",
+              "default": null,
+              "help": "File to attach to the report milestone; repeat for multiple files",
+              "aliases": []
+            },
+            {
               "name": "branch",
               "positional": false,
               "value_name": "BRANCH",
@@ -455,6 +463,14 @@
               "value_name": "PARENT",
               "default": null,
               "help": "Parent pane ID (for Workers)",
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "value_name": "PLAN",
+              "default": null,
+              "help": "Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator",
               "aliases": []
             },
             {
@@ -4142,6 +4158,54 @@
       "subcommands": []
     },
     {
+      "name": "orchestration",
+      "about": "Paired creation — spawn an Orchestrator + Planner bound to a fresh plan",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "new",
+          "about": "Create an Orchestrator + Planner pair bound to a fresh plan in one action",
+          "aliases": [],
+          "args": [
+            {
+              "name": "orchestrator",
+              "positional": false,
+              "value_name": "ORCHESTRATOR",
+              "default": null,
+              "help": "Orchestrator provider, optionally with a model (`provider[:model]`)",
+              "aliases": []
+            },
+            {
+              "name": "planner",
+              "positional": false,
+              "value_name": "PLANNER",
+              "default": null,
+              "help": "Planner provider, optionally with a model (`provider[:model]`)",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "value_name": "TITLE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "workspace",
+              "positional": false,
+              "value_name": "WORKSPACE",
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "orchestrator",
       "about": "Orchestrator helpers",
       "aliases": [],
@@ -6729,6 +6793,38 @@
               "subcommands": []
             },
             {
+              "name": "attach",
+              "about": "Attach a file to a plan section",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "file",
+                  "positional": true,
+                  "value_name": "PATH",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "section_id",
+                  "positional": true,
+                  "value_name": "SECTION_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "rm",
               "about": "Remove a plan section and its subsections",
               "aliases": [],
@@ -7201,6 +7297,38 @@
                   "name": "pane",
                   "positional": false,
                   "value_name": "PANE",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "value_name": "PLAN_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "value_name": "TASK_ID",
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "attach",
+              "about": "Attach a file to a plan task",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "file",
+                  "positional": true,
+                  "value_name": "PATH",
                   "default": null,
                   "help": null,
                   "aliases": []
@@ -8008,11 +8136,27 @@
               "aliases": []
             },
             {
+              "name": "note",
+              "positional": false,
+              "value_name": "NOTE",
+              "default": null,
+              "help": "Waiver note (required when --planner none)",
+              "aliases": []
+            },
+            {
               "name": "plan_id",
               "positional": true,
               "value_name": "PLAN_ID",
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "planner",
+              "positional": false,
+              "value_name": "PLANNER",
+              "default": null,
+              "help": "Set planner peer: <pane_id> to bind, or \"none\" to waive (requires --note)",
               "aliases": []
             },
             {
@@ -8342,6 +8486,14 @@
       "about": "Report worker progress to the owning orchestrator or plan",
       "aliases": [],
       "args": [
+        {
+          "name": "attachments",
+          "positional": false,
+          "value_name": "PATH",
+          "default": null,
+          "help": "File to attach to the report milestone; repeat for multiple files",
+          "aliases": []
+        },
         {
           "name": "branch",
           "positional": false,

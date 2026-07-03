@@ -406,6 +406,10 @@ pub fn create_router(state: AppState) -> Router {
             post(session_routes::resume_session_api),
         )
         .route("/api/agents/spawn", post(agent_routes::spawn_agent))
+        .route(
+            "/api/orchestration/new",
+            post(agent_routes::create_orchestration_pair),
+        )
         .route("/api/batch", post(agent_routes::batch_commands))
         .route(
             "/api/crons",

@@ -10,9 +10,10 @@ import { getAgentProvider } from "../../lib/agentProviders";
 import { setProviderSettings } from "../../lib/clientSettings";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { Tab, PaneStatus, AppConfig } from "../../lib/types";
-import { Plus } from "lucide-react";
+import { Plus, Network } from "lucide-react";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
+import { OrchestrationCreate } from "./OrchestrationCreate";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { TabItem } from "./TabItem";
 import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
@@ -99,6 +100,8 @@ export function Sidebar({
     setActiveTab,
     setTabTitle,
     spawnAgentTab,
+    createOrchestrationPair,
+    addNotification,
   } = useMultiplexer();
   // When mainView leaves the workspace (Memory / Settings open), suppress the "active" highlight on the current workspace + tab so the sidebar
   // clearly shows where the user is in the hierarchy. Backend focus state is unchanged — returning to workspace restores the visual highlight.
@@ -116,6 +119,7 @@ export function Sidebar({
   } | null>(null);
   const [claudeSkipPerms, setClaudeSkipPerms] = useState(false);
   const [claudeRememberChoice, setClaudeRememberChoice] = useState(false);
+  const [orchestrationModal, setOrchestrationModal] = useState<{ workspaceId: string } | null>(null);
   const { providers } = useAgentProviders();
   const { index: planIndex } = usePlanIndexOptional();
   const fullPlans = useFullPlansOptional();
@@ -710,6 +714,13 @@ export function Sidebar({
                               icon: <AgentIcon providerId={provider.id} className="text-[12px]" />,
                               onClick: () => handleAgentSpawn(provider.id, ws.id, ws.cwd ?? null),
                             }));
+                            if (visibleProviders.length > 0) {
+                              newSessionItems.push({
+                                label: "Orchestration",
+                                icon: <Network size={12} strokeWidth={1.5} />,
+                                onClick: () => setOrchestrationModal({ workspaceId: ws.id }),
+                              });
+                            }
                             const trigger = (
                               <button
                                 disabled={newSessionItems.length === 0}
@@ -977,6 +988,35 @@ export function Sidebar({
             </div>
           </div>
         </>
+      )}
+
+      {orchestrationModal && (
+        <OrchestrationCreate
+          providers={visibleProviders}
+          onCancel={() => setOrchestrationModal(null)}
+          onConfirm={(result) => {
+            const workspaceId = orchestrationModal.workspaceId;
+            setOrchestrationModal(null);
+            createOrchestrationPair({
+              orchestratorAgent: result.orchestratorAgent,
+              orchestratorModel: result.orchestratorModel,
+              plannerAgent: result.plannerAgent,
+              plannerModel: result.plannerModel,
+              workspaceId,
+              title: result.title,
+            }).catch((e) => {
+              const message = e instanceof Error ? e.message : String(e);
+              addNotification({
+                pane_id: null,
+                workspace_id: workspaceId,
+                title: "Orchestration pair failed",
+                body: message,
+                level: "Error",
+                sticky: true,
+              });
+            });
+          }}
+        />
       )}
     </>
   );
