@@ -624,6 +624,10 @@ pub struct Plan {
     #[serde(default)]
     pub planner: Option<PlannerRef>,
     #[serde(default)]
+    pub planning_state: crate::plan::planning_state::PlanningState,
+    #[serde(default)]
+    pub planning_log: Vec<crate::plan::planning_state::PlanningTransition>,
+    #[serde(default)]
     pub gates: Vec<crate::plan::gates::DecisionGate>,
 }
 
@@ -657,8 +661,19 @@ impl Plan {
             canvas: PlanCanvas::default(),
             owner_history: vec![],
             planner: None,
+            planning_state: crate::plan::planning_state::PlanningState::default(),
+            planning_log: vec![],
             gates: vec![],
         }
+    }
+
+    /// Single source of truth for whether execution (non-planning) tasks may be
+    /// created. planning_state is authoritative going forward; an Approved/Execution
+    /// lifecycle mode bridges plans predating planning_state. Complete never unlocks.
+    pub fn execution_tasks_unlocked(&self) -> bool {
+        self.mode != PlanMode::Complete
+            && (self.planning_state.allows_execution_tasks()
+                || matches!(self.mode, PlanMode::Approved | PlanMode::Execution))
     }
 }
 
@@ -840,5 +855,43 @@ mod tests {
         }"#;
         let p: Plan = serde_json::from_str(raw).unwrap();
         assert_eq!(p.planner, None);
+    }
+
+    #[test]
+    fn planning_state_defaults_drafting_on_old_plan() {
+        let raw = r#"{
+            "id": "pl_old3",
+            "title": "Old",
+            "status": "active",
+            "owner": {},
+            "project_path": "/repo",
+            "created_at": 1,
+            "updated_at": 2
+        }"#;
+        let p: Plan = serde_json::from_str(raw).unwrap();
+        assert_eq!(
+            p.planning_state,
+            crate::plan::planning_state::PlanningState::Drafting
+        );
+        assert!(p.planning_log.is_empty());
+    }
+
+    #[test]
+    fn planning_state_roundtrips() {
+        use crate::plan::planning_state::{PlanningAuthor, PlanningState, PlanningTransition};
+        let mut p = Plan::new("P".into(), "/r".into(), Default::default());
+        p.planning_state = PlanningState::Approved;
+        p.planning_log = vec![PlanningTransition {
+            from: PlanningState::StructureReady,
+            to: PlanningState::Approved,
+            by: PlanningAuthor::User,
+            note: None,
+            at: 9,
+        }];
+        let json = serde_json::to_string(&p).unwrap();
+        assert!(json.contains("\"planning_state\":\"approved\""));
+        let back: Plan = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.planning_state, PlanningState::Approved);
+        assert_eq!(back.planning_log, p.planning_log);
     }
 }

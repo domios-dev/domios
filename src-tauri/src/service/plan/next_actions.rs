@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::plan::{LoopStatus, PlanMode, QaState, ReviewStage, TaskStatus};
+use crate::plan::{LoopStatus, QaState, ReviewStage, TaskStatus};
 
 use super::state::{LoopSnapshot, PlanStateSnapshot};
 
@@ -26,6 +26,21 @@ pub struct NextAction {
     pub message: String,
 }
 
+// Planning-phase next action: defer structure to the planner peer by name and
+// surface any approval blockers. Shared wording lives in `crate::prompts`.
+fn planning_next_action_message(s: &PlanStateSnapshot) -> String {
+    let peer = crate::service::plan::peer_mandate::planner_peer_label(&s.planner_resolution);
+    let mut msg = crate::prompts::orch_defer_structure_line(&peer);
+    if s.planning_approval_blockers.is_empty() {
+        msg.push_str(" Structure looks ready — run the quality doctor, then approve.");
+    } else {
+        msg.push_str(" Approval blockers: ");
+        msg.push_str(&s.planning_approval_blockers.join("; "));
+        msg.push('.');
+    }
+    msg
+}
+
 // Running loop with no headroom left: at or one short of budget, or past 80%.
 fn loop_near_limit(l: &LoopSnapshot) -> bool {
     if l.status != LoopStatus::Running || l.budget == 0 {
@@ -39,14 +54,13 @@ fn loop_near_limit(l: &LoopSnapshot) -> bool {
 pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
     let mut actions = Vec::new();
 
-    if s.mode == PlanMode::Planning {
+    if !s.execution_tasks_unlocked {
         actions.push(NextAction {
             priority: 1,
             kind: NextActionKind::ApprovePlan,
             task_id: None,
             loop_id: None,
-            message: "finish planning: run quality doctor, then approve before task generation"
-                .into(),
+            message: planning_next_action_message(s),
         });
     }
 
@@ -185,6 +199,9 @@ mod tests {
             title: "T".into(),
             status: crate::plan::PlanStatus::Active,
             mode: crate::plan::PlanMode::Execution,
+            planning_state: crate::plan::PlanningState::Approved,
+            execution_tasks_unlocked: true,
+            planning_approval_blockers: vec![],
             canonical_project_path: "/repo".into(),
             planning_readiness: Default::default(),
             owner: Default::default(),
@@ -308,11 +325,24 @@ mod tests {
     }
 
     #[test]
-    fn planning_mode_points_to_approval_gate() {
+    fn planning_state_points_to_approval_gate_and_defers_to_planner() {
         let mut s = empty();
-        s.mode = PlanMode::Planning;
+        s.execution_tasks_unlocked = false;
+        s.planning_state = crate::plan::PlanningState::Drafting;
+        s.planner_resolution = crate::plan::peer::PeerResolution::Planner {
+            pane_id: "pane_planner".into(),
+        };
+        s.planning_approval_blockers = vec!["no GOAL vector set".into()];
         let a = compute_next_actions(&s);
         assert_eq!(a[0].kind, NextActionKind::ApprovePlan);
-        assert!(a[0].message.contains("quality doctor"));
+        assert!(a[0].message.contains("pane_planner"));
+        assert!(a[0].message.contains("no GOAL vector set"));
+    }
+
+    #[test]
+    fn approved_plan_has_no_approval_action() {
+        let s = empty(); // execution_tasks_unlocked = true
+        let a = compute_next_actions(&s);
+        assert!(a.iter().all(|x| x.kind != NextActionKind::ApprovePlan));
     }
 }

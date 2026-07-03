@@ -7,8 +7,8 @@ use crate::plan::coverage::{compute_coverage_report, CoverageReport};
 use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::plan::reconcile::{DriftItem, PaneProbe};
 use crate::plan::{
-    Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, QaState,
-    ReviewStage, TaskStatus,
+    Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, PlanningState,
+    QaState, ReviewStage, TaskStatus,
 };
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
@@ -106,6 +106,9 @@ pub struct PlanStateSnapshot {
     pub title: String,
     pub status: PlanStatus,
     pub mode: PlanMode,
+    pub planning_state: PlanningState,
+    pub execution_tasks_unlocked: bool,
+    pub planning_approval_blockers: Vec<String>,
     pub canonical_project_path: String,
     pub planning_readiness: PlanningReadiness,
     pub owner: OrchestratorRef,
@@ -248,6 +251,25 @@ fn planning_readiness(plan: &Plan) -> PlanningReadiness {
     }
 }
 
+/// Readiness gate for advancing planning_state to approved. Empty = ready.
+/// The approval doctor and the planner's advance both consult this.
+pub fn planning_approval_blockers(readiness: &PlanningReadiness) -> Vec<String> {
+    let mut blockers = Vec::new();
+    if !readiness.has_goal {
+        blockers.push("no GOAL vector set".into());
+    }
+    if !readiness.has_plan_sections {
+        blockers.push("plan has no sections (HOW/execution phases)".into());
+    }
+    if !readiness.has_spec_source {
+        blockers.push("no spec source linked (WHAT/WHY)".into());
+    }
+    if !readiness.has_verification_hint {
+        blockers.push("no verification/test-plan hint in plan sections".into());
+    }
+    blockers
+}
+
 pub fn build_plan_state_snapshot(
     plan: &Plan,
     coverage: CoverageReport,
@@ -264,6 +286,8 @@ pub fn build_plan_state_snapshot(
     });
     let counts = task_counts(plan);
     let pct = percent_done(&counts);
+    let readiness = planning_readiness(plan);
+    let approval_blockers = planning_approval_blockers(&readiness);
 
     let open_lanes = plan
         .tasks
@@ -351,12 +375,15 @@ pub fn build_plan_state_snapshot(
         title: plan.title.clone(),
         status: plan.status.clone(),
         mode: plan.mode.clone(),
+        planning_state: plan.planning_state,
+        execution_tasks_unlocked: plan.execution_tasks_unlocked(),
+        planning_approval_blockers: approval_blockers,
         canonical_project_path: if plan.canonical_project_path.trim().is_empty() {
             plan.project_path.clone()
         } else {
             plan.canonical_project_path.clone()
         },
-        planning_readiness: planning_readiness(plan),
+        planning_readiness: readiness,
         owner: plan.owner.clone(),
         planner: plan.planner.clone(),
         planner_resolution,

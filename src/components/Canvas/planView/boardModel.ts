@@ -4,7 +4,14 @@ import { filterPlansForCanvas } from "../planPaneMatch";
 import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
-import { TaskStatus, type Plan, type Section, type Task, type TaskStatus as TaskStatusType } from "../types";
+import {
+  TaskStatus,
+  type Plan,
+  type PlanningState,
+  type Section,
+  type Task,
+  type TaskStatus as TaskStatusType,
+} from "../types";
 import { latestTaskNote } from "./taskStatusLabel";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
@@ -39,6 +46,11 @@ export interface BoardSpecSummary {
 export interface BoardPlanSummary {
   title: string;
   ownerLabel: string;
+  ownerPaneId: string | null;
+  plannerLabel: string | null;
+  plannerPaneId: string | null;
+  planningState: PlanningState | null;
+  executionUnlocked: boolean;
   done: number;
   total: number;
   focus: string | null;
@@ -83,6 +95,28 @@ function ownerLabel(plan: Plan, panes: Record<string, Pane>): string {
   const paneId = clean(plan.owner.pane_id);
   if (paneId && panes[paneId]?.title) return panes[paneId].title!.trim();
   return clean(plan.owner.title) ?? (paneId ? paneId.slice(0, 8) : "Unassigned");
+}
+
+function plannerBinding(
+  plan: Plan,
+  panes: Record<string, Pane>,
+): { label: string | null; paneId: string | null } {
+  const ref = plan.planner ?? null;
+  if (!ref) return { label: null, paneId: null };
+  if (ref.kind === "waived") return { label: "Solo (waived)", paneId: null };
+  const paneId = clean(ref.pane_id);
+  const label =
+    (paneId && panes[paneId]?.title?.trim()) ||
+    clean(ref.title) ||
+    (paneId ? paneId.slice(0, 8) : null);
+  return { label, paneId };
+}
+
+// Mirror of `Plan::execution_tasks_unlocked`: planning_state authoritative,
+// approved/execution lifecycle mode bridges plans predating planning_state.
+export function planExecutionUnlocked(plan: Plan): boolean {
+  if (plan.mode === "complete") return false;
+  return plan.planning_state === "approved" || plan.mode === "approved" || plan.mode === "execution";
 }
 
 function taskFreshness(task: Task): number {
@@ -164,9 +198,15 @@ export function deriveBoardPlanSummary(plan: Plan, panes: Record<string, Pane>):
     total += 1;
     if (task.status === TaskStatus.Done) done += 1;
   }
+  const planner = plannerBinding(plan, panes);
   return {
     title: plan.title.trim() || "Untitled plan",
     ownerLabel: ownerLabel(plan, panes),
+    ownerPaneId: clean(plan.owner.pane_id),
+    plannerLabel: planner.label,
+    plannerPaneId: planner.paneId,
+    planningState: plan.planning_state ?? null,
+    executionUnlocked: planExecutionUnlocked(plan),
     done,
     total,
     focus: clean(plan.heartbeat?.current_focus),
