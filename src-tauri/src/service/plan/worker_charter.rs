@@ -83,6 +83,8 @@ You are a Worker on task {task_id}. Three rules:\n\
 - Decomposition needed \u{2192} report blocked; the Orchestrator splits it.\n\
 ",
     );
+    out.push_str(super::skill_registry::PLAN_SKILL_REGISTRY_POINTER);
+    out.push('\n');
     if let Some(loop_spec) = loop_spec {
         out.push_str(&render_loop_context(loop_spec));
     }

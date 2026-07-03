@@ -243,6 +243,8 @@ fn render_heartbeat(plan: &Plan, heartbeat: &OrchestratorHeartbeat, loops: &[Loo
     render_competitive_attempts(plan, &mut out);
     render_running_loops(loops, &mut out);
     render_open_gates(plan, now_ms(), &mut out);
+    out.push_str(super::skill_registry::PLAN_SKILL_REGISTRY_POINTER);
+    out.push('\n');
     out.push_str("</codeterm-orchestrator-heartbeat>");
     out
 }

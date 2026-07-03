@@ -20,7 +20,7 @@ fn create_edit_list_round_trip() {
     std::fs::create_dir_all(dir.join("scripts")).unwrap();
     std::fs::write(
         store::skill_md_path(plan_dir, &slug),
-        store::scaffold(&slug, "Deploy To Staging", "infra"),
+        store::scaffold(&slug, "Deploy To Staging", "infra", None),
     )
     .unwrap();
     ledger::append_entry(plan_dir, &slug, store::KEEP, "created").unwrap();

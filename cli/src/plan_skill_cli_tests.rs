@@ -31,6 +31,17 @@ fn new_parses_slug_and_defaults() {
 }
 
 #[test]
+fn new_accepts_check_metadata() {
+    match skill_action(&["new", "deploy", "--check", "./build.sh check"]) {
+        PlanSkillAction::New { slug, check, .. } => {
+            assert_eq!(slug, "deploy");
+            assert_eq!(check.as_deref(), Some("./build.sh check"));
+        }
+        _ => panic!("expected new"),
+    }
+}
+
+#[test]
 fn list_allows_zero_flag_plan() {
     match skill_action(&["list"]) {
         PlanSkillAction::List { plan } => assert_eq!(plan, None),
