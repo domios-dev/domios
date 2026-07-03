@@ -324,6 +324,13 @@ pub struct GeneralAgentConfig {
     pub auto_restart: bool,
     pub max_restart_attempts: u32,
     pub restart_delay_s: u32,
+    /// False until the user confirms a provider on the first-run picker.
+    #[serde(default = "default_first_run_complete_for_deserialize")]
+    pub first_run_complete: bool,
+}
+
+fn default_first_run_complete_for_deserialize() -> bool {
+    true
 }
 
 impl Default for GeneralAgentConfig {
@@ -334,6 +341,7 @@ impl Default for GeneralAgentConfig {
             auto_restart: true,
             max_restart_attempts: 5,
             restart_delay_s: 5,
+            first_run_complete: false,
         }
     }
 }

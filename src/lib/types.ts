@@ -411,6 +411,7 @@ export interface GeneralAgentConfig {
   auto_restart: boolean;
   max_restart_attempts: number;
   restart_delay_s: number;
+  first_run_complete?: boolean;
 }
 
 export interface IntegrationsConfig {

@@ -735,6 +735,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/agents/general/restart",
             post(agent_routes::restart_general_agent),
         )
+        .route(
+            "/api/agents/general/complete-first-run",
+            post(agent_routes::complete_general_agent_first_run),
+        )
         .route("/api/secrets/status", get(crate::secrets::api::status))
         .route("/api/secrets/unlock", post(crate::secrets::api::unlock))
         .route("/api/secrets/lock", post(crate::secrets::api::lock))

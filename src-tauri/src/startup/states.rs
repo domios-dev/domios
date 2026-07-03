@@ -11,7 +11,6 @@ use crate::notification::store::NotificationStore;
 use crate::notification::NotifState;
 use crate::pty::manager::{OutputBuffer, PtyManager};
 use crate::pty::screen_state::ScreenState;
-use crate::service::spawn::{should_default_agent_pane_to_chat, PaneVisibility};
 use crate::session::store::SessionStore;
 use crate::session::SessionState;
 use crate::{
@@ -149,12 +148,32 @@ pub(crate) fn init_states() -> AppStates {
     }
     if general_config.enabled {
         service::general_agent::ensure_directories();
-        service::general_agent::generate_instructions(&general_config.agent_provider, None);
-        let default_chat_view = default_chat_view_for_general_agent(
-            config_state.lock().ui.default_new_agent_pane_chat,
-            &general_config.agent_provider,
-        );
-        service::general_agent::ensure_general_workspace(&mut mux_state_inner, default_chat_view);
+        let mut general_config = general_config;
+        if !general_config.first_run_complete
+            && service::general_agent::snapshot_has_protected_main(&mux_state_inner)
+        {
+            general_config.first_run_complete = true;
+            let mut cfg = config_state.lock();
+            cfg.general_agent.first_run_complete = true;
+            let snapshot = cfg.clone();
+            drop(cfg);
+            if let Err(e) = crate::config::save_config_pub(&snapshot) {
+                log::warn!("[general-agent] first_run migration save failed: {}", e);
+            }
+        }
+        if general_config.first_run_complete {
+            service::general_agent::generate_instructions(&general_config.agent_provider, None);
+            let default_chat_view = service::general_agent::default_chat_view_for_provider(
+                &config_state.lock(),
+                &general_config.agent_provider,
+            );
+            service::general_agent::ensure_general_workspace(
+                &mut mux_state_inner,
+                default_chat_view,
+            );
+        } else {
+            service::general_agent::ensure_first_run_tab(&mut mux_state_inner);
+        }
     }
 
     let mux_state: MuxState = Arc::new(RwLock::new(mux_state_inner));
@@ -177,10 +196,11 @@ pub(crate) fn init_states() -> AppStates {
     }
 }
 
+#[cfg(test)]
 fn default_chat_view_for_general_agent(default_enabled: bool, provider_id: &str) -> bool {
-    should_default_agent_pane_to_chat(
+    crate::service::spawn::should_default_agent_pane_to_chat(
         default_enabled,
-        PaneVisibility::Visible,
+        crate::service::spawn::PaneVisibility::Visible,
         bundled_agent_provider_supports_chat_ui(provider_id),
     )
 }
@@ -197,8 +217,10 @@ fn default_chat_view_for_general_agent(default_enabled: bool, provider_id: &str)
 /// this single list is the one source of truth, cross-checked against the
 /// embedded plugin set by the test below so it can't name a provider we no
 /// longer ship.
+#[cfg(test)]
 const BUNDLED_CHAT_UI_PROVIDERS: &[&str] = &["claude", "codex", "opencode", "cursor"];
 
+#[cfg(test)]
 fn bundled_agent_provider_supports_chat_ui(provider_id: &str) -> bool {
     BUNDLED_CHAT_UI_PROVIDERS.contains(&provider_id)
 }

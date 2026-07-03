@@ -405,6 +405,10 @@ const HTTP_MAP: Record<string, Mapper> = {
   get_remote_workers: () => webJson("GET", "/api/remote-workers"),
   save_session: () => webJson("POST", "/api/session/save"),
   restart_general_agent: () => webJson("POST", "/api/agents/general/restart"),
+  complete_general_agent_first_run: (a) =>
+    webJson("POST", "/api/agents/general/complete-first-run", {
+      provider_id: s(a, "providerId") ?? s(a, "provider_id"),
+    }),
   save_temp_file: async (a) => {
     const resp = await webJson<{ path?: string }>("POST", "/api/attachments/temp-file", {
       data: a.data,
