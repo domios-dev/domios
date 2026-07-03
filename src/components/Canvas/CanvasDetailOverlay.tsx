@@ -13,6 +13,7 @@ export interface CanvasDetailOverlayProps {
   api?: ApiConfig;
   onClose: () => void;
   onOpenPane?: (paneId: string) => void;
+  onOpenTask?: (taskId: string) => void;
   onCopyLink?: (id: string) => void;
   onFocusStride?: (milestoneId: string) => void;
   onSectionClick?: (a: SectionNavArgs) => void;
@@ -27,6 +28,7 @@ export function CanvasDetailOverlay({
   api,
   onClose,
   onOpenPane,
+  onOpenTask,
   onSectionClick,
   onSectionFrame,
 }: CanvasDetailOverlayProps) {
@@ -57,6 +59,7 @@ export function CanvasDetailOverlay({
       panes={panes}
       onClose={onClose}
       onOpenPane={onOpenPane}
+      onOpenTask={onOpenTask}
       onSectionClick={onSectionClick}
       onSectionFrame={onSectionFrame}
       testIdPrefix="canvas-detail"

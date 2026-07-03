@@ -91,6 +91,65 @@ test("renders spec detail from specSections", async () => {
   assert(host.querySelector('[data-testid="canvas-detail-section"][data-section-id="sec-auth"]'), "spec section");
 });
 
+test("plan document renders relation chips and opens task chips through overlay API", async () => {
+  let openedTaskId: string | null = null;
+  let framedSection: string | null = null;
+  const specSection = {
+    ...FIXTURE_SECTION,
+    id: "spec-auth",
+    title: "OAuth contract",
+    subsections: [],
+  };
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    spec_links: [{ spec_id: "spec-1", spec_section_id: "spec-auth", plan_section_id: "sec-auth" }],
+    tasks: [
+      { ...FIXTURE_TASK, id: "task-linked", name: "Linked task", handle: "linked-task", section_ids: ["sec-auth"] },
+    ],
+  };
+  const { host } = await render(
+    <PlanDetailOverlay
+      kind="plan"
+      plan={plan}
+      specSections={[specSection]}
+      onOpenTask={(taskId) => { openedTaskId = taskId; }}
+      onSectionClick={(a) => { framedSection = `${a.variant}:${a.sectionId}`; }}
+      onClose={() => {}}
+    />,
+  );
+  const specChip = host.querySelector('[data-testid="canvas-detail-spec-section-chip"]') as HTMLButtonElement;
+  assert(specChip?.textContent?.includes("OAuth contract"), "spec section chip uses fetched title");
+  await act(async () => {
+    specChip.click();
+  });
+  assert(framedSection === "spec:spec-auth", "spec chip navigates to spec section");
+  const taskChip = host.querySelector('[data-testid="canvas-detail-task-chip"]') as HTMLButtonElement;
+  assert(taskChip?.textContent === "linked-task", "task chip uses handle");
+  await act(async () => {
+    taskChip.click();
+  });
+  assert(openedTaskId === "task-linked", "task chip opens task through overlay API");
+});
+
+test("spec coverage header matches plan-state task numbers", async () => {
+  const spec: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [],
+    tasks: [
+      { ...FIXTURE_TASK, id: "done", status: TaskStatus.Done },
+      { ...FIXTURE_TASK, id: "active", status: TaskStatus.InProgress },
+      { ...FIXTURE_TASK, id: "cancelled", status: TaskStatus.Cancelled },
+    ],
+  };
+  const { host } = await render(
+    <PlanDetailOverlay kind="spec" spec={spec} specSections={[FIXTURE_SECTION]} onClose={() => {}} />,
+  );
+  assert(host.querySelector('[data-testid="canvas-detail-spec-total"]')?.textContent === "1/2", "cancelled excluded from total");
+  assert(host.querySelector('[data-testid="canvas-detail-spec-covered"]')?.textContent?.includes("1 done"), "done count");
+  assert(host.querySelector('[data-testid="canvas-detail-spec-partial"]')?.textContent?.includes("1 active"), "active count");
+  assert(host.querySelector('[data-testid="canvas-detail-spec-percent"]')?.textContent === "50% done", "task percentage");
+});
+
 test("Esc closes overlay", async () => {
   let closed = false;
   const { host } = await render(

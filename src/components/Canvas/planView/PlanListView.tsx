@@ -36,7 +36,7 @@ function readStoredPlanId(): string | null {
 
 type ListDetail =
   | { kind: "task"; task: Task; plan: Plan }
-  | { kind: "plan"; plan: Plan }
+  | { kind: "plan"; plan: Plan; specSections: Section[] }
   | { kind: "spec"; plan: Plan; specSections: Section[] };
 
 function findTask(plan: Plan, taskId: string): Task | undefined {
@@ -159,10 +159,23 @@ export function PlanListView({
     [selectedPlan],
   );
   const openBelonging = useCallback(() => {
-    if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan });
-  }, [selectedPlan]);
+    if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
+  }, [selectedPlan, selectedSpecSections]);
 
   const closeDetail = useCallback(() => setDetail(null), []);
+  const openDetailTask = useCallback((taskId: string) => {
+    if (!selectedPlan) return;
+    const task = findTask(selectedPlan, taskId);
+    if (task) setDetail({ kind: "task", task, plan: selectedPlan });
+  }, [selectedPlan]);
+  const openDetailSection = useCallback((args: { variant: "plan" | "spec" }) => {
+    if (!selectedPlan) return;
+    if (args.variant === "spec") {
+      setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections });
+      return;
+    }
+    setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
+  }, [selectedPlan, selectedSpecSections]);
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const now = Date.now();
 
@@ -219,7 +232,7 @@ export function PlanListView({
             <PlanContextHeader
               summary={boardModel.planSummary}
               spec={boardModel.spec}
-              onOpenPlan={() => setDetail({ kind: "plan", plan: selectedPlan })}
+              onOpenPlan={() => setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections })}
               onOpenSpec={
                 boardModel.spec
                   ? () => setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections })
@@ -265,15 +278,14 @@ export function PlanListView({
           task={detail.kind === "task" ? detail.task : undefined}
           plan={detail.kind === "plan" ? detail.plan : detail.kind === "task" ? detail.plan : undefined}
           spec={detail.kind === "spec" ? detail.plan : undefined}
-          specSections={detail.kind === "spec" ? detail.specSections : undefined}
+          specSections={detail.kind === "spec" || detail.kind === "plan" ? detail.specSections : undefined}
           planId={detail.plan.id}
           api={api}
           panes={panes}
           onOpenPane={onOpenPane}
+          onOpenTask={openDetailTask}
           onClose={closeDetail}
-          onSectionClick={() => {
-            if (detail.kind === "task") setDetail({ kind: "plan", plan: detail.plan });
-          }}
+          onSectionClick={openDetailSection}
         />
       )}
     </div>
