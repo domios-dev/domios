@@ -623,6 +623,8 @@ pub struct Plan {
     pub owner_history: Vec<TransferRecord>,
     #[serde(default)]
     pub planner: Option<PlannerRef>,
+    #[serde(default)]
+    pub gates: Vec<crate::plan::gates::DecisionGate>,
 }
 
 impl Plan {
@@ -655,6 +657,7 @@ impl Plan {
             canvas: PlanCanvas::default(),
             owner_history: vec![],
             planner: None,
+            gates: vec![],
         }
     }
 }
