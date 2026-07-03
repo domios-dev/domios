@@ -404,6 +404,8 @@ export function SettingsPanel({
 
                 <SettingsCard icon={<Keyboard size={16} />} title="Keybindings">
                   <KeybindGroup title="Tabs" bindings={[
+                    ["next_tab", "Next Tab / Plan Entry"],
+                    ["prev_tab", "Previous Tab / Plan Entry"],
                     ["reopen_tab", "Reopen Closed Tab"],
                   ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
                 </SettingsCard>

@@ -43,6 +43,9 @@ import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
 import { selectActiveWork } from "../Canvas/planView/activeWork";
 import { buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 import { isWorkspacePlanEntryActive, isWorkspaceTabActive } from "./sidebarSelection";
+import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
+import { deriveWorkspacePlanEntries, openWorkspacePlanForEntries } from "../Canvas/workspacePlanEntry";
+import { matchesBinding } from "../../lib/keybindings";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 function aggregateStatus(
@@ -389,6 +392,37 @@ export function Sidebar({
       });
     }, 350);
   }, [closeTab, state.workspaces]);
+  useEffect(() => {
+    const kb = config?.keybindings ?? {};
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const forward = matchesBinding(e, kb.next_tab ?? "Ctrl+Tab");
+      const backward = !forward && matchesBinding(e, kb.prev_tab ?? "Ctrl+Shift+Tab");
+      if (!forward && !backward) return;
+
+      const ws = state.workspaces.find((w) => w.id === state.active_workspace_id);
+      if (!ws) return;
+
+      const entries = deriveWorkspacePlanEntries(planIndex, ws, state.panes);
+      const items = buildSidebarCycleItems(ws.tabs, state.panes, entries.length > 0);
+      if (items.length < 2) return;
+
+      const direction = forward ? 1 : -1;
+      const next = cycleStep(items, state.activeTabIds[ws.id], workspaceCanvasActive, direction);
+      if (!next) return;
+
+      e.preventDefault();
+      if (next.kind === "plan") {
+        onNavigateToTab?.();
+        openWorkspacePlanForEntries(entries);
+      } else {
+        setActiveTab(ws.id, next.tabId);
+        onNavigateToTab?.();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [config?.keybindings, state, planIndex, workspaceCanvasActive, setActiveTab, onNavigateToTab]);
+
   const sortedWorkspaces = useMemo(() => sortByOrder(state.workspaces), [state.workspaces]);
   const workspaceSortIds = useMemo(
     () => sortedWorkspaces.map((ws) => `${WS_PREFIX}${ws.id}`),
