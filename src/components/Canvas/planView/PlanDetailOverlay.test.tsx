@@ -3,7 +3,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
+import { FIXTURE_MILESTONE, FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task } from "../types";
 import { PlanDetailOverlay } from "./PlanDetailOverlay";
 
@@ -243,6 +243,59 @@ test("detail body supports text selection", async () => {
   assert(body.className.includes("plan-detail-selectable"), "detail body selectable");
   const title = host.querySelector('[data-testid="plan-detail-title"]') as HTMLElement;
   assert(title.className.includes("plan-task-selectable"), "detail title selectable");
+});
+
+test("task detail renders milestone activity timeline", async () => {
+  const now = Date.now();
+  const task: Task = {
+    ...FIXTURE_TASK,
+    milestones: [{
+      ...FIXTURE_MILESTONE,
+      id: "ms-detail",
+      kind: "decision",
+      ts: now - 60_000,
+      text: "Chose slide-over layout",
+      from: { pane_id: "pane-a", session_id: null, title: "Puccini" },
+    }],
+  };
+  const { host } = await render(
+    <PlanDetailOverlay kind="task" task={task} plan={FIXTURE_PLAN} onClose={() => {}} />,
+  );
+  assert(host.querySelector('[data-testid="plan-task-activity"]'), "activity section");
+  assert(host.querySelector('[data-testid="plan-task-activity-entry"]')?.getAttribute("data-milestone-id") === "ms-detail", "task milestone");
+  assert(host.querySelector('[data-testid="plan-task-activity-age"]')?.textContent === "1m", "relative age in detail");
+});
+
+test("plan document renders recent activity rail with click-through", async () => {
+  let openedTaskId: string | null = null;
+  const task: Task = {
+    ...FIXTURE_TASK,
+    id: "task-active",
+    handle: "activity-task",
+    milestones: [{
+      ...FIXTURE_MILESTONE,
+      id: "ms-plan",
+      kind: "status_update",
+      ts: 1_700_000_000_000,
+      text: "Worker reported in_review",
+      from: { pane_id: "pane-a", session_id: null, title: "Puccini" },
+    }],
+  };
+  const plan: Plan = { ...FIXTURE_PLAN, tasks: [task] };
+  const { host } = await render(
+    <PlanDetailOverlay
+      kind="plan"
+      plan={plan}
+      onOpenTask={(taskId) => { openedTaskId = taskId; }}
+      onClose={() => {}}
+    />,
+  );
+  const item = host.querySelector('[data-testid="plan-recent-activity-item"]') as HTMLButtonElement;
+  assert(item?.getAttribute("data-task-id") === "task-active", "recent activity task id");
+  await act(async () => {
+    item.click();
+  });
+  assert(openedTaskId === "task-active", "recent activity opens task");
 });
 
 test("focus return remains on opener after selected task changes", async () => {
