@@ -19,8 +19,8 @@ async function passTokenGate(page: Page): Promise<void> {
   await page.waitForSelector('[data-testid="web-token-input"]', { timeout: 15_000 });
   await page.fill('[data-testid="web-token-input"]', readDevToken());
   await page.click('[data-testid="web-token-submit"]');
-  // Past the gate: desktop boots with the sidebar open (peer picker in its
-  // web top block); phones boot collapsed and show the floating hamburger.
+  // Past the gate: the titlebar's peer picker is always present; phones
+  // additionally boot with the sidebar collapsed behind a floating hamburger.
   await page
     .locator('[data-testid="peer-picker-button"], [data-testid="web-sidebar-open"]')
     .first()
@@ -246,16 +246,18 @@ test("@golden share link: a bad token falls through to the gate error path", asy
 
 // ── web chrome strip + mobile viewport hardening ─────────────────────
 
-test("@golden web chrome: titlebar absent, sidebar hosts peer picker + keep-awake", async ({ webBrowser }) => {
+test("@golden web chrome: titlebar present, hosts peer picker + keep-awake (parity decision A)", async ({ webBrowser }) => {
   const page = await newWebPage(webBrowser);
   await page.goto(`${WEB_URL}#token=${readDevToken()}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector('[data-testid="peer-picker-button"]', { timeout: 20_000 });
 
-  // The desktop titlebar row must NOT render in the browser (01-smoke
-  // asserts the inverse for the Tauri window).
-  await expect(page.locator('[data-testid="titlebar"]')).toHaveCount(0);
-  // Its tenants moved into the sidebar's web-only top block.
-  await expect(page.locator('[data-testid="keepawake-tray"]')).toBeVisible();
+  // The native titlebar strip now mounts in the browser too (01-smoke
+  // asserts the same for the Tauri window).
+  const titlebar = page.locator('[data-testid="titlebar"]');
+  await expect(titlebar).toBeVisible();
+  // The peer picker occupies the traffic-lights corner; keep-awake lives in the tray.
+  await expect(titlebar.locator('[data-testid="peer-picker-button"]')).toBeVisible();
+  await expect(titlebar.locator('[data-testid="keepawake-tray"]')).toBeVisible();
 
   // Viewport is locked: no pinch zoom, notch-aware, keyboard resizes content.
   const meta = await page.getAttribute('meta[name="viewport"]', "content");

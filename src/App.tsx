@@ -468,38 +468,20 @@ function AppInner() {
           : "calc(0.5rem + var(--ct-safe-bottom, 0px))",
       } as React.CSSProperties}
     >
-      {/* Web mirror strips the chrome: no titlebar row — the sidebar is
-          the whole shell (host picker + keep-awake live there). */}
-      {!IS_WEB && (
-        <Titlebar
-          onToggleSidebar={() => setSidebarOpen((v) => !v)}
-          onNewTab={handleNewTab}
-          theme={stableTheme}
-          onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
-          onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
-          onOpenExtensions={() => { setExtensionsOpen(true); }}
-          workspaceCanvasActive={workspaceCanvasVisible}
-          toasts={state.toasts}
-          onDismissToast={dismissToast}
-          onNavigateToast={setFocusedPane}
-        />
-      )}
-      {/* Status-bar scrim: content sliding under the notch fogs into the bg color + a soft blur, fading to clear below. */}
-      {IS_WEB && (
-        <div
-          aria-hidden
-          className="fixed inset-x-0 top-0 z-40 pointer-events-none"
-          style={{
-            height: "var(--ct-safe-top, 0px)",
-            background:
-              "linear-gradient(to bottom, var(--ct-bg) 0%, color-mix(in srgb, var(--ct-bg) 72%, transparent) 55%, transparent 100%)",
-            backdropFilter: "blur(4px)",
-            WebkitBackdropFilter: "blur(4px)",
-            maskImage: "linear-gradient(to bottom, black 0%, black 52%, transparent 100%)",
-            WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 52%, transparent 100%)",
-          }}
-        />
-      )}
+      {/* Native + web mirror share one titlebar strip (parity decision A) — its
+          own --ct-safe-top padding covers the web notch/status-bar inset. */}
+      <Titlebar
+        onToggleSidebar={() => setSidebarOpen((v) => !v)}
+        onNewTab={handleNewTab}
+        theme={stableTheme}
+        onOpenSettingsAbout={() => { setSettingsSection("about"); setSettingsOpen(true); }}
+        onOpenSettings={(section) => { setSettingsSection(section); setSettingsOpen(true); }}
+        onOpenExtensions={() => { setExtensionsOpen(true); }}
+        workspaceCanvasActive={workspaceCanvasVisible}
+        toasts={state.toasts}
+        onDismissToast={dismissToast}
+        onNavigateToast={setFocusedPane}
+      />
       {IS_WEB && !sidebarOpen && (
         <button
           data-testid="web-sidebar-open"
@@ -510,12 +492,13 @@ function AppInner() {
             width: "2.75rem",
             height: "2.75rem",
             aspectRatio: "1 / 1",
-            // Both views own a top strip — slide the burger just below it so it
-            // never overlaps. Workspace's pane bar is shorter than panel headers.
+            // The titlebar (2rem + safe-top) now always sits above this, plus each
+            // view's own top strip — slide the burger below both so it never overlaps.
+            // Workspace's pane bar is shorter than panel headers.
             top:
               mainView === "workspace"
-                ? "calc(var(--ct-safe-top, 0px) + 2.6rem)"
-                : "calc(var(--ct-safe-top, 0px) + 3.65rem)",
+                ? "calc(2rem + var(--ct-safe-top, 0px) + 2.6rem)"
+                : "calc(2rem + var(--ct-safe-top, 0px) + 3.65rem)",
             background: "var(--ct-accent)",
             color: "var(--ct-bg)",
             border: "1px solid color-mix(in srgb, var(--ct-fg) 18%, transparent)",
@@ -540,7 +523,6 @@ function AppInner() {
             {/* Fixed overlay escapes #root's safe-area padding — re-add it here. */}
             <div className={`ct-sidebar-drawer ${sidebarShown ? "is-open" : ""} max-sm:fixed max-sm:inset-y-0 max-sm:left-0 max-sm:z-40 max-sm:shadow-2xl max-sm:pt-[var(--ct-safe-top,0px)] max-sm:pb-[var(--ct-safe-bottom,0px)] max-sm:bg-[var(--ct-sidebar-bg)] flex min-h-0 overflow-visible`}>
               <Sidebar
-                onOpenSettings={() => { setSettingsOpen(true); closeSidebarOnMobile(); }}
                 onOpenMemory={() => { setMemoryOpen(true); closeSidebarOnMobile(); }}
                 onOpenMesh={() => { setMeshOpen(true); closeSidebarOnMobile(); }}
                 onOpenExtensions={() => { setExtensionsOpen(true); closeSidebarOnMobile(); }}
