@@ -89,7 +89,7 @@ function TaskDetail({ task, panes = {}, onOpenPane }: { task: Task; panes?: Reco
             onClick={() => onOpenPane(paneId)}
             style={{ marginLeft: "auto", padding: "4px 10px", borderRadius: "var(--ct-radius-sm)", border: "1px solid var(--ct-border-subtle)", background: "var(--ct-bg)", color: "var(--ct-accent)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
           >
-            Open pane
+            Show agent
           </button>
         )}
       </div>
@@ -275,12 +275,11 @@ function PlanDetail({ plan, variant, onSection }: { plan: Plan; variant: "plan" 
       {variant === "plan" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {total > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }} data-testid="canvas-detail-progress">
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                <span style={{ fontSize: 28, fontWeight: 800, lineHeight: 1 }}>{pct}%</span>
-                <span style={{ fontSize: 13, color: "color-mix(in srgb, var(--ct-fg) 60%, transparent)" }}>{done} / {total} tasks done</span>
-              </div>
-              <div style={{ height: 7, borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 10%, transparent)", overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }} data-testid="canvas-detail-progress">
+              <span style={{ fontSize: 12, fontWeight: 650, color: "color-mix(in srgb, var(--ct-fg) 68%, transparent)" }}>
+                {done} / {total} tasks done
+              </span>
+              <div style={{ width: 92, height: 5, borderRadius: 999, background: "color-mix(in srgb, var(--ct-fg) 10%, transparent)", overflow: "hidden" }}>
                 <div style={{ width: `${pct}%`, height: "100%", background: "var(--ct-accent)" }} />
               </div>
             </div>
