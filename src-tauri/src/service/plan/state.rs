@@ -4,9 +4,11 @@ use serde::Serialize;
 
 use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::coverage::{compute_coverage_report, CoverageReport};
-use crate::plan::reconcile::DriftItem;
+use crate::plan::peer::{resolve_planner_ref, PeerResolution};
+use crate::plan::reconcile::{DriftItem, PaneProbe};
 use crate::plan::{
-    Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, QaState, ReviewStage, TaskStatus,
+    Goal, LoopStatus, OrchestratorRef, Plan, PlanMode, PlanStatus, PlannerRef, QaState,
+    ReviewStage, TaskStatus,
 };
 use crate::service::plan::PlanError;
 use crate::service::ServiceContext;
@@ -107,6 +109,8 @@ pub struct PlanStateSnapshot {
     pub canonical_project_path: String,
     pub planning_readiness: PlanningReadiness,
     pub owner: OrchestratorRef,
+    pub planner: Option<PlannerRef>,
+    pub planner_resolution: PeerResolution,
     pub goal: Option<Goal>,
     pub task_counts: TaskCounts,
     pub percent_done: f64,
@@ -252,6 +256,12 @@ pub fn build_plan_state_snapshot(
     live_agent_panes: &HashSet<String>,
     now_ms: u64,
 ) -> PlanStateSnapshot {
+    let planner_resolution = resolve_planner_ref(&plan.planner, &plan.owner, |pane_id| PaneProbe {
+        exists: true,
+        live_agent: live_agent_panes.contains(pane_id),
+        role: None,
+        parent_pane_id: None,
+    });
     let counts = task_counts(plan);
     let pct = percent_done(&counts);
 
@@ -348,6 +358,8 @@ pub fn build_plan_state_snapshot(
         },
         planning_readiness: planning_readiness(plan),
         owner: plan.owner.clone(),
+        planner: plan.planner.clone(),
+        planner_resolution,
         goal: plan.goal.clone(),
         task_counts: counts,
         percent_done: pct,
@@ -393,6 +405,12 @@ impl ServiceContext {
                 if probed.insert(pane.to_string()) && self.pane_probe(pane).live_agent {
                     live_panes.insert(pane.to_string());
                 }
+            }
+        }
+        // Probe the planner pane so its liveness is reflected in the snapshot.
+        if let Some(PlannerRef::Pane { pane_id, .. }) = &plan.planner {
+            if probed.insert(pane_id.clone()) && self.pane_probe(pane_id).live_agent {
+                live_panes.insert(pane_id.clone());
             }
         }
 
@@ -544,11 +562,12 @@ mod tests {
         // coverage: s1 covered, s2 covered -> fraction 1.0 (both have tasks)
         assert!((snap.coverage.plan_covered_fraction - 1.0).abs() < 1e-9);
 
-        // open lanes: pending + in_review only (not in_progress / done / cancelled)
+        // open lanes: pending + in_review + in_progress (not done / cancelled / blocked)
         let lane_ids: Vec<&str> = snap.open_lanes.iter().map(|l| l.task_id.as_str()).collect();
-        assert_eq!(lane_ids.len(), 2);
+        assert_eq!(lane_ids.len(), 3);
         assert!(lane_ids.contains(&"t_review"));
         assert!(lane_ids.contains(&"t_pending"));
+        assert!(lane_ids.contains(&"t_prog"));
 
         // live agents: only the task bound to a live pane
         assert_eq!(snap.live_agents.len(), 1);

@@ -490,6 +490,8 @@ fn run_plan(
             spec_file: _,
             status,
             mode,
+            planner,
+            note,
         } => {
             let mut params = json!({ "plan_id": plan_id });
             if let Some(t) = title {
@@ -500,6 +502,17 @@ fn run_plan(
             }
             if let Some(mode) = mode {
                 params["mode"] = json!(mode);
+            }
+            if let Some(ref p) = planner {
+                let planner_ref = if p == "none" {
+                    let n = note.ok_or_else(|| {
+                        "--note is required when --planner none (waiver must explain solo intent)".to_string()
+                    })?;
+                    json!({ "kind": "waived", "note": n })
+                } else {
+                    json!({ "kind": "pane", "pane_id": p })
+                };
+                params["planner"] = planner_ref;
             }
             call(client, "plan.update", params)
         }

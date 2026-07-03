@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::api::routes::{check_auth, AppState};
-use crate::plan::{OrchestratorRef, PlanMode, PlanStatus};
+use crate::plan::{OrchestratorRef, PlanMode, PlanStatus, PlannerRef};
 use crate::service::plan::PlanError;
 
 use super::{
@@ -233,6 +233,8 @@ pub(crate) struct UpdatePlanBody {
     status: Option<String>,
     #[serde(default)]
     mode: Option<String>,
+    #[serde(default)]
+    planner: Option<serde_json::Value>,
 }
 
 pub async fn update(
@@ -260,6 +262,15 @@ pub async fn update(
             now,
         )
         .map_err(plan_err)?;
+    if let Some(planner_val) = body.planner {
+        let planner_ref: Option<PlannerRef> = serde_json::from_value(planner_val)
+            .map_err(|e| text_err(StatusCode::UNPROCESSABLE_ENTITY, e))?;
+        state
+            .svc
+            .plan_store
+            .set_planner_ref(&id, planner_ref, now)
+            .map_err(plan_err)?;
+    }
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
