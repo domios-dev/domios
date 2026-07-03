@@ -1,6 +1,7 @@
 // Run: npx tsx src/components/Canvas/planView/PlanBoardView.test.tsx
 
 import { act, type ReactElement } from "react";
+import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
@@ -290,6 +291,46 @@ test("task card: status row precedes branch row, long branch has truncate class"
   assert(statusIdx < laneIdx, `status (idx ${statusIdx}) must precede branch (idx ${laneIdx}) in DOM order`);
   const branchSpan = lane.querySelector("span.truncate");
   assert(branchSpan, "branch text span carries truncate class for ellipsis clipping");
+});
+
+test("task card: title stays primary and does not allow single-letter wrapping", async () => {
+  const longTitle = "zero-flag-plan-context";
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    tasks: [
+      task({
+        id: "task-title-primary",
+        status: TaskStatus.InProgress,
+        status_label: "Active: QA Pipeline Mechanics",
+        name: longTitle,
+        handle: "zero-flag-plan-context",
+      }),
+    ],
+  };
+  const { host } = await render(
+    <PlanBoardView mode="focus" planId={plan.id} plans={[plan]} panes={PANES} />,
+  );
+  const card = host.querySelector('[data-testid="plan-board-task-card"]');
+  assert(card, "card present");
+  const title = card.querySelector('[data-testid="plan-board-task-title"]') as HTMLElement;
+  const status = card.querySelector('[data-testid="plan-board-task-status"]') as HTMLElement;
+  const handle = card.querySelector('[data-testid="plan-board-task-handle"]') as HTMLElement;
+  assert(title?.textContent === longTitle, "full task title is present");
+  assert(status?.textContent === "Active: QA Pipeline Mechanics", "status label is secondary text");
+  assert(handle?.textContent?.includes("zero-flag-plan-context"), "handle remains visible");
+  const directChildren = Array.from(card.children);
+  assert(
+    directChildren.indexOf(title) < directChildren.indexOf(status),
+    "title must precede the status pill",
+  );
+  assert(
+    directChildren.indexOf(title) < directChildren.indexOf(handle),
+    "title must precede the handle",
+  );
+  const css = readFileSync("src/styles/globals.css", "utf8");
+  const titleRule = css.match(/\.plan-board-task-title\s*\{[^}]+\}/)?.[0] ?? "";
+  assert(!titleRule.includes("overflow-wrap: anywhere"), "title must not break into single-letter wraps");
+  assert(titleRule.includes("word-break: normal"), "title keeps normal word boundaries");
 });
 
 test("empty workspace shows stable empty gate", async () => {
