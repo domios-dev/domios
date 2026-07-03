@@ -1,0 +1,142 @@
+// Run: npx tsx src/components/Canvas/planView/PlanCompanionBubble.test.tsx
+
+import { act, type ReactElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { Window } from "happy-dom";
+import { __setInvokeForTest, __setListenForTest } from "../../../lib/bridge";
+import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
+import type { Pane } from "../../../lib/types";
+import type { Plan, PlannerRef } from "../types";
+import { PlanCompanionBubble } from "./PlanCompanionBubble";
+
+type TestFn = () => void | Promise<void>;
+const tests: Array<[string, TestFn]> = [];
+function test(name: string, fn: TestFn) {
+  tests.push([name, fn]);
+}
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+function setupDom() {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const window = new Window({ url: "http://localhost/plan-companion" });
+  for (const key of ["window", "document", "navigator", "HTMLElement", "Node", "KeyboardEvent"] as const) {
+    Object.defineProperty(globalThis, key, {
+      value: (window as unknown as Record<string, unknown>)[key],
+      configurable: true,
+    });
+  }
+  if (!window.matchMedia) {
+    (window as unknown as { matchMedia: unknown }).matchMedia = () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    });
+  }
+}
+
+setupDom();
+__setInvokeForTest(async () => undefined as never);
+__setListenForTest(async () => () => {});
+
+async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(ui);
+  });
+  return { host, root };
+}
+
+function pane(overrides: Partial<Pane>): Pane {
+  return { id: "x", title: "Pane", agent_type: "claude", ...overrides } as Pane;
+}
+
+function plan(planner: PlannerRef | null): Plan {
+  return { ...FIXTURE_PLAN, id: "plan-alpha", planner };
+}
+
+function renderChatStub({ paneId }: { paneId: string; chatBackend: boolean }) {
+  return <div data-testid="plan-companion-chat" data-pane-id={paneId} />;
+}
+
+const LIVE_PANES: Record<string, Pane> = {
+  "planner-1": pane({ id: "planner-1", title: "Planner", agent_state: { state: "working" } }),
+  "orch-1": pane({ id: "orch-1", title: "Orchestrator", agent_state: { state: "idle" } }),
+};
+
+test("renders planner bubble when planner pane is live", async () => {
+  const { host, root } = await render(
+    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "planner-1" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+  );
+  const bubble = host.querySelector('[data-testid="plan-companion-bubble"]');
+  assert(bubble, "bubble should render");
+  assert(bubble.getAttribute("data-companion-kind") === "planner", "should resolve planner");
+  await act(async () => root.unmount());
+});
+
+test("falls back to orchestrator bubble when planner is dead", async () => {
+  const { host, root } = await render(
+    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "gone" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+  );
+  const bubble = host.querySelector('[data-testid="plan-companion-bubble"]');
+  assert(bubble?.getAttribute("data-companion-kind") === "orchestrator", "should fall back to orchestrator");
+  await act(async () => root.unmount());
+});
+
+test("hidden when nothing live resolves", async () => {
+  const { host, root } = await render(
+    <PlanCompanionBubble plans={[plan(null)]} panes={{ "orch-1": pane({ id: "orch-1", agent_type: undefined }) }} renderChat={renderChatStub} />,
+  );
+  assert(!host.querySelector('[data-testid="plan-companion-bubble"]'), "bubble should be hidden");
+  await act(async () => root.unmount());
+});
+
+test("click opens popover, close button dismisses it", async () => {
+  const { host, root } = await render(
+    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "planner-1" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+  );
+  const bubble = host.querySelector('[data-testid="plan-companion-bubble"]') as HTMLButtonElement;
+  await act(async () => bubble.click());
+  assert(host.querySelector('[data-testid="plan-companion-popover"]'), "popover should open");
+  const close = host.querySelector('[data-testid="plan-companion-close"]') as HTMLButtonElement;
+  await act(async () => close.click());
+  assert(!host.querySelector('[data-testid="plan-companion-popover"]'), "popover should close");
+  await act(async () => root.unmount());
+});
+
+test("Escape closes an open popover", async () => {
+  const { host, root } = await render(
+    <PlanCompanionBubble plans={[plan({ kind: "pane", pane_id: "planner-1" })]} panes={LIVE_PANES} renderChat={renderChatStub} />,
+  );
+  const bubble = host.querySelector('[data-testid="plan-companion-bubble"]') as HTMLButtonElement;
+  await act(async () => bubble.click());
+  assert(host.querySelector('[data-testid="plan-companion-popover"]'), "popover should open");
+  await act(async () => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  });
+  assert(!host.querySelector('[data-testid="plan-companion-popover"]'), "Escape should close popover");
+  await act(async () => root.unmount());
+});
+
+async function run() {
+  let failed = 0;
+  for (const [name, fn] of tests) {
+    try {
+      await fn();
+      console.log(`  ✓ ${name}`);
+    } catch (err) {
+      failed++;
+      console.error(`  ✗ ${name}: ${(err as Error).message}`);
+    }
+  }
+  if (failed > 0) {
+    console.error(`\n${failed} of ${tests.length} PlanCompanionBubble test(s) failed`);
+    process.exit(1);
+  }
+  console.log(`\n✓ all ${tests.length} PlanCompanionBubble test(s) green`);
+}
+
+run();

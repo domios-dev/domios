@@ -11,6 +11,8 @@ import {
 import type { PlanViewSurfaceProps } from "./planViewSurfaceProps";
 import { PlanBoardView } from "./planView/PlanBoardView";
 import { PlanListView } from "./planView/PlanListView";
+import { PlanCompanionBubble } from "./planView/PlanCompanionBubble";
+import { PaneSessionChat } from "../Terminal/PaneSessionChat";
 
 function toSurfaceProps(props: CanvasViewInnerProps): PlanViewSurfaceProps {
   return {
@@ -110,6 +112,16 @@ export function PlanViewShell(props: CanvasViewInnerProps) {
         >
           <PlanBoardView {...surfaceProps} />
         </div>
+        <PlanCompanionBubble
+          plans={props.plans}
+          panes={props.panes ?? {}}
+          planId={props.planId}
+          orchestratorPaneId={props.orchestratorPaneId}
+          onOpenPane={props.onOpenPane}
+          renderChat={({ paneId, chatBackend }) => (
+            <PaneSessionChat paneId={paneId} chatBackend={chatBackend} isVisible />
+          )}
+        />
       </div>
     </div>
   );
