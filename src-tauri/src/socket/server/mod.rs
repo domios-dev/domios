@@ -31,6 +31,7 @@ mod plan_qa;
 mod plan_read;
 mod plan_refs;
 mod plan_role_helpers;
+mod plan_task_rpc;
 mod plan_time;
 mod services;
 mod spec;
