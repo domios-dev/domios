@@ -29,6 +29,7 @@ You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm
 | Long-running processes (servers, watchers) | `pane new --cmd "..."` — own visible pane, not your shell | — |
 | Scheduled/future message to a pane | `send --delay/--at`, `delayed --help` | — |
 | Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent report`, `agent reports`, `agent providers/models` | `docs ORCHESTRATION` |
+| Becoming an Orchestrator | You are not automatically an Orchestrator. Use the pane menu **Make Orchestrator** action or `--role Orchestrator` flag, then read `codeterm docs ORCHESTRATION`. | `docs ORCHESTRATION` |
 | Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help` | `docs ORCHESTRATION` |
 | Recurring/oneshot jobs | `cron create --help` (read it first — flags evolve) | `docs CONFIG` |
 | Telegram / bridges | `bridge send --to ID --service telegram "..."`; long answers: first send, then `--append` parts | `docs TELEGRAM-SETUP` |

@@ -127,8 +127,8 @@ fn mirrors_plan_units_into_project_local_mem_db() {
         .query_row("SELECT COUNT(*) FROM mem_fts", [], |row| row.get(0))
         .unwrap();
     assert!(fts_count > 0);
-    let vector_count = wait_for_vector_count(&db, 1);
-    assert!(vector_count > 0);
+    #[cfg(feature = "embeddings")]
+    assert!(wait_for_vector_count(&db, 1) > 0);
     let hits = store
         .search_plan_index(
             root.path(),
