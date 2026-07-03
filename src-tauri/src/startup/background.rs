@@ -4,12 +4,14 @@ use tauri::{Emitter, Manager};
 
 use crate::multiplexer::commands::MuxState;
 use crate::session::SessionState;
-use crate::{mesh, update};
+use crate::{keepawake, mesh, update};
 
 use super::states::AppStates;
 
 /// Start background threads: auto-save, update check, agent idle monitoring.
 pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &AppStates) {
+    keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
+
     // Auto-save session every 30 seconds
     {
         let app_handle = app_handle.clone();
