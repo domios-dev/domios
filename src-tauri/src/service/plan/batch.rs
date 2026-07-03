@@ -411,6 +411,7 @@ impl PlanStore {
                                     canvas: Default::default(),
                                     milestones: vec![],
                                     execution_attempts: vec![],
+                                    park_reason: None,
                                 };
                                 working.tasks.push(task);
                                 id

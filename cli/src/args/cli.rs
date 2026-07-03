@@ -133,14 +133,18 @@ pub enum Commands {
         stdin: bool,
 
         /// Terminal actions to run after optional text, comma-separated.
-        /// Examples: enter, esc, up, down, left, right, tab, backspace,
-        /// ctrl-c, delay:250ms. With --actions, text is inserted first but
-        /// not auto-submitted; include enter when you want to submit it.
+        /// Full key set: enter, esc, tab, backspace, delete, up, down, left,
+        /// right, home, end, pageup, pagedown, space, ctrl-c, plus
+        /// delay:250ms / delay:1s pauses. Repeats: key*3 (e.g. down*3).
+        /// With --actions, text is inserted first but not auto-submitted;
+        /// include enter when you want to submit it.
         #[arg(long, conflicts_with_all = ["delay", "at"])]
         actions: Option<String>,
 
         /// Queue instead of sending immediately. Examples: 45s, 10m, 1h30m, 2d.
-        /// Bare number means minutes.
+        /// Bare number means minutes. NOT the normal send path: use only for
+        /// future delivery the user asked for — plain send is immediate and
+        /// must never be buffered.
         #[arg(long, conflicts_with = "at")]
         delay: Option<String>,
 

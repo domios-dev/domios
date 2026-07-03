@@ -146,4 +146,23 @@ The General Agent also gets `CODETERM_RULE` and `BRIDGE_MEM` via the provider's 
 - `docs/API.md` — "Agent Prompts" section lists the same files from an API-consumer angle
 - `.claude/skills/prompt-evaluator/SKILL.md` — the harness it drives
 
-<!-- revision: 10 -->
+
+## Prompt tiers — progressive disclosure
+
+System-prompt content is tiered; keep it that way when editing:
+
+- **Tier 0 (always in context):** hard invariants not discoverable via help
+  (routing, no-echo, chat_backend-no-shell, CLI-first discovery habit) plus a
+  capability map — one line per domain pointing at its tier-1 entry.
+  `codeterm_cli.md` budget: ~900 words. Mem and mesh keep compact protocol
+  blocks by explicit decision (high-frequency, behavior-critical).
+- **Tier 1 (agent discovers):** `codeterm <cmd> --help` (clap long_help) and
+  `codeterm docs <TOPIC>`. Nothing may live inline that tier 1 already answers;
+  when adding a rule, put the rationale in docs and one imperative line here.
+- **Tier 2:** situational playbooks (TELEGRAM-SETUP, SECRETS, ...).
+
+Behavioral prompt changes are gated by `evals/cli-agent` (baseline vs after)
+with sandboxes OUTSIDE the repo — in-repo sandboxes feed agents the repo's
+checked-in AGENTS.md instead of the generated one and invalidate the run.
+
+<!-- revision: 11 -->

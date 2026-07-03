@@ -5,8 +5,8 @@ use std::time::Duration;
 use rusqlite::params;
 
 use super::*;
-use crate::plan::{AgentRef, OrchestratorRef, TaskStatus};
-use crate::service::plan::{task_queries::TaskListFilter, NewTask, PlanError, PlanStore};
+use crate::plan::{AgentRef, OrchestratorRef, PlanMode, TaskStatus};
+use crate::service::plan::{task_queries::TaskListFilter, NewTask, PlanStore};
 
 fn store_and_root() -> (tempfile::TempDir, PlanStore) {
     let root = tempfile::tempdir().unwrap();
@@ -64,6 +64,19 @@ fn wait_for_vector_count(db: &Path, min_count: i64) -> i64 {
         }
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+fn hold_plan_index_lock(root: &Path) -> std::thread::JoinHandle<()> {
+    let project = super::super::paths::project_root(root);
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let locker = std::thread::spawn(move || {
+        let conn = open_index(&project).unwrap();
+        conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+        ready_tx.send(()).unwrap();
+        std::thread::sleep(Duration::from_millis(225));
+    });
+    ready_rx.recv().unwrap();
+    locker
 }
 
 #[test]
@@ -140,7 +153,7 @@ fn mirrors_plan_units_into_project_local_mem_db() {
 }
 
 #[test]
-fn add_task_reports_pending_when_plan_index_is_locked_after_commit() {
+fn add_task_succeeds_when_plan_index_is_locked_after_verified_commit() {
     let (root, store) = store_and_root();
     let plan = store
         .create_plan(
@@ -151,20 +164,9 @@ fn add_task_reports_pending_when_plan_index_is_locked_after_commit() {
             1,
         )
         .unwrap();
-    let project = super::super::paths::project_root(root.path());
-    let (ready_tx, ready_rx) = mpsc::channel();
-    let locker = std::thread::spawn({
-        let project = project.clone();
-        move || {
-            let conn = open_index(&project).unwrap();
-            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
-            ready_tx.send(()).unwrap();
-            std::thread::sleep(Duration::from_millis(225));
-        }
-    });
-    ready_rx.recv().unwrap();
+    let locker = hold_plan_index_lock(root.path());
 
-    let err = store
+    let task_id = store
         .add_task(
             &plan.id,
             NewTask {
@@ -175,23 +177,8 @@ fn add_task_reports_pending_when_plan_index_is_locked_after_commit() {
             },
             2,
         )
-        .unwrap_err();
-
-    match err {
-        PlanError::WritePending {
-            operation,
-            committed,
-            committed_id,
-            message,
-        } => {
-            assert_eq!(operation, "plan_index_mirror");
-            assert!(committed);
-            let committed_id = committed_id.expect("committed task id");
-            assert!(committed_id.starts_with("task_"));
-            assert!(is_busy_or_locked(&message), "{message}");
-        }
-        other => panic!("expected pending plan-index write, got {other:?}"),
-    }
+        .unwrap();
+    assert!(task_id.starts_with("task_"));
 
     let visible = store
         .get(&plan.id)
@@ -201,6 +188,7 @@ fn add_task_reports_pending_when_plan_index_is_locked_after_commit() {
         .filter(|task| task.name == "Add under contention")
         .collect::<Vec<_>>();
     assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].id, task_id);
     assert_eq!(visible[0].body, "task added while plan index is locked");
     locker.join().unwrap();
 }
@@ -265,20 +253,9 @@ fn locked_plan_index_does_not_duplicate_task_by_retrying_unsafely() {
             1,
         )
         .unwrap();
-    let project = super::super::paths::project_root(root.path());
-    let (ready_tx, ready_rx) = mpsc::channel();
-    let locker = std::thread::spawn({
-        let project = project.clone();
-        move || {
-            let conn = open_index(&project).unwrap();
-            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
-            ready_tx.send(()).unwrap();
-            std::thread::sleep(Duration::from_millis(225));
-        }
-    });
-    ready_rx.recv().unwrap();
+    let locker = hold_plan_index_lock(root.path());
 
-    let committed_id = match store
+    let committed_id = store
         .add_task(
             &plan.id,
             NewTask {
@@ -288,14 +265,7 @@ fn locked_plan_index_does_not_duplicate_task_by_retrying_unsafely() {
             },
             2,
         )
-        .unwrap_err()
-    {
-        PlanError::WritePending {
-            committed_id: Some(id),
-            ..
-        } => id,
-        other => panic!("expected pending write with committed id, got {other:?}"),
-    };
+        .unwrap();
     locker.join().unwrap();
 
     let tasks = store.get(&plan.id).unwrap().tasks;
@@ -312,7 +282,68 @@ fn locked_plan_index_does_not_duplicate_task_by_retrying_unsafely() {
 }
 
 #[test]
-fn locked_task_lane_update_reports_committed_id_and_readback_state() {
+fn locked_task_update_succeeds_after_verified_commit() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Update lock".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Update me".into(),
+                kind: "fix".into(),
+                body: "before".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let locker = hold_plan_index_lock(root.path());
+
+    store
+        .update_task(
+            &plan.id,
+            &task_id,
+            Some("Updated under contention"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some("after"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            None,
+            None,
+            3,
+        )
+        .unwrap();
+    let task = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    assert_eq!(task.name, "Updated under contention");
+    assert_eq!(task.body, "after");
+    locker.join().unwrap();
+}
+
+#[test]
+fn locked_task_lane_update_succeeds_after_verified_commit() {
     let (root, store) = store_and_root();
     let plan = store
         .create_plan(
@@ -334,20 +365,9 @@ fn locked_task_lane_update_reports_committed_id_and_readback_state() {
             2,
         )
         .unwrap();
-    let project = super::super::paths::project_root(root.path());
-    let (ready_tx, ready_rx) = mpsc::channel();
-    let locker = std::thread::spawn({
-        let project = project.clone();
-        move || {
-            let conn = open_index(&project).unwrap();
-            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
-            ready_tx.send(()).unwrap();
-            std::thread::sleep(Duration::from_millis(225));
-        }
-    });
-    ready_rx.recv().unwrap();
+    let locker = hold_plan_index_lock(root.path());
 
-    let err = store
+    store
         .update_task_lane(
             &plan.id,
             &task_id,
@@ -359,14 +379,7 @@ fn locked_task_lane_update_reports_committed_id_and_readback_state() {
             },
             3,
         )
-        .unwrap_err();
-    match err {
-        PlanError::WritePending {
-            committed_id: Some(id),
-            ..
-        } => assert_eq!(id, task_id),
-        other => panic!("expected pending write with committed id, got {other:?}"),
-    }
+        .unwrap();
     let task = store
         .get(&plan.id)
         .unwrap()
@@ -377,6 +390,59 @@ fn locked_task_lane_update_reports_committed_id_and_readback_state() {
     assert_eq!(task.lane.pane_id.as_deref(), Some("pane_1"));
     assert_eq!(task.lane.workspace_id.as_deref(), Some("ws_1"));
     assert_eq!(task.lane.worktree_path.as_deref(), Some("/tmp/worktree"));
+    locker.join().unwrap();
+}
+
+#[test]
+fn locked_task_record_succeeds_after_verified_milestone() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Record lock".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Record me".into(),
+                kind: "fix".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let locker = hold_plan_index_lock(root.path());
+
+    let milestone_id = store
+        .add_milestone(
+            &plan.id,
+            &task_id,
+            "decision",
+            "recorded while plan index is locked",
+            AgentRef::from_pane("worker"),
+            true,
+            3,
+        )
+        .unwrap();
+    let task = store
+        .get(&plan.id)
+        .unwrap()
+        .tasks
+        .into_iter()
+        .find(|task| task.id == task_id)
+        .unwrap();
+    let milestone = task
+        .milestones
+        .iter()
+        .find(|milestone| milestone.id == milestone_id)
+        .unwrap();
+    assert_eq!(milestone.kind, "decision");
+    assert_eq!(milestone.text, "recorded while plan index is locked");
     locker.join().unwrap();
 }
 
@@ -421,7 +487,7 @@ fn assign_task_readback_sets_pane_lane_and_peer() {
 }
 
 #[test]
-fn locked_task_take_reports_committed_id_and_readback_assignment() {
+fn locked_task_take_succeeds_after_verified_assignment() {
     let (root, store) = store_and_root();
     let plan = store
         .create_plan(
@@ -443,29 +509,11 @@ fn locked_task_take_reports_committed_id_and_readback_assignment() {
             2,
         )
         .unwrap();
-    let project = super::super::paths::project_root(root.path());
-    let (ready_tx, ready_rx) = mpsc::channel();
-    let locker = std::thread::spawn({
-        let project = project.clone();
-        move || {
-            let conn = open_index(&project).unwrap();
-            conn.execute_batch("BEGIN IMMEDIATE").unwrap();
-            ready_tx.send(()).unwrap();
-            std::thread::sleep(Duration::from_millis(225));
-        }
-    });
-    ready_rx.recv().unwrap();
+    let locker = hold_plan_index_lock(root.path());
 
-    let err = store
+    store
         .set_task_assignment(&task_id, Some("pane_take"), Some("worker"), 3)
-        .unwrap_err();
-    match err {
-        PlanError::WritePending {
-            committed_id: Some(id),
-            ..
-        } => assert_eq!(id, task_id),
-        other => panic!("expected pending write with committed id, got {other:?}"),
-    }
+        .unwrap();
     let task = store
         .get(&plan.id)
         .unwrap()
@@ -475,6 +523,43 @@ fn locked_task_take_reports_committed_id_and_readback_assignment() {
         .unwrap();
     assert_eq!(task.assigned_pane_id.as_deref(), Some("pane_take"));
     assert_eq!(task.taken_by_role.as_deref(), Some("worker"));
+    locker.join().unwrap();
+}
+
+#[test]
+fn locked_heartbeat_set_succeeds_after_safe_readback() {
+    let (root, store) = store_and_root();
+    let plan = store
+        .create_plan(
+            "Heartbeat lock".into(),
+            root.path().display().to_string(),
+            OrchestratorRef::default(),
+            vec![],
+            1,
+        )
+        .unwrap();
+    store.set_mode(&plan.id, PlanMode::Execution, 2).unwrap();
+    let locker = hold_plan_index_lock(root.path());
+
+    let result = store
+        .set_heartbeat(
+            Some(&plan.id),
+            None,
+            None,
+            Some("Keep mirror failures non-fatal"),
+            Some(vec!["backend cli".into()]),
+            Some(vec!["read back before retry".into()]),
+            false,
+            false,
+            3,
+        )
+        .unwrap();
+    assert_eq!(
+        result.heartbeat.current_focus.as_deref(),
+        Some("Keep mirror failures non-fatal")
+    );
+    assert_eq!(result.heartbeat.active_lanes, vec!["backend cli"]);
+    assert_eq!(result.heartbeat.rules, vec!["read back before retry"]);
     locker.join().unwrap();
 }
 
@@ -639,6 +724,8 @@ fn reindex_removes_deleted_units_and_old_text() {
         )
         .unwrap()
         .is_empty());
+    let db = project_index_path(&super::super::paths::project_root(root.path()));
+    assert!(wait_for_vector_count(&db, 1) > 0);
 
     store.rm_task(&plan.id, &task_id, 3).unwrap();
     let hits = store

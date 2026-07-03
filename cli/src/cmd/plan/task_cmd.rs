@@ -400,6 +400,33 @@ pub(super) fn run_task(
             }
             call(client, "plan.task.close", params).map(Some)
         }
+        PlanTaskAction::Park {
+            plan_id,
+            task_id,
+            reason,
+        } => {
+            let (plan_ref, task_ref) = split_task_ref(plan_id, task_id);
+            let mut params = json!({
+                "task_id": task_ref,
+                "reason": reason,
+                "from": crate::cmd::plan::owner_from_env(),
+            });
+            if let Some(pid) = plan_ref {
+                params["plan_id"] = json!(pid);
+            }
+            call(client, "plan.task.park", params).map(Some)
+        }
+        PlanTaskAction::Unpark { plan_id, task_id } => {
+            let (plan_ref, task_ref) = split_task_ref(plan_id, task_id);
+            let mut params = json!({
+                "task_id": task_ref,
+                "from": crate::cmd::plan::owner_from_env(),
+            });
+            if let Some(pid) = plan_ref {
+                params["plan_id"] = json!(pid);
+            }
+            call(client, "plan.task.unpark", params).map(Some)
+        }
         PlanTaskAction::Assign {
             plan_id,
             task_id,

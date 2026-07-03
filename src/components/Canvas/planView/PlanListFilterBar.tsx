@@ -3,6 +3,7 @@ import { PLAN_LIST_STATUS_FILTERS, type PlanListStatusFilter } from "./planListM
 export interface PlanListFilterBarProps {
   statusFilter: PlanListStatusFilter;
   textQuery: string;
+  cancelledCount?: number;
   onStatusFilter: (filter: PlanListStatusFilter) => void;
   onTextQuery: (query: string) => void;
 }
@@ -10,9 +11,12 @@ export interface PlanListFilterBarProps {
 export function PlanListFilterBar({
   statusFilter,
   textQuery,
+  cancelledCount = 0,
   onStatusFilter,
   onTextQuery,
 }: PlanListFilterBarProps) {
+  const cancelledActive = statusFilter === "cancelled";
+
   return (
     <div
       data-testid="plan-list-filter"
@@ -43,6 +47,22 @@ export function PlanListFilterBar({
             </button>
           );
         })}
+        {cancelledCount > 0 && (
+          <button
+            type="button"
+            data-testid="plan-list-filter-status-cancelled"
+            aria-pressed={cancelledActive}
+            className="rounded px-2 py-0.5 text-[10px] font-medium tracking-wide cursor-pointer"
+            style={{
+              color: cancelledActive ? "var(--ct-fg)" : "var(--ct-muted-fg)",
+              background: cancelledActive ? "var(--ct-bg-active)" : "transparent",
+              border: `1px solid ${cancelledActive ? "var(--ct-border)" : "transparent"}`,
+            }}
+            onClick={() => onStatusFilter("cancelled")}
+          >
+            Cancelled ({cancelledCount})
+          </button>
+        )}
       </div>
       <input
         type="search"

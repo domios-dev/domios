@@ -1,10 +1,60 @@
 use super::{Plan, Task, TaskStatus};
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_STALE_REVIEW_MS: u64 = 30 * 60 * 1000;
+// Documented age thresholds (see docs/ORCHESTRATION.md). An open task that
+// idles past its threshold is "aged" — named in escalated nudges and recorded
+// as drift so the orchestrator cannot silently sit on stalled work.
+pub const PENDING_UNSTAFFED_STALE_MS: u64 = 4 * 60 * 60 * 1000;
+pub const IN_REVIEW_UNJUDGED_STALE_MS: u64 = 2 * 60 * 60 * 1000;
+pub const DEFAULT_STALE_REVIEW_MS: u64 = IN_REVIEW_UNJUDGED_STALE_MS;
 pub const NEEDS_REASSIGN_LABEL: &str = "needs-reassign";
 pub const STALE_REVIEW_LABEL: &str = "stale-review";
+pub const STALE_UNSTAFFED_LABEL: &str = "stale-unstaffed";
 pub const PANE_GONE_LABEL: &str = "pane-gone";
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgedOpenTask {
+    pub task_id: String,
+    pub name: String,
+    pub status: TaskStatus,
+    pub age_ms: u64,
+}
+
+// Threshold for treating an open task as aged/drifting, by status. None for
+// non-open (terminal/parked) statuses.
+pub fn stale_threshold_ms(status: &TaskStatus) -> Option<u64> {
+    match status {
+        TaskStatus::InReview => Some(IN_REVIEW_UNJUDGED_STALE_MS),
+        TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked => {
+            Some(PENDING_UNSTAFFED_STALE_MS)
+        }
+        _ => None,
+    }
+}
+
+// Open tasks that have idled past their status threshold, newest drift first.
+pub fn aged_open_tasks(plan: &Plan, now_ms: u64) -> Vec<AgedOpenTask> {
+    let mut aged: Vec<AgedOpenTask> = plan
+        .tasks
+        .iter()
+        .filter(|task| task.status.counts_as_open_work())
+        .filter_map(|task| {
+            let threshold = stale_threshold_ms(&task.status)?;
+            if task.status_changed_at == 0 {
+                return None;
+            }
+            let age = now_ms.saturating_sub(task.status_changed_at);
+            (age > threshold).then(|| AgedOpenTask {
+                task_id: task.id.clone(),
+                name: task.name.clone(),
+                status: task.status.clone(),
+                age_ms: age,
+            })
+        })
+        .collect();
+    aged.sort_by(|a, b| b.age_ms.cmp(&a.age_ms));
+    aged
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaneRole {
@@ -42,6 +92,7 @@ impl ReconcileConfig {
 pub enum DriftKind {
     InProgressPaneGone,
     StaleInReview,
+    StalePendingUnstaffed,
     BoundToClosedPane,
     AcceptedButNotDone,
 }
@@ -120,6 +171,24 @@ where
                     config.now_ms.saturating_sub(task.status_changed_at)
                 ),
                 STALE_REVIEW_LABEL,
+                not_mine,
+            ));
+        }
+
+        if task.status == TaskStatus::Pending
+            && pane.is_none()
+            && task.status_changed_at > 0
+            && config.now_ms.saturating_sub(task.status_changed_at) > PENDING_UNSTAFFED_STALE_MS
+        {
+            items.push(item(
+                plan,
+                task,
+                DriftKind::StalePendingUnstaffed,
+                format!(
+                    "task has been pending and unstaffed for {} ms",
+                    config.now_ms.saturating_sub(task.status_changed_at)
+                ),
+                STALE_UNSTAFFED_LABEL,
                 not_mine,
             ));
         }
@@ -249,6 +318,7 @@ mod tests {
             canvas: Default::default(),
             milestones: vec![],
             execution_attempts: vec![],
+            park_reason: None,
         }
     }
 
@@ -291,6 +361,31 @@ mod tests {
         let items = detect_plan_drift(&plan(vec![t]), &cfg(2_500), |_| PaneProbe::default());
         assert_eq!(items[0].kind, DriftKind::StaleInReview);
         assert_eq!(items[0].suggested_fix, STALE_REVIEW_LABEL);
+    }
+
+    #[test]
+    fn detects_stale_pending_unstaffed() {
+        let mut t = task("t1", TaskStatus::Pending);
+        t.status_changed_at = 1;
+        let now = PENDING_UNSTAFFED_STALE_MS + 10;
+        let items = detect_plan_drift(&plan(vec![t]), &cfg(now), |_| PaneProbe::default());
+        assert!(items
+            .iter()
+            .any(|item| item.kind == DriftKind::StalePendingUnstaffed));
+    }
+
+    #[test]
+    fn aged_open_tasks_names_stale_work_and_skips_parked() {
+        let mut pending = task("p1", TaskStatus::Pending);
+        pending.status_changed_at = 1;
+        let mut parked = task("k1", TaskStatus::Parked);
+        parked.status_changed_at = 1;
+        let mut fresh = task("f1", TaskStatus::InReview);
+        fresh.status_changed_at = PENDING_UNSTAFFED_STALE_MS;
+        let now = PENDING_UNSTAFFED_STALE_MS + 10;
+        let aged = aged_open_tasks(&plan(vec![pending, parked, fresh]), now);
+        assert_eq!(aged.len(), 1);
+        assert_eq!(aged[0].task_id, "p1");
     }
 
     #[test]

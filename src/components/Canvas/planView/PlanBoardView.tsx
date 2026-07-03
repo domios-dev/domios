@@ -14,8 +14,11 @@ import {
   type BoardPlanModel,
 } from "./boardModel";
 import { BoardTaskCard } from "./BoardTaskCard";
+import { CancelledTasksPanel } from "./CancelledTasksPanel";
+import { listCancelledTasks } from "./cancelledTasks";
 import { PlanContextHeader } from "./PlanContextHeader";
 import { PlanSwitcher } from "./PlanSwitcher";
+import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
 import { PlanDetailOverlay, type PlanDetailKind } from "./PlanDetailOverlay";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.board.selectedPlanId";
@@ -111,6 +114,8 @@ function BoardPlanBoard({
   onOpenDetail: (detail: BoardDetail) => void;
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
+  const [cancelledOpen, setCancelledOpen] = useState(false);
+  const cancelledTasks = useMemo(() => listCancelledTasks(plan), [plan]);
 
   return (
     <section data-testid="plan-board-plan" data-plan-id={model.planId} className="plan-board-plan">
@@ -138,9 +143,23 @@ function BoardPlanBoard({
         ))}
       </div>
       {model.cancelledCount > 0 && (
-        <p data-testid="plan-board-cancelled-note" className="plan-board-cancelled-note">
-          {model.cancelledCount} cancelled task{model.cancelledCount === 1 ? "" : "s"} hidden from board
-        </p>
+        <>
+          <button
+            type="button"
+            data-testid="plan-board-cancelled-note"
+            className="plan-board-cancelled-note plan-board-cancelled-trigger"
+            onClick={() => setCancelledOpen((v) => !v)}
+            aria-expanded={cancelledOpen}
+          >
+            {model.cancelledCount} cancelled task{model.cancelledCount === 1 ? "" : "s"} hidden from board
+          </button>
+          {cancelledOpen && (
+            <CancelledTasksPanel
+              tasks={cancelledTasks}
+              onOpenTask={(task) => onOpenDetail({ kind: "task", task, plan })}
+            />
+          )}
+        </>
       )}
     </section>
   );
@@ -157,9 +176,11 @@ export function PlanBoardView({
   onOpenPane,
   api,
 }: PlanViewSurfaceProps) {
+  const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
+
   const filteredPlans = useMemo(
-    () => filterPlansForBoard(plans, mode, { planId, orchestratorPaneId, panes }),
-    [plans, mode, planId, orchestratorPaneId, panes],
+    () => filterPlansForBoard(effectivePlans, mode, { planId, orchestratorPaneId, panes }),
+    [effectivePlans, mode, planId, orchestratorPaneId, panes],
   );
 
   const orderedPlans = useMemo(() => orderPlansByActivity(filteredPlans), [filteredPlans]);
@@ -225,11 +246,6 @@ export function PlanBoardView({
     [selectedPlan, panes, selectedSpecSections],
   );
 
-  const switcherOptions = useMemo(
-    () => orderedPlans.map((p) => ({ id: p.id, title: p.title.trim() || "Untitled plan" })),
-    [orderedPlans],
-  );
-
   const closeDetail = useCallback(() => setDetail(null), []);
 
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
@@ -253,7 +269,12 @@ export function PlanBoardView({
       )}
       {!loading && !error && selectedPlan && boardModel && (
         <div data-testid="plan-board-single" className="plan-board-single">
-          <PlanSwitcher plans={switcherOptions} selectedId={selectedPlan.id} onSelect={selectPlan} />
+          <PlanSwitcher
+            plans={switcherOptions}
+            selectedId={selectedPlan.id}
+            onSelect={selectPlan}
+            onAction={handleAction}
+          />
           <BoardPlanBoard
             model={boardModel}
             plan={selectedPlan}

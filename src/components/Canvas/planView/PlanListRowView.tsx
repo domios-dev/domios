@@ -4,6 +4,7 @@ import { TASK_STATUS_COLORS } from "../settings";
 import type { PlanListRow, PlanListRowKind, PlanListVisibleRow } from "./buildPlanListTree";
 import { isPlanListSectionRow } from "./buildPlanListTree";
 import { formatRelativeAge } from "./planListModel";
+import { usePlanTaskActivate } from "./planTaskInteraction";
 
 const TASK_KINDS = new Set<PlanListRowKind>(["task", "subtask"]);
 const STATUS_WORD: Partial<Record<string, string>> = { blocked: "blocked", in_review: "review" };
@@ -87,22 +88,26 @@ export function PlanListRowView({ entry, now, sectionExpanded, onToggleSection, 
   const age = formatRelativeAge(row.activityTs, now ?? 0);
   const titleIndent = Math.max(0, row.depth - 2) * TASK_INDENT_STEP;
 
-  const handleClick = () => onOpenRow?.(row);
+  const activate = () => onOpenRow?.(row);
+  const { onPointerDown, onPointerMove, onClick } = usePlanTaskActivate(activate);
   const handleKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
-    handleClick();
+    activate();
   };
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       data-testid={rowTestId(row.kind)}
       data-row-kind={row.kind}
       data-plan-id={row.planId}
       data-task-id={row.taskId}
-      className={`plan-list-row${isDoneTask ? " plan-list-row-done" : ""}`}
-      onClick={handleClick}
+      className={`plan-list-row plan-task-selectable${isDoneTask ? " plan-list-row-done" : ""}`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onClick={onClick}
       onKeyDown={handleKeyDown}
       title={row.focus || row.title}
     >
@@ -131,6 +136,6 @@ export function PlanListRowView({ entry, now, sectionExpanded, onToggleSection, 
       <span data-testid="plan-list-age" className="plan-list-age">
         {age}
       </span>
-    </button>
+    </div>
   );
 }

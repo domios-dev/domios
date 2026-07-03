@@ -16,6 +16,7 @@ const DOCS: &[(&str, &str)] = &[
         include_str!("../../../docs/TELEGRAM-SETUP.md"),
     ),
     ("SECRETS", include_str!("../../../docs/SECRETS.md")),
+    ("ROUTING", include_str!("../../../docs/ROUTING.md")),
     ("TEXT-HOOKS", include_str!("../../../docs/TEXT-HOOKS.md")),
     ("TRANSCRIBE", include_str!("../../../docs/TRANSCRIBE.md")),
     (

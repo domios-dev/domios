@@ -47,12 +47,11 @@ test("layoutInputRevision ignores task status churn (layout stays stable)", () =
 });
 
 test("layout bounds grow when tasks are added to the same plan id", () => {
-  const sections = [section("s")];
-  const small = plan("p", "o", 1, sections, [task("t1", ["s"])]);
-  const large = plan("p", "o", 2, sections, [
+  const small = plan("p", "o", 1, [section("s")], [task("t1", ["s"])]);
+  const large = plan("p", "o", 2, [section("s"), section("s2")], [
     task("t1", ["s"]),
-    task("t2", ["s"]),
-    task("t3", ["s"], { body: "z".repeat(500) }),
+    task("t2", ["s2"]),
+    task("t3", ["s2"], { body: "z".repeat(500) }),
     task("t4", ["s"], { milestones: [milestone("m1", "testing"), milestone("m2", "review")] }),
   ]);
   const b0 = layoutWorkspace([small]).bounds;

@@ -27,6 +27,8 @@ function setupDom() {
   Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, configurable: true });
   Object.defineProperty(globalThis, "HTMLButtonElement", { value: window.HTMLButtonElement, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
+  Object.defineProperty(globalThis, "PointerEvent", { value: window.PointerEvent, configurable: true });
+  (window as unknown as { confirm: (msg: string) => boolean }).confirm = () => true;
 }
 
 async function render(ui: ReactElement) {
@@ -180,6 +182,142 @@ test("clicking context header plan title opens plan detail overlay", async () =>
   });
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "plan", "plan kind");
+  await unmount();
+});
+
+test("cancelled filter chip shows only cancelled tasks", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [
+      { ...FIXTURE_TASK, id: "t-active", status: TaskStatus.InProgress },
+      { ...FIXTURE_TASK, id: "t-cancelled", status: TaskStatus.Cancelled, name: "Dropped work", handle: "drop-it" },
+    ],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const chip = host.querySelector('[data-testid="plan-list-filter-status-cancelled"]') as HTMLElement;
+  assert(chip?.textContent?.includes("Cancelled (1)"), "cancelled chip with count");
+  await act(async () => {
+    chip.click();
+  });
+  const tasks = host.querySelectorAll('[data-testid="plan-list-task"]');
+  assert(tasks.length === 1, `one cancelled task visible, got ${tasks.length}`);
+  assert(tasks[0]?.getAttribute("data-task-id") === "t-cancelled", "cancelled task id");
+  assert(host.textContent?.includes("Dropped work"), "cancelled title visible");
+  await unmount();
+});
+
+test("task row is selectable and suppresses open on drag", async () => {
+  const plan: Plan = {
+    ...FIXTURE_PLAN,
+    sections: [FIXTURE_SECTION],
+    tasks: [{ ...FIXTURE_TASK, id: "t-drag", status: TaskStatus.Pending, name: "Drag test" }],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[plan]} />);
+  const row = host.querySelector('[data-testid="plan-list-task"]') as HTMLElement;
+  assert(row?.getAttribute("role") === "button", "task row remains activatable");
+  assert(row.className.includes("plan-task-selectable"), "selectable class");
+  await act(async () => {
+    row.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, bubbles: true }));
+    row.dispatchEvent(new PointerEvent("pointermove", { clientX: 24, clientY: 0, bubbles: true }));
+    row.click();
+  });
+  assert(!host.querySelector('[data-testid="plan-detail-overlay"]'), "drag does not open detail");
+  await unmount();
+});
+
+test("list: archive action removes plan from active switcher and switches selection", async () => {
+  try {
+    window.sessionStorage.removeItem("codeterm.board.selectedPlanId");
+  } catch {
+    // Session persistence is best-effort in tests too.
+  }
+  const planA: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-a",
+    title: "Alpha",
+    status: "active",
+    created_at: 0,
+    updated_at: 10,
+    tasks: [{ ...FIXTURE_TASK, id: "a1", status: TaskStatus.Pending }],
+  };
+  const planB: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-b",
+    title: "Beta",
+    status: "active",
+    created_at: 0,
+    updated_at: 999,
+    tasks: [{ ...FIXTURE_TASK, id: "b1", status: TaskStatus.Pending, name: "Beta task" }],
+  };
+  const { host, unmount } = await render(<PlanListView mode="workspace" plans={[planA, planB]} />);
+  assert(host.querySelector('[data-testid="plan-switcher"]'), "switcher visible");
+
+  // Beta is selected (most recent); archive it
+  const kebab = host.querySelector(
+    '[data-testid="plan-switcher-kebab"][data-plan-id="plan-b"]',
+  ) as HTMLElement;
+  await act(async () => { kebab.click(); });
+  const archiveItem = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+    (el) => el.textContent?.includes("Archive"),
+  ) as HTMLElement;
+  await act(async () => { archiveItem.click(); });
+  await act(async () => { await Promise.resolve(); });
+
+  // plan-b is no longer an active pill
+  const activePills = host.querySelectorAll('[data-testid="plan-switcher-option"]');
+  const bPill = Array.from(activePills).find(
+    (el) => el.getAttribute("data-plan-id") === "plan-b",
+  );
+  assert(!bPill, "plan-b no longer active pill");
+
+  // Archived toggle appeared
+  const toggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
+  assert(toggle, "archived toggle appears");
+  assert(toggle.textContent?.includes("1 archived"), "count = 1");
+
+  await unmount();
+});
+
+test("list: unarchive brings plan back to active switcher", async () => {
+  const active: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-active",
+    title: "Active",
+    status: "active",
+    tasks: [{ ...FIXTURE_TASK, id: "t1", status: TaskStatus.Pending }],
+  };
+  const archived: Plan = {
+    ...FIXTURE_PLAN,
+    id: "plan-arch",
+    title: "Archived",
+    status: "archived",
+    tasks: [],
+  };
+  const { host, unmount } = await render(
+    <PlanListView mode="workspace" plans={[active, archived]} />,
+  );
+  const toggle = host.querySelector('[data-testid="plan-switcher-archived-toggle"]') as HTMLElement;
+  assert(toggle, "archived toggle present");
+  await act(async () => { toggle.click(); });
+
+  const kebab = host.querySelector(
+    '[data-testid="plan-switcher-kebab"][data-plan-id="plan-arch"]',
+  ) as HTMLElement;
+  assert(kebab, "kebab on archived plan");
+  await act(async () => { kebab.click(); });
+
+  const unarchive = Array.from(host.querySelectorAll('[role="menuitem"]')).find(
+    (el) => el.textContent?.trim() === "Unarchive",
+  ) as HTMLElement;
+  await act(async () => { unarchive.click(); });
+  await act(async () => { await Promise.resolve(); });
+
+  const pill = host.querySelector(
+    '[data-testid="plan-switcher-option"][data-plan-id="plan-arch"]',
+  );
+  assert(pill, "plan-arch is now an active pill after unarchive");
+
   await unmount();
 });
 

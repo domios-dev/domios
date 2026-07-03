@@ -87,9 +87,8 @@ export function PlanDetailOverlay({
 
   useEffect(() => {
     returnFocusRef.current = (document.activeElement as HTMLElement | null) ?? null;
-    const id = window.setTimeout(() => panelRef.current?.focus(), 0);
+    panelRef.current?.focus();
     return () => {
-      window.clearTimeout(id);
       returnFocusRef.current?.focus?.();
     };
   }, [kind, task?.id, plan?.id, spec?.id]);
@@ -146,7 +145,7 @@ export function PlanDetailOverlay({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px 10px 16px", borderBottom: "1px solid var(--ct-border-subtle)", flexShrink: 0 }}>
-          <span data-testid={tid("title")} style={{ flex: 1, minWidth: 0, fontFamily: "var(--ct-font-ui)", fontWeight: 700, fontSize: "var(--ct-font-size-md, 15px)", color: "var(--ct-fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span data-testid={tid("title")} className="plan-task-selectable" style={{ flex: 1, minWidth: 0, fontFamily: "var(--ct-font-ui)", fontWeight: 700, fontSize: "var(--ct-font-size-md, 15px)", color: "var(--ct-fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {title}
           </span>
           <span data-testid={tid("kind")} style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "color-mix(in srgb, var(--ct-fg) 55%, transparent)", flexShrink: 0 }}>
@@ -163,7 +162,7 @@ export function PlanDetailOverlay({
             <X size={15} />
           </button>
         </div>
-        <div data-testid={tid("body")} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
+        <div data-testid={tid("body")} className="plan-detail-selectable" style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
           <DetailContent
             kind={kind}
             planId={navPlanId}

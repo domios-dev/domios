@@ -206,6 +206,37 @@ test("workspacePlanEntryHint prefers tasks then sections then items", () => {
     workspacePlanEntryHint([indexEntry({ task_count: 0, section_count: 0, element_count: 0 })]) === null,
     "no count → no hint",
   );
+  assert(
+    workspacePlanEntryHint([indexEntry({ task_count: 12, open_task_count: 7 })]) === "7 tasks",
+    "open_task_count takes priority — shows remaining not total",
+  );
+  assert(
+    workspacePlanEntryHint([indexEntry({ task_count: 12, open_task_count: 1 })]) === "1 task",
+    "open_task_count singular",
+  );
+  assert(
+    workspacePlanEntryHint([indexEntry({ task_count: 12, open_task_count: 0, section_count: 3 })]) === "3 sections",
+    "zero open tasks falls through to sections",
+  );
+});
+
+test("open_task_count reflects counts_as_open_work semantics: excludes done, cancelled, parked", () => {
+  // 10 total: 3 pending/in-progress/in-review/blocked (open), 2 parked, 3 done, 2 cancelled
+  // open_task_count from backend = 3 (only counts_as_open_work tasks)
+  assert(
+    workspacePlanEntryHint([indexEntry({ task_count: 10, open_task_count: 3 })]) === "3 tasks",
+    "hint shows only the open-work count (done+cancelled+parked excluded)",
+  );
+  // All tasks done/cancelled/parked → open_task_count 0 → falls through to sections
+  assert(
+    workspacePlanEntryHint([indexEntry({ task_count: 5, open_task_count: 0, section_count: 2 })]) === "2 sections",
+    "zero open tasks (all terminal/parked) falls through to sections",
+  );
+  // Only 1 remaining
+  assert(
+    workspacePlanEntryHint([indexEntry({ task_count: 8, open_task_count: 1 })]) === "1 task",
+    "singular open task",
+  );
 });
 
 test("workspacePlanEntryExtraCount counts plans beyond the lead", () => {
