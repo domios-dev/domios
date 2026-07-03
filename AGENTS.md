@@ -76,8 +76,12 @@ Parallel lanes mean cold worktrees; these are the levers that keep builds fast
   slow build (a hung `plan_skill` test once burned 240% CPU for two hours).
   Use the capped runner / nextest per-test timeouts once landed.
 - **Target-dir hygiene.** Old artifacts accumulate fast (`src-tauri/target`
-  once hit 93 GB). If disk pressure or slow incremental scans appear:
-  `cargo sweep --time 14` (or a clean rebuild when between efforts).
+  once hit 93 GB — cargo never garbage-collects; every dep bump, flag change,
+  and toolchain update leaves a dead layer forever). Between efforts run
+  `cargo sweep --time 2`: with daily builds everything alive is touched
+  constantly, so a 2-day window keeps only the working set. Rarely-built
+  targets (embed release, parser-eval) may get swept and rebuild once when
+  next needed — cheap now, sccache serves the deps.
 
 **Pre-push gate is tiered by branch.** The `.githooks/pre-push` hook runs the
 FULL gate (shell guards, `cargo check`, fmt, clippy on both crates) only when
