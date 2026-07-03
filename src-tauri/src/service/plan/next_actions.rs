@@ -186,6 +186,7 @@ mod tests {
                 unlinked_tasks: vec![],
             },
             drift: DriftSummary::default(),
+            cleanup_debt: vec![],
             loops: vec![],
             heartbeat: Default::default(),
             open_lanes: vec![],

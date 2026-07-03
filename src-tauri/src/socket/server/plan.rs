@@ -38,6 +38,7 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 fn emit_plan_changed(app: &AppHandle, plan_id: &str) {
     crate::api::events::emit_everywhere(app, "plan-changed", json!({ "plan_id": plan_id }));
 }
+
 pub(super) fn dispatch(
     method: &str,
     params: &Option<Value>,
@@ -394,18 +395,8 @@ pub(super) fn dispatch(
             emit_plan_changed(app, &id);
             Ok(json!({ "ok": true }))
         }
-        "plan.archive" => {
-            let id = plan_refs::resolve_plan(store, params)?;
-            store.archive(&id, now).map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
-        }
-        "plan.unarchive" => {
-            let id = plan_refs::resolve_plan(store, params)?;
-            store.unarchive(&id, now).map_err(plan_rpc_err)?;
-            emit_plan_changed(app, &id);
-            Ok(json!({ "ok": true }))
-        }
+        "plan.archive" => super::plan_archive::archive(store, svc, app, params, now),
+        "plan.unarchive" => super::plan_archive::unarchive(store, app, params, now),
         "plan.delete" => {
             let id = plan_refs::resolve_plan(store, params)?;
             store.delete(&id).map_err(|e| JsonRpcError {

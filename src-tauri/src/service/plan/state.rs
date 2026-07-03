@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde::Serialize;
 
+use crate::plan::cleanup_debt::CleanupDebtTask;
 use crate::plan::coverage::{compute_coverage_report, CoverageReport};
 use crate::plan::reconcile::DriftItem;
 use crate::plan::{
@@ -109,6 +110,7 @@ pub struct PlanStateSnapshot {
     pub percent_done: f64,
     pub coverage: CoverageReport,
     pub drift: DriftSummary,
+    pub cleanup_debt: Vec<CleanupDebtTask>,
     pub loops: Vec<LoopSnapshot>,
     pub heartbeat: HeartbeatSnapshot,
     pub open_lanes: Vec<OpenLane>,
@@ -244,6 +246,7 @@ pub fn build_plan_state_snapshot(
     plan: &Plan,
     coverage: CoverageReport,
     drift: Vec<DriftItem>,
+    cleanup_debt: Vec<CleanupDebtTask>,
     live_agent_panes: &HashSet<String>,
     now_ms: u64,
 ) -> PlanStateSnapshot {
@@ -339,6 +342,7 @@ pub fn build_plan_state_snapshot(
         percent_done: pct,
         coverage,
         drift: drift_summary(drift),
+        cleanup_debt,
         loops,
         heartbeat: HeartbeatSnapshot {
             current_focus: plan.heartbeat.current_focus.clone(),
@@ -367,7 +371,9 @@ impl ServiceContext {
     ) -> Result<PlanStateSnapshot, PlanError> {
         let plan = self.plan_store.get(plan_id).ok_or(PlanError::NotFound)?;
         let coverage = compute_coverage_report(&plan);
-        let drift = self.reconcile_plan(plan_id, false, None, now_ms)?.drift;
+        let reconcile = self.reconcile_plan(plan_id, false, None, now_ms)?;
+        let drift = reconcile.drift;
+        let cleanup_debt = reconcile.cleanup_debt;
 
         let mut live_panes: HashSet<String> = HashSet::new();
         let mut probed: HashSet<String> = HashSet::new();
@@ -383,6 +389,7 @@ impl ServiceContext {
             &plan,
             coverage,
             drift,
+            cleanup_debt,
             &live_panes,
             now_ms,
         ))
@@ -511,7 +518,7 @@ mod tests {
         }];
         let live: HashSet<String> = ["pane_live".to_string()].into_iter().collect();
 
-        let snap = build_plan_state_snapshot(&plan, coverage, drift, &live, 1);
+        let snap = build_plan_state_snapshot(&plan, coverage, drift, vec![], &live, 1);
 
         assert_eq!(snap.task_counts.total, 5);
         assert_eq!(snap.task_counts.done, 1);
@@ -564,7 +571,7 @@ mod tests {
             .map(|i| milestone(&format!("k{i}"), i as u64))
             .collect();
         let coverage = compute_coverage_report(&plan);
-        let snap = build_plan_state_snapshot(&plan, coverage, vec![], &HashSet::new(), 1);
+        let snap = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
         assert_eq!(snap.recent_strides.len(), RECENT_STRIDE_LIMIT);
         assert_eq!(snap.recent_strides[0].id, "k14");
         assert_eq!(snap.recent_strides[9].id, "k5");
@@ -575,7 +582,7 @@ mod tests {
         let plan = fixture();
         let before = plan.clone();
         let coverage = compute_coverage_report(&plan);
-        let _ = build_plan_state_snapshot(&plan, coverage, vec![], &HashSet::new(), 1);
+        let _ = build_plan_state_snapshot(&plan, coverage, vec![], vec![], &HashSet::new(), 1);
         assert_eq!(plan, before);
     }
 }

@@ -275,6 +275,72 @@ fn execution_kind_task_in_planning_mode_trips_approval_gate() {
 }
 
 #[test]
+fn quality_warns_on_terminal_task_cleanup_debt() {
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "execution",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Spec", "body": "WHY"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "Cleanup lane",
+            "kind": "implement",
+            "status": "done",
+            "section_ids": ["sec_1"],
+            "acceptance_criteria": ["done"],
+            "test_plan": "n/a",
+            "correctness": "n/a",
+            "lane": {
+                "worktree_path": "/definitely/missing/worktree",
+                "branch": "lane/cleanup"
+            }
+        }]
+    });
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    assert!(findings.iter().any(|f| f.kind == "cleanup_debt"));
+    let finding = findings.iter().find(|f| f.kind == "cleanup_debt").unwrap();
+    assert!(finding.fix.contains("codeterm plan task update"));
+    assert!(finding.fix.contains("--cleanup-status deferred"));
+}
+
+#[test]
+fn quality_warns_on_deferred_cleanup() {
+    let plan = json!({
+        "id": "pl_1",
+        "title": "Plan",
+        "status": "active",
+        "mode": "execution",
+        "goal": {"vector": "ship"},
+        "primary_spec_id": "sp_1",
+        "sections": [{"id": "sec_1", "title": "Spec", "body": "WHY"}],
+        "tasks": [{
+            "id": "task_1",
+            "name": "Cleanup lane",
+            "kind": "implement",
+            "status": "cancelled",
+            "section_ids": ["sec_1"],
+            "acceptance_criteria": ["done"],
+            "test_plan": "n/a",
+            "correctness": "n/a",
+            "lane": {
+                "cleanup_status": "deferred",
+                "cleanup_hints": ["waiting for shared dev pane shutdown"]
+            }
+        }]
+    });
+    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+    let finding = findings
+        .iter()
+        .find(|f| f.kind == "cleanup_deferred")
+        .unwrap();
+    assert!(finding.detail.contains("explicitly deferred"));
+    assert!(finding.fix.contains("--cleanup-status done"));
+}
+
+#[test]
 fn quality_errors_for_underspecified_tasks() {
     let plan = json!({
         "id": "pl_1",
