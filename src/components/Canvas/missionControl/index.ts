@@ -9,7 +9,12 @@ export {
   type WorkerPresence,
 } from "./missionControl";
 
+export { modelToSnapshot, missionControlHealth, extractStreamEvents } from "./modelAdapter";
+export { resolveMissionControlLod, MC_LOD_FAR_MAX, MC_LOD_MID_MAX, type MissionControlLodLevel } from "./missionControlLod";
+export { MissionControlLiveView } from "./MissionControlLiveView";
+export { MissionControlPlanSurface } from "./MissionControlPlanSurface";
 export { MissionControlPrototype } from "./MissionControlPrototype";
+export { useReducedMotion } from "./useReducedMotion";
 export { MISSION_CONTROL_FIXTURE, activeLaneCount, dispatchFrontierCount, totalBlockedParked } from "./fixtures";
 export type { MissionControlSnapshot, MissionControlVariant, MissionControlLod } from "./types";
 export { MISSION_CONTROL_VARIANTS, VARIANT_LABELS } from "./types";
