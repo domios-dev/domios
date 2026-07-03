@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Plus, Network } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { Pane, PaneStatus, Tab, Workspace } from "../../lib/types";
 import type { RemoteWorkersByOrchestrator } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
@@ -8,8 +8,6 @@ import type { ActiveWorkSnapshot } from "../Canvas/planView/activeWork";
 import { resolvePaneTabActivity } from "../Canvas/paneTabActivity";
 import { WorkspacePlanTreeSlot } from "./WorkspacePlanEntry";
 import { RemoteWorkerRow } from "./RemoteWorkerRow";
-import { AgentIcon } from "../AgentIcon";
-import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import {
   SortableContext,
   verticalListSortingStrategy,
@@ -27,11 +25,6 @@ import {
 import { TabItem } from "./TabItem";
 import { aggregateTabStatus } from "./sidebarTabStatus";
 import { isWorkspaceTabActive } from "./sidebarSelection";
-
-interface VisibleProvider {
-  id: string;
-  display_name: string;
-}
 
 export interface SidebarWorkspaceTabsProps {
   workspace: Workspace;
@@ -51,14 +44,12 @@ export interface SidebarWorkspaceTabsProps {
   uiFontScale?: number;
   compact: boolean;
   sidebarActionText: string;
-  visibleProviders: VisibleProvider[];
   orchestrators: Pane[];
   onBeforeOpenPlan: () => void;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onRenameTab: (tabId: string, title: string) => void;
-  onNewAgent: (agentId: string) => void;
-  onOrchestration: () => void;
+  onNewSession: () => void;
 }
 
 export function SidebarWorkspaceTabs({
@@ -79,14 +70,12 @@ export function SidebarWorkspaceTabs({
   uiFontScale,
   compact,
   sidebarActionText,
-  visibleProviders,
   orchestrators,
   onBeforeOpenPlan,
   onActivateTab,
   onCloseTab,
   onRenameTab,
-  onNewAgent,
-  onOrchestration,
+  onNewSession,
 }: SidebarWorkspaceTabsProps) {
   const renderTab = (
     tab: Tab,
@@ -208,24 +197,12 @@ export function SidebarWorkspaceTabs({
     .filter((t) => panes[t.pane_id]?.protected)
     .map((t) => `${TAB_PREFIX}${t.id}`);
 
-  const newSessionItems: DropdownMenuItem[] = visibleProviders.map((provider) => ({
-    label: `New ${provider.display_name} Session`,
-    icon: <AgentIcon providerId={provider.id} className="text-[12px]" />,
-    onClick: () => onNewAgent(provider.id),
-  }));
-  if (visibleProviders.length > 0) {
-    newSessionItems.push({
-      label: "Orchestration",
-      icon: <Network size={12} strokeWidth={1.5} />,
-      onClick: onOrchestration,
-    });
-  }
-
   const newSessionTrigger = (
     <button
-      disabled={newSessionItems.length === 0}
+      type="button"
+      onClick={onNewSession}
       className="flex items-center gap-2 min-w-0 max-w-full mx-2 mt-1 mb-0.5 px-3 py-1 rounded-md text-[var(--ct-muted)] hover:text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-      title={newSessionItems.length === 0 ? "No visible agent providers" : "New session in this workspace"}
+      title="New session in this workspace"
     >
       <Plus size={10} strokeWidth={1.5} className="shrink-0" />
       <span className={`${sidebarActionText} min-w-0 truncate`}>New session</span>
@@ -249,11 +226,7 @@ export function SidebarWorkspaceTabs({
           renderTab(tab, index, 0, "tab", ws.id, topLevelIds, pinnedTabIds),
         )}
       </SortableContext>
-      {newSessionItems.length === 0 ? (
-        newSessionTrigger
-      ) : (
-        <DropdownMenu items={newSessionItems} trigger={newSessionTrigger} />
-      )}
+      {newSessionTrigger}
     </>
   );
 }

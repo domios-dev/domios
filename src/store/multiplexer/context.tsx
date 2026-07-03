@@ -21,7 +21,7 @@ export interface MultiplexerContextType {
   reorderTabs: (args: { workspaceId?: string; parentPaneId?: string; orderedTabIds: string[] }) => void;
   /** Reorder the workspace list to the given order. */
   reorderWorkspaces: (orderedWorkspaceIds: string[]) => void;
-  createTab: (workspaceId: string, cwd?: string) => void;
+  createTab: (workspaceId: string, cwd?: string) => Promise<{ id: string; pane_id: string } | void>;
   closeTab: (workspaceId: string, tabId: string) => void;
   /** Reopen a recently-closed pane (index 0 = most recent). */
   reopenClosed: (workspaceId: string, index?: number) => void;
@@ -44,7 +44,13 @@ export interface MultiplexerContextType {
   setAgentType: (paneId: string, agentType: string | null) => void;
   updatePaneStatus: (paneId: string, status: PaneStatus) => void;
   spawnClaudeTab: (workspaceId: string, skipPermissions: boolean, cwd?: string) => void;
-  spawnAgentTab: (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => void;
+  spawnAgentTab: (
+    workspaceId: string,
+    agentId: string,
+    skipPermissions: boolean,
+    cwd?: string,
+    model?: string,
+  ) => Promise<void>;
   /** Paired creation (task_7e5f9354): create a plan plus an Orchestrator +
    *  Planner pane bound to it, in one call. */
   createOrchestrationPair: (input: OrchestrationPairInput) => Promise<OrchestrationPairResult>;

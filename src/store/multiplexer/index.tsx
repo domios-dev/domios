@@ -19,6 +19,7 @@ import {
 import { mountWebLifecycle } from "../../lib/lifecycle";
 import { uid } from "../../lib/uid";
 import { setPendingCommand, setPendingCwd } from "../../lib/pendingCommands";
+import { clearSessionPickerPane } from "../../lib/sessionPickerPanes";
 import { loadDefaultNewAgentPaneChat } from "../../lib/chatUiMode";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { TitleLevel } from "../../lib/types";
@@ -310,6 +311,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       // Explicit New Tab click focuses the new pane; background spawns don't.
       guardedInvoke("mux_set_focused_pane", { paneId: tabInfo.pane_id }).catch(() => {});
       refreshFromBackend();
+      return { id: tabInfo.id, pane_id: tabInfo.pane_id };
     } catch (e) {
       console.error("Failed to create tab:", e);
     }
@@ -425,20 +427,28 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     guardedInvoke("mux_reorder_workspace", { orderedWorkspaceIds }).catch(() => {});
   }, [guardedInvoke]);
 
-  const spawnAgentTab = useCallback(async (workspaceId: string, agentId: string, skipPermissions: boolean, cwd?: string) => {
-    // Web UI delegates full agent spawn to the daemon (REST path, unchanged).
-    if (IS_WEB) {
+  const spawnAgentTab = useCallback(async (
+    workspaceId: string,
+    agentId: string,
+    skipPermissions: boolean,
+    cwd?: string,
+    model?: string,
+  ) => {
+    const useRestSpawn = IS_WEB || (model != null && model.length > 0);
+    if (useRestSpawn) {
       try {
         await guardedWebJson<{ pane_id: string }>("POST", "/api/agents/spawn", {
           agent: agentId,
           workspace_id: workspaceId,
           cwd,
           skip_permissions: skipPermissions,
+          model,
           activate: true,
         });
         refreshFromBackend();
       } catch (e) {
         console.error(`Failed to spawn ${agentId} tab:`, e);
+        throw e;
       }
       return;
     }
@@ -516,6 +526,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       const ws = workspaces.find((w) => w.id === workspaceId);
       const tab = ws?.tabs.find((t) => t.id === tabId);
       if (!tab) return;
+      clearSessionPickerPane(tab.pane_id);
       const removedPaneIds = [tab.pane_id];
       for (const pid of removedPaneIds) {
         guardedInvoke("mux_close_pane", { paneId: pid }).catch(() => {});
