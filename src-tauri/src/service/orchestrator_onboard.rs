@@ -41,7 +41,7 @@ pub fn orchestrator_onboarding_body(pane_id: &str) -> String {
     // below — until the Orchestrator claims/creates a real plan.
     let spawn_cmd =
         crate::service::plan::peer_mandate::planner_spawn_cmd_hint(Some(pane_id), "PLAN_ID");
-    let mandate = crate::prompts::peer_pairing_mandate_block(&spawn_cmd);
+    let mandate = crate::prompts::peer_pairing_mandate_full(&spawn_cmd);
     format!(
         "You are now the Orchestrator for this pane (role=Orchestrator, can_spawn=true).\n\
 \n\
@@ -192,7 +192,7 @@ mod tests {
         let msg = orchestrator_onboarding_body("pane-abc");
         assert!(msg.contains(crate::prompts::PEER_PLANNER_CHARTER_LINE));
         assert!(msg.contains(crate::prompts::PEER_ORCH_DEFERENCE_LINE));
-        assert!(msg.contains("An Orchestrator works with a Planner peer"));
+        assert!(msg.contains("This plan has a Planner peer"));
         assert!(msg.contains("--parent pane-abc --role Planner --plan PLAN_ID"));
     }
 

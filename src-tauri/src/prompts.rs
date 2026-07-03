@@ -113,6 +113,16 @@ pub fn peer_pairing_mandate_block(spawn_cmd: &str) -> String {
     PEER_PAIRING_MANDATE_BLOCK.replace("{spawn_cmd}", spawn_cmd)
 }
 
+/// The mandatory-next-step text delivered on Orchestrator promotion/claim:
+/// the filled mandate block plus the charter/deference lines that name each
+/// peer's authority, so an agent reading it once gets the full contract.
+pub fn peer_pairing_mandate_full(spawn_cmd: &str) -> String {
+    format!(
+        "{}\n\n{PEER_PLANNER_CHARTER_LINE}\n{PEER_ORCH_DEFERENCE_LINE}",
+        peer_pairing_mandate_block(spawn_cmd)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,12 +211,19 @@ mod tests {
     }
 
     #[test]
-    fn peer_pairing_mandate_block_fills_spawn_cmd_and_carries_charter() {
+    fn peer_pairing_mandate_block_fills_spawn_cmd() {
         let filled = peer_pairing_mandate_block("codeterm agent spawn claude --role Planner");
         assert!(filled.contains("codeterm agent spawn claude --role Planner"));
         assert!(!filled.contains("{spawn_cmd}"));
-        assert!(filled.contains(PEER_PLANNER_CHARTER_LINE));
-        assert!(filled.contains(PEER_ORCH_DEFERENCE_LINE));
         assert!(PEER_WAIVER_HINT.contains("--planner none --note"));
+    }
+
+    #[test]
+    fn peer_pairing_mandate_full_fills_spawn_cmd_and_carries_charter() {
+        let full = peer_pairing_mandate_full("codeterm agent spawn claude --role Planner");
+        assert!(full.contains("codeterm agent spawn claude --role Planner"));
+        assert!(!full.contains("{spawn_cmd}"));
+        assert!(full.contains(PEER_PLANNER_CHARTER_LINE));
+        assert!(full.contains(PEER_ORCH_DEFERENCE_LINE));
     }
 }
