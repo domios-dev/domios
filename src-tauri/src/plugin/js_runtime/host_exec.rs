@@ -68,6 +68,30 @@ fn err(msg: &str) -> String {
     serde_json::json!({ "error": msg }).to_string()
 }
 
+/// Resolve `bin` to a runnable path. Testable seam: `extra_dirs` are candidate
+/// directories to probe when the bin is not on PATH. Currently reproduces the
+/// legacy behavior (PATH via `which`, else the bare name); `extra_dirs` probing
+/// is added by a later phase.
+fn resolve_bin(bin: &str, extra_dirs: &[std::path::PathBuf]) -> std::path::PathBuf {
+    let _ = extra_dirs;
+    which::which(bin).unwrap_or_else(|_| std::path::PathBuf::from(bin))
+}
+
+/// Well-known dirs a GUI-launched app may miss from a login shell's PATH.
+fn well_known_bin_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = vec![
+        std::path::PathBuf::from("/opt/homebrew/bin"),
+        std::path::PathBuf::from("/usr/local/bin"),
+    ];
+    if let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) {
+        dirs.push(home.join(".npm-global/bin"));
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join("bin"));
+        dirs.push(home.join(".volta/bin"));
+    }
+    dirs
+}
+
 /// Run the subprocess described by `opts_json`. The binary is already
 /// permission-checked. Resolves the binary via `which`, falling back to the bare
 /// name (PATH resolution by the OS).
@@ -81,7 +105,7 @@ pub(super) fn run_with_host_env(opts_json: &str, host_env: &HashMap<String, Stri
         Err(e) => return err(&format!("bad exec opts: {e}")),
     };
     let opts = with_host_env(opts, host_env);
-    let resolved = which::which(&opts.bin).unwrap_or_else(|_| std::path::PathBuf::from(&opts.bin));
+    let resolved = resolve_bin(&opts.bin, &well_known_bin_dirs());
 
     if opts.detach {
         let log = |p: &str| {
@@ -545,6 +569,34 @@ mod tests {
         assert!(out.get("error").is_none(), "unexpected error: {out}");
         assert_eq!(out["code"], 0);
         assert_eq!(out["stdout"].as_str().map(str::len), Some(200_000));
+    }
+
+    #[test]
+    fn resolve_bin_probes_fallback_dir_when_not_on_path() {
+        // A bin absent from PATH must still resolve when its dir is passed as a
+        // fallback candidate. RED today: resolve_bin ignores extra_dirs and
+        // returns the bare name; GREEN once the fallback probe lands.
+        let name = format!("bwprobe_{}", uuid::Uuid::new_v4().simple());
+        let dir =
+            std::env::temp_dir().join(format!("host_exec_resolve_{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bin_path = dir.join(&name);
+        std::fs::write(&bin_path, b"#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perm = std::fs::metadata(&bin_path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&bin_path, perm).unwrap();
+        }
+
+        let resolved = resolve_bin(&name, std::slice::from_ref(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(
+            resolved, bin_path,
+            "resolve_bin must find a bin via the provided fallback dir, not just PATH"
+        );
     }
 
     #[test]
