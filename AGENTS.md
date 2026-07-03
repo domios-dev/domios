@@ -50,6 +50,33 @@ source build.sh env         # load MSVC env into shell (Windows, manual cargo)
 
 **Run ONE test at a time.** All `cargo test`/`build.sh test` runs share a single `target/.cargo-lock`; launching a second while one is in flight makes them queue (not parallelize) and looks like a multi-minute "hang" — narrow the filter, run it once in the background, wait for it; never fire concurrent runs.
 
+## Build speed (worktrees, tests, profiles)
+
+Parallel lanes mean cold worktrees; these are the levers that keep builds fast
+— configured once, documented here so nobody re-derives or reverts them:
+
+- **sccache (machine-level, `~/.cargo/config.toml` rustc-wrapper).** Shared
+  compile cache across ALL worktrees: a cold lane reuses every dep compiled by
+  any other checkout. Verify with `sccache --show-stats` (hits should climb
+  after the first full build). On a new machine: `brew install sccache` + the
+  rustc-wrapper line. We deliberately do NOT share `CARGO_TARGET_DIR` across
+  worktrees instead — a shared target serializes parallel lanes on
+  `.cargo-lock` and branch switches thrash incremental caches; sccache gives
+  the sharing without the contention.
+- **Cargo profiles are tuned — do not remove them.** `src-tauri/Cargo.toml`
+  and `cli/Cargo.toml` set `split-debuginfo = "unpacked"` (macOS: skips dSYM
+  packing at link time), `debug = "line-tables-only"` (usable backtraces at a
+  fraction of the debuginfo), and `debug = false` for all dependencies. The
+  CLI keeps `--release` (agents exec it constantly) but with
+  `incremental = true` so dev-restart rebuilds are cheap.
+- **Tests in lanes: narrow filter + hard cap, never bare open-ended runs.** A
+  cargo test past ~90s is a deadlock/busy-loop in the code under test, not a
+  slow build (a hung `plan_skill` test once burned 240% CPU for two hours).
+  Use the capped runner / nextest per-test timeouts once landed.
+- **Target-dir hygiene.** Old artifacts accumulate fast (`src-tauri/target`
+  once hit 93 GB). If disk pressure or slow incremental scans appear:
+  `cargo sweep --time 14` (or a clean rebuild when between efforts).
+
 **Pre-push gate is tiered by branch.** The `.githooks/pre-push` hook runs the
 FULL gate (shell guards, `cargo check`, fmt, clippy on both crates) only when
 pushing integration branches (`feat/*`, `develop`, `master`). Pushes of
