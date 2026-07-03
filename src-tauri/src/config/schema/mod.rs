@@ -372,6 +372,7 @@ pub struct OrchestrationConfig {
     pub plan_reminders: bool,
     pub nudge_after_turns: u32,
     pub nudge_interval_secs: u64,
+    pub idle_poke: IdlePokeConfig,
 }
 
 impl Default for OrchestrationConfig {
@@ -380,6 +381,54 @@ impl Default for OrchestrationConfig {
             plan_reminders: true,
             nudge_after_turns: 12,
             nudge_interval_secs: 1800,
+            idle_poke: IdlePokeConfig::default(),
+        }
+    }
+}
+
+fn default_idle_poke_enabled() -> bool {
+    true
+}
+
+fn default_idle_poke_threshold_secs() -> u64 {
+    150
+}
+
+fn default_idle_poke_live_lane_cap() -> u32 {
+    3
+}
+
+fn default_idle_poke_max_per_day() -> u32 {
+    4
+}
+
+fn default_idle_poke_backoff_base_secs() -> u64 {
+    90
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IdlePokeConfig {
+    #[serde(default = "default_idle_poke_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_idle_poke_threshold_secs")]
+    pub idle_threshold_secs: u64,
+    #[serde(default = "default_idle_poke_live_lane_cap")]
+    pub live_lane_cap: u32,
+    #[serde(default = "default_idle_poke_max_per_day")]
+    pub max_per_day: u32,
+    #[serde(default = "default_idle_poke_backoff_base_secs")]
+    pub backoff_base_secs: u64,
+}
+
+impl Default for IdlePokeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_idle_poke_enabled(),
+            idle_threshold_secs: default_idle_poke_threshold_secs(),
+            live_lane_cap: default_idle_poke_live_lane_cap(),
+            max_per_day: default_idle_poke_max_per_day(),
+            backoff_base_secs: default_idle_poke_backoff_base_secs(),
         }
     }
 }

@@ -62,16 +62,28 @@ fn orchestration_plan_reminder_defaults() {
     assert!(cfg.plan_reminders);
     assert_eq!(cfg.nudge_after_turns, 12);
     assert_eq!(cfg.nudge_interval_secs, 1800);
+    assert!(cfg.idle_poke.enabled);
+    assert_eq!(cfg.idle_poke.idle_threshold_secs, 150);
+    assert_eq!(cfg.idle_poke.live_lane_cap, 3);
+    assert_eq!(cfg.idle_poke.max_per_day, 4);
+    assert_eq!(cfg.idle_poke.backoff_base_secs, 90);
 }
 
 #[test]
 fn orchestration_plan_reminder_overrides() {
     let cfg: OrchestrationConfig =
-        toml::from_str("plan_reminders = false\nnudge_after_turns = 3\nnudge_interval_secs = 90")
+        toml::from_str(
+            "plan_reminders = false\nnudge_after_turns = 3\nnudge_interval_secs = 90\nidle_poke.enabled = false\nidle_poke.idle_threshold_secs = 60\nidle_poke.live_lane_cap = 1\nidle_poke.max_per_day = 2\nidle_poke.backoff_base_secs = 45",
+        )
             .unwrap();
     assert!(!cfg.plan_reminders);
     assert_eq!(cfg.nudge_after_turns, 3);
     assert_eq!(cfg.nudge_interval_secs, 90);
+    assert!(!cfg.idle_poke.enabled);
+    assert_eq!(cfg.idle_poke.idle_threshold_secs, 60);
+    assert_eq!(cfg.idle_poke.live_lane_cap, 1);
+    assert_eq!(cfg.idle_poke.max_per_day, 2);
+    assert_eq!(cfg.idle_poke.backoff_base_secs, 45);
 }
 
 #[test]

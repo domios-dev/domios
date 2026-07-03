@@ -698,6 +698,34 @@ impl PlanStore {
         None
     }
 
+    pub fn active_owned_plan_frontier_for_pane(
+        &self,
+        pane_id: &str,
+    ) -> Option<(String, usize, usize)> {
+        if pane_id.trim().is_empty() {
+            return None;
+        }
+        for plan in self.plans.read().values() {
+            let plan = plan.lock();
+            if plan.status != PlanStatus::Active
+                || plan.mode != PlanMode::Execution
+                || plan.owner.pane_id.as_deref() != Some(pane_id)
+            {
+                continue;
+            }
+            let pending = plan
+                .tasks
+                .iter()
+                .filter(|task| task.status == TaskStatus::Pending)
+                .count();
+            if pending == 0 {
+                continue;
+            }
+            return Some((plan.id.clone(), pending, plan.heartbeat.active_lanes.len()));
+        }
+        None
+    }
+
     pub fn task_bindings_for_pane(&self, pane_id: &str) -> Vec<(String, String)> {
         if pane_id.trim().is_empty() {
             return Vec::new();
