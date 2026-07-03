@@ -4,8 +4,8 @@ import { filterPlansForCanvas } from "../planPaneMatch";
 import { resolvePlanExclusivePaneTasks } from "../paneCurrentTask";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
-import { TaskStatus, type Milestone, type Plan, type Section, type Task, type TaskStatus as TaskStatusType } from "../types";
-import { qaChipText } from "./taskQa";
+import { TaskStatus, type Plan, type Section, type Task, type TaskStatus as TaskStatusType } from "../types";
+import { latestTaskNote } from "./taskStatusLabel";
 
 export const BOARD_COLUMN_DEFS = [
   { key: "pending", label: "Pending", statuses: [TaskStatus.Pending] as TaskStatusType[] },
@@ -42,19 +42,13 @@ export interface BoardPlanSummary {
   goalVector: string | null;
 }
 
-export interface BoardActivityHint {
-  kind: string;
-  ageLabel: string;
-}
-
 export interface BoardTaskCardModel {
   task: Task;
   presenceLabel: string | null;
   historicalExecutorSummary: string | null;
   roleLabel: string | null;
   branch: string | null;
-  activityHint: BoardActivityHint | null;
-  qaChip: string | null;
+  latestNote: string | null;
   focusMatch: boolean;
 }
 
@@ -83,10 +77,6 @@ function ownerLabel(plan: Plan, panes: Record<string, Pane>): string {
   const paneId = clean(plan.owner.pane_id);
   if (paneId && panes[paneId]?.title) return panes[paneId].title!.trim();
   return clean(plan.owner.title) ?? (paneId ? paneId.slice(0, 8) : "Unassigned");
-}
-
-function latestMilestone(task: Task): Milestone | null {
-  return task.milestones.reduce<Milestone | null>((latest, m) => (!latest || m.ts > latest.ts ? m : latest), null);
 }
 
 function taskFreshness(task: Task): number {
@@ -126,11 +116,9 @@ function buildTaskCard(
   task: Task,
   panes: Record<string, Pane>,
   exclusivePaneTasks: Map<string, string>,
-  now: number,
 ): BoardTaskCardModel {
   const presence = buildTaskPresence(plan, task, panes, exclusivePaneTasks);
   const historical = historicalExecutorForTask(task, panes, presence != null);
-  const milestone = latestMilestone(task);
   const paneId = presence?.paneId ?? clean(task.assigned_pane_id) ?? clean(task.lane?.pane_id);
   return {
     task,
@@ -138,10 +126,7 @@ function buildTaskCard(
     historicalExecutorSummary: historical?.summary ?? null,
     roleLabel: presence ? clean(task.taken_by_role) : historical?.role ?? clean(task.taken_by_role),
     branch: laneBranch(task),
-    activityHint: milestone
-      ? { kind: milestone.kind.replace(/[_-]+/g, " "), ageLabel: formatRelativeAge(milestone.ts, now) }
-      : null,
-    qaChip: qaChipText(plan, task),
+    latestNote: latestTaskNote(task),
     focusMatch: focusMatches(plan, task, paneId),
   };
 }
@@ -185,7 +170,7 @@ export function deriveBoardPlanSummary(plan: Plan, panes: Record<string, Pane>):
 export function groupTasksIntoColumns(
   plan: Plan,
   panes: Record<string, Pane>,
-  now: number = Date.now(),
+  _now: number = Date.now(),
 ): { columns: BoardColumnModel[]; cancelledCount: number } {
   const exclusivePaneTasks = resolvePlanExclusivePaneTasks(plan);
   const byStatus = new Map<TaskStatusType, Task[]>();
@@ -205,7 +190,7 @@ export function groupTasksIntoColumns(
     return {
       key: def.key,
       label: def.label,
-      cards: tasks.map((task) => buildTaskCard(plan, task, panes, exclusivePaneTasks, now)),
+      cards: tasks.map((task) => buildTaskCard(plan, task, panes, exclusivePaneTasks)),
     };
   });
   return { columns, cancelledCount };

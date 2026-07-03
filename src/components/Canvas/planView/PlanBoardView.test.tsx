@@ -113,7 +113,7 @@ test("renders board columns with context header and task cards", async () => {
   const laneText = host.querySelector('[data-testid="plan-board-task-lane"]')?.textContent ?? "";
   assert(laneText.includes("lane/plan-board-view"), "branch chip");
   assert(!host.querySelector('[data-testid="plan-board-task-milestone"]'), "no raw milestone card row");
-  assert(host.querySelector('[data-testid="plan-board-task-activity"]'), "activity hint present");
+  assert(host.querySelector('[data-testid="latest-note"]')?.textContent?.includes("Board model landed"), "latest note present");
   assert(!host.querySelector('[data-testid="plan-board-single"]')?.innerHTML.includes("/tmp/codeterm-plan-board-view"), "no worktree path leaked to DOM");
 });
 
@@ -304,7 +304,7 @@ test("task card: status row precedes branch row, long branch has truncate class"
   );
   const card = host.querySelector('[data-testid="plan-board-task-card"]');
   assert(card, "card present");
-  const status = card?.querySelector('[data-testid="plan-board-task-status"]') as Element;
+  const status = card?.querySelector('[data-testid="status-chip"]') as Element;
   const lane = card?.querySelector('[data-testid="plan-board-task-lane"]') as Element;
   assert(status, "status present");
   assert(lane, "lane present");
@@ -338,10 +338,10 @@ test("task card: title stays primary and does not allow single-letter wrapping",
   const card = host.querySelector('[data-testid="plan-board-task-card"]');
   assert(card, "card present");
   const title = card.querySelector('[data-testid="plan-board-task-title"]') as HTMLElement;
-  const status = card.querySelector('[data-testid="plan-board-task-status"]') as HTMLElement;
+  const status = card.querySelector('[data-testid="status-chip"]') as HTMLElement;
   const handle = card.querySelector('[data-testid="plan-board-task-handle"]') as HTMLElement;
   assert(title?.textContent === longTitle, "full task title is present");
-  assert(status?.textContent === "Active: QA Pipeline Mechanics", "status label is secondary text");
+  assert(status?.textContent === "in progress", "status chip uses canonical task.status only");
   assert(handle?.textContent?.includes("zero-flag-plan-context"), "handle remains visible");
   assert(
     Boolean(title.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING),

@@ -1,4 +1,5 @@
 import type { Plan, Task } from "../types";
+import { canonicalTaskStatusLabel } from "./taskStatusLabel";
 
 export function qaQueuePosition(plan: Plan, task: Task): number | null {
   if (task.status !== "in_review" || task.review_stage !== "qa" || task.qa_state !== "queued") return null;
@@ -19,6 +20,6 @@ export function qaChipText(plan: Plan, task: Task): string | null {
   return position ? `In QA · queued #${position}` : "In QA · queued";
 }
 
-export function taskStatusText(plan: Plan, task: Task): string {
-  return qaChipText(plan, task) ?? task.status_label?.trim() ?? task.status.replace(/_/g, " ");
+export function taskStatusText(_plan: Plan, task: Task): string {
+  return canonicalTaskStatusLabel(task);
 }

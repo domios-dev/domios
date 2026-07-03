@@ -2481,6 +2481,16 @@ button,
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
 }
+.plan-board-task-latest-note {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.62rem;
+  line-height: 1.35;
+  color: color-mix(in srgb, var(--ct-muted-fg) 88%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .plan-board-cancelled-note {
   margin: 0;
   font-size: 0.66rem;

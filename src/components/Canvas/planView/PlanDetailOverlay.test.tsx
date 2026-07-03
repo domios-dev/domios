@@ -55,13 +55,15 @@ test("renders task detail body", async () => {
   assert(host.querySelector('[data-testid="canvas-detail-content"]'), "task body");
 });
 
-test("renders in-QA chip in task detail", async () => {
-  const task: Task = { ...FIXTURE_TASK, status: TaskStatus.InReview, review_stage: "qa", qa_state: "queued" };
+test("renders canonical status chip in task detail", async () => {
+  const task: Task = { ...FIXTURE_TASK, status: TaskStatus.InReview, review_stage: "qa", qa_state: "queued", status_label: "In QA · queued #1" };
   const plan: Plan = { ...FIXTURE_PLAN, tasks: [task] };
   const { host } = await render(
     <PlanDetailOverlay kind="task" task={task} plan={plan} onClose={() => {}} />,
   );
-  assert(host.textContent?.includes("In QA · queued #1"), "qa detail chip");
+  const chip = host.querySelector('[data-testid="status-chip"]');
+  assert(chip?.textContent?.includes("in review"), "canonical status chip");
+  assert(!host.textContent?.includes("In QA · queued #1"), "status label not in header");
 });
 
 test("renders plan detail with progress", async () => {
