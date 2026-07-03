@@ -49,9 +49,14 @@ pub fn render_state(val: &Value) -> String {
                 out.push_str(&format!("planner: {pane} (live)\n"));
             }
             "fallback_orchestrator" => {
-                let bound = res.get("bound_pane_id").and_then(|v| v.as_str()).unwrap_or("?");
+                let bound = res
+                    .get("bound_pane_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?");
                 let reason = res.get("reason").and_then(|v| v.as_str()).unwrap_or("");
-                out.push_str(&format!("planner: {bound} (fallback to orchestrator — {reason})\n"));
+                out.push_str(&format!(
+                    "planner: {bound} (fallback to orchestrator — {reason})\n"
+                ));
             }
             "waived" => {
                 let note = res.get("note").and_then(|v| v.as_str()).unwrap_or("");
