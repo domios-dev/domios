@@ -188,6 +188,8 @@ mod tests {
             canonical_project_path: "/repo".into(),
             planning_readiness: Default::default(),
             owner: Default::default(),
+            planner_ref: None,
+            planner_resolution: crate::plan::peer_contract::PlannerResolution::Unset,
             goal: None,
             task_counts: Default::default(),
             percent_done: 0.0,

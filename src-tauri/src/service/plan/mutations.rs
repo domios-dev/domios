@@ -2,8 +2,8 @@ use super::lane_metadata::{apply_lane_update, normalize_lane_metadata};
 use super::readback::pending_after_verified;
 use super::{NewTask, OpenSubtask, PlanError, PlanStore};
 use crate::plan::{
-    AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus, Section,
-    TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
+    AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
+    PlannerRef, Section, TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
 };
 
 pub(super) fn gen_id(prefix: &str) -> String {
@@ -265,6 +265,18 @@ impl PlanStore {
             if let Some(mode) = mode {
                 p.mode = parse_plan_mode(mode)?;
             }
+            Ok(())
+        })
+    }
+
+    pub fn set_planner_ref(
+        &self,
+        plan_id: &str,
+        planner_ref: Option<PlannerRef>,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan(plan_id, now_ms, |p| {
+            p.planner_ref = planner_ref;
             Ok(())
         })
     }
