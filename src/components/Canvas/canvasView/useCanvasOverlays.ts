@@ -20,10 +20,12 @@ interface OverlaysDeps {
   staleActiveTaskIds?: ReadonlySet<string>;
 }
 
+const EMPTY_STALE_ACTIVE_TASK_IDS = new Set<string>();
+
 // Camera-coupled overlay layers (rich content, presence pins, swarm roster) + the
 // scene readback publish. Each memo keeps its original dep array so it recomputes
 // only on the same triggers as before — swarmRoster stays transform-DECOUPLED.
-export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nodeIds, worldByNode, staleActiveTaskIds = new Set() }: OverlaysDeps) {
+export function useCanvasOverlays({ scene, transform, mode, planId, lookups, nodeIds, worldByNode, staleActiveTaskIds = EMPTY_STALE_ACTIVE_TASK_IDS }: OverlaysDeps) {
   useEffect(
     () => publishCanvasSceneReadback(scene, transform, `${mode}:${planId ?? "workspace"}`),
     [scene, transform, mode, planId],
