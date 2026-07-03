@@ -29,6 +29,16 @@ function clean(value?: string | null): string | null {
   return text || null;
 }
 
+function taskHadRecentQaFail(task: Task): boolean {
+  const latest = task.milestones.reduce<{ ts: number; kind: string } | null>(
+    (best, row) => (!best || row.ts > best.ts ? { ts: row.ts, kind: row.kind } : best),
+    null,
+  );
+  if (!latest) return false;
+  const kind = latest.kind.toLowerCase();
+  return kind.includes("refused") || kind.includes("qa_fail") || kind.includes("qa-fail");
+}
+
 function inferProvider(pane?: Pane): AgentProvider {
   const t = (pane?.agent_type ?? "").toLowerCase();
   if (t.includes("claude")) return "claude";
@@ -43,6 +53,7 @@ function sectionLabel(task: Task, sectionTitleOf: (sectionId: string) => string 
 }
 
 function stationState(station: TaskStation): AgentStationState {
+  if (taskHadRecentQaFail(station.task)) return "qa-fail";
   if (station.task.status === TaskStatus.InReview) return "reviewing";
   if (!station.presence?.alive) return "waiting";
   if (station.stale) return "idle";

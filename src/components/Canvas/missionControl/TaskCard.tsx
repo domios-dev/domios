@@ -3,10 +3,12 @@ import type { MissionTask } from "./types";
 interface TaskCardProps {
   task: MissionTask;
   dense?: boolean;
+  lod?: "far" | "mid" | "close";
   onClick?: (taskId: string) => void;
 }
 
-export function TaskCard({ task, dense, onClick }: TaskCardProps) {
+export function TaskCard({ task, dense, lod, onClick }: TaskCardProps) {
+  const title = dense ? truncateWords(task.title, lod === "mid" ? 6 : 5) : task.title;
   return (
     <div
       className="mc-task-card"
@@ -27,7 +29,9 @@ export function TaskCard({ task, dense, onClick }: TaskCardProps) {
           : undefined
       }
     >
-      <div className="mc-task-title">{dense ? truncate(task.title, 28) : task.title}</div>
+      <div className="mc-task-title" title={task.title}>
+        {title}
+      </div>
       <div className="mc-task-meta">
         <span className="mc-overview-only">{task.status}</span>
         <span className="mc-detail-only">
@@ -40,6 +44,8 @@ export function TaskCard({ task, dense, onClick }: TaskCardProps) {
   );
 }
 
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 1)}…`;
+function truncateWords(s: string, maxWords: number): string {
+  const words = s.trim().split(/\s+/);
+  if (words.length <= maxWords) return s;
+  return `${words.slice(0, maxWords).join(" ")}…`;
 }

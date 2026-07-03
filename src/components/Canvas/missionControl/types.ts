@@ -1,7 +1,7 @@
 import type { TaskStatus } from "../types";
 
 export type AgentProvider = "claude" | "codex" | "opencode";
-export type AgentStationState = "working" | "idle" | "waiting" | "reviewing";
+export type AgentStationState = "working" | "idle" | "waiting" | "reviewing" | "qa-fail";
 
 export interface MissionAgent {
   id: string;

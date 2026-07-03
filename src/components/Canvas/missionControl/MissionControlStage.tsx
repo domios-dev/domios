@@ -28,6 +28,7 @@ export const MissionControlStage = memo(function MissionControlStage({
     >
       <VariantAssemblyLine
         snapshot={snapshot}
+        lod={lod}
         onTaskClick={onTaskClick}
         dispatchGap={dispatchGap}
         qaBottleneck={qaBottleneck}

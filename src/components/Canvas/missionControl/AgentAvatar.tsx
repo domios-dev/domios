@@ -7,10 +7,12 @@ interface AgentAvatarProps {
 
 export function AgentAvatar({ agent, showName }: AgentAvatarProps) {
   const initials = agent.name.slice(0, 2).toUpperCase();
+  const liveClass = agent.state === "working" ? "ct-presence-live" : agent.state === "qa-fail" ? "mc-avatar-qa-fail" : undefined;
+  const staleClass = agent.state === "idle" || agent.state === "waiting" ? "ct-presence-stale" : undefined;
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <div
-        className="mc-avatar"
+        className={["mc-avatar", liveClass, staleClass].filter(Boolean).join(" ")}
         data-state={agent.state}
         data-provider={agent.provider}
         title={`${agent.name} (${agent.provider})`}

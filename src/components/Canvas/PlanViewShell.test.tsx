@@ -143,7 +143,7 @@ test("PlanViewShell switches to list and board without losing shell target", asy
   assert(shell?.getAttribute("data-plan-view-mode") === "list", "list mode attr");
   const list = panelFor(host, "plan-list-view");
   assert(list && !list.hasAttribute("hidden"), "list visible");
-  const canvas = panelFor(host, "canvas-view");
+  const canvas = panelFor(host, "mission-control-plan-surface");
   assert(canvas?.hasAttribute("hidden"), "canvas hidden but mounted");
 
   await act(async () => {
