@@ -226,6 +226,14 @@ pub enum PlanAction {
         #[arg(long)]
         key: Option<String>,
     },
+    /// Write the plan completion retrospective (plan-level stride, kind retrospective)
+    Retrospective {
+        plan_id: String,
+        #[arg(long, allow_hyphen_values = true)]
+        body: Option<String>,
+        #[arg(long, value_name = "PATH")]
+        body_file: Option<String>,
+    },
     /// Ingest markdown headings as plan sections
     Ingest {
         plan_id: String,

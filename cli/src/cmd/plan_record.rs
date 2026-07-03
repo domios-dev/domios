@@ -156,7 +156,7 @@ pub fn record(
 
     let ops_value = Value::Array(ops);
     let stable_key =
-        key.unwrap_or_else(|| implicit_key(&plan_id.as_deref().unwrap_or(""), &ops_value));
+        key.unwrap_or_else(|| implicit_key(plan_id.as_deref().unwrap_or(""), &ops_value));
     let mut params = json!({
         "key": stable_key,
         "ops": ops_value,

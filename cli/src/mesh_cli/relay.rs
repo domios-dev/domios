@@ -279,6 +279,7 @@ fn format_host(ip: &str) -> String {
 }
 
 /// Generic relay — send any API call through mesh to a remote peer and print.
+#[allow(clippy::too_many_arguments)]
 pub fn mesh_relay_generic(
     http: &reqwest::blocking::Client,
     base: &str,

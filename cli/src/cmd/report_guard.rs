@@ -37,6 +37,7 @@ impl ReportRefusal {
     }
 }
 
+#[allow(clippy::type_complexity)]
 pub fn enrich_ready_report(
     status: Option<ReportStatusArg>,
     branch: Option<String>,
@@ -46,6 +47,7 @@ pub fn enrich_ready_report(
     enrich_ready_report_in(Path::new("."), status, branch, sha, changed_files)
 }
 
+#[allow(clippy::type_complexity)]
 fn enrich_ready_report_in(
     cwd: &Path,
     status: Option<ReportStatusArg>,

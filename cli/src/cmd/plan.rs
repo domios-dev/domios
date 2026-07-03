@@ -617,6 +617,26 @@ fn run_plan(
             key,
         ),
 
+        PlanAction::Retrospective {
+            plan_id,
+            body,
+            body_file,
+        } => {
+            let text = resolve_text(body, body_file)?;
+            let Some(text) = text.filter(|t| !t.trim().is_empty()) else {
+                return Err("retrospective body is required (--body or --body-file)".into());
+            };
+            let mut params = json!({ "plan_id": plan_id, "body": text });
+            maybe_inject_caller_pane(&mut params);
+            let val = call(client, "plan.retrospective", params)?;
+            if json {
+                return Ok(Some(val));
+            }
+            let stride_id = val.get("stride_id").and_then(|v| v.as_str()).unwrap_or("?");
+            println!("Recorded retrospective for plan {plan_id} (stride {stride_id})");
+            return Ok(None);
+        }
+
         PlanAction::Ingest { plan_id, markdown } => {
             let markdown = read_path_or_stdin(&markdown)?;
             call(

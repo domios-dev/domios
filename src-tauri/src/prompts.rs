@@ -84,6 +84,14 @@ pub const MEM_RERANK: &str = include_str!("../prompts/mem_rerank.md");
 /// REM-phase dreaming prompt — optimization steps for the headless dream worker. No placeholders.
 pub const DREAMING_REM: &str = include_str!("../prompts/dreaming_rem.md");
 
+/// One-time archive line prepended before [`PLAN_RETROSPECTIVE_NUDGE`] for complete active plans.
+pub const PLAN_ARCHIVE_SUGGESTION: &str =
+    "This plan is complete. Archive it with `codeterm plan archive <plan>` when wrap-up is finished.";
+
+/// Pinned verbatim by the Planner — do not reword.
+pub const PLAN_RETROSPECTIVE_NUDGE: &str = "This plan is complete. Before archiving, write its retrospective:\n\
+`codeterm plan retrospective <plan> --body \"...\"` — what worked, what failed and why, which plan skills proved out, and which deserve promotion to machine memory (`codeterm mem skill`). Honest beats flattering: the discarded approaches are the most useful part.";
+
 /// Planner owns GOAL, Spec, and Plan structure — injected into orchestrator charters.
 pub const PEER_PLANNER_CHARTER_LINE: &str = "Planner owns GOAL, Spec, and Plan structure. \
      The orchestrator defers structural decisions (sections, tasks, sequencing) \

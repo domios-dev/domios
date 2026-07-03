@@ -451,6 +451,46 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true }))
         }
 
+        "plan.skills.list" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let skills = crate::service::plan::plan_skills::list_plan_skills(store, &id)
+                .map_err(plan_rpc_err)?;
+            Ok(json!({ "plan_id": id, "skills": skills }))
+        }
+
+        "plan.skills.show" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let slug = get_string_param(params, "slug")?;
+            let skill = crate::service::plan::plan_skills::show_plan_skill(store, &id, &slug)
+                .map_err(plan_rpc_err)?;
+            Ok(json!({ "plan_id": id, "skill": skill }))
+        }
+
+        "plan.retrospective" => {
+            let id = plan_refs::resolve_plan(store, params)?;
+            let body = p
+                .and_then(|x| x.get("body"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if body.is_empty() {
+                return Err(JsonRpcError {
+                    code: -32602,
+                    message: "body is required".to_string(),
+                    data: None,
+                });
+            }
+            let from = p
+                .and_then(|x| x.get("from"))
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_else(|| crate::plan::AgentRef::from_pane("unknown"));
+            let stride_id = store
+                .add_retrospective(&id, body, from, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(app, &id);
+            Ok(json!({ "plan_id": id, "stride_id": stride_id }))
+        }
+
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".to_string(),

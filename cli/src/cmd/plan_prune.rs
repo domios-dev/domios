@@ -136,7 +136,7 @@ fn delete_plan_file(plans_dir: &Path, plan_id: &str, json_path: &str) -> Result<
         return Err("plan JSON path does not match plan id".into());
     }
     if dir.is_dir() {
-        std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::remove_dir_all(dir).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

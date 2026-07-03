@@ -17,6 +17,7 @@ pub mod loops;
 pub mod milestones;
 pub mod plans;
 pub mod sections;
+pub mod skills;
 pub mod spec;
 pub mod tasks;
 
@@ -34,6 +35,7 @@ pub use plans::{
     state, tag_facets_set, transfer, unarchive, update,
 };
 pub use sections::{ingest, section_add, section_rm, section_update};
+pub use skills::{retrospective_write, skills_list, skills_show};
 pub use tasks::{
     task_add, task_assign, task_attempt_show, task_attempts, task_close, task_respawn, task_rm,
     task_update,

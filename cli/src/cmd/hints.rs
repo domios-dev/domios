@@ -60,7 +60,7 @@ pub fn task_quality_guard_hint(
 }
 
 pub fn orchestration_reminder_for_count(count: u64) -> Option<String> {
-    if count == 1 || count % ORCHESTRATION_REMINDER_EVERY == 0 {
+    if count == 1 || count.is_multiple_of(ORCHESTRATION_REMINDER_EVERY) {
         Some(ORCHESTRATION_REMINDER.to_string())
     } else {
         None

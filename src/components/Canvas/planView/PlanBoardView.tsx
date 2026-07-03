@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ApiConfig } from "../../../lib/types";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
 import { fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
@@ -134,12 +135,14 @@ function BoardPlanBoard({
   specSections,
   onOpenDetail,
   onOpenPane,
+  api,
 }: {
   model: BoardPlanModel;
   plan: Plan;
   specSections: Section[];
   onOpenDetail: (detail: BoardDetail) => void;
   onOpenPane?: (paneId: string) => void;
+  api?: ApiConfig;
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
   const [cancelledOpen, setCancelledOpen] = useState(false);
@@ -157,6 +160,9 @@ function BoardPlanBoard({
             : undefined
         }
         onOpenPane={onOpenPane}
+        planId={model.planId}
+        plan={plan}
+        api={api}
       />
       <div data-testid="plan-board-columns" className="plan-board-columns" role="list">
         {model.columns.map((column) => (
@@ -370,6 +376,7 @@ export function PlanBoardView({
             specSections={selectedSpecSections}
             onOpenDetail={setDetail}
             onOpenPane={onOpenPane}
+            api={api}
           />
         </div>
       )}

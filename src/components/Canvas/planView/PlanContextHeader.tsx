@@ -1,6 +1,9 @@
 import type { PlanningState } from "../types";
+import type { ApiConfig } from "../../../lib/types";
 import type { BoardPlanSummary, BoardSpecSummary } from "./boardModel";
+import type { Plan } from "../types";
 import { PairAffordance } from "../../shared/PairAffordance";
+import { PlanSkillsSection } from "./PlanSkillsSection";
 
 export interface PlanContextHeaderProps {
   summary: BoardPlanSummary;
@@ -8,6 +11,9 @@ export interface PlanContextHeaderProps {
   onOpenPlan: () => void;
   onOpenSpec?: () => void;
   onOpenPane?: (paneId: string) => void;
+  planId?: string;
+  plan?: Plan;
+  api?: ApiConfig;
 }
 
 function progressLabel(done: number, total: number): string {
@@ -27,6 +33,9 @@ export function PlanContextHeader({
   onOpenPlan,
   onOpenSpec,
   onOpenPane,
+  planId,
+  plan,
+  api,
 }: PlanContextHeaderProps) {
   const goal = summary.goalVector?.trim() ?? "";
   const stateLabel = summary.planningState ? PLANNING_STATE_LABEL[summary.planningState] : null;
@@ -112,6 +121,9 @@ export function PlanContextHeader({
             </p>
           )}
         </div>
+      )}
+      {planId && plan && api && (
+        <PlanSkillsSection planId={planId} plan={plan} api={api} compact onSkillNavigate={onOpenPlan} />
       )}
     </header>
   );

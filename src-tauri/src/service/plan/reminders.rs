@@ -1,6 +1,6 @@
 use crate::multiplexer::types::AgentRole;
 use parking_lot::Mutex;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NudgeKind {
@@ -104,6 +104,7 @@ pub struct TurnCounter {
     panes: Mutex<HashMap<String, (u32, u32)>>,
     timed: Mutex<HashMap<String, u64>>,
     idle: Mutex<HashMap<String, IdlePokeState>>,
+    complete_wrapup: Mutex<HashSet<String>>,
 }
 
 impl TurnCounter {
@@ -145,6 +146,14 @@ impl TurnCounter {
         self.panes.lock().insert(pane_id.to_string(), (0, 0));
         self.timed.lock().remove(pane_id);
         self.idle.lock().remove(pane_id);
+    }
+
+    pub fn complete_wrapup_due(&self, plan_id: &str) -> bool {
+        !self.complete_wrapup.lock().contains(plan_id)
+    }
+
+    pub fn mark_complete_wrapup_sent(&self, plan_id: &str) {
+        self.complete_wrapup.lock().insert(plan_id.to_string());
     }
 
     pub fn idle_poke_due(
